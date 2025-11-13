@@ -12,15 +12,13 @@ use opentelemetry_proto::tonic::common::v1::AnyValue;
 use opentelemetry_proto::tonic::common::v1::any_value::Value;
 use opentelemetry_proto::tonic::resource::v1::Resource;
 use opentelemetry_proto::tonic::trace::v1::Span;
-use parking_lot::Mutex;
 use prost::Message;
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashSet};
 use std::error::Error as StdError;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::Poll;
-use tonic::codegen::tokio_stream::{Stream, StreamExt};
+use tokio_stream::StreamExt;
+use tonic::codegen::tokio_stream;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 
@@ -131,8 +129,6 @@ async fn raw_trace(
 ) -> Result<impl IntoResponse, QueryError> {
     // TODO: Set a limit on the duration of the request interval.
 
-    // Do the first query outside of the generator to immediately propagate errors in cases where
-    // the db not available and etc.
     let col = data.db.raw_traces();
     let chunks = col
         .find(
@@ -145,38 +141,33 @@ async fn raw_trace(
         .await
         .map_err(|err| QueryError::new(err.to_string()))?;
 
-    // The first query succeeded, stream the response body.
-    let response_generator_stream =
-        ResponseGeneratorStream::new(move |output: ResponseGeneratorOutput| {
-            Box::pin(do_raw_trace_query(chunks, output))
-        });
-    Ok(([(header::CONTENT_TYPE, "application/json")], Body::from_stream(response_generator_stream)))
+    let mut is_first_request = true;
+    let main_stream =
+        chunks.map(move |read_res| raw_trace_to_json_str(read_res, &mut is_first_request));
+
+    let response_stream = tokio_stream::once(Ok("[".to_string()))
+        .chain(main_stream)
+        .chain(tokio_stream::once(Ok("]".to_string())));
+
+    Ok(([(header::CONTENT_TYPE, "application/json")], Body::from_stream(response_stream)))
 }
 
-async fn do_raw_trace_query(
-    mut chunks: mongodb::Cursor<RawTrace>,
-    output: ResponseGeneratorOutput,
-) -> Result<(), QueryError> {
-    output.output_str("[");
+fn raw_trace_to_json_str(
+    res: mongodb::error::Result<RawTrace>,
+    is_first_request: &mut bool,
+) -> Result<String, QueryError> {
+    let chunk_bytes = res.map_err(|err| QueryError::new(err.to_string()))?.data.bytes;
+    let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice())
+        .map_err(|err| QueryError::new(err.to_string()))?;
+    let result = serde_json::to_string(&request)
+        .map_err(|e| QueryError::new(format!("Json serialization failed: {}", e)))?;
 
-    let mut first_request = true;
-    while let Some(chunk) = chunks.next().await {
-        let chunk_bytes = chunk.map_err(|err| QueryError::new(err.to_string()))?.data.bytes;
-        let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice())
-            .map_err(|err| QueryError::new(err.to_string()))?;
-        if !first_request {
-            output.output_str(",");
-        }
-        first_request = false;
-        output.output_str(
-            serde_json::to_string(&request)
-                .map_err(|e| QueryError::new(format!("Json serialization failed: {}", e)))?,
-        );
+    if *is_first_request {
+        *is_first_request = false;
+        Ok(result)
+    } else {
+        Ok(format!(",{}", result))
     }
-
-    output.output_str("]");
-
-    Ok(())
 }
 
 async fn profile(
@@ -342,87 +333,6 @@ struct OneNodeResult {
 #[derive(Default)]
 struct OneThreadResult {
     spans: Vec<Span>,
-}
-
-/// A poor man's async generator for generating query responses in a streaming manner.
-/// Takes an async task which can "yield" the next part of output by calling `output_str` on the provided object.
-struct ResponseGeneratorStream {
-    task_output: Arc<Mutex<String>>,
-    task: ResponseGeneratorStreamTask,
-    finished: bool,
-}
-
-type ResponseGeneratorStreamTask = Pin<Box<dyn Future<Output = Result<(), QueryError>> + Send>>;
-
-/// Used by an async task to output the next part of the response stream.
-#[derive(Clone)]
-struct ResponseGeneratorOutput(Arc<Mutex<String>>);
-
-impl ResponseGeneratorOutput {
-    pub fn output_str(&self, s: impl AsRef<str>) {
-        *self.0.lock() += s.as_ref();
-    }
-}
-
-impl ResponseGeneratorStream {
-    pub fn new(
-        make_task: impl FnOnce(ResponseGeneratorOutput) -> ResponseGeneratorStreamTask,
-    ) -> ResponseGeneratorStream {
-        let output = Arc::new(Mutex::new(String::new()));
-
-        ResponseGeneratorStream {
-            task_output: output.clone(),
-            task: make_task(ResponseGeneratorOutput(output)),
-            finished: false,
-        }
-    }
-}
-
-impl Stream for ResponseGeneratorStream {
-    type Item = Result<String, QueryError>;
-
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        if self.finished {
-            return Poll::Ready(None);
-        }
-
-        // Run the async task
-        let task_poll_result = self.as_mut().task.as_mut().poll(cx);
-
-        // Collect output generated while running the task
-        let output = std::mem::take(&mut *self.task_output.lock());
-
-        match task_poll_result {
-            Poll::Ready(Ok(())) => {
-                // Task finished successfully
-                self.as_mut().finished = true;
-                if output.is_empty() {
-                    Poll::Ready(None)
-                } else {
-                    cx.waker().wake_by_ref(); // Wake to make sure it returns Poll::Ready(None)
-                    Poll::Ready(Some(Ok(output)))
-                }
-            }
-            Poll::Ready(Err(err)) => {
-                // Task failed with an error
-                self.as_mut().finished = true;
-
-                // Return Ok with error message so that it appears in the response output.
-                // Returning Err(err) doesn't work because the HTTP response already started with OK 200,
-                // a failure in the body stream generation can't change that.
-                // This is the only way to make the error message visible in the response text.
-                cx.waker().wake_by_ref(); // Wake to make sure it returns Poll::Ready(None)
-                Poll::Ready(Some(Ok(format!("\nERROR: {}", err.0))))
-            }
-            Poll::Pending => {
-                // Task still running. If there's some output, return it.
-                if output.is_empty() { Poll::Pending } else { Poll::Ready(Some(Ok(output))) }
-            }
-        }
-    }
 }
 
 // cspell:ignore Kvlist, stackwalk
