@@ -102,7 +102,12 @@ fn build_chain_with_orphans() {
     assert_matches!(chain.process_block_test(blocks.pop().unwrap()).unwrap_err(), Error::Orphan);
     chain.process_block_test(blocks.pop().unwrap()).unwrap();
     while wait_for_all_blocks_in_processing(&mut chain) {
-        chain.postprocess_ready_blocks(&mut BlockProcessingArtifact::default(), None);
+        let blocks_to_postprocess = chain.get_blocks_to_postprocess();
+        chain.postprocess_ready_blocks(
+            blocks_to_postprocess,
+            &mut BlockProcessingArtifact::default(),
+            None,
+        );
     }
     assert_eq!(chain.head().unwrap().height, 10);
     assert_matches!(
@@ -327,7 +332,8 @@ fn test_pending_block() {
     // Process optimistic block
     let mut block_processing_artifact = BlockProcessingArtifact::default();
     while wait_for_all_blocks_in_processing(&mut chain) {
-        chain.postprocess_ready_blocks(&mut block_processing_artifact, None);
+        let blocks_to_postprocess = chain.get_blocks_to_postprocess();
+        chain.postprocess_ready_blocks(blocks_to_postprocess, &mut block_processing_artifact, None);
     }
 
     // Verify the block is no longer in the pending pool
@@ -335,7 +341,8 @@ fn test_pending_block() {
 
     // Wait for the pending block to be processed
     while wait_for_all_blocks_in_processing(&mut chain) {
-        chain.postprocess_ready_blocks(&mut block_processing_artifact, None);
+        let blocks_to_postprocess = chain.get_blocks_to_postprocess();
+        chain.postprocess_ready_blocks(blocks_to_postprocess, &mut block_processing_artifact, None);
     }
 
     // Verify the block is now in the chain

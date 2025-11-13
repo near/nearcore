@@ -9,6 +9,7 @@ use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{
     PrepareTransactionsBlockContext, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
 };
+use near_chain::update_shard::ShardUpdateResult;
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::MutableConfigValue;
 use near_chunks::client::ShardedTransactionPool;
@@ -147,6 +148,9 @@ impl ChunkProducer {
         shard_id: ShardId,
         signer: &Arc<ValidatorSigner>,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        is_early_produce: bool,
+        get_shard_result: impl Fn(&CryptoHash, ShardId) -> Option<ShardUpdateResult>, // TODO - return reference?
+        get_chunk_extra: impl Fn(&CryptoHash, ShardId) -> Option<ChunkExtra>,
     ) -> Result<Option<ProduceChunkResult>, Error> {
         let chunk_proposer = self
             .epoch_manager
@@ -180,6 +184,9 @@ impl ChunkProducer {
             shard_id,
             signer,
             chain_validate,
+            is_early_produce,
+            get_shard_result,
+            get_chunk_extra,
         )
     }
 
@@ -249,6 +256,9 @@ impl ChunkProducer {
         shard_id: ShardId,
         validator_signer: &Arc<ValidatorSigner>,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        is_early_produce: bool,
+        get_shard_result: impl Fn(&CryptoHash, ShardId) -> Option<ShardUpdateResult>,
+        get_chunk_extra: impl Fn(&CryptoHash, ShardId) -> Option<ChunkExtra>,
     ) -> Result<Option<ProduceChunkResult>, Error> {
         let span = tracing::Span::current();
         let timer = Instant::now();
@@ -256,7 +266,7 @@ impl ChunkProducer {
             metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         let prev_block_hash = *prev_block.hash();
         if self.epoch_manager.is_next_block_epoch_start(&prev_block_hash)? {
-            let prev_prev_hash = *self.chain.get_block_header(&prev_block_hash)?.prev_hash();
+            let prev_prev_hash = *prev_block.header().prev_hash();
             // If we are to start new epoch, check if the previous block is
             // caught up. If it is not the case, we wouldn't be able to
             // apply block with the new chunk, so we also skip chunk production.
@@ -277,12 +287,20 @@ impl ChunkProducer {
             // TODO(spice): using default values as a placeholder is a temporary hack
             Arc::new(ChunkExtra::new_with_only_state_root(&Default::default()))
         } else {
-            self.chain
-                .get_chunk_extra(&prev_block_hash, &shard_uid)
-                .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
+            match get_chunk_extra(&prev_block_hash, shard_id) {
+                Some(ce) => Arc::new(ce),
+                None => {
+                    self.chain.get_chunk_extra(&prev_block_hash, &shard_uid).map_err(|err| {
+                        Error::ChunkProducer(format!("No chunk extra available: {}", err))
+                    })?
+                }
+            }
         };
 
         let cached_transactions = self.get_cached_prepared_transactions(prev_block, shard_uid)?;
+        if is_early_produce && cached_transactions.is_none() {
+            return Ok(None);
+        }
         let prepared_transactions = {
             #[cfg(feature = "test_features")]
             match self.adversarial.produce_mode {
@@ -324,11 +342,11 @@ impl ChunkProducer {
         let outgoing_receipts = ChainStore::get_outgoing_receipts_for_shard_from_store(
             &self.chain,
             self.epoch_manager.as_ref(),
-            prev_block_hash,
+            prev_block.header(),
             shard_id,
             last_header.height_included(),
+            get_shard_result,
         )?;
-
         let outgoing_receipts_root = self.calculate_receipts_root(epoch_id, &outgoing_receipts)?;
         let gas_used = chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
@@ -379,6 +397,12 @@ impl ChunkProducer {
         metrics::CHUNK_TRANSACTIONS_TOTAL
             .with_label_values(&[&shard_id.to_string()])
             .inc_by(num_filtered_transactions as u64);
+
+        if is_early_produce {
+            metrics::EARLY_CHUNKS_PRODUCED_TOTAL.with_label_values(&[&shard_id.to_string()]).inc();
+        } else {
+            metrics::LATE_CHUNKS_PRODUCED_TOTAL.with_label_values(&[&shard_id.to_string()]).inc();
+        }
 
         self.chunk_production_info.put(
             (next_height, shard_id),

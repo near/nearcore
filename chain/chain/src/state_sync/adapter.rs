@@ -169,9 +169,10 @@ impl ChainStateSyncAdapter {
             self.epoch_manager.as_ref(),
             shard_id,
             &shard_layout,
-            sync_hash,
+            &*self.chain_store.get_block_header(&sync_hash)?,
             prev_chunk_height_included,
             ReceiptFilter::All,
+            |_, _| None,
         )?;
 
         // Collecting proofs for incoming receipts.

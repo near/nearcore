@@ -1,4 +1,5 @@
 use crate::types::{Block, BlockHeader, LatestKnown};
+use crate::update_shard::ShardUpdateResult;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 pub use latest_witnesses::LatestWitnessesInfo;
@@ -355,9 +356,10 @@ impl ChainStore {
         Self::get_outgoing_receipts_for_shard_from_store(
             &self.chain_store(),
             epoch_manager,
-            prev_block_hash,
+            &*self.get_block_header(&prev_block_hash)?,
             shard_id,
             last_included_height,
+            |_, _| None,
         )
     }
 
@@ -382,17 +384,17 @@ impl ChainStore {
     pub fn get_outgoing_receipts_for_shard_from_store(
         chain_store: &ChainStoreAdapter,
         epoch_manager: &dyn EpochManagerAdapter,
-        prev_block_hash: CryptoHash,
+        prev_block_header: &BlockHeader,
         shard_id: ShardId,
         last_included_height: BlockHeight,
+        get_shard_result: impl Fn(&CryptoHash, ShardId) -> Option<ShardUpdateResult>,
     ) -> Result<Vec<Receipt>, Error> {
-        let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&prev_block_hash)?;
-        let mut receipts_block_hash = prev_block_hash;
+        let shard_layout =
+            epoch_manager.get_shard_layout_from_prev_block(&prev_block_header.hash())?;
+        let mut block_header = Arc::new(prev_block_header.clone());
         loop {
-            let block_header = chain_store.get_block_header(&receipts_block_hash)?;
-
             if block_header.height() != last_included_height {
-                receipts_block_hash = *block_header.prev_hash();
+                block_header = chain_store.get_block_header(block_header.prev_hash())?;
                 continue;
             }
             let receipts_shard_layout = epoch_manager.get_shard_layout(block_header.epoch_id())?;
@@ -404,10 +406,14 @@ impl ChainStore {
                 shard_id
             };
 
-            let mut receipts = chain_store
-                .get_outgoing_receipts(&receipts_block_hash, receipts_shard_id)
-                .map(|v| v.to_vec())
-                .unwrap_or_default();
+            let mut receipts = get_shard_result(&block_header.hash(), receipts_shard_id)
+                .map(|r| r.apply_result().outgoing_receipts.clone())
+                .unwrap_or_else(|| {
+                    chain_store
+                        .get_outgoing_receipts(&block_header.hash(), receipts_shard_id)
+                        .map(|v| v.to_vec())
+                        .unwrap_or_default()
+                });
 
             if shard_layout != receipts_shard_layout {
                 // the shard layout has changed so we need to reassign the outgoing receipts
