@@ -354,7 +354,7 @@ fn witness_validator_account(chain: &Chain) -> AccountId {
     witness_validators(chain, &block, &witness).into_iter().next().unwrap()
 }
 
-fn producer_of_receipt_proof(
+fn producers_of_receipt_proof(
     chain: &Chain,
     block: &Block,
     receipt_proof: &ReceiptProof,
@@ -366,7 +366,7 @@ fn producer_of_receipt_proof(
         .unwrap()
 }
 
-fn recipient_of_receipt_proof(
+fn recipients_of_receipt_proof(
     chain: &Chain,
     block: &Block,
     receipt_proof: &ReceiptProof,
@@ -593,8 +593,8 @@ fn test_receipts_can_be_reconstructed_impl(num_chunk_producers: usize) {
     let block = latest_block(&chain);
     let receipt_proof = new_test_receipt_proof(&block);
 
-    let producer_accounts = &producer_of_receipt_proof(&chain, &block, &receipt_proof);
-    let recipient_accounts = &recipient_of_receipt_proof(&chain, &block, &receipt_proof);
+    let producer_accounts = &producers_of_receipt_proof(&chain, &block, &receipt_proof);
+    let recipient_accounts = &recipients_of_receipt_proof(&chain, &block, &receipt_proof);
 
     let (producers_messages_sc, mut producers_messages_rc) = unbounded_channel();
     let mut producers = producer_accounts
@@ -644,8 +644,8 @@ fn test_receipts_are_distributed_to_all_validators_impl(num_chunk_producers: usi
     let block = latest_block(&chain);
     let receipt_proof = new_test_receipt_proof(&block);
 
-    let producer_accounts = &producer_of_receipt_proof(&chain, &block, &receipt_proof);
-    let recipient_accounts = &recipient_of_receipt_proof(&chain, &block, &receipt_proof);
+    let producer_accounts = &producers_of_receipt_proof(&chain, &block, &receipt_proof);
+    let recipient_accounts = &recipients_of_receipt_proof(&chain, &block, &receipt_proof);
 
     let (producers_messages_sc, mut producers_messages_rc) = unbounded_channel();
     let mut producers = producer_accounts
@@ -762,7 +762,7 @@ fn receipt_proof_incoming_data(
     block: &Block,
 ) -> (SpiceIncomingPartialData, AccountId) {
     let receipt_proof = new_test_receipt_proof(block);
-    let producer = producer_of_receipt_proof(chain, block, &receipt_proof).swap_remove(0);
+    let producer = producers_of_receipt_proof(chain, block, &receipt_proof).swap_remove(0);
     let (data, recipient) = get_incoming_data(
         &producer,
         chain,
@@ -1037,7 +1037,7 @@ fn test_incoming_partial_data_for_receipts_with_non_matching_from_shard_id() {
     {
         let mut receipt_proof = new_test_receipt_proof(&block);
         receipt_proof.1.from_shard_id = receipt_proof.1.to_shard_id;
-        let producer = producer_of_receipt_proof(&chain, &block, &receipt_proof).swap_remove(0);
+        let producer = producers_of_receipt_proof(&chain, &block, &receipt_proof).swap_remove(0);
         let (different_incoming_data, _recipient) = get_incoming_data(
             &producer,
             &chain,
@@ -1074,7 +1074,7 @@ fn test_incoming_partial_data_for_receipts_with_non_matching_to_shard_id() {
     {
         let mut receipt_proof = new_test_receipt_proof(&block);
         receipt_proof.1.to_shard_id = receipt_proof.1.from_shard_id;
-        let producer = producer_of_receipt_proof(&chain, &block, &receipt_proof).swap_remove(0);
+        let producer = producers_of_receipt_proof(&chain, &block, &receipt_proof).swap_remove(0);
         let (different_incoming_data, _recipient) = get_incoming_data(
             &producer,
             &chain,
@@ -1963,7 +1963,7 @@ fn test_handling_partial_data_request_with_receipts_in_store() {
     let mut store_update = chain.chain_store.store().store_update();
     save_receipt_proof(&mut store_update, block.hash(), &receipt_proof).unwrap();
     store_update.commit().unwrap();
-    let producer = producer_of_receipt_proof(&chain, &block, &receipt_proof).swap_remove(0);
+    let producer = producers_of_receipt_proof(&chain, &block, &receipt_proof).swap_remove(0);
     let (_incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
@@ -2076,7 +2076,7 @@ fn test_requesting_receipts_when_not_validator() {
     save_receipt_proof(&mut store_update, block.hash(), &receipt_proof).unwrap();
     store_update.commit().unwrap();
 
-    let producer = producer_of_receipt_proof(&chain, &block, &receipt_proof).swap_remove(0);
+    let producer = producers_of_receipt_proof(&chain, &block, &receipt_proof).swap_remove(0);
     let data_id = SpiceDataIdentifier::ReceiptProof {
         block_hash: *block.hash(),
         from_shard_id: receipt_proof.1.from_shard_id,

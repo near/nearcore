@@ -992,11 +992,11 @@ fn new_execution_result(
     ChunkExecutionResult { chunk_extra, outgoing_receipts_root }
 }
 
+// TODO(spice): There is no need to store receipt proof since we verify receipts before storing
+// them. So instead Vec<Receipt> should be stored with the same keys.
 pub(crate) fn save_receipt_proof(
     store_update: &mut StoreUpdate,
     block_hash: &CryptoHash,
-    // We depend on stored receipts for distribution. Because of this we need to store receipt proof
-    // and not only Vec<Receipt>.
     receipt_proof: &ReceiptProof,
 ) -> Result<(), std::io::Error> {
     let &ReceiptProof(_, ShardProof { from_shard_id, to_shard_id, .. }) = receipt_proof;

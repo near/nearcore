@@ -729,8 +729,9 @@ fn test_final_execution_head_is_updated_when_tracking_no_shards() {
     execute_blocks_until_final_execution_head_moves(&mut actors, &mut outgoing_rc);
     // Having final execution head updated even when we are tracking no shards is very useful for
     // distribution since it allows having a consistent checkpoint from which we can figure which
-    // data we require (even when we would only soon start tracking particular shards and tracking
-    // no shards at the moment).
+    // data we need even when we would only soon start tracking particular shards and tracking
+    // no shards at the moment or consistently running witness validation only and tracking no
+    // shards.
     assert_eq!(
         actors[0].chain.chain_store.spice_final_execution_head().unwrap(),
         actors[1].chain.chain_store.spice_final_execution_head().unwrap()

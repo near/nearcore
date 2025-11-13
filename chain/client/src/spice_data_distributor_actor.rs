@@ -985,7 +985,6 @@ impl SpiceDataDistributorActor {
         let mut next_block_hashes: VecDeque<_> =
             self.chain_store.get_all_next_block_hashes(&start_block)?.into();
         while let Some(block_hash) = next_block_hashes.pop_front() {
-            // TODO(spice): Start on witnesses for blocks that aren't certified yet.
             self.start_waiting_on_data(&block_hash)?;
             next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash)?);
         }
