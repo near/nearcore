@@ -143,9 +143,7 @@ async fn raw_trace(
             Some(FindOptions::builder().batch_size(100).build()),
         )
         .await
-        .map_err(|err| {
-            QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
-        })?;
+        .map_err(|err| QueryError::new(err.to_string()))?;
 
     // The first query succeeded, stream the response body.
     let response_generator_stream =
@@ -163,15 +161,9 @@ async fn do_raw_trace_query(
 
     let mut first_request = true;
     while let Some(chunk) = chunks.next().await {
-        let chunk_bytes = chunk
-            .map_err(|err| {
-                QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
-            })?
-            .data
-            .bytes;
-        let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice()).map_err(|err| {
-            QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
-        })?;
+        let chunk_bytes = chunk.map_err(|err| QueryError::new(err.to_string()))?.data.bytes;
+        let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice())
+            .map_err(|err| QueryError::new(err.to_string()))?;
         if !first_request {
             output.output_str(",");
         }
@@ -202,21 +194,13 @@ async fn profile(
             Some(FindOptions::builder().batch_size(100).build()),
         )
         .await
-        .map_err(|err| {
-            QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
-        })?;
+        .map_err(|err| QueryError::new(err.to_string()))?;
 
     let mut result = QueryResult::default();
     while let Some(chunk) = chunks.next().await {
-        let chunk_bytes = chunk
-            .map_err(|err| {
-                QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
-            })?
-            .data
-            .bytes;
-        let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice()).map_err(|err| {
-            QueryError(std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
-        })?;
+        let chunk_bytes = chunk.map_err(|err| QueryError::new(err.to_string()))?.data.bytes;
+        let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice())
+            .map_err(|err| QueryError::new(err.to_string()))?;
         for resource_span in request.resource_spans {
             if let Some(resource) = resource_span.resource {
                 for scope_span in resource_span.scope_spans {
