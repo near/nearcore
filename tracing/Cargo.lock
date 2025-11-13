@@ -1237,7 +1237,6 @@ dependencies = [
  "hex",
  "mongodb",
  "opentelemetry-proto",
- "parking_lot",
  "prost",
  "serde",
  "serde_json",
