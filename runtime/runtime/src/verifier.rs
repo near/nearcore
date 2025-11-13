@@ -6,8 +6,7 @@ use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, AccessKeyPermission, GasKey};
 use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::action::{
-    AddGasKeyAction, AddKeyAction, DeleteGasKeyAction, DeployGlobalContractAction,
-    DeterministicStateInitAction, TransferToGasKeyAction,
+    AddGasKeyAction, AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
 };
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
@@ -434,8 +433,8 @@ pub fn validate_action(
         Action::UseGlobalContract(_) => validate_use_global_contract_action(),
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
-        Action::TransferToGasKey(a) => {
-            validate_transfer_to_gas_key_action(a, current_protocol_version)
+        Action::TransferToGasKey(_) => {
+            validate_transfer_to_gas_key_action(current_protocol_version)
         }
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
@@ -443,7 +442,7 @@ pub fn validate_action(
             validate_add_gas_key_action(limit_config, a, current_protocol_version)
         }
         Action::DeleteKey(_) => Ok(()),
-        Action::DeleteGasKey(a) => validate_delete_gas_key_action(a, current_protocol_version),
+        Action::DeleteGasKey(_) => validate_delete_gas_key_action(current_protocol_version),
         Action::DeleteAccount(a) => validate_delete_action(a),
         Action::Delegate(a) => {
             validate_delegate_action(limit_config, a, receiver, current_protocol_version)
@@ -689,7 +688,6 @@ fn validate_add_gas_key_action(
 }
 
 fn validate_delete_gas_key_action(
-    _action: &DeleteGasKeyAction,
     current_protocol_version: u32,
 ) -> Result<(), ActionsValidationError> {
     require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
@@ -697,7 +695,6 @@ fn validate_delete_gas_key_action(
 }
 
 fn validate_transfer_to_gas_key_action(
-    _action: &TransferToGasKeyAction,
     current_protocol_version: u32,
 ) -> Result<(), ActionsValidationError> {
     require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
@@ -721,8 +718,10 @@ mod tests {
     use crate::near_primitives::trie_key::TrieKey;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
-    use near_primitives::action::GlobalContractIdentifier;
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
+    use near_primitives::action::{
+        DeleteGasKeyAction, GlobalContractIdentifier, TransferToGasKeyAction,
+    };
     use near_primitives::deterministic_account_id::{
         DeterministicAccountStateInit, DeterministicAccountStateInitV1,
     };

@@ -510,8 +510,6 @@ pub(crate) fn action_implicit_account_creation_transfer(
     match account_id.get_account_type() {
         AccountType::NearImplicitAccount => {
             let mut access_key = AccessKey::full_access();
-            // Set default nonce for newly created access key to avoid transaction hash collision.
-            // See <https://github.com/near/nearcore/issues/3779>.
             access_key.nonce = initial_nonce_value(block_height);
 
             // unwrap: here it's safe because the `account_id` has already been determined to be implicit by `get_account_type`
@@ -1161,6 +1159,8 @@ fn apply_recorded_storage_garbage(function_call: &FunctionCallAction, state_upda
 }
 
 pub(crate) fn initial_nonce_value(block_height: BlockHeight) -> Nonce {
+    // Set default nonce for newly created access key to avoid transaction hash collision.
+    // See <https://github.com/near/nearcore/issues/3779>.
     (block_height - 1) * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER
 }
 
