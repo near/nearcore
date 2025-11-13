@@ -50,7 +50,7 @@ function upload_binary {
     if [ -n "${BRANCH}" ]; then
       upload_targets+=("${BRANCH}")
     fi
-    if [ -n "${RELEASE_TAG}" ] && { [ -z "${BRANCH}" ] || [ "${BRANCH}" != "${RELEASE_TAG}" ]; }; then
+    if [ -n "${RELEASE_TAG}" ] && [ "${BRANCH}" != "${RELEASE_TAG}" ]; then
       upload_targets+=("${RELEASE_TAG}")
     fi
 

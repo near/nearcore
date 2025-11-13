@@ -81,10 +81,8 @@ jobs:
           fi
           if [ "${{ github.event_name }}" = "release" ]; then
             RELEASE_TAG="${{ github.event.release.tag_name }}"
-            if [ -n "$RELEASE_TAG" ]; then
-              if [ -z "$BRANCH" ] || [ "$BRANCH" != "$RELEASE_TAG" ]; then
-                UPLOAD_TARGETS+=("$RELEASE_TAG")
-              fi
+             if [ -n "$RELEASE_TAG" ] && [ "$BRANCH" != "$RELEASE_TAG" ]; then
+              UPLOAD_TARGETS+=("$RELEASE_TAG")
             fi
           fi
 
@@ -166,7 +164,7 @@ jobs:
             IMAGE_TAG="$BRANCH"
           fi
 
-          DOCKER_TAGS="nearprotocol/nearcore:${BRANCH},nearprotocol/nearcore:${BRANCH}-${COMMIT}"
+          DOCKER_TAGS="nearprotocol/nearcore:${IMAGE_TAG},nearprotocol/nearcore:${IMAGE_TAG}-${COMMIT}"
 
           if [[ ${BRANCH} == "master" ]];
           then
