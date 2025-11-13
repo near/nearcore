@@ -9883,6 +9883,27 @@
               "ReceiptSizeExceeded"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The `refund_to` of an ActionReceipt is not valid.",
+            "properties": {
+              "InvalidRefundTo": {
+                "properties": {
+                  "account_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "InvalidRefundTo"
+            ],
+            "type": "object"
           }
         ]
       },
