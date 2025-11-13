@@ -194,7 +194,7 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
             let mut window_update_timer = tokio::time::interval(Duration::from_secs(1));
             loop {
                 tokio::select! {
-                    biased; 
+                    biased;
 
                     _ = self.system_cancellation_signal.cancelled() => {
                         tracing::info!(target: "tokio_runtime", actor_name, "shutting down Tokio runtime due to ActorSystem shutdown");
