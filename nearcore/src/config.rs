@@ -54,7 +54,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::archive::cloud_storage::config::CloudStorageConfig;
+use near_store::archive::cloud_storage::config::CloudArchivalConfig;
 use near_store::config::{SplitStorageConfig, StateSnapshotType};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
@@ -274,7 +274,7 @@ pub struct Config {
     pub archive: bool,
     /// Configuration for a cloud-based archival node.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cloud_archival: Option<CloudStorageConfig>,
+    pub cloud_archival: Option<CloudArchivalConfig>,
     /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
     /// writes chunk-related data based on the tracked shards.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -623,7 +623,7 @@ impl Config {
     }
 
     /// Returns the cloud archival storage config.
-    pub fn cloud_storage_config(&self) -> Option<&CloudStorageConfig> {
+    pub fn cloud_storage_config(&self) -> Option<&CloudArchivalConfig> {
         self.cloud_archival.as_ref()
     }
 

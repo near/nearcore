@@ -43,3 +43,11 @@ pub fn build_block_data(store: &Store, block_height: BlockHeight) -> Result<Bloc
         BlockDataV1 { block, block_info, next_block_hash, transaction_result_for_block };
     Ok(BlockData::V1(block_data))
 }
+
+impl BlockData {
+    pub fn get_block(&self) -> &Block {
+        match self {
+            BlockData::V1(data) => &data.block,
+        }
+    }
+}
