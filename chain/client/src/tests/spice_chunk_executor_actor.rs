@@ -1,8 +1,9 @@
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use itertools::Itertools as _;
-use near_async::futures::{AsyncComputationSpawner, DelayedActionRunner};
+use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::Actor;
 use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
+use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
 use near_chain::ApplyChunksIterationMode;
 use near_chain::ChainStoreAccess;
@@ -972,25 +973,6 @@ fn test_witness_is_valid() {
     assert!(count_witnesses > 0);
 }
 
-type FakeActionTask = Box<
-    dyn FnOnce(&mut ChunkExecutorActor, &mut dyn DelayedActionRunner<ChunkExecutorActor>)
-        + Send
-        + 'static,
->;
-
-#[derive(Default)]
-struct FakeActionRunner {}
-
-impl DelayedActionRunner<ChunkExecutorActor> for FakeActionRunner {
-    fn run_later_boxed(
-        &mut self,
-        _name: &'static str,
-        _dur: near_async::time::Duration,
-        _f: FakeActionTask,
-    ) {
-    }
-}
-
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_actor_catches_up_on_start_from_genesis() {
@@ -1000,7 +982,7 @@ fn test_actor_catches_up_on_start_from_genesis() {
     let blocks = produce_n_blocks(&mut actors, 3);
 
     let actor = &mut actors[0];
-    let mut fake_runner = FakeActionRunner::default();
+    let mut fake_runner = FakeDelayedActionRunner::default();
     actor.actor.start_actor(&mut fake_runner);
     actor.run_internal_events();
     for block in blocks {
@@ -1043,7 +1025,7 @@ fn test_actor_catches_up_on_start_from_final_execution_head() {
     assert!(!block_executed(&actor, &second_fork));
     assert!(!block_executed(&actor, &new_block));
 
-    let mut fake_runner = FakeActionRunner::default();
+    let mut fake_runner = FakeDelayedActionRunner::default();
     actor.actor.start_actor(&mut fake_runner);
     actor.run_internal_events();
 

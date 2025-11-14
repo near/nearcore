@@ -1,5 +1,5 @@
-use near_async::futures::DelayedActionRunner;
 use near_async::messaging::Actor;
+use near_async::test_utils::FakeDelayedActionRunner;
 use near_chain::ChainStoreAccess;
 use near_chain::spice_core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use near_chain::types::Tip;
@@ -274,39 +274,6 @@ fn new_actor_for_account(
     account_id: &AccountId,
 ) -> SpiceDataDistributorActor {
     ActorBuilder::new(Some(account_id.clone())).build(outgoing_sc, chain)
-}
-
-type FakeActionTask = Box<
-    dyn FnOnce(
-            &mut SpiceDataDistributorActor,
-            &mut dyn DelayedActionRunner<SpiceDataDistributorActor>,
-        ) + Send
-        + 'static,
->;
-
-#[derive(Default)]
-struct FakeActionRunner {
-    tasks: Vec<FakeActionTask>,
-}
-
-impl DelayedActionRunner<SpiceDataDistributorActor> for FakeActionRunner {
-    fn run_later_boxed(
-        &mut self,
-        _name: &'static str,
-        _dur: near_async::time::Duration,
-        f: FakeActionTask,
-    ) {
-        self.tasks.push(f);
-    }
-}
-
-impl FakeActionRunner {
-    fn trigger(&mut self, actor: &mut SpiceDataDistributorActor) {
-        let tasks = std::mem::take(&mut self.tasks);
-        for task in tasks {
-            task(actor, self);
-        }
-    }
 }
 
 fn witness_producer_accounts(
@@ -1406,7 +1373,7 @@ fn test_requesting_witnesses_from_forks_on_start() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &validator);
-    let mut fake_runner = FakeActionRunner::default();
+    let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     fake_runner.trigger(&mut actor);
 
@@ -1449,7 +1416,7 @@ fn test_not_requesting_witnesses_we_already_endorsed_on_start() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &validator);
-    let mut fake_runner = FakeActionRunner::default();
+    let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     fake_runner.trigger(&mut actor);
 
@@ -1476,7 +1443,7 @@ fn test_not_requesting_witnesses_we_produce_on_start() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
-    let mut fake_runner = FakeActionRunner::default();
+    let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     fake_runner.trigger(&mut actor);
 
@@ -1506,7 +1473,7 @@ fn test_requesting_receipts_without_final_execution_head_on_start() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
-    let mut fake_runner = FakeActionRunner::default();
+    let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     fake_runner.trigger(&mut actor);
 
@@ -1548,7 +1515,7 @@ fn test_requesting_receipts_from_forks_on_start() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
-    let mut fake_runner = FakeActionRunner::default();
+    let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     fake_runner.trigger(&mut actor);
 
@@ -1600,7 +1567,7 @@ fn test_not_requesting_receipts_we_already_have_on_start() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient);
-    let mut fake_runner = FakeActionRunner::default();
+    let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     fake_runner.trigger(&mut actor);
 
@@ -1629,7 +1596,7 @@ fn test_not_requesting_receipts_we_produce_on_start() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
-    let mut fake_runner = FakeActionRunner::default();
+    let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     fake_runner.trigger(&mut actor);
 
@@ -1664,7 +1631,7 @@ fn test_requesting_witness_for_new_block_when_validator() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &receiver_chain, &witness_recipient);
-    let mut fake_runner = FakeActionRunner::default();
+    let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     process_block_sync(
         &mut receiver_chain,
@@ -1705,7 +1672,7 @@ fn test_not_requesting_witness_for_new_block_when_not_validator() {
         &receiver_chain,
         &AccountId::from_str("not-validator").unwrap(),
     );
-    let mut fake_runner = FakeActionRunner::default();
+    let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     process_block_sync(
         &mut receiver_chain,
@@ -1742,7 +1709,7 @@ fn test_not_requesting_witness_for_new_block_without_signer() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = ActorBuilder::new(None).build(outgoing_sc, &receiver_chain);
-    let mut fake_runner = FakeActionRunner::default();
+    let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     process_block_sync(
         &mut receiver_chain,
@@ -1780,7 +1747,7 @@ fn test_requesting_receipts_we_do_not_produce_for_new_block() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &receiver_chain, &receipts_recipient);
-    let mut fake_runner = FakeActionRunner::default();
+    let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     process_block_sync(
         &mut receiver_chain,
@@ -1820,7 +1787,7 @@ fn test_not_requesting_receipts_we_produce_for_new_block() {
     let mut actor = ActorBuilder::new(Some(receipts_recipient))
         .tracked_shards_config(TrackedShardsConfig::AllShards)
         .build(outgoing_sc, &receiver_chain);
-    let mut fake_runner = FakeActionRunner::default();
+    let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     process_block_sync(
         &mut receiver_chain,
@@ -1860,7 +1827,7 @@ fn test_not_requesting_witnesses_we_produce_for_new_block() {
     let mut actor = ActorBuilder::new(Some(witness_recipient))
         .tracked_shards_config(TrackedShardsConfig::AllShards)
         .build(outgoing_sc, &receiver_chain);
-    let mut fake_runner = FakeActionRunner::default();
+    let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     process_block_sync(
         &mut receiver_chain,
@@ -1897,7 +1864,7 @@ fn test_not_requesting_data_we_already_received() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = ActorBuilder::new(Some(recipient)).build(outgoing_sc, &receiver_chain);
-    let mut fake_runner = FakeActionRunner::default();
+    let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     process_block_sync(
         &mut receiver_chain,
@@ -1935,7 +1902,7 @@ fn test_not_requesting_data_we_already_received_before_block() {
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = ActorBuilder::new(Some(recipient)).build(outgoing_sc, &receiver_chain);
-    let mut fake_runner = FakeActionRunner::default();
+    let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     actor.handle(incoming_data);
     process_block_sync(
