@@ -160,7 +160,7 @@ impl Inner {
         if self
             .current_epoch
             .as_ref()
-            .map_or(false, |current| current.epoch_height >= h.epoch_height)
+            .map_or(false, |current| current.epoch_height > h.epoch_height)
         {
             return false;
         }

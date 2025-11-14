@@ -220,11 +220,13 @@ async fn test_lru_eviction() {
 #[derive(Debug)]
 enum SelectPeerAction {
     CallSelect(Option<usize>),
+    CallSetEpoch(EpochHeight),
     InsertHosts(&'static [usize]),
     PartReceived,
 }
 
 struct SelectPeerTest {
+    name: &'static str,
     num_peers: usize,
     part_selection_cache_batch_size: u32,
     actions: &'static [SelectPeerAction],
@@ -232,11 +234,13 @@ struct SelectPeerTest {
 
 static SELECT_PEER_CASES: &[SelectPeerTest] = &[
     SelectPeerTest {
+        name: "test_select_peer_2_peers",
         num_peers: 2,
         part_selection_cache_batch_size: 1,
         actions: &[
             SelectPeerAction::CallSelect(None),
             SelectPeerAction::InsertHosts(&[0, 1]),
+            SelectPeerAction::CallSetEpoch(123),
             SelectPeerAction::CallSelect(Some(0)),
             SelectPeerAction::CallSelect(Some(1)),
             SelectPeerAction::CallSelect(Some(0)),
@@ -244,12 +248,14 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
         ],
     },
     SelectPeerTest {
+        name: "test_select_peer_3_peers",
         num_peers: 3,
         part_selection_cache_batch_size: 1,
         actions: &[
             SelectPeerAction::CallSelect(None),
             SelectPeerAction::CallSelect(None),
             SelectPeerAction::InsertHosts(&[1, 2]),
+            SelectPeerAction::CallSetEpoch(123),
             SelectPeerAction::CallSelect(Some(1)),
             SelectPeerAction::CallSelect(Some(2)),
             SelectPeerAction::CallSelect(Some(1)),
@@ -266,11 +272,13 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
         ],
     },
     SelectPeerTest {
+        name: "test_select_peer_2_part_received",
         num_peers: 2,
         part_selection_cache_batch_size: 1,
         actions: &[
             SelectPeerAction::CallSelect(None),
             SelectPeerAction::InsertHosts(&[0]),
+            SelectPeerAction::CallSetEpoch(123),
             SelectPeerAction::CallSelect(Some(0)),
             SelectPeerAction::CallSelect(Some(0)),
             SelectPeerAction::CallSelect(Some(0)),
@@ -289,11 +297,13 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
         ],
     },
     SelectPeerTest {
+        name: "test_select_peer_5_peers",
         num_peers: 5,
         part_selection_cache_batch_size: 2,
         actions: &[
             SelectPeerAction::CallSelect(None),
             SelectPeerAction::InsertHosts(&[2, 3]),
+            SelectPeerAction::CallSetEpoch(123),
             SelectPeerAction::CallSelect(Some(2)),
             SelectPeerAction::CallSelect(Some(3)),
             SelectPeerAction::InsertHosts(&[0, 1, 4]),
@@ -306,9 +316,11 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
 ];
 
 async fn run_select_peer_test(
+    test_name: &'static str,
     actions: &[SelectPeerAction],
     peers: &[Arc<SnapshotHostInfo>],
     sync_hash: &CryptoHash,
+    epoch_height: EpochHeight,
     part_id: u64,
     part_selection_cache_batch_size: u32,
 ) {
@@ -316,10 +328,10 @@ async fn run_select_peer_test(
         Config { snapshot_hosts_cache_size: peers.len() as u32, part_selection_cache_batch_size };
     let cache = SnapshotHostsCache::new(config);
 
-    tracing::debug!("start run_select_peer_test");
+    tracing::debug!(test_name, "start");
 
     for action in actions {
-        tracing::debug!("run_select_peer_test action {:?}", action);
+        tracing::debug!(test_name, "action {:?}", action);
         match action {
             SelectPeerAction::InsertHosts(hosts) => {
                 let mut new_hosts = Vec::new();
@@ -327,7 +339,11 @@ async fn run_select_peer_test(
                     new_hosts.push(peers[*h].clone());
                 }
                 let (_res, err) = cache.insert(new_hosts).await;
+                assert!(!_res.is_empty(), "{test_name} insert should return some data");
                 assert!(err.is_none());
+            }
+            SelectPeerAction::CallSetEpoch(epoch_height) => {
+                cache.maybe_update_current_epoch(&epoch_height, sync_hash);
             }
             SelectPeerAction::CallSelect(wanted) => {
                 let peer = cache.select_host_for_part(sync_hash, ShardId::new(0), part_id);
@@ -335,7 +351,7 @@ async fn run_select_peer_test(
                     Some(idx) => Some(&peers[*idx].peer_id),
                     None => None,
                 };
-                assert!(peer.as_ref() == wanted, "got: {:?} want: {:?}", &peer, &wanted);
+                assert!(peer.as_ref() == wanted, "{test_name} got: {:?} want: {:?}", &peer, &wanted);
             }
             SelectPeerAction::PartReceived => {
                 let shard_id = ShardId::new(0);
@@ -352,6 +368,7 @@ async fn test_select_peer() {
     init_test_logger();
     let mut rng = make_rng(2947294234);
     let sync_hash = CryptoHash(rng.r#gen());
+    let epoch_height = 123;
     let part_id = 0;
     let num_peers = SELECT_PEER_CASES.iter().map(|t| t.num_peers).max().unwrap();
     let mut peers = Vec::with_capacity(num_peers);
@@ -363,7 +380,7 @@ async fn test_select_peer() {
         let peer_id = PeerId::new(key.public_key());
         let score = priority_score(&peer_id, ShardId::new(0), part_id);
         let info =
-            Arc::new(SnapshotHostInfo::new(peer_id, sync_hash, 123, sid_vec(&[0, 1, 2, 3]), &key));
+            Arc::new(SnapshotHostInfo::new(peer_id, sync_hash, epoch_height, sid_vec(&[0, 1, 2, 3]), &key));
         peers.push((info, score));
     }
     // cspell:ignore linfo lscore rinfo rscore
@@ -378,9 +395,11 @@ async fn test_select_peer() {
 
     for t in SELECT_PEER_CASES {
         run_select_peer_test(
+            t.name,
             &t.actions,
             &peers[..t.num_peers],
             &sync_hash,
+            epoch_height,
             part_id,
             t.part_selection_cache_batch_size,
         )
