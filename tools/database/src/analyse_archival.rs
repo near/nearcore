@@ -62,6 +62,7 @@ pub enum AnalyseTarget {
     StateParts,
     TrieChanges,
     Transactions,
+    Receipts,
 }
 
 impl AnalyseArchivalCommand {
@@ -145,6 +146,9 @@ impl AnalyseArchivalCommand {
                 }
                 AnalyseTarget::Transactions => {
                     self.analyse_txs(store.clone(), &shard_ids);
+                }
+                AnalyseTarget::Receipts => {
+                    self.analyse_receipts(store.clone(), &shard_ids);
                 }
             }
         }
@@ -418,14 +422,12 @@ impl AnalyseArchivalCommand {
             let compressed =
                 zstd::encode_all(data.as_slice(), self.compression_level as i32).unwrap();
             let txs_per_block = shard_map.len() as f32 / block_cnt as f32;
-            let avg_tx_size = data.len() / shard_map.len();
             eprintln!(
-                "Txs per block: {:.1}, avg tx size: {}",
+                "Txs per block: {:.1}",
                 txs_per_block,
-                ByteSize::b(avg_tx_size as u64)
             );
             eprintln!(
-                "Total raw size: {}, Total compressed size: {}",
+                "Total raw size: {}, Total compressed size: {}\n",
                 ByteSize::b(data.len() as u64),
                 ByteSize::b(compressed.len() as u64)
             );
@@ -433,7 +435,75 @@ impl AnalyseArchivalCommand {
             overall_compressed_size += compressed.len();
         }
         eprintln!(
-            "\nOverall size: {}, Overall compressed size: {}\nblocks: {}, total size per block: {}\n",
+            "\nOverall size: {}, Overall compressed size: {}\nblocks: {}, total size per block (uncompressed): {}\n",
+            ByteSize::b(overall_size as u64),
+            ByteSize::b(overall_compressed_size as u64),
+            block_cnt,
+            ByteSize::b((overall_size / block_cnt) as u64),
+        );
+    }
+
+      fn analyse_receipts(&self, store: Store, shards: &Vec<ShardId>) {
+        eprintln!("Analyse receipts");
+        let mut shard_data = HashMap::<ShardId, HashMap<CryptoHash, Receipt>>::new();
+        let mut stats = HashMap::<ShardId, SizeStats>::new();
+        let mut block_cnt = 0;
+        for res in store.iter_ser::<Block>(DBCol::Block).take(self.limit()) {
+            let (_, block) = res.unwrap();
+            if block.header().is_genesis() {
+                continue;
+            }
+            block_cnt += 1;
+            for chunk in block.chunks().iter() {
+                let ChunkType::New(chunk) = chunk else {
+                    continue;
+                };
+                let shard_id = chunk.shard_id();
+                if !shards.contains(&shard_id) {
+                    continue;
+                }
+                let chunk_hash = chunk.chunk_hash();
+                let chunk =
+                    store.get_ser::<ShardChunk>(DBCol::Chunks, chunk_hash.as_bytes()).unwrap().unwrap();
+                let receipts = chunk.prev_outgoing_receipts();
+                for r in receipts {
+                    let data = borsh::to_vec(r).unwrap();
+                    stats.entry(shard_id).or_default().update(r.receipt_id().as_bytes(), &data);
+                    shard_data
+                        .entry(shard_id)
+                        .or_default()
+                        .entry(r.receipt_id().clone())
+                        .insert_entry(r.clone());
+                }
+            }
+        }
+        let mut overall_size = 0;
+        let mut overall_compressed_size = 0;
+        for shard_id in shards {
+            let Some(stats) = stats.get(&shard_id) else {
+                eprintln!("* Missing stats for shard {shard_id}");
+                continue;
+            };
+            eprintln!("* Stats for shard {shard_id}\n{stats}");
+            let shard_map = shard_data.get(&shard_id).unwrap();
+            let data = borsh::to_vec(&shard_map).unwrap();
+            let compressed =
+                zstd::encode_all(data.as_slice(), self.compression_level as i32).unwrap();
+            let rs_per_block = shard_map.len() as f32 / block_cnt as f32;
+            eprintln!(
+                "Receipts per block: {:.1}",
+                rs_per_block,
+            );
+            eprintln!(
+                "Total raw size: {}, Total compressed size: {}\n",
+                ByteSize::b(data.len() as u64),
+                ByteSize::b(compressed.len() as u64)
+            );
+            overall_size += data.len();
+            overall_compressed_size += compressed.len();
+        }
+        eprintln!(
+            "\nOverall size: {}, Overall compressed size: {}\nblocks: {}, total size per block (uncompressed): {}\n",
             ByteSize::b(overall_size as u64),
             ByteSize::b(overall_compressed_size as u64),
             block_cnt,
