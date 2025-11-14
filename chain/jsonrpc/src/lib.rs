@@ -380,6 +380,8 @@ impl JsonRpcHandler {
                     }
                     QueryRequest::ViewAccessKey { .. } => "query_view_access_key",
                     QueryRequest::ViewAccessKeyList { .. } => "query_view_access_key_list",
+                    QueryRequest::ViewGasKey { .. } => "query_view_gas_key",
+                    QueryRequest::ViewGasKeyList { .. } => "query_view_gas_key_list",
                     QueryRequest::CallFunction { .. } => "query_call_function",
                     QueryRequest::ViewGlobalContractCode { .. } => {
                         "query_view_global_contract_code"

@@ -6,7 +6,7 @@ use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::RuntimeConfigStore;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::{AccessKey, Account, GasKey};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
@@ -16,14 +16,14 @@ use near_primitives::receipt::{
     ActionReceipt, Receipt, ReceiptEnum, ReceiptV1, VersionedActionReceipt,
 };
 use near_primitives::transaction::FunctionCallAction;
-use near_primitives::trie_key::trie_key_parsers;
+use near_primitives::trie_key::trie_key_parsers::{self, parse_trie_key_gas_key_from_raw_key};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, ShardId,
+    AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce, ShardId,
 };
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{StateItem, ViewStateResult};
+use near_primitives::views::{GasKeyView, StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
-use near_store::{TrieUpdate, get_access_key, get_account};
+use near_store::{TrieUpdate, get_access_key, get_account, get_gas_key, get_gas_key_nonce};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::{str, sync::Arc, time::Instant};
@@ -150,6 +150,111 @@ impl TrieViewer {
                 })
                 .collect::<Result<Vec<_>, errors::ViewAccessKeyError>>();
         access_keys
+    }
+
+    pub fn view_gas_key(
+        &self,
+        state_update: &TrieUpdate,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+        include_nonces: bool,
+    ) -> Result<near_primitives::views::GasKeyView, errors::ViewGasKeyError> {
+        let gas_key = get_gas_key(state_update, account_id, public_key)?.ok_or_else(|| {
+            errors::ViewGasKeyError::GasKeyDoesNotExist { public_key: public_key.clone() }
+        })?;
+        let nonces = if include_nonces {
+            let mut nonces = Vec::new();
+            for nonce_index in 0..gas_key.num_nonces {
+                let nonce = get_gas_key_nonce(state_update, account_id, public_key, nonce_index)?
+                    .ok_or_else(|| errors::ViewGasKeyError::InternalError {
+                    error_message: format!(
+                        "Unexpected missing nonce for gas key {:?} at index {}",
+                        public_key, nonce_index
+                    ),
+                })?;
+                nonces.push(nonce);
+            }
+            Some(nonces)
+        } else {
+            None
+        };
+        Ok(near_primitives::views::GasKeyView {
+            num_nonces: gas_key.num_nonces,
+            balance: gas_key.balance,
+            permission: gas_key.permission.into(),
+            nonces,
+        })
+    }
+
+    pub fn view_gas_keys(
+        &self,
+        state_update: &TrieUpdate,
+        account_id: &AccountId,
+    ) -> Result<Vec<near_primitives::views::GasKeyInfoView>, errors::ViewGasKeyError> {
+        let prefix = trie_key_parsers::get_raw_prefix_for_gas_keys(account_id);
+        let mut result: Vec<near_primitives::views::GasKeyInfoView> = Vec::new();
+        for raw_key in state_update.iter(&prefix)? {
+            let raw_key = raw_key?;
+            let trie_key = parse_trie_key_gas_key_from_raw_key(&raw_key).map_err(|err| {
+                errors::ViewGasKeyError::InternalError {
+                    error_message: format!("Failed to parse gas key from raw key: {:?}", err),
+                }
+            })?;
+            let near_primitives::trie_key::TrieKey::GasKey { public_key, index, .. } = &trie_key
+            else {
+                return Err(errors::ViewGasKeyError::InternalError {
+                    error_message: "Unexpected trie key type for gas key".to_string(),
+                });
+            };
+            if index.is_some() {
+                // This is a gas key nonce. The nonce should be for the last gas key that we've parsed.
+                let value =
+                    near_store::get::<Nonce>(state_update, &trie_key)?.ok_or_else(|| {
+                        errors::ViewGasKeyError::InternalError {
+                            error_message: "Unexpected missing trie value from iterator"
+                                .to_string(),
+                        }
+                    })?;
+                result
+                    .last_mut()
+                    .ok_or_else(|| errors::ViewGasKeyError::InternalError {
+                        error_message: "Unexpected gas key nonce without gas key".to_string(),
+                    })?
+                    .gas_key
+                    .nonces
+                    .as_mut()
+                    .unwrap()
+                    .push(value);
+            } else {
+                // This is a new gas key.
+                let value =
+                    near_store::get::<GasKey>(state_update, &trie_key)?.ok_or_else(|| {
+                        errors::ViewGasKeyError::InternalError {
+                            error_message: "Unexpected missing trie value from iterator"
+                                .to_string(),
+                        }
+                    })?;
+                let gas_key_view = GasKeyView::from_gas_key_with_nonces(value, Vec::new());
+                result.push(near_primitives::views::GasKeyInfoView {
+                    public_key: public_key.clone(),
+                    gas_key: gas_key_view,
+                });
+            }
+        }
+        // Sanity check that we've got all nonces for each gas key.
+        for key in &result {
+            if key.gas_key.num_nonces as usize != key.gas_key.nonces.as_ref().unwrap().len() {
+                return Err(errors::ViewGasKeyError::InternalError {
+                    error_message: format!(
+                        "Gas key {:?} has {} nonces in the trie, but specifies num_nonces = {}",
+                        key.public_key,
+                        key.gas_key.nonces.as_ref().unwrap().len(),
+                        key.gas_key.num_nonces
+                    ),
+                });
+            }
+        }
+        Ok(result)
     }
 
     pub fn view_state(
