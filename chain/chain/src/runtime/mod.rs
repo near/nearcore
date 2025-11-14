@@ -41,8 +41,8 @@ use near_store::flat::FlatStorageManager;
 use near_store::trie::{FindSplitError, find_trie_split, total_mem_usage};
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges, get_acccess_key_by_tx_key, get_account,
-    get_gas_key, set_account, set_gas_key,
+    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key_by_tx_key, get_account, get_gas_key,
+    set_account, set_gas_key,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -869,7 +869,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     };
                     let payer = payer.transpose().and_then(|v| v.ok());
                     let access_key =
-                        get_acccess_key_by_tx_key(&state_update, signer_id, validated_tx.key());
+                        get_access_key_by_tx_key(&state_update, signer_id, validated_tx.key());
                     let access_key = access_key.transpose().and_then(|v| v.ok());
                     let inserted = payer_access_key.insert((
                         payer_id,

@@ -73,7 +73,7 @@ use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
     PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get,
-    get_acccess_key_by_tx_key, get_account, get_gas_key, get_postponed_receipt,
+    get_access_key_by_tx_key, get_account, get_gas_key, get_postponed_receipt,
     get_promise_yield_receipt, get_pure, get_received_data, has_received_data,
     remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
     set_access_key_or_gas_key_nonce, set_account, set_gas_key, set_postponed_receipt,
@@ -1699,7 +1699,7 @@ impl Runtime {
                             }
 
                             access_keys.entry((signer_id, tx_key)).or_insert_with(|| {
-                                get_acccess_key_by_tx_key(
+                                get_access_key_by_tx_key(
                                     &processing_state.state_update,
                                     signer_id,
                                     tx_key,

@@ -25,7 +25,7 @@ use near_primitives::utils::derive_near_deterministic_account_id;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
 use near_store::{
-    StorageError, TrieUpdate, get_acccess_key_by_tx_key, get_account, get_gas_key,
+    StorageError, TrieUpdate, get_access_key_by_tx_key, get_account, get_gas_key,
     set_access_key_or_gas_key_nonce, set_account, set_gas_key,
 };
 use near_vm_runner::logic::LimitConfig;
@@ -192,7 +192,7 @@ pub fn get_payer_and_access_key(
         }
     };
 
-    let access_key = match get_acccess_key_by_tx_key(state_update, signer_id, validated_tx.key())? {
+    let access_key = match get_access_key_by_tx_key(state_update, signer_id, validated_tx.key())? {
         Some(access_key) => access_key,
         None => {
             return Err(InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::not_found(

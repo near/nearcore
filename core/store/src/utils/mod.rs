@@ -346,7 +346,7 @@ pub fn get_gas_key_nonce(
     )
 }
 
-pub fn get_acccess_key_by_tx_key(
+pub fn get_access_key_by_tx_key(
     trie: &dyn TrieAccess,
     account_id: &AccountId,
     key: TransactionKeyRef,
