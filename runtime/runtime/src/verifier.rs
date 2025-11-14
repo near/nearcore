@@ -137,18 +137,19 @@ pub(crate) fn validate_transaction_well_formed<'a>(
     ValidatedTransaction::check_valid_for_config(config, signed_tx)
 }
 
-/// Set new `signer` and `access_key` in `state_update`.
+/// Updates the state with changes from the transaction, including new amount
+/// (from `payer`) and nonce (from `access_key`).
 ///
 /// Note that this does not commit state changes to the `TrieUpdate`.
 pub fn set_tx_state_changes(
     state_update: &mut TrieUpdate,
     validated_tx: &ValidatedTransaction,
-    signer: &AccountOrGasKey,
+    payer: &AccountOrGasKey,
     access_key: &AccessKey,
 ) {
-    let tx = validated_tx.to_tx();
+    let tx: &Transaction = validated_tx.to_tx();
     set_access_key_or_gas_key_nonce(state_update, tx.signer_id().clone(), tx.key(), access_key);
-    match (validated_tx.key(), signer) {
+    match (validated_tx.key(), payer) {
         (TransactionKeyRef::AccessKey { .. }, AccountOrGasKey::Account(account)) => {
             set_account(state_update, tx.signer_id().clone(), account)
         }
