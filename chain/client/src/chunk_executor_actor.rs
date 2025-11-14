@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use near_async::futures::AsyncComputationSpawner;
@@ -128,7 +129,20 @@ impl ChunkExecutorActor {
     }
 }
 
-impl near_async::messaging::Actor for ChunkExecutorActor {}
+impl near_async::messaging::Actor for ChunkExecutorActor {
+    fn start_actor(&mut self, _ctx: &mut dyn near_async::futures::DelayedActionRunner<Self>) {
+        if !cfg!(feature = "protocol_feature_spice") {
+            return;
+        }
+        if let Err(err) = self.process_all_ready_blocks() {
+            tracing::error!(
+                target: "chunk_executor",
+                ?err,
+                "failed when trying to process all ready blocks on start up",
+            );
+        }
+    }
+}
 
 /// Message with incoming unverified receipts corresponding to the block.
 #[derive(Debug, PartialEq)]
@@ -926,6 +940,36 @@ impl ChunkExecutorActor {
             let tries = self.runtime_adapter.get_tries();
             tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
         }
+        Ok(())
+    }
+
+    fn process_all_ready_blocks(&mut self) -> Result<(), Error> {
+        let start_block = match self.chain_store.spice_final_execution_head() {
+            Ok(final_execution_head) => final_execution_head.last_block_hash,
+            Err(Error::DBNotFoundErr(_)) => {
+                let final_head_hash = self.chain_store.final_head()?.last_block_hash;
+                let mut header = self.chain_store.get_block_header(&final_head_hash)?;
+                // TODO(spice): Stop searching on the first non-spice block.
+                while !header.is_genesis() {
+                    header = self.chain_store.get_block_header(header.prev_hash())?;
+                }
+                *header.hash()
+            }
+            Err(err) => return Err(err),
+        };
+
+        let mut next_block_hashes: VecDeque<_> =
+            self.chain_store.get_all_next_block_hashes(&start_block)?.into();
+        while let Some(block_hash) = next_block_hashes.pop_front() {
+            if !matches!(
+                self.try_apply_chunks(&block_hash)?,
+                TryApplyChunksOutcome::BlockAlreadyAccepted
+            ) {
+                continue;
+            }
+            next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash)?);
+        }
+
         Ok(())
     }
 }
