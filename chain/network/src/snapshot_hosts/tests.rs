@@ -383,16 +383,16 @@ async fn run_select_peer_test(
     for action in actions {
         tracing::debug!(test_name, "action {:?}", action);
         match action {
-            SelectPeerAction::InsertHosts(hosts, epoch_height, exppected_insert_count) => {
+            SelectPeerAction::InsertHosts(hosts, epoch_height, expected_insert_count) => {
                 let new_hosts = make_snapshot_hosts_info(hosts, keys, *epoch_height);
                 let requested_insert_count = new_hosts.len();
                 let (res, err) = cache.insert(new_hosts).await;
                 assert_eq!(
                     res.len(),
-                    *exppected_insert_count,
+                    *expected_insert_count,
                     "{test_name} insert should return the expected number of hosts"
                 );
-                assert!(requested_insert_count == *exppected_insert_count || err.is_none());
+                assert!(requested_insert_count == *expected_insert_count || err.is_none());
             }
             SelectPeerAction::CallSetEpoch(epoch_height) => {
                 let sync_hash = CryptoHash::hash_borsh(epoch_height);
@@ -456,7 +456,7 @@ async fn test_select_peer() {
         let score = priority_score(&peer_id, ShardId::new(0), part_id);
         keys.push((key.clone(), score));
     }
-    // cspell:ignore linfo lscore rinfo rscore
+    // cspell:ignore lkey lscore rkey rscore
     keys.sort_by(|(_lkey, lscore), (_rkey, rscore)| lscore.partial_cmp(rscore).unwrap().reverse());
     let keys = keys.into_iter().map(|(key, _score)| key).collect::<Vec<_>>();
 
