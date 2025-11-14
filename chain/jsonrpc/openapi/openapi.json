@@ -5482,10 +5482,49 @@
         },
         "type": "object"
       },
+      "GasKeyInfoView": {
+        "properties": {
+          "gas_key": {
+            "$ref": "#/components/schemas/GasKeyView"
+          },
+          "public_key": {
+            "$ref": "#/components/schemas/PublicKey"
+          }
+        },
+        "required": [
+          "public_key",
+          "gas_key"
+        ],
+        "type": "object"
+      },
+      "GasKeyList": {
+        "properties": {
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/GasKeyInfoView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "keys"
+        ],
+        "type": "object"
+      },
       "GasKeyView": {
         "properties": {
           "balance": {
             "$ref": "#/components/schemas/NearToken"
+          },
+          "nonces": {
+            "description": "If requested, the nonces are included.",
+            "items": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "nullable": true,
+            "type": "array"
           },
           "num_nonces": {
             "format": "uint32",
@@ -11623,6 +11662,82 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "include_nonces": {
+                    "type": "boolean"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_gas_key"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id",
+                  "public_key",
+                  "include_nonces"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_gas_key_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_gas_key_list"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_gas_key_list_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
                   "args_base64": {
                     "$ref": "#/components/schemas/FunctionArgs"
                   },
@@ -11895,6 +12010,82 @@
               }
             ],
             "title": "view_access_key_list_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "include_nonces": {
+                    "type": "boolean"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_gas_key"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id",
+                  "public_key",
+                  "include_nonces"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_gas_key_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_gas_key_list"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_gas_key_list_by_finality"
           },
           {
             "allOf": [
@@ -12205,6 +12396,82 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "include_nonces": {
+                    "type": "boolean"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_gas_key"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id",
+                  "public_key",
+                  "include_nonces"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_gas_key_by_sync_checkpoint"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_gas_key_list"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_gas_key_list_by_sync_checkpoint"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
                   "args_base64": {
                     "$ref": "#/components/schemas/FunctionArgs"
                   },
@@ -12320,6 +12587,12 @@
           },
           {
             "$ref": "#/components/schemas/AccessKeyList"
+          },
+          {
+            "$ref": "#/components/schemas/GasKeyView"
+          },
+          {
+            "$ref": "#/components/schemas/GasKeyList"
           }
         ],
         "properties": {

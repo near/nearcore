@@ -1443,7 +1443,6 @@ pub enum ActionView {
     } = 15,
     TransferToGasKey {
         public_key: PublicKey,
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         amount: Balance,
     } = 16,
 }
