@@ -1517,7 +1517,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     continue;
                 }
                 let target_private_key = crate::key_mapping::map_key(
-                    // TODO(gas-keys): This does not seem correct
+                    // TODO(gas-keys): Implement support for mirror.
                     &source_tx.transaction.key().public_key(),
                     self.secret.as_ref(),
                 );
