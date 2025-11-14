@@ -322,10 +322,9 @@ pub enum InvalidAccessKeyError {
     DepositWithFunctionCall = 5,
     GasKeyNotFound { account_id: AccountId, public_key: Box<PublicKey>, nonce_index: NonceIndex } =
         6,
-    NotEnougAllowanceGasKey {
+    NotEnoughAllowanceGasKey {
         account_id: AccountId,
         public_key: Box<PublicKey>,
-        nonce_index: NonceIndex,
         allowance: Balance,
         cost: Balance,
     } = 7,
@@ -361,11 +360,10 @@ impl InvalidAccessKeyError {
                 allowance,
                 cost,
             },
-            TransactionKeyRef::GasKey { key, nonce_index } => {
-                InvalidAccessKeyError::NotEnougAllowanceGasKey {
+            TransactionKeyRef::GasKey { key, .. } => {
+                InvalidAccessKeyError::NotEnoughAllowanceGasKey {
                     account_id,
                     public_key: Box::new(key.clone()),
-                    nonce_index,
                     allowance,
                     cost,
                 }
@@ -961,16 +959,15 @@ impl Display for InvalidAccessKeyError {
                     account_id, public_key, nonce_index
                 )
             }
-            InvalidAccessKeyError::NotEnougAllowanceGasKey {
+            InvalidAccessKeyError::NotEnoughAllowanceGasKey {
                 account_id,
                 public_key,
-                nonce_index,
                 allowance,
                 cost,
             } => write!(
                 f,
-                "Gas Key {:?}:{} with nonce_index {} does not have enough allowance {} for transaction costing {}",
-                account_id, public_key, nonce_index, allowance, cost
+                "Gas Key {:?}:{} does not have enough allowance {} for transaction costing {}",
+                account_id, public_key, allowance, cost
             ),
         }
     }

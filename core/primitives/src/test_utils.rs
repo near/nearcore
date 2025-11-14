@@ -64,7 +64,7 @@ impl Transaction {
         block_hash: CryptoHash,
         priority_fee: u64,
     ) -> Self {
-        let key = TransactionKey::AccessKey { key: public_key.clone() };
+        let key = TransactionKey::AccessKey { key: public_key };
         Transaction::V2(TransactionV2 {
             signer_id,
             key,

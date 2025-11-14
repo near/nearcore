@@ -184,7 +184,7 @@ pub fn get_payer_and_access_key(
                 None => {
                     return Err(InvalidTxError::GasKeyDoesNotExist {
                         signer_id: signer_id.clone(),
-                        public_key: key.clone(),
+                        public_key: key.clone().into(),
                     });
                 }
             };
