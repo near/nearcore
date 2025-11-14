@@ -438,6 +438,8 @@ pub enum ReceiptValidationError {
     ActionsValidation(ActionsValidationError) = 6,
     /// Receipt is bigger than the limit.
     ReceiptSizeExceeded { size: u64, limit: u64 } = 7,
+    /// The `refund_to` of an ActionReceipt is not valid.
+    InvalidRefundTo { account_id: String } = 8,
 }
 
 impl Display for ReceiptValidationError {
@@ -473,6 +475,9 @@ impl Display for ReceiptValidationError {
             ReceiptValidationError::ActionsValidation(e) => write!(f, "{}", e),
             ReceiptValidationError::ReceiptSizeExceeded { size, limit } => {
                 write!(f, "The size of the receipt exceeded the limit: {} > {}", size, limit)
+            }
+            ReceiptValidationError::InvalidRefundTo { account_id } => {
+                write!(f, "The refund_to `{}` of an ActionReceipt is not valid.", account_id)
             }
         }
     }
