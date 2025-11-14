@@ -341,6 +341,7 @@ impl ClientConfig {
             protocol_version_check: Default::default(),
             enable_early_prepare_transactions: default_enable_early_prepare_transactions(),
             dynamic_resharding_dry_run: false,
+            disable_tx_routing: false,
         }
     }
 }

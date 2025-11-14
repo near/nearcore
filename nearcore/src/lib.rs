@@ -659,6 +659,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let rpc_handler_config = RpcHandlerConfig {
         handler_threads: config.client_config.transaction_request_handler_threads,
         tx_routing_height_horizon: config.client_config.tx_routing_height_horizon,
+        disable_tx_routing: config.client_config.disable_tx_routing,
         epoch_length: config.client_config.epoch_length,
         transaction_validity_period: config.genesis.config.transaction_validity_period,
     };

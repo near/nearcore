@@ -695,7 +695,8 @@ impl ForkNetworkCommand {
         let store = storage.get_hot_store();
 
         // 1. Create default genesis and override its fields with given parameters.
-        let (epoch_config, num_accounts_per_shard, chunk_producers) = Self::read_patches(patches_path)?;
+        let (epoch_config, num_accounts_per_shard, chunk_producers) =
+            Self::read_patches(patches_path)?;
         let target_shard_layout = &epoch_config.shard_layout;
         let validators = Self::read_validators(validators, home_dir)?;
         let num_seats = num_seats.unwrap_or(validators.len() as NumSeats);
@@ -1399,7 +1400,7 @@ impl ForkNetworkCommand {
                 num_shards
             );
             let cps_per_shard = chunk_producers / num_shards;
-            
+
             // Create separate account files for each CP
             let mut cp_account_infos: Vec<Vec<AccountData>> = vec![vec![]; cps_per_shard as usize];
 
@@ -1421,21 +1422,20 @@ impl ForkNetworkCommand {
                         storage_bytes,
                     ),
                 )?;
-                
+
                 // Create multiple access keys for this account (one per CP)
                 for cp_idx in 0..cps_per_shard {
                     let key_seed = format!("{account_id}_cp_{cp_idx}");
-                    let secret_key =
-                        SecretKey::from_seed(near_crypto::KeyType::ED25519, &key_seed);
+                    let secret_key = SecretKey::from_seed(near_crypto::KeyType::ED25519, &key_seed);
                     let public_key = secret_key.public_key();
-                    
+
                     storage_mutator.set_access_key(
                         shard_idx,
                         account_id.clone(),
                         public_key.clone(),
                         AccessKey::full_access(),
                     )?;
-                    
+
                     let account_data = AccountData {
                         account_id: account_id.clone(),
                         public_key: public_key.to_string(),
@@ -1448,7 +1448,8 @@ impl ForkNetworkCommand {
 
             // Write one file per CP
             for (cp_idx, account_infos) in cp_account_infos.iter().enumerate() {
-                let shard_accounts_path = accounts_path.join(format!("shard_{}_cp_{}.json", shard_id, cp_idx));
+                let shard_accounts_path =
+                    accounts_path.join(format!("shard_{}_cp_{}.json", shard_id, cp_idx));
                 let account_file = File::create(shard_accounts_path)?;
                 let account_writer = BufWriter::new(account_file);
                 serde_json::to_writer(account_writer, &account_infos)?;
