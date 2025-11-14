@@ -358,6 +358,8 @@ pub struct Config {
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
+    /// If true, the node won't forward transactions to next the chunk producers.
+    pub disable_tx_routing: bool,
     /// Limit the time of adding transactions to a chunk.
     ///
     /// A node produces a chunk by adding transactions from the transaction pool until
@@ -478,6 +480,7 @@ impl Default for Config {
             enable_multiline_logging: default_enable_multiline_logging(),
             resharding_config: ReshardingConfig::default(),
             tx_routing_height_horizon: default_tx_routing_height_horizon(),
+            disable_tx_routing: false,
             produce_chunk_add_transactions_time_limit:
                 default_produce_chunk_add_transactions_time_limit(),
             chunk_distribution_network: None,
@@ -737,6 +740,7 @@ impl NearConfig {
                     "resharding_config",
                 ),
                 tx_routing_height_horizon: config.tx_routing_height_horizon,
+                disable_tx_routing: config.disable_tx_routing,
                 produce_chunk_add_transactions_time_limit: MutableConfigValue::new(
                     config.produce_chunk_add_transactions_time_limit,
                     "produce_chunk_add_transactions_time_limit",
