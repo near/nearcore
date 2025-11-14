@@ -56,6 +56,13 @@ pub struct Config {
     schedule: Vec<Load>,
     controller: Option<ControllerConfig>,
     accounts_path: PathBuf,
+    receiver_accounts_path: Option<PathBuf>,
+
+    /// ratio of receivers chosen from the senders accounts [0.0, 1.0];
+    /// 0.0: receivers are chosen from the receiver accounts,
+    /// 1.0: all receivers are chosen from the senders accounts
+    #[serde(default = "default_receivers_from_senders_ratio")]
+	receivers_from_senders_ratio: f64,
     #[serde(default = "default_sender_accounts_zipf_skew")]
     sender_accounts_zipf_skew: f64,
     #[serde(default = "default_receiver_accounts_zipf_skew")]
@@ -70,12 +77,18 @@ fn default_receiver_accounts_zipf_skew() -> f64 {
     0.0 // uniform distribution
 }
 
+fn default_receivers_from_senders_ratio() -> f64 {
+    1.0 // all receivers are from the senders gang
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             schedule: Default::default(),
             controller: Default::default(),
             accounts_path: "".into(),
+            receiver_accounts_path: None,
+            receivers_from_senders_ratio: default_receivers_from_senders_ratio(),
             sender_accounts_zipf_skew: default_sender_accounts_zipf_skew(),
             receiver_accounts_zipf_skew: default_receiver_accounts_zipf_skew(),
         }
@@ -365,13 +378,21 @@ impl TxGenerator {
 
     fn prepare_accounts(
         accounts_path: &PathBuf,
+        receiver_accounts_path: &Option<PathBuf>, 
         sender: ViewClientSender,
-    ) -> anyhow::Result<tokio::sync::oneshot::Receiver<Arc<Vec<Account>>>> {
+    ) -> anyhow::Result<tokio::sync::oneshot::Receiver<(Arc<Vec<Account>>, Arc<Vec<AccountId>>)>> {
         let mut accounts =
             account::accounts_from_path(accounts_path).context("accounts from path")?;
         if accounts.is_empty() {
             anyhow::bail!("No active accounts available");
         }
+
+        let receiver_ids = if let Some(receiver_accounts_path) = receiver_accounts_path {
+            account::account_ids_from_path(receiver_accounts_path)
+                .context("receiver account ids from path")?  
+        } else {
+            vec![]
+        };
 
         let (tx, rx) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
@@ -387,7 +408,7 @@ impl TxGenerator {
                     }
                 }
             }
-            tx.send(Arc::new(accounts)).unwrap();
+            tx.send((Arc::new(accounts), Arc::new(receiver_ids))).unwrap();
         });
 
         Ok(rx)
@@ -619,7 +640,7 @@ impl TxGenerator {
         stats: Arc<Stats>,
         rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
     ) -> anyhow::Result<()> {
-        let rx_accounts = Self::prepare_accounts(&config.accounts_path, view_client_sender)
+        let rx_accounts = Self::prepare_accounts(&config.accounts_path, &config.receiver_accounts_path, view_client_sender)
             .context("prepare accounts")?;
 
         let schedule = config.schedule.clone();
@@ -642,7 +663,7 @@ impl TxGenerator {
         let (sender_accounts_zipf_skew, receiver_accounts_zipf_skew) =
             (config.sender_accounts_zipf_skew, config.receiver_accounts_zipf_skew);
         tokio::spawn(async move {
-            let accounts = rx_accounts.await.unwrap();
+            let (accounts, _receiver_ids) = rx_accounts.await.unwrap();
             let choice = Arc::new(Choice::new(
                 accounts.len(),
                 sender_accounts_zipf_skew,
