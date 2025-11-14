@@ -3,6 +3,7 @@ use crate::futures::DelayedActionRunner;
 type FakeDelayedActionTask<T> =
     Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>;
 
+/// Queues all actions until `run_queued_actions` is called.
 pub struct FakeDelayedActionRunner<T> {
     tasks: Vec<FakeDelayedActionTask<T>>,
 }
@@ -27,7 +28,7 @@ impl<T> DelayedActionRunner<T> for FakeDelayedActionRunner<T> {
 }
 
 impl<T> FakeDelayedActionRunner<T> {
-    pub fn trigger(&mut self, actor: &mut T) {
+    pub fn run_queued_actions(&mut self, actor: &mut T) {
         let tasks = std::mem::take(&mut self.tasks);
         for task in tasks {
             task(actor, self);
