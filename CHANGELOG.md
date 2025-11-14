@@ -23,6 +23,7 @@
 ### Non-protocol Changes
 
 * Indexer changes, including breaking changes in the API. See the [indexer changelog](https://github.com/near/nearcore/blob/master/chain/indexer/CHANGELOG.md) for details.
+* Stabilize `EXPERIMENTAL_changes_in_block`, `EXPERIMENTAL_genesis_config`, and `EXPERIMENTAL_maintenance_windows` RPC methods and rename them to `block_effects`, `genesis_config` and `maintenance_windows` respectively. https://github.com/near/nearcore/pull/13763
 
 ## [2.9.0]
 
