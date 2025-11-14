@@ -13,15 +13,13 @@ init-localnet:
     jq '.chain_id="benchmarknet"' {{near_genesis_file}} > tmp_genesis.json && mv tmp_genesis.json {{near_genesis_file}}
     jq '.rpc.addr="0.0.0.0:4040"' {{near_config_file}} > tmp_config.json && mv tmp_config.json {{near_config_file}}
 
-
 run-localnet loglevel="info":
     RUST_LOG={{loglevel}} \
     {{neard}} --home {{near_localnet_home}} run
 
-create-accounts num_accounts="50000":
+create-accounts num_accounts="500":
     #!/usr/bin/env bash
-    {{neard}} --home {{near_localnet_home}} run &
-    NEARD_PID=$!
+    {{neard}} --home {{near_localnet_home}} run & NEARD_PID=$!
     sleep 5
     RUST_LOG=info \
     ../synth-bm/target/release/near-synth-bm create-sub-accounts \
@@ -39,15 +37,9 @@ create-accounts num_accounts="50000":
 
 enable-tx:
     cp -n tx-generator-settings.json.in tx-generator-settings.json
-    jq '.tx_generator={ \
-        "accounts_path": "{{near_accounts_path}}"}' {{near_config_file}} > tmp_config.json && mv tmp_config.json {{near_config_file}}
-    jq --slurpfile patch tx-generator-settings.json ' \
-      . as $orig \
-      | $patch[0].tx_generator.schedule as $sched    \
-      | .["tx_generator"] += { "schedule": $sched }  \
-      | $patch[0].tx_generator.controller as $ctrl   \
-      | .["tx_generator"] += { "controller": $ctrl } \
-    ' {{near_config_file}} > tmp_config.json && mv tmp_config.json {{near_config_file}}
+    jq '.tx_generator.accounts_path = "{{near_accounts_path}}"' tx-generator-settings.json > {{near_localnet_home}}/tx-generator-settings.tmp.json
+    jq -s '.[0] * .[1]' {{near_config_file}} {{near_localnet_home}}/tx-generator-settings.tmp.json > tmp_config.json && mv tmp_config.json {{near_config_file}}
+    rm {{near_localnet_home}}/tx-generator-settings.tmp.json
 
 unlimit:
     jq '.gas_limit=20000000000000000' {{near_genesis_file}} > tmp_genesis.json && mv tmp_genesis.json {{near_genesis_file}}
