@@ -1032,6 +1032,7 @@ fn test_actor_catches_up_on_start_from_final_execution_head() {
     let head_block = actors[0].chain.get_head_block().unwrap();
     let final_execution_head_block =
         actors[0].chain.get_block(&final_execution_head.last_block_hash).unwrap();
+    assert!(final_execution_head_block.header().height() < head_block.header().height());
 
     let first_fork = produce_block(&mut actors, &final_execution_head_block);
     let second_fork = produce_block(&mut actors, &final_execution_head_block);
