@@ -122,7 +122,7 @@ pub fn validate_transaction(
     if let Err(err) = validate_transaction_actions(&config, &signed_tx, current_protocol_version) {
         return Err((err, signed_tx));
     }
-    ValidatedTransaction::new(config, signed_tx)
+    ValidatedTransaction::new(config, signed_tx, current_protocol_version)
 }
 
 /// Validates a transaction contains well-formed actions and is valid for the given runtime config.
@@ -134,7 +134,7 @@ pub(crate) fn validate_transaction_well_formed<'a>(
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), InvalidTxError> {
     validate_transaction_actions(config, signed_tx, current_protocol_version)?;
-    ValidatedTransaction::check_valid_for_config(config, signed_tx)
+    ValidatedTransaction::check_valid_for_config(config, signed_tx, current_protocol_version)
 }
 
 /// Updates the state with changes from the transaction, including new amount
