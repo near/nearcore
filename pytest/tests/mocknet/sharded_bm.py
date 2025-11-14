@@ -3,6 +3,7 @@ This script is used to run a sharded benchmark on a forknet.
 """
 
 from argparse import ArgumentParser
+from collections import defaultdict
 import os
 import sys
 import json
@@ -208,18 +209,37 @@ def handle_init(args):
 
     time.sleep(10)
 
-    run_cmd_args = copy.deepcopy(args)
-    run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
-    accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
-    run_cmd_args.cmd = f"\
-        shard=$(python3 {BENCHNET_DIR}/helpers/get_tracked_shard.py) && \
-        echo \"Tracked shard: $shard\" && \
-        rm -rf {BENCHNET_DIR}/user-data && \
-        mkdir -p {BENCHNET_DIR}/user-data && \
-        cp {NEAR_HOME}/user-data/shard_$shard.json {accounts_path} \
-    "
-
-    run_remote_cmd(CommandContext(run_cmd_args))
+    # Each CP gets its own account file with unique access keys
+    cp_names = sorted(args.forknet_details['cp_instance_names'])
+    
+    # Build mapping: shard_id -> list of CP names tracking that shard
+    shard_to_cps = defaultdict(list)
+    for cp_name in cp_names:
+        run_cmd_args = copy.deepcopy(args)
+        run_cmd_args.host_filter = cp_name
+        run_cmd_args.cmd = f"python3 {BENCHNET_DIR}/helpers/get_tracked_shard.py"
+        ctx = CommandContext(run_cmd_args)
+        node = ctx.get_targeted()[0]
+        result = node.run_cmd(run_cmd_args.cmd, return_on_fail=True)
+        shard = result.stdout.strip()
+        if not shard.isdigit():
+            logger.error(f"Failed to get shard for {cp_name}: {result.stdout}")
+            sys.exit(1)
+        shard_to_cps[shard].append(cp_name)
+    
+    # Now assign account files with per-shard slot numbers
+    for shard, cps_in_shard in shard_to_cps.items():
+        for slot, cp_name in enumerate(cps_in_shard):
+            logger.info(f"Assigning CP {cp_name} to shard {shard}, slot {slot}")
+            run_cmd_args = copy.deepcopy(args)
+            run_cmd_args.host_filter = cp_name
+            accounts_path = f"{BENCHNET_DIR}/user-data/accounts.json"
+            run_cmd_args.cmd = f"\
+                rm -rf {BENCHNET_DIR}/user-data && \
+                mkdir -p {BENCHNET_DIR}/user-data && \
+                cp {NEAR_HOME}/user-data/shard_{shard}_cp_{slot}.json {accounts_path} \
+            "
+            run_remote_cmd(CommandContext(run_cmd_args))
 
     stop_nodes(args)
 
@@ -314,7 +334,7 @@ def start_nodes(args, enable_tx_generator=False):
     if enable_tx_generator:
         logger.info("Setting tx generator parameters")
 
-        accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
+        accounts_path = f"{BENCHNET_DIR}/user-data/accounts.json"
         tx_generator_settings = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings.json"
 
         run_cmd_args = copy.deepcopy(args)
