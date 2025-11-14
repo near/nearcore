@@ -371,32 +371,14 @@ def start_nodes(args, enable_tx_generator=False):
 
         accounts_path = f"{BENCHNET_DIR}/user-data/accounts.json"
         tx_generator_settings = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings.json"
+        tx_generator_settings_tmp = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings-tmp.json"
 
         run_cmd_args = copy.deepcopy(args)
         run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
         run_cmd_args.cmd = f"\
             jq --arg accounts_path {accounts_path} \
-            '.tx_generator = {{ \"accounts_path\": $accounts_path }}' {CONFIG_PATH} > tmp.$$.json && \
-            mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
-        "
-
-        run_remote_cmd(CommandContext(run_cmd_args))
-
-        # TODO: This is pretty bad, every time we add a new field to the tx_generator config we have to add it here.
-        run_cmd_args = copy.deepcopy(args)
-        run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
-        run_cmd_args.cmd = f"\
-            jq --slurpfile patch {tx_generator_settings} \
-            '. as $orig \
-            | $patch[0].tx_generator.schedule as $sched   \
-            | .[\"tx_generator\"] += {{\"schedule\": $sched }} \
-            | $patch[0].tx_generator.controller as $ctrl   \
-            | .[\"tx_generator\"] += {{\"controller\": $ctrl }} \
-            | $patch[0].tx_generator.sender_accounts_zipf_skew as $sender_accounts_zipf_skew \
-            | .[\"tx_generator\"] += {{\"sender_accounts_zipf_skew\": $sender_accounts_zipf_skew }} \
-            | $patch[0].tx_generator.receiver_accounts_zipf_skew as $receiver_accounts_zipf_skew \
-            | .[\"tx_generator\"] += {{\"receiver_accounts_zipf_skew\": $receiver_accounts_zipf_skew }} \
-            ' {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
+              '.tx_generator.accounts_path = $accounts_path' {tx_generator_settings} > {tx_generator_settings_tmp} && \
+            jq -s '.[0] * .[1]' {CONFIG_PATH} {tx_generator_settings_tmp} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} \
         "
 
         run_remote_cmd(CommandContext(run_cmd_args))
