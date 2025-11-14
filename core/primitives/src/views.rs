@@ -1443,9 +1443,6 @@ pub enum ActionView {
     } = 15,
     TransferToGasKey {
         public_key: PublicKey,
-        // TODO(gas-keys): Add dec_format for balance
-        // #[serde(with = "dec_format")]
-        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         amount: Balance,
     } = 16,
 }
