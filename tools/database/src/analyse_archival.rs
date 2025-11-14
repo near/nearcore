@@ -28,7 +28,6 @@ use near_primitives::types::{RawStateChangesWithTrieKey, ShardId};
 use near_primitives::utils::get_block_shard_id;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::flat_store::decode_flat_state_db_key;
-use near_store::trie::TrieRefcountAddition;
 use near_store::{DBCol, KeyForStateChanges, ShardUId, Store, TrieChanges};
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 
@@ -432,23 +431,28 @@ impl AnalyseArchivalCommand {
 
     fn analyse_trie_changes(&self, store: Store, shards: &Vec<ShardId>) {
         eprintln!("Analyse TrieChanges column (insertions)");
-        let mut blocks = HashSet::new();
+        let mut blocks = HashMap::<ShardId, HashSet<CryptoHash>>::new();
         let mut trie_changes =
-            HashMap::<ShardId, HashMap<CryptoHash, Vec<TrieRefcountAddition>>>::new();
+            HashMap::<ShardId, HashMap<CryptoHash, Vec<u8>>>::new();
+        let mut stats = HashMap::<ShardId, SizeStats>::new();
         for res in store.iter(DBCol::TrieChanges).take(self.limit()) {
             let (key, value) = res.unwrap();
-            let shard_id = ShardId::new(u64::from_le_bytes(key.split_at(CryptoHash::LENGTH).1.try_into().unwrap()));
+            let suffix: &[u8] = key.split_at(CryptoHash::LENGTH).1.try_into().unwrap();
+            let shard_id = ShardUId::try_from(suffix).unwrap().shard_id();
             if !shards.contains(&shard_id) {
                 continue;
             }
             let block_hash = CryptoHash::try_from(key.split_at(CryptoHash::LENGTH).0).unwrap();
             let changes: TrieChanges = borsh::from_slice(value.as_ref()).unwrap();
-            blocks.insert(block_hash);
-            trie_changes
-                .entry(shard_id)
-                .or_default()
-                .entry(block_hash)
-                .insert_entry(changes.insertions().to_vec());
+            blocks.entry(shard_id).or_default().insert(block_hash);
+            for change in changes.insertions() {
+                stats.entry(shard_id).or_default().update(change.hash().as_bytes(), change.payload());
+                trie_changes
+                    .entry(shard_id)
+                    .or_default()
+                    .entry(change.hash().clone())
+                    .insert_entry(change.payload().to_vec());
+            }
         }
         let mut total_count = 0;
         let mut total_size = 0;
@@ -459,10 +463,7 @@ impl AnalyseArchivalCommand {
                 eprintln!("Missing changes for shard {}", shard_id);
                 continue;
             };
-            let mut count = 0;
-            for i in &block_changes {
-                count += i.1.len();
-            }
+            let count = block_changes.len();
             total_count += count;
             let bytes = borsh::to_vec(&block_changes).unwrap();
             let avg_per_block = bytes.len() / block_changes.len();
@@ -470,16 +471,22 @@ impl AnalyseArchivalCommand {
                 zstd::encode_all(bytes.as_slice(), self.compression_level as i32).unwrap();
             total_size += bytes.len();
             total_compressed += compressed.len();
+            let block_count = blocks.get(shard_id).unwrap().len();
+            let avg_changes_per_block = count / block_count;
             eprintln!(
-                "Changes raw size: {}, compressed size {}, avg per block: {}, avg num per block: {}",
+                "Blocks: {}, avg trie changes per block: {}, avg trie change size: {}",
+                block_count,
+                avg_changes_per_block,
+                ByteSize::b(avg_per_block as u64),
+            );
+            eprintln!(
+                "Changes raw size: {}, compressed size {}",
                 ByteSize::b(bytes.len() as u64),
                 ByteSize::b(compressed.len() as u64),
-                ByteSize::b(avg_per_block as u64),
-                count as f64 / block_changes.len() as f64,
             );
+            eprintln!("Stats: {}\n", stats[shard_id]);
         }
-        eprintln!("Blocks count: {}", blocks.len());
-        eprintln!("Trie changes insertions count: {}", total_count);
+        eprintln!("Trie changes count: {}", total_count);
         eprintln!("Total size {}", ByteSize::b(total_size as u64));
         eprintln!("Total compressed size {}", ByteSize::b(total_compressed as u64));
     }
