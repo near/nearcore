@@ -910,12 +910,13 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
 
             if let Some(((signer_id, gas_key_id), payer, _)) = payer_access_key {
+                // NOTE: we don't need to remember the intermediate state of the nonce between
+                // groups, only because pool guarantees that iteration is grouped by account_id
+                // and the access key or gas key. It does however also mean that we must remember
+                // the payers balance, as this code might operate over multiple access keys for the
+                // same account, or multiple nonce indexes for the same gas key.
                 match payer {
                     AccountOrGasKey::Account(account) => {
-                        // NOTE: we don't need to remember the intermediate state of the access key between
-                        // groups, but only because pool guarantees that iteration is grouped by account_id
-                        // and its public keys. It does however also mean that we must remember the account
-                        // state as this code might operate over multiple access keys for the account.
                         set_account(&mut state_update.trie_update, signer_id, &account);
                     }
                     AccountOrGasKey::GasKey(gas_key) => {
