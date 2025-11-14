@@ -322,7 +322,7 @@ def start_nodes(args, enable_tx_generator=False):
         run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
         run_cmd_args.cmd = f"\
             jq --arg accounts_path {accounts_path} \
-              '.tx_generator.accounts_path = $near_accounts_path' {tx_generator_settings} > {tx_generator_settings_tmp} && \
+              '.tx_generator.accounts_path = $accounts_path' {tx_generator_settings} > {tx_generator_settings_tmp} && \
             jq -s '.[0] * .[1]' {CONFIG_PATH} {tx_generator_settings_tmp} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} \
         "
 
