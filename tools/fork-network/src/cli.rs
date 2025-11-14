@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
-use near_crypto::{InMemorySigner, PublicKey, SecretKey};
+use near_crypto::{PublicKey, SecretKey};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_mirror::key_mapping::{map_account, map_key};
 use near_o11y::default_subscriber_with_opentelemetry;
@@ -642,7 +642,7 @@ impl ForkNetworkCommand {
     /// Reads configuration patches for sharded benchmark.
     /// For now reads only epoch config and number of accounts per shard to
     /// benchmark.
-    fn read_patches(patches_path: &Path) -> anyhow::Result<(EpochConfig, u64)> {
+    fn read_patches(patches_path: &Path) -> anyhow::Result<(EpochConfig, u64, u64)> {
         let epoch_config_path = patches_path.join("epoch_configs/template.json");
         let epoch_config: EpochConfig =
             serde_json::from_str(&std::fs::read_to_string(epoch_config_path)?)?;
@@ -650,7 +650,8 @@ impl ForkNetworkCommand {
         let params: HashMap<String, serde_json::Value> =
             serde_json::from_str(&std::fs::read_to_string(params_path)?)?;
         let num_accounts = params["num_accounts"].as_u64().unwrap();
-        Ok((epoch_config, num_accounts))
+        let chunk_producers = params["chunk_producers"].as_u64().unwrap();
+        Ok((epoch_config, num_accounts, chunk_producers))
     }
 
     /// Sets genesis block to be able to write accounts to the state.
@@ -694,7 +695,7 @@ impl ForkNetworkCommand {
         let store = storage.get_hot_store();
 
         // 1. Create default genesis and override its fields with given parameters.
-        let (epoch_config, num_accounts_per_shard) = Self::read_patches(patches_path)?;
+        let (epoch_config, num_accounts_per_shard, chunk_producers) = Self::read_patches(patches_path)?;
         let target_shard_layout = &epoch_config.shard_layout;
         let validators = Self::read_validators(validators, home_dir)?;
         let num_seats = num_seats.unwrap_or(validators.len() as NumSeats);
@@ -752,6 +753,7 @@ impl ForkNetworkCommand {
             home_dir,
             target_shard_layout,
             num_accounts_per_shard,
+            chunk_producers,
         )?;
         tracing::info!("Creating a new genesis");
         backup_genesis_file(home_dir, &near_config)?;
@@ -1339,8 +1341,9 @@ impl ForkNetworkCommand {
         home_dir: &Path,
         shard_layout: &ShardLayout,
         num_accounts_per_shard: u64,
+        chunk_producers: u64,
     ) -> anyhow::Result<Vec<StateRoot>> {
-        #[derive(serde::Serialize)]
+        #[derive(serde::Serialize, Clone)]
         struct AccountData {
             account_id: AccountId,
             public_key: String,
@@ -1388,15 +1391,20 @@ impl ForkNetworkCommand {
             )?;
 
             let shard_id = shard_layout.get_shard_id(account_prefix_idx).unwrap();
-            let shard_accounts_path = accounts_path.join(format!("shard_{}.json", shard_id));
-            let mut account_infos = vec![];
+            let num_shards = shard_layout.num_shards();
+            assert!(
+                chunk_producers % num_shards == 0,
+                "chunk_producers ({}) must be divisible by the number of shards ({})",
+                chunk_producers,
+                num_shards
+            );
+            let cps_per_shard = chunk_producers / num_shards;
+            
+            // Create separate account files for each CP
+            let mut cp_account_infos: Vec<Vec<AccountData>> = vec![vec![]; cps_per_shard as usize];
 
             for i in 0..num_accounts_per_shard {
                 let account_id = format!("{account_prefix}_user_{i}").parse::<AccountId>().unwrap();
-                let secret_key =
-                    SecretKey::from_seed(near_crypto::KeyType::ED25519, account_id.as_str());
-                let signer =
-                    InMemorySigner::from_secret_key(account_id.clone(), secret_key.clone());
                 let shard_id = shard_layout.account_id_to_shard_id(&account_id);
                 let shard_idx = shard_layout.get_shard_index(shard_id).unwrap();
                 assert!(
@@ -1413,24 +1421,38 @@ impl ForkNetworkCommand {
                         storage_bytes,
                     ),
                 )?;
-                storage_mutator.set_access_key(
-                    shard_idx,
-                    account_id.clone(),
-                    signer.public_key(),
-                    AccessKey::full_access(),
-                )?;
-                let account_data = AccountData {
-                    account_id: account_id.clone(),
-                    public_key: signer.public_key().to_string(),
-                    secret_key: secret_key.to_string(),
-                    nonce: 0,
-                };
-                account_infos.push(account_data);
+                
+                // Create multiple access keys for this account (one per CP)
+                for cp_idx in 0..cps_per_shard {
+                    let key_seed = format!("{account_id}_cp_{cp_idx}");
+                    let secret_key =
+                        SecretKey::from_seed(near_crypto::KeyType::ED25519, &key_seed);
+                    let public_key = secret_key.public_key();
+                    
+                    storage_mutator.set_access_key(
+                        shard_idx,
+                        account_id.clone(),
+                        public_key.clone(),
+                        AccessKey::full_access(),
+                    )?;
+                    
+                    let account_data = AccountData {
+                        account_id: account_id.clone(),
+                        public_key: public_key.to_string(),
+                        secret_key: secret_key.to_string(),
+                        nonce: 0,
+                    };
+                    cp_account_infos[cp_idx as usize].push(account_data);
+                }
             }
 
-            let account_file = File::create(shard_accounts_path)?;
-            let account_writer = BufWriter::new(account_file);
-            serde_json::to_writer(account_writer, &account_infos)?;
+            // Write one file per CP
+            for (cp_idx, account_infos) in cp_account_infos.iter().enumerate() {
+                let shard_accounts_path = accounts_path.join(format!("shard_{}_cp_{}.json", shard_id, cp_idx));
+                let account_file = File::create(shard_accounts_path)?;
+                let account_writer = BufWriter::new(account_file);
+                serde_json::to_writer(account_writer, &account_infos)?;
+            }
 
             state_roots = storage_mutator.commit()?;
         }
