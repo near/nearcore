@@ -14,7 +14,7 @@ use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBit
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
-    TransactionKey, TransactionV0, TransactionV2, TransferAction,
+    TransactionKey, TransactionV0, TransactionV1, TransactionV2, TransferAction,
 };
 use crate::types::validator_stake::ValidatorStake;
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
@@ -24,7 +24,7 @@ use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
-use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
+use near_primitives_core::types::{BlockHeight, MerkleHash, NonceIndex, ProtocolVersion};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
 use std::sync::Arc;
@@ -172,6 +172,32 @@ impl SignedTransaction {
         .sign(signer)
     }
 
+    /// Creates a v1 transaction. Use None `nonce_index` for access key and Some for gas key.
+    pub fn from_actions_v1(
+        nonce: Nonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        signer: &Signer,
+        nonce_index: Option<NonceIndex>,
+        actions: Vec<Action>,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Transaction::V1(TransactionV1 {
+            nonce,
+            signer_id,
+            key: match nonce_index {
+                Some(index) => {
+                    TransactionKey::GasKey { key: signer.public_key(), nonce_index: index }
+                }
+                None => TransactionKey::AccessKey { key: signer.public_key() },
+            },
+            receiver_id,
+            block_hash,
+            actions,
+        })
+        .sign(signer)
+    }
+
     /// Explicitly create v2 transaction to test in cases where errors are expected.
     pub fn from_actions_v2(
         nonce: Nonce,
@@ -211,6 +237,26 @@ impl SignedTransaction {
             vec![Action::Transfer(TransferAction { deposit })],
             block_hash,
             0,
+        )
+    }
+
+    pub fn send_money_v1(
+        nonce: Nonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        signer: &Signer,
+        nonce_index: Option<NonceIndex>,
+        deposit: Balance,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self::from_actions_v1(
+            nonce,
+            signer_id,
+            receiver_id,
+            signer,
+            nonce_index,
+            vec![Action::Transfer(TransferAction { deposit })],
+            block_hash,
         )
     }
 

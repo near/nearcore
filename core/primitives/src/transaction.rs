@@ -46,6 +46,11 @@ pub struct TransactionV0 {
     pub actions: Vec<Action>,
 }
 
+pub enum SignerKind {
+    AccessKey,
+    GasKey(NonceIndex),
+}
+
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, PartialEq, Eq, Debug, Clone, ProtocolSchema,
 )]

@@ -336,7 +336,7 @@ mod tests {
     use super::*;
     use near_crypto::{InMemorySigner, KeyType};
     use near_primitives::hash::CryptoHash;
-    use near_primitives::transaction::SignedTransaction;
+    use near_primitives::transaction::{SignedTransaction, SignerKind};
     use near_primitives::types::Balance;
     use rand::seq::SliceRandom;
     use rand::thread_rng;
@@ -346,6 +346,7 @@ mod tests {
     fn generate_transactions(
         signer_id: &str,
         signer_seed: &str,
+        signer_kind: SignerKind,
         starting_nonce: u64,
         end_nonce: u64,
     ) -> Vec<ValidatedTransaction> {
@@ -354,11 +355,15 @@ mod tests {
             Arc::new(InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_seed));
         (starting_nonce..=end_nonce)
             .map(|i| {
-                let signed_tx = SignedTransaction::send_money(
+                let signed_tx = SignedTransaction::send_money_v1(
                     i,
                     signer_id.clone(),
                     "bob.near".parse().unwrap(),
                     &*signer,
+                    match signer_kind {
+                        SignerKind::AccessKey => None,
+                        SignerKind::GasKey(nonce_index) => Some(nonce_index),
+                    },
                     Balance::from_yoctonear(u128::from(i)),
                     CryptoHash::default(),
                 );
@@ -416,7 +421,8 @@ mod tests {
     /// orders them correctly.
     #[test]
     fn test_order_nonce() {
-        let transactions = generate_transactions("alice.near", "alice.near", 1, 10);
+        let transactions =
+            generate_transactions("alice.near", "alice.near", SignerKind::AccessKey, 1, 10);
         let (nonces, _) = process_txs_to_nonces(transactions, 10);
         assert_eq!(nonces, (1..=10).collect::<Vec<u64>>());
     }
@@ -425,8 +431,15 @@ mod tests {
     /// orders them correctly.
     #[test]
     fn test_order_nonce_two_signers() {
-        let mut transactions = generate_transactions("alice.near", "alice.near", 1, 10);
-        transactions.extend(generate_transactions("bob.near", "bob.near", 1, 10));
+        let mut transactions =
+            generate_transactions("alice.near", "alice.near", SignerKind::AccessKey, 1, 10);
+        transactions.extend(generate_transactions(
+            "bob.near",
+            "bob.near",
+            SignerKind::AccessKey,
+            1,
+            10,
+        ));
 
         let (nonces, _) = process_txs_to_nonces(transactions, 10);
         assert_eq!(nonces, (1..=5).map(|a| vec![a; 2]).flatten().collect::<Vec<u64>>());
@@ -436,8 +449,15 @@ mod tests {
     /// different public keys.
     #[test]
     fn test_order_nonce_same_account_two_access_keys_variable_nonces() {
-        let mut transactions = generate_transactions("alice.near", "alice.near", 1, 10);
-        transactions.extend(generate_transactions("alice.near", "bob.near", 21, 30));
+        let mut transactions =
+            generate_transactions("alice.near", "alice.near", SignerKind::AccessKey, 1, 10);
+        transactions.extend(generate_transactions(
+            "alice.near",
+            "bob.near",
+            SignerKind::AccessKey,
+            21,
+            30,
+        ));
 
         let (mut nonces, _) = process_txs_to_nonces(transactions, 10);
         sort_pairs(&mut nonces[..]);
@@ -448,8 +468,15 @@ mod tests {
     /// Then try to get another 10.
     #[test]
     fn test_retain() {
-        let mut transactions = generate_transactions("alice.near", "alice.near", 1, 3);
-        transactions.extend(generate_transactions("alice.near", "bob.near", 21, 31));
+        let mut transactions =
+            generate_transactions("alice.near", "alice.near", SignerKind::AccessKey, 1, 3);
+        transactions.extend(generate_transactions(
+            "alice.near",
+            "bob.near",
+            SignerKind::AccessKey,
+            21,
+            31,
+        ));
 
         let (mut nonces, mut pool) = process_txs_to_nonces(transactions, 10);
         sort_pairs(&mut nonces[..6]);
@@ -510,12 +537,23 @@ mod tests {
         assert_eq!(pool_txs, expected_txs);
     }
 
+    struct TestSigner {
+        seed: &'static str,
+        signer_kind: SignerKind,
+    }
+
     /// Add transactions of nonce from 1..=3 and transactions with nonce 21..=31. Pull 10.
     /// Then try to get another 10.
-    #[test]
-    fn test_pool_iterator() {
-        let mut transactions = generate_transactions("alice.near", "alice.near", 1, 3);
-        transactions.extend(generate_transactions("alice.near", "bob.near", 21, 31));
+    fn test_pool_iterator_impl(signer1: TestSigner, signer2: TestSigner) {
+        let mut transactions =
+            generate_transactions("alice.near", &signer1.seed, signer1.signer_kind, 1, 3);
+        transactions.extend(generate_transactions(
+            "alice.near",
+            &signer2.seed,
+            signer2.signer_kind,
+            21,
+            31,
+        ));
 
         let (nonces, mut pool) = process_txs_to_nonces(transactions, 0);
         assert!(nonces.is_empty());
@@ -537,10 +575,23 @@ mod tests {
         assert_eq!(nonces, vec![1, 21, 3, 23, 25, 27, 29, 31]);
     }
 
+    #[test]
+    fn test_pool_iterator() {
+        test_pool_iterator_impl(
+            TestSigner { seed: "alice.near", signer_kind: SignerKind::AccessKey },
+            TestSigner { seed: "bob.near", signer_kind: SignerKind::AccessKey },
+        );
+        test_pool_iterator_impl(
+            TestSigner { seed: "alice.near", signer_kind: SignerKind::GasKey(0) },
+            TestSigner { seed: "alice.near", signer_kind: SignerKind::GasKey(1) },
+        )
+    }
+
     /// Test pool iterator updates unique transactions.
     #[test]
     fn test_pool_iterator_removes_unique() {
-        let transactions = generate_transactions("alice.near", "alice.near", 1, 10);
+        let transactions =
+            generate_transactions("alice.near", "alice.near", SignerKind::AccessKey, 1, 10);
 
         let (nonces, mut pool) = process_txs_to_nonces(transactions.clone(), 5);
         assert_eq!(nonces.len(), 5);
@@ -599,7 +650,8 @@ mod tests {
     #[test]
     fn test_transaction_pool_size() {
         let mut pool = TransactionPool::new(TEST_SEED, None, "");
-        let transactions = generate_transactions("alice.near", "alice.near", 1, 100);
+        let transactions =
+            generate_transactions("alice.near", "alice.near", SignerKind::AccessKey, 1, 100);
         let mut total_transaction_size = 0;
         // Adding transactions increases the size.
         for tx in transactions.clone() {
@@ -618,7 +670,8 @@ mod tests {
 
     #[test]
     fn test_transaction_pool_size_limit() {
-        let transactions = generate_transactions("alice.near", "alice.near", 1, 100);
+        let transactions =
+            generate_transactions("alice.near", "alice.near", SignerKind::AccessKey, 1, 100);
         // Each transaction is at least 1 byte in size, so the last transaction will not fit.
         let pool_size_limit =
             transactions.iter().map(|tx| tx.get_size()).sum::<u64>().checked_sub(1).unwrap();

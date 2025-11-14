@@ -765,17 +765,19 @@ mod tests {
     use near_primitives::transaction::{
         CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction, TransferAction,
     };
-    use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
+    use near_primitives::types::{AccountId, Balance, MerkleHash, NonceIndex, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
-    use near_store::{get_access_key, set, set_access_key, set_account};
+    use near_store::{
+        get_access_key, get_gas_key_nonce, set, set_access_key, set_account, set_gas_key_nonce,
+    };
     use near_vm_runner::ContractCode;
     use std::collections::BTreeMap;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
-    /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
+    const TESTING_NUM_GAS_KEY_NONCES: NonceIndex = 2;
 
     fn test_limit_config() -> LimitConfig {
         let store = near_parameters::RuntimeConfigStore::test();
@@ -796,6 +798,22 @@ mod tests {
             false,
             false,
         )])
+    }
+
+    fn setup_gas_key(
+        state_update: &mut TrieUpdate,
+        balance: Balance,
+        permission: AccessKeyPermission,
+        public_key: Option<PublicKey>,
+    ) {
+        let account_id = alice_account();
+        let gas_key = GasKey { num_nonces: TESTING_NUM_GAS_KEY_NONCES, balance, permission };
+        let public_key =
+            public_key.unwrap_or_else(|| InMemorySigner::test_signer(&account_id).public_key());
+        set_gas_key(state_update, account_id.clone(), public_key.clone(), &gas_key);
+        for nonce in 0..TESTING_NUM_GAS_KEY_NONCES {
+            set_gas_key_nonce(state_update, account_id.clone(), public_key.clone(), nonce, 0);
+        }
     }
 
     fn setup_accounts(
@@ -888,15 +906,16 @@ mod tests {
         gas_price: Balance,
         signed_transaction: SignedTransaction,
         expected_err: InvalidTxError,
+        current_protocol_version: ProtocolVersion,
     ) {
-        let validated_tx = match validate_transaction(config, signed_transaction, PROTOCOL_VERSION)
-        {
-            Ok(v) => v,
-            Err((err, _tx)) => {
-                assert_eq!(err, expected_err);
-                return;
-            }
-        };
+        let validated_tx =
+            match validate_transaction(config, signed_transaction, current_protocol_version) {
+                Ok(v) => v,
+                Err((err, _tx)) => {
+                    assert_eq!(err, expected_err);
+                    return;
+                }
+            };
         let cost = match tx_cost(config, &validated_tx.to_tx(), gas_price) {
             Ok(c) => c,
             Err(err) => {
@@ -1111,6 +1130,72 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_transaction_from_gas_key_valid() {
+        let config = RuntimeConfig::test();
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
+        setup_gas_key(
+            &mut state_update,
+            TESTING_INIT_BALANCE,
+            AccessKeyPermission::FullAccess,
+            None,
+        );
+
+        let deposit = Balance::from_yoctonear(100);
+        let nonce_index = 0;
+        let signed_tx = SignedTransaction::from_actions_v1(
+            1,
+            alice_account(),
+            alice_account(),
+            &signer,
+            Some(nonce_index),
+            vec![Action::Transfer(TransferAction { deposit })],
+            CryptoHash::default(),
+        );
+        let verification_result = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .expect("valid transaction");
+        // Should not be free. Burning for sending
+        assert!(verification_result.gas_burnt > Gas::ZERO);
+        // All burned gas goes to the validators at current gas price
+        assert_eq!(
+            verification_result.burnt_amount,
+            gas_price.checked_mul(u128::from(verification_result.gas_burnt.as_gas())).unwrap()
+        );
+
+        let gas_key =
+            get_gas_key(&state_update, &alice_account(), &signer.public_key()).unwrap().unwrap();
+        // Balance is decreased by (TX fees + transfer balance).
+        assert_eq!(
+            gas_key.balance,
+            TESTING_INIT_BALANCE
+                .checked_sub(
+                    verification_result
+                        .receipt_gas_price
+                        .checked_mul(u128::from(verification_result.gas_remaining.as_gas()))
+                        .unwrap()
+                )
+                .unwrap()
+                .checked_sub(verification_result.burnt_amount)
+                .unwrap()
+                .checked_sub(deposit)
+                .unwrap()
+        );
+
+        let nonce =
+            get_gas_key_nonce(&state_update, &alice_account(), &signer.public_key(), nonce_index)
+                .unwrap()
+                .unwrap();
+        assert_eq!(nonce, 1);
+    }
+
+    #[test]
     fn test_validate_transaction_invalid_signature() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
@@ -1132,6 +1217,45 @@ mod tests {
             gas_price,
             tx,
             InvalidTxError::InvalidSignature,
+            PROTOCOL_VERSION,
+        );
+    }
+
+    #[test]
+    fn test_validate_transaction_from_gas_key_invalid_signature() {
+        let config = RuntimeConfig::test();
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
+        let gas_key_signer =
+            InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "gas-key");
+        setup_gas_key(
+            &mut state_update,
+            TESTING_INIT_BALANCE,
+            AccessKeyPermission::FullAccess,
+            Some(gas_key_signer.public_key().clone()),
+        );
+
+        let deposit = Balance::from_yoctonear(100);
+        let nonce_index = 0;
+        let mut tx = SignedTransaction::from_actions_v1(
+            1,
+            alice_account(),
+            alice_account(),
+            &gas_key_signer,
+            Some(nonce_index),
+            vec![Action::Transfer(TransferAction { deposit })],
+            CryptoHash::default(),
+        );
+        // Change signature to be from the wrong signer
+        tx.signature = signer.sign(tx.hash().as_bytes());
+
+        assert_err_both_validations(
+            &config,
+            &mut state_update,
+            gas_price,
+            tx,
+            InvalidTxError::InvalidSignature,
+            ProtocolFeature::GasKeys.protocol_version(),
         );
     }
 
@@ -1169,6 +1293,50 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_transaction_from_gas_key_not_found() {
+        let config = RuntimeConfig::test();
+        let (bad_signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
+        let gas_key_signer =
+            InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "gas-key");
+        setup_gas_key(
+            &mut state_update,
+            TESTING_INIT_BALANCE,
+            AccessKeyPermission::FullAccess,
+            Some(gas_key_signer.public_key().clone()),
+        );
+
+        let deposit = Balance::from_yoctonear(100);
+        let nonce_index = 0;
+        let transaction = SignedTransaction::from_actions_v1(
+            1,
+            alice_account(),
+            alice_account(),
+            &bad_signer,
+            Some(nonce_index),
+            vec![Action::Transfer(TransferAction { deposit })],
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            transaction,
+            gas_price,
+            None,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .expect_err("expected an error");
+        assert_eq!(
+            err,
+            InvalidTxError::GasKeyDoesNotExist {
+                signer_id: alice_account(),
+                public_key: bad_signer.public_key().into(),
+            }
+        );
+    }
+
+    #[test]
     fn test_validate_transaction_invalid_bad_action() {
         let mut config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
@@ -1199,6 +1367,7 @@ mod tests {
                 total_prepaid_gas: Gas::from_gas(200),
                 limit: Gas::from_gas(100),
             }),
+            PROTOCOL_VERSION,
         );
     }
 
@@ -1278,6 +1447,7 @@ mod tests {
                 CryptoHash::default(),
             ),
             InvalidTxError::CostOverflow,
+            PROTOCOL_VERSION,
         );
     }
 
@@ -1301,6 +1471,7 @@ mod tests {
                 1,
             ),
             InvalidTxError::InvalidTransactionVersion,
+            PROTOCOL_VERSION,
         );
     }
 
