@@ -425,7 +425,7 @@ fn execute_blocks_until_final_execution_head_moves(
     let genesis_height = genesis.header().height();
     let mut prev_block = genesis;
 
-    // We set some limit to make sure we don't run infinite look if something is wrong.
+    // We set some limit to make sure we don't run infinite loop if something is wrong.
     let block_limit = 10;
     for _ in 0..block_limit {
         let block = produce_block(actors, &prev_block);
