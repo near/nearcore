@@ -26,9 +26,7 @@ use crate::stateless_validation::chunk_endorsement::{
 };
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for_shard};
-use crate::store::{
-    ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
-};
+use crate::store::{ChainStore, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter};
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, BlockType, ChainConfig,
     PrepareTransactionsBlockContext, RuntimeAdapter, StorageDataSource,
@@ -96,7 +94,7 @@ use near_primitives::views::{
     LightClientBlockView, SignedTransactionView,
 };
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead, ChainStoreReadExt};
 use near_store::get_genesis_state_roots;
 use near_store::{DBCol, StateSnapshotConfig};
 use node_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
@@ -629,7 +627,7 @@ impl Chain {
     pub fn create_light_client_block(
         header: &BlockHeader,
         epoch_manager: &dyn EpochManagerAdapter,
-        chain_store: &dyn ChainStoreAccess,
+        chain_store: &dyn ChainStoreReadExt,
     ) -> Result<LightClientBlockView, Error> {
         let final_block_header = {
             let ret = chain_store.get_block_header(header.last_final_block())?;
@@ -3546,11 +3544,11 @@ impl MerkleProofAccess for Chain {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<Arc<PartialMerkleTree>, Error> {
-        ChainStoreAccess::get_block_merkle_tree(self.chain_store(), block_hash)
+        self.chain_store.get_block_merkle_tree(block_hash)
     }
 
     fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error> {
-        ChainStoreAccess::get_block_hash_from_ordinal(self.chain_store(), block_ordinal)
+        self.chain_store().get_block_hash_from_ordinal(block_ordinal)
     }
 }
 

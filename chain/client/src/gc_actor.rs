@@ -4,11 +4,12 @@ use near_async::messaging::Actor;
 #[cfg(feature = "test_features")]
 use near_async::messaging::Handler;
 use near_chain::ChainGenesis;
-use near_chain::{ChainStore, ChainStoreAccess, types::RuntimeAdapter};
+use near_chain::{ChainStore, types::RuntimeAdapter};
 use near_chain_configs::GCConfig;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_store::Store;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::db::metadata::DbKind;
 use std::sync::Arc;
 

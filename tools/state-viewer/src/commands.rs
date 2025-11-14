@@ -21,8 +21,7 @@ use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
 use near_chain::{
-    Chain, ChainGenesis, ChainStore, ChainStoreAccess, Error, ReceiptFilter,
-    get_incoming_receipts_for_shard,
+    Chain, ChainGenesis, ChainStore, Error, ReceiptFilter, get_incoming_receipts_for_shard,
 };
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
@@ -47,6 +46,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::{Balance, EpochHeight};
 use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::flat::FlatStorageChunkView;
 use near_store::flat::FlatStorageManager;

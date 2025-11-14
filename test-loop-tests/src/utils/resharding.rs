@@ -7,7 +7,6 @@ use borsh::BorshDeserialize;
 use bytesize::ByteSize;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
-use near_chain::ChainStoreAccess;
 use near_client::Client;
 use near_client::{Query, QueryError::GarbageCollectedBlock};
 use near_crypto::Signer;

@@ -4,7 +4,7 @@ use near_chain::chain::collect_receipts_from_response;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, BlockType, RuntimeAdapter,
 };
-use near_chain::{ChainStore, ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
+use near_chain::{ChainStore, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
@@ -19,6 +19,7 @@ use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
 use near_store::DBCol;
 use near_store::Store;
+use near_store::adapter::chain_store::ChainStoreRead;
 use node_runtime::SignedValidPeriodTransactions;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;

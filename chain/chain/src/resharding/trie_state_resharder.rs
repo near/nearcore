@@ -5,6 +5,7 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockHeight};
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::adapter::trie_store::{TrieStoreUpdateAdapter, get_shard_uid_mapping};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::TRIE_STATE_RESHARDING_STATUS_KEY;

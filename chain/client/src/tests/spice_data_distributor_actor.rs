@@ -1,6 +1,5 @@
 use near_async::futures::DelayedActionRunner;
 use near_async::messaging::Actor;
-use near_chain::ChainStoreAccess;
 use near_chain::spice_core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use near_crypto::Signature;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -14,6 +13,7 @@ use near_primitives::stateless_validation::spice_state_witness::{
     SpiceChunkStateTransition, SpiceChunkStateWitness,
 };
 use near_store::ShardUId;
+use near_store::adapter::chain_store::ChainStoreRead;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;

@@ -4,7 +4,6 @@ use super::sharding::{next_block_has_new_shard_layout, this_block_has_new_shard_
 use crate::setup::state::NodeExecutionData;
 use crate::utils::sharding::get_memtrie_for_shard;
 use near_async::test_loop::data::TestLoopData;
-use near_chain::ChainStoreAccess;
 use near_chain::types::Tip;
 use near_client::Client;
 use near_client::client_actor::ClientActorInner;
@@ -17,6 +16,7 @@ use near_primitives::receipt::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use near_primitives::version::ProtocolFeature;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::{ShardUId, get};
 use near_vm_runner::logic::ProtocolVersion;
 

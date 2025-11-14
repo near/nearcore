@@ -2,7 +2,6 @@ use std::borrow::Cow;
 use std::sync::Arc;
 use std::task::Poll;
 
-#[cfg(feature = "test_features")]
 use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
@@ -20,6 +19,7 @@ use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponse,
     QueryResponseKind,
 };
+use near_store::adapter::chain_store::ChainStoreRead;
 
 use crate::setup::state::NodeExecutionData;
 use crate::utils::account::rpc_account_id;

@@ -25,6 +25,7 @@ use near_primitives::trie_key::trie_key_parsers::{
 };
 use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
 use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStorageError, FlatStorageReadyStatus,

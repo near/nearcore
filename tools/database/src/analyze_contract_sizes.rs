@@ -1,11 +1,12 @@
 use bytesize::ByteSize;
 use clap::Parser;
-use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain::ChainStore;
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::trie_key::col;
 use near_primitives::types::AccountId;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::{ShardUId, Trie, TrieDBStorage};
 use nearcore::{load_config, open_storage};
 use std::collections::BTreeMap;

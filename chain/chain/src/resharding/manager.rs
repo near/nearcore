@@ -12,6 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;

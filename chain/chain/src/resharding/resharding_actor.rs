@@ -15,7 +15,7 @@ use near_primitives::shard_layout::ShardUId;
 #[cfg(feature = "test_features")]
 use near_primitives::types::BlockHeightDelta;
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead};
 use time::Duration;
 
 /// Dedicated actor for resharding V3.

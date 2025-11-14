@@ -1,4 +1,3 @@
-use near_chain::ChainStoreAccess;
 use near_chain::{BlockHeader, Chain, ChainStore, types::EpochManagerAdapter};
 use near_chunks_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -12,6 +11,7 @@ use near_primitives::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader,
 };
 use near_primitives::types::{AccountId, ShardId};
+use near_store::adapter::chain_store::ChainStoreRead;
 use std::sync::Arc;
 use tracing::instrument;
 

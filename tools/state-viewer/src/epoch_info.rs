@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use core::ops::Range;
 use itertools::Itertools;
-use near_chain::{ChainStore, ChainStoreAccess, Error};
+use near_chain::{ChainStore, Error};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::id::AccountId;
 use near_primitives::epoch_info::EpochInfo;
@@ -9,6 +9,7 @@ use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ProtocolVersion, ShardId};
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::{DBCol, Store};
 use std::str::FromStr;
 use std::sync::Arc;

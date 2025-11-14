@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::types::RuntimeAdapter;
-use crate::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate};
+use crate::{Chain, ChainGenesis, ChainStore, ChainStoreUpdate};
 use itertools::Itertools;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;

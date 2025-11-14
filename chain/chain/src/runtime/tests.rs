@@ -1,6 +1,6 @@
 use super::*;
 use crate::types::{BlockType, ChainConfig, RuntimeStorageConfig};
-use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
+use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
 use borsh::BorshDeserialize;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
@@ -39,6 +39,7 @@ use near_primitives::views::{
     AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
     ValidatorKickoutView,
 };
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use near_store::trie::AccessOptions;

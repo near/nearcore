@@ -142,6 +142,8 @@ fn test_invalid_transactions_no_panic() {
 #[test]
 #[cfg(feature = "nightly")]
 fn test_invalid_transactions_dont_invalidate_chunk() {
+    use near_store::adapter::chain_store::ChainStoreRead;
+
     near_o11y::testonly::init_test_logger();
     let accounts =
         vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];

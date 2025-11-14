@@ -1,6 +1,6 @@
 use crate::near_chain_primitives::error::BlockKnownError;
 use crate::test_utils::{setup, wait_for_all_blocks_in_processing};
-use crate::{Block, BlockProcessingArtifact, ChainStoreAccess, Error};
+use crate::{Block, BlockProcessingArtifact, Error};
 use assert_matches::assert_matches;
 use near_async::time::{Clock, Duration, FakeClock, Utc};
 use near_o11y::testonly::init_test_logger;
@@ -9,6 +9,7 @@ use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::{
     hash::CryptoHash, test_utils::TestBlockBuilder, types::Balance, version::PROTOCOL_VERSION,
 };
+use near_store::adapter::chain_store::ChainStoreRead;
 use num_rational::Ratio;
 use std::sync::Arc;
 

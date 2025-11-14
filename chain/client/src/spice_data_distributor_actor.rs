@@ -48,6 +48,7 @@ use near_primitives::types::ShardId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chain_store::ChainStoreRead;
 
 use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
 use crate::chunk_executor_actor::get_receipt_proof;

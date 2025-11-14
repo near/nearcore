@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
-use near_chain::{ChainStoreAccess, Provenance};
+use near_chain::Provenance;
 use near_chain_configs::genesis_validate::validate_genesis;
 use near_chain_configs::test_utils::TESTING_INIT_STAKE;
 use near_chain_configs::{Genesis, GenesisChangeConfig, MutableConfigValue};

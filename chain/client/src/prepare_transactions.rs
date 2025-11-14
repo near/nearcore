@@ -14,6 +14,7 @@ use near_primitives::optimistic_block::CachedShardUpdateKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::ShardId;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::{ShardUId, TrieUpdate};
 use parking_lot::Mutex;
 

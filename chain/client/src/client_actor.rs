@@ -33,8 +33,6 @@ use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
-#[cfg(feature = "test_features")]
-use near_chain::ChainStoreAccess;
 use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
 };
@@ -80,6 +78,7 @@ use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_telemetry::TelemetryEvent;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;

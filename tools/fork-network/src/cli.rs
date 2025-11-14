@@ -3,7 +3,7 @@ use crate::storage_mutator::{ShardUpdateState, StorageMutator};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_chain::types::{RuntimeAdapter, Tip};
-use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess};
+use near_chain::{Chain, ChainGenesis, ChainStore};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
 use near_crypto::{InMemorySigner, PublicKey, SecretKey};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
@@ -25,6 +25,7 @@ use near_primitives::types::{
     AccountId, AccountInfo, Balance, EpochId, NumBlocks, NumSeats, ShardId, StateRoot,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
+use near_store::adapter::chain_store::ChainStoreRead;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::RocksDB;
 use near_store::flat::{BlockInfo, FlatStorageManager, FlatStorageStatus};

@@ -8,8 +8,7 @@ use near_chain::types::{
     RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain::{
-    Block, ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter,
-    get_incoming_receipts_for_shard,
+    Block, ChainStore, ChainStoreUpdate, ReceiptFilter, get_incoming_receipts_for_shard,
 };
 use near_chain_configs::Genesis;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
@@ -26,7 +25,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, ShardId};
 use near_primitives::utils::get_block_shard_id;
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead};
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;

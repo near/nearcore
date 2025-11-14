@@ -4,7 +4,6 @@ use crate::utils::sharding::{
 };
 use borsh::BorshDeserialize;
 use itertools::Itertools;
-use near_chain::ChainStoreAccess;
 use near_chain::types::Tip;
 use near_client::Client;
 use near_primitives::hash::CryptoHash;

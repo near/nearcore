@@ -11,13 +11,14 @@ use near_primitives::views::{
     BlockProcessingInfo, BlockProcessingStatus, ChainProcessingInfo, ChunkProcessingInfo,
     ChunkProcessingStatus, DroppedReason,
 };
+use near_store::adapter::chain_store::ChainStoreRead;
 use std::collections::{BTreeMap, HashMap, hash_map::Entry};
 use std::mem;
 use std::num::NonZeroUsize;
 use time::ext::InstantExt as _;
 use tracing::error;
 
-use crate::{Chain, ChainStoreAccess, metrics};
+use crate::{Chain, metrics};
 
 const BLOCK_DELAY_TRACKING_COUNT: u64 = 50;
 

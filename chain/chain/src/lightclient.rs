@@ -5,8 +5,7 @@ use near_primitives::hash::hash;
 use near_primitives::types::EpochId;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{BlockHeaderInnerLiteView, LightClientBlockView};
-
-use crate::ChainStoreAccess;
+use near_store::adapter::chain_store::ChainStoreRead;
 
 pub fn get_epoch_block_producers_view(
     epoch_id: &EpochId,
@@ -34,7 +33,7 @@ pub fn get_epoch_block_producers_view(
 ///                   to and for the next block, and the three blocks must have sequential heights.
 pub fn create_light_client_block_view(
     block_header: &BlockHeader,
-    chain_store: &dyn ChainStoreAccess,
+    chain_store: &dyn ChainStoreRead,
     next_block_producers: Option<Vec<ValidatorStakeView>>,
 ) -> Result<LightClientBlockView, Error> {
     let inner_lite_view = BlockHeaderInnerLiteView {

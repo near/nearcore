@@ -1,5 +1,4 @@
 use near_async::time::Duration;
-use near_chain::ChainStoreAccess;
 use near_chain::genesis::get_genesis_congestion_infos;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::Client;

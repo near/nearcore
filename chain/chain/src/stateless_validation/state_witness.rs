@@ -1,4 +1,3 @@
-use crate::store::ChainStoreAccess;
 use crate::{BlockHeader, ChainStore, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -16,6 +15,7 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
 };
 use near_primitives::types::{EpochId, ShardId};
 use near_primitives::version::ProtocolFeature;
+use near_store::adapter::chain_store::ChainStoreRead;
 use std::collections::HashMap;
 
 /// Result of collecting state transition data from the database to generate a state witness.

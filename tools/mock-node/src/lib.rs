@@ -16,7 +16,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::ProtocolVersion;
-use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::chain_store::{ChainStoreAdapter, ChainStoreRead};
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;

@@ -8,6 +8,7 @@ use near_primitives::merkle::{
 use near_primitives::types::NumBlocks;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreRead;
 
 /// Implement block merkle proof retrieval.
 ///
@@ -124,7 +125,7 @@ impl MerkleProofAccess for Store {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<Arc<PartialMerkleTree>, Error> {
-        self.chain_store().get_block_merkle_tree(block_hash).map(Arc::new)
+        self.chain_store().get_block_merkle_tree(block_hash)
     }
 
     fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error> {

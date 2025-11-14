@@ -1,7 +1,6 @@
 use near_async::messaging::CanSend;
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::Chain;
-use near_chain::ChainStoreAccess;
 use near_chain::chain::BlockKnowledge;
 use near_client_primitives::types::SyncStatus;
 use near_network::types::PeerManagerMessageRequest;
@@ -10,6 +9,7 @@ use near_o11y::log_assert;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, BlockHeightDelta};
+use near_store::adapter::chain_store::ChainStoreRead;
 use rand::seq::IteratorRandom;
 use tracing::{debug, instrument, warn};
 

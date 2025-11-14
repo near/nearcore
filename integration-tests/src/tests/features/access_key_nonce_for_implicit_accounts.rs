@@ -23,6 +23,7 @@ use near_primitives::types::{AccountId, Balance, BlockHeight};
 use near_primitives::utils::derive_near_implicit_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
+use near_store::adapter::chain_store::ChainStoreRead;
 use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
 use std::collections::HashSet;
