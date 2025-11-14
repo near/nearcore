@@ -374,11 +374,13 @@ impl AnalyseArchivalCommand {
         eprintln!("Analyse txs data");
         let mut shard_data = HashMap::<ShardId, HashMap<CryptoHash, SignedTransaction>>::new();
         let mut stats = HashMap::<ShardId, SizeStats>::new();
+        let mut block_cnt = 0;
         for res in store.iter_ser::<Block>(DBCol::Block).take(self.limit()) {
             let (_, block) = res.unwrap();
             if block.header().is_genesis() {
                 continue;
             }
+            block_cnt += 1;
             for chunk in block.chunks().iter() {
                 let ChunkType::New(chunk) = chunk else {
                     continue;
@@ -411,9 +413,17 @@ impl AnalyseArchivalCommand {
                 continue;
             };
             eprintln!("* Stats for shard {shard_id}\n{stats}");
-            let data = borsh::to_vec(&shard_data.get(&shard_id).unwrap()).unwrap();
+            let shard_map = shard_data.get(&shard_id).unwrap();
+            let data = borsh::to_vec(&shard_map).unwrap();
             let compressed =
                 zstd::encode_all(data.as_slice(), self.compression_level as i32).unwrap();
+            let txs_per_block = shard_map.len() as f32 / block_cnt as f32;
+            let avg_tx_size = data.len() / shard_map.len();
+            eprintln!(
+                "Txs per block: {:.1}, avg tx size: {}",
+                txs_per_block,
+                ByteSize::b(avg_tx_size as u64)
+            );
             eprintln!(
                 "Total raw size: {}, Total compressed size: {}",
                 ByteSize::b(data.len() as u64),
@@ -423,9 +433,11 @@ impl AnalyseArchivalCommand {
             overall_compressed_size += compressed.len();
         }
         eprintln!(
-            "\nOverall size: {}, Overall compressed size: {}",
+            "\nOverall size: {}, Overall compressed size: {}\nblocks: {}, total size per block: {}\n",
             ByteSize::b(overall_size as u64),
-            ByteSize::b(overall_compressed_size as u64)
+            ByteSize::b(overall_compressed_size as u64),
+            block_cnt,
+            ByteSize::b((overall_size / block_cnt) as u64),
         );
     }
 
