@@ -4,11 +4,11 @@ pub(crate) struct Choice {
 }
 
 impl Choice {
-    pub(crate) fn new(num_accounts: usize, sender_skew: f64, receiver_skew: f64) -> Self {
+    pub(crate) fn new(num_accounts: usize, num_receiver_accounts: usize, sender_skew: f64, receiver_skew: f64) -> Self {
         let q = 2.7;
         Self {
             sender: ZipfMandelbrot::new(num_accounts - 1, sender_skew, q),
-            receiver: ZipfMandelbrot::new(num_accounts - 1, receiver_skew, q),
+            receiver: ZipfMandelbrot::new(num_receiver_accounts - 1, receiver_skew, q),
         }
     }
 

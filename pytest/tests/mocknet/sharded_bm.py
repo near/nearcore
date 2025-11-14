@@ -153,6 +153,7 @@ def handle_init(args):
     # TODO: check neard binary version
 
     # Grant CAP_SYS_NICE to neard binaries for realtime thread scheduling
+    # todo(slavas): this does not work at the moment because neard0 is a symlink
     run_cmd_args = copy.deepcopy(args)
     run_cmd_args.cmd = "sudo setcap cap_sys_nice+ep ~/.near/neard-runner/binaries/neard*"
     run_remote_cmd(CommandContext(run_cmd_args))
@@ -210,13 +211,17 @@ def handle_init(args):
 
     run_cmd_args = copy.deepcopy(args)
     run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
-    accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
+    source_accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
+    receiver_accounts_dir = f"{BENCHNET_DIR}/user-data/receiver-accounts/"
+    source_accounts_dir = f"{BENCHNET_DIR}/user-data/"
     run_cmd_args.cmd = f"\
         shard=$(python3 {BENCHNET_DIR}/helpers/get_tracked_shard.py) && \
         echo \"Tracked shard: $shard\" && \
         rm -rf {BENCHNET_DIR}/user-data && \
-        mkdir -p {BENCHNET_DIR}/user-data && \
-        cp {NEAR_HOME}/user-data/shard_$shard.json {accounts_path} \
+        mkdir -p {source_accounts_dir} && \
+        mkdir -p {receiver_accounts_dir} && \
+        cp {NEAR_HOME}/user-data/shard_$shard.json {source_accounts_path} && \
+        cp {NEAR_HOME}/user-data/shard_*.json {receiver_accounts_dir} \
     "
 
     run_remote_cmd(CommandContext(run_cmd_args))
@@ -309,12 +314,16 @@ def handle_reset(args):
     reset_cmd(CommandContext(reset_cmd_args))
 
 
+# todo(slavas): enable_tx_generator parameter=False does not guarantee that
+# the tx generator is disabled, because the config may already have it enabled.
 def start_nodes(args, enable_tx_generator=False):
     """Start the benchmark nodes with the given parameters."""
     if enable_tx_generator:
         logger.info("Setting tx generator parameters")
 
+        # todo(slavas): these paths are implicitly assumed to correspond to similiar from the handle_init() - terribly fragile.
         accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
+        receiver_accounts_path = f"{BENCHNET_DIR}/user-data/receiver-accounts"
         tx_generator_settings = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings.json"
         tx_generator_settings_tmp = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings-tmp.json"
 
@@ -322,7 +331,9 @@ def start_nodes(args, enable_tx_generator=False):
         run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
         run_cmd_args.cmd = f"\
             jq --arg accounts_path {accounts_path} \
-              '.tx_generator.accounts_path = $accounts_path' {tx_generator_settings} > {tx_generator_settings_tmp} && \
+               --arg receiver_accounts_path {receiver_accounts_path} \
+               '.tx_generator.accounts_path = $accounts_path | .tx_generator.receiver_accounts_path = $receiver_accounts_path' \
+               {tx_generator_settings} > {tx_generator_settings_tmp} && \
             jq -s '.[0] * .[1]' {CONFIG_PATH} {tx_generator_settings_tmp} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} \
         "
 
