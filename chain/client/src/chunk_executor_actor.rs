@@ -138,8 +138,6 @@ pub struct ExecutorIncomingUnverifiedReceipts {
 }
 
 struct VerifiedReceipts {
-    // TODO(spice): After verification no need to keep proofs so we should store here and in db
-    // only Vec<Receipt>
     receipt_proof: ReceiptProof,
     block_hash: CryptoHash,
 }
@@ -951,8 +949,8 @@ fn new_execution_result(
     ChunkExecutionResult { chunk_extra, outgoing_receipts_root }
 }
 
-// TODO(spice): There is no need to store receipt proof since we verify receipts before storing
-// them. So instead Vec<Receipt> should be stored with the same keys.
+// We depend on stored receipts for distribution, so we need to store receipt proof and not only
+// Vec<Receipt>.
 pub(crate) fn save_receipt_proof(
     store_update: &mut StoreUpdate,
     block_hash: &CryptoHash,
