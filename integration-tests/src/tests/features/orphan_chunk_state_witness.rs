@@ -175,9 +175,12 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         .chain_store()
         .create_state_witness(
             chunk_producer_client.epoch_manager.as_ref(),
-            block1.header(),
+            &block1,
             &block1.chunks()[0],
             &chunk2,
+            |_, _| None,
+            |_, _| None,
+            |_, _| None,
         )
         .unwrap()
         .state_witness;
