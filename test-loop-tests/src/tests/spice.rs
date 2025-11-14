@@ -314,12 +314,8 @@ fn test_restart_rpc_node() {
         .warmup();
 
     let rpc = TestLoopNode::rpc(&env.node_datas).into_owned();
-    let node_datas = if env.node_datas[0].account_id == rpc.data().account_id {
-        env.node_datas[1].clone()
-    } else {
-        env.node_datas[0].clone()
-    };
-    let node = TestLoopNode::from(node_datas);
+    let node = TestLoopNode::from(env.node_datas[0].clone());
+    assert_ne!(rpc.data().account_id, node.data().account_id);
 
     rpc.run_until_head_height(&mut env.test_loop, 5);
     let killed_rpc_state = env.kill_node(&rpc.data().identifier);
