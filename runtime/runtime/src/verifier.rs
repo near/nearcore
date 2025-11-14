@@ -252,7 +252,8 @@ pub fn verify_and_charge_tx_ephemeral(
         }
     }
 
-    // XXX: Is this correct? Should we check storage staking for gas keys as well?
+    // Note storage staking only locks balance from account, so spending balance from gas keys
+    // does not need a storage staking check.
     if let AccountOrGasKey::Account(account) = payer {
         match check_storage_stake(&account, new_amount, config) {
             Ok(()) => {}
