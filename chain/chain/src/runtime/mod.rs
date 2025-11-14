@@ -31,8 +31,8 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
-    QueryResponseKind, ViewStateResult,
+    AccessKeyInfoView, CallResult, ContractCodeView, GasKeyInfoView, GasKeyView, QueryRequest,
+    QueryResponse, QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::CLOUD_HEAD_KEY;
@@ -1202,6 +1202,37 @@ impl RuntimeAdapter for NightshadeRuntime {
                     block_hash: *block_hash,
                 })
             }
+            QueryRequest::ViewGasKeyList { account_id } => {
+                let gas_key_list =
+                    self.view_gas_keys(&shard_uid, *state_root, account_id).map_err(|err| {
+                        crate::near_chain_primitives::error::QueryError::from_view_gas_key_error(
+                            err,
+                            block_height,
+                            *block_hash,
+                        )
+                    })?;
+                Ok(QueryResponse {
+                    kind: QueryResponseKind::GasKeyList(gas_key_list.into()),
+                    block_height,
+                    block_hash: *block_hash,
+                })
+            }
+            QueryRequest::ViewGasKey { account_id, public_key, include_nonces } => {
+                let gas_key = self
+                    .view_gas_key(&shard_uid, *state_root, account_id, public_key, *include_nonces)
+                    .map_err(|err| {
+                        crate::near_chain_primitives::error::QueryError::from_view_gas_key_error(
+                            err,
+                            block_height,
+                            *block_hash,
+                        )
+                    })?;
+                Ok(QueryResponse {
+                    kind: QueryResponseKind::GasKey(gas_key),
+                    block_height,
+                    block_hash: *block_hash,
+                })
+            }
             QueryRequest::ViewGlobalContractCode { code_hash } => self
                 .query_view_global_contract_code(
                     GlobalContractIdentifier::CodeHash(*code_hash),
@@ -1548,6 +1579,28 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_access_keys(&state_update, account_id)
+    }
+
+    fn view_gas_key(
+        &self,
+        shard_uid: &ShardUId,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+        include_nonces: bool,
+    ) -> Result<GasKeyView, node_runtime::state_viewer::errors::ViewGasKeyError> {
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
+        self.trie_viewer.view_gas_key(&state_update, account_id, public_key, include_nonces)
+    }
+
+    fn view_gas_keys(
+        &self,
+        shard_uid: &ShardUId,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+    ) -> Result<Vec<GasKeyInfoView>, node_runtime::state_viewer::errors::ViewGasKeyError> {
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
+        self.trie_viewer.view_gas_keys(&state_update, account_id)
     }
 
     fn view_state(

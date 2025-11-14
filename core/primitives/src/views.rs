@@ -230,24 +230,27 @@ pub struct GasKeyView {
     pub num_nonces: NonceIndex,
     pub balance: Balance,
     pub permission: AccessKeyPermissionView,
+    /// If requested, the nonces are included.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonces: Option<Vec<Nonce>>,
 }
 
-impl From<GasKey> for GasKeyView {
-    fn from(gas_key: GasKey) -> Self {
+impl GasKeyView {
+    pub fn from_gas_key_no_nonces(gas_key: GasKey) -> Self {
         Self {
             num_nonces: gas_key.num_nonces,
             balance: gas_key.balance,
             permission: gas_key.permission.into(),
+            nonces: None,
         }
     }
-}
 
-impl From<GasKeyView> for GasKey {
-    fn from(view: GasKeyView) -> Self {
+    pub fn from_gas_key_with_nonces(gas_key: GasKey, nonces: Vec<Nonce>) -> Self {
         Self {
-            num_nonces: view.num_nonces,
-            balance: view.balance,
-            permission: view.permission.into(),
+            num_nonces: gas_key.num_nonces,
+            balance: gas_key.balance,
+            permission: gas_key.permission.into(),
+            nonces: Some(nonces),
         }
     }
 }
@@ -307,6 +310,25 @@ impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct GasKeyInfoView {
+    pub public_key: PublicKey,
+    pub gas_key: GasKeyView,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct GasKeyList {
+    pub keys: Vec<GasKeyInfoView>,
+}
+
+impl From<Vec<GasKeyInfoView>> for GasKeyList {
+    fn from(keys: Vec<GasKeyInfoView>) -> Self {
+        Self { keys }
+    }
+}
+
 // cspell:words deepsize
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -349,6 +371,8 @@ pub enum QueryResponseKind {
     CallResult(CallResult),
     AccessKey(AccessKeyView),
     AccessKeyList(AccessKeyList),
+    GasKey(GasKeyView),
+    GasKeyList(GasKeyList),
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -373,6 +397,14 @@ pub enum QueryRequest {
         public_key: PublicKey,
     },
     ViewAccessKeyList {
+        account_id: AccountId,
+    },
+    ViewGasKey {
+        account_id: AccountId,
+        public_key: PublicKey,
+        include_nonces: bool,
+    },
+    ViewGasKeyList {
         account_id: AccountId,
     },
     CallFunction {
@@ -1411,6 +1443,9 @@ pub enum ActionView {
     } = 15,
     TransferToGasKey {
         public_key: PublicKey,
+        // TODO(gas-keys): Add dec_format for balance
+        // #[serde(with = "dec_format")]
+        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         amount: Balance,
     } = 16,
 }
@@ -2804,7 +2839,11 @@ impl From<StateChangeValue> for StateChangeValueView {
                 Self::AccessKeyDeletion { account_id, public_key }
             }
             StateChangeValue::GasKeyUpdate { account_id, public_key, gas_key } => {
-                Self::GasKeyUpdate { account_id, public_key, gas_key: gas_key.into() }
+                Self::GasKeyUpdate {
+                    account_id,
+                    public_key,
+                    gas_key: GasKeyView::from_gas_key_no_nonces(gas_key),
+                }
             }
             StateChangeValue::GasKeyNonceUpdate { account_id, public_key, index, nonce } => {
                 Self::GasKeyNonceUpdate { account_id, public_key, index, nonce }
