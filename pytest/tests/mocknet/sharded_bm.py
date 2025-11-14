@@ -156,6 +156,7 @@ def handle_init(args):
     # TODO: check neard binary version
 
     # Grant CAP_SYS_NICE to neard binaries for realtime thread scheduling
+    # todo(slavas): this does not work at the moment because neard0 is a symlink
     run_cmd_args = copy.deepcopy(args)
     if is_local_neard:
         run_cmd_args.cmd = f"sudo setcap cap_sys_nice+ep \"{args.neard_binary_url}\""
@@ -221,6 +222,23 @@ def handle_init(args):
     start_nodes(args)
 
     time.sleep(10)
+
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
+    source_accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
+    receiver_accounts_dir = f"{BENCHNET_DIR}/user-data/receiver-accounts/"
+    source_accounts_dir = f"{BENCHNET_DIR}/user-data/"
+    run_cmd_args.cmd = f"\
+        shard=$(python3 {BENCHNET_DIR}/helpers/get_tracked_shard.py) && \
+        echo \"Tracked shard: $shard\" && \
+        rm -rf {BENCHNET_DIR}/user-data && \
+        mkdir -p {source_accounts_dir} && \
+        mkdir -p {receiver_accounts_dir} && \
+        cp {NEAR_HOME}/user-data/shard_$shard.json {source_accounts_path} && \
+        cp {NEAR_HOME}/user-data/shard_*.json {receiver_accounts_dir} \
+    "
+
+    run_remote_cmd(CommandContext(run_cmd_args))
 
     # Each CP gets its own account file with unique access keys
     cp_names = sorted(args.forknet_details['cp_instance_names'])
@@ -364,25 +382,31 @@ def handle_reset(args):
     reset_cmd(CommandContext(reset_cmd_args))
 
 
-def start_nodes(args, enable_tx_generator=False):
-    """Start the benchmark nodes with the given parameters."""
-    if enable_tx_generator:
-        logger.info("Setting tx generator parameters")
+def enable_tx_generator(args, receivers_from_senders_ratio: float):
+    logger.info("Setting tx generator parameters")
 
-        accounts_path = f"{BENCHNET_DIR}/user-data/accounts.json"
-        tx_generator_settings = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings.json"
-        tx_generator_settings_tmp = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings-tmp.json"
+    # todo(slavas): these paths are implicitly assumed to correspond to similar from the handle_init() - terribly fragile.
+    accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
+    receiver_accounts_dir = f"{BENCHNET_DIR}/user-data/receiver-accounts"
+    tx_generator_settings = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings.json"
+    tx_generator_settings_tmp = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings-tmp.json"
 
-        run_cmd_args = copy.deepcopy(args)
-        run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
-        run_cmd_args.cmd = f"\
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
+    run_cmd_args.cmd = f"\
             jq --arg accounts_path {accounts_path} \
-              '.tx_generator.accounts_path = $accounts_path' {tx_generator_settings} > {tx_generator_settings_tmp} && \
+               --arg receiver_accounts_dir {receiver_accounts_dir} \
+               --argjson same_shard_traffic {receivers_from_senders_ratio} \
+               '.tx_generator.accounts_path = $accounts_path | .tx_generator.receiver_accounts_path = $receiver_accounts_dir | .tx_generator.receivers_from_senders_ratio = $same_shard_traffic' \
+               {tx_generator_settings} > {tx_generator_settings_tmp} && \
             jq -s '.[0] * .[1]' {CONFIG_PATH} {tx_generator_settings_tmp} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} \
         "
 
-        run_remote_cmd(CommandContext(run_cmd_args))
+    run_remote_cmd(CommandContext(run_cmd_args))
 
+
+def start_nodes(args):
+    """Start the benchmark nodes with the given parameters."""
     logger.info("Starting nodes")
     start_nodes_cmd_args = copy.deepcopy(args)
     start_nodes_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
@@ -499,7 +523,7 @@ def handle_get_profiles(args, extra):
     if args.host_filter is None:
         machines = sorted(args.forknet_details['cp_instance_names'])
         machine = machines[0]
-        logger.info(f"Targeting {machine}")
+        logger.info(f"Targeting {machine} for profile fetching")
         args.host_filter = machine
 
     extra_parameters = ' '.join(extra)
@@ -529,7 +553,9 @@ def handle_get_logs(args):
 
 def handle_start(args):
     """Handle the start command - start the benchmark."""
-    start_nodes(args, args.enable_tx_generator)
+    if args.enable_tx_generator:
+        enable_tx_generator(args, args.receivers_from_senders_ratio)
+    start_nodes(args)
 
 
 def main():
@@ -621,6 +647,13 @@ def main():
         '--enable-tx-generator',
         action='store_true',
         help='Enable the tx generator',
+    )
+    start_parser.add_argument(
+        '--receivers-from-senders-ratio',
+        type=float,
+        default=1.0,
+        help=
+        'Ratio of receiver accounts selected from the sender accounts (default: 1.0 (all receivers are selected from senders list))',
     )
 
     stop_parser = subparsers.add_parser('stop', help='Stop the benchmark')

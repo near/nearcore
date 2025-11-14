@@ -2403,6 +2403,13 @@ impl Runtime {
 
         let outgoing_receipts =
             receipt_sink.finalize_stats_get_outgoing_receipts(&mut stats.receipt_sink);
+
+        for (receiver_shard_id, receipt_stats) in &stats.receipt_sink.forwarded_receipts {
+            metrics::OUTGOING_RECEIPT_GENERATED_TOTAL
+                .with_label_values(&[shard_id_str.as_str(), &receiver_shard_id.to_string()])
+                .inc_by(receipt_stats.num);
+        }
+
         Ok(ApplyResult {
             state_root,
             trie_changes,

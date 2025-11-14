@@ -50,6 +50,7 @@ class RemoteNeardRunner:
         cmd_utils.run_cmd(self.node, cmd)
 
     def upload_neard_runner(self):
+        self.mk_neard_runner_home(remove_home_dir=False)
         files = [
             # Defines the interaction between the node with neard and the user.
             'neard_runner.py',
@@ -60,13 +61,12 @@ class RemoteNeardRunner:
             # Script for the validator node to send a stake proposal.
             'send-stake-proposal.sh'
         ]
-        tmp_file = tempfile.NamedTemporaryFile(mode='w', delete=True)
-        tmp_file.write('\n'.join(files))
-        tmp_file.flush()
-        source = f"--files-from={tmp_file.name} tests/mocknet/helpers"
-        self.node.machine.upload(source,
-                                 self.neard_runner_home,
-                                 switch_user='ubuntu')
+        full_paths = [os.path.join('tests/mocknet/helpers', f) for f in files]
+        for f in full_paths:
+            if not os.path.isfile(f):
+                raise FileNotFoundError(f'Cannot find the source file: {f}')
+            self.upload_file(
+                f, os.path.join(self.neard_runner_home, os.path.basename(f)))
 
     def upload_neard_runner_config(self, config):
         mocknet.upload_json(self.node,

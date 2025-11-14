@@ -77,3 +77,20 @@ pub fn accounts_from_path(path: &Path) -> anyhow::Result<Vec<Account>> {
 
     Ok(accounts)
 }
+
+/// Reads a directory and attempts to deserialize account ids from all json files in it.
+/// Calls itself recursively for subdirectories. In case of closed loop of symlinks will blow up.
+pub fn account_ids_from_path(path: &Path) -> anyhow::Result<Vec<AccountId>> {
+    if !path.is_dir() {
+        let account_ids = accounts_from_path(path)?.into_iter().map(|account| account.id).collect();
+        return Ok(account_ids);
+    }
+
+    let mut account_ids = vec![];
+    for entry in fs::read_dir(path).context(format!("reading account ids from {path:?}"))? {
+        account_ids_from_path(&entry?.path())?
+            .into_iter()
+            .for_each(|account_id| account_ids.push(account_id));
+    }
+    Ok(account_ids)
+}
