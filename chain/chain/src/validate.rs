@@ -269,7 +269,7 @@ mod tests {
     use super::*;
     use borsh::to_vec;
     use near_crypto::{InMemorySigner, Signer};
-    use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum, ReceiptV1};
+    use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum, ReceiptV2};
     use near_primitives::transaction::{Action, TransferAction};
     use near_primitives::types::{AccountId, Balance};
 
@@ -301,8 +301,9 @@ mod tests {
             input_data_ids: vec![CryptoHash::default()],
             actions: vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
         };
-        let receipt = Receipt::V1(ReceiptV1 {
+        let receipt = Receipt::V2(ReceiptV2 {
             predecessor_id: signer.get_account_id(),
+            predecessor_gas_key: None,
             receiver_id: receiver,
             receipt_id: CryptoHash::default(),
             receipt: ReceiptEnum::Action(ar),

@@ -21,7 +21,7 @@ use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::receipt::{
     ActionReceipt, DataReceipt, DataReceiver, GlobalContractDistributionReceipt, Receipt,
-    ReceiptEnum, ReceiptV1, VersionedActionReceipt, VersionedReceiptEnum,
+    ReceiptEnum, ReceiptV2, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
@@ -230,24 +230,27 @@ pub struct GasKeyView {
     pub num_nonces: NonceIndex,
     pub balance: Balance,
     pub permission: AccessKeyPermissionView,
+    /// If requested, the nonces are included.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonces: Option<Vec<Nonce>>,
 }
 
-impl From<GasKey> for GasKeyView {
-    fn from(gas_key: GasKey) -> Self {
+impl GasKeyView {
+    pub fn from_gas_key_no_nonces(gas_key: GasKey) -> Self {
         Self {
             num_nonces: gas_key.num_nonces,
             balance: gas_key.balance,
             permission: gas_key.permission.into(),
+            nonces: None,
         }
     }
-}
 
-impl From<GasKeyView> for GasKey {
-    fn from(view: GasKeyView) -> Self {
+    pub fn from_gas_key_with_nonces(gas_key: GasKey, nonces: Vec<Nonce>) -> Self {
         Self {
-            num_nonces: view.num_nonces,
-            balance: view.balance,
-            permission: view.permission.into(),
+            num_nonces: gas_key.num_nonces,
+            balance: gas_key.balance,
+            permission: gas_key.permission.into(),
+            nonces: Some(nonces),
         }
     }
 }
@@ -307,6 +310,25 @@ impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct GasKeyInfoView {
+    pub public_key: PublicKey,
+    pub gas_key: GasKeyView,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct GasKeyList {
+    pub keys: Vec<GasKeyInfoView>,
+}
+
+impl From<Vec<GasKeyInfoView>> for GasKeyList {
+    fn from(keys: Vec<GasKeyInfoView>) -> Self {
+        Self { keys }
+    }
+}
+
 // cspell:words deepsize
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -349,6 +371,8 @@ pub enum QueryResponseKind {
     CallResult(CallResult),
     AccessKey(AccessKeyView),
     AccessKeyList(AccessKeyList),
+    GasKey(GasKeyView),
+    GasKeyList(GasKeyList),
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -373,6 +397,14 @@ pub enum QueryRequest {
         public_key: PublicKey,
     },
     ViewAccessKeyList {
+        account_id: AccountId,
+    },
+    ViewGasKey {
+        account_id: AccountId,
+        public_key: PublicKey,
+        include_nonces: bool,
+    },
+    ViewGasKeyList {
         account_id: AccountId,
     },
     CallFunction {
@@ -1411,6 +1443,9 @@ pub enum ActionView {
     } = 15,
     TransferToGasKey {
         public_key: PublicKey,
+        // TODO(gas-keys): Add dec_format for balance
+        // #[serde(with = "dec_format")]
+        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         amount: Balance,
     } = 16,
 }
@@ -1595,6 +1630,9 @@ pub struct SignedTransactionView {
     pub priority_fee: u64,
     pub signature: Signature,
     pub hash: CryptoHash,
+    /// None for AccessKey transactions, specifies the nonce index for GasKey transactions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce_index: Option<NonceIndex>,
 }
 
 impl From<SignedTransaction> for SignedTransactionView {
@@ -1604,7 +1642,8 @@ impl From<SignedTransaction> for SignedTransactionView {
         let priority_fee = transaction.priority_fee().unwrap_or_default();
         SignedTransactionView {
             signer_id: transaction.signer_id().clone(),
-            public_key: transaction.public_key().clone(),
+            public_key: transaction.key().public_key().clone(),
+            nonce_index: transaction.key().nonce_index(),
             nonce: transaction.nonce(),
             receiver_id: transaction.receiver_id().clone(),
             actions: transaction.take_actions().into_iter().map(|action| action.into()).collect(),
@@ -2200,6 +2239,8 @@ pub struct ValidatorStakeViewV1 {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ReceiptView {
     pub predecessor_id: AccountId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub predecessor_gas_key: Option<PublicKey>,
     pub receiver_id: AccountId,
     pub receipt_id: CryptoHash,
 
@@ -2286,6 +2327,7 @@ impl From<Receipt> for ReceiptView {
 
         ReceiptView {
             predecessor_id: receipt.predecessor_id().clone(),
+            predecessor_gas_key: receipt.predecessor_gas_key().clone(),
             receiver_id: receipt.receiver_id().clone(),
             receipt_id: *receipt.receipt_id(),
             receipt: match receipt.take_versioned_receipt() {
@@ -2351,8 +2393,10 @@ impl TryFrom<ReceiptView> for Receipt {
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(receipt_view: ReceiptView) -> Result<Self, Self::Error> {
-        Ok(Receipt::V1(ReceiptV1 {
+        Ok(Receipt::V2(ReceiptV2 {
             predecessor_id: receipt_view.predecessor_id,
+
+            predecessor_gas_key: None,
             receiver_id: receipt_view.receiver_id,
             receipt_id: receipt_view.receipt_id,
             receipt: match receipt_view.receipt {
@@ -2795,7 +2839,11 @@ impl From<StateChangeValue> for StateChangeValueView {
                 Self::AccessKeyDeletion { account_id, public_key }
             }
             StateChangeValue::GasKeyUpdate { account_id, public_key, gas_key } => {
-                Self::GasKeyUpdate { account_id, public_key, gas_key: gas_key.into() }
+                Self::GasKeyUpdate {
+                    account_id,
+                    public_key,
+                    gas_key: GasKeyView::from_gas_key_no_nonces(gas_key),
+                }
             }
             StateChangeValue::GasKeyNonceUpdate { account_id, public_key, index, nonce } => {
                 Self::GasKeyNonceUpdate { account_id, public_key, index, nonce }

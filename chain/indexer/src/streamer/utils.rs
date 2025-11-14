@@ -38,6 +38,7 @@ pub(crate) fn convert_transactions_sir_into_local_receipts<'a>(
             tx.signer_id.clone(),
             tx.receiver_id.clone(),
             tx.public_key.clone(),
+            tx.nonce_index.is_some(), // If nonce_index is Some, the signer is a GasKey
             cost.receipt_gas_price,
             actions,
         );

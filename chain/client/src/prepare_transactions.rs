@@ -282,7 +282,7 @@ mod tests {
     ) {
         let signed_tx = SignedTransaction::new(
             near_crypto::Signature::empty(near_crypto::KeyType::ED25519),
-            near_primitives::transaction::Transaction::new_v1(
+            near_primitives::transaction::Transaction::new_v2(
                 account_id,
                 pub_key,
                 "other".parse().unwrap(),

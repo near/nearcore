@@ -652,6 +652,7 @@ pub(crate) fn action_delete_account(
     if account_balance > Balance::ZERO {
         result.new_receipts.push(Receipt::new_balance_refund(
             &delete_account.beneficiary_id,
+            None,
             account_balance,
             ReceiptPriority::NoPriority,
         ));

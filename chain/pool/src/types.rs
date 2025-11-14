@@ -8,7 +8,7 @@ pub trait TransactionGroupIterator {
     fn next(&mut self) -> Option<&mut TransactionGroup>;
 }
 
-/// A hash of (an AccountId, a PublicKey and a seed).
+/// A hash of (a TransactionKey and a seed).
 /// Used to randomize the order of the keys.
 pub(crate) type PoolKey = CryptoHash;
 
