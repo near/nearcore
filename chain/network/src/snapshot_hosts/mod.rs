@@ -184,7 +184,8 @@ impl Inner {
     /// Ingests a new SnapshotHostInfo into the cache
     /// assumes that the SnapshotHostInfo is valid and new
     fn insert(&mut self, d: &Arc<SnapshotHostInfo>) {
-        if self.current_epoch.as_ref().map_or(true, |epoch| epoch.epoch_height <= d.epoch_height) {
+        // If we do not know the current epoch, no need to update the cache, it will be rebuilt later.
+        if self.current_epoch.as_ref().map_or(false, |epoch| epoch.epoch_height == d.epoch_height) {
             for shard_id in &d.shards {
                 self.hosts_for_shard
                     .entry(*shard_id)
