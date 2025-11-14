@@ -396,7 +396,7 @@ async fn run_select_peer_test(
             }
             SelectPeerAction::CallSetEpoch(epoch_height) => {
                 let sync_hash = CryptoHash::hash_borsh(epoch_height);
-                cache.maybe_update_current_epoch(&epoch_height, &sync_hash);
+                cache.set_current_epoch_if_changed(&epoch_height, &sync_hash);
             }
             SelectPeerAction::CallSelect(epoch_height, wanted) => {
                 let sync_hash = CryptoHash::hash_borsh(epoch_height);

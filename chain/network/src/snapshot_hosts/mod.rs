@@ -184,7 +184,7 @@ impl Inner {
     /// Ingests a new SnapshotHostInfo into the cache
     /// assumes that the SnapshotHostInfo is valid and new
     fn insert(&mut self, d: &Arc<SnapshotHostInfo>) {
-        // If we do not know the current epoch, no need to update the cache, it will be rebuilt later.
+        // If it does not know the current epoch, no need to update the cache, it will be rebuilt later when it knows the current epoch.
         if self.current_epoch.as_ref().map_or(false, |epoch| epoch.epoch_height == d.epoch_height) {
             for shard_id in &d.shards {
                 self.hosts_for_shard
@@ -210,10 +210,11 @@ impl Inner {
         // Only keep info about most recent epochs defined by EPOCH_RETENTION_WINDOW
         let mut new_hosts = LruCache::new(NonZeroUsize::new(self.hosts.cap().get()).unwrap());
         // Build current epoch's cache by keeping only the hosts that are still valid.
+        // Lock is taken so the loop will eventually terminate when all hosts are removed.
         loop {
             match self.hosts.pop_lru() {
                 Some((peer_id, info)) => {
-                    if epoch_height - EPOCH_RETENTION_WINDOW <= info.epoch_height {
+                    if info.epoch_height + EPOCH_RETENTION_WINDOW >= *epoch_height {
                         if info.sync_hash == *sync_hash {
                             for shard_id in &info.shards {
                                 self.hosts_for_shard
@@ -310,7 +311,7 @@ impl SnapshotHostsCache {
         }))
     }
 
-    pub fn maybe_update_current_epoch(&self, epoch_height: &EpochHeight, sync_hash: &CryptoHash) {
+    pub fn set_current_epoch_if_changed(&self, epoch_height: &EpochHeight, sync_hash: &CryptoHash) {
         self.0.lock().update_current_epoch(epoch_height, sync_hash);
     }
 

@@ -952,7 +952,7 @@ impl PeerManagerActor {
                 sync_hash,
                 epoch_height,
             }) => {
-                self.state.snapshot_hosts.maybe_update_current_epoch(&epoch_height, &sync_hash);
+                self.state.snapshot_hosts.set_current_epoch_if_changed(&epoch_height, &sync_hash);
                 NetworkResponses::NoResponse
             }
             NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::SnapshotCreated {
