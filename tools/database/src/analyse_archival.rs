@@ -22,6 +22,7 @@ use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk};
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{RawStateChangesWithTrieKey, ShardId};
 use near_primitives::utils::get_block_shard_id;
@@ -61,6 +62,7 @@ pub enum AnalyseTarget {
     Memtrie,
     StateParts,
     TrieChanges,
+    Transactions,
 }
 
 impl AnalyseArchivalCommand {
@@ -117,6 +119,7 @@ impl AnalyseArchivalCommand {
                 .map(|uid| uid)
                 .collect(),
         };
+        let shard_ids = shard_uids.iter().map(|uid| uid.shard_id()).collect();
         eprintln!("Start archival analysis for shards: {shard_uids:?}");
         for target in &self.targets {
             match target {
@@ -127,7 +130,7 @@ impl AnalyseArchivalCommand {
                     self.analyse_state_changes(store.clone(), &shard_layout);
                 }
                 AnalyseTarget::TrieChanges => {
-                    self.analyse_trie_changes(store.clone(), &shard_layout);
+                    self.analyse_trie_changes(store.clone(), &shard_ids);
                 }
                 AnalyseTarget::BlockRelatedData => {
                     self.analyse_block_related_data(store.clone());
@@ -140,6 +143,9 @@ impl AnalyseArchivalCommand {
                 }
                 AnalyseTarget::StateParts => {
                     self.analyze_state_parts(&mut chain, &shard_uids, &block.header().prev_hash());
+                }
+                AnalyseTarget::Transactions => {
+                    self.analyse_txs(store.clone(), &shard_ids);
                 }
             }
         }
@@ -365,18 +371,79 @@ impl AnalyseArchivalCommand {
         eprintln!("Total compressed size {}", ByteSize::b(total_compressed as u64));
     }
 
-    fn analyse_trie_changes(&self, store: Store, shard_layout: &ShardLayout) {
+  fn analyse_txs(&self, store: Store, shards: &Vec<ShardId>) {
+        eprintln!("Analyse txs data");
+        let mut shard_data = HashMap::<ShardId, HashMap<CryptoHash, SignedTransaction>>::new();
+        let mut stats = HashMap::<ShardId, SizeStats>::new();
+        for res in store.iter_ser::<Block>(DBCol::Block).take(self.limit()) {
+            let (_, block) = res.unwrap();
+            if block.header().is_genesis() {
+                continue;
+            }
+            for chunk in block.chunks().iter() {
+                let ChunkType::New(chunk) = chunk else {
+                    continue;
+                };
+                let shard_id = chunk.shard_id();
+                if !shards.contains(&shard_id) {
+                    continue;
+                }
+                let chunk_hash = chunk.chunk_hash();
+                let chunk =
+                    store.get_ser::<ShardChunk>(DBCol::Chunks, chunk_hash.as_bytes()).unwrap().unwrap();
+                let txs = chunk.to_transactions();
+                //let receipts = chunk.prev_outgoing_receipts();
+                for tx in txs {
+                    let data = borsh::to_vec(tx).unwrap();
+                    stats.entry(shard_id).or_default().update(tx.hash().as_bytes(), &data);
+                    shard_data
+                        .entry(shard_id)
+                        .or_default()
+                        .entry(tx.hash().clone())
+                        .insert_entry(tx.clone());
+                }
+            }
+        }
+        let mut overall_size = 0;
+        let mut overall_compressed_size = 0;
+        for shard_id in shards {
+            let Some(stats) = stats.get(&shard_id) else {
+                eprintln!("* Missing stats for shard {shard_id}");
+                continue;
+            };
+            eprintln!("* Stats for shard {shard_id}\n{stats}");
+            let data = borsh::to_vec(&shard_data.get(&shard_id).unwrap()).unwrap();
+            let compressed =
+                zstd::encode_all(data.as_slice(), self.compression_level as i32).unwrap();
+            eprintln!(
+                "Total raw size: {}, Total compressed size: {}",
+                ByteSize::b(data.len() as u64),
+                ByteSize::b(compressed.len() as u64)
+            );
+            overall_size += data.len();
+            overall_compressed_size += compressed.len();
+        }
+        eprintln!(
+            "\nOverall size: {}, Overall compressed size: {}",
+            ByteSize::b(overall_size as u64),
+            ByteSize::b(overall_compressed_size as u64)
+        );
+    }
+
+    fn analyse_trie_changes(&self, store: Store, shards: &Vec<ShardId>) {
         eprintln!("Analyse TrieChanges column (insertions)");
         let mut blocks = HashSet::new();
         let mut trie_changes =
             HashMap::<ShardId, HashMap<CryptoHash, Vec<TrieRefcountAddition>>>::new();
         for res in store.iter(DBCol::TrieChanges).take(self.limit()) {
             let (key, value) = res.unwrap();
-            let changes: TrieChanges = borsh::from_slice(value.as_ref()).unwrap();
-            // See KeyForStateChanges for key structure
-            let block_hash = CryptoHash::try_from(key.split_at(CryptoHash::LENGTH).0).unwrap();
-            blocks.insert(block_hash);
             let shard_id = ShardId::new(u64::from_le_bytes(key.split_at(CryptoHash::LENGTH).1.try_into().unwrap()));
+            if !shards.contains(&shard_id) {
+                continue;
+            }
+            let block_hash = CryptoHash::try_from(key.split_at(CryptoHash::LENGTH).0).unwrap();
+            let changes: TrieChanges = borsh::from_slice(value.as_ref()).unwrap();
+            blocks.insert(block_hash);
             trie_changes
                 .entry(shard_id)
                 .or_default()
@@ -386,8 +453,7 @@ impl AnalyseArchivalCommand {
         let mut total_count = 0;
         let mut total_size = 0;
         let mut total_compressed = 0;
-        for shard_uid in shard_layout.shard_uids() {
-            let shard_id = shard_uid.shard_id();
+        for shard_id in shards {
             eprintln!("Analyse changes for shard {}", shard_id);
             let Some(block_changes) = trie_changes.remove(&shard_id) else {
                 eprintln!("Missing changes for shard {}", shard_id);
