@@ -457,6 +457,46 @@ impl Client {
         Ok(())
     }
 
+    pub fn pending_queue_add_transactions_for_block_if_unexecuted(
+        &mut self,
+        block: &Block,
+    ) -> Result<(), Error> {
+        let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
+        for chunk_header in block.chunks().iter_new() {
+            // We can directly get the shard_id from the chunk_header as we are guaranteed new chunk via iter_new
+            let shard_id = chunk_header.shard_id();
+            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
+            if self
+                .shard_tracker
+                .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
+            {
+                // By now the chunk must be in store, otherwise the block would have been orphaned
+                let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
+
+                // Take guard for duration of checking and adding to pending queue
+                // to avoid race with executor, i.e., prevent it from removing this chunk
+                // immediately after we check for chunk extra but before we add transactions
+                // to pending queue.
+                let mut guard = self.chunk_producer.pending_txs.lock();
+                let chunk_extra_exists =
+                    match self.chain.chain_store.get_chunk_extra(block.hash(), &shard_uid) {
+                        Ok(_) => true,
+                        Err(near_chain_primitives::Error::DBNotFoundErr(_)) => false,
+                        Err(err) => return Err(err.into()),
+                    };
+                if chunk_extra_exists {
+                    continue; // Chunk already executed, no need to add transactions to pending queue
+                }
+
+                let transactions = chunk.into_transactions();
+                guard
+                    .get_queue_mut(shard_uid)
+                    .add_transactions(chunk_header.chunk_hash().clone(), transactions);
+            }
+        }
+        Ok(())
+    }
+
     pub fn reintroduce_transactions_for_block(&mut self, block: &Block) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
@@ -502,6 +542,26 @@ impl Client {
                             num_tx = chunk.to_transactions().len(),
                             "Reintroduced transactions");
                 }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn pending_queue_remove_transactions_for_block(
+        &mut self,
+        block: &Block,
+    ) -> Result<(), Error> {
+        let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
+        for chunk_header in block.chunks().iter_new() {
+            // We can directly get the shard_id from the chunk_header as we are guaranteed new chunk via iter_new
+            let shard_id = chunk_header.shard_id();
+            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
+            if self
+                .shard_tracker
+                .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
+            {
+                let mut guard = self.chunk_producer.pending_txs.lock();
+                guard.get_queue_mut(shard_uid).remove_transactions(chunk_header.chunk_hash());
             }
         }
         Ok(())
@@ -1661,17 +1721,24 @@ impl Client {
         match status {
             BlockStatus::Next => {
                 // If this block immediately follows the current tip, remove
-                // transactions from the tx pool.
-                match self.remove_transactions_for_block(block) {
-                    Ok(()) => (),
-                    Err(err) => {
-                        tracing::debug!(
-                            target: "client",
-                            "validator: removing txs for block {:?} failed with {:?}",
-                            block,
-                            err
-                        );
-                    }
+                // transactions from the tx pool, and add them to the pending
+                // queue.
+                if let Err(err) = self.remove_transactions_for_block(block) {
+                    tracing::debug!(
+                        target: "client",
+                        "validator: removing txs for block {:?} failed with {:?}",
+                        block,
+                        err
+                    );
+                }
+                if let Err(err) = self.pending_queue_add_transactions_for_block_if_unexecuted(block)
+                {
+                    tracing::debug!(
+                        target: "client",
+                        "validator: adding txs to pending queue for block {:?} failed with {:?}",
+                        block,
+                        err
+                    );
                 }
             }
             BlockStatus::Fork => {
@@ -1680,61 +1747,81 @@ impl Client {
             }
             BlockStatus::Reorg(prev_head) => {
                 // If a reorg happened, reintroduce transactions from the
-                // previous chain and remove transactions from the new chain.
-                let mut reintroduce_head = self.chain.get_block_header(&prev_head).unwrap();
-                let mut remove_head = Arc::from(block.header().clone());
-                assert_ne!(remove_head.hash(), reintroduce_head.hash());
+                // previous chain and remove transactions from the new chain
+                // from the tx pool.
+                // Transactions from the previous chain are removed from the
+                // pending queue and transactions from the new chain are added to
+                // the pending queue if they are not executed.
+                let mut old_chain_head = self.chain.get_block_header(&prev_head).unwrap();
+                let mut new_chain_head = Arc::from(block.header().clone());
+                assert_ne!(new_chain_head.hash(), old_chain_head.hash());
 
-                let mut to_remove = vec![];
-                let mut to_reintroduce = vec![];
+                let mut new_chain = vec![];
+                let mut old_chain = vec![];
 
-                while remove_head.hash() != reintroduce_head.hash() {
-                    while remove_head.height() > reintroduce_head.height() {
-                        to_remove.push(*remove_head.hash());
-                        remove_head = self.chain.get_block_header(remove_head.prev_hash()).unwrap();
+                while new_chain_head.hash() != old_chain_head.hash() {
+                    while new_chain_head.height() > old_chain_head.height() {
+                        new_chain.push(*new_chain_head.hash());
+                        new_chain_head =
+                            self.chain.get_block_header(new_chain_head.prev_hash()).unwrap();
                     }
-                    while reintroduce_head.height() > remove_head.height()
-                        || reintroduce_head.height() == remove_head.height()
-                            && reintroduce_head.hash() != remove_head.hash()
+                    while old_chain_head.height() > new_chain_head.height()
+                        || old_chain_head.height() == new_chain_head.height()
+                            && old_chain_head.hash() != new_chain_head.hash()
                     {
-                        to_reintroduce.push(*reintroduce_head.hash());
-                        reintroduce_head = self
+                        old_chain.push(*old_chain_head.hash());
+                        old_chain_head = self
                             .chain
-                            .get_block_header(reintroduce_head.prev_hash())
+                            .get_block_header(old_chain_head.prev_hash())
                             .unwrap()
                             .clone();
                     }
                 }
 
-                for to_reintroduce_hash in to_reintroduce {
-                    if let Ok(block) = self.chain.get_block(&to_reintroduce_hash) {
-                        match self.reintroduce_transactions_for_block(&block) {
-                            Ok(()) => (),
-                            Err(err) => {
-                                tracing::debug!(
-                                    target: "client",
-                                    "validator: reintroducing txs for block {:?} failed with {:?}",
-                                    block,
-                                    err
-                                );
-                            }
-                        }
+                for old_block_hash in old_chain {
+                    let Ok(block) = self.chain.get_block(&old_block_hash) else {
+                        continue;
+                    };
+                    if let Err(err) = self.reintroduce_transactions_for_block(&block) {
+                        tracing::debug!(
+                            target: "client",
+                            "validator: reintroducing txs for block {:?} failed with {:?}",
+                            block,
+                            err
+                        );
+                    }
+                    if let Err(err) = self.pending_queue_remove_transactions_for_block(&block) {
+                        tracing::debug!(
+                            target: "client",
+                            "validator: removing txs from pending queue for block {:?} failed with {:?}",
+                            block,
+                            err
+                        );
                     }
                 }
 
-                for to_remove_hash in to_remove {
-                    if let Ok(block) = self.chain.get_block(&to_remove_hash) {
-                        match self.remove_transactions_for_block(&block) {
-                            Ok(()) => (),
-                            Err(err) => {
-                                tracing::debug!(
-                                    target: "client",
-                                    "validator: removing txs for block {:?} failed with {:?}",
-                                    block,
-                                    err
-                                );
-                            }
-                        }
+                for new_block_hash in new_chain {
+                    let Ok(block) = self.chain.get_block(&new_block_hash) else {
+                        continue;
+                    };
+
+                    if let Err(err) = self.remove_transactions_for_block(&block) {
+                        tracing::debug!(
+                            target: "client",
+                            "validator: removing txs for block {:?} failed with {:?}",
+                            block,
+                            err
+                        );
+                    }
+                    if let Err(err) =
+                        self.pending_queue_add_transactions_for_block_if_unexecuted(&block)
+                    {
+                        tracing::debug!(
+                            target: "client",
+                            "validator: adding txs to pending queue for block {:?} failed with {:?}",
+                            block,
+                            err
+                        );
                     }
                 }
             }
