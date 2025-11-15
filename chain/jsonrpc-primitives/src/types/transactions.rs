@@ -42,6 +42,7 @@ pub enum RpcTransactionError {
     #[error("An error happened during transaction execution: {context:?}")]
     InvalidTransaction {
         #[serde(skip_serializing)]
+        #[cfg_attr(feature = "schemars", schemars(skip))]
         context: near_primitives::errors::InvalidTxError,
     },
     #[error("Node doesn't track this shard. Cannot determine whether the transaction is valid")]
