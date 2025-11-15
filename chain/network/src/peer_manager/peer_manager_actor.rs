@@ -23,9 +23,9 @@ use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostInfo, StateHeaderRequestBody,
-    StatePartRequestBody, StateRequestSenderForNetwork, StateSyncEvent, Tier3Request,
-    Tier3RequestBody,
+    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostEvent, SnapshotHostInfo,
+    StateHeaderRequestBody, StatePartRequestBody, StateRequestSenderForNetwork, StateSyncEvent,
+    Tier3Request, Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use anyhow::Context as _;
@@ -948,7 +948,18 @@ impl PeerManagerActor {
                 tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id_or_header, ?body, "ack state request from host {peer_id}");
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::SnapshotHostInfo { sync_hash, mut epoch_height, mut shards } => {
+            NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::NewSyncHashDetected {
+                sync_hash,
+                epoch_height,
+            }) => {
+                self.state.snapshot_hosts.set_current_epoch_if_changed(&epoch_height, &sync_hash);
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::SnapshotCreated {
+                sync_hash,
+                mut epoch_height,
+                mut shards,
+            }) => {
                 if shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
                     tracing::warn!(
                         "PeerManager: Sending out a SnapshotHostInfo message with {} shards, \
