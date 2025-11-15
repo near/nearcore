@@ -71,6 +71,10 @@ where
 /// See [`Handler<M>`] trait for more details.
 pub trait CanSend<M>: Send + Sync + 'static {
     fn send(&self, message: M);
+
+    fn send_high(&self, message: M) {
+        self.send(message)
+    }
 }
 
 /// Trait for sending a typed message async. The sent message is then handled by the Handler trait.
@@ -114,6 +118,10 @@ impl<M> Sender<M> {
     /// implementation to decide how to handle the message.
     pub fn send(&self, message: M) {
         self.sender.send(message)
+    }
+
+    pub fn send_high(&self, message: M) {
+        self.sender.send_high(message)
     }
 
     fn from_impl(sender: impl CanSend<M> + 'static) -> Self {

@@ -36,6 +36,26 @@ where
             tracing::info!(target: "tokio_runtime", seq, "ignoring sync message, receiving actor is being shut down");
         }
     }
+
+    fn send_high(&self, message: M) {
+        let seq = next_message_sequence_num();
+        let message_type = pretty_type_name::<M>();
+        tracing::trace!(target: "tokio_runtime", seq, message_type, ?message, "sending sync message");
+
+        let function = |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
+            actor.handle(message, ctx);
+        };
+
+        let message = TokioRuntimeMessage {
+            seq,
+            enqueued_time_ns: self.instrumentation.current_time(),
+            name: message_type,
+            function: Box::new(function),
+        };
+        if let Err(_) = self.send_message_high(message) {
+            tracing::info!(target: "tokio_runtime", seq, "Ignoring sync message, receiving actor is being shut down");
+        }
+    }
 }
 
 impl<A, M, R> CanSendAsync<M, R> for TokioRuntimeHandle<A>
