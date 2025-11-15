@@ -12,6 +12,7 @@ use near_primitives::views::{
     BlockHeaderView, BlockView, QueryRequest, QueryResponse, QueryResponseKind,
 };
 use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
+use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use serde_with::serde_as;
@@ -395,7 +396,7 @@ impl TxGenerator {
         }
         
         let receiver_ids = if let Some(receiver_accounts_path) = receiver_accounts_path {
-            let receivers = account::account_ids_from_path(receiver_accounts_path)
+            let mut receivers = account::account_ids_from_path(receiver_accounts_path)
                 .context("loading receiver account ids")?;
             tracing::info!(target: "transaction-generator",
                 total_receiver_accounts=receivers.len(),
@@ -405,6 +406,8 @@ impl TxGenerator {
             if receivers.is_empty() {
                 anyhow::bail!("No receiver accounts available");
             }
+
+            receivers.shuffle(&mut StdRng::from_entropy());
             receivers
         } else {
             tracing::info!(target: "transaction-generator",
