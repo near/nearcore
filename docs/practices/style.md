@@ -347,11 +347,13 @@ Definitely don't use soft-wrapping. While markdown mostly ignores source level l
 
 ## [Tracing](https://tracing.rs)
 
-When emitting events and spans with `tracing` prefer adding variable data via
-[`tracing`'s field mechanism](https://docs.rs/tracing/latest/tracing/#recording-fields).
+When emitting events and spans with `tracing`, use structured fields rather than
+string formatting to include variable data. Always specify the `target`
+explicitly, using the crate name or module path (e.g. `chain::client`) to group
+related events.
 
 ```rust
-// GOOD
+// GOOD - structured fields with lowercase message
 debug!(
     target: "client",
     validator_id = self.client.validator_signer.get().map(|vs| {
@@ -362,15 +364,10 @@ debug!(
     "block.height" = block.header().height(),
     %peer_id,
     was_requested,
-    "Received block",
+    "received block"
 );
-```
 
-Most apparent violation of this rule will be when the event message utilizes any
-form of formatting, as seen in the following example:
-
-```rust
-// BAD
+// BAD - inline string formatting with capitalization
 debug!(
     target: "client",
     "{:?} Received block {} <- {} at {} from {}, requested: {}",
@@ -383,18 +380,95 @@ debug!(
 );
 ```
 
-Always specify the `target` explicitly. A good default value to use is the crate
-name, or the module path (e.g. `chain::client`) so that events and spans common
-to a topic can be grouped together. This grouping can later be used for
-customizing which events to output.
+**Rationale:** Structured events are the core value proposition of the tracing
+ecosystem. They allow for immediately actionable data without post-processing,
+especially with advanced subscribers that output JSON or publish to distributed
+systems like OpenTelemetry. Structured logging also generally executes faster
+when logs are enabled.
 
-**Rationale:** This makes the events structured – one of the major value add
-propositions of the tracing ecosystem. Structured events allow for immediately
-actionable data without additional post-processing, especially when using some
-of the more advanced tracing subscribers. Of particular interest would be those
-that output events as JSON, or those that publish data to distributed event
-collection systems such as opentelemetry. Maintaining this rule will also
-usually result in faster execution (when logs at the relevant level are enabled.)
+### Message Format Conventions
+
+Follow these conventions for consistent, machine-friendly log messages:
+
+1. **Use lowercase** - Start messages with a lowercase letter
+2. **No ending punctuation** - Omit periods, ellipsis, or other punctuation
+3. **Fields before message** - Place all structured fields before the message string
+4. **Remove redundant prefixes** - Don't repeat context from `target` or log level
+
+```rust
+// GOOD
+debug!(target: "sync", height, "transition to state sync");
+error!(target: "client", ?err, "failed to process block");
+
+// BAD
+debug!(target: "sync", "Sync: Transition to State Sync...");
+error!(target: "client", "Error: failed to process block: {:?}", err);
+```
+
+### Field Formatting
+
+Use the appropriate prefix for each field type:
+
+- `field` - Include field by name (Debug by default)
+- `field = expr` - Explicitly compute and assign a value
+- `?field` - Force Debug formatting (`{:?}`)
+- `%field` - Force Display formatting (`{}`)
+
+**Recommended field ordering:**
+```rust
+log_macro!(
+    target: "target_name",     // 1. Target (always required)
+    field1,                     // 2. Simple field references
+    field2 = expr,              // 3. Computed fields
+    ?debug_field,               // 4. Debug-formatted fields
+    %display_field,             // 5. Display-formatted fields
+    "message string"            // 6. Message always last
+);
+```
+
+### Additional Examples
+
+**Complex fields with context:**
+```rust
+// GOOD
+warn!(
+    target: "sync",
+    %peer = peer.peer_info,
+    peer_height = peer.highest_block_height,
+    "banning peer for insufficient headers"
+);
+
+// BAD
+warn!(
+    target: "sync",
+    "ban a peer: {}, for not providing enough headers. Peer's height: {}",
+    peer.peer_info,
+    peer.highest_block_height
+);
+```
+
+**Error logging with context:**
+```rust
+// GOOD
+error!(
+    target: "runtime",
+    thread_name = "worker",
+    task_id = task.id,
+    ?err,
+    "failed to spawn thread"
+);
+
+// BAD - missing context
+error!(target: "runtime", "failed to spawn the thread: {}", err);
+```
+
+**Rationale for these conventions:**
+- **Searchability:** Structured fields enable precise querying and filtering
+- **Automation:** Log aggregation tools (Loki, Elasticsearch, OpenTelemetry) can
+  automatically parse and index structured data
+- **Consistency:** Predictable format improves readability and reduces cognitive load
+- **Machine-friendly:** Lowercase, unpunctuated messages are easier for automated
+  systems to parse and analyze
 
 ### Spans
 
