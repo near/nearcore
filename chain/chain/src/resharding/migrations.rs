@@ -105,7 +105,7 @@ pub fn migrate_46_to_47(
     println!("Transactions...............");
     println!("...............");
     println!("...............");
-    println!(transaction);
+    println!("{:?}", transaction);
     println!("...............");
     println!("...............");
 
