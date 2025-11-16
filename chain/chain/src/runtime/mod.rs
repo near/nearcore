@@ -2,7 +2,8 @@ use crate::Error;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
     PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
-    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions, StorageDataSource, Tip,
+    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions, StatePartValidationResult,
+    StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
@@ -460,19 +461,19 @@ impl NightshadeRuntime {
         state_root: &StateRoot,
         part_id: PartId,
         part: &StatePart,
-    ) -> bool {
+    ) -> StatePartValidationResult {
         let partial_state = part.to_partial_state();
         let Ok(partial_state) = part.to_partial_state() else {
             // Deserialization error means we've got the data from malicious peer
             tracing::error!(target: "state-parts", ?partial_state, "State part deserialization error");
-            return false;
+            return StatePartValidationResult::Invalid;
         };
         match Trie::validate_state_part(state_root, part_id, partial_state) {
-            Ok(_) => true,
+            Ok(_) => StatePartValidationResult::Valid,
             // Storage error should not happen
             Err(err) => {
                 tracing::error!(target: "state-parts", ?err, "State part storage error");
-                false
+                StatePartValidationResult::Invalid
             }
         }
     }
@@ -1227,11 +1228,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &StateRoot,
         part_id: PartId,
         part: &StatePart,
-    ) -> bool {
+    ) -> StatePartValidationResult {
         let instant = Instant::now();
         let res = self.validate_state_part_impl(state_root, part_id, part);
         let elapsed = instant.elapsed();
-        let is_ok = if res { "ok" } else { "error" };
+        let is_ok = match res {
+            StatePartValidationResult::Valid => "ok",
+            StatePartValidationResult::Invalid => "error",
+        };
         metrics::STATE_SYNC_VALIDATE_PART_DELAY
             .with_label_values(&[&shard_id.to_string(), is_ok])
             .observe(elapsed.as_secs_f64());
@@ -1286,16 +1290,26 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         state_root_node: &StateRootNode,
         state_root: &StateRoot,
-    ) -> bool {
+    ) -> StateRootNodeValidationResult {
         if state_root == &Trie::EMPTY_ROOT {
-            return state_root_node == &StateRootNode::empty();
+            return if state_root_node == &StateRootNode::empty() {
+                StateRootNodeValidationResult::Valid
+            } else {
+                StateRootNodeValidationResult::Invalid
+            };
         }
         if hash(&state_root_node.data) != *state_root {
-            return false;
+            return StateRootNodeValidationResult::Invalid;
         }
         match Trie::get_memory_usage_from_serialized(&state_root_node.data) {
-            Ok(memory_usage) => memory_usage == state_root_node.memory_usage,
-            Err(_) => false, // Invalid state_root_node
+            Ok(memory_usage) => {
+                if memory_usage == state_root_node.memory_usage {
+                    StateRootNodeValidationResult::Valid
+                } else {
+                    StateRootNodeValidationResult::Invalid
+                }
+            }
+            Err(_) => StateRootNodeValidationResult::Invalid, // Invalid state_root_node
         }
     }
 

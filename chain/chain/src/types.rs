@@ -85,6 +85,18 @@ pub enum Provenance {
     PRODUCED,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum StatePartValidationResult {
+    Valid,
+    Invalid,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum StateRootNodeValidationResult {
+    Valid,
+    Invalid,
+}
+
 /// Information about processed block.
 #[derive(Debug, Clone)]
 pub struct AcceptedBlock {
@@ -553,7 +565,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
         part_id: PartId,
         part: &StatePart,
-    ) -> bool;
+    ) -> StatePartValidationResult;
 
     /// Should be executed after accepting all the parts to set up a new state.
     fn apply_state_part(
@@ -581,7 +593,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         state_root_node: &StateRootNode,
         state_root: &StateRoot,
-    ) -> bool;
+    ) -> StateRootNodeValidationResult;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 
