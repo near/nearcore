@@ -41,7 +41,7 @@ impl RpcFrom<GetValidatorInfoError> for RpcValidatorError {
             GetValidatorInfoError::ValidatorInfoUnavailable => Self::ValidatorInfoUnavailable,
             GetValidatorInfoError::IOError(error_message) => Self::InternalError { error_message },
             GetValidatorInfoError::Unreachable(ref error_message) => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);
+                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcValidatorError"])
                     .inc();
