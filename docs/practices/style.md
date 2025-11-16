@@ -386,14 +386,42 @@ especially with advanced subscribers that output JSON or publish to distributed
 systems like OpenTelemetry. Structured logging also generally executes faster
 when logs are enabled.
 
+**Always use the `tracing::` qualifier** - Never use unqualified logging macros:
+
+```rust
+// GOOD - explicit qualifier
+tracing::error!(target: "client", ?err, "failed to process");
+tracing::warn!(target: "sync", height, "state sync started");
+
+// BAD - unqualified macros
+error!(target: "client", ?err, "failed to process");
+warn!(target: "sync", height, "state sync started");
+```
+
+**Rationale:** Explicit qualification improves code clarity by making it immediately obvious that tracing infrastructure is being used. It also prevents naming conflicts with other logging libraries or macros, and makes the code easier to search and refactor.
+
 ### Message Format Conventions
 
 Follow these conventions for consistent, machine-friendly log messages:
 
 1. **Use lowercase** - Start messages with a lowercase letter
 2. **No ending punctuation** - Omit periods, ellipsis, or other punctuation
-3. **Fields before message** - Place all structured fields before the message string
-4. **Remove redundant prefixes** - Don't repeat context from `target` or log level
+3. **Use commas for continuation** - When a message contains multiple clauses, use commas instead of periods to connect them
+
+```rust
+// GOOD - comma for continuation
+tracing::warn!(target: "sync", "failed to connect, retrying in 200ms");
+tracing::error!(target: "store", "database locked, waiting for release");
+
+// BAD - period creates sentence fragment
+tracing::warn!(target: "sync", "failed to connect. retrying in 200ms");
+tracing::error!(target: "store", "database locked. waiting for release");
+```
+
+**Rationale:** Using commas instead of periods maintains message flow and avoids creating sentence fragments. This keeps messages concise and parseable while still conveying multiple pieces of information.
+
+4. **Fields before message** - Place all structured fields before the message string
+5. **Remove redundant prefixes** - Don't repeat context from `target` or log level
 
 ```rust
 // GOOD
