@@ -344,7 +344,7 @@ impl Runtime {
         if log.is_empty() {
             return;
         }
-        tracing::debug!(target: "runtime", "{}", log.join("\n"));
+        tracing::debug!(target: "runtime", logs = %log.join("\n"), "runtime logs");
     }
 
     fn apply_action(

@@ -513,7 +513,7 @@ impl NetworkState {
             let succeeded = !result.is_err();
 
             if let Err(ref err) = result {
-                tracing::info!(target:"network", err = format!("{:#}", err), "failed to connect to {peer_info}");
+                tracing::info!(target:"network", ?err, %peer_info, "failed to connect");
             }
 
             // The peer may not be in the peer store; we try to record the connection attempt but
@@ -898,7 +898,7 @@ impl NetworkState {
                     None
                 }
                 body => {
-                    tracing::error!(target: "network", "peer received unexpected message type: {:?}", body);
+                    tracing::error!(target: "network", ?body, "peer received unexpected message type");
                     None
                 }
             },

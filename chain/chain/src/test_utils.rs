@@ -192,11 +192,11 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
     let chain_store = chain.mut_chain_store();
     let head = chain_store.head().unwrap();
     tracing::debug!(
-        "{:?} Chain head ({}): {} / {}",
-        me,
-        if tail { "tail" } else { "full" },
-        head.height,
-        head.last_block_hash
+        ?me,
+        mode = if tail { "tail" } else { "full" },
+        height = %head.height,
+        last_block_hash = %head.last_block_hash,
+        "chain head"
     );
     let mut headers = vec![];
     for (key, _) in chain_store.store().iter(DBCol::BlockHeader).map(Result::unwrap) {
@@ -222,17 +222,17 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
             let block_producer =
                 epoch_manager.get_block_producer(&epoch_id, header.height()).unwrap();
             tracing::debug!(
-                "{: >3} {} | {: >10} | parent: {: >3} {} | {}",
-                header.height(),
-                format_hash(*header.hash()),
-                block_producer,
-                parent_header.height(),
-                format_hash(*parent_header.hash()),
-                if let Some(block) = &maybe_block {
-                    format!("chunks: {}", block.chunks().len())
+                height = %header.height(),
+                hash = %format_hash(*header.hash()),
+                %block_producer,
+                parent_height = %parent_header.height(),
+                parent_hash = %format_hash(*parent_header.hash()),
+                chunks = %if let Some(block) = &maybe_block {
+                    block.chunks().len().to_string()
                 } else {
                     "-".to_string()
-                }
+                },
+                "block"
             );
             if let Some(block) = maybe_block {
                 for chunk_header in block.chunks().iter() {

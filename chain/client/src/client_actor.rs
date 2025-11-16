@@ -1110,7 +1110,7 @@ impl ClientActorInner {
         let _span = tracing::debug_span!(target: "client", "handle_block_production").entered();
         // If syncing, don't try to produce blocks.
         if self.client.sync_handler.sync_status.is_syncing() {
-            tracing::debug!(target:"client", sync_status=format!("{:#?}", self.client.sync_handler.sync_status), "syncing - block production disabled");
+            tracing::debug!(target:"client", sync_status = ?self.client.sync_handler.sync_status, "syncing - block production disabled");
             return Ok(());
         }
 

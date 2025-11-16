@@ -623,9 +623,9 @@ impl Inner {
 
     /// Logs the state of the routing table
     pub(crate) fn log_state(&self) {
-        tracing::debug!(target: "routing", "my distances: {:?}", self.my_distances);
-        tracing::debug!(target: "routing", "peer labels: {:?}", self.edge_cache.p2id);
-        tracing::debug!(target: "routing", "peer distance vectors: {:?}", self.peer_distances);
+        tracing::debug!(target: "routing", my_distances = ?self.my_distances);
+        tracing::debug!(target: "routing", peer_labels = ?self.edge_cache.p2id);
+        tracing::debug!(target: "routing", peer_distances = ?self.peer_distances);
     }
 }
 
@@ -758,9 +758,9 @@ impl Handler<NetworkChanges, (Option<network_protocol::DistanceVector>, Vec<bool
         // Logs the given batch of updates and the results from processing them.
         for (update, ok) in msg.0.iter().zip(&oks) {
             if *ok {
-                tracing::debug!(target: "routing", "processed event {:?}", update);
+                tracing::debug!(target: "routing", ?update, "processed event");
             } else {
-                tracing::debug!(target: "routing", "rejected invalid distance vector {:?}", update);
+                tracing::debug!(target: "routing", ?update, "rejected invalid distance vector");
             }
         }
 

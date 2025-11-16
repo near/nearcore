@@ -475,7 +475,7 @@ fn test_processing_chunks_sanity() {
             .iter()
             .map(|chunk| format!("{:?}", chunk.chunk_hash()))
             .collect::<Vec<_>>();
-        tracing::debug!(target: "chunks", "Block #{} has chunks {:?}", i, chunks.join(", "));
+        tracing::debug!(target: "chunks", block = %i, chunks = %chunks.join(", "));
         blocks.push(block.clone());
         env.process_block(0, block, Provenance::PRODUCED);
     }

@@ -289,7 +289,7 @@ impl ColdStoreActor {
 
         match &result {
             Err(err) => {
-                tracing::error!(target : "cold_store", error = format!("{err:#?}"), "cold_store_copy failed");
+                tracing::error!(target : "cold_store", ?err, "cold_store_copy failed");
             }
             Ok(copy_result) => match copy_result {
                 ColdStoreCopyResult::NoBlockCopied => {
