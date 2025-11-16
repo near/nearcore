@@ -2,6 +2,7 @@ use super::mem::ArenaMemory;
 use super::mem::node::MemTrieNodeView;
 use super::{Trie, TrieChanges, TrieRefcountDeltaMap};
 use crate::{NibbleSlice, PartialStorage, RawTrieNode, RawTrieNodeWithSize};
+use ahash::RandomState as AHashRandomState;
 use borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::PartialState;
@@ -13,7 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// A simple struct to capture a state proof as it's being accumulated.
 pub struct TrieRecorder {
-    recorded: dashmap::DashMap<CryptoHash, TrieNodeWithRefcount>,
+    recorded: dashmap::DashMap<CryptoHash, TrieNodeWithRefcount, AHashRandomState>,
     size: crossbeam::utils::CachePadded<AtomicUsize>,
     /// Size of the recorded state proof plus some additional size added to cover removals and
     /// contract code.
@@ -33,7 +34,7 @@ pub struct TrieRecorder {
     /// This may get set to u64::MAX to effectively impose no useful limit.
     proof_size_limit: u64,
     /// Account IDs for which the code should be recorded.
-    pub codes_to_record: dashmap::DashSet<AccountId>,
+    pub codes_to_record: dashmap::DashSet<AccountId, AHashRandomState>,
 }
 struct TrieNodeWithRefcount(Arc<[u8]>, u32);
 
@@ -78,13 +79,22 @@ pub struct SubtreeSize {
 impl TrieRecorder {
     pub fn new(proof_size_limit: Option<u64>) -> Self {
         Self {
-            recorded: Default::default(),
+            // Use a faster hash builder and 256 shards (vs the default 16) to
+            // shorten lock hold times when many rayon workers record trie nodes.
+            recorded: dashmap::DashMap::with_capacity_and_hasher_and_shard_amount(
+                4096,
+                AHashRandomState::new(),
+                256,
+            ),
             proof_size_limit: proof_size_limit.unwrap_or(u64::MAX),
             size: Default::default(),
             upper_bound_size: Default::default(),
             removal_counter: Default::default(),
             code_len_counter: Default::default(),
-            codes_to_record: Default::default(),
+            codes_to_record: dashmap::DashSet::with_capacity_and_hasher(
+                128,
+                AHashRandomState::new(),
+            ),
         }
     }
 

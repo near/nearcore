@@ -16,10 +16,12 @@ anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
 crossbeam.workspace = true
+ahash.workspace = true
 dashmap = { workspace = true, features = ["raw-api"] }
 derive_more = { workspace = true, features = ["as_ref", "into"] }
 derive-where.workspace = true
 smallvec.workspace = true
+futures.workspace = true
 enum-map.workspace = true
 hex.workspace = true
 itoa.workspace = true

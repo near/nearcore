@@ -151,7 +151,6 @@ fn genesis_state_from_genesis(
     let tries = ShardTries::new(
         store.trie_store(),
         TrieConfig::default(),
-        &shard_uids,
         FlatStorageManager::new(store.flat_store()),
         StateSnapshotConfig::Disabled,
     );

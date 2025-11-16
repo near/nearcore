@@ -888,7 +888,7 @@ impl<T: ChainAccess> TxMirror<T> {
                             crate::metrics::TRANSACTIONS_SENT.with_label_values(&["ok"]).inc();
                             tx.sent_successfully = true;
                         }
-                        ProcessTxResponse::InvalidTx(e) => {
+                        ProcessTxResponse::InvalidTx(err) => {
                             // TODO: here if we're getting an error because the tx was already included, it is possible
                             // that some other instance of this code ran and made progress already. For now we can assume
                             // only once instance of this code will run, but this is the place to detect if that's not the case.
@@ -897,16 +897,16 @@ impl<T: ChainAccess> TxMirror<T> {
                                 signer_id = %tx.target_tx.transaction.signer_id(),
                                 public_key = ?tx.target_tx.transaction.public_key(),
                                 provenance = %tx.provenance,
-                                ?e,
+                                ?err,
                                 "tried to send an invalid tx"
                             );
                             crate::metrics::TRANSACTIONS_SENT.with_label_values(&["invalid"]).inc();
                         }
-                        r => {
+                        response => {
                             tracing::error!(
                                 target: "mirror",
                                 provenance = %tx.provenance,
-                                ?r,
+                                ?response,
                                 "unexpected response sending tx, the transaction was not sent"
                             );
                             crate::metrics::TRANSACTIONS_SENT
@@ -1335,7 +1335,11 @@ impl<T: ChainAccess> TxMirror<T> {
                     })
                     .await
                     .with_context(|| {
-                        format!("failed fetching outcome for receipt {}", receipt.receipt_id())
+                        format!(
+                            "failed fetching outcome for child receipt {} of the origin receipt {}",
+                            receipt.receipt_id(),
+                            receipt_id,
+                        )
                     })?;
                 if !execution_status_good(&outcome.outcome.status) {
                     continue;
@@ -1463,13 +1467,13 @@ impl<T: ChainAccess> TxMirror<T> {
                     target_view_client,
                     txs,
                 )
-                .await?;
+                .await?
             }
-            for (idx, r) in ch.receipts.iter().enumerate() {
+            for (idx, receipt) in ch.receipts.iter().enumerate() {
                 // TODO: we're scanning the list of receipts for each block twice. Once here and then again
                 // when we queue that height's txs. Prob not a big deal but could fix that.
                 self.add_receipt_function_call_keys(
-                    r,
+                    receipt,
                     MappedTxProvenance::ReceiptCreateAccount(
                         create_account_height,
                         ch.shard_id,
@@ -1766,7 +1770,7 @@ impl<T: ChainAccess> TxMirror<T> {
             set_last_source_height(&db, tx_batch.source_height)?;
             sent_source_height = Some(tx_batch.source_height);
 
-            blocks_sent.send(tx_batch).await.unwrap();
+            blocks_sent.send(tx_batch).await.context("failed to send block")?;
 
             let send_delay = *send_delay.lock();
             tracing::debug!(target: "mirror", ?send_delay, "sleeping for duration until sending more transactions");
@@ -1819,8 +1823,7 @@ impl<T: ChainAccess> TxMirror<T> {
         *target_head.write() = first_target_head;
         clients_tx
             .send((client.clone(), view_client.clone(), rpc_handler.clone()))
-            .map_err(|_| ())
-            .unwrap();
+            .map_err(|_| anyhow::anyhow!("failed to send clients"))?;
 
         loop {
             let msg = target_stream.recv().await.unwrap();
@@ -1831,7 +1834,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 tracker.on_target_block(&tx_block_queue, db.as_ref(), msg)?
             };
             if !target_block_info.staked_accounts.is_empty() {
-                accounts_to_unstake.send(target_block_info.staked_accounts).await.unwrap();
+                accounts_to_unstake.send(target_block_info.staked_accounts).await?;
             }
             for access_key_update in target_block_info.access_key_updates {
                 let nonce = crate::fetch_access_key_nonce(
@@ -2039,7 +2042,9 @@ impl<T: ChainAccess> TxMirror<T> {
                 target_head2,
             )
             .await;
-            target_indexer_done_tx.send(res).unwrap();
+            if let Err(res) = target_indexer_done_tx.send(res) {
+                tracing::error!(target: "mirror", ?res, "failed to notify that index target loop is done")
+            }
         });
 
         // wait til we set the values in target_height and target_head after receiving a message from the indexer
@@ -2129,7 +2134,9 @@ impl<T: ChainAccess> TxMirror<T> {
                 rpc_handler2,
             )
             .await;
-            send_txs_done_tx.send(res).unwrap();
+            if let Err(err) = send_txs_done_tx.send(res) {
+                tracing::error!(target: "mirror", ?err, "failed send txs loop res");
+            }
         });
         tokio::select! {
             res = self.queue_txs_loop(
@@ -2142,12 +2149,12 @@ impl<T: ChainAccess> TxMirror<T> {
             }
             res = target_indexer_done_rx => {
                 let res = res.unwrap();
-                tracing::error!("target indexer thread exited");
+                tracing::error!(target: "mirror", ?res, "target indexer thread exited");
                 res.context("target indexer thread failure")
             }
             res = send_txs_done_rx => {
                 let res = res.unwrap();
-                tracing::error!("transaction sending thread exited");
+                tracing::error!(target: "mirror", ?res, "transaction sending thread exited");
                 res.context("target indexer thread failure")
             }
         }

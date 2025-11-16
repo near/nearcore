@@ -73,7 +73,7 @@ where
     A: Actor + Send + 'static,
 {
     let actor_name = pretty_type_name::<A>();
-    tracing::info!(
+    tracing::debug!(
         target: "multithread_runtime",
         actor_name,
         num_threads,

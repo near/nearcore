@@ -29,6 +29,7 @@
         "adversenet",
         "AFAICT",
         "AFAIU",
+        "ahash",
         "akhi",
         "Aleksandr",
         "allocs",
@@ -113,6 +114,7 @@
         "dontcare",
         "doomslug",
         "doomslugs",
+        "dryrun",
         "dynasm",
         "dynasmrt",
         "ellipsifies",
@@ -458,6 +460,7 @@
         "yocto",
         "yoctonear",
         "zadd",
+        "zipf",
         "zstd",
         "Zulip",
         "zulipchat"

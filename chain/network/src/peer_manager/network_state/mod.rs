@@ -502,7 +502,6 @@ impl NetworkState {
                     clock.clone(),
                     actor_system.clone(),
                     stream,
-                    None,
                     self.clone(),
                 )
                 .await

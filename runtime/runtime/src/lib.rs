@@ -6,6 +6,7 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
+use crate::gas_keys::{action_add_gas_key, action_delete_gas_key, action_transfer_to_gas_key};
 use crate::metrics::{
     TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL,
     TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL,
@@ -19,6 +20,7 @@ pub use crate::verifier::{
     ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
     validate_transaction, verify_and_charge_tx_ephemeral,
 };
+use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
 use config::{total_prepaid_send_fees, tx_cost};
 use congestion_control::ReceiptSink;
@@ -33,7 +35,7 @@ pub use near_crypto;
 use near_crypto::{PublicKey, Signature};
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::Account;
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
@@ -94,6 +96,8 @@ use tracing::instrument;
 use verifier::ValidateReceiptMode;
 
 mod actions;
+#[cfg(test)]
+mod actions_test_utils;
 pub mod adapter;
 mod bandwidth_scheduler;
 pub mod config;
@@ -101,6 +105,7 @@ mod congestion_control;
 mod conversions;
 mod deterministic_account_id;
 pub mod ext;
+mod gas_keys;
 mod global_contracts;
 pub mod metrics;
 mod pipelining;
@@ -487,6 +492,10 @@ impl Runtime {
                     epoch_info_provider,
                 )?;
             }
+            Action::TransferToGasKey(transfer) => {
+                metrics::ACTION_CALLED_COUNT.transfer_to_gas_key.inc();
+                action_transfer_to_gas_key(state_update, account_id, transfer, &mut result)?;
+            }
             Action::Stake(stake) => {
                 metrics::ACTION_CALLED_COUNT.stake.inc();
                 action_stake(
@@ -509,6 +518,17 @@ impl Runtime {
                     add_key,
                 )?;
             }
+            Action::AddGasKey(add_gas_key) => {
+                metrics::ACTION_CALLED_COUNT.add_gas_key.inc();
+                action_add_gas_key(
+                    apply_state,
+                    state_update,
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    &mut result,
+                    account_id,
+                    add_gas_key,
+                )?;
+            }
             Action::DeleteKey(delete_key) => {
                 metrics::ACTION_CALLED_COUNT.delete_key.inc();
                 action_delete_key(
@@ -518,6 +538,17 @@ impl Runtime {
                     &mut result,
                     account_id,
                     delete_key,
+                )?;
+            }
+            Action::DeleteGasKey(delete_gas_key) => {
+                metrics::ACTION_CALLED_COUNT.delete_gas_key.inc();
+                action_delete_gas_key(
+                    &apply_state.config.fees,
+                    state_update,
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    &mut result,
+                    account_id,
+                    delete_gas_key,
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
@@ -1605,14 +1636,18 @@ impl Runtime {
                     });
             },
             || {
-                type AccountV = Result<Option<Account>, StorageError>;
-                type AccessKeyV = Result<Option<AccessKey>, StorageError>;
-                let accounts =
-                    dashmap::DashMap::<&AccountId, AccountV>::with_capacity(num_transactions);
-                let access_keys =
-                    dashmap::DashMap::<(&AccountId, &PublicKey), AccessKeyV>::with_capacity(
-                        num_transactions,
-                    );
+                // Use a faster hash builder and more shards to shorten time spent in
+                // these shared maps when many rayon workers prefetch signer data.
+                let accounts = dashmap::DashMap::with_capacity_and_hasher_and_shard_amount(
+                    num_transactions,
+                    AHashRandomState::new(),
+                    128,
+                );
+                let access_keys = dashmap::DashMap::with_capacity_and_hasher_and_shard_amount(
+                    num_transactions,
+                    AHashRandomState::new(),
+                    128,
+                );
 
                 let (maybe_expired_txs, tx_expiration_flags) =
                     signed_txs.get_potentially_expired_transactions_and_expiration_flags();

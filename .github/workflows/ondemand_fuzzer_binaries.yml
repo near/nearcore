@@ -41,12 +41,15 @@ jobs:
       - name: Checkout Release/RC branch
         if: contains(fromJSON('["released", "prereleased"]'), github.event.action)
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Checkout ${{ github.event.inputs.branch_ref }} branch
         if: ${{ github.event_name == 'workflow_dispatch'}}
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch_ref }}
+          persist-credentials: false
 
       - id: "auth"
         name: Authenticate with Google Cloud
@@ -87,7 +90,9 @@ jobs:
 
       - name: Build fuzz targets from ${{ github.event.inputs.branch_ref }}" branch
         if: ${{ github.event_name == 'workflow_dispatch'}}
-        run: echo "branch_type=${{ github.event.inputs.branch_type }}" >> "$GITHUB_ENV"
+        run: echo "branch_type=${GITHUB_EVENT_INPUTS_BRANCH_TYPE}" >> "$GITHUB_ENV"
+        env:
+          GITHUB_EVENT_INPUTS_BRANCH_TYPE: ${{ github.event.inputs.branch_type }}
 
       - name: "Compile fuzzers and upload to GCS"
         run: |

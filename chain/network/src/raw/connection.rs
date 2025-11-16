@@ -1,8 +1,7 @@
 use crate::config::SocketOptions;
 use crate::network_protocol::{
-    Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash,
-    PeerMessage, Ping, Pong, RawRoutedMessage, RoutingTableUpdate, T2MessageBody,
-    TieredMessageBody,
+    Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerMessage,
+    Ping, Pong, RawRoutedMessage, RoutingTableUpdate, T2MessageBody, TieredMessageBody,
 };
 use crate::tcp;
 use crate::types::{
@@ -39,10 +38,6 @@ pub struct Connection {
     // this is used to keep track of routed messages we've sent so that when we get a reply
     // that references one of our previously sent messages, we can determine that the message is for us
     route_cache: lru::LruCache<CryptoHash, ()>,
-    // when a peer connects to us, it'll send two handshakes. One as a proto and one borsh-encoded.
-    // If this field is true, it means we expect to receive a message that won't parse as a proto, and
-    // will accept and drop one such message without giving an error.
-    borsh_message_expected: bool,
 }
 
 // The types of messages it's possible to route to a target PeerId via the connected peer as a first hop
@@ -261,7 +256,6 @@ impl Connection {
             secret_key,
             my_peer_id,
             route_cache: lru::LruCache::new(NonZeroUsize::new(1_000_000).unwrap()),
-            borsh_message_expected: false,
         };
         peer.do_handshake(
             &clock,
@@ -288,12 +282,10 @@ impl Connection {
         protocol_version: Option<ProtocolVersion>,
     ) -> Result<Self, ConnectError> {
         let mut stream = PeerStream::new(stream, recv_timeout);
-        let mut borsh_message_expected = true;
         let (message, _timestamp) = match stream.recv_message().await {
             Ok(m) => m,
             Err(RecvError::Parse(len)) => {
                 tracing::debug!(target: "network", "dropping a non protobuf message of length {}. probably an extra handshake", len);
-                borsh_message_expected = false;
                 stream.recv_message().await?
             }
             Err(RecvError::IO(e)) => return Err(ConnectError::IO(e)),
@@ -333,7 +325,6 @@ impl Connection {
             stream,
             peer_id,
             route_cache: lru::LruCache::new(NonZeroUsize::new(1_000_000).unwrap()),
-            borsh_message_expected,
         })
     }
 
@@ -479,16 +470,10 @@ impl Connection {
             let (msg, timestamp) = match self.stream.recv_message().await {
                 Ok(m) => m,
                 Err(RecvError::Parse(len)) => {
-                    if self.borsh_message_expected {
-                        tracing::debug!(target: "network", "{:?} dropping a non protobuf message. probably an extra handshake", &self);
-                        self.borsh_message_expected = false;
-                        continue;
-                    } else {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!("error parsing protobuf of length {}", len),
-                        ));
-                    }
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("error parsing protobuf of length {}", len),
+                    ));
                 }
                 Err(RecvError::IO(e)) => return Err(e),
             };
@@ -563,7 +548,7 @@ impl PeerStream {
     }
 
     async fn write_message(&mut self, msg: &PeerMessage) -> io::Result<()> {
-        let mut msg = msg.serialize(Encoding::Proto);
+        let mut msg = msg.serialize();
         let mut buf = (msg.len() as u32).to_le_bytes().to_vec();
         buf.append(&mut msg);
         self.stream.stream.write_all(&buf).await
@@ -613,7 +598,7 @@ impl PeerStream {
         }
 
         self.buf.advance(4);
-        let msg = PeerMessage::deserialize(Encoding::Proto, &self.buf[..msg_length]);
+        let msg = PeerMessage::deserialize(&self.buf[..msg_length]);
         self.buf.advance(msg_length);
 
         // make sure we can probably read the next message in one syscall next time

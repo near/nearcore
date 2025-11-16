@@ -70,7 +70,7 @@ where
 
 impl<A> FutureSpawner for TokioRuntimeHandle<A> {
     fn spawn_boxed(&self, description: &'static str, f: BoxFuture<'static, ()>) {
-        tracing::debug!(target: "tokio_runtime", description, "spawning future");
+        tracing::trace!(target: "tokio_runtime", description, "spawning future");
         self.runtime_handle.spawn(InstrumentingFuture::new(
             description,
             f,

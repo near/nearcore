@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use near_async::futures::AsyncComputationSpawner;
@@ -54,6 +55,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{Gas, ShardId};
 use near_primitives::utils::get_receipt_proof_key;
 use near_primitives::utils::get_receipt_proof_target_shard_prefix;
+use near_primitives::utils::get_witnesses_key;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::DBCol;
 use near_store::Store;
@@ -127,7 +129,20 @@ impl ChunkExecutorActor {
     }
 }
 
-impl near_async::messaging::Actor for ChunkExecutorActor {}
+impl near_async::messaging::Actor for ChunkExecutorActor {
+    fn start_actor(&mut self, _ctx: &mut dyn near_async::futures::DelayedActionRunner<Self>) {
+        if !cfg!(feature = "protocol_feature_spice") {
+            return;
+        }
+        if let Err(err) = self.process_all_ready_blocks() {
+            tracing::error!(
+                target: "chunk_executor",
+                ?err,
+                "failed when trying to process all ready blocks on start up",
+            );
+        }
+    }
+}
 
 /// Message with incoming unverified receipts corresponding to the block.
 #[derive(Debug, PartialEq)]
@@ -137,8 +152,6 @@ pub struct ExecutorIncomingUnverifiedReceipts {
 }
 
 struct VerifiedReceipts {
-    // TODO(spice): After verification no need to keep proofs so we should store here and in db
-    // only Vec<Receipt>
     receipt_proof: ReceiptProof,
     block_hash: CryptoHash,
 }
@@ -592,6 +605,7 @@ impl ChunkExecutorActor {
             should_save_state_transition_data,
         )?;
         let final_execution_head = chain_update.update_spice_final_execution_head(&block)?;
+        chain_update.save_spice_execution_head(block.header())?;
         chain_update.commit()?;
         if let Some(final_execution_head) = final_execution_head {
             self.update_flat_storage_head(&shard_layout, &final_execution_head)?;
@@ -640,7 +654,7 @@ impl ChunkExecutorActor {
         let state_witness =
             self.create_witness(block, apply_result, shard_id, execution_result_hash)?;
 
-        // TODO(spice): Implementing saving latest witness based on configuration.
+        save_witness(&self.chain_store, block.hash(), shard_id, &state_witness)?;
 
         self.data_distributor_adapter.send(SpiceDistributorStateWitness { state_witness });
         Ok(())
@@ -833,7 +847,6 @@ impl ChunkExecutorActor {
     ) -> Result<(), Error> {
         let store = self.chain_store.store();
         let mut store_update = store.store_update();
-        // TODO(spice): Only save receipts targeted at shards that we track.
         for proof in receipt_proofs {
             save_receipt_proof(&mut store_update, &block_hash, &proof)?
         }
@@ -929,6 +942,36 @@ impl ChunkExecutorActor {
         }
         Ok(())
     }
+
+    fn process_all_ready_blocks(&mut self) -> Result<(), Error> {
+        let start_block = match self.chain_store.spice_final_execution_head() {
+            Ok(final_execution_head) => final_execution_head.last_block_hash,
+            Err(Error::DBNotFoundErr(_)) => {
+                let final_head_hash = self.chain_store.final_head()?.last_block_hash;
+                let mut header = self.chain_store.get_block_header(&final_head_hash)?;
+                // TODO(spice): Stop searching on the first non-spice block.
+                while !header.is_genesis() {
+                    header = self.chain_store.get_block_header(header.prev_hash())?;
+                }
+                *header.hash()
+            }
+            Err(err) => return Err(err),
+        };
+
+        let mut next_block_hashes: VecDeque<_> =
+            self.chain_store.get_all_next_block_hashes(&start_block)?.into();
+        while let Some(block_hash) = next_block_hashes.pop_front() {
+            if !matches!(
+                self.try_apply_chunks(&block_hash)?,
+                TryApplyChunksOutcome::BlockAlreadyAccepted
+            ) {
+                continue;
+            }
+            next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash)?);
+        }
+
+        Ok(())
+    }
 }
 
 fn new_execution_result(
@@ -950,8 +993,8 @@ fn new_execution_result(
     ChunkExecutionResult { chunk_extra, outgoing_receipts_root }
 }
 
-// TODO(spice): There is no need to store receipt proof since we verify receipts before storing
-// them. So instead Vec<Receipt> should be stored with the same keys.
+// We depend on stored receipts for distribution, so we need to store receipt proof and not only
+// Vec<Receipt>.
 pub(crate) fn save_receipt_proof(
     store_update: &mut StoreUpdate,
     block_hash: &CryptoHash,
@@ -961,6 +1004,20 @@ pub(crate) fn save_receipt_proof(
     let key = get_receipt_proof_key(block_hash, from_shard_id, to_shard_id);
     let value = borsh::to_vec(&receipt_proof)?;
     store_update.set(DBCol::receipt_proofs(), &key, &value);
+    Ok(())
+}
+
+pub(crate) fn save_witness(
+    chain_store: &ChainStoreAdapter,
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+    witness: &SpiceChunkStateWitness,
+) -> Result<(), Error> {
+    let mut store_update = chain_store.store().store_update();
+    let key = get_witnesses_key(block_hash, shard_id);
+    let value = borsh::to_vec(&witness)?;
+    store_update.set(DBCol::witnesses(), &key, &value);
+    store_update.commit()?;
     Ok(())
 }
 
@@ -974,6 +1031,25 @@ fn get_receipt_proofs_for_shard(
         .iter_prefix_ser::<ReceiptProof>(DBCol::receipt_proofs(), &prefix)
         .map(|res| res.map(|kv| kv.1))
         .collect()
+}
+
+pub fn get_witness(
+    store: &Store,
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
+) -> Result<Option<SpiceChunkStateWitness>, std::io::Error> {
+    let key = get_witnesses_key(block_hash, shard_id);
+    store.get_ser(DBCol::witnesses(), &key)
+}
+
+pub fn get_receipt_proof(
+    store: &Store,
+    block_hash: &CryptoHash,
+    to_shard_id: ShardId,
+    from_shard_id: ShardId,
+) -> Result<Option<ReceiptProof>, std::io::Error> {
+    let key = get_receipt_proof_key(block_hash, from_shard_id, to_shard_id);
+    store.get_ser(DBCol::receipt_proofs(), &key)
 }
 
 pub fn receipt_proof_exists(

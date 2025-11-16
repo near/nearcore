@@ -30,7 +30,6 @@ from google.cloud.compute_v1.types import AggregatedListInstancesRequest, Instan
 import network
 from configured_logger import logger
 from key import Key
-from proxy import NodesProxy
 import state_sync_lib
 
 # cspell:ignore nretry pmap preemptible proxify uefi useragent
@@ -187,9 +186,6 @@ class BlockId(typing.NamedTuple):
 class BaseNode(object):
 
     def __init__(self):
-        self._start_proxy = None
-        self._proxy_local_stopped = None
-        self.proxy = None
         self.store_tests = 0
         self.is_check_store = True
 
@@ -590,10 +586,6 @@ class LocalNode(BaseNode):
     def rpc_addr(self):
         return ("127.0.0.1", self.rpc_port)
 
-    def start_proxy_if_needed(self):
-        if self._start_proxy is not None:
-            self._proxy_local_stopped = self._start_proxy()
-
     def output_logs(self):
         stdout = pathlib.Path(self.node_dir) / 'stdout'
         stderr = pathlib.Path(self.node_dir) / 'stderr'
@@ -621,15 +613,7 @@ class LocalNode(BaseNode):
             self.binary_name,
         )
 
-        if self._proxy_local_stopped is not None:
-            while self._proxy_local_stopped.value != 2:
-                logger.info(f'Waiting for previous proxy instance to close')
-                time.sleep(1)
-
         self.run_cmd(cmd=cmd, extra_env=extra_env)
-
-        if not skip_starting_proxy:
-            self.start_proxy_if_needed()
 
         try:
             self.wait_for_rpc(10)
@@ -659,8 +643,6 @@ class LocalNode(BaseNode):
     def kill(self, *, gentle=False):
         logger.info(f"Killing node {self.ordinal}.")
         """Kills the process.  If `gentle` sends SIGINT before killing."""
-        if self._proxy_local_stopped is not None:
-            self._proxy_local_stopped.value = 1
         if self._process and gentle:
             self._process.send_signal(signal.SIGINT)
             try:
@@ -952,7 +934,6 @@ def spin_up_node(
     *,
     boot_node: BootNode = None,
     blacklist=(),
-    proxy=None,
     skip_starting_proxy=False,
     single_node=False,
     sleep_after_start=3,
@@ -991,9 +972,6 @@ def spin_up_node(
         with remote_nodes_lock:
             remote_nodes.append(node)
         logger.info(f"node {ordinal} machine created")
-
-    if proxy is not None:
-        proxy.proxify_node(node)
 
     node.start(boot_node=boot_node, skip_starting_proxy=skip_starting_proxy)
     time.sleep(sleep_after_start)
@@ -1260,7 +1238,6 @@ def start_cluster(
             client_config_changes,
             extra_state_dumper=extra_state_dumper)
 
-    proxy = NodesProxy(message_handler) if message_handler is not None else None
     ret = []
 
     def spin_up_node_and_push(i: int, boot_node: BootNode) -> BaseNode:
@@ -1271,8 +1248,6 @@ def start_cluster(
             node_dirs[i],
             ordinal=i,
             boot_node=boot_node,
-            proxy=proxy,
-            skip_starting_proxy=True,
             single_node=single_node,
         )
         ret.append((i, node))
@@ -1291,8 +1266,6 @@ def start_cluster(
         handle.join()
 
     nodes = [node for _, node in sorted(ret)]
-    for node in nodes:
-        node.start_proxy_if_needed()
 
     return nodes
 

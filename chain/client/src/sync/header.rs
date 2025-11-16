@@ -239,7 +239,6 @@ impl HeaderSync {
                                 if now > *stalling_ts + self.stall_ban_timeout
                                     && *highest_height == peer.highest_block_height
                                 {
-                                    // This message is used in sync_ban.py test. Consider checking there as well if you change it.
                                     // The peer is one of the peers with the highest height, but we consider the peer stalling.
                                     tracing::warn!(target: "sync", peer_info = %peer.peer_info, peer_height = peer.highest_block_height, "sync: ban a peer for not providing enough headers");
                                     // Ban the peer, which blocks all interactions with the peer for some time.

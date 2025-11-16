@@ -9,13 +9,11 @@ use near_chunks::client::ShardedTransactionPool;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_network::client::ChunkEndorsementMessage;
 use near_network::client::ProcessTxRequest;
 use near_network::client::ProcessTxResponse;
 use near_network::types::NetworkRequests;
 use near_network::types::PeerManagerAdapter;
 use near_network::types::PeerManagerMessageRequest;
-use near_performance_metrics_macros::perf;
 use near_pool::InsertTransactionResult;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
@@ -30,7 +28,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::metrics;
-use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use near_async::multithread::MultithreadRuntimeHandle;
 
 impl Handler<ProcessTxRequest> for RpcHandler {
@@ -46,22 +43,12 @@ impl Handler<ProcessTxRequest, ProcessTxResponse> for RpcHandler {
     }
 }
 
-impl Handler<ChunkEndorsementMessage> for RpcHandler {
-    #[perf]
-    fn handle(&mut self, msg: ChunkEndorsementMessage) {
-        if let Err(err) = self.chunk_endorsement_tracker.process_chunk_endorsement(msg.0) {
-            tracing::error!(target: "client", ?err, "error processing chunk endorsement");
-        }
-    }
-}
-
 impl messaging::Actor for RpcHandler {}
 
 pub fn spawn_rpc_handler_actor(
     actor_system: ActorSystem,
     config: RpcHandlerConfig,
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
-    chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     validator_signer: MutableValidatorSigner,
@@ -71,7 +58,6 @@ pub fn spawn_rpc_handler_actor(
     let actor = RpcHandler::new(
         config.clone(),
         tx_pool,
-        chunk_endorsement_tracker,
         epoch_manager,
         shard_tracker,
         validator_signer,
@@ -98,7 +84,6 @@ pub struct RpcHandler {
     config: RpcHandlerConfig,
 
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
-    chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
 
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -112,7 +97,6 @@ impl RpcHandler {
     pub fn new(
         config: RpcHandlerConfig,
         tx_pool: Arc<Mutex<ShardedTransactionPool>>,
-        chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         validator_signer: MutableValidatorSigner,
@@ -124,7 +108,6 @@ impl RpcHandler {
         Self {
             config,
             tx_pool,
-            chunk_endorsement_tracker,
             validator_signer,
             chain_store,
             epoch_manager,

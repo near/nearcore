@@ -1,7 +1,4 @@
 /// Contains types that belong to the `network protocol.
-#[path = "borsh.rs"]
-mod borsh_;
-mod borsh_conv;
 mod edge;
 mod peer;
 mod proto_conv;
@@ -466,18 +463,8 @@ impl fmt::Display for PeerMessage {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, strum::IntoStaticStr)]
-pub enum Encoding {
-    Borsh,
-    Proto,
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum ParsePeerMessageError {
-    #[error("BorshDecode")]
-    BorshDecode(#[source] std::io::Error),
-    #[error("BorshConv")]
-    BorshConv(#[source] borsh_conv::ParsePeerMessageError),
     #[error("ProtoDecode")]
     ProtoDecode(#[source] protobuf::Error),
     #[error("ProtoConv")]
@@ -485,38 +472,23 @@ pub enum ParsePeerMessageError {
 }
 
 impl PeerMessage {
-    /// Serializes a message in the given encoding.
-    /// If the encoding is `Proto`, then also attaches current Span's context to the message.
-    pub(crate) fn serialize(&self, enc: Encoding) -> Vec<u8> {
-        match enc {
-            Encoding::Borsh => borsh::to_vec(&borsh_::PeerMessage::from(self)).unwrap(),
-            Encoding::Proto => {
-                let mut msg = proto::PeerMessage::from(self);
-                let cx = Span::current().context();
-                msg.trace_context = inject_trace_context(&cx);
-                msg.write_to_bytes().unwrap()
-            }
-        }
+    /// Serializes a message and attaches current Span's context to the message.
+    pub(crate) fn serialize(&self) -> Vec<u8> {
+        let mut msg = proto::PeerMessage::from(self);
+        let cx = Span::current().context();
+        msg.trace_context = inject_trace_context(&cx);
+        msg.write_to_bytes().unwrap()
     }
 
-    pub(crate) fn deserialize(
-        enc: Encoding,
-        data: &[u8],
-    ) -> Result<PeerMessage, ParsePeerMessageError> {
+    pub(crate) fn deserialize(data: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
         let span = tracing::trace_span!(target: "network", "deserialize").entered();
-        Ok(match enc {
-            Encoding::Borsh => (&borsh_::PeerMessage::try_from_slice(data)
-                .map_err(ParsePeerMessageError::BorshDecode)?)
-                .try_into()
-                .map_err(ParsePeerMessageError::BorshConv)?,
-            Encoding::Proto => {
-                let proto_msg: proto::PeerMessage = proto::PeerMessage::parse_from_bytes(data)
-                    .map_err(ParsePeerMessageError::ProtoDecode)?;
-                if let Ok(extracted_span_context) = extract_span_context(&proto_msg.trace_context) {
-                    span.clone().or_current().add_link(extracted_span_context);
-                }
-                (&proto_msg).try_into().map_err(|err| ParsePeerMessageError::ProtoConv(err))?
+        Ok({
+            let proto_msg: proto::PeerMessage = proto::PeerMessage::parse_from_bytes(data)
+                .map_err(ParsePeerMessageError::ProtoDecode)?;
+            if let Ok(extracted_span_context) = extract_span_context(&proto_msg.trace_context) {
+                span.clone().or_current().add_link(extracted_span_context);
             }
+            (&proto_msg).try_into().map_err(|err| ParsePeerMessageError::ProtoConv(err))?
         })
     }
 
