@@ -33,7 +33,6 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use sysinfo::{Pid, ProcessExt, System, SystemExt, get_current_pid, set_open_files_limit};
 use time::ext::InstantExt as _;
-use tracing::info;
 
 const TERAGAS: f64 = 1_000_000_000_000_f64;
 
@@ -444,13 +443,14 @@ impl InfoHelper {
             })
             .unwrap_or_default();
 
-        info!(
-            target: "stats", "{}{}{}{}{}",
+        tracing::info!(
+            target: "stats",
             sync_status_log,
             validator_info_log,
             network_info_log,
             blocks_info_log,
             machine_info_log,
+            "node status"
         );
         log_catchup_status(catchup_status);
         if let Some(config_updater) = &config_updater {
@@ -690,9 +690,9 @@ pub fn log_catchup_status(catchup_status: Vec<CatchupStatusView>) {
         tracing::info!(
             sync_hash=?catchup_status.sync_block_hash,
             sync_height=?catchup_status.sync_block_height,
-            "Catchup Status - shard sync status: {}, next blocks to catch up: {}",
-            shard_sync_string,
-            block_catchup_string,
+            %shard_sync_string,
+            %block_catchup_string,
+            "catchup status"
         )
     }
 }

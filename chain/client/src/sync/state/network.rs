@@ -86,8 +86,10 @@ impl StateSyncDownloadSourcePeerSharedState {
         let key = PendingPeerRequestKey { shard_id, sync_hash: msg.sync_hash(), part_id_or_header };
 
         let Some(request) = self.pending_requests.get_mut(&key) else {
-            tracing::debug!(target: "sync", ?key, %peer_id, "unexpected state response, request may have timed out");
-            return Ok(());
+            tracing::debug!(target: "sync", ?key, %peer_id, "received state response from peer");
+            return Err(near_chain::Error::Other(
+                "Unexpected state response (request may have timed out)".to_owned(),
+            ));
         };
 
         if request.peer_id != peer_id {

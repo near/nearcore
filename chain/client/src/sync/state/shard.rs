@@ -73,7 +73,7 @@ pub(super) async fn run_state_sync_for_shard(
     concurrency_limit: u8,
     min_delay_before_reattempt: Duration,
 ) -> Result<(), near_chain::Error> {
-    tracing::info!("Running state sync for shard {}", shard_id);
+    tracing::info!(%shard_id, "running state sync for shard");
     *status.lock() = ShardSyncStatus::StateDownloadHeader;
     let header = downloader.ensure_shard_header(shard_id, sync_hash, cancel.clone()).await?;
     let state_root = header.chunk_prev_state_root();
@@ -153,9 +153,9 @@ pub(super) async fn run_state_sync_for_shard(
         store.exists(DBCol::StatePartsApplied, &key_bytes).unwrap_or(false)
     });
     if apply_parts_started {
-        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "Not clearing flat storage before applying state parts because some parts were already applied");
+        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "not clearing flat storage before applying state parts because some parts were already applied");
     } else {
-        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "Clearing flat storage before applying state parts");
+        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "clearing flat storage before applying state parts");
         let mut store_update = store.store_update();
         runtime
             .get_flat_storage_manager()
@@ -296,7 +296,7 @@ async fn apply_state_part(
     let key_bytes = borsh::to_vec(&key).unwrap();
     let already_applied = store.exists(DBCol::StatePartsApplied, &key_bytes)?;
     if already_applied {
-        tracing::debug!(target: "sync", ?key, "State part already applied, skipping");
+        tracing::debug!(target: "sync", ?key, "state part already applied, skipping");
         return Ok(StatePartApplyResult::AlreadyApplied);
     }
     return_if_cancelled!(cancel);
@@ -322,7 +322,7 @@ async fn apply_state_part(
         &state_part,
         &epoch_id,
     )?;
-    tracing::debug!(target: "sync", ?key, "Applied state part");
+    tracing::debug!(target: "sync", ?key, "applied state part");
 
     // Mark part as applied.
     let mut store_update = store.store_update();
