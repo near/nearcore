@@ -17,8 +17,8 @@ use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardPar
 // Hashes of the blocks where resharding happened.
 // These are from resharding at protocol versions 75, 76, and 78 respectively.
 const RESHARDING_BLOCK_HASHES: [&str; 1] = [
-    "CRixt9b6FhASJyTyc8YNj6g7tvjrnf37CSWbhGBwL3EP",
-    // "ATvDbPZYJSnu2j2CA9Dj7Q6aSBigi2aKuBGxbbnUZthU",
+    // "CRixt9b6FhASJyTyc8YNj6g7tvjrnf37CSWbhGBwL3EP",
+    "ATvDbPZYJSnu2j2CA9Dj7Q6aSBigi2aKuBGxbbnUZthU",
     // "BpuCWLLпMQupM5Dm5VqxpKwZJb6fiFsU5nVhfHkoTQQs",
 ];
 
