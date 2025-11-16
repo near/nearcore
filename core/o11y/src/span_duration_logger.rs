@@ -1,12 +1,12 @@
 use crate::metrics::try_create_histogram_vec;
-use std::sync::LazyLock;
 use prometheus::HistogramVec;
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
-use tracing::span::Attributes;
 use tracing::Id;
+use tracing::span::Attributes;
+use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::Layer;
 
 #[derive(Default)]
 pub(crate) struct SpanDurationLogger {}
@@ -114,7 +114,7 @@ where
                         ?name,
                         file = ?span.metadata().file(),
                         line = ?span.metadata().line(),
-                        "Span duration too long");
+                        "span duration too long");
                 }
             }
         } else {

@@ -14,7 +14,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 use strum::IntoEnumIterator;
-use tracing::warn;
 
 use super::metadata;
 
@@ -331,7 +330,7 @@ impl RocksDB {
 
     pub fn compact_column(&self, col: DBCol) -> io::Result<()> {
         let none = Option::<&[u8]>::None;
-        tracing::info!(target: "store::db::rocksdb", col = %col, "RocksDB::compact_column");
+        tracing::info!(target: "store::db::rocksdb", col = %col, "compact column");
         self.db.compact_range_cf(self.cf_handle(col)?, none, none);
         Ok(())
     }
@@ -432,7 +431,7 @@ impl Database for RocksDB {
         if elapsed.as_secs_f32() > 0.15 {
             tracing::warn!(
                 target = "store::db::rocksdb",
-                message = "making a write batch took a very long time, make smaller transactions!",
+                message = "making a write batch took a very long time, make smaller transactions",
                 ?elapsed,
                 backtrace = %std::backtrace::Backtrace::force_capture()
             );
@@ -475,7 +474,7 @@ impl Database for RocksDB {
         let mut result = StoreStatistics { data: vec![] };
         if let Some(stats_str) = self.db_opt.get_statistics() {
             if let Err(err) = parse_statistics(&stats_str, &mut result) {
-                warn!(target: "store", "Failed to parse store statistics: {:?}", err);
+                tracing::warn!(target: "store", ?err, "failed to parse store statistics");
             }
         }
         self.get_cf_statistics(&mut result);
@@ -515,7 +514,7 @@ impl Database for RocksDB {
                     // we check the metadata in DBOpener::get_metadata()
                     tracing::debug!(
                         target: "store::db::rocksdb",
-                        "create_checkpoint called with columns to keep not including DBCol::DbVersion. Including it anyway."
+                        "create_checkpoint called with columns to keep not including DBCol::DbVersion, including it anyway"
                     );
                     continue;
                 }
@@ -807,7 +806,7 @@ fn parse_statistics(
                         val.parse::<f64>()?,
                     )),
                     _ => {
-                        warn!(target: "stats", "Unsupported stats value: {key} in {line}");
+                        tracing::warn!(target: "stats", %key, %line, "unsupported stats value");
                     }
                 }
             }
