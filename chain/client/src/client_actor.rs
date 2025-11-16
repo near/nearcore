@@ -109,7 +109,14 @@ fn wait_until_genesis(genesis_time: &Utc) {
         if duration <= Duration::ZERO {
             break;
         }
-        tracing::info!(target: "near", days = duration.whole_days(), hours = (duration.whole_hours() % 24), minutes = (duration.whole_minutes() % 60), seconds = (duration.whole_seconds() % 60), "waiting until genesis");
+        tracing::info!(
+            target: "near",
+            days = duration.whole_days(),
+            hours = (duration.whole_hours() % 24),
+            minutes = (duration.whole_minutes() % 60),
+            seconds = (duration.whole_seconds() % 60),
+            "waiting until genesis"
+        );
         let wait = duration.min(Duration::seconds(10)).unsigned_abs();
         std::thread::sleep(wait);
     }
@@ -992,7 +999,12 @@ impl ClientActorInner {
             }
         }
 
-        tracing::debug!(target: "client", validator_id = %signer.validator_id(), last_validator_announce_time = ?self.last_validator_announce_time, "check announce account for validator");
+        tracing::debug!(
+            target: "client",
+            validator_id = %signer.validator_id(),
+            last_validator_announce_time = ?self.last_validator_announce_time,
+            "check announce account for validator"
+        );
 
         // Announce AccountId if client is becoming a validator soon.
         let next_epoch_id = unwrap_or_return!(

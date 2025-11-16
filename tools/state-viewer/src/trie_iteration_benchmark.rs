@@ -194,11 +194,11 @@ impl TrieIterationBenchmarkCmd {
                 }
             };
             tracing::trace!(
-                            target: "trie-iteration-benchmark",
-                            column = &state_record.get_type_string(),
-                            account_id = %state_record_to_account_id(&state_record),
-                            "visiting column and account id"
-                        );
+                target: "trie-iteration-benchmark",
+                column = &state_record.get_type_string(),
+                account_id = %state_record_to_account_id(&state_record),
+                "visiting column and account id"
+            );
 
             if let Some(limit) = self.limit {
                 if limit <= node_count {

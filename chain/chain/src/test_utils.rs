@@ -214,7 +214,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
     for header in headers {
         if header.is_genesis() {
             // Genesis block.
-            tracing::debug!(height = %header.height(), hash = %format_hash(*header.hash()), "");
+            tracing::debug!(height = %header.height(), hash = %format_hash(*header.hash()));
         } else {
             let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap().clone();
             let maybe_block = chain_store.get_block(header.hash()).ok();
@@ -252,7 +252,6 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                             %chunk_producer,
                             tx_count = %chunk.to_transactions().len(),
                             receipts_count = %chunk.prev_outgoing_receipts().len(),
-                            ""
                         );
                     } else if let Ok(partial_chunk) =
                         chain_store.get_partial_chunk(&chunk_header.chunk_hash())
@@ -268,7 +267,6 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                                 .iter()
                                 .map(|x| format!("{} => {}", x.0.len(), x.1.to_shard_id))
                                 .collect::<Vec<_>>(),
-                            ""
                         );
                     }
                 }

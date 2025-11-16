@@ -159,7 +159,7 @@ impl ReshardingActor {
         for event in events {
             tracing::info!(
                 %chain_final_height,
-                ?event.resharding_block,
+                resharding_block = ?event.resharding_block,
                 "get_resharding_scheduling_status: head height and resharding_block"
             );
 

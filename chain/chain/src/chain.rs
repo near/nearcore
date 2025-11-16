@@ -534,9 +534,14 @@ impl Chain {
             true,
         )?;
 
-        tracing::info!(target: "chain",
-              header_height = %header_head.height, ?header_head.last_block_hash,
-              block_height = %block_head.height, ?block_head.last_block_hash, "init: header head and block head");
+        tracing::info!(
+            target: "chain",
+            header_height = %header_head.height,
+            ?header_head.last_block_hash,
+            block_height = %block_head.height,
+            ?block_head.last_block_hash,
+            "init: header head and block head"
+        );
         metrics::BLOCK_HEIGHT_HEAD.set(block_head.height as i64);
         let block_header = chain_store.get_block_header(&block_head.last_block_hash)?;
         metrics::BLOCK_ORDINAL_HEAD.set(block_header.block_ordinal() as i64);
@@ -2001,8 +2006,11 @@ impl Chain {
             match apply_result {
                 Ok(result) => {
                     tracing::debug!(
-                        target: "chain", ?prev_block_hash, %block_height,
-                        %shard_id, ?cached_shard_update_key,
+                        target: "chain",
+                        ?prev_block_hash,
+                        %block_height,
+                        %shard_id,
+                        ?cached_shard_update_key,
                         "caching shard update result from optimistic block"
                     );
                     self.apply_chunk_results_cache.push(cached_shard_update_key, result);

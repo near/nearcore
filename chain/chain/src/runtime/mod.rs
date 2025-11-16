@@ -191,8 +191,9 @@ impl NightshadeRuntime {
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-            tracing::debug!(target: "runtime",
-                   next_block_epoch_start = epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
+            tracing::debug!(
+                target: "runtime",
+                next_block_epoch_start = epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
             );
 
             if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {

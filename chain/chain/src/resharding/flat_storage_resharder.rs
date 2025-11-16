@@ -497,7 +497,11 @@ impl FlatStorageResharder {
             ))
         })?;
         blocks_to_head.reverse();
-        tracing::debug!(target = "resharding", blocks_len = %blocks_to_head.len(), "flat storage blocks to head len");
+        tracing::debug!(
+            target = "resharding",
+            blocks_len = blocks_to_head.len(),
+            "flat storage blocks to head len"
+        );
 
         // Get all the delta iterators and wrap the items in Result to match the flat
         // storage iter so that they can be chained.

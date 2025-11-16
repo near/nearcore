@@ -7,6 +7,7 @@
 The scanning script (`01_validate_extract.py`) has a hardcoded list of directories to scan (lines 17-68). Several directories were **not included**:
 
 **Missing from TARGET_DIRS:**
+
 - `tools/indexer/example` (only `chain/indexer` was scanned)
 - `tools/storage-usage-delta-calculator`
 - `utils/near-performance-metrics`
@@ -14,6 +15,7 @@ The scanning script (`01_validate_extract.py`) has a hardcoded list of directori
 - `integration-tests/src/node` (only top-level `integration-tests` was scanned)
 
 **Why this happened:** The script was configured to scan main workspace members but missed:
+
 - Example/demo code in subdirectories
 - Utility/benchmark directories
 - Subdirectories within scanned modules
@@ -23,12 +25,14 @@ The scanning script (`01_validate_extract.py`) has a hardcoded list of directori
 ### 2. **Import-Level Qualification Pattern** 🔍
 
 Files that import macros directly like:
+
 ```rust
 use tracing::info;
 use tracing::warn;
 ```
 
 And then use:
+
 ```rust
 info!("message");  // Technically valid - imported from tracing
 warn!("message");  // Technically valid - imported from tracing
@@ -40,7 +44,7 @@ warn!("message");  // Technically valid - imported from tracing
 
 ## Files With Violations That Were Missed
 
-### Complete List (15 files):
+### Complete List (15 files)
 
 | File | Violations Found |
 |------|------------------|
@@ -65,6 +69,7 @@ warn!("message");  // Technically valid - imported from tracing
 ## Example Violations in Missed Files
 
 ### tools/indexer/example/src/main.rs:244-246
+
 ```rust
 // BEFORE (Current):
 info!(
@@ -94,6 +99,7 @@ tracing::info!(
 ---
 
 ### tools/storage-usage-delta-calculator/src/main.rs:17-35
+
 ```rust
 // BEFORE (Current):
 debug!(target: "storage-calculator", "Start");
@@ -113,6 +119,7 @@ tracing::debug!(%account_id, %delta, "account storage delta");
 ---
 
 ### utils/near-performance-metrics/src/stats_enabled.rs:253-258
+
 ```rust
 // BEFORE (Current):
 info!("    Other threads ratio {:.3}", other_ratio);
@@ -130,6 +137,7 @@ tracing::info!(%ratio, "total ratio");
 ---
 
 ### benchmarks/synth-bm/src/rpc.rs:125
+
 ```rust
 // BEFORE (Current):
 warn!("Got error response from rpc: {err}");
@@ -166,9 +174,11 @@ This would bring the total from **1,368** to approximately **1,415-1,438 violati
 ### Historical Context
 
 1. **Import-level qualification was once considered acceptable:**
+
    ```rust
    use tracing::info;  // Then use: info!("message");
    ```
+
    This is valid Rust and was likely the original pattern.
 
 2. **Tools and examples often follow different conventions:**
@@ -185,16 +195,20 @@ This would bring the total from **1,368** to approximately **1,415-1,438 violati
 ## Impact Assessment
 
 ### Low Risk Areas
+
 - **benchmarks/synth-bm**: Benchmark code, not production
 - **tools/indexer/example**: Example code for documentation
 - **tools/storage-usage-delta-calculator**: Utility script
 
 ### Medium Risk Areas
+
 - **utils/near-performance-metrics**: Used in production but limited scope
 - **integration-tests subdirectories**: Test infrastructure
 
 ### Actual Production Impact
+
 **Minimal** - The missed files are mostly:
+
 - Development tools
 - Benchmarks
 - Examples
@@ -209,6 +223,7 @@ The core production code (chain/*, runtime/*, core/*) was fully scanned and fixe
 ### Immediate Actions
 
 1. **Expand TARGET_DIRS to include:**
+
    ```python
    "tools/indexer/example",
    "tools/storage-usage-delta-calculator", 
@@ -227,6 +242,7 @@ The core production code (chain/*, runtime/*, core/*) was fully scanned and fixe
 ### Long-term Solutions
 
 1. **Use glob patterns instead of hardcoded list:**
+
    ```python
    # Scan all src directories in workspace
    for path in NEARCORE_BASE.glob("*/src"):
@@ -238,6 +254,7 @@ The core production code (chain/*, runtime/*, core/*) was fully scanned and fixe
 3. **Document the standard** (already done via LOGGING_STYLE_GUIDE.md)
 
 4. **Consider disallowing direct macro imports:**
+
    ```rust
    // Disallow this pattern:
    use tracing::info;  // ❌
@@ -263,6 +280,7 @@ if not has_qualifier:
 **This DOES catch `info!()` without `tracing::`**, but only for files in TARGET_DIRS.
 
 Files using:
+
 ```rust
 use tracing::info;
 info!("message");
@@ -275,6 +293,7 @@ info!("message");
 ## Conclusion
 
 The violations were missed due to:
+
 1. ✅ **Incomplete directory list** (primary cause)
 2. ❌ **NOT due to scanner logic failure** (scanner works correctly)
 3. ❌ **NOT due to import-level qualification being "valid"** (scanner would catch it)
@@ -282,6 +301,7 @@ The violations were missed due to:
 **The fix is simple:** Add missing directories to TARGET_DIRS and re-scan.
 
 **Priority:** Medium-Low
+
 - Core production code is clean ✅
 - Missed files are mostly tools/examples
 - ~50-70 additional violations to fix

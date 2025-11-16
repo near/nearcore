@@ -655,7 +655,7 @@ impl PeerManagerActor {
                         }.await;
 
                         if let Err(ref err) = result {
-                            tracing::info!(target: "network", err = format!("{:#}", err), %peer_info, "tier2 failed to connect");
+                            tracing::info!(target: "network", ?err, %peer_info, "tier2 failed to connect");
                         }
                         if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
                             tracing::error!(target: "network", ?peer_info, "failed to store connection attempt");

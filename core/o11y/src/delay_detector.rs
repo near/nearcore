@@ -1,12 +1,12 @@
 use crate::metrics::try_create_histogram_vec;
+use prometheus::{HistogramVec, exponential_buckets};
 use std::sync::LazyLock;
-use prometheus::{exponential_buckets, HistogramVec};
 use std::time::Instant;
-use tracing::span::Attributes;
 use tracing::Id;
+use tracing::span::Attributes;
+use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::Layer;
 
 #[derive(Default)]
 pub(crate) struct DelayDetectorLayer {}

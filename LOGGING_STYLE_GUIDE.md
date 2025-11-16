@@ -28,12 +28,14 @@ tracing::warn!("Peer {} connection failed: {}", peer_id, error);
 ## Examples
 
 ### Simple Values
+
 ```rust
 tracing::info!(%height, %shard_id, "validator info");
 tracing::debug!(?hash, ?signature, "verifying signature");
 ```
 
 ### Nested Field Access
+
 ```rust
 // Use named fields for nested access
 tracing::debug!(
@@ -44,6 +46,7 @@ tracing::debug!(
 ```
 
 ### Method Calls
+
 ```rust
 // Use named fields for method calls
 tracing::warn!(
@@ -54,6 +57,7 @@ tracing::warn!(
 ```
 
 ### With Targets
+
 ```rust
 tracing::info!(target: "network", %peer_id, "peer connected");
 tracing::warn!(target: "chain", %block_height, "block validation failed");
@@ -69,6 +73,7 @@ tracing::warn!(target: "chain", %block_height, "block validation failed");
 ## Complete Examples
 
 ### ✅ Good
+
 ```rust
 tracing::info!(target: "chain", %height, ?hash, "applying block");
 tracing::warn!(target: "network", %peer_id, ?error, "peer disconnected");
@@ -77,6 +82,7 @@ tracing::debug!(target: "store", %key, value = %data.len(), "storing data");
 ```
 
 ### ❌ Bad
+
 ```rust
 tracing::info!("Applying block {}, hash: {:?}.", height, hash);
 tracing::warn!(target: "network", "Peer {} disconnected: {}", peer_id, error);
