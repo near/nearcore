@@ -101,7 +101,7 @@ impl StateSnapshotActor {
                     }
                 })
                 .collect();
-            tracing::debug!(target: "state_snapshot", ?not_ready_shards, "Waiting for resharding: shards not in catchup phase");
+            tracing::debug!(target: "state_snapshot", ?not_ready_shards, "waiting for resharding: shards not in catchup phase");
             return Ok(true);
         };
         // Proceed if the catchup code is already reasonably close to being finished. This is not a correctness issue,
@@ -111,7 +111,7 @@ impl StateSnapshotActor {
         // come back later after most of that work has already been done.
         let should_wait = min_height + 10 < min_chunk_prev_height;
         if should_wait {
-            tracing::debug!(target: "state_snapshot", min_height, min_chunk_prev_height, "Waiting for resharding catchup");
+            tracing::debug!(target: "state_snapshot", min_height, min_chunk_prev_height, "waiting for resharding catchup");
         }
         Ok(should_wait)
     }
@@ -122,12 +122,12 @@ impl StateSnapshotActor {
         ctx: &mut dyn DelayedActionRunner<Self>,
     ) {
         if let StateSnapshotConfig::Disabled = self.tries.state_snapshot_config() {
-            tracing::info!(target: "state_snapshot", ?msg, "Snapshots are disabled");
+            tracing::info!(target: "state_snapshot", ?msg, "snapshots are disabled");
             return;
         }
         if let Some(last_requested_hash) = self.flat_storage_manager.snapshot_hash_wanted() {
             if last_requested_hash != msg.prev_block_hash {
-                tracing::info!(target: "state_snapshot", ?msg, %last_requested_hash, "Skipping state snapshot in favor of more recent request");
+                tracing::info!(target: "state_snapshot", ?msg, %last_requested_hash, "skipping state snapshot in favor of more recent request");
                 return;
             }
         }
@@ -137,14 +137,14 @@ impl StateSnapshotActor {
         ) {
             Ok(s) => s,
             Err(err) => {
-                tracing::error!(target: "state_snapshot", ?err, "State Snapshot Actor failed to check resharding status. Not making snapshot");
+                tracing::error!(target: "state_snapshot", ?err, "state snapshot actor failed to check resharding status, not making snapshot");
                 return;
             }
         };
         // TODO: instead of resending the same message over and over, wait on a Condvar.
         // This would require making testloop work with Condvars that normally are meant to be woken up by another thread
         if should_wait {
-            tracing::debug!(target: "state_snapshot", prev_block_hash=?&msg.prev_block_hash, "Postpone CreateSnapshotRequest");
+            tracing::debug!(target: "state_snapshot", prev_block_hash = ?&msg.prev_block_hash, "postpone create snapshot request");
             ctx.run_later(
                 "ReshardingActor FlatStorageSplitShard",
                 Duration::seconds(1),
@@ -155,7 +155,7 @@ impl StateSnapshotActor {
             return;
         }
 
-        tracing::debug!(target: "state_snapshot", prev_block_hash=?&msg.prev_block_hash, "Handle CreateSnapshotRequest");
+        tracing::debug!(target: "state_snapshot", prev_block_hash = ?&msg.prev_block_hash, "handle create snapshot request");
         let CreateSnapshotRequest {
             prev_block_hash,
             epoch_height,
@@ -187,7 +187,7 @@ impl StateSnapshotActor {
                 ));
             }
             Err(err) => {
-                tracing::error!(target: "state_snapshot", ?err, "State snapshot creation failed")
+                tracing::error!(target: "state_snapshot", ?err, "state snapshot creation failed")
             }
         }
     }
