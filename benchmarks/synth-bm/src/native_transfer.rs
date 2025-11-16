@@ -14,7 +14,6 @@ use near_primitives::views::TxExecutionStatus;
 use rand::distributions::{Distribution, Uniform};
 use tokio::sync::mpsc;
 use tokio::time;
-use tracing::{error, info};
 
 #[derive(Args, Debug)]
 pub struct BenchmarkArgs {

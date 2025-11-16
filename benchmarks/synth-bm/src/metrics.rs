@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 use reqwest::Client;
 use tokio::time;
 use tokio::time::Interval;
-use tracing::info;
 
 /// The response sent by a NEAR node for `/metrics` queries.
 ///

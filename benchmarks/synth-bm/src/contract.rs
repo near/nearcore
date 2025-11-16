@@ -18,7 +18,6 @@ use serde::Serialize;
 use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::time;
-use tracing::info;
 
 #[derive(Args, Debug)]
 pub struct BenchmarkMpcSignArgs {

@@ -24,7 +24,6 @@ use near_primitives_core::types::Balance;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock};
-use tracing::warn;
 use wasmtime::{
     CallHook, Engine, Extern, ExternType, Instance, InstanceAllocationStrategy, InstancePre,
     Linker, Memory, Module, ModuleExport, PoolingAllocationConfig, ResourcesRequired, Store,
