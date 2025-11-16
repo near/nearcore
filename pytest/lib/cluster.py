@@ -4,6 +4,7 @@ import copy
 import json
 import os
 import pathlib
+import re
 from typing import Optional
 
 import rc
@@ -1034,7 +1035,7 @@ def init_cluster(
     assert 0 == process.returncode, err
 
     node_dirs = [
-        line.split()[-1]
+        re.split('=|\s', line)[-1]
         for line in err.decode('utf8').split('\n')
         if '/test' in line
     ]
