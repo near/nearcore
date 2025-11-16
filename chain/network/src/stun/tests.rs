@@ -18,19 +18,19 @@ async fn test_lookup_host() {
     init_test_logger();
 
     for addr in default_trusted_stun_servers() {
-        tracing::debug!("Querying STUN server at {}", addr);
+        tracing::debug!(%addr, "querying STUN server");
 
         // Allow lookup to return nothing; the server may be unreachable.
         // What we want to check here is that if an address is returned,
         // it has the expected type (IPv4 vs IPv6).
         if let Some(ipv4) = stun::lookup_host(&addr, true).await {
             assert!(ipv4.is_ipv4());
-            tracing::debug!("My IPv4 addr is {}", ipv4);
+            tracing::debug!(%ipv4, "my IPv4 addr");
         }
 
         if let Some(ipv6) = stun::lookup_host(&addr, false).await {
             assert!(ipv6.is_ipv6());
-            tracing::debug!("My IPv6 addr is {}", ipv6);
+            tracing::debug!(%ipv6, "my IPv6 addr");
         }
     }
 }

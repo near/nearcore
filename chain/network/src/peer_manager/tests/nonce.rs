@@ -44,7 +44,7 @@ async fn test_nonces() {
     ];
 
     for test in test_cases {
-        tracing::info!(target: "test", "running test {:?}", test.2);
+        tracing::info!(target: "test", test_name = test.2, "running test");
         // Start a PeerManager and connect a peer to it.
         let pm = peer_manager::testonly::start(
             clock.clock(),

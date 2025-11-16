@@ -346,7 +346,11 @@ impl Chain {
                         if let Err(e) = self.ping_missing_chunks(block_hash, orphan) {
                             return match e {
                                 Error::ChunksMissing(missing_chunks) => {
-                                    tracing::debug!(target: "chain", orphan_hash = ?orphan.hash(), missing_chunks = ?missing_chunks.iter().map(|chunk|{(chunk.shard_id(), chunk.chunk_hash())}).collect::<Vec<_>>(), "request missing chunks for orphan");
+                                    let missing_chunks_list = missing_chunks
+                                        .iter()
+                                        .map(|chunk| (chunk.shard_id(), chunk.chunk_hash()))
+                                        .collect::<Vec<_>>();
+                                    tracing::debug!(target: "chain", orphan_hash = ?orphan.hash(), ?missing_chunks_list, "request missing chunks for orphan");
                                     Some(OrphanMissingChunks {
                                         missing_chunks,
                                         epoch_id,
