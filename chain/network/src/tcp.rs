@@ -87,7 +87,7 @@ impl Socket {
 impl Stream {
     fn new(stream: tokio::net::TcpStream, type_: StreamType) -> std::io::Result<Self> {
         if let Err(err) = stream.set_nodelay(true) {
-            tracing::warn!(target: "network", "Failed to set TCP_NODELAY: {}", err);
+            tracing::warn!(target: "network", ?err, "failed to set TCP_NODELAY");
         }
         Ok(Self { peer_addr: stream.peer_addr()?, local_addr: stream.local_addr()?, stream, type_ })
     }
@@ -111,12 +111,12 @@ impl Stream {
             Tier::T2 => {
                 if let Some(so_recv_buffer) = socket_options.recv_buffer_size {
                     socket.set_recv_buffer_size(so_recv_buffer)?;
-                    tracing::debug!(target: "network", "so_recv_buffer wanted {} got {:?}", so_recv_buffer, socket.recv_buffer_size());
+                    tracing::debug!(target: "network", %so_recv_buffer, actual = ?socket.recv_buffer_size(), "so_recv_buffer");
                 }
 
                 if let Some(so_send_buffer) = socket_options.send_buffer_size {
                     socket.set_send_buffer_size(so_send_buffer)?;
-                    tracing::debug!(target: "network", "so_send_buffer wanted {} got {:?}", so_send_buffer, socket.send_buffer_size());
+                    tracing::debug!(target: "network", %so_send_buffer, actual = ?socket.send_buffer_size(), "so_send_buffer");
                 }
             }
             _ => {}
@@ -238,7 +238,7 @@ impl ListenerAddr {
                 Ok(guard) => guard,
                 Err(named_lock::Error::WouldBlock) => {
                     // this port is already reserved, try another one
-                    tracing::trace!(target: "network", "Port {} is already reserved, trying another one", port);
+                    tracing::trace!(target: "network", %port, "port is already reserved, trying another one");
                     continue;
                 }
                 Err(err) => {
@@ -249,7 +249,7 @@ impl ListenerAddr {
             let tcp_socket = std::net::TcpListener::bind(addr);
             if tcp_socket.is_err() {
                 // this port is already in use, try another one
-                tracing::trace!(target: "network", "Port {} is already in use, trying another one", port);
+                tracing::trace!(target: "network", %port, "port is already in use, trying another one");
                 continue;
             }
             RESERVED_PORT_LOCKS.lock().push(guard);

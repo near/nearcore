@@ -65,7 +65,7 @@ impl super::NetworkState {
                     anyhow::Ok(PeerActor::spawn_and_handshake(clock.clone(), actor_system, stream, self.clone()).await?)
                 }.await;
                 if let Err(err) = res {
-                    tracing::warn!(target:"network", ?err, "failed to establish connection to TIER1 proxy {:?}",proxy);
+                    tracing::warn!(target:"network", ?err, ?proxy, "failed to establish connection to TIER1 proxy");
                 }
             });
         }
@@ -121,7 +121,7 @@ impl super::NetworkState {
                         match stun::query(&clock, &addr).await {
                             Ok(ip) => Some(ip),
                             Err(err) => {
-                                tracing::warn!(target:"network", "STUN lookup failed for {addr}: {err}");
+                                tracing::warn!(target:"network", %addr, %err, "STUN lookup failed");
                                 None
                             }
                         }

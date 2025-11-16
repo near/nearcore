@@ -248,7 +248,7 @@ impl Connection {
         .map_err(ConnectError::TcpConnect)?;
         tracing::info!(
             target: "network",
-            %peer_id, ?addr, latency=?start.elapsed(), "Connection established",
+            %peer_id, ?addr, latency=?start.elapsed(), "connection established",
         );
         let mut peer = Self {
             stream: PeerStream::new(stream, recv_timeout),
@@ -285,7 +285,7 @@ impl Connection {
         let (message, _timestamp) = match stream.recv_message().await {
             Ok(m) => m,
             Err(RecvError::Parse(len)) => {
-                tracing::debug!(target: "network", "dropping a non protobuf message of length {}. Probably an extra handshake.", len);
+                tracing::debug!(target: "network", %len, "dropping a non protobuf message, probably an extra handshake");
                 stream.recv_message().await?
             }
             Err(RecvError::IO(e)) => return Err(ConnectError::IO(e)),
@@ -562,7 +562,7 @@ impl PeerStream {
             read.await?
         };
 
-        tracing::trace!(target: "network", "Read {} bytes from {:?}", n, self.stream.peer_addr);
+        tracing::trace!(target: "network", %n, peer_addr = ?self.stream.peer_addr, "read bytes");
         if n == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,

@@ -202,7 +202,7 @@ async fn send_messages(
         }
     }
 
-    tracing::info!(target:"test","send Transaction");
+    tracing::info!(target: "test", "send transaction");
     let message = PeerMessage::Transaction(data::make_signed_transaction(rng));
     for _ in 0..count {
         outbound.send(message.clone()).await;

@@ -319,7 +319,7 @@ async fn run_select_peer_test(
     tracing::debug!("start run_select_peer_test");
 
     for action in actions {
-        tracing::debug!("run_select_peer_test action {:?}", action);
+        tracing::debug!(?action, "run_select_peer_test action");
         match action {
             SelectPeerAction::InsertHosts(hosts) => {
                 let mut new_hosts = Vec::new();

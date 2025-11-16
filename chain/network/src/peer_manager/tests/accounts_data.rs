@@ -54,13 +54,13 @@ async fn broadcast() {
     };
 
     let data = chain.make_tier1_data(rng, clock);
-    tracing::info!(target:"test", "Connect peer, expect initial sync to be empty.");
+    tracing::info!(target:"test", "connect peer, expect initial sync to be empty");
     let mut peer1 =
         pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
     let got1 = peer1.events.recv_until(take_full_sync).await;
     assert_eq!(got1.accounts_data, vec![]);
 
-    tracing::info!(target:"test", "Send some data.");
+    tracing::info!(target:"test", "send some data");
     let msg = SyncAccountsData {
         accounts_data: vec![data[0].clone(), data[1].clone()],
         incremental: true,
@@ -70,13 +70,13 @@ async fn broadcast() {
     peer1.send(PeerMessage::SyncAccountsData(msg)).await;
     pm.wait_for_accounts_data(&want).await;
 
-    tracing::info!(target:"test", "Connect another peer and perform initial full sync.");
+    tracing::info!(target:"test", "connect another peer and perform initial full sync");
     let mut peer2 =
         pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
     let got2 = peer2.events.recv_until(take_full_sync).await;
     assert_eq!(got2.accounts_data.as_set(), want.iter().collect::<HashSet<_>>());
 
-    tracing::info!(target:"test", "Send a mix of new and old data. Only new data should be broadcasted.");
+    tracing::info!(target:"test", "send a mix of new and old data. only new data should be broadcasted");
     let msg = SyncAccountsData {
         accounts_data: vec![data[1].clone(), data[2].clone()],
         incremental: true,
@@ -87,7 +87,7 @@ async fn broadcast() {
     let got2 = peer2.events.recv_until(take_incremental_sync).await;
     assert_eq!(got2.accounts_data.as_set(), want.as_set());
 
-    tracing::info!(target:"test", "Send a request for a full sync.");
+    tracing::info!(target:"test", "send a request for a full sync");
     let want = vec![data[0].clone(), data[1].clone(), data[2].clone()];
     let mut events = peer1.events.from_now();
     peer1
@@ -142,7 +142,7 @@ async fn gradual_epoch_change() {
         );
 
         let mut want = HashSet::new();
-        tracing::info!(target:"test", "advance epoch in the given order.");
+        tracing::info!(target:"test", "advance epoch in the given order");
         for id in ids {
             pms[id].set_chain_info(chain_info.clone()).await;
             // In this tests each node is its own proxy, so it can immediately
@@ -153,7 +153,7 @@ async fn gradual_epoch_change() {
             want.extend(pms[id].tier1_advertise_proxies(&clock.clock()).await);
         }
         for pm in &mut pms {
-            tracing::info!(target:"test", "wait for data to arrive to {}.",pm.cfg.node_id());
+            tracing::info!(target:"test", "wait for data to arrive to {}",pm.cfg.node_id());
             pm.wait_for_accounts_data(&want).await;
         }
     }
@@ -198,7 +198,7 @@ async fn slow_test_rate_limiting() {
             .await,
         );
     }
-    tracing::info!(target:"test", "Construct a 4-layer bipartite graph.");
+    tracing::info!(target:"test", "construct a 4-layer bipartite graph");
 
     let mut connections = 0;
     let mut tasks = vec![];
@@ -225,7 +225,7 @@ async fn slow_test_rate_limiting() {
     // the total number of SyncAccountsData messages exchanged in the process.
     let events: Vec<_> = pms.iter().map(|pm| pm.events.from_now()).collect();
 
-    tracing::info!(target:"test","Advance epoch in random order.");
+    tracing::info!(target:"test","advance epoch in random order");
     pms.shuffle(rng);
     let mut want = HashSet::new();
     for pm in &mut pms {
@@ -233,12 +233,12 @@ async fn slow_test_rate_limiting() {
         want.extend(pm.tier1_advertise_proxies(&clock.clock()).await);
     }
 
-    tracing::info!(target:"test","Wait for data to arrive.");
+    tracing::info!(target:"test","wait for data to arrive");
     for pm in &mut pms {
         pm.wait_for_accounts_data(&want).await;
     }
 
-    tracing::info!(target:"test","Count the SyncAccountsData messages exchanged.");
+    tracing::info!(target:"test","Count the SyncAccountsData messages exchanged");
     let mut msgs = 0;
     for mut es in events {
         while let Some(ev) = es.try_recv() {
