@@ -371,7 +371,7 @@ async fn load_state_parts(
         num_parts,
         ?sync_hash,
         ?part_ids,
-        "Loading state as seen at the beginning of the specified epoch.",
+        "loading state as seen at the beginning of the specified epoch",
     );
 
     let timer = Instant::now();
@@ -401,7 +401,7 @@ async fn load_state_parts(
                         &epoch_id,
                     )
                     .unwrap();
-                tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "Loaded a state part");
+                tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "loaded a state part");
             }
             LoadAction::Validate => {
                 assert!(chain.runtime_adapter.validate_state_part(
@@ -410,7 +410,7 @@ async fn load_state_parts(
                     PartId::new(part_id, num_parts),
                     &part
                 ));
-                tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "Validated a state part");
+                tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "validated a state part");
             }
             LoadAction::Print => {
                 let trie_nodes = part.to_partial_state().unwrap();
@@ -418,7 +418,7 @@ async fn load_state_parts(
             }
         }
     }
-    tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Loaded all requested state parts");
+    tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "loaded all requested state parts");
 }
 
 fn print_state_part(state_root: &StateRoot, _part_id: PartId, trie_nodes: PartialState) {
@@ -477,7 +477,7 @@ async fn dump_state_parts(
         ?sync_hash,
         ?part_ids,
         ?state_root,
-        "Dumping state as seen at the beginning of the specified epoch.",
+        "dumping state as seen at the beginning of the specified epoch",
     );
 
     let timer = Instant::now();
@@ -494,7 +494,7 @@ async fn dump_state_parts(
             .put_file(file_type, &state_sync_header_buf, shard_id, &location)
             .await
             .expect("Failed to put header into external storage.");
-        tracing::info!(target: "state-parts", elapsed_sec = timer.elapsed().as_secs_f64(), "Header saved to external storage.");
+        tracing::info!(target: "state-parts", elapsed_sec = timer.elapsed().as_secs_f64(), "header saved to external storage");
     }
 
     // dump parts
@@ -531,9 +531,9 @@ async fn dump_state_parts(
             part_length = bytes.len(),
             elapsed_sec,
             first_state_record = ?first_state_record.map(|sr| format!("{}", sr)),
-            "Wrote a state part");
+            "wrote a state part");
     }
-    tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
+    tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "wrote all requested state parts");
 }
 
 /// Returns the first `StateRecord` encountered while iterating over a sub-trie in the state part.
