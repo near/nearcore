@@ -506,7 +506,15 @@ impl ArchivalDataLossRecoveryCommand {
                 rc_aware_set(&mut transaction, DBCol::State, key, value);
             }
         }
-        cold_db.write(transaction)?;
+
+        println!("Transactions...............");
+        println!("...............");
+        println!("...............");
+        println!(transaction);
+        println!("...............");
+        println!("...............");
+
+        // cold_db.write(transaction)?;
 
         Ok(())
     }
@@ -550,13 +558,7 @@ impl ArchivalDataLossRecoveryCommand {
 }
 
 #[derive(clap::Parser)]
-pub struct ArchivalDataLossRecoveryCommand2 {
-    #[clap(long)]
-    protocol_version: ProtocolVersion,
-
-    #[clap(long, default_value_t = false)]
-    check_only: bool,
-}
+pub struct ArchivalDataLossRecoveryCommand2 {}
 
 impl ArchivalDataLossRecoveryCommand2 {
     pub fn run(
