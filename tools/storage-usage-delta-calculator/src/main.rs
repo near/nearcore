@@ -4,7 +4,6 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::genesis::compute_genesis_storage_usage;
 use std::fs::File;
-use tracing::debug;
 
 /// Calculates delta between actual storage usage and one saved in state
 /// output.json should contain dump of current state,
@@ -14,16 +13,16 @@ use tracing::debug;
 async fn main() -> anyhow::Result<()> {
     let env_filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish().unwrap();
     let _subscriber = near_o11y::default_subscriber(env_filter, &Default::default()).global();
-    debug!(target: "storage-calculator", "Start");
+    tracing::debug!(target: "storage-calculator", "start");
 
     let genesis = Genesis::from_file("output.json", GenesisValidationMode::Full)?;
-    debug!(target: "storage-calculator", "Genesis read");
+    tracing::debug!(target: "storage-calculator", "genesis read");
 
     let config_store = RuntimeConfigStore::new(None);
     let config = config_store.get_config(PROTOCOL_VERSION);
     let storage_usage_config = &config.fees.storage_usage_config;
     let storage_usage = compute_genesis_storage_usage(&genesis, storage_usage_config);
-    debug!(target: "storage-calculator", "Storage usage calculated");
+    tracing::debug!(target: "storage-calculator", "storage usage calculated");
 
     let mut result = Vec::new();
     genesis.for_each_record(|record| {
@@ -32,7 +31,7 @@ async fn main() -> anyhow::Result<()> {
             let saved_storage_usage = account.storage_usage();
             let delta = actual_storage_usage - saved_storage_usage;
             if delta != 0 {
-                debug!("{},{}", account_id, delta);
+                tracing::debug!(%account_id, %delta, "storage usage delta");
                 result.push((account_id.clone(), delta));
             }
         }
