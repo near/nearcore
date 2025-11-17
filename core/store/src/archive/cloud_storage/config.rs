@@ -17,15 +17,24 @@ pub struct CloudStorageConfig {
     pub credentials_file: Option<PathBuf>,
 }
 
+/// Configuration for a cloud-based archival node.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct CloudArchivalConfig {
+    /// Configures the external storage used by the archival node.
+    pub cloud_storage: CloudStorageConfig,
+}
+
 /// Creates a test cloud archival configuration using a local filesystem path.
-pub fn test_cloud_archival_config(root_dir: impl Into<PathBuf> + Clone) -> CloudStorageConfig {
+pub fn test_cloud_archival_config(root_dir: impl Into<PathBuf>) -> CloudArchivalConfig {
     let storage_dir = root_dir.into().join("cloud_archival");
     let location = ExternalStorageLocation::Filesystem { root_dir: storage_dir };
-    CloudStorageConfig { location, credentials_file: None }
+    let cloud_storage = CloudStorageConfig { location, credentials_file: None };
+    CloudArchivalConfig { cloud_storage }
 }
 
 /// Initializes a test cloud storage instance based on the test configuration.
 pub fn create_test_cloud_storage(root_dir: PathBuf) -> Arc<CloudStorage> {
     let config = test_cloud_archival_config(root_dir);
-    CloudStorageOpener::new(config).open()
+    CloudStorageOpener::new(config).open().unwrap()
 }

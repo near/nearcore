@@ -1,7 +1,9 @@
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use itertools::Itertools as _;
 use near_async::futures::AsyncComputationSpawner;
+use near_async::messaging::Actor;
 use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
+use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
 use near_chain::ApplyChunksIterationMode;
 use near_chain::ChainStoreAccess;
@@ -89,14 +91,14 @@ impl TestActor {
     fn new(
         genesis: Genesis,
         validator_signer: MutableValidatorSigner,
-        shards: Vec<ShardUId>,
+        tracking_shards: Vec<ShardUId>,
         outgoing_sc: UnboundedSender<OutgoingMessage>,
     ) -> TestActor {
         let chain = get_chain_with_genesis(Clock::real(), genesis.clone());
         let epoch_manager = chain.epoch_manager.clone();
 
         let shard_tracker = ShardTracker::new(
-            TrackedShardsConfig::Shards(shards),
+            TrackedShardsConfig::Shards(tracking_shards),
             epoch_manager.clone(),
             validator_signer.clone(),
         );
@@ -416,6 +418,42 @@ fn record_endorsements(actors: &mut [TestActor], block: &Block) {
     }
 }
 
+fn execute_blocks_until_final_execution_head_moves(
+    actors: &mut [TestActor],
+    outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
+) {
+    let genesis = actors[0].chain.genesis_block();
+    let genesis_height = genesis.header().height();
+    let mut prev_block = genesis;
+
+    // We set some limit to make sure we don't run infinite loop if something is wrong.
+    let block_limit = 10;
+    for _ in 0..block_limit {
+        let block = produce_block(actors, &prev_block);
+        for actor in actors.iter_mut() {
+            actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+            assert!(
+                block_executed(actor, &block),
+                "{:?} did not execute block",
+                actor.actor.validator_signer,
+            );
+        }
+        simulate_outgoing_messages(actors, outgoing_rc);
+        record_endorsements(actors, &block);
+
+        prev_block = block;
+
+        let Ok(final_execution_head) = actors[0].chain.chain_store.spice_final_execution_head()
+        else {
+            continue;
+        };
+        if final_execution_head.height > genesis_height {
+            return;
+        }
+    }
+    panic!("final execution head did not move within {block_limit} blocks");
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_executing_blocks() {
@@ -598,29 +636,13 @@ fn test_executing_forks() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_not_executing_forks_past_final_execution_head() {
-    let (outgoing_sc, _outgoing_rc) = unbounded();
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(1, outgoing_sc);
     let genesis = actors[0].chain.genesis_block();
     let fork_block = produce_block(&mut actors, &genesis);
-    let genesis_height = genesis.header().height();
-    let mut prev_block = genesis;
 
-    loop {
-        let block = produce_block(&mut actors, &prev_block);
-        for actor in &mut actors {
-            actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
-        }
-        assert!(block_executed(&actors[0], &block));
-        prev_block = block;
+    execute_blocks_until_final_execution_head_moves(&mut actors, &mut outgoing_rc);
 
-        let Ok(final_execution_head) = actors[0].chain.chain_store.spice_final_execution_head()
-        else {
-            continue;
-        };
-        if final_execution_head.height > genesis_height {
-            break;
-        }
-    }
     for actor in &mut actors {
         actor.handle_with_internal_events(ProcessedBlock { block_hash: *fork_block.hash() });
     }
@@ -673,6 +695,48 @@ fn test_not_applying_forks_past_final_execution_head() {
     actors[0].run_internal_events();
 
     assert!(!block_executed(&actors[0], &fork_block));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_final_execution_head_is_updated_when_tracking_no_shards() {
+    init_test_logger();
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let producer_signer = Arc::new(create_test_signer("producer"));
+    let validator_signer = Arc::new(create_test_signer("validator"));
+    let shard_layout = ShardLayout::single_shard();
+    let genesis = TestGenesisBuilder::new()
+        .genesis_time_from_clock(&Clock::real())
+        .shard_layout(shard_layout.clone())
+        .validators_spec(ValidatorsSpec::desired_roles(&["producer"], &["validator"]))
+        .build();
+
+    let mut actors = [
+        TestActor::new(
+            genesis.clone(),
+            MutableConfigValue::new(Some(producer_signer), "validator_signer"),
+            shard_layout.shard_uids().collect(),
+            outgoing_sc.clone(),
+        ),
+        TestActor::new(
+            genesis,
+            MutableConfigValue::new(Some(validator_signer), "validator_signer"),
+            vec![],
+            outgoing_sc,
+        ),
+    ];
+
+    execute_blocks_until_final_execution_head_moves(&mut actors, &mut outgoing_rc);
+    // Having final execution head updated even when we are tracking no shards is very useful for
+    // distribution since it allows having a consistent checkpoint from which we can figure which
+    // data we need even when we would only soon start tracking particular shards and tracking
+    // no shards at the moment or consistently running witness validation only and tracking no
+    // shards.
+    assert_eq!(
+        actors[0].chain.chain_store.spice_final_execution_head().unwrap(),
+        actors[1].chain.chain_store.spice_final_execution_head().unwrap()
+    );
 }
 
 #[test]
@@ -907,6 +971,67 @@ fn test_witness_is_valid() {
         count_witnesses += 1;
     }
     assert!(count_witnesses > 0);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_actor_catches_up_on_start_from_genesis() {
+    let (outgoing_sc, mut _outgoing_rc) = unbounded();
+    let mut actors = setup_with_shards(1, outgoing_sc);
+    assert_eq!(actors.len(), 1);
+    let blocks = produce_n_blocks(&mut actors, 3);
+
+    let actor = &mut actors[0];
+    let mut fake_runner = FakeDelayedActionRunner::default();
+    actor.actor.start_actor(&mut fake_runner);
+    actor.run_internal_events();
+    for block in blocks {
+        assert!(block_executed(&actor, &block));
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_actor_catches_up_on_start_from_final_execution_head() {
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let signer =
+        MutableConfigValue::new(Some(Arc::new(create_test_signer("test1"))), "validator_signer");
+    let shard_layout = ShardLayout::single_shard();
+    let genesis = TestGenesisBuilder::new()
+        .shard_layout(shard_layout.clone())
+        .validators_spec(ValidatorsSpec::desired_roles(&["test1"], &[]))
+        .build();
+    let mut actors =
+        [TestActor::new(genesis, signer, shard_layout.shard_uids().collect(), outgoing_sc)];
+
+    let genesis_block = actors[0].chain.genesis_block();
+
+    execute_blocks_until_final_execution_head_moves(&mut actors, &mut outgoing_rc);
+
+    let final_execution_head = actors[0].chain.chain_store.spice_final_execution_head().unwrap();
+    assert!(final_execution_head.height > genesis_block.header().height());
+
+    let head_block = actors[0].chain.get_head_block().unwrap();
+    let final_execution_head_block =
+        actors[0].chain.get_block(&final_execution_head.last_block_hash).unwrap();
+    assert!(final_execution_head_block.header().height() < head_block.header().height());
+
+    let first_fork = produce_block(&mut actors, &final_execution_head_block);
+    let second_fork = produce_block(&mut actors, &final_execution_head_block);
+    let new_block = produce_block(&mut actors, &head_block);
+
+    let actor = &mut actors[0];
+    assert!(!block_executed(&actor, &first_fork));
+    assert!(!block_executed(&actor, &second_fork));
+    assert!(!block_executed(&actor, &new_block));
+
+    let mut fake_runner = FakeDelayedActionRunner::default();
+    actor.actor.start_actor(&mut fake_runner);
+    actor.run_internal_events();
+
+    assert!(block_executed(&actor, &first_fork));
+    assert!(block_executed(&actor, &second_fork));
+    assert!(block_executed(&actor, &new_block));
 }
 
 #[test]

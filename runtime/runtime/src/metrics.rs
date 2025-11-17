@@ -27,6 +27,9 @@ pub(crate) struct ActionCalledCountMetric {
     pub(crate) stake: IntCounter,
     pub(crate) delete_key: IntCounter,
     pub(crate) delete_account: IntCounter,
+    pub(crate) add_gas_key: IntCounter,
+    pub(crate) delete_gas_key: IntCounter,
+    pub(crate) transfer_to_gas_key: IntCounter,
 }
 
 pub(crate) static ACTION_CALLED_COUNT: LazyLock<ActionCalledCountMetric> = LazyLock::new(|| {
@@ -49,6 +52,9 @@ pub(crate) static ACTION_CALLED_COUNT: LazyLock<ActionCalledCountMetric> = LazyL
         stake: vec.with_label_values(&["Stake"]),
         delete_key: vec.with_label_values(&["DeleteKey"]),
         delete_account: vec.with_label_values(&["DeleteAccount"]),
+        add_gas_key: vec.with_label_values(&["AddGasKey"]),
+        delete_gas_key: vec.with_label_values(&["DeleteGasKey"]),
+        transfer_to_gas_key: vec.with_label_values(&["TransferToGasKey"]),
     }
 });
 
