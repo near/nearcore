@@ -56,7 +56,7 @@ pub(crate) fn get_contract_cache_key(
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum CompiledContract {
-    CompileModuleError(crate::logic::errors::CompilationError) = 0,
+    CompileError(crate::logic::errors::CompilationError) = 0,
     Code(Vec<u8>) = 1,
 }
 
@@ -66,7 +66,7 @@ impl CompiledContract {
     /// If the `CompiledContract` represents a compilation failure, returns `0`.
     pub fn debug_len(&self) -> usize {
         match self {
-            CompiledContract::CompileModuleError(_) => 0,
+            CompiledContract::CompileError(_) => 0,
             CompiledContract::Code(c) => c.len(),
         }
     }
@@ -76,6 +76,7 @@ impl CompiledContract {
 pub struct CompiledContractInfo {
     pub wasm_bytes: u64,
     pub compiled: CompiledContract,
+    pub is_component: bool,
 }
 
 /// Cache for compiled modules
@@ -353,7 +354,7 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         // unnecessary overheads and in order to enable things like mmap-based file access, we want
         // to have full control of what has been written.
         match value.compiled {
-            CompiledContract::CompileModuleError(e) => {
+            CompiledContract::CompileError(e) => {
                 borsh::to_writer(&mut file, &e)?;
                 file.write_all(&[ERROR_TAG])?;
             }
@@ -412,12 +413,15 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         let tag = buffer[buffer.len() - 9];
         buffer.truncate(buffer.len() - 9);
         Ok(match tag {
-            CODE_TAG => {
-                Some(CompiledContractInfo { wasm_bytes, compiled: CompiledContract::Code(buffer) })
-            }
+            CODE_TAG => Some(CompiledContractInfo {
+                wasm_bytes,
+                is_component: false,
+                compiled: CompiledContract::Code(buffer),
+            }),
             ERROR_TAG => Some(CompiledContractInfo {
                 wasm_bytes,
-                compiled: CompiledContract::CompileModuleError(borsh::from_slice(&buffer)?),
+                is_component: false,
+                compiled: CompiledContract::CompileError(borsh::from_slice(&buffer)?),
             }),
             // File is malformed? For this code, since we're talking about a cache lets just treat
             // it as if there is no cached file as well. The cached file may eventually be
@@ -693,11 +697,13 @@ mod tests {
 
         let compiled_contract1 = CompiledContractInfo {
             wasm_bytes: 100,
+            is_component: false,
             compiled: CompiledContract::Code(contract1.code().to_vec()),
         };
 
         let compiled_contract2 = CompiledContractInfo {
             wasm_bytes: 200,
+            is_component: false,
             compiled: CompiledContract::Code(contract2.code().to_vec()),
         };
 

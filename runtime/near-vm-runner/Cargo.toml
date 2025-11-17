@@ -44,6 +44,7 @@ wasmparser = { workspace = true, optional = true }
 wasmparser-236 = { workspace = true, optional = true }
 wasmtime = { workspace = true, features = [
     "call-hook",
+    "component-model",
     "parallel-compilation",
     "pooling-allocator",
     "runtime",

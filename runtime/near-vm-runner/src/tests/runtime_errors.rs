@@ -5,19 +5,37 @@ use std::fmt::Write;
 
 const FIX_CONTRACT_LOADING_COST: u32 = 129;
 
-static INFINITE_INITIALIZER_CONTRACT: &str = r#"
+const INFINITE_INITIALIZER_CONTRACT: &str = r#"
 (module
   (func $start (loop (br 0)))
   (func (export "main"))
   (start $start)
 )"#;
 
+const INFINITE_INITIALIZER_CONTRACT_COMPONENT: &str = r#"
+(component
+  (core module
+    (func $start (loop (br 0)))
+    (func (export "main"))
+    (start $start)
+  )
+  (core instance (instantiate 0))
+  (func (export "main") (canon lift
+    (core func 0 "main"))
+  )
+)"#;
+
 #[test]
 fn test_infinite_initializer() {
     test_builder()
         .wat(INFINITE_INITIALIZER_CONTRACT)
+        .component_wat(INFINITE_INITIALIZER_CONTRACT_COMPONENT)
         .gas(Gas::from_gigagas(10))
         .expect(&expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 10000000000 used gas 10000000000
+            Err: Exceeded the prepaid gas.
+        "#]])
+        .component_expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 10000000000 used gas 10000000000
             Err: Exceeded the prepaid gas.
         "#]]);
@@ -28,6 +46,7 @@ fn test_infinite_initializer_export_not_found() {
     #[allow(deprecated)]
     test_builder()
         .wat(INFINITE_INITIALIZER_CONTRACT)
+        .component_wat(INFINITE_INITIALIZER_CONTRACT_COMPONENT)
         .method("no-such-method")
         .protocol_version(FIX_CONTRACT_LOADING_COST)
         .expects(&[
@@ -39,18 +58,43 @@ fn test_infinite_initializer_export_not_found() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 104071548 used gas 104071548
                 Err: MethodNotFound
             "#]],
+        ])
+        .component_expects(&[
+            expect![[r#"
+                VMOutcome: balance 0 storage_usage 0 return data None burnt gas 0 used gas 0
+                Err: MethodNotFound
+            "#]],
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 163982773 used gas 163982773
+                Err: MethodNotFound
+            "#]],
         ]);
 }
 
 static SIMPLE_CONTRACT: &str = r#"(module (func (export "main")))"#;
+static SIMPLE_CONTRACT_COMPONENT: &str = r#"
+(component
+  (core module (func (export "main")))
+  (core instance (instantiate 0))
+  (func (export "main") (canon lift
+    (core func 0 "main"))
+  )
+)
+"#;
 
 #[test]
 fn test_simple_contract() {
     test_builder()
         .wat(SIMPLE_CONTRACT)
+        .component_wat(SIMPLE_CONTRACT_COMPONENT)
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 79064041 used gas 79064041
+            "#]],
+        ])
+        .component_expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 138975266 used gas 138975266
             "#]],
         ]);
 }
@@ -100,7 +144,9 @@ fn test_multiple_memories() {
 #[test]
 fn test_export_not_found() {
     #[allow(deprecated)]
-    test_builder().wat(SIMPLE_CONTRACT)
+    test_builder()
+        .wat(SIMPLE_CONTRACT)
+        .component_wat(SIMPLE_CONTRACT_COMPONENT)
         .method("no-such-method")
         .protocol_version(FIX_CONTRACT_LOADING_COST)
         .expects(&[
@@ -112,12 +158,30 @@ fn test_export_not_found() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 72481993 used gas 72481993
                 Err: MethodNotFound
             "#]],
+        ])
+        .component_expects(&[
+            expect![[r#"
+                VMOutcome: balance 0 storage_usage 0 return data None burnt gas 0 used gas 0
+                Err: MethodNotFound
+            "#]],
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 132393218 used gas 132393218
+                Err: MethodNotFound
+            "#]],
         ]);
 }
 
 #[test]
 fn test_empty_method() {
-    test_builder().wat(SIMPLE_CONTRACT).method("").expect(&expect![[r#"
+    test_builder()
+        .wat(SIMPLE_CONTRACT)
+        .component_wat(SIMPLE_CONTRACT_COMPONENT)
+        .method("")
+        .expect(&expect![[r#"
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+        Err: MethodEmptyName
+    "#]])
+        .component_expect(&expect![[r#"
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
         Err: MethodEmptyName
     "#]]);
@@ -223,7 +287,7 @@ fn test_indirect_call_to_null_contract() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 109031223 used gas 109031223
                 Err: ...
             "#]],
-        ])
+        ]);
 }
 
 #[test]
@@ -251,7 +315,7 @@ fn test_indirect_call_to_wrong_signature_contract() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 134085008 used gas 134085008
                 Err: WebAssembly trap: Call indirect incorrect signature trap.
             "#]]
-        ])
+        ]);
 }
 
 #[test]
@@ -532,7 +596,7 @@ fn test_bad_many_imports() {
         .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 1362207273 used gas 1362207273
             Err: ...
-        "#]])
+        "#]]);
 }
 
 static EXTERNAL_CALL_CONTRACT: &str = r#"
@@ -649,9 +713,14 @@ fn test_nan_sign() {
 fn test_gas_exceed_loading() {
     test_builder()
         .wat(SIMPLE_CONTRACT)
+        .component_wat(SIMPLE_CONTRACT_COMPONENT)
         .method("non_empty_non_existing")
         .gas(Gas::from_gas(1))
         .expect(&expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 1 used gas 1
+            Err: Exceeded the prepaid gas.
+        "#]])
+        .component_expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 1 used gas 1
             Err: Exceeded the prepaid gas.
         "#]]);
@@ -687,7 +756,7 @@ fn gas_overflow_indirect_call() {
   (import "env" "gas" (func $gas (param i32)))
   (type $gas_ty (func (param i32)))
 
-  (table 1 anyfunc)
+  (table 1 funcref)
   (elem (i32.const 0) $gas)
 
   (func (export "main")

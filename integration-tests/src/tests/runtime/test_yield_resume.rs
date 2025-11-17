@@ -1,6 +1,8 @@
 use crate::node::{Node, RuntimeNode};
+use near_parameters::vm::VMKind;
 use near_primitives::types::{Balance, Gas};
 use near_primitives::views::FinalExecutionStatus;
+use std::sync::Arc;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
@@ -115,6 +117,96 @@ fn create_then_resume() {
 }
 
 #[test]
+fn create_then_resume_component() {
+    let node = setup_test_contract(near_test_contracts::component_rs_contract());
+    {
+        let mut client = node.client.write();
+        let mut wasm_config = (*client.runtime_config.wasm_config).clone();
+        wasm_config.vm_kind = VMKind::Wasmtime;
+        wasm_config.component_model = true;
+        wasm_config.limit_config.max_tables_per_contract = Some(3);
+        client.runtime_config.wasm_config = Arc::new(wasm_config);
+    }
+
+    let yield_payload = vec![6u8; 16];
+
+    // Hardcoded key under which the yield callback will write data.
+    // We use this to observe whether the callback has been executed.
+    let key = 123u64.to_le_bytes().to_vec();
+
+    // Set up the yield execution
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
+            "call-yield-create-return-data-id",
+            yield_payload.clone(),
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+
+    let data_id = match res.status {
+        FinalExecutionStatus::SuccessValue(data_id) => data_id,
+        _ => {
+            panic!("{res:?} unexpected result; expected some data id");
+        }
+    };
+
+    // Confirm that the yield callback hasn't been executed yet
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
+            "read-value",
+            key.clone(),
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+    assert_eq!(res.status, FinalExecutionStatus::SuccessValue(vec![]), "{res:?} unexpected result",);
+
+    // Call yield resume with the payload followed by the data id
+    let args: Vec<u8> = yield_payload.into_iter().chain(data_id.into_iter()).collect();
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
+            "call-yield-resume",
+            args,
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+    assert_eq!(
+        res.status,
+        FinalExecutionStatus::SuccessValue(vec![1u8]),
+        "{res:?} unexpected result; expected 1",
+    );
+
+    // Confirm that the yield callback was executed
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
+            "read-value",
+            key,
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+    assert_eq!(
+        res.status,
+        FinalExecutionStatus::SuccessValue("Resumed ".as_bytes().to_vec()),
+        "{res:?} unexpected result",
+    );
+}
+
+#[test]
 fn create_and_resume_in_one_call() {
     let node = setup_test_contract(near_test_contracts::rs_contract());
 
@@ -126,6 +218,41 @@ fn create_and_resume_in_one_call() {
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
             "call_yield_create_and_resume",
+            yield_payload,
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+
+    // the yield callback is expected to execute successfully,
+    // returning twice the value of the first byte of the payload
+    assert_eq!(
+        res.status,
+        FinalExecutionStatus::SuccessValue(vec![16u8]),
+        "{res:?} unexpected result; expected 16",
+    );
+}
+
+#[test]
+fn create_and_resume_in_one_call_component() {
+    let node = setup_test_contract(near_test_contracts::component_rs_contract());
+    {
+        let mut client = node.client.write();
+        let mut wasm_config = (*client.runtime_config.wasm_config).clone();
+        wasm_config.vm_kind = VMKind::Wasmtime;
+        wasm_config.component_model = true;
+        wasm_config.limit_config.max_tables_per_contract = Some(3);
+        client.runtime_config.wasm_config = Arc::new(wasm_config);
+    }
+
+    let yield_payload = vec![23u8; 16];
+
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
+            "call-yield-create-and-resume",
             yield_payload,
             MAX_GAS,
             Balance::ZERO,
@@ -154,6 +281,41 @@ fn resume_without_yield() {
             "alice.near".parse().unwrap(),
             "test_contract.alice.near".parse().unwrap(),
             "call_yield_resume",
+            args,
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+
+    // expect the execution to succeed, but return 'false'
+    assert_eq!(
+        res.status,
+        FinalExecutionStatus::SuccessValue(vec![0u8]),
+        "{res:?} unexpected result; expected 0",
+    );
+}
+
+#[test]
+fn resume_without_yield_component() {
+    let node = setup_test_contract(near_test_contracts::component_rs_contract());
+    {
+        let mut client = node.client.write();
+        let mut wasm_config = (*client.runtime_config.wasm_config).clone();
+        wasm_config.vm_kind = VMKind::Wasmtime;
+        wasm_config.component_model = true;
+        wasm_config.limit_config.max_tables_per_contract = Some(3);
+        client.runtime_config.wasm_config = Arc::new(wasm_config);
+    }
+
+    // payload followed by data id
+    let args: Vec<u8> = vec![42u8; 12].into_iter().chain(vec![23u8; 32].into_iter()).collect();
+
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
+            "call-yield-resume",
             args,
             MAX_GAS,
             Balance::ZERO,

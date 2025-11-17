@@ -1,5 +1,6 @@
 use crate::node::{Node, RuntimeNode};
 use near_chain_configs::Genesis;
+use near_parameters::vm::VMKind;
 use near_parameters::{ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, Balance, Gas};
@@ -9,6 +10,7 @@ use near_primitives::views::{
 };
 use std::collections::HashSet;
 use std::mem::size_of;
+use std::sync::Arc;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
 /// Initial balance used in tests.
@@ -157,6 +159,75 @@ fn test_cost_sanity() {
         },
         receipts_gas_profile
     );
+}
+
+/// Calls method `sanity-check` on `test-contract-component-rs` and verifies that the
+/// resulting gas profile matches expectations.
+///
+/// This test intends to catch accidental configuration changes, see #4961.
+#[test]
+fn test_cost_sanity_component() {
+    let test_contract = near_test_contracts::component_rs_contract();
+    let node = setup_runtime_node_with_contract(test_contract);
+    {
+        let mut client = node.client.write();
+        let mut wasm_config = (*client.runtime_config.wasm_config).clone();
+        wasm_config.vm_kind = VMKind::Wasmtime;
+        wasm_config.component_model = true;
+        wasm_config.limit_config.max_tables_per_contract = Some(3);
+        client.runtime_config.wasm_config = Arc::new(wasm_config);
+    }
+
+    let args = format!(
+        r#"{{
+            "contract_code": {:?},
+            "method_name": "main",
+            "method_args": "",
+            "validator_id": {:?}
+        }}"#,
+        to_base64(near_test_contracts::trivial_contract()),
+        bob_account().as_str()
+    );
+    eprintln!("{args}");
+
+    let res = node
+        .user()
+        .function_call(
+            alice_account(),
+            test_contract_account(),
+            "sanity-check",
+            args.into_bytes(),
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+    assert_eq!(res.status, FinalExecutionStatus::SuccessValue(Vec::new()));
+    assert_eq!(res.transaction_outcome.outcome.metadata.gas_profile, None);
+
+    let receipts_status = get_receipts_status_with_clear_hash(&res.receipts_outcome);
+    insta::assert_yaml_snapshot!("receipts_status", receipts_status);
+
+    let receipts_gas_profile = res
+        .receipts_outcome
+        .iter()
+        .map(|outcome| outcome.outcome.metadata.gas_profile.as_ref().unwrap())
+        .map(|gas_profile| {
+            gas_profile
+                .iter()
+                .cloned()
+                .map(|cost| {
+                    if is_nondeterministic_cost(&cost.cost) {
+                        // Ignore `gas_used` of nondeterministic costs.
+                        CostGasUsed { gas_used: Gas::ZERO, ..cost }
+                    } else {
+                        cost
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    insta::assert_debug_snapshot!("receipts_gas_profile_component", receipts_gas_profile);
 }
 
 /// Verifies the sanity of nondeterministic costs using a trivial contract.

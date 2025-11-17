@@ -1,8 +1,10 @@
 use crate::node::{Node, RuntimeNode};
+use near_parameters::vm::VMKind;
 use near_primitives::errors::{ActionError, ActionErrorKind, FunctionCallError};
 use near_primitives::types::{Balance, Gas};
 use near_primitives::views::FinalExecutionStatus;
 use std::mem::size_of;
+use std::sync::Arc;
 
 use assert_matches::assert_matches;
 
@@ -83,6 +85,61 @@ fn slow_test_evil_deep_trie() {
     }
 }
 
+#[test]
+fn slow_test_evil_deep_trie_component() {
+    let node = setup_test_contract(near_test_contracts::component_rs_contract());
+    {
+        let mut client = node.client.write();
+        let mut wasm_config = (*client.runtime_config.wasm_config).clone();
+        wasm_config.vm_kind = VMKind::Wasmtime;
+        wasm_config.component_model = true;
+        wasm_config.limit_config.max_tables_per_contract = Some(3);
+        client.runtime_config.wasm_config = Arc::new(wasm_config);
+    }
+    for i in 0..50 {
+        println!("insertStrings #{}", i);
+        let from = i * 10 as u64;
+        let to = (i + 1) * 10 as u64;
+        let mut input_data = [0u8; 2 * size_of::<u64>()];
+        input_data[..size_of::<u64>()].copy_from_slice(&from.to_le_bytes());
+        input_data[size_of::<u64>()..].copy_from_slice(&to.to_le_bytes());
+        let res = node
+            .user()
+            .function_call(
+                "alice.near".parse().unwrap(),
+                "test_contract.alice.near".parse().unwrap(),
+                "insert-strings",
+                input_data.to_vec(),
+                MAX_GAS,
+                Balance::ZERO,
+            )
+            .unwrap();
+        println!("Gas burnt: {}", res.receipts_outcome[0].outcome.gas_burnt);
+        assert_eq!(res.status, FinalExecutionStatus::SuccessValue(Vec::new()), "{:?}", res);
+    }
+    for i in (0..50).rev() {
+        println!("deleteStrings #{}", i);
+        let from = i * 10 as u64;
+        let to = (i + 1) * 10 as u64;
+        let mut input_data = [0u8; 2 * size_of::<u64>()];
+        input_data[..size_of::<u64>()].copy_from_slice(&from.to_le_bytes());
+        input_data[size_of::<u64>()..].copy_from_slice(&to.to_le_bytes());
+        let res = node
+            .user()
+            .function_call(
+                "alice.near".parse().unwrap(),
+                "test_contract.alice.near".parse().unwrap(),
+                "delete-strings",
+                input_data.to_vec(),
+                MAX_GAS,
+                Balance::ZERO,
+            )
+            .unwrap();
+        println!("Gas burnt: {}", res.receipts_outcome[0].outcome.gas_burnt);
+        assert_eq!(res.status, FinalExecutionStatus::SuccessValue(Vec::new()), "{:?}", res);
+    }
+}
+
 /// Test delaying the conclusion of a receipt for as long as possible through the use of self
 /// cross-contract calls.
 #[test]
@@ -125,9 +182,92 @@ fn slow_test_self_delay() {
     }
 }
 
+/// Test delaying the conclusion of a receipt for as long as possible through the use of self
+/// cross-contract calls.
+#[test]
+fn slow_test_self_delay_component() {
+    let node = setup_test_contract(near_test_contracts::component_rs_contract());
+    {
+        let mut client = node.client.write();
+        let mut wasm_config = (*client.runtime_config.wasm_config).clone();
+        wasm_config.vm_kind = VMKind::Wasmtime;
+        wasm_config.component_model = true;
+        wasm_config.limit_config.max_tables_per_contract = Some(3);
+        client.runtime_config.wasm_config = Arc::new(wasm_config);
+    }
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract.alice.near".parse().unwrap(),
+            "max-self-recursion-delay",
+            vec![0; 4],
+            MAX_GAS,
+            Balance::ZERO,
+        )
+        .unwrap();
+
+    // The exact expected depth varies depending on the set of enabled features.
+    // When test_features are enabled, the test contract becomes larger and the calls to it are more expensive.
+    // When nightly is enabled, the gas costs change a bit.
+    // The test makes sure that the depth is within the expected range, but it doesn't check an exact value
+    // to avoid having separate cases for every possible combination of features.
+    let min_expected_depth = 56;
+    // The upper limit has been recently bumped to 221 from the previous value of 62 after the
+    // adjustment of a function call gas costs.
+    let max_expected_depth = 221;
+    match res.status {
+        FinalExecutionStatus::SuccessValue(depth_bytes) => {
+            let depth = u32::from_be_bytes(depth_bytes.try_into().unwrap());
+            assert!(
+                depth >= min_expected_depth,
+                "The function has recursed fewer times than expected: {depth} < {min_expected_depth}",
+            );
+            assert!(
+                depth <= max_expected_depth,
+                "The function has recursed more times than expected: {depth} > {max_expected_depth}",
+            );
+        }
+        _ => panic!("Expected success, got: {:?}", res),
+    }
+}
+
 #[test]
 fn test_evil_deep_recursion() {
     let node = setup_test_contract(near_test_contracts::rs_contract());
+    for n in [100u64, 1000, 10000, 100000, 1000000] {
+        println!("{}", n);
+        let n_bytes = n.to_le_bytes().to_vec();
+        let res = node
+            .user()
+            .function_call(
+                "alice.near".parse().unwrap(),
+                "test_contract.alice.near".parse().unwrap(),
+                "recurse",
+                n_bytes.clone(),
+                MAX_GAS,
+                Balance::ZERO,
+            )
+            .unwrap();
+        if n <= 1000 {
+            assert_eq!(res.status, FinalExecutionStatus::SuccessValue(n_bytes), "{:?}", res);
+        } else {
+            assert_matches!(res.status, FinalExecutionStatus::Failure(_), "{:?}", res);
+        }
+    }
+}
+
+#[test]
+fn test_evil_deep_recursion_component() {
+    let node = setup_test_contract(near_test_contracts::component_rs_contract());
+    {
+        let mut client = node.client.write();
+        let mut wasm_config = (*client.runtime_config.wasm_config).clone();
+        wasm_config.vm_kind = VMKind::Wasmtime;
+        wasm_config.component_model = true;
+        wasm_config.limit_config.max_tables_per_contract = Some(3);
+        client.runtime_config.wasm_config = Arc::new(wasm_config);
+    }
     for n in [100u64, 1000, 10000, 100000, 1000000] {
         println!("{}", n);
         let n_bytes = n.to_le_bytes().to_vec();
