@@ -892,7 +892,7 @@ impl<T: ChainAccess> TxMirror<T> {
                             // TODO: here if we're getting an error because the tx was already included, it is possible
                             // that some other instance of this code ran and made progress already. For now we can assume
                             // only once instance of this code will run, but this is the place to detect if that's not the case.
-                            tracing::error!(
+                            tracing::debug!(
                                 target: "mirror",
                                 signer_id = %tx.target_tx.transaction.signer_id(),
                                 public_key = ?tx.target_tx.transaction.public_key(),
@@ -917,7 +917,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 }
                 TargetChainTx::AwaitingNonce(tx) => {
                     // TODO: here we should just save this transaction for later and send it when it's known
-                    tracing::warn!(
+                    tracing::debug!(
                         target: "mirror",
                         signer_id = %tx.target_tx.signer_id(),
                         public_key = ?tx.target_tx.public_key(),
@@ -1223,7 +1223,7 @@ impl<T: ChainAccess> TxMirror<T> {
             })));
         }
 
-        tracing::debug!(
+        tracing::trace!(
             target: "mirror",
             provenance = %provenance,
             target_signer_id = %target_signer_id,
@@ -1577,7 +1577,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 )
                 .await?;
             }
-            tracing::debug!(
+            tracing::trace!(
                 target: "mirror",
                 tx_count = %txs.len(),
                 %source_height,
@@ -1761,7 +1761,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
             let start_time = tokio::time::Instant::now();
 
-            tracing::debug!(target: "mirror", source_height = %tx_batch.source_height, "sending transactions for source block");
+            tracing::trace!(target: "mirror", source_height = %tx_batch.source_height, "sending transactions for source block");
             Self::send_transactions(
                 &target_client,
                 tx_batch.txs.iter_mut().map(|(_tx_ref, tx)| tx),
@@ -1773,7 +1773,7 @@ impl<T: ChainAccess> TxMirror<T> {
             blocks_sent.send(tx_batch).await.context("failed to send block")?;
 
             let send_delay = *send_delay.lock();
-            tracing::debug!(target: "mirror", ?send_delay, "sleeping for duration until sending more transactions");
+            tracing::trace!(target: "mirror", ?send_delay, "sleeping for duration until sending more transactions");
             let next_send_time = start_time + send_delay;
             send_time.as_mut().reset(next_send_time);
         }
