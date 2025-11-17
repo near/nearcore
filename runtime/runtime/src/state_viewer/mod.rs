@@ -161,6 +161,7 @@ impl TrieViewer {
         let gas_key = get_gas_key(state_update, account_id, public_key)?.ok_or_else(|| {
             errors::ViewGasKeyError::GasKeyDoesNotExist { public_key: public_key.clone() }
         })?;
+        // TODO(gas-keys): Consider using iterator with get_raw_prefix_for_gas_key here.
         let mut nonces = Vec::new();
         for nonce_index in 0..gas_key.num_nonces {
             let nonce = get_gas_key_nonce(state_update, account_id, public_key, nonce_index)?
