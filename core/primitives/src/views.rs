@@ -226,33 +226,6 @@ impl From<AccessKeyView> for AccessKey {
     serde::Deserialize,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct GasKeyUpdateView {
-    pub num_nonces: NonceIndex,
-    pub balance: Balance,
-    pub permission: AccessKeyPermissionView,
-}
-
-impl From<GasKey> for GasKeyUpdateView {
-    fn from(gas_key: GasKey) -> Self {
-        Self {
-            num_nonces: gas_key.num_nonces,
-            balance: gas_key.balance,
-            permission: gas_key.permission.into(),
-        }
-    }
-}
-
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Debug,
-    Eq,
-    PartialEq,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct GasKeyView {
     pub num_nonces: NonceIndex,
     pub balance: Balance,
@@ -2784,7 +2757,7 @@ pub enum StateChangeValueView {
     GasKeyUpdate {
         account_id: AccountId,
         public_key: PublicKey,
-        gas_key: GasKeyUpdateView,
+        gas_key: GasKey,
     },
     GasKeyNonceUpdate {
         account_id: AccountId,
@@ -2836,7 +2809,7 @@ impl From<StateChangeValue> for StateChangeValueView {
                 Self::AccessKeyDeletion { account_id, public_key }
             }
             StateChangeValue::GasKeyUpdate { account_id, public_key, gas_key } => {
-                Self::GasKeyUpdate { account_id, public_key, gas_key: gas_key.into() }
+                Self::GasKeyUpdate { account_id, public_key, gas_key }
             }
             StateChangeValue::GasKeyNonceUpdate { account_id, public_key, index, nonce } => {
                 Self::GasKeyNonceUpdate { account_id, public_key, index, nonce }
