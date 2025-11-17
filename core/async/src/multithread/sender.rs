@@ -28,7 +28,7 @@ where
             function: Box::new(function),
         };
         if let Err(_) = self.send_message(message) {
-            tracing::info!(target: "multithread_runtime", seq, "Ignoring sync message, receiving actor is being shut down");
+            tracing::info!(target: "multithread_runtime", seq, "ignoring sync message, receiving actor is being shut down");
         }
     }
 }

@@ -140,8 +140,11 @@ mod tests {
     use std::sync::Arc;
 
     use crate::actions_test_utils::{setup_account, test_delete_large_account};
+    use crate::state_viewer::TrieViewer;
+    use crate::state_viewer::errors::ViewGasKeyError;
 
     use super::*;
+    use itertools::Itertools;
     use near_crypto::{KeyType, SecretKey};
     use near_parameters::RuntimeConfig;
     use near_primitives::account::{AccessKey, AccessKeyPermission};
@@ -151,6 +154,7 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::trie_key::trie_key_parsers;
     use near_primitives::types::{BlockHeight, EpochId, NonceIndex, StateChangeCause};
+    use near_primitives::views::{GasKeyInfoView, GasKeyView};
     use near_store::{ShardUId, TrieUpdate, get_account, get_gas_key_nonce};
 
     const TEST_NUM_NONCES: NonceIndex = 2;
@@ -408,5 +412,51 @@ mod tests {
             .expect("could not get trie iterator")
             .count();
         assert_eq!(gas_key_count, 0);
+    }
+
+    #[test]
+    fn test_view_gas_keys() {
+        // Create an account and add two gas keys.
+        let (account_id, public_key1, access_key) = test_account_keys();
+        let public_key2 = SecretKey::from_random(KeyType::ED25519).public_key();
+        let mut state_update = setup_account(&account_id, &public_key1, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        let gas_key1 =
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key1);
+        let gas_key2 =
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key2);
+
+        // Query with state viewer
+        let viewer = TrieViewer::default();
+        let view_gas_key1 = viewer
+            .view_gas_key(&state_update, &account_id, &public_key1)
+            .expect("expected to find gas key");
+        let view_gas_key2 = viewer
+            .view_gas_key(&state_update, &account_id, &public_key2)
+            .expect("expected to find gas key");
+        let expected_nonce = initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT);
+        let expected = [gas_key1, gas_key2]
+            .into_iter()
+            .map(|gas_key| GasKeyView::new(gas_key, vec![expected_nonce; TEST_NUM_NONCES as usize]))
+            .collect_vec();
+        assert_eq!(expected, vec![view_gas_key1, view_gas_key2]);
+
+        // Viewing a nonexistent gas key should return an error.
+        let other_public_key = SecretKey::from_random(KeyType::ED25519).public_key();
+        assert!(matches!(
+            viewer
+                .view_gas_key(&state_update, &account_id, &other_public_key)
+                .expect_err("expected error for nonexistent gas key"),
+            ViewGasKeyError::GasKeyDoesNotExist { .. }
+        ));
+
+        // Iterate account gas keys
+        let gas_keys = viewer.view_gas_keys(&state_update, &account_id).unwrap();
+        let expected = [public_key1, public_key2]
+            .into_iter()
+            .zip(expected)
+            .map(|(public_key, gas_key)| GasKeyInfoView { public_key, gas_key })
+            .collect_vec();
+        assert_eq!(expected, gas_keys);
     }
 }

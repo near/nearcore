@@ -31,8 +31,8 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, ContractCodeView, GasKeyInfoView, GasKeyView, QueryRequest,
-    QueryResponse, QueryResponseKind, ViewStateResult,
+    AccessKeyInfoView, CallResult, ContractCodeView, GasKeyInfoView, GasKeyList, GasKeyView,
+    QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::CLOUD_HEAD_KEY;
@@ -1212,14 +1212,14 @@ impl RuntimeAdapter for NightshadeRuntime {
                         )
                     })?;
                 Ok(QueryResponse {
-                    kind: QueryResponseKind::GasKeyList(gas_key_list.into()),
+                    kind: QueryResponseKind::GasKeyList(GasKeyList { keys: gas_key_list }),
                     block_height,
                     block_hash: *block_hash,
                 })
             }
-            QueryRequest::ViewGasKey { account_id, public_key, include_nonces } => {
+            QueryRequest::ViewGasKey { account_id, public_key } => {
                 let gas_key = self
-                    .view_gas_key(&shard_uid, *state_root, account_id, public_key, *include_nonces)
+                    .view_gas_key(&shard_uid, *state_root, account_id, public_key)
                     .map_err(|err| {
                         crate::near_chain_primitives::error::QueryError::from_view_gas_key_error(
                             err,
@@ -1587,10 +1587,9 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-        include_nonces: bool,
     ) -> Result<GasKeyView, node_runtime::state_viewer::errors::ViewGasKeyError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
-        self.trie_viewer.view_gas_key(&state_update, account_id, public_key, include_nonces)
+        self.trie_viewer.view_gas_key(&state_update, account_id, public_key)
     }
 
     fn view_gas_keys(

@@ -7,6 +7,7 @@ use near_primitives::account::{AccessKey, AccessKeyPermission, AccountOrGasKey, 
 use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::action::{
     AddGasKeyAction, AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
+    GlobalContractIdentifier, UseGlobalContractAction,
 };
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
@@ -371,7 +372,6 @@ pub enum ValidateReceiptMode {
     ExistingReceipt,
 }
 
-/// Validates given ActionReceipt. Checks validity of the number of input data dependencies and all actions.
 fn validate_action_receipt(
     limit_config: &LimitConfig,
     receipt: VersionedActionReceipt,
@@ -384,6 +384,13 @@ fn validate_action_receipt(
             limit: limit_config.max_number_input_data_dependencies,
         });
     }
+
+    if let Some(account_id) = receipt.refund_to() {
+        AccountId::validate(account_id.as_ref()).map_err(|_| {
+            ReceiptValidationError::InvalidRefundTo { account_id: account_id.to_string() }
+        })?;
+    }
+
     validate_actions(limit_config, receipt.actions(), receiver, current_protocol_version)
         .map_err(ReceiptValidationError::ActionsValidation)
 }
@@ -464,7 +471,7 @@ pub fn validate_action(
         Action::CreateAccount(_) => Ok(()),
         Action::DeployContract(a) => validate_deploy_contract_action(limit_config, a),
         Action::DeployGlobalContract(a) => validate_deploy_global_contract_action(limit_config, a),
-        Action::UseGlobalContract(_) => validate_use_global_contract_action(),
+        Action::UseGlobalContract(a) => validate_use_global_contract_action(a),
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
         Action::TransferToGasKey(_) => {
@@ -528,8 +535,11 @@ fn validate_deploy_global_contract_action(
     Ok(())
 }
 
-/// Validates `UseGlobalContractAction`.
-fn validate_use_global_contract_action() -> Result<(), ActionsValidationError> {
+fn validate_use_global_contract_action(
+    action: &UseGlobalContractAction,
+) -> Result<(), ActionsValidationError> {
+    validate_global_contract_identifier(&action.contract_identifier)?;
+
     Ok(())
 }
 
@@ -624,15 +634,8 @@ fn validate_access_key_permission(
     Ok(())
 }
 
-/// Validates `DeleteAction`.
-///
-/// Checks that the `beneficiary_id` is a valid account ID.
 fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsValidationError> {
-    if AccountId::validate(action.beneficiary_id.as_str()).is_err() {
-        return Err(ActionsValidationError::InvalidAccountId {
-            account_id: action.beneficiary_id.to_string(),
-        });
-    }
+    validate_action_account_id(&action.beneficiary_id)?;
 
     Ok(())
 }
@@ -662,6 +665,8 @@ fn validate_deterministic_state_init(
         "DeterministicAccountIds",
         current_protocol_version,
     )?;
+
+    validate_global_contract_identifier(action.state_init.code())?;
 
     let derived_id = derive_near_deterministic_account_id(&action.state_init);
 
@@ -732,6 +737,24 @@ fn validate_transfer_to_gas_key_action(
     current_protocol_version: u32,
 ) -> Result<(), ActionsValidationError> {
     require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
+    Ok(())
+}
+
+fn validate_global_contract_identifier(
+    identifier: &GlobalContractIdentifier,
+) -> Result<(), ActionsValidationError> {
+    if let GlobalContractIdentifier::AccountId(account_id) = &identifier {
+        validate_action_account_id(account_id)?;
+    }
+
+    Ok(())
+}
+
+fn validate_action_account_id(account_id: &AccountId) -> Result<(), ActionsValidationError> {
+    AccountId::validate(account_id.as_str()).map_err(|_| {
+        ActionsValidationError::InvalidAccountId { account_id: account_id.to_string() }
+    })?;
+
     Ok(())
 }
 

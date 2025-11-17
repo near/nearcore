@@ -157,27 +157,22 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         public_key: &PublicKey,
-        include_nonces: bool,
-    ) -> Result<near_primitives::views::GasKeyView, errors::ViewGasKeyError> {
+    ) -> Result<GasKeyView, errors::ViewGasKeyError> {
         let gas_key = get_gas_key(state_update, account_id, public_key)?.ok_or_else(|| {
             errors::ViewGasKeyError::GasKeyDoesNotExist { public_key: public_key.clone() }
         })?;
-        let nonces = if include_nonces {
-            let mut nonces = Vec::new();
-            for nonce_index in 0..gas_key.num_nonces {
-                let nonce = get_gas_key_nonce(state_update, account_id, public_key, nonce_index)?
-                    .ok_or_else(|| errors::ViewGasKeyError::InternalError {
+        // TODO(gas-keys): Consider using iterator with get_raw_prefix_for_gas_key here.
+        let mut nonces = Vec::new();
+        for nonce_index in 0..gas_key.num_nonces {
+            let nonce = get_gas_key_nonce(state_update, account_id, public_key, nonce_index)?
+                .ok_or_else(|| errors::ViewGasKeyError::InternalError {
                     error_message: format!(
                         "Unexpected missing nonce for gas key {:?} at index {}",
                         public_key, nonce_index
                     ),
                 })?;
-                nonces.push(nonce);
-            }
-            Some(nonces)
-        } else {
-            None
-        };
+            nonces.push(nonce);
+        }
         Ok(near_primitives::views::GasKeyView {
             num_nonces: gas_key.num_nonces,
             balance: gas_key.balance,
@@ -193,6 +188,7 @@ impl TrieViewer {
     ) -> Result<Vec<near_primitives::views::GasKeyInfoView>, errors::ViewGasKeyError> {
         let prefix = trie_key_parsers::get_raw_prefix_for_gas_keys(account_id);
         let mut result: Vec<near_primitives::views::GasKeyInfoView> = Vec::new();
+        let mut last_parsed_gas_key_public_key: Option<PublicKey> = None; // Tracked to check trie consistency.
         for raw_key in state_update.iter(&prefix)? {
             let raw_key = raw_key?;
             let trie_key = parse_trie_key_gas_key_from_raw_key(&raw_key).map_err(|err| {
@@ -203,11 +199,25 @@ impl TrieViewer {
             let near_primitives::trie_key::TrieKey::GasKey { public_key, index, .. } = &trie_key
             else {
                 return Err(errors::ViewGasKeyError::InternalError {
-                    error_message: "Unexpected trie key type for gas key".to_string(),
+                    error_message: format!("Unexpected trie key type for gas key: {:?}", trie_key),
                 });
             };
             if index.is_some() {
-                // This is a gas key nonce. The nonce should be for the last gas key that we've parsed.
+                // This is a gas key nonce. Sanity check the nonce should be for the last gas key that we've parsed.
+                let last_gas_key_public_key =
+                    last_parsed_gas_key_public_key.as_ref().ok_or_else(|| {
+                        errors::ViewGasKeyError::InternalError {
+                            error_message: "Unexpected gas key nonce without gas key".to_string(),
+                        }
+                    })?;
+                if last_gas_key_public_key != public_key {
+                    return Err(errors::ViewGasKeyError::InternalError {
+                        error_message: format!(
+                            "Gas key nonce's public key {:?} does not match the last gas key's public key {:?}",
+                            public_key, last_gas_key_public_key
+                        ),
+                    });
+                }
                 let value =
                     near_store::get::<Nonce>(state_update, &trie_key)?.ok_or_else(|| {
                         errors::ViewGasKeyError::InternalError {
@@ -222,8 +232,6 @@ impl TrieViewer {
                     })?
                     .gas_key
                     .nonces
-                    .as_mut()
-                    .unwrap()
                     .push(value);
             } else {
                 // This is a new gas key.
@@ -234,21 +242,22 @@ impl TrieViewer {
                                 .to_string(),
                         }
                     })?;
-                let gas_key_view = GasKeyView::from_gas_key_with_nonces(value, Vec::new());
+                let gas_key_view = GasKeyView::new(value, Vec::new());
                 result.push(near_primitives::views::GasKeyInfoView {
                     public_key: public_key.clone(),
                     gas_key: gas_key_view,
                 });
+                last_parsed_gas_key_public_key = Some(public_key.clone());
             }
         }
         // Sanity check that we've got all nonces for each gas key.
         for key in &result {
-            if key.gas_key.num_nonces as usize != key.gas_key.nonces.as_ref().unwrap().len() {
+            if key.gas_key.num_nonces as usize != key.gas_key.nonces.len() {
                 return Err(errors::ViewGasKeyError::InternalError {
                     error_message: format!(
                         "Gas key {:?} has {} nonces in the trie, but specifies num_nonces = {}",
                         key.public_key,
-                        key.gas_key.nonces.as_ref().unwrap().len(),
+                        key.gas_key.nonces.len(),
                         key.gas_key.num_nonces
                     ),
                 });

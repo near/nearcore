@@ -230,27 +230,16 @@ pub struct GasKeyView {
     pub num_nonces: NonceIndex,
     pub balance: Balance,
     pub permission: AccessKeyPermissionView,
-    /// If requested, the nonces are included.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nonces: Option<Vec<Nonce>>,
+    pub nonces: Vec<Nonce>,
 }
 
 impl GasKeyView {
-    pub fn from_gas_key_no_nonces(gas_key: GasKey) -> Self {
-        Self {
+    pub fn new(gas_key: GasKey, nonces: Vec<Nonce>) -> GasKeyView {
+        GasKeyView {
             num_nonces: gas_key.num_nonces,
             balance: gas_key.balance,
             permission: gas_key.permission.into(),
-            nonces: None,
-        }
-    }
-
-    pub fn from_gas_key_with_nonces(gas_key: GasKey, nonces: Vec<Nonce>) -> Self {
-        Self {
-            num_nonces: gas_key.num_nonces,
-            balance: gas_key.balance,
-            permission: gas_key.permission.into(),
-            nonces: Some(nonces),
+            nonces,
         }
     }
 }
@@ -321,12 +310,6 @@ pub struct GasKeyInfoView {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct GasKeyList {
     pub keys: Vec<GasKeyInfoView>,
-}
-
-impl From<Vec<GasKeyInfoView>> for GasKeyList {
-    fn from(keys: Vec<GasKeyInfoView>) -> Self {
-        Self { keys }
-    }
 }
 
 // cspell:words deepsize
@@ -402,7 +385,6 @@ pub enum QueryRequest {
     ViewGasKey {
         account_id: AccountId,
         public_key: PublicKey,
-        include_nonces: bool,
     },
     ViewGasKeyList {
         account_id: AccountId,
@@ -2784,7 +2766,7 @@ pub enum StateChangeValueView {
     GasKeyUpdate {
         account_id: AccountId,
         public_key: PublicKey,
-        gas_key: GasKeyView,
+        gas_key: GasKey,
     },
     GasKeyNonceUpdate {
         account_id: AccountId,
@@ -2836,11 +2818,7 @@ impl From<StateChangeValue> for StateChangeValueView {
                 Self::AccessKeyDeletion { account_id, public_key }
             }
             StateChangeValue::GasKeyUpdate { account_id, public_key, gas_key } => {
-                Self::GasKeyUpdate {
-                    account_id,
-                    public_key,
-                    gas_key: GasKeyView::from_gas_key_no_nonces(gas_key),
-                }
+                Self::GasKeyUpdate { account_id, public_key, gas_key }
             }
             StateChangeValue::GasKeyNonceUpdate { account_id, public_key, index, nonce } => {
                 Self::GasKeyNonceUpdate { account_id, public_key, index, nonce }
