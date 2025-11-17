@@ -205,7 +205,6 @@ impl EpochManager {
         epoch_config_store: EpochConfigStore,
     ) -> Arc<EpochManagerHandle> {
         let epoch_length = genesis_config.epoch_length;
-        let treasury_account = genesis_config.protocol_treasury_account.clone();
         let all_epoch_config = AllEpochConfig::from_epoch_config_store(
             genesis_config.chain_id.as_str(),
             epoch_length,
@@ -213,9 +212,7 @@ impl EpochManager {
             genesis_config.protocol_version,
         );
         Arc::new(
-            Self::new(store, all_epoch_config, genesis_config.validators(), treasury_account)
-                .unwrap()
-                .into_handle(),
+            Self::new(store, all_epoch_config, genesis_config.validators()).unwrap().into_handle(),
         )
     }
 
@@ -223,10 +220,11 @@ impl EpochManager {
         store: Store,
         config: AllEpochConfig,
         validators: Vec<ValidatorStake>,
-        treasury_account: AccountId,
     ) -> Result<Self, EpochError> {
         let epoch_info_aggregator =
             store.get_ser(DBCol::EpochInfo, AGGREGATOR_KEY)?.unwrap_or_default();
+        let genesis = config.genesis_protocol_version();
+        let treasury_account = config.for_protocol_version(genesis).protocol_treasury_account;
         let mut epoch_manager = EpochManager {
             store,
             config,

@@ -118,7 +118,6 @@ fn test_stake_validator() {
             .iter()
             .map(|(account_id, balance)| stake(account_id.clone(), *balance))
             .collect(),
-        "near".parse().unwrap(),
     )
     .unwrap();
     assert!(compare_epoch_infos(&epoch_manager2.get_epoch_info(&epoch3).unwrap(), &expected3));
@@ -365,8 +364,7 @@ fn test_validator_unstake() {
         stake("test1".parse().unwrap(), amount_staked),
         stake("test2".parse().unwrap(), amount_staked),
     ];
-    let mut epoch_manager =
-        EpochManager::new(store, config, validators, "near".parse().unwrap()).unwrap();
+    let mut epoch_manager = EpochManager::new(store, config, validators).unwrap();
     let h = hash_range(8);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
     // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
@@ -803,7 +801,6 @@ fn test_expected_chunks() {
         create_test_store(),
         epoch_config,
         validators.into_iter().map(|(account_id, balance)| stake(account_id, balance)).collect(),
-        "near".parse().unwrap(),
     )
     .unwrap()
     .into_handle();
@@ -1426,7 +1423,6 @@ fn test_chunk_validator_kickout_using_production_stats() {
             .iter()
             .map(|(account_id, balance)| stake(account_id.clone(), *balance))
             .collect(),
-        "near".parse().unwrap(),
     )
     .unwrap()
     .into_handle();
@@ -1507,7 +1503,6 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
         create_test_store(),
         epoch_config,
         validators.into_iter().map(|(account_id, balance)| stake(account_id, balance)).collect(),
-        "near".parse().unwrap(),
     )
     .unwrap()
     .into_handle();
@@ -1942,8 +1937,7 @@ fn test_protocol_version_switch() {
         stake("test1".parse().unwrap(), amount_staked),
         stake("test2".parse().unwrap(), amount_staked),
     ];
-    let mut epoch_manager =
-        EpochManager::new(store, config, validators, "near".parse().unwrap()).unwrap();
+    let mut epoch_manager = EpochManager::new(store, config, validators).unwrap();
     let h = hash_range(8);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
     for i in 1..6 {
@@ -1982,8 +1976,7 @@ fn test_protocol_version_switch_with_shard_layout_change() {
         stake("test1".parse().unwrap(), amount_staked),
         stake("test2".parse().unwrap(), amount_staked),
     ];
-    let mut epoch_manager =
-        EpochManager::new(store, config, validators, "near".parse().unwrap()).unwrap();
+    let mut epoch_manager = EpochManager::new(store, config, validators).unwrap();
     let h = hash_range(8);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
     for i in 1..8 {
@@ -2028,8 +2021,7 @@ fn test_protocol_version_switch_with_many_seats() {
     let config =
         AllEpochConfig::from_epoch_config_store("test-chain", 10, config_store, PROTOCOL_VERSION);
 
-    let mut epoch_manager =
-        EpochManager::new(store, config, validators, "near".parse().unwrap()).unwrap();
+    let mut epoch_manager = EpochManager::new(store, config, validators).unwrap();
     let h = hash_range(50);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
     for i in 1..32 {
@@ -2066,8 +2058,7 @@ fn test_version_switch_kickout_old_version() {
         stake("test1".parse().unwrap(), large_stake),
         stake("test2".parse().unwrap(), small_stake),
     ];
-    let mut epoch_manager =
-        EpochManager::new(store, config, validators, "near".parse().unwrap()).unwrap();
+    let mut epoch_manager = EpochManager::new(store, config, validators).unwrap();
 
     // Genesis block
     let genesis_hash = test_utils::fake_hash(0);

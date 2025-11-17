@@ -213,7 +213,6 @@ pub fn setup_epoch_manager(
             .iter()
             .map(|(account_id, balance)| stake(account_id.clone(), *balance))
             .collect(),
-        "".parse().unwrap(),
     )
     .unwrap()
 }
@@ -283,7 +282,6 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
             .iter()
             .map(|(account_id, balance)| stake(account_id.clone(), *balance))
             .collect(),
-        "".parse().unwrap(),
     )
     .unwrap();
     // Sanity check that the election results are indeed as expected.
