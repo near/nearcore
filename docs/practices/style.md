@@ -418,7 +418,7 @@ tracing::warn!(target: "sync", "failed to connect. retrying in 200ms");
 tracing::error!(target: "store", "database locked. waiting for release");
 ```
 
-**Rationale:** Using commas instead of periods maintains message flow and avoids creating sentence fragments. This keeps messages concise and parseable while still conveying multiple pieces of information.
+**Rationale:** Using commas instead of periods maintains message flow and avoids creating sentence fragments. This keeps messages concise and parsable while still conveying multiple pieces of information.
 
 4. **Fields before message** - Place all structured fields before the message string
 5. **Remove redundant prefixes** - Don't repeat context from `target` or log level
@@ -443,6 +443,7 @@ Use the appropriate prefix for each field type:
 - `%field` - Force Display formatting (`{}`)
 
 **Recommended field ordering:**
+
 ```rust
 log_macro!(
     target: "target_name",     // 1. Target (always required)
@@ -457,6 +458,7 @@ log_macro!(
 ### Additional Examples
 
 **Complex fields with context:**
+
 ```rust
 // GOOD
 warn!(
@@ -476,6 +478,7 @@ warn!(
 ```
 
 **Error logging with context:**
+
 ```rust
 // GOOD
 error!(
@@ -491,11 +494,12 @@ error!(target: "runtime", "failed to spawn the thread: {}", err);
 ```
 
 **Rationale for these conventions:**
+
 - **Searchability:** Structured fields enable precise querying and filtering
 - **Automation:** Log aggregation tools (Loki, Elasticsearch, OpenTelemetry) can
   automatically parse and index structured data
 - **Consistency:** Predictable format improves readability and reduces cognitive load
-- **Machine-friendly:** Lowercase, unpunctuated messages are easier for automated
+- **Machine-friendly:** Lowercase, un-punctuated messages are easier for automated
   systems to parse and analyze
 
 ### Spans
