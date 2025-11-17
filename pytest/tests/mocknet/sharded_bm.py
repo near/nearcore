@@ -22,7 +22,7 @@ from mirror import CommandContext, get_nodes_status, init_cmd, new_test_cmd, \
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
 
-# cspell:words BENCHNET
+# cspell:words BENCHNET setcap
 CHAIN_ID = "mainnet"
 
 # This height should be used for forknet cluster creation as well.
@@ -151,6 +151,11 @@ def handle_init(args):
     update_binaries_cmd(CommandContext(update_binaries_args))
 
     # TODO: check neard binary version
+
+    # Grant CAP_SYS_NICE to neard binaries for realtime thread scheduling
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.cmd = "sudo setcap cap_sys_nice+ep ~/.near/neard-runner/binaries/neard*"
+    run_remote_cmd(CommandContext(run_cmd_args))
 
     upload_json_patches(args)
 

@@ -4,6 +4,9 @@ pub type DbVersion = u32;
 /// Current version of the database.
 pub const DB_VERSION: DbVersion = 47;
 
+/// Minimum supported database version. This is a property of the current binary.
+pub const MIN_SUPPORTED_DB_VERSION: DbVersion = 45;
+
 /// Database version at which point DbKind was introduced.
 const DB_VERSION_WITH_KIND: DbVersion = 34;
 
