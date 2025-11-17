@@ -163,7 +163,7 @@ async fn raw_trace(
     let response_stream = tokio_stream::once("[".to_string())
         .chain(main_stream)
         .chain(tokio_stream::once("]".to_string()))
-        .map(|s| Ok::<String, QueryError>(s));
+        .map(Ok::<String, QueryError>);
 
     Ok(([(header::CONTENT_TYPE, "application/json")], Body::from_stream(response_stream)))
 }
