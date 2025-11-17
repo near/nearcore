@@ -785,7 +785,6 @@ impl SpiceDataDistributorActor {
         self.pending_partial_data.len()
     }
 
-    // TODO(spice): Do not request data we already decoded.
     // TODO(spice): Implement a state machine to track all the data we produce or may need. This
     // would help make sure that we cannot have and request data at the same time.
     fn start_waiting_on_data(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
@@ -803,8 +802,7 @@ impl SpiceDataDistributorActor {
         let shards_we_apply: HashSet<ShardId> = shard_layout
             .shard_ids()
             .filter(|shard_id| {
-                // We need a receipts from a block only if we would want to apply a block after.
-                let prev_hash = block.hash();
+                let prev_hash = block.header().prev_hash();
                 self.shard_tracker.should_apply_chunk(
                     ApplyChunksMode::IsCaughtUp,
                     prev_hash,
@@ -832,10 +830,24 @@ impl SpiceDataDistributorActor {
             }
         }
 
+        let shards_we_apply_in_prev_block: HashSet<ShardId> = shard_layout
+            .shard_ids()
+            .filter(|shard_id| {
+                let prev_hash = block.hash();
+                self.shard_tracker.should_apply_chunk(
+                    ApplyChunksMode::IsCaughtUp,
+                    prev_hash,
+                    *shard_id,
+                )
+            })
+            .collect();
+
         for from_shard_id in shard_layout.shard_ids() {
-            if shards_we_apply.contains(&from_shard_id) {
+            // We need a receipts from a block only if we would want to apply a block after.
+            if shards_we_apply_in_prev_block.contains(&from_shard_id) {
                 continue;
             }
+            // TODO(spice-resharding): Handle resharding
             for to_shard_id in shards_we_apply.iter().copied() {
                 new_ids.push(SpiceDataIdentifier::ReceiptProof {
                     block_hash: *block_hash,
@@ -846,6 +858,9 @@ impl SpiceDataDistributorActor {
         }
 
         for id in new_ids {
+            let (_recipients, producers) = self.recipients_and_producers(&id, &block)?;
+            assert!(!producers.contains(me));
+
             if self.waiting_on_data.contains_key(&id) {
                 continue;
             }
