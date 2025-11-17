@@ -10,10 +10,6 @@ use crate::validator_stats::get_validator_online_ratio;
 pub(crate) const NUM_NS_IN_SECOND: u64 = 1_000_000_000;
 pub const NUM_SECONDS_IN_A_YEAR: u64 = 24 * 60 * 60 * 365;
 
-fn default_epoch_length_and_duration() -> (u64, u64) {
-    (1000, NUM_NS_IN_SECOND * NUM_SECONDS_IN_A_YEAR)
-}
-
 /// Contains online thresholds for validators.
 #[derive(Clone, Debug)]
 struct ValidatorOnlineThresholds {
@@ -126,6 +122,10 @@ mod tests {
     use near_primitives::types::{BlockChunkValidatorStats, ChunkStats, ValidatorStats};
     use num_rational::Ratio;
     use std::collections::HashMap;
+
+    fn default_epoch_length_and_duration() -> (u64, u64) {
+        (1000, NUM_NS_IN_SECOND * NUM_SECONDS_IN_A_YEAR)
+    }
 
     fn create_test_epoch_config(
         epoch_length: u64,
