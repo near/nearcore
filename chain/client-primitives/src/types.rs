@@ -50,6 +50,10 @@ pub enum ShardSyncStatus {
 impl ShardSyncStatus {
     pub fn repr(&self) -> u8 {
         match self {
+            // NOTE: This is used in metrics.
+            // Do not alter the order of existing values.
+            // Avoid reusing values for different states.
+            // When introducing a new state, always assign a unique, new value to prevent confusion.
             ShardSyncStatus::StateDownloadHeader => 0,
             ShardSyncStatus::StateDownloadParts => 1,
             ShardSyncStatus::StateApplyScheduling => 2,
@@ -160,6 +164,10 @@ impl SyncStatus {
 
     pub fn repr(&self) -> u8 {
         match self {
+            // NOTE: This is used in metrics.
+            // Do not alter the order of existing values.
+            // Avoid reusing values for different states.
+            // When introducing a new state, always assign a unique, new value to prevent confusion.
             // Represent NoSync as 0 because it is the state of a normal well-behaving node.
             SyncStatus::NoSync => 0,
             SyncStatus::AwaitingPeers => 1,
