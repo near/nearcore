@@ -142,12 +142,28 @@ async fn raw_trace(
         .map_err(|err| QueryError::new(err.to_string()))?;
 
     let mut is_first_request = true;
-    let main_stream =
-        chunks.map(move |read_res| raw_trace_to_json_str(read_res, &mut is_first_request));
+    let mut was_error = false;
+    let main_stream = chunks.map_while(move |read_res| -> Option<String> {
+        if was_error {
+            return None;
+        }
 
-    let response_stream = tokio_stream::once(Ok("[".to_string()))
+        match raw_trace_to_json_str(read_res, &mut is_first_request) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                // If an error occurs, output it in the response body and stop the stream.
+                // It'll produce invalid json. The user can take a look at it to figure out what went wrong.
+                let res = Some(format!("\nERROR: {:?}", e));
+                was_error = true;
+                res
+            }
+        }
+    });
+
+    let response_stream = tokio_stream::once("[".to_string())
         .chain(main_stream)
-        .chain(tokio_stream::once(Ok("]".to_string())));
+        .chain(tokio_stream::once("]".to_string()))
+        .map(|s| Ok::<String, QueryError>(s));
 
     Ok(([(header::CONTENT_TYPE, "application/json")], Body::from_stream(response_stream)))
 }
@@ -155,12 +171,10 @@ async fn raw_trace(
 fn raw_trace_to_json_str(
     res: mongodb::error::Result<RawTrace>,
     is_first_request: &mut bool,
-) -> Result<String, QueryError> {
-    let chunk_bytes = res.map_err(|err| QueryError::new(err.to_string()))?.data.bytes;
-    let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice())
-        .map_err(|err| QueryError::new(err.to_string()))?;
-    let result = serde_json::to_string(&request)
-        .map_err(|e| QueryError::new(format!("Json serialization failed: {}", e)))?;
+) -> anyhow::Result<String> {
+    let chunk_bytes = res?.data.bytes;
+    let request = ExportTraceServiceRequest::decode(chunk_bytes.as_slice())?;
+    let result = serde_json::to_string(&request)?;
 
     if *is_first_request {
         *is_first_request = false;
