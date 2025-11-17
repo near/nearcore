@@ -181,13 +181,13 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
                         break;
                     }
                     _ = window_update_timer.tick() => {
-                        tracing::debug!(target: "tokio_runtime", "advancing instrumentation window");
+                        tracing::trace!(target: "tokio_runtime", "advancing instrumentation window");
                         shared_instrumentation.with_thread_local_writer(|writer| writer.advance_window_if_needed());
                     }
                     Some(message) = receiver.recv() => {
                         let seq = message.seq;
                         shared_instrumentation.queue().dequeue(message.name);
-                        tracing::debug!(target: "tokio_runtime", seq, actor_name, "executing message");
+                        tracing::trace!(target: "tokio_runtime", seq, actor_name, "executing message");
                         let dequeue_time_ns = shared_instrumentation.current_time().saturating_sub(message.enqueued_time_ns);
                         shared_instrumentation.with_thread_local_writer(|writer| writer.start_event(message.name, dequeue_time_ns));
                         (message.function)(&mut actor.actor, &mut runtime_handle);
