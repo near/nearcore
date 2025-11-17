@@ -447,11 +447,13 @@ While convenient for editing, it may be poorly legible in unrendered form
 Definitely don't use soft-wrapping. While markdown mostly ignores source level line breaks, relying on soft wrap makes the source completely unreadable, especially on modern wide displays.
 </code></pre>
 <h2 id="tracing"><a class="header" href="#tracing"><a href="https://tracing.rs">Tracing</a></a></h2>
-<p>When emitting events and spans with <code>tracing</code> prefer adding variable data via
-<a href="https://docs.rs/tracing/latest/tracing/#recording-fields"><code>tracing</code>'s field mechanism</a>.</p>
+<p>When emitting events and spans with <code>tracing</code>, use structured fields rather than
+string formatting to include variable data. Always specify the <code>target</code>
+explicitly, using the crate name or module path (e.g. <code>chain::client</code>) to group
+related events.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>// GOOD
+</span>// GOOD - structured fields with lowercase message
 debug!(
     target: &quot;client&quot;,
     validator_id = self.client.validator_signer.get().map(|vs| {
@@ -462,15 +464,10 @@ debug!(
     &quot;block.height&quot; = block.header().height(),
     %peer_id,
     was_requested,
-    &quot;Received block&quot;,
+    &quot;received block&quot;
 );
-<span class="boring">}
-</span></code></pre></pre>
-<p>Most apparent violation of this rule will be when the event message utilizes any
-form of formatting, as seen in the following example:</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// BAD
+
+// BAD - inline string formatting with capitalization
 debug!(
     target: &quot;client&quot;,
     &quot;{:?} Received block {} &lt;- {} at {} from {}, requested: {}&quot;,
@@ -483,17 +480,125 @@ debug!(
 );
 <span class="boring">}
 </span></code></pre></pre>
-<p>Always specify the <code>target</code> explicitly. A good default value to use is the crate
-name, or the module path (e.g. <code>chain::client</code>) so that events and spans common
-to a topic can be grouped together. This grouping can later be used for
-customizing which events to output.</p>
-<p><strong>Rationale:</strong> This makes the events structured – one of the major value add
-propositions of the tracing ecosystem. Structured events allow for immediately
-actionable data without additional post-processing, especially when using some
-of the more advanced tracing subscribers. Of particular interest would be those
-that output events as JSON, or those that publish data to distributed event
-collection systems such as opentelemetry. Maintaining this rule will also
-usually result in faster execution (when logs at the relevant level are enabled.)</p>
+<p><strong>Rationale:</strong> Structured events are the core value proposition of the tracing
+ecosystem. They allow for immediately actionable data without post-processing,
+especially with advanced subscribers that output JSON or publish to distributed
+systems like OpenTelemetry. Structured logging also generally executes faster
+when logs are enabled.</p>
+<p><strong>Always use the <code>tracing::</code> qualifier</strong> - Never use unqualified logging macros:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD - explicit qualifier
+tracing::error!(target: &quot;client&quot;, ?err, &quot;failed to process&quot;);
+tracing::warn!(target: &quot;sync&quot;, height, &quot;state sync started&quot;);
+
+// BAD - unqualified macros
+error!(target: &quot;client&quot;, ?err, &quot;failed to process&quot;);
+warn!(target: &quot;sync&quot;, height, &quot;state sync started&quot;);
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Rationale:</strong> Explicit qualification improves code clarity by making it immediately obvious that tracing infrastructure is being used. It also prevents naming conflicts with other logging libraries or macros, and makes the code easier to search and refactor.</p>
+<h3 id="message-format-conventions"><a class="header" href="#message-format-conventions">Message Format Conventions</a></h3>
+<p>Follow these conventions for consistent, machine-friendly log messages:</p>
+<ol>
+<li><strong>Use lowercase</strong> - Start messages with a lowercase letter</li>
+<li><strong>No ending punctuation</strong> - Omit periods, ellipsis, or other punctuation</li>
+<li><strong>Use commas for continuation</strong> - When a message contains multiple clauses, use commas instead of periods to connect them</li>
+</ol>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD - comma for continuation
+tracing::warn!(target: &quot;sync&quot;, &quot;failed to connect, retrying in 200ms&quot;);
+tracing::error!(target: &quot;store&quot;, &quot;database locked, waiting for release&quot;);
+
+// BAD - period creates sentence fragment
+tracing::warn!(target: &quot;sync&quot;, &quot;failed to connect. retrying in 200ms&quot;);
+tracing::error!(target: &quot;store&quot;, &quot;database locked. waiting for release&quot;);
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Rationale:</strong> Using commas instead of periods maintains message flow and avoids creating sentence fragments. This keeps messages concise and parsable while still conveying multiple pieces of information.</p>
+<ol start="4">
+<li><strong>Fields before message</strong> - Place all structured fields before the message string</li>
+<li><strong>Remove redundant prefixes</strong> - Don't repeat context from <code>target</code> or log level</li>
+</ol>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+debug!(target: &quot;sync&quot;, height, &quot;transition to state sync&quot;);
+error!(target: &quot;client&quot;, ?err, &quot;failed to process block&quot;);
+
+// BAD
+debug!(target: &quot;sync&quot;, &quot;Sync: Transition to State Sync...&quot;);
+error!(target: &quot;client&quot;, &quot;Error: failed to process block: {:?}&quot;, err);
+<span class="boring">}
+</span></code></pre></pre>
+<h3 id="field-formatting"><a class="header" href="#field-formatting">Field Formatting</a></h3>
+<p>Use the appropriate prefix for each field type:</p>
+<ul>
+<li><code>field</code> - Include field by name (Debug by default)</li>
+<li><code>field = expr</code> - Explicitly compute and assign a value</li>
+<li><code>?field</code> - Force Debug formatting (<code>{:?}</code>)</li>
+<li><code>%field</code> - Force Display formatting (<code>{}</code>)</li>
+</ul>
+<p><strong>Recommended field ordering:</strong></p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>log_macro!(
+    target: &quot;target_name&quot;,     // 1. Target (always required)
+    field1,                     // 2. Simple field references
+    field2 = expr,              // 3. Computed fields
+    ?debug_field,               // 4. Debug-formatted fields
+    %display_field,             // 5. Display-formatted fields
+    &quot;message string&quot;            // 6. Message always last
+);
+<span class="boring">}
+</span></code></pre></pre>
+<h3 id="additional-examples"><a class="header" href="#additional-examples">Additional Examples</a></h3>
+<p><strong>Complex fields with context:</strong></p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+warn!(
+    target: &quot;sync&quot;,
+    %peer = peer.peer_info,
+    peer_height = peer.highest_block_height,
+    &quot;banning peer for insufficient headers&quot;
+);
+
+// BAD
+warn!(
+    target: &quot;sync&quot;,
+    &quot;ban a peer: {}, for not providing enough headers. Peer's height: {}&quot;,
+    peer.peer_info,
+    peer.highest_block_height
+);
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Error logging with context:</strong></p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+error!(
+    target: &quot;runtime&quot;,
+    thread_name = &quot;worker&quot;,
+    task_id = task.id,
+    ?err,
+    &quot;failed to spawn thread&quot;
+);
+
+// BAD - missing context
+error!(target: &quot;runtime&quot;, &quot;failed to spawn the thread: {}&quot;, err);
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Rationale for these conventions:</strong></p>
+<ul>
+<li><strong>Searchability:</strong> Structured fields enable precise querying and filtering</li>
+<li><strong>Automation:</strong> Log aggregation tools (Loki, Elasticsearch, OpenTelemetry) can
+automatically parse and index structured data</li>
+<li><strong>Consistency:</strong> Predictable format improves readability and reduces cognitive load</li>
+<li><strong>Machine-friendly:</strong> Lowercase, un-punctuated messages are easier for automated
+systems to parse and analyze</li>
+</ul>
 <h3 id="spans"><a class="header" href="#spans">Spans</a></h3>
 <p>Use the <a href="https://docs.rs/tracing/latest/tracing/#spans">spans</a> to introduce
 context and grouping to and between events instead of manually adding such
