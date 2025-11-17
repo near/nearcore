@@ -5482,6 +5482,39 @@
         },
         "type": "object"
       },
+      "GasKey": {
+        "description": "Gas key is like an access key, except it stores a balance separately, and transactions signed\nwith it deduct their cost from the gas key balance instead of the account balance.",
+        "properties": {
+          "balance": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "The balance of the gas key."
+          },
+          "num_nonces": {
+            "description": "The number of nonces this gas key has.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "permission": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccessKeyPermission"
+              }
+            ],
+            "description": "Defines the permissions for this gas key.\nIf this is a `FunctionCallPermission`, the allowance must be None (unlimited)."
+          }
+        },
+        "required": [
+          "num_nonces",
+          "balance",
+          "permission"
+        ],
+        "type": "object"
+      },
       "GasKeyInfoView": {
         "properties": {
           "gas_key": {
@@ -5517,13 +5550,11 @@
             "$ref": "#/components/schemas/NearToken"
           },
           "nonces": {
-            "description": "If requested, the nonces are included.",
             "items": {
               "format": "uint64",
               "minimum": 0,
               "type": "integer"
             },
-            "nullable": true,
             "type": "array"
           },
           "num_nonces": {
@@ -5538,7 +5569,8 @@
         "required": [
           "num_nonces",
           "balance",
-          "permission"
+          "permission",
+          "nonces"
         ],
         "type": "object"
       },
@@ -11662,9 +11694,6 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
-                  "include_nonces": {
-                    "type": "boolean"
-                  },
                   "public_key": {
                     "$ref": "#/components/schemas/PublicKey"
                   },
@@ -11678,8 +11707,7 @@
                 "required": [
                   "request_type",
                   "account_id",
-                  "public_key",
-                  "include_nonces"
+                  "public_key"
                 ],
                 "type": "object"
               }
@@ -12029,9 +12057,6 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
-                  "include_nonces": {
-                    "type": "boolean"
-                  },
                   "public_key": {
                     "$ref": "#/components/schemas/PublicKey"
                   },
@@ -12045,8 +12070,7 @@
                 "required": [
                   "request_type",
                   "account_id",
-                  "public_key",
-                  "include_nonces"
+                  "public_key"
                 ],
                 "type": "object"
               }
@@ -12396,9 +12420,6 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
-                  "include_nonces": {
-                    "type": "boolean"
-                  },
                   "public_key": {
                     "$ref": "#/components/schemas/PublicKey"
                   },
@@ -12412,8 +12433,7 @@
                 "required": [
                   "request_type",
                   "account_id",
-                  "public_key",
-                  "include_nonces"
+                  "public_key"
                 ],
                 "type": "object"
               }
@@ -14821,7 +14841,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "gas_key": {
-                    "$ref": "#/components/schemas/GasKeyView"
+                    "$ref": "#/components/schemas/GasKey"
                   },
                   "public_key": {
                     "$ref": "#/components/schemas/PublicKey"
