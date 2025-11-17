@@ -534,7 +534,7 @@ impl TestGenesisBuilder {
             chunk_producer_assignment_changes_limit: self.chunk_producer_assignment_changes_limit,
             ..Default::default()
         };
-        tracing::debug!(?genesis_config);
+        tracing::debug!(?genesis_config, "genesis config");
 
         Genesis {
             config: genesis_config,

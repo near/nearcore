@@ -517,9 +517,13 @@ impl<'a> StoreOpener<'a> {
         let snapshot = opener.snapshot()?;
 
         for version in version..DB_VERSION {
-            tracing::info!(target: "db_opener", path=%opener.path.display(),
-                           %version, next_version = %(version + 1),
-                           "migrating the database from version to next version");
+            tracing::info!(
+                target: "db_opener",
+                path=%opener.path.display(),
+                %version,
+                next_version = %(version + 1),
+                "migrating the database from version to next version",
+            );
 
             // Note: here we open the cold store as a regular Store object
             // backed by RocksDB. It doesn't matter today as we don't expect any
@@ -534,7 +538,7 @@ impl<'a> StoreOpener<'a> {
         if cfg!(feature = "nightly") {
             let version = 10000;
             tracing::info!(target: "db_opener", path=%opener.path.display(),
-            %version, "setting the database version for nightly");
+                %version, "setting the database version for nightly");
 
             // Set some dummy value to avoid conflict with other migrations from
             // nightly features.

@@ -106,7 +106,7 @@ where
                     return;
                 }
                 recv(window_update_ticker) -> _ => {
-                    tracing::debug!(target: "multithread_runtime", actor_name, thread_id, "updating instrumentation window");
+                    tracing::trace!(target: "multithread_runtime", actor_name, thread_id, "updating instrumentation window");
                     instrumentation.advance_window_if_needed();
                 }
                 recv(receiver) -> message => {
@@ -118,7 +118,7 @@ where
                     let seq = message.seq;
                     let dequeue_time_ns = handle_clone.instrumentation.current_time().saturating_sub(message.enqueued_time_ns);
                     instrumentation.start_event(message.name, dequeue_time_ns);
-                    tracing::debug!(target: "multithread_runtime", seq, "executing message");
+                    tracing::trace!(target: "multithread_runtime", seq, "executing message");
                     (message.function)(&mut actor);
                     instrumentation.end_event(message.name);
                 }
