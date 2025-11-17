@@ -335,6 +335,53 @@ fn add_title_to_allof(
     }
 }
 
+/// Removes the "required" list from specific configuration response schemas
+#[derive(Debug, Clone)]
+pub struct RemoveRequiredFromConfigSchemas;
+
+impl schemars::transform::Transform for RemoveRequiredFromConfigSchemas {
+    fn transform(&mut self, schema: &mut schemars::Schema) {
+        const SCHEMAS_TO_PROCESS: &[&str] = &[
+            "RpcClientConfigResponse",
+            "GCConfig",
+            "CloudArchivalWriterConfig",
+            "StateSyncConfig",
+            "DumpConfig",
+            "ExternalStorageConfig",
+            "SyncConcurrency",
+            "EpochSyncConfig",
+            "ChunkDistributionNetworkConfig",
+            "ChunkDistributionUris",
+            "RpcProtocolConfigResponse",
+            "RuntimeConfigView",
+            "RuntimeFeesConfigView",
+            "DataReceiptCreationConfigView",
+            "ActionCreationConfigView",
+            "StorageUsageConfigView",
+            "VMConfigView",
+            "LimitConfig",
+            "ExtCostsConfigView",
+            "AccountCreationConfigView",
+            "CongestionControlConfigView",
+            "WitnessConfigView",
+        ];
+
+        // Check in $defs for all target schemas (schemas are in $defs at this point in the pipeline)
+        if let Some(serde_json::Value::Object(defs)) = schema.get_mut("$defs") {
+            for schema_name in SCHEMAS_TO_PROCESS {
+                if let Some(target_schema) = defs.get_mut(*schema_name) {
+                    if let serde_json::Value::Object(schema_obj) = target_schema {
+                        schema_obj.remove("required");
+                    }
+                }
+            }
+        }
+
+        // Continue transforming subschemas recursively
+        transform_subschemas(self, schema);
+    }
+}
+
 /// Interchanges `oneOf` and `allOf` in the schema for InterchangeOneOfsAndAllOfs transform
 fn interchange_one_ofs_and_all_ofs(
     schema: &mut schemars::Schema,
@@ -384,6 +431,8 @@ fn interchange_one_ofs_and_all_ofs(
 
 fn schemas_map<T: JsonSchema>() -> SchemasMap {
     let mut settings = schemars::generate::SchemaSettings::openapi3();
+        settings.transforms.push(Box::new(RemoveRequiredFromConfigSchemas));
+
     settings.transforms.insert(
         0,
         Box::new(|s: &mut schemars::Schema| {
@@ -396,7 +445,7 @@ fn schemas_map<T: JsonSchema>() -> SchemasMap {
             }
         }),
     );
-    settings.transforms.push(Box::new(ReplaceNullType));
+    // settings.transforms.push(Box::new(ReplaceNullType));
     settings.transforms.push(Box::new(InterchangeOneOfsAndAllOfs));
     settings.transforms.push(Box::new(|s: &mut schemars::Schema| {
         let obj = s.ensure_object();
