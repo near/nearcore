@@ -19,6 +19,7 @@
 * Controlling balance refunds: The new host function `promise_set_refund_to` allows smart contracts to redirect balance refunds of outgoing receipts to other accounts. [#14285](https://github.com/near/nearcore/pull/14285)
 * Querying refund receivers: The new host function `refund_to_account_id` returns the receiver of balance refunds, which is either `predecessor_id` or the refund receiver set by the predecessor using `promise_set_refund_to`. [#14372](https://github.com/near/nearcore/pull/14372)
 * Gas optimization: Calls to the existing host functions `input` and `promise_result` no longer charge gas per byte (`wasm_write_memory_byte`), thanks to an optimization that eliminates unnecessary data copying. [#14405](https://github.com/near/nearcore/pull/14405)
+* Introduce versioned StatePart in state sync and update protocol messages to support compressed state parts. [#14013](https://github.com/near/nearcore/pull/14013)
 
 ### Non-protocol Changes
 
