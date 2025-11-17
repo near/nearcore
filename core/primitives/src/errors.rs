@@ -5,6 +5,7 @@ use crate::sharding::ChunkHash;
 use crate::types::{AccountId, Balance, EpochId, Nonce, SpiceChunkId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
+use near_primitives_core::account::AccessKeyPermission;
 pub use near_primitives_core::errors::IntegerOverflowError;
 use near_primitives_core::types::Gas;
 use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
@@ -404,6 +405,13 @@ pub enum ActionsValidationError {
         length: u64,
         limit: u64,
     } = 16,
+    GasKeyPermissionInvalid {
+        permission: Box<AccessKeyPermission>,
+    } = 17,
+    GasKeyTooManyNoncesRequested {
+        requested_nonces: u32,
+        limit: u32,
+    } = 18,
 }
 
 /// Describes the error for validating a receipt.
@@ -438,6 +446,8 @@ pub enum ReceiptValidationError {
     ActionsValidation(ActionsValidationError) = 6,
     /// Receipt is bigger than the limit.
     ReceiptSizeExceeded { size: u64, limit: u64 } = 7,
+    /// The `refund_to` of an ActionReceipt is not valid.
+    InvalidRefundTo { account_id: String } = 8,
 }
 
 impl Display for ReceiptValidationError {
@@ -473,6 +483,9 @@ impl Display for ReceiptValidationError {
             ReceiptValidationError::ActionsValidation(e) => write!(f, "{}", e),
             ReceiptValidationError::ReceiptSizeExceeded { size, limit } => {
                 write!(f, "The size of the receipt exceeded the limit: {} > {}", size, limit)
+            }
+            ReceiptValidationError::InvalidRefundTo { account_id } => {
+                write!(f, "The refund_to `{}` of an ActionReceipt is not valid.", account_id)
             }
         }
     }
@@ -575,6 +588,20 @@ impl Display for ActionsValidationError {
                 write!(
                     f,
                     "DeterministicStateInit contains value of length {length} but at most {limit} is allowed",
+                )
+            }
+            ActionsValidationError::GasKeyPermissionInvalid { permission } => {
+                write!(
+                    f,
+                    "Gas key has invalid permission: {:?}. With FunctionCall, specifying allowance is not allowed.",
+                    permission
+                )
+            }
+            ActionsValidationError::GasKeyTooManyNoncesRequested { requested_nonces, limit } => {
+                write!(
+                    f,
+                    "Gas key requested too many nonces: {} requested, but limit is {}",
+                    requested_nonces, limit
                 )
             }
         }
@@ -726,6 +753,14 @@ pub enum ActionErrorKind {
     GlobalContractDoesNotExist {
         identifier: GlobalContractIdentifier,
     } = 22,
+    GasKeyDoesNotExist {
+        account_id: AccountId,
+        public_key: Box<PublicKey>,
+    } = 23,
+    GasKeyAlreadyExists {
+        account_id: AccountId,
+        public_key: Box<PublicKey>,
+    } = 24,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1003,6 +1038,20 @@ impl Display for ActionErrorKind {
             ),
             ActionErrorKind::GlobalContractDoesNotExist { identifier } => {
                 write!(f, "Global contract identifier {:?} not found", identifier)
+            }
+            ActionErrorKind::GasKeyDoesNotExist { account_id, public_key } => {
+                write!(
+                    f,
+                    "Gas key for account {:?} and public key {:?} does not exist",
+                    account_id, public_key
+                )
+            }
+            ActionErrorKind::GasKeyAlreadyExists { account_id, public_key } => {
+                write!(
+                    f,
+                    "Gas key for account {:?} and public key {:?} already exists",
+                    account_id, public_key
+                )
             }
         }
     }
