@@ -431,7 +431,7 @@ fn interchange_one_ofs_and_all_ofs(
 
 fn schemas_map<T: JsonSchema>() -> SchemasMap {
     let mut settings = schemars::generate::SchemaSettings::openapi3();
-        settings.transforms.push(Box::new(RemoveRequiredFromConfigSchemas));
+    settings.transforms.push(Box::new(RemoveRequiredFromConfigSchemas));
 
     settings.transforms.insert(
         0,
@@ -445,7 +445,7 @@ fn schemas_map<T: JsonSchema>() -> SchemasMap {
             }
         }),
     );
-    // settings.transforms.push(Box::new(ReplaceNullType));
+    settings.transforms.push(Box::new(ReplaceNullType));
     settings.transforms.push(Box::new(InterchangeOneOfsAndAllOfs));
     settings.transforms.push(Box::new(|s: &mut schemars::Schema| {
         let obj = s.ensure_object();
