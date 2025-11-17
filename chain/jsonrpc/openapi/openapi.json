@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.1.2"
+    "version": "1.2.0"
   },
   "paths": {
     "/EXPERIMENTAL_changes": {
@@ -25,7 +25,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcStateChangesInBlockResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcStateChangesInBlockResponse_and_RpcStateChangesError"
                 }
               }
             }
@@ -53,7 +53,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcStateChangesInBlockByTypeResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcStateChangesInBlockByTypeResponse_and_RpcStateChangesError"
                 }
               }
             }
@@ -81,7 +81,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcCongestionLevelResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcCongestionLevelResponse_and_RpcChunkError"
                 }
               }
             }
@@ -109,7 +109,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_GenesisConfig_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_GenesisConfig_and_GenesisConfigError"
                 }
               }
             }
@@ -137,7 +137,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcLightClientBlockProofResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcLightClientBlockProofResponse_and_RpcLightClientProofError"
                 }
               }
             }
@@ -165,7 +165,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcLightClientExecutionProofResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcLightClientExecutionProofResponse_and_RpcLightClientProofError"
                 }
               }
             }
@@ -193,7 +193,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_Array_of_Range_of_uint64_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_Array_of_Range_of_uint64_and_RpcMaintenanceWindowsError"
                 }
               }
             }
@@ -221,7 +221,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcProtocolConfigResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcProtocolConfigResponse_and_RpcProtocolConfigError"
                 }
               }
             }
@@ -249,7 +249,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcReceiptResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcReceiptResponse_and_RpcReceiptError"
                 }
               }
             }
@@ -277,7 +277,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcSplitStorageInfoResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcSplitStorageInfoResponse_and_RpcSplitStorageInfoError"
                 }
               }
             }
@@ -305,7 +305,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcTransactionResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcTransactionResponse_and_RpcTransactionError"
                 }
               }
             }
@@ -333,7 +333,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_Array_of_ValidatorStakeView_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_Array_of_ValidatorStakeView_and_RpcValidatorError"
                 }
               }
             }
@@ -361,7 +361,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcBlockResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcBlockResponse_and_RpcBlockError"
                 }
               }
             }
@@ -389,7 +389,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcStateChangesInBlockByTypeResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcStateChangesInBlockByTypeResponse_and_RpcStateChangesError"
                 }
               }
             }
@@ -417,7 +417,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_CryptoHash_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_CryptoHash_and_RpcTransactionError"
                 }
               }
             }
@@ -445,7 +445,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcTransactionResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcTransactionResponse_and_RpcTransactionError"
                 }
               }
             }
@@ -473,7 +473,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcStateChangesInBlockResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcStateChangesInBlockResponse_and_RpcStateChangesError"
                 }
               }
             }
@@ -501,7 +501,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcChunkResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcChunkResponse_and_RpcChunkError"
                 }
               }
             }
@@ -529,7 +529,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcClientConfigResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcClientConfigResponse_and_RpcClientConfigError"
                 }
               }
             }
@@ -557,7 +557,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcGasPriceResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcGasPriceResponse_and_RpcGasPriceError"
                 }
               }
             }
@@ -585,7 +585,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_GenesisConfig_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_GenesisConfig_and_GenesisConfigError"
                 }
               }
             }
@@ -613,7 +613,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_Nullable_RpcHealthResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_Nullable_RpcHealthResponse_and_RpcStatusError"
                 }
               }
             }
@@ -641,7 +641,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcLightClientExecutionProofResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcLightClientExecutionProofResponse_and_RpcLightClientProofError"
                 }
               }
             }
@@ -669,7 +669,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_Array_of_Range_of_uint64_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_Array_of_Range_of_uint64_and_RpcMaintenanceWindowsError"
                 }
               }
             }
@@ -697,7 +697,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcNetworkInfoResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcNetworkInfoResponse_and_RpcNetworkInfoError"
                 }
               }
             }
@@ -725,7 +725,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcLightClientNextBlockResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcLightClientNextBlockResponse_and_RpcLightClientNextBlockError"
                 }
               }
             }
@@ -753,7 +753,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcQueryResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcQueryResponse_and_RpcQueryError"
                 }
               }
             }
@@ -781,7 +781,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcTransactionResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcTransactionResponse_and_RpcTransactionError"
                 }
               }
             }
@@ -809,7 +809,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcStatusResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcStatusResponse_and_RpcStatusError"
                 }
               }
             }
@@ -837,7 +837,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcTransactionResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcTransactionResponse_and_RpcTransactionError"
                 }
               }
             }
@@ -865,7 +865,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcValidatorResponse_and_RpcError"
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcValidatorResponse_and_RpcValidatorError"
                 }
               }
             }
@@ -3163,6 +3163,46 @@
           }
         ]
       },
+      "BlockReference": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "block_id": {
+                "$ref": "#/components/schemas/BlockId"
+              }
+            },
+            "required": [
+              "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "finality": {
+                "$ref": "#/components/schemas/Finality"
+              }
+            },
+            "required": [
+              "finality"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "sync_checkpoint": {
+                "$ref": "#/components/schemas/SyncCheckpoint"
+              }
+            },
+            "required": [
+              "sync_checkpoint"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "BlockStatusView": {
         "description": "Height and hash of a block",
         "properties": {
@@ -3274,6 +3314,9 @@
           "set"
         ],
         "type": "object"
+      },
+      "ChunkHash": {
+        "$ref": "#/components/schemas/CryptoHash"
       },
       "ChunkHeaderView": {
         "description": "Contains main info about the chunk.",
@@ -4131,6 +4174,992 @@
           "timeout_for_epoch_sync"
         ],
         "type": "object"
+      },
+      "ErrorWrapper_for_GenesisConfigError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/GenesisConfigError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcBlockError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcBlockError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcChunkError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcChunkError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcClientConfigError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcClientConfigError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcGasPriceError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcGasPriceError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcLightClientNextBlockError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcLightClientNextBlockError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcLightClientProofError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcLightClientProofError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcMaintenanceWindowsError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcMaintenanceWindowsError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcNetworkInfoError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcNetworkInfoError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcProtocolConfigError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcProtocolConfigError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcQueryError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcQueryError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcReceiptError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcReceiptError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcSplitStorageInfoError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcSplitStorageInfoError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcStateChangesError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcStateChangesError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcStatusError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcStatusError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcTransactionError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcTransactionError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcValidatorError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcValidatorError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ExecutionMetadataView": {
         "properties": {
@@ -5918,6 +6947,12 @@
         ],
         "type": "object"
       },
+      "GenesisConfigError": {
+        "enum": [
+          null
+        ],
+        "nullable": true
+      },
       "GenesisConfigRequest": {
         "enum": [
           null
@@ -6561,6 +7596,36 @@
             },
             "required": [
               "Ed25519VerifyInvalidInput"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "InternalError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
             ],
             "type": "object"
           }
@@ -7878,7 +8943,7 @@
         "title": "JsonRpcRequest_for_validators",
         "type": "object"
       },
-      "JsonRpcResponse_for_Array_of_Range_of_uint64_and_RpcError": {
+      "JsonRpcResponse_for_Array_of_Range_of_uint64_and_RpcMaintenanceWindowsError": {
         "oneOf": [
           {
             "properties": {
@@ -7897,7 +8962,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcMaintenanceWindowsError"
               }
             },
             "required": [
@@ -7918,10 +8983,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_Array_of_Range_of_uint64_and_RpcError",
+        "title": "JsonRpcResponse_for_Array_of_Range_of_uint64_and_RpcMaintenanceWindowsError",
         "type": "object"
       },
-      "JsonRpcResponse_for_Array_of_ValidatorStakeView_and_RpcError": {
+      "JsonRpcResponse_for_Array_of_ValidatorStakeView_and_RpcValidatorError": {
         "oneOf": [
           {
             "properties": {
@@ -7940,7 +9005,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcValidatorError"
               }
             },
             "required": [
@@ -7961,10 +9026,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_Array_of_ValidatorStakeView_and_RpcError",
+        "title": "JsonRpcResponse_for_Array_of_ValidatorStakeView_and_RpcValidatorError",
         "type": "object"
       },
-      "JsonRpcResponse_for_CryptoHash_and_RpcError": {
+      "JsonRpcResponse_for_CryptoHash_and_RpcTransactionError": {
         "oneOf": [
           {
             "properties": {
@@ -7980,7 +9045,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcTransactionError"
               }
             },
             "required": [
@@ -8001,10 +9066,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_CryptoHash_and_RpcError",
+        "title": "JsonRpcResponse_for_CryptoHash_and_RpcTransactionError",
         "type": "object"
       },
-      "JsonRpcResponse_for_GenesisConfig_and_RpcError": {
+      "JsonRpcResponse_for_GenesisConfig_and_GenesisConfigError": {
         "oneOf": [
           {
             "properties": {
@@ -8020,7 +9085,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_GenesisConfigError"
               }
             },
             "required": [
@@ -8041,10 +9106,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_GenesisConfig_and_RpcError",
+        "title": "JsonRpcResponse_for_GenesisConfig_and_GenesisConfigError",
         "type": "object"
       },
-      "JsonRpcResponse_for_Nullable_RpcHealthResponse_and_RpcError": {
+      "JsonRpcResponse_for_Nullable_RpcHealthResponse_and_RpcStatusError": {
         "oneOf": [
           {
             "properties": {
@@ -8070,7 +9135,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcStatusError"
               }
             },
             "required": [
@@ -8091,10 +9156,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_Nullable_RpcHealthResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_Nullable_RpcHealthResponse_and_RpcStatusError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcBlockResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcBlockResponse_and_RpcBlockError": {
         "oneOf": [
           {
             "properties": {
@@ -8110,7 +9175,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcBlockError"
               }
             },
             "required": [
@@ -8131,10 +9196,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcBlockResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcBlockResponse_and_RpcBlockError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcChunkResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcChunkResponse_and_RpcChunkError": {
         "oneOf": [
           {
             "properties": {
@@ -8150,7 +9215,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcChunkError"
               }
             },
             "required": [
@@ -8171,10 +9236,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcChunkResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcChunkResponse_and_RpcChunkError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcClientConfigResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcClientConfigResponse_and_RpcClientConfigError": {
         "oneOf": [
           {
             "properties": {
@@ -8190,7 +9255,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcClientConfigError"
               }
             },
             "required": [
@@ -8211,10 +9276,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcClientConfigResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcClientConfigResponse_and_RpcClientConfigError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcCongestionLevelResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcCongestionLevelResponse_and_RpcChunkError": {
         "oneOf": [
           {
             "properties": {
@@ -8230,7 +9295,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcChunkError"
               }
             },
             "required": [
@@ -8251,10 +9316,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcCongestionLevelResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcCongestionLevelResponse_and_RpcChunkError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcGasPriceResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcGasPriceResponse_and_RpcGasPriceError": {
         "oneOf": [
           {
             "properties": {
@@ -8270,7 +9335,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcGasPriceError"
               }
             },
             "required": [
@@ -8291,10 +9356,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcGasPriceResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcGasPriceResponse_and_RpcGasPriceError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcLightClientBlockProofResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcLightClientBlockProofResponse_and_RpcLightClientProofError": {
         "oneOf": [
           {
             "properties": {
@@ -8310,7 +9375,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcLightClientProofError"
               }
             },
             "required": [
@@ -8331,10 +9396,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcLightClientBlockProofResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcLightClientBlockProofResponse_and_RpcLightClientProofError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcLightClientExecutionProofResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcLightClientExecutionProofResponse_and_RpcLightClientProofError": {
         "oneOf": [
           {
             "properties": {
@@ -8350,7 +9415,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcLightClientProofError"
               }
             },
             "required": [
@@ -8371,10 +9436,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcLightClientExecutionProofResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcLightClientExecutionProofResponse_and_RpcLightClientProofError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcLightClientNextBlockResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcLightClientNextBlockResponse_and_RpcLightClientNextBlockError": {
         "oneOf": [
           {
             "properties": {
@@ -8390,7 +9455,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcLightClientNextBlockError"
               }
             },
             "required": [
@@ -8411,10 +9476,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcLightClientNextBlockResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcLightClientNextBlockResponse_and_RpcLightClientNextBlockError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcNetworkInfoResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcNetworkInfoResponse_and_RpcNetworkInfoError": {
         "oneOf": [
           {
             "properties": {
@@ -8430,7 +9495,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcNetworkInfoError"
               }
             },
             "required": [
@@ -8451,10 +9516,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcNetworkInfoResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcNetworkInfoResponse_and_RpcNetworkInfoError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcProtocolConfigResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcProtocolConfigResponse_and_RpcProtocolConfigError": {
         "oneOf": [
           {
             "properties": {
@@ -8470,7 +9535,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcProtocolConfigError"
               }
             },
             "required": [
@@ -8491,10 +9556,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcProtocolConfigResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcProtocolConfigResponse_and_RpcProtocolConfigError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcQueryResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcQueryResponse_and_RpcQueryError": {
         "oneOf": [
           {
             "properties": {
@@ -8510,7 +9575,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcQueryError"
               }
             },
             "required": [
@@ -8531,10 +9596,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcQueryResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcQueryResponse_and_RpcQueryError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcReceiptResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcReceiptResponse_and_RpcReceiptError": {
         "oneOf": [
           {
             "properties": {
@@ -8550,7 +9615,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcReceiptError"
               }
             },
             "required": [
@@ -8571,10 +9636,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcReceiptResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcReceiptResponse_and_RpcReceiptError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcSplitStorageInfoResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcSplitStorageInfoResponse_and_RpcSplitStorageInfoError": {
         "oneOf": [
           {
             "properties": {
@@ -8590,7 +9655,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcSplitStorageInfoError"
               }
             },
             "required": [
@@ -8611,10 +9676,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcSplitStorageInfoResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcSplitStorageInfoResponse_and_RpcSplitStorageInfoError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcStateChangesInBlockByTypeResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcStateChangesInBlockByTypeResponse_and_RpcStateChangesError": {
         "oneOf": [
           {
             "properties": {
@@ -8630,7 +9695,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcStateChangesError"
               }
             },
             "required": [
@@ -8651,10 +9716,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcStateChangesInBlockByTypeResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcStateChangesInBlockByTypeResponse_and_RpcStateChangesError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcStateChangesInBlockResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcStateChangesInBlockResponse_and_RpcStateChangesError": {
         "oneOf": [
           {
             "properties": {
@@ -8670,7 +9735,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcStateChangesError"
               }
             },
             "required": [
@@ -8691,10 +9756,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcStateChangesInBlockResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcStateChangesInBlockResponse_and_RpcStateChangesError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcStatusResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcStatusResponse_and_RpcStatusError": {
         "oneOf": [
           {
             "properties": {
@@ -8710,7 +9775,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcStatusError"
               }
             },
             "required": [
@@ -8731,10 +9796,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcStatusResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcStatusResponse_and_RpcStatusError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcTransactionResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcTransactionResponse_and_RpcTransactionError": {
         "oneOf": [
           {
             "properties": {
@@ -8750,7 +9815,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcTransactionError"
               }
             },
             "required": [
@@ -8771,10 +9836,10 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcTransactionResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcTransactionResponse_and_RpcTransactionError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcValidatorResponse_and_RpcError": {
+      "JsonRpcResponse_for_RpcValidatorResponse_and_RpcValidatorError": {
         "oneOf": [
           {
             "properties": {
@@ -8790,7 +9855,7 @@
           {
             "properties": {
               "error": {
-                "$ref": "#/components/schemas/RpcError"
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcValidatorError"
               }
             },
             "required": [
@@ -8811,7 +9876,7 @@
           "jsonrpc",
           "id"
         ],
-        "title": "JsonRpcResponse_for_RpcValidatorResponse_and_RpcError",
+        "title": "JsonRpcResponse_for_RpcValidatorResponse_and_RpcValidatorError",
         "type": "object"
       },
       "KnownProducerView": {
@@ -10007,6 +11072,68 @@
         ],
         "type": "object"
       },
+      "RpcBlockError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_BLOCK"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "name": {
+                "enum": [
+                  "NOT_SYNCED_YET"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "RpcBlockRequest": {
         "oneOf": [
           {
@@ -10073,6 +11200,106 @@
         ],
         "type": "object"
       },
+      "RpcChunkError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_BLOCK"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "shard_id": {
+                    "$ref": "#/components/schemas/ShardId"
+                  }
+                },
+                "required": [
+                  "shard_id"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INVALID_SHARD_ID"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "chunk_hash": {
+                    "$ref": "#/components/schemas/ChunkHash"
+                  }
+                },
+                "required": [
+                  "chunk_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_CHUNK"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "RpcChunkRequest": {
         "anyOf": [
           {
@@ -10135,6 +11362,36 @@
           "receipts"
         ],
         "type": "object"
+      },
+      "RpcClientConfigError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "RpcClientConfigRequest": {
         "enum": [
@@ -10760,47 +12017,21 @@
         ],
         "type": "object"
       },
-      "RpcError": {
-        "additionalProperties": false,
-        "description": "This struct may be returned from JSON RPC server in case of error\nIt is expected that this struct has impl From<_> all other RPC errors\nlike [RpcBlockError](crate::types::blocks::RpcBlockError)",
+      "RpcGasPriceError": {
         "oneOf": [
           {
             "properties": {
-              "cause": {
-                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
               },
-              "name": {
-                "enum": [
-                  "REQUEST_VALIDATION_ERROR"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "cause"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "cause": {},
-              "name": {
-                "enum": [
-                  "HANDLER_ERROR"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "cause"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "cause": {},
               "name": {
                 "enum": [
                   "INTERNAL_ERROR"
@@ -10810,32 +12041,29 @@
             },
             "required": [
               "name",
-              "cause"
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_BLOCK"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
             ],
             "type": "object"
           }
-        ],
-        "properties": {
-          "cause": {},
-          "code": {
-            "description": "Deprecated please use the `error_struct` instead",
-            "format": "int64",
-            "type": "integer"
-          },
-          "data": {
-            "description": "Deprecated please use the `error_struct` instead"
-          },
-          "message": {
-            "description": "Deprecated please use the `error_struct` instead",
-            "type": "string"
-          },
-          "name": {}
-        },
-        "required": [
-          "code",
-          "message"
-        ],
-        "type": "object"
+        ]
       },
       "RpcGasPriceRequest": {
         "properties": {
@@ -11020,6 +12248,80 @@
         ],
         "type": "object"
       },
+      "RpcLightClientNextBlockError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_BLOCK"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "epoch_id": {
+                    "$ref": "#/components/schemas/EpochId"
+                  }
+                },
+                "required": [
+                  "epoch_id"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "EPOCH_OUT_OF_BOUNDS"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "RpcLightClientNextBlockRequest": {
         "properties": {
           "last_block_hash": {
@@ -11078,6 +12380,198 @@
         },
         "type": "object"
       },
+      "RpcLightClientProofError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_BLOCK"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "execution_outcome_shard_id": {
+                    "$ref": "#/components/schemas/ShardId"
+                  },
+                  "number_or_shards": {
+                    "format": "uint",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "number_or_shards",
+                  "execution_outcome_shard_id"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INCONSISTENT_STATE"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "transaction_or_receipt_id": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  }
+                },
+                "required": [
+                  "transaction_or_receipt_id"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "NOT_CONFIRMED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "transaction_or_receipt_id": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  }
+                },
+                "required": [
+                  "transaction_or_receipt_id"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_TRANSACTION_OR_RECEIPT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "shard_id": {
+                    "$ref": "#/components/schemas/ShardId"
+                  },
+                  "transaction_or_receipt_id": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  }
+                },
+                "required": [
+                  "transaction_or_receipt_id",
+                  "shard_id"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNAVAILABLE_SHARD"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "RpcMaintenanceWindowsError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "RpcMaintenanceWindowsRequest": {
         "properties": {
           "account_id": {
@@ -11089,6 +12583,36 @@
         ],
         "title": "RpcMaintenanceWindowsRequest",
         "type": "object"
+      },
+      "RpcNetworkInfoError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "RpcNetworkInfoRequest": {
         "enum": [
@@ -11170,6 +12694,54 @@
           "id"
         ],
         "type": "object"
+      },
+      "RpcProtocolConfigError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_BLOCK"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "RpcProtocolConfigRequest": {
         "oneOf": [
@@ -11492,6 +13064,386 @@
           "shard_layout"
         ],
         "type": "object"
+      },
+      "RpcQueryError": {
+        "oneOf": [
+          {
+            "properties": {
+              "name": {
+                "enum": [
+                  "NO_SYNCED_BLOCKS"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "requested_shard_id": {
+                    "$ref": "#/components/schemas/ShardId"
+                  }
+                },
+                "required": [
+                  "requested_shard_id"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNAVAILABLE_SHARD"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "GARBAGE_COLLECTED_BLOCK"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_reference": {
+                    "$ref": "#/components/schemas/BlockReference"
+                  }
+                },
+                "required": [
+                  "block_reference"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_BLOCK"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INVALID_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "contract_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "contract_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "NO_CONTRACT_CODE"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "contract_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "contract_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "TOO_LARGE_CONTRACT_STATE"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "public_key",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_ACCESS_KEY"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "vm_error": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "vm_error",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "CONTRACT_EXECUTION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "identifier": {
+                    "$ref": "#/components/schemas/GlobalContractIdentifier"
+                  }
+                },
+                "required": [
+                  "identifier",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "NO_GLOBAL_CONTRACT_CODE"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "RpcQueryRequest": {
         "oneOf": [
@@ -12631,6 +14583,62 @@
         ],
         "type": "object"
       },
+      "RpcReceiptError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "receipt_id": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  }
+                },
+                "required": [
+                  "receipt_id"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_RECEIPT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "RpcReceiptRequest": {
         "properties": {
           "receipt_id": {
@@ -12748,6 +14756,36 @@
         "title": "RpcSendTransactionRequest",
         "type": "object"
       },
+      "RpcSplitStorageInfoError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "RpcSplitStorageInfoRequest": {
         "title": "RpcSplitStorageInfoRequest",
         "type": "object"
@@ -12779,6 +14817,68 @@
           }
         },
         "type": "object"
+      },
+      "RpcStateChangesError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_BLOCK"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "name": {
+                "enum": [
+                  "NOT_SYNCED_YET"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "RpcStateChangesInBlockByTypeRequest": {
         "description": "It is a [serializable view] of [`StateChangesRequest`].\n\n[serializable view]: ./index.html\n[`StateChangesRequest`]: ../types/struct.StateChangesRequest.html",
@@ -13651,6 +15751,109 @@
         ],
         "type": "object"
       },
+      "RpcStatusError": {
+        "oneOf": [
+          {
+            "properties": {
+              "name": {
+                "enum": [
+                  "NODE_IS_SYNCING"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "elapsed": {
+                    "items": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "elapsed"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "NO_NEW_BLOCKS"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "epoch_id": {
+                    "$ref": "#/components/schemas/EpochId"
+                  }
+                },
+                "required": [
+                  "epoch_id"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "EPOCH_OUT_OF_BOUNDS"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "RpcStatusRequest": {
         "enum": [
           null
@@ -13795,6 +15998,134 @@
         ],
         "type": "object"
       },
+      "RpcTransactionError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INVALID_TRANSACTION"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "name": {
+                "enum": [
+                  "DOES_NOT_TRACK_SHARD"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "transaction_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  }
+                },
+                "required": [
+                  "transaction_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_ROUTED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "requested_transaction_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  }
+                },
+                "required": [
+                  "requested_transaction_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_TRANSACTION"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "debug_info": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "debug_info"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "name": {
+                "enum": [
+                  "TIMEOUT_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "RpcTransactionResponse": {
         "anyOf": [
           {
@@ -13855,6 +16186,64 @@
         },
         "title": "RpcTransactionStatusRequest",
         "type": "object"
+      },
+      "RpcValidatorError": {
+        "oneOf": [
+          {
+            "properties": {
+              "name": {
+                "enum": [
+                  "UNKNOWN_EPOCH"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "name": {
+                "enum": [
+                  "VALIDATOR_INFO_UNAVAILABLE"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "RpcValidatorRequest": {
         "oneOf": [
