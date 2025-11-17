@@ -373,7 +373,7 @@ def handle_reset(args):
 def enable_tx_generator(args, receivers_from_senders_ratio: float):
     logger.info("Setting tx generator parameters")
 
-    # todo(slavas): these paths are implicitly assumed to correspond to similiar from the handle_init() - terribly fragile.
+    # todo(slavas): these paths are implicitly assumed to correspond to similar from the handle_init() - terribly fragile.
     accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
     receiver_accounts_dir = f"{BENCHNET_DIR}/user-data/receiver-accounts"
     tx_generator_settings = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings.json"
@@ -637,10 +637,11 @@ def main():
         help='Enable the tx generator',
     )
     start_parser.add_argument(
-            '--receivers-from-senders-ratio',
-            type=float,
-            default=0.0,
-            help='Ratio of receiver accounts selected from the sender accounts (default: 1.0 (all receivers are from senders - no cross-shard txs))',
+        '--receivers-from-senders-ratio',
+        type=float,
+        default=0.0,
+        help=
+        'Ratio of receiver accounts selected from the sender accounts (default: 1.0 (all receivers are from senders - no cross-shard txs))',
     )
 
     stop_parser = subparsers.add_parser('stop', help='Stop the benchmark')
