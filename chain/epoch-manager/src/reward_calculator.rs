@@ -10,9 +10,13 @@ use crate::validator_stats::get_validator_online_ratio;
 pub(crate) const NUM_NS_IN_SECOND: u64 = 1_000_000_000;
 pub const NUM_SECONDS_IN_A_YEAR: u64 = 24 * 60 * 60 * 365;
 
+fn default_epoch_length_and_duration() -> (u64, u64) {
+    (1000, NUM_NS_IN_SECOND * NUM_SECONDS_IN_A_YEAR)
+}
+
 /// Contains online thresholds for validators.
 #[derive(Clone, Debug)]
-pub struct ValidatorOnlineThresholds {
+struct ValidatorOnlineThresholds {
     /// Online minimum threshold below which validator doesn't receive reward.
     pub online_min_threshold: Rational32,
     /// Online maximum threshold above which validator gets full reward.
@@ -31,7 +35,7 @@ pub fn calculate_reward(
     validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
     validator_stake: &HashMap<AccountId, Balance>,
     total_supply: Balance,
-    epoch_duration: u64,
+    epoch_duration_ns: u64,
     epoch_config: &EpochConfig,
 ) -> (HashMap<AccountId, Balance>, Balance) {
     let online_thresholds = ValidatorOnlineThresholds {
@@ -44,7 +48,7 @@ pub fn calculate_reward(
     let epoch_total_reward = Balance::from_yoctonear(
         (U256::from(*epoch_config.max_inflation_rate.numer() as u64)
             * U256::from(total_supply.as_yoctonear())
-            * U256::from(epoch_duration)
+            * U256::from(epoch_duration_ns)
             / (U256::from(NUM_SECONDS_IN_A_YEAR)
                 * U256::from(*epoch_config.max_inflation_rate.denom() as u64)
                 * U256::from(NUM_NS_IN_SECOND)))
@@ -185,7 +189,7 @@ mod tests {
     /// Test reward calculation when validators are not fully online.
     #[test]
     fn test_reward_validator_different_online() {
-        let epoch_length = 1000;
+        let (epoch_length, epoch_duration) = default_epoch_length_and_duration();
         let max_inflation_rate = Ratio::new(1, 100);
         let validator_block_chunk_stats = HashMap::from([
             (
@@ -216,11 +220,6 @@ mod tests {
             ("test3".parse().unwrap(), Balance::from_yoctonear(500_000)),
         ]);
         let total_supply = Balance::from_yoctonear(1_000_000_000);
-        let epoch_duration = (U256::from(epoch_length)
-            * U256::from(NUM_NS_IN_SECOND)
-            * U256::from(NUM_SECONDS_IN_A_YEAR)
-            / U256::from(1000))
-        .as_u128() as u64;
         let epoch_config = create_test_epoch_config(epoch_length, max_inflation_rate, 0);
         let result = calculate_reward(
             validator_block_chunk_stats,
@@ -246,7 +245,7 @@ mod tests {
     /// Test reward calculation for chunk only or block only producers
     #[test]
     fn test_reward_chunk_only_producer() {
-        let epoch_length = 1000;
+        let (epoch_length, epoch_duration) = default_epoch_length_and_duration();
         let max_inflation_rate = Ratio::new(1, 100);
         let validator_block_chunk_stats = HashMap::from([
             (
@@ -289,11 +288,6 @@ mod tests {
             ("test4".parse().unwrap(), Balance::from_yoctonear(500_000)),
         ]);
         let total_supply = Balance::from_yoctonear(1_000_000_000);
-        let epoch_duration = (U256::from(epoch_length)
-            * U256::from(NUM_NS_IN_SECOND)
-            * U256::from(NUM_SECONDS_IN_A_YEAR)
-            / U256::from(1000))
-        .as_u128() as u64;
         let epoch_config = create_test_epoch_config(epoch_length, max_inflation_rate, 0);
         let result = calculate_reward(
             validator_block_chunk_stats,
@@ -321,7 +315,7 @@ mod tests {
 
     #[test]
     fn test_reward_stateless_validation() {
-        let epoch_length = 1000;
+        let (epoch_length, epoch_duration) = default_epoch_length_and_duration();
         let max_inflation_rate = Ratio::new(1, 100);
         let validator_block_chunk_stats = HashMap::from([
             // Blocks, chunks, endorsements
@@ -370,11 +364,6 @@ mod tests {
             ("test4".parse().unwrap(), Balance::from_yoctonear(500_000)),
         ]);
         let total_supply = Balance::from_yoctonear(1_000_000_000);
-        let epoch_duration = (U256::from(epoch_length)
-            * U256::from(NUM_NS_IN_SECOND)
-            * U256::from(NUM_SECONDS_IN_A_YEAR)
-            / U256::from(1000))
-        .as_u128() as u64;
         let epoch_config = create_test_epoch_config(epoch_length, max_inflation_rate, 0);
         let result = calculate_reward(
             validator_block_chunk_stats,
@@ -401,7 +390,7 @@ mod tests {
 
     #[test]
     fn test_reward_stateless_validation_with_endorsement_cutoff() {
-        let epoch_length = 1000;
+        let (epoch_length, epoch_duration) = default_epoch_length_and_duration();
         let max_inflation_rate = Ratio::new(1, 100);
         let validator_block_chunk_stats = HashMap::from([
             // Blocks, chunks, endorsements - endorsement ratio cutoff is exceeded
@@ -450,11 +439,6 @@ mod tests {
             ("test4".parse().unwrap(), Balance::from_yoctonear(500_000)),
         ]);
         let total_supply = Balance::from_yoctonear(1_000_000_000);
-        let epoch_duration = (U256::from(epoch_length)
-            * U256::from(NUM_NS_IN_SECOND)
-            * U256::from(NUM_SECONDS_IN_A_YEAR)
-            / U256::from(1000))
-        .as_u128() as u64;
         let epoch_config = create_test_epoch_config(epoch_length, max_inflation_rate, 50);
         let result = calculate_reward(
             validator_block_chunk_stats,
@@ -516,16 +500,26 @@ mod tests {
         let account_id: AccountId = "test1".parse().unwrap();
         let validator_stake = HashMap::from([(account_id.clone(), Balance::from_near(100))]);
         let total_supply = Balance::from_near(1_000_000_000);
-        let balance = Balance::from_yoctonear(1_585_489_599_188_229_325_215_626);
+
+        // Expected reward for protocol version 80, calculated using the reward formula:
+        // epoch_total_reward = max_inflation_rate * total_supply * epoch_duration_ns / NUM_SECONDS_IN_A_YEAR / NUM_NS_IN_SECOND
+        // With parameters:
+        // - total_supply = 1_000_000_000 NEAR = 1_000_000_000_000_000_000_000_000_000 yoctoNEAR
+        // - epoch_duration_ns = NUM_NS_IN_SECOND = 1_000_000_000 (1 second)
+        // - max_inflation_rate = 1/20 = 0.05 (for protocol version 80)
+        // - NUM_SECONDS_IN_A_YEAR = 31_536_000
+        // Result: 0.05 * 1_000_000_000_000_000_000_000_000_000 * 1_000_000_000 / 31_536_000 / 1_000_000_000
+        //       = 1_585_489_599_188_229_325_215_626 yoctoNEAR
+        let reward = Balance::from_yoctonear(1_585_489_599_188_229_325_215_626);
 
         // Check rewards match the expected protocol version schedule.
         for chain_id in ["mainnet", "testnet"] {
             let epoch_configs = EpochConfigStore::for_chain_id(chain_id, None).unwrap();
             for (protocol_version, expected_total) in [
                 // Prior to inflation reduction
-                (80, balance),
+                (80, reward),
                 // After inflation reduction
-                (81, balance.saturating_div(2)),
+                (81, reward.saturating_div(2)),
             ] {
                 let epoch_config = epoch_configs.get_config(protocol_version);
                 let validator_block_chunk_stats = HashMap::from([(

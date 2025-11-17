@@ -165,7 +165,7 @@ pub fn epoch_config(
         validator_max_kickout_stake_perc: 100,
         max_inflation_rate,
         protocol_reward_rate: Ratio::new(1, 10),
-        protocol_treasury_account: "near".parse().unwrap(),
+        protocol_treasury_account: "".parse().unwrap(),
     };
     let config_store = EpochConfigStore::test_single_version(PROTOCOL_VERSION, epoch_config);
     AllEpochConfig::from_epoch_config_store(
@@ -213,7 +213,7 @@ pub fn setup_epoch_manager(
             .iter()
             .map(|(account_id, balance)| stake(account_id.clone(), *balance))
             .collect(),
-        "near".parse().unwrap(),
+        "".parse().unwrap(),
     )
     .unwrap()
 }
@@ -283,7 +283,7 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
             .iter()
             .map(|(account_id, balance)| stake(account_id.clone(), *balance))
             .collect(),
-        "near".parse().unwrap(),
+        "".parse().unwrap(),
     )
     .unwrap();
     // Sanity check that the election results are indeed as expected.
