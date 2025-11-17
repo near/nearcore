@@ -844,9 +844,10 @@ impl SpiceDataDistributorActor {
 
         for from_shard_id in shard_layout.shard_ids() {
             // We need a receipts from a block only if we would want to apply a block after.
-            if shards_we_apply_in_next_block.contains(&from_shard_id) {
+            if shards_we_apply.contains(&from_shard_id) {
                 continue;
             }
+            // TODO(spice-resharding): Handle resharding
             for to_shard_id in shards_we_apply_in_next_block.iter().copied() {
                 new_ids.push(SpiceDataIdentifier::ReceiptProof {
                     block_hash: *block_hash,
