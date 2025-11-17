@@ -55,7 +55,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           set -x
-          cargo install --git https://github.com/miraclx/cargo-workspaces --tag v0.3.0 cargo-workspaces
+          cargo +stable install --git https://github.com/miraclx/cargo-workspaces --tag v0.3.0 cargo-workspaces
           cargo ws publish --yes --allow-dirty --force '*' \
               --no-git-commit --no-git-push --no-individual-tags --tag-prefix 'crates-' \
               --tag-msg $$'crates.io snapshot\n---%{\n- %n - https://crates.io/crates/%n/%v}'
