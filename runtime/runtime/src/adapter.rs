@@ -64,7 +64,6 @@ pub trait ViewRuntimeAdapter {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-        include_nonces: bool,
     ) -> Result<GasKeyView, crate::state_viewer::errors::ViewGasKeyError>;
 
     fn view_gas_keys(
