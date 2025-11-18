@@ -340,8 +340,7 @@ impl FindBoundaryAccountCommand {
         let right_memory = ByteSize::b(trie_split.right_memory);
         tracing::info!("boundary account found");
         println!("{boundary_account}"); // Printing to stdout for script usage 
-        tracing::info!(%left_memory, "left child memory usage");
-        tracing::info!(%right_memory, "right child memory usage");
+        tracing::info!(%left_memory, %right_memory, "child memory usage");
 
         tracing::info!(
             "WARNING: Calculated memory usages are artificial values that differ significantly\n\
