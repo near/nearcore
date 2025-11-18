@@ -236,7 +236,7 @@ pub fn check_tx_response(
 
 fn warn_or_panic(msg: &str, response_check_severity: ResponseCheckSeverity) {
     match response_check_severity {
-        ResponseCheckSeverity::Log => warn!("{msg}"),
+        ResponseCheckSeverity::Log => tracing::warn!("{msg}"),
         ResponseCheckSeverity::Assert => panic!("{msg}"),
     }
 }
