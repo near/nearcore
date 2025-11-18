@@ -115,7 +115,7 @@ impl ReshardingManager {
     ) -> Result<SplitShardTrieChanges, Error> {
         if split_shard_event.parent_shard != shard_uid {
             let parent_shard = split_shard_event.parent_shard;
-            tracing::debug!(target: "resharding", ?parent_shard, "shard uid does not match event parent shard, skipping");
+            tracing::debug!(target: "resharding", ?shard_uid, ?parent_shard, "shard does not match event parent shard, skipping");
             return Ok(Default::default());
         }
 

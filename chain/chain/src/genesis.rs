@@ -158,7 +158,7 @@ impl Chain {
         }
         store_update.merge(tmp_store_update);
         store_update.commit()?;
-        tracing::info!(target: "chain", height = %block_head.height, ?block_head.last_block_hash, ?state_roots, "init: saved genesis");
+        tracing::info!(target: "chain", height = %block_head.height, ?block_head.last_block_hash, ?state_roots, "genesis has been saved");
         Ok(())
     }
 

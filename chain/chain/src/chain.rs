@@ -540,7 +540,7 @@ impl Chain {
             ?header_head.last_block_hash,
             block_height = %block_head.height,
             ?block_head.last_block_hash,
-            "init: header head and block head"
+            "initializing chain"
         );
         metrics::BLOCK_HEIGHT_HEAD.set(block_head.height as i64);
         let block_header = chain_store.get_block_header(&block_head.last_block_hash)?;
@@ -1883,7 +1883,7 @@ impl Chain {
                 // during catchup of this block.
                 cares_about_shard
             };
-            tracing::debug!(target: "chain", %shard_id, need_storage_update, "update storage");
+            tracing::debug!(target: "chain", %shard_id, need_storage_update);
 
             if need_storage_update {
                 self.resharding_manager.start_resharding(
@@ -2054,7 +2054,8 @@ impl Chain {
         {
             if PROTOCOL_VERSION < next_epoch_protocol_version {
                 tracing::error!(
-                    client_version = %PROTOCOL_VERSION, %next_epoch_protocol_version,
+                    client_version = %PROTOCOL_VERSION,
+                    %next_epoch_protocol_version,
                     "the protocol version is about to be superseded, please upgrade nearcore as soon as possible"
                 );
             }
@@ -2323,7 +2324,7 @@ impl Chain {
         let (is_caught_up, state_sync_info) =
             self.get_catchup_and_state_sync_infos(Some(header.hash()), &prev_hash, prev_prev_hash)?;
 
-        tracing::debug!(target: "chain", block_hash = ?header.hash(), is_caught_up=is_caught_up, "process block");
+        tracing::debug!(target: "chain", block_hash = ?header.hash(), is_caught_up=is_caught_up, "processing block");
 
         // Check the header is valid before we proceed with the full block.
         self.validate_header(header, provenance)?;
