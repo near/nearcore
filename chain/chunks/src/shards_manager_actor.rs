@@ -1160,17 +1160,16 @@ impl ShardsManagerActor {
             chunk.content_mut().parts.as_mut_slice(),
             encoded_length as usize,
         ) {
-            tracing::debug!(target: "chunks", ?err, "invalid: failed to decode");
+            tracing::debug!(target: "chunks", ?err, "invalid, failed to decode");
             return ChunkStatus::Invalid;
         }
 
         let (merkle_root, merkle_paths) = chunk.content().get_merkle_hash_and_paths();
         if &merkle_root != chunk.encoded_merkle_root() {
-            tracing::debug!(target: "chunks", ?merkle_root, chunk_encoded_merkle_root = ?chunk.encoded_merkle_root(), "invalid: wrong merkle root");
+            tracing::debug!(target: "chunks", ?merkle_root, chunk_encoded_merkle_root = ?chunk.encoded_merkle_root(), "invalid, wrong merkle root");
             return ChunkStatus::Invalid;
         }
 
-        tracing::debug!(target: "chunks", "complete");
         ChunkStatus::Complete(merkle_paths)
     }
 
