@@ -97,8 +97,12 @@ skip = [
     { name = "thiserror", version = "<2.0" },
     { name = "thiserror-impl", version = "<2.0" },
 
-    # indicatif brings in a newer version
+    # indicatif brings in newer versions
+    { name = "encode_unicode", version = "^0.3" },
+    { name = "console", version = "^0.15" },
     { name = "unicode-width", version = "<0.2" },
+    { name = "windows-link", version = "^0.1" },
+    { name = "windows-sys", version = "^0.60" },
 
     # http ecosystem split.
     { name = "reqwest", version = "^0.11" },
@@ -127,7 +131,4 @@ skip = [
     { name = "num-bigint", version = "=0.3.3" },
     { name = "num-rational", version = "=0.3.2" },
     { name = "regex-syntax", version = "=0.6.28" },
-
-    # ark-ff uses outdated version of itertools
-    { name = "itertools", version = "=0.10.5" },
 ]
