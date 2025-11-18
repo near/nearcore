@@ -34,7 +34,7 @@ impl DelayedReceiptTracker {
             tracing::warn!(
                 %index,
                 shard = ?self.source_shard_uid,
-                "two delayed receipts with index found in shard"
+                "two delayed receipts with same index found in shard"
             );
         };
     }
@@ -74,7 +74,7 @@ fn read_delayed_receipt(
             tracing::warn!(
                 %index,
                 ?source_shard_uid,
-                "expected delayed receipt with index in shard not found"
+                "expected delayed receipt not found"
             );
             None
         }

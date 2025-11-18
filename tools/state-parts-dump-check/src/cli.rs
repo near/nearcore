@@ -303,14 +303,14 @@ fn run_loop_all_shards(
         if let Err(err) = dump_check_iter_info_res {
             tracing::info!(
                 ?err,
-                loop_interval_s = %loop_interval,
+                %loop_interval,
                 "get_processing_epoch_information errs out, sleeping"
             );
             sleep(Duration::from_secs(loop_interval));
             continue;
         }
         let Some(dump_check_iter_info) = dump_check_iter_info_res? else {
-            tracing::info!(loop_interval_s = %loop_interval, "sync_hash not yet known, sleeping");
+            tracing::info!(%loop_interval, "sync_hash not yet known, sleeping");
             sleep(Duration::from_secs(loop_interval));
             continue;
         };
@@ -330,7 +330,7 @@ fn run_loop_all_shards(
                     tracing::info!(epoch_height, "last one was done");
                     if *epoch_height >= dump_check_iter_info.epoch_height {
                         tracing::info!(
-                            loop_interval_s = %loop_interval,
+                            %loop_interval,
                             "current height was already checked, sleeping"
                         );
                         sleep(Duration::from_secs(loop_interval));

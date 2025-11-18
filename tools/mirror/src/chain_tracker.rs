@@ -490,7 +490,7 @@ impl TxTracker {
             hash_map::Entry::Occupied(mut e) => {
                 let txs = e.get_mut();
                 if !txs.remove(&TxId { hash: tx.transaction.hash, nonce: tx.transaction.nonce }) {
-                    tracing::warn!(target: "mirror", tx_hash = ?tx.transaction.hash, "tried to remove nonexistent tx from txs_by_signer");
+                    tracing::warn!(target: "mirror", tx_hash = %tx.transaction.hash, "tried to remove nonexistent tx from txs_by_signer");
                 }
                 // split off from hash: default() since that's the smallest hash, which will leave us with every tx with nonce
                 // greater than this one in txs_left.
@@ -499,20 +499,20 @@ impl TxTracker {
                     nonce: tx.transaction.nonce + 1,
                 });
                 if !txs.is_empty() {
-                    tracing::warn!(
+                    tracing::debug!(
                         target: "mirror",
-                        tx_count = %txs.len(),
-                        ?k,
-                        %tx.transaction.nonce,
-                        ?txs,
-                        "transactions skipped by inclusion of tx with nonce, these will never make it on chain"
+                        tx_signer_id = %tx.transaction.signer_id,
+                        tx_public_key = ?tx.transaction.public_key,
+                        tx_nonce = tx.transaction.nonce,
+                        skip_txs = ?txs,
+                        "skip txs by tx inclusion",
                     );
                     for t in txs.iter() {
                         if self.sent_txs.remove(&t.hash).is_none() {
                             tracing::warn!(
                                 target: "mirror",
-                                hash = ?t.hash,
-                                "tx with hash that we thought was skipped is not in the set of sent txs"
+                                tx_hash = %t.hash,
+                                "tx with hash that we thought was skipped is not in the set of sent txs",
                             );
                         }
                     }
@@ -702,10 +702,10 @@ impl TxTracker {
                                 tx.try_set_nonce(nonce);
                                 match tx {
                                     TargetChainTx::Ready(t) => {
-                                        tracing::debug!(target: "mirror", ?access_key, %r, nonce = %t.target_tx.transaction.nonce(), "set nonce for access key");
+                                        tracing::debug!(target: "mirror", ?access_key, tx_ref = %r, nonce = %t.target_tx.transaction.nonce(), "set nonce for access key");
                                     }
                                     _ => {
-                                        tracing::warn!(target: "mirror", ?access_key, %r, "couldn't set nonce for access key");
+                                        tracing::warn!(target: "mirror", ?access_key, tx_ref = %r, "couldn't set nonce for access key");
                                     }
                                 }
                             } else {
@@ -1020,6 +1020,7 @@ impl TxTracker {
         let delay = Duration::from_nanos(second_longest.unwrap());
         if delay > 2 * self.min_block_production_delay {
             tracing::warn!(
+                target: "mirror",
                 ?delay,
                 longest_delay = ?Duration::from_nanos(longest.unwrap()),
                 min_delay = ?self.min_block_production_delay,
@@ -1060,10 +1061,10 @@ impl TxTracker {
                                         target_tx.try_set_nonce(None);
                                         match target_tx {
                                             TargetChainTx::Ready(t) => {
-                                                tracing::debug!(target: "mirror", %tx_ref, ?access_key, %r, nonce = %t.target_tx.transaction.nonce(), "after skipping setting nonce for access key");
+                                                tracing::debug!(target: "mirror", %tx_ref, ?access_key, tx_awaiting_nonce = %r, nonce = %t.target_tx.transaction.nonce(), "after skipping setting nonce for access key");
                                             }
                                             _ => {
-                                                tracing::warn!(target: "mirror", %tx_ref, ?access_key, %r, "after skipping could not set nonce for access key");
+                                                tracing::warn!(target: "mirror", %tx_ref, ?access_key, tx_awaiting_nonce = %r, "after skipping could not set nonce for access key");
                                             }
                                         }
                                         to_remove.push(r.clone());
@@ -1175,10 +1176,10 @@ impl TxTracker {
         }
         tracing::info!(
             target: "mirror",
-            %total_sent,
+            tx_count = total_sent,
             %provenance,
-            %target_height,
-            "sent transactions from provenance with target head"
+            ?target_height,
+            "sent txs",
         );
 
         let next_delay = self.tx_batch_interval.unwrap_or_else(|| {
