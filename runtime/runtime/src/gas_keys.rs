@@ -416,8 +416,7 @@ mod tests {
     }
 
     #[test]
-    fn test_view_gas_keys() {
-        // Create an account and add two gas keys.
+    fn test_view_gas_key() {
         let (account_id, public_key1, access_key) = test_account_keys();
         let public_key2 = SecretKey::from_random(KeyType::ED25519).public_key();
         let mut state_update = setup_account(&account_id, &public_key1, &access_key);
@@ -427,7 +426,6 @@ mod tests {
         let gas_key2 =
             add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key2);
 
-        // Query with state viewer
         let viewer = TrieViewer::default();
         let view_gas_key1 = viewer
             .view_gas_key(&state_update, &account_id, &public_key1)
@@ -436,28 +434,64 @@ mod tests {
             .view_gas_key(&state_update, &account_id, &public_key2)
             .expect("expected to find gas key");
         let expected_nonce = initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT);
-        let expected = [gas_key1, gas_key2]
-            .into_iter()
-            .map(|gas_key| GasKeyView::new(gas_key, vec![expected_nonce; TEST_NUM_NONCES as usize]))
-            .collect_vec();
+        let expected = vec![
+            GasKeyView::new(gas_key1, vec![expected_nonce; TEST_NUM_NONCES as usize]),
+            GasKeyView::new(gas_key2, vec![expected_nonce; TEST_NUM_NONCES as usize]),
+        ];
         assert_eq!(expected, vec![view_gas_key1, view_gas_key2]);
+    }
 
-        // Viewing a nonexistent gas key should return an error.
+    #[test]
+    fn test_view_gas_key_nonexistent() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key);
         let other_public_key = SecretKey::from_random(KeyType::ED25519).public_key();
+
+        let viewer = TrieViewer::default();
         assert!(matches!(
             viewer
                 .view_gas_key(&state_update, &account_id, &other_public_key)
                 .expect_err("expected error for nonexistent gas key"),
             ViewGasKeyError::GasKeyDoesNotExist { .. }
         ));
+    }
 
-        // Iterate account gas keys
+    #[test]
+    fn test_view_gas_keys() {
+        let (account_id, public_key1, access_key) = test_account_keys();
+        let public_key2 = SecretKey::from_random(KeyType::ED25519).public_key();
+        let mut state_update = setup_account(&account_id, &public_key1, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        let gas_key1 =
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key1);
+        let gas_key2 =
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key2);
+
+        let viewer = TrieViewer::default();
         let gas_keys = viewer.view_gas_keys(&state_update, &account_id).unwrap();
-        let expected = [public_key1, public_key2]
-            .into_iter()
-            .zip(expected)
-            .map(|(public_key, gas_key)| GasKeyInfoView { public_key, gas_key })
-            .collect_vec();
+        let expected_nonce = initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT);
+        let expected = vec![
+            GasKeyInfoView {
+                public_key: public_key1,
+                gas_key: GasKeyView::new(gas_key1, vec![expected_nonce; TEST_NUM_NONCES as usize]),
+            },
+            GasKeyInfoView {
+                public_key: public_key2,
+                gas_key: GasKeyView::new(gas_key2, vec![expected_nonce; TEST_NUM_NONCES as usize]),
+            },
+        ];
         assert_eq!(expected, gas_keys);
+    }
+
+    #[test]
+    fn test_view_gas_keys_empty() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let state_update = setup_account(&account_id, &public_key, &access_key);
+
+        let viewer = TrieViewer::default();
+        let gas_keys = viewer.view_gas_keys(&state_update, &account_id).unwrap();
+        assert!(gas_keys.is_empty());
     }
 }
