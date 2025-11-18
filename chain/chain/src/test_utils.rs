@@ -267,6 +267,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                                 .iter()
                                 .map(|x| format!("{} => {}", x.0.len(), x.1.to_shard_id))
                                 .collect::<Vec<_>>(),
+                            "partial chunk",
                         );
                     }
                 }
