@@ -598,7 +598,7 @@ impl RunCmd {
             // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some("off"), None).unwrap();
         });
-        tracing::info!(target: "neard", "waiting for RocksDB to gracefully shutdown");
+        tracing::info!(target: "neard", "waiting for rocksdb to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
     }
 }
