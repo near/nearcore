@@ -63,6 +63,7 @@ pub enum AnalyseTarget {
     TrieChanges,
     Transactions,
     Receipts,
+    Stats,
 }
 
 impl AnalyseArchivalCommand {
@@ -149,6 +150,9 @@ impl AnalyseArchivalCommand {
                 }
                 AnalyseTarget::Receipts => {
                     self.analyse_receipts(store.clone(), &shard_ids);
+                }
+                AnalyseTarget::Stats => {
+                    self.print_stats(store.clone());
                 }
             }
         }
@@ -443,7 +447,15 @@ impl AnalyseArchivalCommand {
         );
     }
 
-      fn analyse_receipts(&self, store: Store, shards: &Vec<ShardId>) {
+    fn print_stats(&self, store: Store) {
+        println!("Store statistics:\n");
+        let stats = store.get_store_statistics().unwrap();
+        for stat in stats.data {
+            println!("{stat:?}");
+        }
+    }
+
+    fn analyse_receipts(&self, store: Store, shards: &Vec<ShardId>) {
         eprintln!("Analyse receipts");
         let mut shard_data = HashMap::<ShardId, HashMap<CryptoHash, Receipt>>::new();
         let mut stats = HashMap::<ShardId, SizeStats>::new();
