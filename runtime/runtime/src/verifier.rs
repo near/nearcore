@@ -1802,7 +1802,7 @@ mod tests {
             Some(AccessKey { nonce: 0, permission: permission.clone() }),
         );
         if let SignerKind::GasKey(_) = s {
-            setup_gas_key(&mut state_update, TESTING_INIT_BALANCE, permission.clone(), None);
+            setup_gas_key(&mut state_update, TESTING_INIT_BALANCE, permission, None);
         }
 
         // Case 1
@@ -1893,7 +1893,7 @@ mod tests {
             Some(AccessKey { nonce: 0, permission: permission.clone() }),
         );
         if let SignerKind::GasKey(_) = s {
-            setup_gas_key(&mut state_update, TESTING_INIT_BALANCE, permission.clone(), None);
+            setup_gas_key(&mut state_update, TESTING_INIT_BALANCE, permission, None);
         }
 
         let signed_tx = SignedTransaction::from_actions_v1(
