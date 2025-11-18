@@ -131,6 +131,7 @@ fn gas_key_storage_cost(
 
     borsh::object_length(public_key).unwrap() as u64
         + borsh::object_length(gas_key).unwrap() as u64
+        + borsh::object_length(&None::<NonceIndex>).unwrap() as u64 // NonceIndex (None) is part of the key
         + storage_config.num_extra_bytes_record
         + nonce_storage_usage
 }
