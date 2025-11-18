@@ -226,7 +226,7 @@ impl ForkNetworkCommand {
             self.run_impl(&mut near_config, verbose_target, o11y_opts, home_dir).await.unwrap();
             near_async::shutdown_all_actors();
         });
-        tracing::info!("waiting for RocksDB to gracefully shutdown");
+        tracing::info!("waiting for rocksdb to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
         tracing::info!("exit");
         Ok(())
