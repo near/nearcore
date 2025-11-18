@@ -404,7 +404,7 @@ wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in
 wasmparser-236 = { package = "wasmparser", version = "0.236" }
 wasmprinter = "0.236"
 wasm-smith = "0.236"
-wasmtime = { version = "38.0.4", default-features = false, features = [
+wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", rev = "ad56ff980ae5f522d42ba9fa49448f3a8c7320b4", default-features = false, features = [
     "cranelift",
 ] }
 wast = "40.0"
