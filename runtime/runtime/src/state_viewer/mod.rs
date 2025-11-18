@@ -202,11 +202,12 @@ impl TrieViewer {
                 });
             };
             if index.is_some() {
-                // This is a gas key nonce. Sanity check the nonce should be for the last gas key that we've parsed.
+                // This is a gas key nonce.
                 let last_gas_key =
                     result.last_mut().ok_or_else(|| errors::ViewGasKeyError::InternalError {
                         error_message: "Unexpected gas key nonce without gas key".to_string(),
                     })?;
+                // Sanity check the nonce should be for the last gas key that we've parsed.
                 if &last_gas_key.public_key != public_key {
                     return Err(errors::ViewGasKeyError::InternalError {
                         error_message: format!(
