@@ -158,9 +158,9 @@ impl ChainStore {
 
         if witness_size > SINGLE_LATEST_WITNESS_MAX_SIZE.as_u64() {
             tracing::warn!(
-                "Cannot save latest ChunkStateWitness because it's too big. Witness size: {} byte. Size limit: {} bytes.",
-                serialized_witness.len(),
-                SINGLE_LATEST_WITNESS_MAX_SIZE.as_u64()
+                witness_size = %serialized_witness.len(),
+                size_limit = %SINGLE_LATEST_WITNESS_MAX_SIZE.as_u64(),
+                "cannot save latest chunk state witness because it's too big"
             );
             return Ok(());
         }
@@ -241,7 +241,7 @@ impl ChainStore {
             ?store_commit_time,
             total_count = info.count,
             total_size = info.total_size,
-            "Saved latest witness",
+            "saved latest witness",
         );
 
         Ok(())
@@ -343,9 +343,9 @@ pub fn save_invalid_chunk_state_witness(
 
     if serialized_witness_size > SINGLE_INVALID_WITNESS_MAX_SIZE.as_u64() {
         tracing::warn!(
-            "Cannot save invalid ChunkStateWitness because it's too big. Witness size: {} byte. Size limit: {} bytes.",
-            serialized_witness.len(),
-            SINGLE_INVALID_WITNESS_MAX_SIZE.as_u64()
+            witness_size = %serialized_witness.len(),
+            size_limit = %SINGLE_INVALID_WITNESS_MAX_SIZE.as_u64(),
+            "cannot save invalid chunk state witness because it's too big"
         );
         return Ok(());
     }
@@ -435,7 +435,7 @@ pub fn save_invalid_chunk_state_witness(
         ?store_commit_time,
         total_count = info.count,
         total_size = info.total_size,
-        "Saved invalid witness",
+        "saved invalid witness",
     );
 
     Ok(())

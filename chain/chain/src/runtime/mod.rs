@@ -56,7 +56,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{debug, error, info, instrument};
+use tracing::instrument;
 use trie_update_wrapper::TrieUpdateWitnessSizeWrapper;
 
 pub mod errors;
@@ -119,7 +119,7 @@ impl NightshadeRuntime {
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
             Ok(shard_layout.shard_uids().enumerate().collect())
         }) {
-            tracing::debug!(target: "runtime", ?err, "The state snapshot is not available.");
+            tracing::debug!(target: "runtime", ?err, "the state snapshot is not available");
         }
 
         Arc::new(NightshadeRuntime {
@@ -191,8 +191,9 @@ impl NightshadeRuntime {
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-            debug!(target: "runtime",
-                   next_block_epoch_start = epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
+            tracing::debug!(
+                target: "runtime",
+                next_block_epoch_start = epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
             );
 
             if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
@@ -240,7 +241,7 @@ impl NightshadeRuntime {
             self.epoch_manager.get_epoch_protocol_version(&prev_block_epoch_id)?;
         let is_first_block_of_version = current_protocol_version != prev_block_protocol_version;
 
-        debug!(
+        tracing::debug!(
             target: "runtime",
             epoch_height,
             ?epoch_id,
@@ -283,7 +284,7 @@ impl NightshadeRuntime {
             )
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(err) => {
-                    tracing::warn!("Invalid tx {:?}", err);
+                    tracing::warn!(?err, "invalid tx");
                     Error::InvalidTransactions
                 }
                 // TODO(#2152): process gracefully
@@ -442,7 +443,7 @@ impl NightshadeRuntime {
         let partial_state = match trie_nodes {
             Ok(partial_state) => partial_state,
             Err(err) => {
-                error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part");
+                tracing::error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "can't get trie nodes for state part");
                 return Err(err.into());
             }
         };
@@ -464,14 +465,14 @@ impl NightshadeRuntime {
         let partial_state = part.to_partial_state();
         let Ok(partial_state) = part.to_partial_state() else {
             // Deserialization error means we've got the data from malicious peer
-            tracing::error!(target: "state-parts", ?partial_state, "State part deserialization error");
+            tracing::error!(target: "state-parts", ?partial_state, "state part deserialization error");
             return false;
         };
         match Trie::validate_state_part(state_root, part_id, partial_state) {
             Ok(_) => true,
             // Storage error should not happen
             Err(err) => {
-                tracing::error!(target: "state-parts", ?err, "State part storage error");
+                tracing::error!(target: "state-parts", ?err, "state part storage error");
                 false
             }
         }
@@ -513,7 +514,7 @@ impl NightshadeRuntime {
         if mem_usage > 0 {
             let trie_split = find_trie_split(shard_trie)?;
             let elapsed = start.elapsed();
-            info!(target: "runtime", ?shard_id, ?mem_usage, ?trie_split, ?elapsed, "dynamic resharding dry run");
+            tracing::info!(target: "runtime", ?shard_id, ?mem_usage, ?trie_split, ?elapsed, "dynamic resharding dry run");
         }
         Ok(())
     }
@@ -524,7 +525,7 @@ impl NightshadeRuntime {
         match self.check_dynamic_resharding_impl(shard_trie, shard_id) {
             Err(FindSplitError::Storage(err)) => Err(err)?,
             Err(err) => {
-                error!(target: "runtime", ?shard_id, ?err, "dynamic resharding check failed")
+                tracing::error!(target: "runtime", ?shard_id, ?err, "dynamic resharding check failed")
             }
             Ok(()) => {}
         }
@@ -905,7 +906,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
         // NOTE: this state update must not be committed or finalized!
         drop(state_update);
-        debug!(target: "runtime", limited_by=?result.limited_by, "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
+        tracing::debug!(target: "runtime", limited_by = ?result.limited_by, valid_count = %result.transactions.len(), %num_checked_transactions, "transaction filtering results");
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
         metrics::PREPARE_TX_REJECTED
@@ -941,7 +942,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 if now - last_log >= LOG_THROTTLE_INTERVAL {
                     LAST_LOG_TIME.store(now, Ordering::Relaxed);
 
-                    info!(target: "runtime", "Error when getting the gc stop height. This error may naturally occur after the gc_num_epochs_to_keep config is increased. It should disappear as soon as the node builds up all epochs it wants. Error: {}", error);
+                    tracing::info!(target: "runtime", ?error, "error when getting the gc stop height, this error may naturally occur after the gc_num_epochs_to_keep config is increased, it should disappear as soon as the node builds up all epochs it wants");
                 }
 
                 self.genesis_config.genesis_height
@@ -1259,7 +1260,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let mut store_update = tries.store_update();
         tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
+        tracing::debug!(target: "chain", %shard_id, values_count = %flat_state_delta.len(), "inserting values to flat storage");
         // TODO: `apply_to_flat_state` inserts values with random writes, which can be time consuming.
         //       Optimize taking into account that flat state values always correspond to a consecutive range of keys.
         flat_state_delta.apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
