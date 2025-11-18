@@ -7750,6 +7750,68 @@
               "DepositWithFunctionCall"
             ],
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "GasKeyNotFound": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "nonce_index": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key",
+                  "nonce_index"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyNotFound"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "NotEnoughAllowanceGasKey": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "allowance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "cost": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key",
+                  "allowance",
+                  "cost"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "NotEnoughAllowanceGasKey"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -8101,6 +8163,31 @@
             },
             "required": [
               "ShardStuck"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The gas key doesn't exist for the account",
+            "properties": {
+              "GasKeyDoesNotExist": {
+                "properties": {
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "signer_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "signer_id",
+                  "public_key"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyDoesNotExist"
             ],
             "type": "object"
           }
@@ -11045,6 +11132,19 @@
       },
       "ReceiptView": {
         "properties": {
+          "predecessor_gas_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicKey"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
+          },
           "predecessor_id": {
             "$ref": "#/components/schemas/AccountId"
           },
@@ -14689,6 +14789,19 @@
       },
       "RpcReceiptResponse": {
         "properties": {
+          "predecessor_gas_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicKey"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
+          },
           "predecessor_id": {
             "$ref": "#/components/schemas/AccountId"
           },
@@ -16759,6 +16872,13 @@
           "nonce": {
             "format": "uint64",
             "minimum": 0,
+            "type": "integer"
+          },
+          "nonce_index": {
+            "description": "None for AccessKey transactions, specifies the nonce index for GasKey transactions.",
+            "format": "uint32",
+            "minimum": 0,
+            "nullable": true,
             "type": "integer"
           },
           "priority_fee": {
