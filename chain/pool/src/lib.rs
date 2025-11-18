@@ -360,10 +360,7 @@ mod tests {
                     signer_id.clone(),
                     "bob.near".parse().unwrap(),
                     &*signer,
-                    match signer_kind {
-                        SignerKind::AccessKey => None,
-                        SignerKind::GasKey(nonce_index) => Some(nonce_index),
-                    },
+                    signer_kind.nonce_index(),
                     Balance::from_yoctonear(u128::from(i)),
                     CryptoHash::default(),
                 );
