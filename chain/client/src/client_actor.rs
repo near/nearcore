@@ -665,7 +665,7 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
                 if let Err(err) =
                     self.client.sync_handler.state_sync.apply_peer_message(peer_id, state_response)
                 {
-                    tracing::error!(?err, "error applying state sync response");
+                    tracing::error!(target: "sync", ?err, "error applying state sync response");
                 }
                 return;
             }
@@ -676,7 +676,7 @@ impl Handler<SpanWrapped<StateResponseReceived>> for ClientActorInner {
             self.client.catchup_state_syncs.get_mut(&hash)
         {
             if let Err(err) = state_sync.apply_peer_message(peer_id, state_response) {
-                tracing::error!(?err, "error applying catchup state sync response");
+                tracing::error!(target: "sync", ?err, "error applying catchup state sync response");
             }
             return;
         }
@@ -1397,12 +1397,14 @@ impl ClientActorInner {
                             .client
                             .send_block_approval(&self.client.doomslug.get_tip().0, approval)
                         {
-                            tracing::error!(?e, "error while sending an approval");
+                            tracing::error!(target: "client", ?e, "error while sending an approval");
                         }
                     }
                 }
             }
-            Err(e) => tracing::error!(?e, "error while committing largest skipped height"),
+            Err(e) => {
+                tracing::error!(target: "client", ?e, "error while committing largest skipped height")
+            }
         };
     }
 

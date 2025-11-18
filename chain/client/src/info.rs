@@ -442,16 +442,15 @@ impl InfoHelper {
                 format!(" CPU: {:.0}%, Mem: {}", cpu, PrettyNumber::bytes(mem * 1024))
             })
             .unwrap_or_default();
-
-        tracing::info!(
-            target: "stats",
+        let node_status = format!(
+            "{}{}{}{}{}",
             sync_status_log,
             validator_info_log,
             network_info_log,
             blocks_info_log,
-            machine_info_log,
-            "node status"
+            machine_info_log
         );
+        tracing::info!(target: "stats", ?node_status);
         log_catchup_status(catchup_status);
         if let Some(config_updater) = &config_updater {
             config_updater.report_status();
