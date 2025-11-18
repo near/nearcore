@@ -249,12 +249,12 @@ impl Stats {
             ratio += tmp_ratio;
             other_ratio += tmp_other_ratio;
         }
-        tracing::info!(%other_ratio, "other threads ratio");
+        tracing::info!(target: "metrics", %other_ratio, "other threads ratio");
         let c_memory_usage = get_c_memory_usage();
         if c_memory_usage > ByteSize::default() {
-            tracing::info!(%c_memory_usage, "c alloc total memory usage");
+            tracing::info!(target: "metrics", %c_memory_usage, "c alloc total memory usage");
         }
-        tracing::info!(%ratio, "total ratio");
+        tracing::info!(target: "metrics", %ratio, "total ratio");
     }
 }
 
