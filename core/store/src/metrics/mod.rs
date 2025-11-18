@@ -680,7 +680,7 @@ mod test {
         }
 
         let int_gauges = rocksdb_metrics::get_int_gauges();
-        tracing::debug!(?int_gauges, "int_gauges");
+        tracing::debug!(?int_gauges);
 
         let hot_gauge = int_gauges.get(&hot_gauge_name);
         let hot_gauge = hot_gauge.ok_or_else(|| anyhow::anyhow!("hot gauge is missing"))?;

@@ -1,12 +1,12 @@
 use crate::metrics::try_create_histogram_vec;
-use prometheus::{HistogramVec, exponential_buckets};
 use std::sync::LazyLock;
+use prometheus::{exponential_buckets, HistogramVec};
 use std::time::Instant;
-use tracing::Id;
 use tracing::span::Attributes;
-use tracing_subscriber::Layer;
+use tracing::Id;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::Layer;
 
 #[derive(Default)]
 pub(crate) struct DelayDetectorLayer {}
@@ -81,8 +81,8 @@ where
                 let busy_sec = *busy as f64 * 1e-9;
                 let idle_sec = idle as f64 * 1e-9;
                 tracing::warn!(target: "delay_detector",
-                    busy_sec, idle_sec, %level, %target, %name, %file, %line,
-                    "span duration too long, idle time");
+                    "Span duration too long: {busy_sec:.2}s. Idle time: {idle_sec:.2}s. {level}: {target}: {name}. {file}:{line}",
+                );
                 LONG_SPAN_HISTOGRAM
                     .with_label_values(&[name, level.as_str(), target, file, &line])
                     .observe(busy_sec);

@@ -330,7 +330,7 @@ impl RocksDB {
 
     pub fn compact_column(&self, col: DBCol) -> io::Result<()> {
         let none = Option::<&[u8]>::None;
-        tracing::info!(target: "store::db::rocksdb", col = %col, "compact column");
+        tracing::info!(target: "store::db::rocksdb", col = %col, "compacting a column");
         self.db.compact_range_cf(self.cf_handle(col)?, none, none);
         Ok(())
     }

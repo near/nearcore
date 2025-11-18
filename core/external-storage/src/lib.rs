@@ -73,14 +73,14 @@ impl ExternalConnection {
             ExternalStorageLocation::GCS { bucket, .. } => {
                 if let Some(credentials_file) = credentials_file {
                     if let Ok(var) = std::env::var("SERVICE_ACCOUNT") {
-                        tracing::warn!(target: "external", %var, ?credentials_file, "environment variable 'SERVICE_ACCOUNT' is set, but 'credentials_file' in config.json overrides it");
+                        tracing::warn!(target: "external", %var, ?credentials_file, "environment variable `SERVICE_ACCOUNT` is set, but `credentials_file` in config.json overrides it");
                         println!(
                             "Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'"
                         );
                     }
                     // SAFE: no threads *yet*.
                     unsafe { std::env::set_var("SERVICE_ACCOUNT", &credentials_file) };
-                    tracing::info!(target: "external", ?credentials_file, "set the environment variable 'SERVICE_ACCOUNT'");
+                    tracing::info!(target: "external", ?credentials_file, "set the environment variable `SERVICE_ACCOUNT`");
                 }
                 ExternalConnection::GCS {
                     gcs_client: Arc::new(
@@ -100,7 +100,7 @@ impl ExternalConnection {
     pub async fn get(&self, path: &str) -> Result<Vec<u8>, anyhow::Error> {
         match self {
             ExternalConnection::S3 { bucket } => {
-                tracing::debug!(target: "external", path, "reading from s3");
+                tracing::debug!(target: "external", path, "reading from S3");
                 let response = bucket.get_object(path).await?;
                 if response.status_code() == 200 {
                     Ok(response.bytes().to_vec())
@@ -139,7 +139,7 @@ impl ExternalConnection {
     pub async fn put(&self, path: &str, value: &[u8]) -> Result<(), anyhow::Error> {
         match self {
             ExternalConnection::S3 { bucket } => {
-                tracing::debug!(target: "external", path, "writing to s3");
+                tracing::debug!(target: "external", path, "writing to S3");
                 bucket.put_object(path, value).await?;
                 Ok(())
             }
@@ -176,7 +176,7 @@ impl ExternalConnection {
             ExternalConnection::S3 { bucket } => {
                 let prefix = format!("{}/", directory_path);
                 let list_results = bucket.list(prefix.clone(), Some("/".to_string())).await?;
-                tracing::debug!(target: "external", directory_path, "list directory in s3");
+                tracing::debug!(target: "external", directory_path, "list directory in S3");
                 let mut file_names = vec![];
                 for res in list_results {
                     for obj in res.contents {

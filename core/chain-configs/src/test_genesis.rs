@@ -255,7 +255,7 @@ impl TestEpochConfigBuilder {
             num_block_producer_seats_per_shard: self.num_block_producer_seats_per_shard,
             max_inflation_rate: self.max_inflation_rate,
         };
-        tracing::debug!(?epoch_config, "epoch config");
+        tracing::debug!(?epoch_config);
         epoch_config
     }
 
@@ -534,7 +534,7 @@ impl TestGenesisBuilder {
             chunk_producer_assignment_changes_limit: self.chunk_producer_assignment_changes_limit,
             ..Default::default()
         };
-        tracing::debug!(?genesis_config, "genesis config");
+        tracing::debug!(?genesis_config);
 
         Genesis {
             config: genesis_config,
