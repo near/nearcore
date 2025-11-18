@@ -3,6 +3,7 @@ use near_async::ActorSystem;
 use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
 use near_chain::{Block, ChainStore, ChainStoreAccess};
+use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::metrics::{
     HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, exponential_buckets,
@@ -111,7 +112,13 @@ fn export_postponed_receipt_count(
     );
 
     let head = chain_store.final_head()?;
-    let block = chain_store.get_block(&head.last_block_hash)?;
+    let block = chain_store.get_block(&head.last_block_hash);
+    if matches!(block, Err(Error::DBNotFoundErr(_))) {
+        // The head block might be missing during node startup and syncing.
+        tracing::trace!(target: "metrics", "trie-stats - head block not found {head:?}");
+        return Ok(());
+    }
+    let block = block?;
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
 
     for chunk_header in block.chunks().iter() {
