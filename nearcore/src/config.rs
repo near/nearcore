@@ -1049,7 +1049,7 @@ pub fn init_configs(
         near_primitives::chains::MAINNET => {
             let genesis = near_mainnet_res::mainnet_genesis();
             genesis.to_file(dir.join(config.genesis_file));
-            tracing::info!(target: "near", dir = %dir.display(), "generated mainnet genesis file in directory");
+            tracing::info!(target: "near", dir = %dir.display(), "generated mainnet genesis file");
         }
         near_primitives::chains::TESTNET => {
             if let Some(ref filename) = config.genesis_records_file {
@@ -1106,7 +1106,7 @@ pub fn init_configs(
             genesis.config.chain_id.clone_from(&chain_id);
 
             genesis.to_file(dir.join(config.genesis_file));
-            tracing::info!(target: "near", %chain_id, dir = %dir.display(), "generated network node key and genesis file in directory");
+            tracing::info!(target: "near", %chain_id, dir = %dir.display(), "generated network node key and genesis file");
         }
         _ => {
             let validator_file = dir.join(&config.validator_key_file);
@@ -1163,7 +1163,7 @@ pub fn init_configs(
             };
             let genesis = Genesis::new(genesis_config, records.into())?;
             genesis.to_file(dir.join(config.genesis_file));
-            tracing::info!(target: "near", dir = %dir.display(), "generated node key, validator key, genesis file in directory");
+            tracing::info!(target: "near", dir = %dir.display(), "generated node key, validator key, genesis file");
         }
     }
 
@@ -1465,7 +1465,7 @@ pub fn init_localnet_configs(
         log_config
             .write_to_file(&node_dir.join(LOG_CONFIG_FILENAME))
             .expect("Error writing log config");
-        tracing::info!(target: "near", node_dir = %node_dir.display(), "generated node key, validator key, genesis file in directory");
+        tracing::info!(target: "near", node_dir = %node_dir.display(), "generated node key, validator key, genesis file");
     }
 }
 
@@ -1492,28 +1492,28 @@ pub fn get_config_url(chain_id: &str, config_type: DownloadConfigType) -> String
 }
 
 pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    tracing::info!(target: "near", %url, "downloading genesis file from url");
+    tracing::info!(target: "near", %url, "downloading genesis file");
     let result = run_download_file(url, path);
     if result.is_ok() {
-        tracing::info!(target: "near", path = %path.display(), "saved the genesis file to path");
+        tracing::info!(target: "near", path = %path.display(), "saved the genesis file");
     }
     result
 }
 
 pub fn download_records(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    tracing::info!(target: "near", %url, "downloading records file from url");
+    tracing::info!(target: "near", %url, "downloading records file");
     let result = run_download_file(url, path);
     if result.is_ok() {
-        tracing::info!(target: "near", path = %path.display(), "saved the records file to path");
+        tracing::info!(target: "near", path = %path.display(), "saved the records file");
     }
     result
 }
 
 pub fn download_config(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    tracing::info!(target: "near", %url, "downloading config file from url");
+    tracing::info!(target: "near", %url, "downloading config file");
     let result = run_download_file(url, path);
     if result.is_ok() {
-        tracing::info!(target: "near", path = %path.display(), "saved the config file to path");
+        tracing::info!(target: "near", path = %path.display(), "saved the config file");
     }
     result
 }

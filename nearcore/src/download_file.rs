@@ -247,7 +247,7 @@ impl<'a> AutoXzDecoder<'a> {
                 xz2::stream::Status::StreamEnd => (),
                 status => {
                     let status = format!("{:?}", status);
-                    tracing::error!(target: "near", %status, "got unexpected status when decompressing downloaded file");
+                    tracing::error!(target: "near", %status, ?path, "got unexpected status when decompressing downloaded file");
                     return Err(FileDownloadError::XzStatusError(status));
                 }
             };
