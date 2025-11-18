@@ -43,6 +43,8 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError>;
 
+    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError>;
+
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError>;
 
     /// Number of Reed-Solomon parts we split each chunk into.
@@ -143,10 +145,6 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Get the list of shard ids
     fn shard_ids(&self, epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError> {
         Ok(self.get_shard_layout(epoch_id)?.shard_ids().collect())
-    }
-
-    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
-        self.get_epoch_config(epoch_id).map(|config| config.shard_layout)
     }
 
     fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
@@ -277,6 +275,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(shard_layout != prev_shard_layout)
     }
 
+    // TODO(dynamic_resharding): remove this method
     fn get_shard_layout_from_protocol_version(
         &self,
         protocol_version: ProtocolVersion,
@@ -807,6 +806,10 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_manager.get_epoch_info(epoch_id)
     }
 
+    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
+        self.read().get_shard_layout(epoch_id)
+    }
+
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.is_next_block_epoch_start(parent_hash)
@@ -816,12 +819,13 @@ impl EpochManagerAdapter for EpochManagerHandle {
         self.read().get_epoch_start_from_epoch_id(epoch_id)
     }
 
+    // TODO(dynamic_resharding): remove this method
     fn get_shard_layout_from_protocol_version(
         &self,
         protocol_version: ProtocolVersion,
     ) -> ShardLayout {
         let epoch_manager = self.read();
-        epoch_manager.get_epoch_config(protocol_version).shard_layout
+        epoch_manager.get_epoch_config(protocol_version).legacy_shard_layout()
     }
 
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {

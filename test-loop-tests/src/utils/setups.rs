@@ -60,13 +60,13 @@ pub fn standard_setup_1() -> TestLoopEnv {
 pub fn derive_new_epoch_config_from_boundary(
     base_epoch_config: &EpochConfig,
     boundary_account: &AccountId,
-) -> EpochConfig {
-    let base_shard_layout = &base_epoch_config.shard_layout;
-    let mut epoch_config = base_epoch_config.clone();
-    epoch_config.shard_layout =
+) -> (EpochConfig, ShardLayout) {
+    let base_shard_layout = &base_epoch_config.legacy_shard_layout();
+    let new_shard_layout =
         ShardLayout::derive_shard_layout(&base_shard_layout, boundary_account.clone());
-    tracing::info!(target: "test", ?base_shard_layout, new_shard_layout=?epoch_config.shard_layout, "shard layout");
-    epoch_config
+    tracing::info!(target: "test", ?base_shard_layout, ?new_shard_layout, "shard layout");
+    let epoch_config = base_epoch_config.clone().with_shard_layout(new_shard_layout.clone());
+    (epoch_config, new_shard_layout)
 }
 
 /// Two protocol upgrades would happen as soon as possible,
