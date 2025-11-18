@@ -30,7 +30,7 @@ impl OrphanStateWitnessPool {
             tracing::warn!(
                 target: "client",
                 cache_capacity,
-                "orphan state witness pool capacity is set to larger than expected, orphan state witness pool uses a naive algorithm, using a large capacity might lead to performance problems"
+                "orphan state witness cache capacity is larger than expected, this might lead to performance problems"
             );
         }
 

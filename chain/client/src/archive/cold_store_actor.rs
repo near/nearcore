@@ -113,7 +113,7 @@ pub struct ColdStoreActor {
 
 impl Actor for ColdStoreActor {
     fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
-        tracing::info!(target : "cold_store", "starting the cold store actor");
+        tracing::info!(target: "cold_store", "starting the cold store actor");
         // Note that we start with the cold store migration loop which later spawns the cold store loop.
         self.cold_store_migration_loop(ctx);
     }
@@ -176,19 +176,19 @@ impl ColdStoreActor {
         tracing::info!(target: "cold_store", "starting population of cold store");
         let new_cold_height = match self.hot_store.get_db_kind()? {
             None => {
-                tracing::error!(target: "cold_store", "hot store DBKind not set");
+                tracing::error!(target: "cold_store", "hot store kind is unknown");
                 return Err(anyhow::anyhow!("Hot store DBKind is not set"));
             }
             Some(DbKind::Hot) => {
-                tracing::info!(target: "cold_store", "hot store DBKind is hot");
+                tracing::info!(target: "cold_store", "hot store kind is hot");
                 self.genesis_height
             }
             Some(DbKind::Archive) => {
-                tracing::info!(target: "cold_store", "hot store DBKind is archive");
+                tracing::info!(target: "cold_store", "hot store kind is archive");
                 self.hot_store.chain_store().final_head()?.height
             }
             Some(kind) => {
-                tracing::error!(target: "cold_store", ?kind, "hot store db kind not supported");
+                tracing::error!(target: "cold_store", ?kind, "hot store kind not supported");
                 return Err(anyhow::anyhow!(format!("Hot store DBKind not {kind:?}.")));
             }
         };
@@ -243,7 +243,7 @@ impl ColdStoreActor {
                     ColdStoreMigrationResult::NoNeedForMigration
                     | ColdStoreMigrationResult::SuccessfulMigration => {
                         // Migration was successful, we can start the cold store loop.
-                        tracing::info!(target : "cold_store", "starting the cold store loop");
+                        tracing::info!(target: "cold_store", "starting the cold store loop");
                         self.cold_store_loop(ctx);
                     }
                 }
@@ -257,7 +257,7 @@ impl ColdStoreActor {
     // trying to copy data at the next height.
     fn cold_store_loop(&self, ctx: &mut dyn DelayedActionRunner<Self>) {
         if !self.keep_going.load(std::sync::atomic::Ordering::Relaxed) {
-            tracing::debug!(target : "cold_store", "stopping the cold store loop");
+            tracing::debug!(target: "cold_store", "stopping the cold store loop");
             return;
         }
 
@@ -284,16 +284,16 @@ impl ColdStoreActor {
         let result_string = cold_store_copy_result_to_string(&result);
         metrics::COLD_STORE_COPY_RESULT.with_label_values(&[result_string]).inc();
         if duration > std::time::Duration::from_secs(1) {
-            tracing::debug!(target : "cold_store", duration_secs = duration.as_secs_f64(), "cold store copy took seconds");
+            tracing::debug!(target: "cold_store", ?duration, "cold store copy completed");
         }
 
         match &result {
             Err(err) => {
-                tracing::error!(target : "cold_store", ?err, "cold_store_copy failed");
+                tracing::error!(target: "cold_store", ?err, "cold store copy failed");
             }
             Ok(copy_result) => match copy_result {
                 ColdStoreCopyResult::NoBlockCopied => {
-                    tracing::trace!(target: "cold_store", "no block was copied - cold head is up to date");
+                    tracing::trace!(target: "cold_store", "cold head is up to date, no blocks were copied");
                 }
                 ColdStoreCopyResult::LatestBlockCopied => {
                     tracing::trace!(target: "cold_store", "latest block was copied");
@@ -401,13 +401,13 @@ pub fn create_cold_store_actor(
     shard_tracker: ShardTracker,
 ) -> anyhow::Result<Option<(ColdStoreActor, Arc<AtomicBool>)>> {
     if save_trie_changes != Some(true) {
-        tracing::debug!(target:"cold_store", "not creating cold store actor because trie changes are not saved");
+        tracing::debug!(target: "cold_store", "not creating cold store actor because trie changes are not saved");
         return Ok(None);
     }
     let cold_db = match cold_db {
         Some(cold_db) => cold_db.clone(),
         None => {
-            tracing::debug!(target : "cold_store", "not creating the cold store actor because cold store is not configured");
+            tracing::debug!(target: "cold_store", "not creating the cold store actor because cold store is not configured");
             return Ok(None);
         }
     };
@@ -432,7 +432,7 @@ pub fn create_cold_store_actor(
     sanity_check(cold_head_height, hot_final_head_height, hot_tail_height)?;
     debug_assert!(shard_tracker.is_valid_for_cold_store());
 
-    tracing::info!(target : "cold_store", "creating the cold store actor");
+    tracing::info!(target: "cold_store", "creating the cold store actor");
 
     let actor = ColdStoreActor::new(
         split_storage_config.clone(),

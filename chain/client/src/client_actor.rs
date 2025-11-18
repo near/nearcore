@@ -374,7 +374,11 @@ fn check_validator_tracked_shards(client: &Client, validator_id: &AccountId) -> 
     // We do not apply the check if this is not a current validator, see
     // https://github.com/near/nearcore/issues/11821.
     if epoch_info.get_validator_by_account(validator_id).is_none() {
-        tracing::warn!(target: "client", %validator_id, "the account is not a current validator, this node won't be validating in the current epoch");
+        tracing::warn!(
+            target: "client",
+            %validator_id,
+            "not a current validator, this node won't be validating in the current epoch",
+        );
         return Ok(());
     }
 
@@ -583,7 +587,7 @@ impl Handler<SpanWrapped<OptimisticBlockMessage>> for ClientActorInner {
 impl Handler<SpanWrapped<BlockResponse>> for ClientActorInner {
     fn handle(&mut self, msg: SpanWrapped<BlockResponse>) {
         let BlockResponse { block, peer_id, was_requested } = msg.span_unwrap();
-        tracing::debug!(target: "client", block_height = block.header().height(), block_hash = ?block.header().hash(), "block response");
+        tracing::debug!(target: "client", block_height = block.header().height(), block_hash = ?block.header().hash(), "received block response");
         let blocks_at_height =
             self.client.chain.chain_store().get_all_block_hashes_by_height(block.header().height());
         if was_requested
@@ -633,7 +637,7 @@ impl Handler<SpanWrapped<BlockHeadersResponse>, Result<(), ReasonForBan>> for Cl
 impl Handler<SpanWrapped<BlockApproval>> for ClientActorInner {
     fn handle(&mut self, msg: SpanWrapped<BlockApproval>) {
         let BlockApproval(approval, peer_id) = msg.span_unwrap();
-        tracing::debug!(target: "client", ?approval, ?peer_id, "receive approval from peer");
+        tracing::debug!(target: "client", ?approval, ?peer_id, "received block approval");
         self.client.collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
     }
 }
@@ -1141,7 +1145,9 @@ impl ClientActorInner {
 
         // We try to produce block for multiple heights (up to the highest height for which we've seen 2/3 of approvals).
         if latest_known.height + 1 <= self.client.doomslug.get_largest_height_crossing_threshold() {
-            tracing::debug!(target: "client", height_start = latest_known.height + 1, height_end = self.client.doomslug.get_largest_height_crossing_threshold(), "considering blocks for production");
+            let start_height = latest_known.height + 1;
+            let end_height = self.client.doomslug.get_largest_height_crossing_threshold();
+            tracing::debug!(target: "client", start_height, end_height, "considering blocks for production");
         } else {
             tracing::debug!(target: "client", height = latest_known.height, "cannot produce any block: not enough approvals beyond height");
         }

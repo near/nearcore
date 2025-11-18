@@ -405,7 +405,7 @@ impl PartialWitnessActor {
             tag_witness_distribution = true,
         )
         .entered();
-        tracing::debug!(target: "client", ?partial_witness, "receive partial encoded state witness message");
+        tracing::debug!(target: "client", ?partial_witness, "received partial encoded state witness message");
         let signer = self.my_validator_signer()?;
         let validator_account_id = signer.validator_id().clone();
         let epoch_manager = self.epoch_manager.clone();
@@ -495,7 +495,7 @@ impl PartialWitnessActor {
             tag_witness_distribution = true,
         )
         .entered();
-        tracing::debug!(target: "client", ?partial_witness, "receive partial encoded state witness forward message");
+        tracing::debug!(target: "client", ?partial_witness, "received partial encoded state witness forward message");
 
         let signer = self.my_validator_signer()?;
         let validator_account_id = signer.validator_id().clone();
@@ -550,7 +550,7 @@ impl PartialWitnessActor {
         &mut self,
         partial_deploys: PartialEncodedContractDeploys,
     ) -> Result<(), Error> {
-        tracing::debug!(target: "client", ?partial_deploys, "receive partial encoded contract deploys");
+        tracing::debug!(target: "client", ?partial_deploys, "received partial encoded contract deploys");
         if !validate_partial_encoded_contract_deploys(
             self.epoch_manager.as_ref(),
             &partial_deploys,

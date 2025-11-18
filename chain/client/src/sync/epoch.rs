@@ -546,7 +546,7 @@ impl EpochSync {
         let proof = proof.into_v1();
         if let SyncStatus::EpochSync(status) = status {
             if status.source_peer_id != source_peer {
-                tracing::warn!(%source_peer, "ignoring epoch sync proof from unexpected peer");
+                tracing::warn!(%source_peer, expected_peer = %status.source_peer_id, "ignoring epoch sync proof from unexpected peer");
                 return Ok(());
             }
             if proof
@@ -576,7 +576,7 @@ impl EpochSync {
                 return Ok(());
             }
         } else {
-            tracing::warn!(%source_peer, "ignoring unexpected epoch sync proof from peer");
+            tracing::warn!(%source_peer, "ignoring unexpected epoch sync proof");
             return Ok(());
         }
 

@@ -73,7 +73,7 @@ pub(super) async fn run_state_sync_for_shard(
     concurrency_limit: u8,
     min_delay_before_reattempt: Duration,
 ) -> Result<(), near_chain::Error> {
-    tracing::info!(%shard_id, "running state sync for shard");
+    tracing::info!(%shard_id, "running state sync");
     *status.lock() = ShardSyncStatus::StateDownloadHeader;
     let header = downloader.ensure_shard_header(shard_id, sync_hash, cancel.clone()).await?;
     let state_root = header.chunk_prev_state_root();

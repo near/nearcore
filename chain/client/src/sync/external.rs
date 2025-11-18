@@ -273,7 +273,7 @@ mod test {
 
         // Generate random filename.
         let filename = random_string(8);
-        tracing::debug!(?filename, "filename");
+        tracing::debug!(?filename);
 
         // Define bucket.
         let location = ExternalStorageLocation::GCS { bucket: "state-parts".into() };
@@ -282,9 +282,9 @@ mod test {
 
         // Generate random data.
         let data = random_string(1000);
-        tracing::debug!(?data, "data as string");
+        tracing::debug!(?data);
         let data: Vec<u8> = data.into();
-        tracing::debug!(?data, "data");
+        tracing::debug!(?data);
 
         // Directory resembles real use case.
         let dir = "test_folder/chain_id=test/epoch_height=1/epoch_id=test/shard_id=0".to_string();
@@ -294,7 +294,7 @@ mod test {
         // Before uploading we shouldn't see filename in the list of files.
         let files =
             rt.block_on(async { connection.list_objects(ShardId::new(0), &dir).await.unwrap() });
-        tracing::debug!(?files, "files before upload");
+        tracing::debug!(?files, "before upload");
         assert_eq!(files.into_iter().filter(|x| *x == filename).count(), 0);
 
         // Uploading the file.
@@ -308,7 +308,7 @@ mod test {
         // After uploading we should see filename in the list of files.
         let files =
             rt.block_on(async { connection.list_objects(ShardId::new(0), &dir).await.unwrap() });
-        tracing::debug!(?files, "files after upload");
+        tracing::debug!(?files, "after upload");
         assert_eq!(files.into_iter().filter(|x| *x == filename).count(), 1);
 
         // And the data should match generates data.
