@@ -188,7 +188,6 @@ impl TrieViewer {
     ) -> Result<Vec<near_primitives::views::GasKeyInfoView>, errors::ViewGasKeyError> {
         let prefix = trie_key_parsers::get_raw_prefix_for_gas_keys(account_id);
         let mut result: Vec<near_primitives::views::GasKeyInfoView> = Vec::new();
-        let mut last_parsed_gas_key_public_key: Option<PublicKey> = None; // Tracked to check trie consistency.
         for raw_key in state_update.iter(&prefix)? {
             let raw_key = raw_key?;
             let trie_key = parse_trie_key_gas_key_from_raw_key(&raw_key).map_err(|err| {
@@ -204,17 +203,15 @@ impl TrieViewer {
             };
             if index.is_some() {
                 // This is a gas key nonce. Sanity check the nonce should be for the last gas key that we've parsed.
-                let last_gas_key_public_key =
-                    last_parsed_gas_key_public_key.as_ref().ok_or_else(|| {
-                        errors::ViewGasKeyError::InternalError {
-                            error_message: "Unexpected gas key nonce without gas key".to_string(),
-                        }
+                let last_gas_key =
+                    result.last_mut().ok_or_else(|| errors::ViewGasKeyError::InternalError {
+                        error_message: "Unexpected gas key nonce without gas key".to_string(),
                     })?;
-                if last_gas_key_public_key != public_key {
+                if &last_gas_key.public_key != public_key {
                     return Err(errors::ViewGasKeyError::InternalError {
                         error_message: format!(
                             "Gas key nonce's public key {:?} does not match the last gas key's public key {:?}",
-                            public_key, last_gas_key_public_key
+                            public_key, last_gas_key.public_key
                         ),
                     });
                 }
@@ -225,14 +222,7 @@ impl TrieViewer {
                                 .to_string(),
                         }
                     })?;
-                result
-                    .last_mut()
-                    .ok_or_else(|| errors::ViewGasKeyError::InternalError {
-                        error_message: "Unexpected gas key nonce without gas key".to_string(),
-                    })?
-                    .gas_key
-                    .nonces
-                    .push(value);
+                last_gas_key.gas_key.nonces.push(value);
             } else {
                 // This is a new gas key.
                 let value =
@@ -247,7 +237,6 @@ impl TrieViewer {
                     public_key: public_key.clone(),
                     gas_key: gas_key_view,
                 });
-                last_parsed_gas_key_public_key = Some(public_key.clone());
             }
         }
         // Sanity check that we've got all nonces for each gas key.
