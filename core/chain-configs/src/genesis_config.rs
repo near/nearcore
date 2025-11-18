@@ -285,6 +285,8 @@ impl From<&GenesisConfig> for EpochConfig {
             )
             .num_block_producer_seats_per_shard(config.num_block_producer_seats_per_shard.clone())
             .max_inflation_rate(config.max_inflation_rate)
+            .protocol_reward_rate(config.protocol_reward_rate)
+            .protocol_treasury_account(config.protocol_treasury_account.clone())
             .build()
             .expect("field init missing")
     }
