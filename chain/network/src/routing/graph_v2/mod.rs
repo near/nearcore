@@ -623,9 +623,7 @@ impl Inner {
 
     /// Logs the state of the routing table
     pub(crate) fn log_state(&self) {
-        tracing::debug!(target: "routing", my_distances = ?self.my_distances);
-        tracing::debug!(target: "routing", peer_labels = ?self.edge_cache.p2id);
-        tracing::debug!(target: "routing", peer_distances = ?self.peer_distances);
+        tracing::debug!(target: "routing", my_distances = ?self.my_distances, peer_labels = ?self.edge_cache.p2id, peer_distances = ?self.peer_distances);
     }
 }
 

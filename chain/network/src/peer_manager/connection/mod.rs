@@ -158,7 +158,7 @@ impl Connection {
     // so that we can skip the actor queue when sending messages.
     pub fn send_message(&self, msg: Arc<PeerMessage>) {
         let msg_kind = msg.msg_variant().to_string();
-        tracing::trace!(target: "network", ?msg_kind, "send message");
+        tracing::trace!(target: "network", ?msg_kind, "sending message");
         self.handle.send(SendMessage { message: msg }.span_wrap());
     }
 

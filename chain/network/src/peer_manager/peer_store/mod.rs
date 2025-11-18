@@ -232,7 +232,7 @@ impl Inner {
             if peer_status.status != KnownPeerStatus::Connected
                 && now > peer_status.last_seen + self.config.peer_expiration_duration
             {
-                tracing::debug!(target: "network", time_ago = ?(now - peer_status.last_seen), "removing peer, last seen ago");
+                tracing::debug!(target: "network", last_seen = ?peer_status.last_seen, "removing expired peer");
                 to_remove.push(peer_id.clone());
             }
         }

@@ -619,7 +619,7 @@ impl NetworkState {
                               reason = ?find_route_error,
                               known_peers = ?self.graph.routing_table.reachable_peers(),
                               msg = ?msg.body(),
-                            "drop signed message"
+                            "dropping signed message"
                         );
                         return false;
                     }
@@ -721,9 +721,10 @@ impl NetworkState {
             tracing::debug!(target: "network",
                    account_id = ?self.config.validator.account_id(),
                    to = ?account_id,
-                   ?msg,"drop message: unknown account",
+                   ?msg,
+                   err = "unknown account",
             );
-            tracing::trace!(target: "network", known_peers = ?self.account_announcements.get_accounts_keys(), "known peers");
+            tracing::trace!(target: "network", known_peers = ?self.account_announcements.get_accounts_keys());
             return false;
         };
 

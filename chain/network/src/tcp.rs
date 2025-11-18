@@ -111,12 +111,12 @@ impl Stream {
             Tier::T2 => {
                 if let Some(so_recv_buffer) = socket_options.recv_buffer_size {
                     socket.set_recv_buffer_size(so_recv_buffer)?;
-                    tracing::debug!(target: "network", wanted = %so_recv_buffer, actual = ?socket.recv_buffer_size(), "so_recv_buffer");
+                    tracing::debug!(target: "network", wanted_recv_buffer = %so_recv_buffer, actual_recv_buffer = ?socket.recv_buffer_size());
                 }
 
                 if let Some(so_send_buffer) = socket_options.send_buffer_size {
                     socket.set_send_buffer_size(so_send_buffer)?;
-                    tracing::debug!(target: "network", wanted = %so_send_buffer, actual = ?socket.send_buffer_size(), "so_send_buffer");
+                    tracing::debug!(target: "network", wanted_send_buffer = %so_send_buffer, actual_send_buffer = ?socket.send_buffer_size());
                 }
             }
             _ => {}

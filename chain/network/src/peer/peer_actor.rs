@@ -555,7 +555,7 @@ impl PeerActor {
                     return;
                 }
                 if handshake.target_peer_id != self.my_node_info.id {
-                    tracing::debug!(target: "network", sender_peer_id = ?handshake.sender_peer_id, target_peer_id = ?handshake.target_peer_id, my_node_id = ?self.my_node_info.id, "received handshake to wrong target");
+                    tracing::debug!(target: "network", peer_id = ?handshake.sender_peer_id, intended_handshake_with = ?handshake.target_peer_id, my_node_id = ?self.my_node_info.id, "peer handshaking with a wrong node, disconnecting peer");
                     self.send_message(&PeerMessage::HandshakeFailure(
                         self.my_node_info.clone(),
                         HandshakeFailureReason::InvalidTarget,
@@ -876,7 +876,13 @@ impl PeerActor {
                         if common_version < oldest_supported_version
                             || common_version < MIN_SUPPORTED_PROTOCOL_VERSION
                         {
-                            tracing::warn!(target: "network", %peer_info, our_version = ?(PROTOCOL_VERSION, MIN_SUPPORTED_PROTOCOL_VERSION), their_version = ?(version, oldest_supported_version), "unable to connect to a node due to a network protocol version mismatch");
+                            tracing::warn!(target: "network",
+                            %peer_info,
+                            our_version.current = PROTOCOL_VERSION,
+                            our_version.min = MIN_SUPPORTED_PROTOCOL_VERSION,
+                            their_version.current = version,
+                            their_version.min = oldest_supported_version,
+                            "unable to connect to a node due to a network protocol version mismatch",);
                             self.stop(ClosingReason::HandshakeFailed);
                             return;
                         }

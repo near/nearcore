@@ -248,7 +248,10 @@ impl Connection {
         .map_err(ConnectError::TcpConnect)?;
         tracing::info!(
             target: "network",
-            %peer_id, ?addr, latency=?start.elapsed(), "connection established",
+            %peer_id,
+            ?addr,
+            latency = ?start.elapsed(),
+            "connection established",
         );
         let mut peer = Self {
             stream: PeerStream::new(stream, recv_timeout),

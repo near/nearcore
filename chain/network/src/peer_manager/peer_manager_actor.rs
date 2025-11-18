@@ -234,7 +234,7 @@ impl PeerManagerActor {
                boot_nodes = config.peer_store.boot_nodes.len(),
                banned = peer_store.count_banned(),
                "found known peers");
-        tracing::debug!(target: "network", blacklist = ?config.peer_store.blacklist, "blacklist");
+        tracing::debug!(target: "network", blacklist = ?config.peer_store.blacklist);
         let whitelist_nodes = {
             let mut v = vec![];
             for wn in &config.whitelist_nodes {
@@ -404,7 +404,7 @@ impl PeerManagerActor {
         tracing::info!(
             target: "bandwidth",
             total_bandwidth_used_by_all_peers,
-            total_msg_received_count, "bandwidth stats"
+            total_msg_received_count
         );
 
         self.handle.clone().run_later(
@@ -572,7 +572,7 @@ impl PeerManagerActor {
             tracing::debug!(target: "network", id = ?p.peer_info.id,
                 tier2_len = tier2.ready.len(),
                 ideal_connections_hi = self.state.config.ideal_connections_hi,
-                "stop active connection"
+                "stopping active connection"
             );
             p.stop(None);
         }
@@ -1477,7 +1477,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                     },
                 );
                 if !state.send_message_to_peer(&clock, tcp::Tier::T2, routed_message) {
-                    tracing::debug!(target: "network", sender = %&sender, "failed to route ack");
+                    tracing::debug!(target: "network", sender = %sender, "failed to route ack");
                 }
 
                 let Some(tier3_response) = maybe_tier3_response else {
