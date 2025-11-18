@@ -107,7 +107,7 @@ impl<'a> TransactionKeyRef<'a> {
 pub struct TransactionV1 {
     /// An account on which behalf transaction is signed
     pub signer_id: AccountId,
-    /// Key and nonce used to sign the transaction
+    /// AccessKey or (GasKey, NonceIndex) pair used to sign the transaction
     pub key: TransactionKey,
     /// Nonce is used to determine order of transaction in the pool.
     /// It increments for a combination of `signer_id` and `public_key`
@@ -124,7 +124,7 @@ pub struct TransactionV1 {
 pub struct TransactionV2 {
     /// An account on which behalf transaction is signed
     pub signer_id: AccountId,
-    /// AccessKey or GasKey and NonceIndex used to sign the transaction
+    /// AccessKey or (GasKey, NonceIndex) pair used to sign the transaction
     pub key: TransactionKey,
     /// Nonce is used to determine order of transaction in the pool.
     /// It increments for a combination of `signer_id` and `public_key`
