@@ -67,7 +67,7 @@ impl ConfigUpdater {
             tracing::warn!(
                 target: "stats",
                 error = %*updatable_configs_error,
-                "dynamically updatable configs are not valid, please fix this ASAP otherwise the node will probably crash after restart"
+                "dynamically updatable configs are not valid, please fix this asap otherwise the node will probably crash after restart"
             );
         }
     }
