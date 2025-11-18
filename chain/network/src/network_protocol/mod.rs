@@ -1204,7 +1204,7 @@ impl RoutedMessage {
                 signature: msg.signature.unwrap_or_else(|| {
                     tracing::error!(
                         target: "network",
-                        "signature is missing. this should not yet happen"
+                        "signature is missing, this should not yet happen"
                     );
                     Signature::default()
                 }),

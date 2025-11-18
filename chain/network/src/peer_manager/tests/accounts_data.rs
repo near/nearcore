@@ -76,7 +76,7 @@ async fn broadcast() {
     let got2 = peer2.events.recv_until(take_full_sync).await;
     assert_eq!(got2.accounts_data.as_set(), want.iter().collect::<HashSet<_>>());
 
-    tracing::info!(target:"test", "send a mix of new and old data. only new data should be broadcasted");
+    tracing::info!(target:"test", "send a mix of new and old data, only new data should be broadcasted");
     let msg = SyncAccountsData {
         accounts_data: vec![data[1].clone(), data[2].clone()],
         incremental: true,
@@ -134,7 +134,7 @@ async fn gradual_epoch_change() {
 
     // For every order of nodes.
     for ids in (0..pms.len()).permutations(pms.len()) {
-        tracing::info!(target:"test", "permutation {ids:?}");
+        tracing::info!(target:"test", ?ids, "permutation");
         clock.advance(time::Duration::hours(1));
         let chain_info = testonly::make_chain_info(
             &chain,
@@ -153,7 +153,7 @@ async fn gradual_epoch_change() {
             want.extend(pms[id].tier1_advertise_proxies(&clock.clock()).await);
         }
         for pm in &mut pms {
-            tracing::info!(target:"test", "wait for data to arrive to {}",pm.cfg.node_id());
+            tracing::info!(target:"test", node_id = %pm.cfg.node_id(), "wait for data to arrive");
             pm.wait_for_accounts_data(&want).await;
         }
     }
@@ -238,7 +238,7 @@ async fn slow_test_rate_limiting() {
         pm.wait_for_accounts_data(&want).await;
     }
 
-    tracing::info!(target:"test","Count the SyncAccountsData messages exchanged");
+    tracing::info!(target:"test", "count the sync accounts data messages exchanged");
     let mut msgs = 0;
     for mut es in events {
         while let Some(ev) = es.try_recv() {
@@ -286,7 +286,7 @@ async fn validator_node_restart() {
         (2, ZERO),
         (2, SEC),
     ] {
-        tracing::info!(target:"test", "test case (n = {n}, downtime = {downtime})");
+        tracing::info!(target:"test", %n, %downtime, "test case");
 
         let mut rng = make_rng(921853233);
         let rng = &mut rng;

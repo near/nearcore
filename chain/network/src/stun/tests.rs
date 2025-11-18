@@ -18,7 +18,7 @@ async fn test_lookup_host() {
     init_test_logger();
 
     for addr in default_trusted_stun_servers() {
-        tracing::debug!(%addr, "querying STUN server");
+        tracing::debug!(%addr, "querying stun server");
 
         // Allow lookup to return nothing; the server may be unreachable.
         // What we want to check here is that if an address is returned,

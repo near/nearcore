@@ -440,8 +440,11 @@ impl Connection {
     ) -> Option<RoutedMessage> {
         if !self.target_is_for_me(msg.target()) {
             tracing::debug!(
-                target: "network", "{:?} dropping routed message {} for {:?}",
-                &self, msg.body_variant(), msg.target()
+                target: "network",
+                connection = ?&self,
+                body_variant = msg.body_variant(),
+                target = ?msg.target(),
+                "dropping routed message"
             );
             return None;
         }
@@ -607,7 +610,7 @@ impl PeerStream {
             self.buf.reserve(512 - max_len_after_next_read);
         }
         msg.map(|m| {
-            tracing::debug!(target: "network", "{:?} received PeerMessage::{} len: {}", &self, &m, msg_length);
+            tracing::debug!(target: "network", connection = ?&self, message = %&m, msg_length, "received peer message");
             (m, first_byte_time)
         })
         .map_err(|_| RecvError::Parse(msg_length))

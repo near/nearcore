@@ -34,15 +34,15 @@ async fn establish_connections(clock: &time::Clock, pms: &[&peer_manager::teston
     for pm in pms {
         data.extend(pm.tier1_advertise_proxies(clock).await);
     }
-    tracing::info!(target:"test", "tier1_advertise_proxies() DONE");
+    tracing::info!(target:"test", "tier1_advertise_proxies() done");
 
     // Wait for accounts data to propagate.
     for pm in pms {
         tracing::info!(target:"test", node_id = %pm.cfg.node_id(), "wait_for_accounts_data()");
         pm.wait_for_accounts_data(&data).await;
-        tracing::info!(target:"test", node_id = %pm.cfg.node_id(), "wait_for_accounts_data() DONE");
+        tracing::info!(target:"test", node_id = %pm.cfg.node_id(), "wait_for_accounts_data() done");
         pm.tier1_connect(clock).await;
-        tracing::info!(target:"test", node_id = %pm.cfg.node_id(), "tier1_connect() DONE");
+        tracing::info!(target:"test", node_id = %pm.cfg.node_id(), "tier1_connect() done");
     }
 }
 
@@ -328,7 +328,7 @@ async fn proxy_change() {
     }
     tracing::info!(target:"test", "TIER1 connections get established: v0 -> p1 <- v1");
     establish_connections(&clock.clock(), &[&v0, &v1, &p1, &hub]).await;
-    tracing::info!(target:"test", "Send message v1 -> v0 over TIER1");
+    tracing::info!(target:"test", "send message v1 -> v0 over tier1");
     send_and_recv_tier1_message(rng, &clock.clock(), &v1, &v0, tcp::Tier::T1).await;
 
     // Advance time, so that the new AccountsData has newer timestamp.
@@ -342,7 +342,7 @@ async fn proxy_change() {
     hub.connect_to(&p0.peer_info(), tcp::Tier::T2).await;
     tracing::info!(target:"test", "TIER1 connections get established: v0 -> p0 <- v1");
     establish_connections(&clock.clock(), &[&v0, &v1, &p0, &hub]).await;
-    tracing::info!(target:"test", "Send message v1 -> v0 over TIER1");
+    tracing::info!(target:"test", "send message v1 -> v0 over tier1");
     send_and_recv_tier1_message(rng, &clock.clock(), &v1, &v0, tcp::Tier::T1).await;
 
     drop(hub);
@@ -364,14 +364,14 @@ async fn tier2_routing_using_accounts_data() {
     let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 
-    tracing::info!(target:"test", "Try to send a routed message pm0 -> pm1 over TIER2");
+    tracing::info!(target:"test", "try to send a routed message pm0 -> pm1 over tier2");
     // It should fail due to missing routing information: neither AccountData or AnnounceAccount is
     // broadcasted by default in tests.
     // TODO(gprusak): send_tier1_message sends an Approval message, which is not a valid message to
     // be sent from a non-TIER1 node. Make it more realistic by sending a Transaction message.
     assert!(send_tier1_message(rng, &clock.clock(), &pm0, &pm1).await.is_none());
 
-    tracing::info!(target:"test", "propagate AccountsData");
+    tracing::info!(target:"test", "propagate accounts data");
     let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&pm1.cfg]);
     for pm in [&pm0, &pm1] {
         pm.set_chain_info(chain_info.clone()).await;
@@ -379,7 +379,7 @@ async fn tier2_routing_using_accounts_data() {
     let data: HashSet<_> = pm1.tier1_advertise_proxies(&clock.clock()).await.into_iter().collect();
     pm0.wait_for_accounts_data(&data).await;
 
-    tracing::info!(target:"test", "Send a routed message pm0 -> pm1 over TIER2");
+    tracing::info!(target:"test", "send a routed message pm0 -> pm1 over tier2");
     send_and_recv_tier1_message(rng, &clock.clock(), &pm0, &pm1, tcp::Tier::T2).await;
 }
 
@@ -391,7 +391,7 @@ async fn stun_self_discovery() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "configure TIER1 self discovery to use 2 local STUN servers");
+    tracing::info!(target:"test", "configure tier1 self discovery to use 2 local stun servers");
     let stun_server1 = stun::testonly::Server::new().await;
     let stun_server2 = stun::testonly::Server::new().await;
     let mut cfg = chain.make_config(rng);
@@ -400,7 +400,7 @@ async fn stun_self_discovery() {
         stun_server2.addr().to_string(),
     ]);
 
-    tracing::info!(target:"test", "spawn a node and advertize AccountData");
+    tracing::info!(target:"test", "spawn a node and advertize account data");
     let pm = start_pm(clock.clock(), TestDB::new(), cfg, chain.clone()).await;
     let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&pm.cfg]);
     pm.set_chain_info(chain_info).await;

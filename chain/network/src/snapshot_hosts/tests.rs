@@ -372,8 +372,8 @@ async fn test_select_peer() {
     });
     let peers = peers.into_iter().map(|(info, _score)| info).collect::<Vec<_>>();
     tracing::debug!(
-        "run_select_peer_test peers: {:?}",
-        peers.iter().map(|info| &info.peer_id).collect::<Vec<_>>()
+        peers = ?peers.iter().map(|info| &info.peer_id).collect::<Vec<_>>(),
+        "run_select_peer_test peers"
     );
 
     for t in SELECT_PEER_CASES {
