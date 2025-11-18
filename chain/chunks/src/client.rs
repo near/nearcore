@@ -263,7 +263,7 @@ mod tests {
                 let shard_uid = ShardUId::new(new_shard_layout.version(), shard_id);
                 let pool = pool.pool_for_shard(shard_uid);
                 let pool_len = pool.len();
-                tracing::debug!(?shard_uid, %pool_len, "checking shard_uid, the pool len is");
+                tracing::debug!(?shard_uid, %pool_len, "checking shard_uid, pool_len");
                 assert_ne!(pool.len(), 0);
             }
 

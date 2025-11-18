@@ -240,7 +240,7 @@ impl RequestPool {
         let mut requests = Vec::new();
         for (chunk_hash, chunk_request) in &mut self.requests {
             if current_time - chunk_request.added >= self.max_duration {
-                tracing::debug!(target: "chunks", chunk_hash = ?chunk_hash.0, shard_id = %chunk_request.shard_id, "evicted chunk requested that was never fetched");
+                tracing::debug!(target: "chunks", ?chunk_hash, shard_id = %chunk_request.shard_id, "evicted chunk requested that was never fetched");
                 removed_requests.insert(chunk_hash.clone());
                 continue;
             }
@@ -314,7 +314,7 @@ impl HandlerWithContext<ShardsManagerRequestFromNetwork> for ShardsManagerActor 
     ) {
         match self.handle_network_request(msg) {
             HandleNetworkRequestResult::RetryProcessing(msg, duration) => {
-                tracing::debug!(target: "chunks", "retry processing of the needs block chunk dropped scheduled");
+                tracing::debug!(target: "chunks", "retry processing of shards manager request from network");
 
                 ctx.run_later("retry processing chunk request", duration, move |this, _ctx| {
                     // Schedule retry processing the message once again if requested.
@@ -576,9 +576,7 @@ impl ShardsManagerActor {
                     },
                 ));
             } else {
-                tracing::warn!(target: "client",
-                    ?me, ?part_ords, ?chunk_hash,
-                    "requests parts for chunk from self");
+                tracing::warn!(target: "client", ?me, ?part_ords, ?chunk_hash, "requests parts for chunk from self");
             }
         }
 
@@ -1075,7 +1073,7 @@ impl ShardsManagerActor {
                 receipts.into_iter().map(|receipt| (receipt.1.to_shard_id, receipt)).collect()
             }
             Err(e) => {
-                tracing::warn!(target: "chunks", chunk_hash = ?chunk.chunk_hash(), ?e, "not sending, failed to make outgoing receipts proofs");
+                tracing::warn!(target: "chunks", chunk_hash = ?chunk.chunk_hash(), ?e, "not sending chunk, failed to make outgoing receipts proofs");
                 return;
             }
         };
@@ -1089,30 +1087,36 @@ impl ShardsManagerActor {
         );
 
         if header.encoded_length() != encoded_length as u64 {
-            tracing::warn!(target: "chunks",
-                   chunk_hash = ?chunk.chunk_hash(),
-                   expected = %header.encoded_length(),
-                   calculated = %encoded_length,
-                   "not sending, expected encoded length doesn't match calculated");
+            tracing::warn!(
+                target: "chunks",
+                chunk_hash = ?chunk.chunk_hash(),
+                expected = %header.encoded_length(),
+                calculated = %encoded_length,
+                "not sending chunk, expected encoded length doesn't match calculated",
+            );
             return;
         }
 
         let content = EncodedShardChunkBody { parts };
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
         if header.encoded_merkle_root() != &encoded_merkle_root {
-            tracing::warn!(target: "chunks",
-                   chunk_hash = ?chunk.chunk_hash(),
-                   expected = ?header.encoded_merkle_root(),
-                   calculated = ?encoded_merkle_root,
-                   "not sending, expected encoded merkle root doesn't match calculated");
+            tracing::warn!(
+                target: "chunks",
+                chunk_hash = ?chunk.chunk_hash(),
+                expected = ?header.encoded_merkle_root(),
+                calculated = ?encoded_merkle_root,
+                "not sending chunk, expected encoded merkle root doesn't match calculated",
+            );
             return;
         }
         if merkle_paths.len() != content.parts.len() {
-            tracing::warn!(target: "chunks",
-                   chunk_hash = ?chunk.chunk_hash(),
-                   expected = %merkle_paths.len(),
-                   calculated = %content.parts.len(),
-                   "not sending, expected number of merkle paths doesn't match calculated");
+            tracing::warn!(
+                target: "chunks",
+                chunk_hash = ?chunk.chunk_hash(),
+                expected = %merkle_paths.len(),
+                calculated = %content.parts.len(),
+                "not sending chunk, expected number of merkle paths doesn't match calculated",
+            );
             return;
         }
         for (part_ord, (part, merkle_proof)) in
@@ -1562,10 +1566,10 @@ impl ShardsManagerActor {
                     tracing::warn!(
                         target: "client",
                         ?chunk_hash,
-                        height = %partial_encoded_chunk.header.height_created(),
+                        height_created = %partial_encoded_chunk.header.height_created(),
                         shard_id = %partial_encoded_chunk.header.shard_id(),
                         ?hash,
-                        "rejecting un-requested chunk because of having"
+                        "rejecting un-requested chunk because mismatched hash"
                     );
                     return Err(Error::DuplicateChunkHeight);
                 }
@@ -1583,7 +1587,7 @@ impl ShardsManagerActor {
                     tracing::debug!(
                         target: "client",
                         chunk_hash = ?partial_encoded_chunk.header.chunk_hash(),
-                        height = %partial_encoded_chunk.header.height_created(),
+                        height_created = %partial_encoded_chunk.header.height_created(),
                         shard_id = %partial_encoded_chunk.header.shard_id(),
                         "dropping partial encoded chunk because we don't have enough information to validate it"
                     );
@@ -1725,7 +1729,7 @@ impl ShardsManagerActor {
         let epoch_id = match self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash) {
             Ok(epoch_id) => epoch_id,
             Err(_) => {
-                tracing::debug!(target: "chunks", ?prev_block_hash, "need block");
+                tracing::debug!(target: "chunks", ?prev_block_hash, "block not found");
                 return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
             }
         };
@@ -1757,7 +1761,7 @@ impl ShardsManagerActor {
                 }
             }
         } else {
-            tracing::debug!(target: "chunks", "unknown chunk");
+            tracing::debug!(target: "chunks", ?chunk_hash, "unknown chunk");
             return Err(Error::UnknownChunk);
         }
 

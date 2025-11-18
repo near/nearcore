@@ -152,7 +152,7 @@ pub async fn build_streamer_message(
                     tracing::warn!(
                         target: INDEXER,
                         receipt_id = ?execution_outcome.id,
-                        "receipt is missing in block and in delayed_local_receipts_cache, looking for it in up to 1000 blocks back in time",
+                        "receipt is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
                     );
                     lookup_delayed_local_receipt_in_previous_blocks(
                         &client,
@@ -375,7 +375,7 @@ pub async fn start(
             target: INDEXER,
             %start_syncing_block_height,
             %latest_block_height,
-            "streaming is about to start from block and the latest block",
+            "streaming is about to start",
         );
         metrics::START_BLOCK_HEIGHT.set(start_syncing_block_height as i64);
         metrics::LATEST_BLOCK_HEIGHT.set(latest_block_height as i64);

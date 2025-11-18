@@ -1788,7 +1788,7 @@ pub async fn start_http(
     let addr = config.addr;
     let prometheus_addr = config.prometheus_addr.clone().filter(|it| it != &addr.to_string());
     let cors_allowed_origins = config.cors_allowed_origins.clone();
-    tracing::info!(target: "network", %addr, "starting http server at");
+    tracing::info!(target: "network", %addr, "starting http server");
 
     // Create the axum app using the extracted function
     let app = create_jsonrpc_app(
@@ -1816,7 +1816,7 @@ pub async fn start_http(
     });
 
     if let Some(prometheus_addr) = prometheus_addr {
-        tracing::info!(target: "network", %prometheus_addr, "starting http monitoring server at");
+        tracing::info!(target: "network", %prometheus_addr, "starting http monitoring server");
         // Export only the /metrics service. It's a read-only service and can have very relaxed
         // access restrictions.
         let prometheus_app = Router::new()
@@ -1842,7 +1842,7 @@ pub async fn start_http_for_readonly_debug_querying(
     addr: ListenerAddr,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
 ) -> Result<(), std::io::Error> {
-    tracing::info!(%addr, "starting readonly debug API server at");
+    tracing::info!(%addr, "starting readonly debug API server");
     tracing::info!(
         "use tools/debug-ui, use localhost as the node, and go to the entity debug tab to start querying"
     );

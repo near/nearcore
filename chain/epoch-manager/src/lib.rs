@@ -730,11 +730,11 @@ impl EpochManager {
         };
         let next_next_epoch_id = EpochId(*last_block_hash);
         tracing::debug!(target: "epoch_manager",
-            epoch_height = %next_next_epoch_info.epoch_height(),
+            next_next_epoch_height = %next_next_epoch_info.epoch_height(),
             ?next_next_epoch_id,
-            protocol_version = %next_next_epoch_info.protocol_version(),
-            shard_layout = ?self.config.for_protocol_version(next_next_epoch_info.protocol_version()).shard_layout,
-            config = ?self.config.for_protocol_version(next_next_epoch_info.protocol_version()),
+            next_next_protocol_version = %next_next_epoch_info.protocol_version(),
+            next_next_shard_layout = ?self.config.for_protocol_version(next_next_epoch_info.protocol_version()).shard_layout,
+            next_next_epoch_config = ?self.config.for_protocol_version(next_next_epoch_info.protocol_version()),
             "next next epoch"
         );
         // This epoch info is computed for the epoch after next (T+2),
@@ -1018,10 +1018,9 @@ impl EpochManager {
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let epoch_id = self.get_epoch_id(last_block_hash)?;
         tracing::debug!(target: "epoch_manager",
-            ?next_next_epoch_id,
-            ?next_epoch_id,
-            ?epoch_id,
-            "epoch ids"
+            epoch_id = ?next_next_epoch_id,
+            prev_epoch_id = ?next_epoch_id,
+            prev_prev_epoch_id= ?epoch_id,
         );
 
         // Since stake changes for epoch T are stored in epoch info for T+2, the one stored by epoch_id
@@ -1033,7 +1032,6 @@ impl EpochManager {
             ?prev_prev_stake_change,
             ?prev_stake_change,
             ?stake_change,
-            "stake changes"
         );
         let all_stake_changes =
             prev_prev_stake_change.iter().chain(&prev_stake_change).chain(&stake_change);
@@ -1048,7 +1046,7 @@ impl EpochManager {
                 vec![prev_prev_stake, prev_stake, new_stake].into_iter().max().unwrap();
             stake_info.insert(account_id.clone(), max_of_stakes);
         }
-        tracing::debug!(target: "epoch_manager", ?stake_info, ?validator_reward, "stake info and validator reward");
+        tracing::debug!(target: "epoch_manager", ?stake_info, ?validator_reward);
         Ok((stake_info, validator_reward))
     }
 
