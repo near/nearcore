@@ -372,7 +372,7 @@ impl PrepareHotCmd {
         // as it would take too long.
 
         tracing::info!(target : "prepare-hot", "the hot, cold and RPC stores are suitable for cold storage migration");
-        tracing::info!(target : "prepare-hot", "changing the DbKind of the RPC store to Hot");
+        tracing::info!(target : "prepare-hot", "changing the db kind of the rpc store to hot");
         rpc_store.set_db_kind(DbKind::Hot)?;
 
         tracing::info!(target : "prepare-hot", ?path, "successfully prepared the hot store for migration, you can now set the config.store.path in neard config");

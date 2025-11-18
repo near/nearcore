@@ -152,7 +152,7 @@ pub async fn build_streamer_message(
                     tracing::warn!(
                         target: INDEXER,
                         receipt_id = ?execution_outcome.id,
-                        "receipt is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
+                        "receipt is missing in block and in delayed_local_receipts_cache, looking for it in up to 1000 blocks back in time",
                     );
                     lookup_delayed_local_receipt_in_previous_blocks(
                         &client,

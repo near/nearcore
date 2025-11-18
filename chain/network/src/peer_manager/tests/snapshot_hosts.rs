@@ -106,7 +106,7 @@ async fn broadcast() {
     let empty_sync_msg = peer3.events.recv_until(take_sync_snapshot_msg).await;
     assert_eq!(empty_sync_msg.hosts, vec![]);
 
-    tracing::info!(target:"test", "Send a SyncSnapshotHosts message from peer1, make sure that all peers receive it");
+    tracing::info!(target:"test", "send a sync snapshot hosts message from peer1, make sure that all peers receive it");
 
     let info1 = make_snapshot_host_info(&peer1_config.node_id(), &peer1_config.node_key, rng);
 
@@ -183,7 +183,7 @@ async fn invalid_signature_not_broadcast() {
     let empty_sync_msg = peer3.events.recv_until(take_sync_snapshot_msg).await;
     assert_eq!(empty_sync_msg.hosts, vec![]);
 
-    tracing::info!(target:"test", "Send an invalid SyncSnapshotHosts message from peer1. One of the host infos has an invalid signature");
+    tracing::info!(target:"test", "send an invalid sync snapshot hosts message from peer1, one of the host infos has an invalid signature");
     let random_secret_key = SecretKey::from_random(near_crypto::KeyType::ED25519);
     let invalid_info = make_snapshot_host_info(&peer1_config.node_id(), &random_secret_key, rng);
 
@@ -247,7 +247,7 @@ async fn too_many_shards_not_broadcast() {
     let empty_sync_msg = peer3.events.recv_until(take_sync_snapshot_msg).await;
     assert_eq!(empty_sync_msg.hosts, vec![]);
 
-    tracing::info!(target:"test", "Send an invalid SyncSnapshotHosts message from peer1. One of the host infos has more shard ids than allowed");
+    tracing::info!(target:"test", "send an invalid sync snapshot hosts message from peer1, one of the host infos has more shard ids than allowed");
     let too_many_shards: Vec<ShardId> =
         (0..(MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64 + 1)).map(Into::into).collect();
     let invalid_info = Arc::new(SnapshotHostInfo::new(
@@ -325,7 +325,7 @@ async fn propagate() {
     pms[1].connect_to(&pms[3].peer_info(), tcp::Tier::T2).await;
     pms[2].connect_to(&pms[3].peer_info(), tcp::Tier::T2).await;
 
-    tracing::info!(target:"test", "Send a SnapshotHostInfo message from peer manager #1");
+    tracing::info!(target:"test", "send a snapshot host info message from peer manager #1");
     let info1 = make_snapshot_host_info(&pms[1].peer_info().id, &pms[1].cfg.node_key, rng);
 
     let message = PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostInfo {
@@ -366,7 +366,7 @@ async fn large_shard_id_in_cache() {
     let peer1_config = chain.make_config(rng);
     let peer1 = pm.start_inbound(chain.clone(), peer1_config.clone()).await.handshake(clock).await;
 
-    tracing::info!(target:"test", "Send a SnapshotHostInfo message with very large shard ids");
+    tracing::info!(target:"test", "send a snapshot host info message with very large shard ids");
     let large_shard_id_1 = ShardId::new(u64::MAX - 1);
     let large_shard_id_2 = ShardId::new(u64::MAX);
     let big_shard_info = Arc::new(SnapshotHostInfo::new(
@@ -418,7 +418,7 @@ async fn too_many_shards_truncate() {
     let empty_sync_msg = peer1.events.recv_until(take_sync_snapshot_msg).await;
     assert_eq!(empty_sync_msg.hosts, vec![]);
 
-    tracing::info!(target:"test", "Ask peer manager to send out an invalid SyncSnapshotHosts message. The info has more shard ids than allowed");
+    tracing::info!(target:"test", "ask peer manager to send out an invalid sync snapshot hosts message, the info has more shard ids than allowed");
     // Create a list of shards with twice as many shard ids as is allowed
     let too_many_shards: Vec<ShardId> =
         (0..(2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64)).map(Into::into).collect();
@@ -434,7 +434,7 @@ async fn too_many_shards_truncate() {
 
     let _: () = pm.actor.send_async(message).await.unwrap();
 
-    tracing::info!(target:"test", "Receive the truncated SnapshotHostInfo message on peer1, make sure that the contents are correct");
+    tracing::info!(target:"test", "receive the truncated snapshot host info message on peer1, make sure that the contents are correct");
     let msg = peer1.events.recv_until(take_sync_snapshot_msg).await;
     assert_eq!(msg.hosts.len(), 1);
     let info: &SnapshotHostInfo = &msg.hosts[0];

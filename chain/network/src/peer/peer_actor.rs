@@ -1572,7 +1572,7 @@ impl messaging::Actor for PeerActor {
             None => {
                 // Due to actor system shutdown, sometimes closing reason may be not set.
                 // But it is only expected to happen in tests.
-                tracing::error!(target:"network", "closing reason not set. this should happen only in tests");
+                tracing::error!(target:"network", "closing reason not set, this should happen only in tests");
             }
             Some(reason) => {
                 tracing::debug!(target: "network", my_node_id = ?self.my_node_info.id, peer_info = %self.peer_info, %reason, "peer disconnected");

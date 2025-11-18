@@ -203,7 +203,7 @@ impl messaging::Actor for PeerManagerActor {
 
     /// Try to gracefully disconnect from connected peers.
     fn stop_actor(&mut self) {
-        tracing::warn!("PeerManager stopping");
+        tracing::warn!("peer manager stopping");
         self.state.tier2.broadcast_message(Arc::new(PeerMessage::Disconnect(Disconnect {
             remove_from_connection_store: false,
         })));
@@ -295,7 +295,7 @@ impl PeerManagerActor {
                                     if let Err(err) =
                                         PeerActor::spawn(clock.clone(), actor_system.clone(), stream, state.clone())
                                     {
-                                        tracing::info!(target:"network", ?err, "PeerActor::spawn failed");
+                                        tracing::info!(target:"network", ?err, "peer actor spawn failed");
                                     }
                                 }
                             }
@@ -953,7 +953,7 @@ impl PeerManagerActor {
                     tracing::warn!(
                         shards_len = shards.len(),
                         %MAX_SHARDS_PER_SNAPSHOT_HOST_INFO,
-                        "PeerManager sending out a SnapshotHostInfo message with too many shards, list will be truncated, please adjust MAX_SHARDS_PER_SNAPSHOT_HOST_INFO constant"
+                        "peer manager sending out a snapshot host info message with too many shards, list will be truncated, please adjust max_shards_per_snapshot_host_info constant"
                     );
 
                     // We can's send out more than MAX_SHARDS_PER_SNAPSHOT_HOST_INFO shards because other nodes would

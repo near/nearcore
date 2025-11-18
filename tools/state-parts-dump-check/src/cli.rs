@@ -791,7 +791,7 @@ async fn process_header_with_3_retries(
                 break;
             }
             _ if retries < MAX_RETRIES => {
-                tracing::info!(%shard_id, epoch_height, ?res, "process_header failed. will retry",);
+                tracing::info!(%shard_id, epoch_height, ?res, "process_header failed, will retry",);
                 retries += 1;
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
@@ -800,7 +800,7 @@ async fn process_header_with_3_retries(
                     %shard_id,
                     epoch_height,
                     ?res,
-                    "process_header failed. no more retries",
+                    "process_header failed, no more retries",
                 );
                 break;
             }

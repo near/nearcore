@@ -53,7 +53,7 @@ pub fn read_updatable_configs(
             validator_signer,
         })
     } else {
-        tracing::warn!(target: "neard", ?errs, "dynamically updatable configs are not valid, please fix this ASAP otherwise the node will be unable to restart");
+        tracing::warn!(target: "neard", ?errs, "dynamically updatable configs are not valid, please fix this asap otherwise the node will be unable to restart");
         crate::metrics::CONFIG_CORRECT.set(0);
         Err(UpdatableConfigLoaderError::Errors(errs))
     }

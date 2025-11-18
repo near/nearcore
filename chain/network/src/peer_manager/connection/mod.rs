@@ -199,8 +199,8 @@ impl Connection {
                 .await;
             if res.is_err() {
                 tracing::debug!(
-                    "peer {} disconnected, while sending SyncAccountsData",
-                    this.peer_info.id
+                    peer_id = %this.peer_info.id,
+                    "peer disconnected while sending sync accounts data"
                 );
             }
         }
@@ -251,8 +251,8 @@ impl Connection {
                 .await;
             if res.is_err() {
                 tracing::debug!(
-                    "peer {} disconnected, while sending SyncSnapshotHosts",
-                    this.peer_info.id
+                    peer_id = %this.peer_info.id,
+                    "peer disconnected while sending sync snapshot hosts"
                 );
             }
         }
@@ -441,7 +441,7 @@ impl Pool {
                     // however conflicting connections with the same account key indicate an
                     // incorrect validator setup, so we log it here as a warn!, rather than just
                     // info!.
-                    tracing::warn!(target:"network", "pool::register({id}): {err}");
+                    tracing::warn!(target:"network", %id, ?err, "pool register failed");
                     metrics::ALREADY_CONNECTED_ACCOUNT.inc();
                     return Err(err);
                 }
