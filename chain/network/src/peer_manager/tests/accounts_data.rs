@@ -225,7 +225,7 @@ async fn slow_test_rate_limiting() {
     // the total number of SyncAccountsData messages exchanged in the process.
     let events: Vec<_> = pms.iter().map(|pm| pm.events.from_now()).collect();
 
-    tracing::info!(target:"test","advance epoch in random order");
+    tracing::info!(target:"test", "advance epoch in random order");
     pms.shuffle(rng);
     let mut want = HashSet::new();
     for pm in &mut pms {
@@ -233,7 +233,7 @@ async fn slow_test_rate_limiting() {
         want.extend(pm.tier1_advertise_proxies(&clock.clock()).await);
     }
 
-    tracing::info!(target:"test","wait for data to arrive");
+    tracing::info!(target:"test", "wait for data to arrive");
     for pm in &mut pms {
         pm.wait_for_accounts_data(&want).await;
     }

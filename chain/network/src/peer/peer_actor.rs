@@ -555,7 +555,7 @@ impl PeerActor {
                     return;
                 }
                 if handshake.target_peer_id != self.my_node_info.id {
-                    tracing::debug!(target: "network", sender_peer_id = ?handshake.sender_peer_id, target_peer_id = ?handshake.target_peer_id, my_node_id = ?self.my_node_info.id, "received handshake from sender to target but i am my node id");
+                    tracing::debug!(target: "network", sender_peer_id = ?handshake.sender_peer_id, target_peer_id = ?handshake.target_peer_id, my_node_id = ?self.my_node_info.id, "received handshake to wrong target");
                     self.send_message(&PeerMessage::HandshakeFailure(
                         self.my_node_info.clone(),
                         HandshakeFailureReason::InvalidTarget,
@@ -575,7 +575,7 @@ impl PeerActor {
                     self.network_state.graph.load().local_edges.get(&handshake.sender_peer_id)
                 {
                     if last_edge.nonce() >= handshake.partial_edge_info.nonce {
-                        tracing::debug!(target: "network", my_node_id = ?self.my_node_id(), peer_addr = %self.peer_addr, "received too low nonce from peer, sending evidence");
+                        tracing::debug!(target: "network", my_node_id = ?self.my_node_id(), peer_addr = ?self.peer_addr, "received too low nonce from peer, sending evidence");
                         self.send_message(&PeerMessage::LastEdge(last_edge.clone()));
                         return;
                     }
