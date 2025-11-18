@@ -14,6 +14,7 @@ import subprocess
 import time
 import datetime
 from tqdm import tqdm
+from rc import pmap
 
 from types import SimpleNamespace
 from mirror import CommandContext, get_nodes_status, init_cmd, new_test_cmd, \
@@ -212,34 +213,49 @@ def handle_init(args):
     # Each CP gets its own account file with unique access keys
     cp_names = sorted(args.forknet_details['cp_instance_names'])
     
-    # Build mapping: shard_id -> list of CP names tracking that shard
-    shard_to_cps = defaultdict(list)
+    cp_nodes = []
     for cp_name in cp_names:
         run_cmd_args = copy.deepcopy(args)
         run_cmd_args.host_filter = cp_name
-        run_cmd_args.cmd = f"python3 {BENCHNET_DIR}/helpers/get_tracked_shard.py"
         ctx = CommandContext(run_cmd_args)
-        node = ctx.get_targeted()[0]
-        result = node.run_cmd(run_cmd_args.cmd, return_on_fail=True)
+        cp_nodes.append(ctx.get_targeted()[0])
+    
+    # Query all CPs in parallel to get their tracked shards
+    query_cmd = f"python3 {BENCHNET_DIR}/helpers/get_tracked_shard.py"
+    results = pmap(
+        lambda node: (node, node.run_cmd(query_cmd, return_on_fail=True)),
+        cp_nodes
+    )
+    
+    # Build mapping: shard_id -> list of CP names tracking that shard
+    shard_to_cps = defaultdict(list)
+    for node, result in results:
         shard = result.stdout.strip()
         if not shard.isdigit():
-            logger.error(f"Failed to get shard for {cp_name}: {result.stdout}")
+            logger.error(f"Failed to get shard for {node.name()}: {result.stdout}")
             sys.exit(1)
-        shard_to_cps[shard].append(cp_name)
+        shard_to_cps[shard].append(node.name())
     
-    # Now assign account files with per-shard slot numbers
+    # For each shard, copy account files to all CPs tracking that shard
+    logger.info(f"Distributing account files across {len(shard_to_cps)} shards...")
     for shard, cps_in_shard in shard_to_cps.items():
-        for slot, cp_name in enumerate(cps_in_shard):
-            logger.info(f"Assigning CP {cp_name} to shard {shard}, slot {slot}")
-            run_cmd_args = copy.deepcopy(args)
-            run_cmd_args.host_filter = cp_name
-            accounts_path = f"{BENCHNET_DIR}/user-data/accounts.json"
-            run_cmd_args.cmd = f"\
-                rm -rf {BENCHNET_DIR}/user-data && \
-                mkdir -p {BENCHNET_DIR}/user-data && \
-                cp {NEAR_HOME}/user-data/shard_{shard}_cp_{slot}.json {accounts_path} \
-            "
-            run_remote_cmd(CommandContext(run_cmd_args))
+        cp_slot_map = {cp_name: slot for slot, cp_name in enumerate(cps_in_shard)}
+        cp_names_csv = ','.join(sorted(cps_in_shard))
+        
+        logger.info(f"Shard {shard}: assigning {len(cps_in_shard)} CPs")
+        
+        run_cmd_args = copy.deepcopy(args)
+        run_cmd_args.host_filter = f"({'|'.join(cps_in_shard)})"
+        accounts_path = f"{BENCHNET_DIR}/user-data/accounts.json"
+        run_cmd_args.cmd = f"""
+            my_hostname=$(hostname)
+            slot=$(python3 -c "print('{cp_names_csv}'.split(',').index('$my_hostname'))")
+            rm -rf {BENCHNET_DIR}/user-data
+            mkdir -p {BENCHNET_DIR}/user-data
+            cp {NEAR_HOME}/user-data/shard_{shard}_cp_${{slot}}.json {accounts_path}
+            echo "CP $my_hostname assigned shard {shard}, slot $slot"
+        """
+        run_remote_cmd(CommandContext(run_cmd_args))
 
     stop_nodes(args)
 
