@@ -51,6 +51,15 @@ pub enum SignerKind {
     GasKey(NonceIndex),
 }
 
+impl SignerKind {
+    pub fn nonce_index(&self) -> Option<NonceIndex> {
+        match self {
+            SignerKind::AccessKey => None,
+            SignerKind::GasKey(nonce_index) => Some(*nonce_index),
+        }
+    }
+}
+
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, PartialEq, Eq, Debug, Clone, ProtocolSchema,
 )]

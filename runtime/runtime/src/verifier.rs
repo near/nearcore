@@ -786,7 +786,8 @@ mod tests {
     use near_primitives::receipt::{ActionReceipt, ReceiptPriority};
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
-        CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction, TransferAction,
+        CreateAccountAction, DeleteAccountAction, DeleteKeyAction, SignerKind, StakeAction,
+        TransferAction,
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, NonceIndex, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
@@ -1255,7 +1256,7 @@ mod tests {
             &mut state_update,
             TESTING_INIT_BALANCE,
             AccessKeyPermission::FullAccess,
-            Some(gas_key_signer.public_key().clone()),
+            Some(gas_key_signer.public_key()),
         );
 
         let deposit = Balance::from_yoctonear(100);
@@ -1326,7 +1327,7 @@ mod tests {
             &mut state_update,
             TESTING_INIT_BALANCE,
             AccessKeyPermission::FullAccess,
-            Some(gas_key_signer.public_key().clone()),
+            Some(gas_key_signer.public_key()),
         );
 
         let deposit = Balance::from_yoctonear(100);
@@ -1421,20 +1422,29 @@ mod tests {
         assert_eq!(err, InvalidTxError::SignerDoesNotExist { signer_id: bob_account() });
     }
 
-    #[test]
-    fn test_validate_transaction_invalid_bad_nonce() {
+    fn test_validate_transaction_invalid_bad_nonce_impl(s: SignerKind) {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             Balance::ZERO,
             Some(AccessKey { nonce: 2, permission: AccessKeyPermission::FullAccess }),
         );
+        if let SignerKind::GasKey(i) = s {
+            setup_gas_key(
+                &mut state_update,
+                TESTING_INIT_BALANCE,
+                AccessKeyPermission::FullAccess,
+                None,
+            );
+            set_gas_key_nonce(&mut state_update, alice_account(), signer.public_key(), i, 2);
+        }
 
-        let transaction = SignedTransaction::send_money(
+        let transaction = SignedTransaction::send_money_v1(
             1,
             alice_account(),
             bob_account(),
             &*signer,
+            s.nonce_index(),
             Balance::from_yoctonear(100),
             CryptoHash::default(),
         );
@@ -1445,33 +1455,53 @@ mod tests {
             transaction,
             gas_price,
             None,
-            PROTOCOL_VERSION,
+            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect_err("expected an error");
         assert_eq!(err, InvalidTxError::InvalidNonce { tx_nonce: 1, ak_nonce: 2 });
     }
 
     #[test]
-    fn test_validate_transaction_invalid_balance_overflow() {
+    fn test_validate_transaction_invalid_bad_nonce() {
+        test_validate_transaction_invalid_bad_nonce_impl(SignerKind::AccessKey);
+        test_validate_transaction_invalid_bad_nonce_impl(SignerKind::GasKey(0));
+    }
+
+    fn test_validate_transaction_invalid_balance_overflow_impl(s: SignerKind) {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
+        if let SignerKind::GasKey(_) = s {
+            setup_gas_key(
+                &mut state_update,
+                TESTING_INIT_BALANCE,
+                AccessKeyPermission::FullAccess,
+                None,
+            );
+        }
 
         assert_err_both_validations(
             &config,
             &mut state_update,
             gas_price,
-            SignedTransaction::send_money(
+            SignedTransaction::send_money_v1(
                 1,
                 alice_account(),
                 bob_account(),
                 &*signer,
+                s.nonce_index(),
                 Balance::MAX,
                 CryptoHash::default(),
             ),
             InvalidTxError::CostOverflow,
-            PROTOCOL_VERSION,
+            ProtocolFeature::GasKeys.protocol_version(),
         );
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_balance_overflow() {
+        test_validate_transaction_invalid_balance_overflow_impl(SignerKind::AccessKey);
+        test_validate_transaction_invalid_balance_overflow_impl(SignerKind::GasKey(0));
     }
 
     #[test]
@@ -1498,17 +1528,25 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_validate_transaction_invalid_not_enough_balance() {
+    fn test_validate_transaction_invalid_not_enough_balance_impl(s: SignerKind) {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
+        if let SignerKind::GasKey(_) = s {
+            setup_gas_key(
+                &mut state_update,
+                TESTING_INIT_BALANCE,
+                AccessKeyPermission::FullAccess,
+                None,
+            );
+        }
 
-        let signed_tx = SignedTransaction::send_money(
+        let signed_tx = SignedTransaction::send_money_v1(
             1,
             alice_account(),
             bob_account(),
             &*signer,
+            s.nonce_index(),
             TESTING_INIT_BALANCE,
             CryptoHash::default(),
         );
@@ -1519,7 +1557,7 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
+            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect_err("expected an error");
         if let InvalidTxError::NotEnoughBalance { signer_id, balance, cost } = err {
@@ -1532,16 +1570,30 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_transfer_to_gas_key_not_enough_balance() {
+    fn test_validate_transaction_invalid_not_enough_balance() {
+        test_validate_transaction_invalid_not_enough_balance_impl(SignerKind::AccessKey);
+        test_validate_transaction_invalid_not_enough_balance_impl(SignerKind::GasKey(0));
+    }
+
+    fn test_validate_transfer_to_gas_key_not_enough_balance_impl(s: SignerKind) {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
+        if let SignerKind::GasKey(_) = s {
+            setup_gas_key(
+                &mut state_update,
+                TESTING_INIT_BALANCE,
+                AccessKeyPermission::FullAccess,
+                None,
+            );
+        }
 
-        let signed_tx = SignedTransaction::from_actions(
+        let signed_tx = SignedTransaction::from_actions_v1(
             1,
             alice_account(),
             bob_account(),
             &*signer,
+            s.nonce_index(),
             vec![Action::TransferToGasKey(
                 TransferToGasKeyAction {
                     public_key: PublicKey::from_seed(KeyType::ED25519, "gas_key"),
@@ -1550,7 +1602,6 @@ mod tests {
                 .into(),
             )],
             CryptoHash::default(),
-            0,
         );
 
         let err = validate_verify_and_charge_transaction(
@@ -1572,26 +1623,33 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_transaction_invalid_not_enough_allowance() {
+    fn test_validate_transfer_to_gas_key_not_enough_balance() {
+        test_validate_transfer_to_gas_key_not_enough_balance_impl(SignerKind::AccessKey);
+        test_validate_transfer_to_gas_key_not_enough_balance_impl(SignerKind::GasKey(0));
+    }
+
+    fn test_validate_transaction_invalid_not_enough_allowance_impl(s: SignerKind) {
         let config = RuntimeConfig::test();
+        let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: Some(Balance::from_yoctonear(100)),
+            receiver_id: bob_account().into(),
+            method_names: vec![],
+        });
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             Balance::ZERO,
-            Some(AccessKey {
-                nonce: 0,
-                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: Some(Balance::from_yoctonear(100)),
-                    receiver_id: bob_account().into(),
-                    method_names: vec![],
-                }),
-            }),
+            Some(AccessKey { nonce: 0, permission: permission.clone() }),
         );
+        if let SignerKind::GasKey(_) = s {
+            setup_gas_key(&mut state_update, TESTING_INIT_BALANCE, permission, None);
+        }
 
-        let transaction = SignedTransaction::from_actions(
+        let transaction = SignedTransaction::from_actions_v1(
             1,
             alice_account(),
             bob_account(),
             &*signer,
+            s.nonce_index(),
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
@@ -1599,7 +1657,6 @@ mod tests {
                 deposit: Balance::ZERO,
             }))],
             CryptoHash::default(),
-            0,
         );
 
         let err = validate_verify_and_charge_transaction(
@@ -1608,23 +1665,43 @@ mod tests {
             transaction,
             gas_price,
             None,
-            PROTOCOL_VERSION,
+            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect_err("expected an error");
-        if let InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
-            account_id,
-            public_key,
-            allowance,
-            cost,
-        }) = err
-        {
-            assert_eq!(account_id, alice_account());
-            assert_eq!(*public_key, signer.public_key());
-            assert_eq!(allowance, Balance::from_yoctonear(100));
-            assert!(cost > allowance);
-        } else {
-            panic!("Incorrect error");
-        }
+
+        let (account_id, public_key, allowance, cost) = match (s, err) {
+            (
+                SignerKind::AccessKey,
+                InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
+                    account_id,
+                    public_key,
+                    allowance,
+                    cost,
+                }),
+            ) => (account_id, public_key, allowance, cost),
+            (
+                SignerKind::GasKey(_),
+                InvalidTxError::InvalidAccessKeyError(
+                    InvalidAccessKeyError::NotEnoughAllowanceGasKey {
+                        account_id,
+                        public_key,
+                        allowance,
+                        cost,
+                    },
+                ),
+            ) => (account_id, public_key, allowance, cost),
+            _ => panic!("Incorrect error"),
+        };
+        assert_eq!(account_id, alice_account());
+        assert_eq!(*public_key, signer.public_key());
+        assert_eq!(allowance, Balance::from_yoctonear(100));
+        assert!(cost > allowance);
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_not_enough_allowance() {
+        test_validate_transaction_invalid_not_enough_allowance_impl(SignerKind::AccessKey);
+        test_validate_transaction_invalid_not_enough_allowance_impl(SignerKind::GasKey(0));
     }
 
     #[test]
@@ -1712,28 +1789,29 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_validate_transaction_invalid_actions_for_function_call() {
+    fn test_validate_transaction_invalid_actions_for_function_call_impl(s: SignerKind) {
         let config = RuntimeConfig::test();
+        let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: None,
+            receiver_id: bob_account().into(),
+            method_names: vec![],
+        });
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             Balance::ZERO,
-            Some(AccessKey {
-                nonce: 0,
-                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: None,
-                    receiver_id: bob_account().into(),
-                    method_names: vec![],
-                }),
-            }),
+            Some(AccessKey { nonce: 0, permission: permission.clone() }),
         );
+        if let SignerKind::GasKey(_) = s {
+            setup_gas_key(&mut state_update, TESTING_INIT_BALANCE, permission.clone(), None);
+        }
 
         // Case 1
-        let signed_tx = SignedTransaction::from_actions(
+        let signed_tx = SignedTransaction::from_actions_v1(
             1,
             alice_account(),
             bob_account(),
             &*signer,
+            s.nonce_index(),
             vec![
                 Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "hello".to_string(),
@@ -1744,7 +1822,6 @@ mod tests {
                 Action::CreateAccount(CreateAccountAction {}),
             ],
             CryptoHash::default(),
-            0,
         );
         validate_verify_and_charge_transaction(
             &config,
@@ -1752,19 +1829,19 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
+            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect_err("expected an error");
 
         // Case 2
-        let signed_tx = SignedTransaction::from_actions(
+        let signed_tx = SignedTransaction::from_actions_v1(
             1,
             alice_account(),
             bob_account(),
             &*signer,
+            s.nonce_index(),
             vec![],
             CryptoHash::default(),
-            0,
         );
         validate_verify_and_charge_transaction(
             &config,
@@ -1772,19 +1849,19 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
+            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect_err("expected an error");
 
         // Case 3
-        let signed_tx = SignedTransaction::from_actions(
+        let signed_tx = SignedTransaction::from_actions_v1(
             1,
             alice_account(),
             bob_account(),
             &*signer,
+            s.nonce_index(),
             vec![Action::CreateAccount(CreateAccountAction {})],
             CryptoHash::default(),
-            0,
         );
         validate_verify_and_charge_transaction(
             &config,
@@ -1792,32 +1869,39 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
+            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect_err("expected an error");
     }
 
     #[test]
-    fn test_validate_transaction_invalid_receiver_for_function_call() {
+    fn test_validate_transaction_invalid_actions_for_function_call() {
+        test_validate_transaction_invalid_actions_for_function_call_impl(SignerKind::AccessKey);
+        test_validate_transaction_invalid_actions_for_function_call_impl(SignerKind::GasKey(0));
+    }
+
+    fn test_validate_transaction_invalid_receiver_for_function_call_impl(s: SignerKind) {
         let config = RuntimeConfig::test();
+        let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: None,
+            receiver_id: bob_account().into(),
+            method_names: vec![],
+        });
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             Balance::ZERO,
-            Some(AccessKey {
-                nonce: 0,
-                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: None,
-                    receiver_id: bob_account().into(),
-                    method_names: vec![],
-                }),
-            }),
+            Some(AccessKey { nonce: 0, permission: permission.clone() }),
         );
+        if let SignerKind::GasKey(_) = s {
+            setup_gas_key(&mut state_update, TESTING_INIT_BALANCE, permission.clone(), None);
+        }
 
-        let signed_tx = SignedTransaction::from_actions(
+        let signed_tx = SignedTransaction::from_actions_v1(
             1,
             alice_account(),
             eve_dot_alice_account(),
             &*signer,
+            s.nonce_index(),
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
@@ -1825,7 +1909,6 @@ mod tests {
                 deposit: Balance::ZERO,
             }))],
             CryptoHash::default(),
-            0,
         );
 
         let err = validate_verify_and_charge_transaction(
@@ -1834,7 +1917,7 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
+            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect_err("expected an error");
         assert_eq!(
@@ -1847,26 +1930,33 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_transaction_invalid_method_name_for_function_call() {
+    fn test_validate_transaction_invalid_receiver_for_function_call() {
+        test_validate_transaction_invalid_receiver_for_function_call_impl(SignerKind::AccessKey);
+        test_validate_transaction_invalid_receiver_for_function_call_impl(SignerKind::GasKey(0));
+    }
+
+    fn test_validate_transaction_invalid_method_name_for_function_call_impl(s: SignerKind) {
         let config = RuntimeConfig::test();
+        let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: None,
+            receiver_id: bob_account().into(),
+            method_names: vec!["not_hello".to_string(), "world".to_string()],
+        });
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             Balance::ZERO,
-            Some(AccessKey {
-                nonce: 0,
-                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: None,
-                    receiver_id: bob_account().into(),
-                    method_names: vec!["not_hello".to_string(), "world".to_string()],
-                }),
-            }),
+            Some(AccessKey { nonce: 0, permission: permission.clone() }),
         );
+        if let SignerKind::GasKey(_) = s {
+            setup_gas_key(&mut state_update, TESTING_INIT_BALANCE, permission, None);
+        }
 
-        let signed_tx = SignedTransaction::from_actions(
+        let signed_tx = SignedTransaction::from_actions_v1(
             1,
             alice_account(),
             bob_account(),
             &*signer,
+            s.nonce_index(),
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
@@ -1874,7 +1964,6 @@ mod tests {
                 deposit: Balance::ZERO,
             }))],
             CryptoHash::default(),
-            0,
         );
 
         let err = validate_verify_and_charge_transaction(
@@ -1883,7 +1972,7 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
+            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect_err("expected an error");
         assert_eq!(
@@ -1895,26 +1984,33 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_transaction_deposit_with_function_call() {
+    fn test_validate_transaction_invalid_method_name_for_function_call() {
+        test_validate_transaction_invalid_method_name_for_function_call_impl(SignerKind::AccessKey);
+        test_validate_transaction_invalid_method_name_for_function_call_impl(SignerKind::GasKey(0));
+    }
+
+    fn test_validate_transaction_deposit_with_function_call_impl(s: SignerKind) {
         let config = RuntimeConfig::test();
+        let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: None,
+            receiver_id: bob_account().into(),
+            method_names: vec![],
+        });
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             Balance::ZERO,
-            Some(AccessKey {
-                nonce: 0,
-                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: None,
-                    receiver_id: bob_account().into(),
-                    method_names: vec![],
-                }),
-            }),
+            Some(AccessKey { nonce: 0, permission: permission.clone() }),
         );
+        if let SignerKind::GasKey(_) = s {
+            setup_gas_key(&mut state_update, TESTING_INIT_BALANCE, permission, None);
+        }
 
-        let signed_tx = SignedTransaction::from_actions(
+        let signed_tx = SignedTransaction::from_actions_v1(
             1,
             alice_account(),
             bob_account(),
             &*signer,
+            s.nonce_index(),
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
@@ -1922,7 +2018,6 @@ mod tests {
                 deposit: Balance::from_yoctonear(100),
             }))],
             CryptoHash::default(),
-            0,
         );
 
         let err = validate_verify_and_charge_transaction(
@@ -1931,7 +2026,7 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
+            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect_err("expected an error");
         assert_eq!(
@@ -1941,18 +2036,31 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_transaction_exceeding_tx_size_limit() {
+    fn test_validate_transaction_deposit_with_function_call() {
+        test_validate_transaction_deposit_with_function_call_impl(SignerKind::AccessKey);
+        test_validate_transaction_deposit_with_function_call_impl(SignerKind::GasKey(0));
+    }
+
+    fn test_validate_transaction_exceeding_tx_size_limit_impl(s: SignerKind) {
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
+        if let SignerKind::GasKey(_) = s {
+            setup_gas_key(
+                &mut state_update,
+                TESTING_INIT_BALANCE,
+                AccessKeyPermission::FullAccess,
+                None,
+            );
+        }
 
-        let signed_tx = SignedTransaction::from_actions(
+        let signed_tx = SignedTransaction::from_actions_v1(
             1,
             alice_account(),
             bob_account(),
             &*signer,
+            s.nonce_index(),
             vec![Action::DeployContract(DeployContractAction { code: vec![1; 5] })],
             CryptoHash::default(),
-            0,
         );
         let transaction_size = signed_tx.get_size();
 
@@ -1963,8 +2071,12 @@ mod tests {
             wasm_config.limit_config.max_transaction_size = transaction_size - 1;
         }
 
-        let (err, _tx) = validate_transaction(&config, signed_tx.clone(), PROTOCOL_VERSION)
-            .expect_err("expected validation error - size exceeded");
+        let (err, _tx) = validate_transaction(
+            &config,
+            signed_tx.clone(),
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .expect_err("expected validation error - size exceeded");
         assert_eq!(
             err,
             InvalidTxError::TransactionSizeExceeded {
@@ -1984,9 +2096,15 @@ mod tests {
             signed_tx,
             gas_price,
             None,
-            PROTOCOL_VERSION,
+            ProtocolFeature::GasKeys.protocol_version(),
         )
         .expect("valid transaction");
+    }
+
+    #[test]
+    fn test_validate_transaction_exceeding_tx_size_limit() {
+        test_validate_transaction_exceeding_tx_size_limit_impl(SignerKind::AccessKey);
+        test_validate_transaction_exceeding_tx_size_limit_impl(SignerKind::GasKey(0));
     }
 
     // Receipts
