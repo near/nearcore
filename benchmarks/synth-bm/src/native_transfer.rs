@@ -138,7 +138,7 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
             permit.send(res);
         });
         if i > 0 && i % 10000 == 0 {
-            tracing::info!(%i, "num txs sent");
+            tracing::info!(transactions_sent = %i);
         }
 
         let sender = accounts.get_mut(idx_sender).unwrap();
