@@ -70,9 +70,9 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         // Produce the next block
         let tip = env.clients[0].chain.head().unwrap();
         let block_producer = env.get_block_producer_at_offset(&tip, 1);
-        tracing::info!(target: "test", "Producing block at height: {height} by {block_producer}");
+        tracing::info!(target: "test", %height, %block_producer, "producing block at height by block producer");
         let block = env.client(&block_producer).produce_block(tip.height + 1).unwrap().unwrap();
-        tracing::info!(target: "test", "Block produced at height {} has chunk {:?}", height, block.chunks()[0].chunk_hash());
+        tracing::info!(target: "test", %height, chunk_hash = ?block.chunks()[0].chunk_hash(), "block produced at height has chunk");
 
         // The first block after genesis doesn't have any chunks, but all other blocks should have a new chunk inside.
         if height > 1 {
@@ -130,7 +130,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
     let clients_without_excluded =
         (0..env.clients.len()).filter(|idx| *idx != excluded_validator_idx);
 
-    tracing::info!(target:"test", "Producing block1 at height {}", tip.height + 1);
+    tracing::info!(target:"test", height = %(tip.height + 1), "producing block1 at height");
     let block1 = env.client(&block1_producer).produce_block(tip.height + 1).unwrap().unwrap();
     assert_eq!(
         block1.chunks()[0].height_created(),
@@ -161,7 +161,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
 
     // Trigger chunk production for block2 by producing the block first
     let block2 = env.client(&block2_producer).produce_block(tip.height + 2).unwrap().unwrap();
-    tracing::info!(target:"test", "Producing block2 at height {}", tip.height + 2);
+    tracing::info!(target:"test", height = %(tip.height + 2), "producing block2 at height");
     assert_eq!(
         block2.chunks()[0].height_created(),
         block2.header().height(),

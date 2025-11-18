@@ -288,14 +288,14 @@ fn ultra_slow_test_check_process_flipped_block_fails() {
         }
         corrupted_bit_idx += 1;
     }
-    tracing::info!("All of the Errors:");
+    tracing::info!("all of the errors:");
     for err in &errs {
-        tracing::info!("{:?}", err);
+        tracing::info!(?err, "error");
     }
     tracing::info!("{}", ["-"; 100].concat());
-    tracing::info!("All of the Oks:");
+    tracing::info!("all of the oks:");
     for ok in &oks {
-        tracing::info!("{:?}", ok);
+        tracing::info!(?ok, "ok");
     }
     assert!(errs.is_empty());
     assert!(
