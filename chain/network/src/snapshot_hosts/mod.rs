@@ -157,10 +157,7 @@ struct Inner {
 
 impl Inner {
     fn is_new(&self, h: &SnapshotHostInfo) -> bool {
-        if self
-            .current_epoch
-            .as_ref()
-            .map_or(false, |current| current.epoch_height > h.epoch_height)
+        if self.current_epoch.as_ref().is_some_and(|current| current.epoch_height > h.epoch_height)
         {
             return false;
         }
@@ -185,7 +182,8 @@ impl Inner {
     /// assumes that the SnapshotHostInfo is valid and new
     fn insert(&mut self, d: &Arc<SnapshotHostInfo>) {
         // If it does not know the current epoch, no need to update the cache, it will be rebuilt later when it knows the current epoch.
-        if self.current_epoch.as_ref().map_or(false, |epoch| epoch.epoch_height == d.epoch_height) {
+        if self.current_epoch.as_ref().is_some_and(|current| current.epoch_height == d.epoch_height)
+        {
             for shard_id in &d.shards {
                 self.hosts_for_shard
                     .entry(*shard_id)
@@ -212,21 +210,22 @@ impl Inner {
         // Build current epoch's cache by keeping only the hosts that are still valid.
         // Lock is taken so the loop will eventually terminate when all hosts are removed.
         loop {
-            match self.hosts.pop_lru() {
-                Some((peer_id, info)) => {
-                    if info.epoch_height + EPOCH_RETENTION_WINDOW >= *epoch_height {
-                        if info.sync_hash == *sync_hash {
-                            for shard_id in &info.shards {
-                                self.hosts_for_shard
-                                    .entry(*shard_id)
-                                    .or_insert(HashSet::default())
-                                    .insert(peer_id.clone());
-                            }
-                        }
-                        new_hosts.push(peer_id, info);
-                    }
-                }
-                None => break,
+            let Some((peer_id, info)) = self.hosts.pop_lru() else { break };
+            if !(info.epoch_height + EPOCH_RETENTION_WINDOW >= *epoch_height
+                && info.sync_hash == *sync_hash)
+            {
+                continue;
+            }
+            new_hosts.push(peer_id.clone(), info.clone());
+            if info.sync_hash != *sync_hash {
+                continue;
+            }
+
+            for shard_id in &info.shards {
+                self.hosts_for_shard
+                    .entry(*shard_id)
+                    .or_insert(HashSet::default())
+                    .insert(peer_id.clone());
             }
         }
         self.hosts = new_hosts;
@@ -239,7 +238,7 @@ impl Inner {
         sync_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Option<PeerId> {
-        if self.current_epoch.as_ref().map_or(true, |epoch| epoch.sync_hash != *sync_hash) {
+        if self.current_epoch.as_ref().is_none_or(|current| current.sync_hash != *sync_hash) {
             tracing::info!(target: "network", ?sync_hash, current_epoch = ?self.current_epoch, "snapshot hosts cache is not up to date, skipping peer selection");
             return None;
         }
@@ -255,7 +254,7 @@ impl Inner {
         shard_id: ShardId,
         part_id: u64,
     ) -> Option<PeerId> {
-        if self.current_epoch.as_ref().map_or(true, |epoch| epoch.sync_hash != *sync_hash) {
+        if self.current_epoch.as_ref().is_none_or(|current| current.sync_hash != *sync_hash) {
             tracing::info!(target: "network", ?sync_hash, current_epoch = ?self.current_epoch, "snapshot hosts cache is not up to date, skipping peer selection");
             return None;
         }
