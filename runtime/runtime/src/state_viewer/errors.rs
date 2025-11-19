@@ -52,8 +52,8 @@ pub enum CallFunctionError {
     AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
     #[error("Internal error: #{error_message}")]
     InternalError { error_message: String },
-    #[error("VM error occurred: #{error_message}")]
-    VMError { error_message: String },
+    #[error("VM error occurred: {error:?}")]
+    VMError { error: near_primitives::errors::FunctionCallError },
 }
 
 impl From<ViewAccountError> for ViewContractCodeError {

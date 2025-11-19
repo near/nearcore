@@ -118,8 +118,8 @@ impl RpcFrom<QueryError> for RpcQueryError {
             QueryError::UnknownAccessKey { public_key, block_height, block_hash } => {
                 Self::UnknownAccessKey { public_key, block_height, block_hash }
             }
-            QueryError::ContractExecutionError { vm_error, block_height, block_hash } => {
-                Self::ContractExecutionError { vm_error, block_height, block_hash }
+            QueryError::ContractExecutionError { error, block_height, block_hash } => {
+                Self::ContractExecutionError { error, block_height, block_hash }
             }
             QueryError::Unreachable { ref error_message } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);
