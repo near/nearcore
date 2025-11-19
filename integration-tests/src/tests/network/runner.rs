@@ -162,6 +162,7 @@ fn setup_network_node(
         tx_routing_height_horizon: client_config.tx_routing_height_horizon,
         epoch_length: client_config.epoch_length,
         transaction_validity_period: genesis.config.transaction_validity_period,
+        disable_tx_routing: client_config.disable_tx_routing,
     };
     let rpc_handler = spawn_rpc_handler_actor(
         actor_system.clone(),

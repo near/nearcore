@@ -297,6 +297,7 @@ pub fn setup_client(
         tx_routing_height_horizon: client_config.tx_routing_height_horizon,
         epoch_length: client_config.epoch_length,
         transaction_validity_period: genesis.config.transaction_validity_period,
+        disable_tx_routing: client_config.disable_tx_routing,
     };
     let rpc_handler = RpcHandler::new(
         rpc_handler_config,
