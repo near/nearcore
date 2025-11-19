@@ -8,7 +8,6 @@ use nearcore::get_default_home;
 use std::env;
 use std::path::PathBuf;
 use std::sync::LazyLock;
-use std::time::Duration;
 
 static NEARD_VERSION: &str = env!("NEARD_VERSION");
 static NEARD_BUILD: &str = env!("NEARD_BUILD");
