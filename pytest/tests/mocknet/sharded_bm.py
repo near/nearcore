@@ -532,6 +532,7 @@ def main():
         host_type="nodes",
         select_partition=None,
     )
+    parser.add_argument("--start_height")
 
     subparsers = parser.add_subparsers(
         dest='command',
