@@ -350,7 +350,9 @@ impl ForkNetworkCommand {
         // get_epoch_config_from_protocol_version
         let target_shard_layout = match shard_layout_override {
             ShardLayoutOverride::UseShardLayoutFromProtocolVersion(protocol_version) => {
-                epoch_manager.get_epoch_config_from_protocol_version(*protocol_version).shard_layout
+                epoch_manager
+                    .get_epoch_config_from_protocol_version(*protocol_version)
+                    .legacy_shard_layout()
             }
             ShardLayoutOverride::UseShardLayoutFromFile(shard_layout_file) => {
                 let layout = std::fs::read_to_string(&shard_layout_file).with_context(|| {
@@ -695,7 +697,7 @@ impl ForkNetworkCommand {
 
         // 1. Create default genesis and override its fields with given parameters.
         let (epoch_config, num_accounts_per_shard) = Self::read_patches(patches_path)?;
-        let target_shard_layout = &epoch_config.shard_layout;
+        let target_shard_layout = &epoch_config.legacy_shard_layout();
         let validators = Self::read_validators(validators, home_dir)?;
         let num_seats = num_seats.unwrap_or(validators.len() as NumSeats);
         let mut genesis = Genesis::from_account_infos(
@@ -710,18 +712,24 @@ impl ForkNetworkCommand {
         let genesis_protocol_version = genesis.config.protocol_version;
         genesis.config.epoch_length = epoch_length;
         genesis.config.chain_id.clone_from(chain_id);
-        initialize_sharded_genesis_state(store.clone(), &genesis, &epoch_config, Some(home_dir));
+        initialize_sharded_genesis_state(
+            store.clone(),
+            &genesis,
+            &epoch_config,
+            &target_shard_layout,
+            Some(home_dir),
+        );
         genesis.to_file(home_dir.join(&near_config.config.genesis_file));
         near_config.genesis = genesis.clone();
 
         // 2. Initialize chain and state storage so we can add benchmark
         // accounts there.
-        let prev_state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
-        let shard_uids = epoch_config.shard_layout.shard_uids().collect::<Vec<_>>();
+        let prev_state_roots = get_genesis_state_roots(&store)?.unwrap();
+        let shard_uids: Vec<_> = target_shard_layout.shard_uids().collect();
 
         let base_epoch_config_store = EpochConfigStore::test(BTreeMap::from([(
             genesis_protocol_version,
-            Arc::new(epoch_config.clone()),
+            Arc::new(epoch_config),
         )]));
         let epoch_config = self.override_epoch_configs(
             base_epoch_config_store,
@@ -1450,19 +1458,20 @@ impl ForkNetworkCommand {
         new_state_roots: Vec<StateRoot>,
         new_validator_accounts: Vec<AccountInfo>,
     ) -> anyhow::Result<()> {
+        let shard_layout = epoch_config.legacy_shard_layout();
         // TODO: deprecate these fields as unused.
-        let num_block_producer_seats_per_shard =
-            vec![
-                original_config.num_block_producer_seats_per_shard[0];
-                epoch_config.shard_layout.num_shards() as usize
-            ];
+        let num_block_producer_seats_per_shard = vec![
+            original_config
+                .num_block_producer_seats_per_shard[0];
+            shard_layout.num_shards() as usize
+        ];
         let avg_hidden_validator_seats_per_shard =
             if original_config.avg_hidden_validator_seats_per_shard.is_empty() {
                 Vec::new()
             } else {
                 vec![
                     original_config.avg_hidden_validator_seats_per_shard[0];
-                    epoch_config.shard_layout.num_shards() as usize
+                    shard_layout.num_shards() as usize
                 ]
             };
         let new_config = GenesisConfig {
@@ -1483,7 +1492,7 @@ impl ForkNetworkCommand {
             fishermen_threshold: epoch_config.fishermen_threshold,
             minimum_stake_divisor: epoch_config.minimum_stake_divisor,
             protocol_upgrade_stake_threshold: epoch_config.protocol_upgrade_stake_threshold,
-            shard_layout: epoch_config.shard_layout,
+            shard_layout,
             num_chunk_only_producer_seats: epoch_config.num_chunk_only_producer_seats,
             minimum_validators_per_shard: epoch_config.minimum_validators_per_shard,
             minimum_stake_ratio: epoch_config.minimum_stake_ratio,

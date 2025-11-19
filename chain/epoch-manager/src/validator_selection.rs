@@ -96,6 +96,7 @@ fn select_validators_from_proposals(
 
 fn get_chunk_producers_assignment(
     epoch_config: &EpochConfig,
+    shard_layout: &ShardLayout,
     rng_seed: RngSeed,
     prev_epoch_info: &EpochInfo,
     validator_roles: &ValidatorRoles,
@@ -137,7 +138,7 @@ fn get_chunk_producers_assignment(
         prev_chunk_producers_assignment.push(validator_stakes);
     }
 
-    let shard_ids: Vec<_> = epoch_config.shard_layout.shard_ids().collect();
+    let shard_ids: Vec<_> = shard_layout.shard_ids().collect();
     let shard_assignment = assign_chunk_producers_to_shards(
         chunk_producers.clone(),
         shard_ids.len() as NumShards,
@@ -179,11 +180,8 @@ pub fn proposals_to_epoch_info(
         "Proposals should not have duplicates"
     );
 
-    let num_shards = epoch_config
-        .shard_layout
-        .num_shards()
-        .try_into()
-        .expect("number of shards above usize range");
+    let num_shards =
+        shard_layout.num_shards().try_into().expect("number of shards above usize range");
     let mut stake_change = BTreeMap::new();
     let proposals = apply_epoch_update_to_proposals(
         proposals,
@@ -226,6 +224,7 @@ pub fn proposals_to_epoch_info(
         mut chunk_producers_settlement,
     } = get_chunk_producers_assignment(
         epoch_config,
+        &shard_layout,
         rng_seed,
         prev_epoch_info,
         &validator_roles,
@@ -449,7 +448,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
-            epoch_config.shard_layout.clone(),
+            ShardLayout::multi_shard(2, 0),
             false,
         )
         .unwrap();
@@ -474,10 +473,11 @@ mod tests {
     fn test_validator_assignment_with_chunk_only_producers() {
         // A more complex test. Here there are more BP proposals than spots, so some will
         // become chunk-only producers, along side the other chunk-only proposals.
+        let num_shards = 2;
         let num_bp_seats = 10;
         let num_cp_seats = 30;
         let epoch_config = create_epoch_config(
-            2,
+            num_shards,
             num_bp_seats,
             Some(num_bp_seats + num_cp_seats),
             Some(num_bp_seats + num_cp_seats),
@@ -517,7 +517,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
-            epoch_config.shard_layout.clone(),
+            ShardLayout::multi_shard(num_shards, 0),
             false,
         )
         .unwrap();
@@ -572,10 +572,11 @@ mod tests {
     // depending on the `shuffle_shard_assignment_for_chunk_producers` flag.
     #[test]
     fn test_validator_assignment_with_chunk_only_producers_with_shard_shuffling() {
+        let num_shards = 6;
         let num_bp_seats = 10;
         let num_cp_seats = 30;
         let mut epoch_config = create_epoch_config(
-            6,
+            num_shards,
             num_bp_seats,
             Some(num_bp_seats + num_cp_seats),
             Some(num_bp_seats + num_cp_seats),
@@ -594,6 +595,7 @@ mod tests {
                 },
             )
         }));
+        let shard_layout = ShardLayout::multi_shard(num_shards, 0);
         let epoch_info_no_shuffling = proposals_to_epoch_info(
             &epoch_config,
             [1; 32],
@@ -603,7 +605,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
-            epoch_config.shard_layout.clone(),
+            shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -616,7 +618,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
-            epoch_config.shard_layout.clone(),
+            shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -631,7 +633,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
-            epoch_config.shard_layout.clone(),
+            shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -644,7 +646,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
-            epoch_config.shard_layout.clone(),
+            shard_layout,
             false,
         )
         .unwrap();
@@ -700,7 +702,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
-            epoch_config.shard_layout.clone(),
+            ShardLayout::multi_shard(num_shards, 0),
             false,
         )
         .unwrap();
@@ -734,7 +736,7 @@ mod tests {
             ("test3", Balance::from_yoctonear(1000)),
             ("test4", Balance::from_yoctonear(1000)),
         ]);
-
+        let shard_layout = ShardLayout::multi_shard(num_shards, 0);
         let epoch_info = proposals_to_epoch_info(
             &epoch_config,
             [0; 32],
@@ -744,17 +746,16 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
-            epoch_config.shard_layout.clone(),
+            shard_layout.clone(),
             false,
         )
         .unwrap();
 
-        let shard_layout = &epoch_config.shard_layout;
         for shard_info in shard_layout.shard_infos() {
             let shard_index = shard_info.shard_index();
             let shard_id = shard_info.shard_id();
             for h in 0..100_000 {
-                let cp = epoch_info.sample_chunk_producer(shard_layout, shard_id, h);
+                let cp = epoch_info.sample_chunk_producer(&shard_layout, shard_id, h);
                 // Don't read too much into this. The reason the ValidatorId always
                 // equals the ShardId is because the validators are assigned to shards in order.
                 assert_eq!(cp, Some(shard_index as u64))
@@ -780,7 +781,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
-            epoch_config.shard_layout.clone(),
+            shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -788,7 +789,7 @@ mod tests {
         for shard_id in shard_layout.shard_ids() {
             let mut counts: [i32; 2] = [0, 0];
             for h in 0..100_000 {
-                let cp = epoch_info.sample_chunk_producer(shard_layout, shard_id, h).unwrap();
+                let cp = epoch_info.sample_chunk_producer(&shard_layout, shard_id, h).unwrap();
                 // if ValidatorId is in the second half then it is the lower
                 // stake validator (because they are sorted by decreasing stake).
                 let index = if cp >= num_shards { 1 } else { 0 };
@@ -835,7 +836,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
-            epoch_config.shard_layout.clone(),
+            ShardLayout::multi_shard(num_shards, 0),
             false,
         )
         .unwrap();
@@ -905,6 +906,7 @@ mod tests {
             ("test5", Balance::from_yoctonear(100)), // 100 is even too small to be a fisherman, cannot get any role
             ("test6", Balance::from_yoctonear(50)),
         ]);
+        let shard_layout = ShardLayout::single_shard();
         let epoch_info = proposals_to_epoch_info(
             &epoch_config,
             [0; 32],
@@ -914,7 +916,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
-            epoch_config.shard_layout.clone(),
+            shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -958,7 +960,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
-            epoch_config.shard_layout.clone(),
+            shard_layout.clone(),
             false,
         )
         .unwrap();
@@ -982,7 +984,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
-            epoch_config.shard_layout.clone(),
+            shard_layout,
             false,
         )
         .unwrap();
@@ -1015,7 +1017,7 @@ mod tests {
             Default::default(),
             Balance::ZERO,
             PROTOCOL_VERSION,
-            epoch_config.shard_layout.clone(),
+            ShardLayout::single_shard(),
             false,
         )
         .unwrap();
@@ -1051,7 +1053,7 @@ mod tests {
             rewards_map,
             Balance::ZERO,
             PROTOCOL_VERSION,
-            epoch_config.shard_layout.clone(),
+            ShardLayout::single_shard(),
             false,
         )
         .unwrap();
@@ -1071,27 +1073,27 @@ mod tests {
         num_chunk_validator_seats: Option<NumSeats>,
         minimum_stake_ratio: Option<Ratio<i32>>,
     ) -> EpochConfig {
-        let mut epoch_config = EpochConfig::minimal();
-        epoch_config.epoch_length = 10;
-        epoch_config.num_block_producer_seats = num_block_producer_seats;
-        epoch_config.num_block_producer_seats_per_shard =
-            vec![num_block_producer_seats; num_shards as usize];
-        epoch_config.avg_hidden_validator_seats_per_shard = vec![0; num_shards as usize];
-        epoch_config.target_validator_mandates_per_shard = 68;
-        epoch_config.validator_max_kickout_stake_perc = 100;
-        epoch_config.shard_layout = ShardLayout::multi_shard(num_shards, 0);
+        let mut config_builder = EpochConfig::minimal();
+        config_builder
+            .epoch_length(10)
+            .num_block_producer_seats(num_block_producer_seats)
+            .num_block_producer_seats_per_shard(vec![num_block_producer_seats; num_shards as usize])
+            .avg_hidden_validator_seats_per_shard(vec![0; num_shards as usize])
+            .target_validator_mandates_per_shard(68)
+            .validator_max_kickout_stake_perc(100)
+            .shard_layout(ShardLayout::multi_shard(num_shards, 0));
 
         if let Some(num_chunk_producer_seats) = num_chunk_producer_seats {
-            epoch_config.num_chunk_producer_seats = num_chunk_producer_seats;
+            config_builder.num_chunk_producer_seats(num_chunk_producer_seats);
         }
         if let Some(num_chunk_validator_seats) = num_chunk_validator_seats {
-            epoch_config.num_chunk_validator_seats = num_chunk_validator_seats;
+            config_builder.num_chunk_validator_seats(num_chunk_validator_seats);
         }
         if let Some(minimum_stake_ratio) = minimum_stake_ratio {
-            epoch_config.minimum_stake_ratio = minimum_stake_ratio;
+            config_builder.minimum_stake_ratio(minimum_stake_ratio);
         }
 
-        epoch_config
+        config_builder.build().expect("config field missing")
     }
 
     fn create_prev_epoch_info<T: IntoValidatorStake + Copy>(

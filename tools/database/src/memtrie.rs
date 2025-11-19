@@ -179,8 +179,9 @@ impl SplitShardTrieCommand {
         // Re-create epoch manager with new shard layout
         let epoch_config_store = EpochConfigStore::for_chain_id(chain_id, None)
             .ok_or_else(|| anyhow::anyhow!("Cannot load epoch config store"))?;
-        let mut epoch_config = (**epoch_config_store.get_config(protocol_version)).clone();
-        epoch_config.shard_layout = shard_layout;
+        let epoch_config = (**epoch_config_store.get_config(protocol_version))
+            .clone()
+            .with_shard_layout(shard_layout);
         let epoch_config_store =
             EpochConfigStore::test_single_version(protocol_version, epoch_config);
         let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(

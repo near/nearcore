@@ -68,12 +68,8 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
     {
         let block =
             env.client().chain.get_block_by_height(expected_new_shard_layout_height).unwrap();
-        let block_shard_layout = env
-            .client()
-            .epoch_manager
-            .get_epoch_config(block.header().epoch_id())
-            .unwrap()
-            .shard_layout;
+        let block_shard_layout =
+            env.client().epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
         assert_eq!(block_shard_layout, env.new_shard_layout);
         let chunks = block.chunks();
         // Expect new chunk
@@ -142,9 +138,8 @@ impl GlobalContractsReshardingTestEnv {
             .build();
 
         let base_epoch_config = TestEpochConfigBuilder::from_genesis(&genesis).build();
-        let new_epoch_config =
+        let (new_epoch_config, new_shard_layout) =
             derive_new_epoch_config_from_boundary(&base_epoch_config, &split_boundary_account);
-        let new_shard_layout = new_epoch_config.shard_layout.clone();
 
         assert_eq!(
             users
@@ -184,7 +179,7 @@ impl GlobalContractsReshardingTestEnv {
     fn current_shard_layout(&self) -> ShardLayout {
         let epoch_id = self.client().chain.chain_store().head().unwrap().epoch_id;
         let epoch_manager = self.client().epoch_manager.clone();
-        epoch_manager.get_epoch_config(&epoch_id).unwrap().shard_layout
+        epoch_manager.get_shard_layout(&epoch_id).unwrap()
     }
 
     fn shutdown(self) {

@@ -132,16 +132,15 @@ mod tests {
         max_inflation_rate: Ratio<i32>,
         chunk_validator_only_kickout_threshold: u8,
     ) -> EpochConfig {
-        let mut epoch_config = EpochConfig::minimal();
-        epoch_config.epoch_length = epoch_length;
-        epoch_config.max_inflation_rate = max_inflation_rate;
-        epoch_config.protocol_reward_rate = Ratio::new(0, 1);
-        epoch_config.online_min_threshold = Ratio::new(9, 10);
-        epoch_config.online_max_threshold = Ratio::new(99, 100);
-        epoch_config.chunk_validator_only_kickout_threshold =
-            chunk_validator_only_kickout_threshold;
-
-        epoch_config
+        EpochConfig::minimal()
+            .epoch_length(epoch_length)
+            .max_inflation_rate(max_inflation_rate)
+            .protocol_reward_rate(Ratio::new(0, 1))
+            .online_min_threshold(Ratio::new(9, 10))
+            .online_max_threshold(Ratio::new(99, 100))
+            .chunk_validator_only_kickout_threshold(chunk_validator_only_kickout_threshold)
+            .build()
+            .expect("config field missing")
     }
 
     #[test]

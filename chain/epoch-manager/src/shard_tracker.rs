@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::EpochManagerAdapter;
@@ -448,14 +448,35 @@ impl ShardTracker {
             return Ok(*is_tracked);
         }
 
-        let is_tracked = check_if_descendant_of_tracked_shard_impl(
-            shard_id,
-            &tracked_shards,
-            &epoch_id,
-            &self.epoch_manager,
-        )?;
+        let is_tracked =
+            self.descendant_of_tracked_shard_inner(shard_id, tracked_shards, epoch_id)?;
+
         self.descendant_of_tracked_shard_cache.lock().insert(shard_id, is_tracked);
         Ok(is_tracked)
+    }
+
+    fn descendant_of_tracked_shard_inner(
+        &self,
+        shard_id: ShardId,
+        tracked_shards: &Vec<ShardUId>,
+        epoch_id: &EpochId,
+    ) -> Result<bool, EpochError> {
+        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
+        let shard_idx = shard_layout.get_shard_index(shard_id)?;
+        let shard_uid = shard_layout.get_shard_uid(shard_idx)?;
+        if tracked_shards.contains(&shard_uid) {
+            return Ok(true);
+        }
+
+        let parent_shard = shard_layout.try_get_parent_shard_id(shard_id)?;
+        let Some(parent_shard) = parent_shard else {
+            return Ok(false);
+        };
+
+        match self.descendant_of_tracked_shard_cache.lock().get(&parent_shard) {
+            Some(is_tracked) => Ok(*is_tracked),
+            None => panic!("FIXME"),
+        }
     }
 
     /// Returns shards tracked in the given epoch by a non-validator (e.g. archival) node.
@@ -473,55 +494,6 @@ impl ShardTracker {
         }
         Ok(tracked_shards)
     }
-}
-
-fn check_if_descendant_of_tracked_shard_impl(
-    shard_id: ShardId,
-    tracked_shards: &Vec<ShardUId>,
-    epoch_id: &EpochId,
-    epoch_manager: &Arc<dyn EpochManagerAdapter>,
-) -> Result<bool, EpochError> {
-    let mut protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
-    let mut shard_layout = epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
-    let mut shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-    if tracked_shards.contains(&shard_uid) {
-        // We explicitly track `shard_id` (the shard is a descendant of itself).
-        return Ok(true);
-    }
-    // `shard_uid` does not belong to `tracked_shards`, but it might be a descendant of one.
-    // Iterate through all ancestors of `shard_uid` to see if any belong to `tracked_shards`.
-    let tracked_shards: HashSet<ShardUId> = tracked_shards.into_iter().cloned().collect();
-    let genesis_protocol_version = epoch_manager.genesis_protocol_version();
-    while protocol_version > genesis_protocol_version {
-        protocol_version -= 1;
-        let previous_protocol_version_shard_layout =
-            epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
-        if previous_protocol_version_shard_layout == shard_layout {
-            // The `ShardLayout` hasn't changed, so we keep decrementing `protocol_version`.
-            continue;
-        }
-        // The `ShardLayout` changed after this protocol version — get the parent shard of `shard_uid`.
-        let Some(parent_shard_id) = shard_layout.try_get_parent_shard_id(shard_uid.shard_id())?
-        else {
-            debug_assert!(
-                false,
-                "Parent shard is missing for shard {} in shard layout {:?}, protocol version {}",
-                shard_uid, shard_layout, protocol_version
-            );
-            return Ok(false);
-        };
-        // Update `shard_uid` and `shard_layout` to their parent `ShardUId` and `ShardLayout`.
-        shard_uid = ShardUId::from_shard_id_and_layout(
-            parent_shard_id,
-            &previous_protocol_version_shard_layout,
-        );
-        shard_layout = previous_protocol_version_shard_layout;
-        // Check whether the ancestor shard belongs to `tracked_shards`.
-        if tracked_shards.contains(&shard_uid) {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 #[cfg(test)]
@@ -579,10 +551,10 @@ mod tests {
                 &first_split_shard_layout,
                 "abcd".parse().unwrap(),
             );
-            let mut first_split_epoch_config = base_epoch_config;
-            first_split_epoch_config.shard_layout = first_split_shard_layout;
-            let mut second_split_epoch_config = first_split_epoch_config.clone();
-            second_split_epoch_config.shard_layout = second_split_shard_layout;
+            let first_split_epoch_config =
+                base_epoch_config.clone().with_shard_layout(first_split_shard_layout);
+            let second_split_epoch_config =
+                base_epoch_config.with_shard_layout(second_split_shard_layout);
             epoch_configs.push((PROTOCOL_VERSION - 1, Arc::new(first_split_epoch_config)));
             epoch_configs.push((PROTOCOL_VERSION, Arc::new(second_split_epoch_config)));
         }
