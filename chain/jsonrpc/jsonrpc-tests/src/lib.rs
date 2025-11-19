@@ -172,6 +172,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         tx_routing_height_horizon: client_config.tx_routing_height_horizon,
         epoch_length: client_config.epoch_length,
         transaction_validity_period,
+        disable_tx_routing: client_config.disable_tx_routing,
     };
 
     let rpc_handler_actor = spawn_rpc_handler_actor(
