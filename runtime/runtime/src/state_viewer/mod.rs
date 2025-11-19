@@ -207,7 +207,10 @@ impl TrieViewer {
                         error_message: "Unexpected gas key nonce without gas key".to_string(),
                     })?;
                 // Sanity check the nonce should be for the last gas key that we've parsed.
+                if &last_gas_key.public_key != public_key {
+                    return Err(errors::ViewGasKeyError::InternalError {
                         error_message: format!(
+                            "Gas key nonce's public key {:?} does not match the last gas key's public key {:?}",
                             public_key, last_gas_key.public_key
                         ),
                     });

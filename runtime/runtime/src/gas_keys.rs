@@ -145,7 +145,6 @@ mod tests {
     use crate::state_viewer::errors::ViewGasKeyError;
 
     use super::*;
-    use itertools::Itertools;
     use near_crypto::{KeyType, SecretKey};
     use near_parameters::RuntimeConfig;
     use near_primitives::account::{AccessKey, AccessKeyPermission};
