@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.0"
+    "version": "1.2.1"
   },
   "paths": {
     "/EXPERIMENTAL_changes": {
@@ -11435,6 +11435,10 @@
             ],
             "description": "Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and\nwrites chunk-related data based on the tracked shards."
           },
+          "disable_tx_routing": {
+            "description": "If true, the node won't forward transactions to next the chunk producers.",
+            "type": "boolean"
+          },
           "doomslug_step_period": {
             "description": "Time between running doomslug timer.",
             "items": {
@@ -11888,6 +11892,7 @@
           "enable_multiline_logging",
           "resharding_config",
           "tx_routing_height_horizon",
+          "disable_tx_routing",
           "produce_chunk_add_transactions_time_limit",
           "orphan_state_witness_pool_size",
           "orphan_state_witness_max_size",
