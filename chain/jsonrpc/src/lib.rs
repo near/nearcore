@@ -1844,7 +1844,7 @@ pub async fn start_http_for_readonly_debug_querying(
 ) -> Result<(), std::io::Error> {
     tracing::info!(%addr, "starting readonly debug API server");
     tracing::info!(
-        "use tools/debug-ui, use localhost as the node, and go to the entity debug tab to start querying"
+        "use tools/debug-ui, use localhost as the node, and go to the `Entity Debug` tab to start querying"
     );
 
     let app = Router::new()
