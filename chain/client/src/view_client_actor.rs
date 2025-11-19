@@ -78,7 +78,7 @@ pub struct ViewClientRequestManager {
 }
 
 /// View client provides currently committed (to the storage) view of the current chain and state.
-pub struct ViewClientActorInner {
+pub struct ViewClientActor {
     clock: Clock,
     pub adv: crate::adversarial::Controls,
     pub chain: Chain,
@@ -99,9 +99,9 @@ impl ViewClientRequestManager {
     }
 }
 
-impl Actor for ViewClientActorInner {}
+impl Actor for ViewClientActor {}
 
-impl ViewClientActorInner {
+impl ViewClientActor {
     pub fn spawn_multithread_actor(
         clock: Clock,
         actor_system: ActorSystem,
@@ -113,9 +113,9 @@ impl ViewClientActorInner {
         config: ClientConfig,
         adv: crate::adversarial::Controls,
         validator_signer: MutableValidatorSigner,
-    ) -> MultithreadRuntimeHandle<ViewClientActorInner> {
+    ) -> MultithreadRuntimeHandle<ViewClientActor> {
         actor_system.spawn_multithread_actor(config.view_client_threads, move || {
-            ViewClientActorInner::new(
+            ViewClientActor::new(
                 clock.clone(),
                 chain_genesis.clone(),
                 epoch_manager.clone(),
@@ -719,7 +719,7 @@ impl ViewClientActorInner {
     }
 }
 
-impl Handler<Query, Result<QueryResponse, QueryError>> for ViewClientActorInner {
+impl Handler<Query, Result<QueryResponse, QueryError>> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: Query) -> Result<QueryResponse, QueryError> {
         tracing::debug!(target: "client", ?msg);
@@ -729,7 +729,7 @@ impl Handler<Query, Result<QueryResponse, QueryError>> for ViewClientActorInner 
 }
 
 /// Handles retrieving block from the chain.
-impl Handler<GetBlock, Result<BlockView, GetBlockError>> for ViewClientActorInner {
+impl Handler<GetBlock, Result<BlockView, GetBlockError>> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: GetBlock) -> Result<BlockView, GetBlockError> {
         tracing::debug!(target: "client", ?msg);
@@ -745,7 +745,7 @@ impl Handler<GetBlock, Result<BlockView, GetBlockError>> for ViewClientActorInne
 }
 
 impl Handler<GetBlockWithMerkleTree, Result<(BlockView, Arc<PartialMerkleTree>), GetBlockError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
     #[perf]
     fn handle(
@@ -787,7 +787,7 @@ fn get_chunk_from_block(
     Ok(res)
 }
 
-impl Handler<GetShardChunk, Result<ShardChunk, GetChunkError>> for ViewClientActorInner {
+impl Handler<GetShardChunk, Result<ShardChunk, GetChunkError>> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: GetShardChunk) -> Result<ShardChunk, GetChunkError> {
         tracing::debug!(target: "client", ?msg);
@@ -811,7 +811,7 @@ impl Handler<GetShardChunk, Result<ShardChunk, GetChunkError>> for ViewClientAct
     }
 }
 
-impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActorInner {
+impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: GetChunk) -> Result<ChunkView, GetChunkError> {
         tracing::debug!(target: "client", ?msg);
@@ -852,7 +852,7 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActorInne
     }
 }
 
-impl Handler<TxStatus, Result<TxStatusView, TxStatusError>> for ViewClientActorInner {
+impl Handler<TxStatus, Result<TxStatusView, TxStatusError>> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: TxStatus) -> Result<TxStatusView, TxStatusError> {
         tracing::debug!(target: "client", ?msg);
@@ -863,7 +863,7 @@ impl Handler<TxStatus, Result<TxStatusView, TxStatusError>> for ViewClientActorI
 }
 
 impl Handler<GetValidatorInfo, Result<EpochValidatorInfo, GetValidatorInfoError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
     #[perf]
     fn handle(
@@ -912,7 +912,7 @@ impl Handler<GetValidatorInfo, Result<EpochValidatorInfo, GetValidatorInfoError>
 }
 
 impl Handler<GetValidatorOrdered, Result<Vec<ValidatorStakeView>, GetValidatorInfoError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
     #[perf]
     fn handle(
@@ -930,7 +930,7 @@ impl Handler<GetValidatorOrdered, Result<Vec<ValidatorStakeView>, GetValidatorIn
 }
 /// Returns a list of change kinds per account in a store for a given block.
 impl Handler<GetStateChangesInBlock, Result<StateChangesKindsView, GetStateChangesError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
     #[perf]
     fn handle(
@@ -952,9 +952,7 @@ impl Handler<GetStateChangesInBlock, Result<StateChangesKindsView, GetStateChang
 }
 
 /// Returns a list of changes in a store for a given block filtering by the state changes request.
-impl Handler<GetStateChanges, Result<StateChangesView, GetStateChangesError>>
-    for ViewClientActorInner
-{
+impl Handler<GetStateChanges, Result<StateChangesView, GetStateChangesError>> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: GetStateChanges) -> Result<StateChangesView, GetStateChangesError> {
         tracing::debug!(target: "client", ?msg);
@@ -972,7 +970,7 @@ impl Handler<GetStateChanges, Result<StateChangesView, GetStateChangesError>>
 
 /// Returns a list of changes in a store with causes for a given block.
 impl Handler<GetStateChangesWithCauseInBlock, Result<StateChangesView, GetStateChangesError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
     #[perf]
     fn handle(
@@ -999,7 +997,7 @@ impl
     Handler<
         GetStateChangesWithCauseInBlockForTrackedShards,
         Result<HashMap<ShardId, StateChangesView>, GetStateChangesError>,
-    > for ViewClientActorInner
+    > for ViewClientActor
 {
     #[perf]
     fn handle(
@@ -1049,7 +1047,7 @@ impl
     Handler<
         GetNextLightClientBlock,
         Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>,
-    > for ViewClientActorInner
+    > for ViewClientActor
 {
     #[perf]
     fn handle(
@@ -1091,7 +1089,7 @@ impl
 }
 
 impl Handler<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
     #[perf]
     fn handle(
@@ -1183,7 +1181,7 @@ impl
     Handler<
         GetExecutionOutcomesForBlock,
         Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, String>,
-    > for ViewClientActorInner
+    > for ViewClientActor
 {
     #[perf]
     fn handle(
@@ -1205,7 +1203,7 @@ impl
     }
 }
 
-impl Handler<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>> for ViewClientActorInner {
+impl Handler<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: GetReceipt) -> Result<Option<ReceiptView>, GetReceiptError> {
         tracing::debug!(target: "client", ?msg);
@@ -1219,9 +1217,7 @@ impl Handler<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>> for ViewC
     }
 }
 
-impl Handler<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>>
-    for ViewClientActorInner
-{
+impl Handler<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: GetBlockProof) -> Result<GetBlockProofResponse, GetBlockProofError> {
         tracing::debug!(target: "client", ?msg);
@@ -1242,7 +1238,7 @@ impl Handler<GetBlockProof, Result<GetBlockProofResponse, GetBlockProofError>>
 }
 
 impl Handler<GetProtocolConfig, Result<ProtocolConfigView, GetProtocolConfigError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
     #[perf]
     fn handle(
@@ -1270,14 +1266,14 @@ use near_async::ActorSystem;
 use near_async::multithread::MultithreadRuntimeHandle;
 
 #[cfg(feature = "test_features")]
-impl Handler<NetworkAdversarialMessage> for ViewClientActorInner {
+impl Handler<NetworkAdversarialMessage> for ViewClientActor {
     fn handle(&mut self, msg: NetworkAdversarialMessage) {
         Handler::<NetworkAdversarialMessage, Option<u64>>::handle(self, msg);
     }
 }
 
 #[cfg(feature = "test_features")]
-impl Handler<NetworkAdversarialMessage, Option<u64>> for ViewClientActorInner {
+impl Handler<NetworkAdversarialMessage, Option<u64>> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: NetworkAdversarialMessage) -> Option<u64> {
         tracing::debug!(target: "client", ?msg);
@@ -1308,7 +1304,7 @@ impl Handler<NetworkAdversarialMessage, Option<u64>> for ViewClientActorInner {
     }
 }
 
-impl Handler<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>> for ViewClientActorInner {
+impl Handler<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: TxStatusRequest) -> Option<Box<FinalExecutionOutcomeView>> {
         tracing::debug!(target: "client", ?msg);
@@ -1325,7 +1321,7 @@ impl Handler<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>> for ViewCl
     }
 }
 
-impl Handler<TxStatusResponse> for ViewClientActorInner {
+impl Handler<TxStatusResponse> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: TxStatusResponse) {
         let TxStatusResponse(tx_result) = msg;
@@ -1347,7 +1343,7 @@ impl Handler<TxStatusResponse> for ViewClientActorInner {
     }
 }
 
-impl Handler<BlockRequest, Option<Arc<Block>>> for ViewClientActorInner {
+impl Handler<BlockRequest, Option<Arc<Block>>> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: BlockRequest) -> Option<Arc<Block>> {
         tracing::debug!(target: "client", ?msg);
@@ -1358,7 +1354,7 @@ impl Handler<BlockRequest, Option<Arc<Block>>> for ViewClientActorInner {
     }
 }
 
-impl Handler<BlockHeadersRequest, Option<Vec<Arc<BlockHeader>>>> for ViewClientActorInner {
+impl Handler<BlockHeadersRequest, Option<Vec<Arc<BlockHeader>>>> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: BlockHeadersRequest) -> Option<Vec<Arc<BlockHeader>>> {
         tracing::debug!(target: "client", ?msg);
@@ -1378,7 +1374,7 @@ impl Handler<BlockHeadersRequest, Option<Vec<Arc<BlockHeader>>>> for ViewClientA
 }
 
 impl Handler<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
     #[perf]
     fn handle(
@@ -1434,7 +1430,7 @@ impl Handler<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>
     }
 }
 
-impl Handler<GetGasPrice, Result<GasPriceView, GetGasPriceError>> for ViewClientActorInner {
+impl Handler<GetGasPrice, Result<GasPriceView, GetGasPriceError>> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: GetGasPrice) -> Result<GasPriceView, GetGasPriceError> {
         tracing::debug!(target: "client", ?msg);
@@ -1446,7 +1442,7 @@ impl Handler<GetGasPrice, Result<GasPriceView, GetGasPriceError>> for ViewClient
 }
 
 impl Handler<GetMaintenanceWindows, Result<MaintenanceWindowsView, GetMaintenanceWindowsError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
     #[perf]
     fn handle(
@@ -1460,7 +1456,7 @@ impl Handler<GetMaintenanceWindows, Result<MaintenanceWindowsView, GetMaintenanc
 
 // TODO(cloud_archival) Consider the case of cloud head
 impl Handler<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageInfoError>>
-    for ViewClientActorInner
+    for ViewClientActor
 {
     fn handle(
         &mut self,

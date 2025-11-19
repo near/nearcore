@@ -40,7 +40,7 @@ use crate::utils::transactions::{
 };
 use crate::utils::{get_node_data, retrieve_client_actor};
 use near_chain::types::Tip;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::ClientActor;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::trie_key::TrieKey;
 use near_store::flat::FlatStorageStatus;
@@ -1290,7 +1290,7 @@ fn get_resharded_shard_uids(
 // Helper function to retrieve any key from the trie. This bypasses all intermediate layers
 // (caching, memtrie, flat-storage).
 fn get_trie_node_value<I: borsh::BorshDeserialize + Default>(
-    client_actor: &ClientActorInner,
+    client_actor: &ClientActor,
     shard_uid: ShardUId,
     prev_block_hash: &CryptoHash,
     key: TrieKey,

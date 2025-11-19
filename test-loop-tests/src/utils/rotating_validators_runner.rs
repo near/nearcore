@@ -7,7 +7,7 @@ use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_client::ProcessTxRequest;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::ClientActor;
 use near_crypto::Signer;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -104,13 +104,13 @@ impl RotatingValidatorsRunner {
         }
     }
 
-    fn client_actor_handle(env: &TestLoopEnv) -> TestLoopDataHandle<ClientActorInner> {
+    fn client_actor_handle(env: &TestLoopEnv) -> TestLoopDataHandle<ClientActor> {
         env.node_datas[0].client_sender.actor_handle()
     }
 
     fn client<'a>(
         data: &'a TestLoopData,
-        client_actor_handle: &TestLoopDataHandle<ClientActorInner>,
+        client_actor_handle: &TestLoopDataHandle<ClientActor>,
     ) -> &'a near_client::Client {
         &data.get(client_actor_handle).client
     }

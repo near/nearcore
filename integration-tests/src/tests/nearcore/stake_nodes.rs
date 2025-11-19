@@ -9,7 +9,7 @@ use rand::Rng;
 
 use crate::utils::genesis_helpers::genesis_hash;
 use near_chain_configs::{Genesis, TrackedShardsConfig};
-use near_client::{GetBlock, ProcessTxRequest, Query, RpcHandler, ViewClientActorInner};
+use near_client::{GetBlock, ProcessTxRequest, Query, RpcHandlerActor, ViewClientActor};
 use near_crypto::{InMemorySigner, Signer};
 use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout};
@@ -24,7 +24,7 @@ use near_async::ActorSystem;
 use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::ClientActor;
 use near_client_primitives::types::Status;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_store::db::RocksDB;
@@ -36,9 +36,9 @@ struct TestNode {
     account_id: AccountId,
     signer: Arc<Signer>,
     config: NearConfig,
-    client: TokioRuntimeHandle<ClientActorInner>,
-    view_client: MultithreadRuntimeHandle<ViewClientActorInner>,
-    tx_processor: MultithreadRuntimeHandle<RpcHandler>,
+    client: TokioRuntimeHandle<ClientActor>,
+    view_client: MultithreadRuntimeHandle<ViewClientActor>,
+    tx_processor: MultithreadRuntimeHandle<RpcHandlerActor>,
     genesis_hash: CryptoHash,
 }
 

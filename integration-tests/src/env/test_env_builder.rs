@@ -8,7 +8,7 @@ use near_chain_configs::{
     Genesis, GenesisConfig, MutableConfigValue, ProtocolVersionCheckConfig, TrackedShardsConfig,
 };
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
-use near_client::{ChunkValidationActorInner, Client};
+use near_client::{ChunkValidationActor, Client};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -519,7 +519,7 @@ impl TestEnvBuilder {
             })
             .collect_vec();
         let actor_system = ActorSystem::new();
-        let (clients, chunk_validation_actors): (Vec<Client>, Vec<ChunkValidationActorInner>) =
+        let (clients, chunk_validation_actors): (Vec<Client>, Vec<ChunkValidationActor>) =
             (0..num_clients)
                 .map(|i| {
                     let account_id = client_accounts[i].clone();
