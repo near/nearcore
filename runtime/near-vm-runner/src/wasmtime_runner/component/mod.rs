@@ -219,3 +219,14 @@ fn call(
         Err(err) => err.into_vm_error().map(RunOutcome::Abort),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::mem::offset_of;
+
+    #[test]
+    fn ctx_layout() {
+        assert_eq!(offset_of!(Ctx, remaining_gas), 0);
+    }
+}
