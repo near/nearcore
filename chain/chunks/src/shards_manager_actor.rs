@@ -1503,7 +1503,12 @@ impl ShardsManagerActor {
     ///    are needed for processing the full chunk
     ///  ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts: if all parts and
     ///    receipts in the chunk are received and the chunk has been processed.
-    ///  ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped: process request is received earlier than Block for the same height and the chunk has been dropped without processing any part of it.
+    ///  ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped: process request is
+    ///    received earlier than Block for the same height and the chunk has been dropped
+    ///    without processing any part of it.
+    ///  ProcessPartialEncodedChunkResult::OutsideHorizon: if the chunk is
+    ///    outside of the horizon and the chunk has been dropped without processing any part
+    ///    of it.
     #[instrument(
         target = "chunks",
         level = "debug",
@@ -1548,6 +1553,7 @@ impl ShardsManagerActor {
                 .height_within_horizon(partial_encoded_chunk.header.height_created())
             {
                 metrics::PARTIAL_ENCODED_CHUNK_OUTSIDE_HORIZON.inc();
+                tracing::debug!(target: "chunks", ?chunk_hash, height_created=partial_encoded_chunk.header.height_created(), "Dropping a chunk outside of the horizon");
                 return Ok(ProcessPartialEncodedChunkResult::OutsideHorizon);
             }
             // We shouldn't process un-requested chunk if we have seen one with same (height_created + shard_id) but different chunk_hash
