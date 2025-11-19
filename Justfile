@@ -40,6 +40,7 @@ test-extra: check-lychee
 # TYPE is one of "stable", "nightly"
 nextest TYPE *FLAGS:
     env RUSTFLAGS="-D warnings" \
+    env RUST_LOG="env('RUST_LOG', 'info,test_loop=warning')" \
     cargo nextest run \
         --locked \
         --workspace \
