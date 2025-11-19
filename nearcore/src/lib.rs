@@ -27,7 +27,7 @@ use near_client::archive::cloud_archival_writer::{
     CloudArchivalWriterHandle, create_cloud_archival_writer,
 };
 use near_client::archive::cold_store_actor::create_cold_store_actor;
-use near_client::chunk_executor_actor::ChunkExecutorActor;
+use near_client::chunk_executor_actor::{ChunkExecutorActor, OnChunkExecuted};
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
@@ -267,6 +267,7 @@ fn spawn_spice_actors(
         LateBoundSender<TokioRuntimeHandle<SpiceDataDistributorActor>>,
     >,
     spice_core_writer_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<SpiceCoreWriterActor>>>,
+    on_chunk_executed: Option<OnChunkExecuted>,
 ) {
     let spice_core_writer_actor = SpiceCoreWriterActor::new(
         runtime.store().chain_store(),
@@ -305,6 +306,7 @@ fn spawn_spice_actors(
         chunk_executor_adapter.as_sender(),
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
+        on_chunk_executed,
     );
     let chunk_executor_addr = actor_system.spawn_tokio_actor(chunk_executor_actor);
     chunk_executor_adapter.bind(chunk_executor_addr);
@@ -596,6 +598,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let StartClientResult {
         client_actor,
         tx_pool,
+        on_chunk_executed,
         chunk_endorsement_tracker,
         chunk_validation_actor,
     } = start_client(
@@ -640,6 +643,7 @@ pub async fn start_with_config_and_synchronization_impl(
             &spice_chunk_validator_adapter,
             &spice_data_distributor_adapter,
             &spice_core_writer_adapter,
+            Some(on_chunk_executed),
         );
     }
 
