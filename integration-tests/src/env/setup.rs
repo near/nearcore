@@ -236,6 +236,7 @@ fn setup(
         tx_routing_height_horizon: config.tx_routing_height_horizon,
         epoch_length: config.epoch_length,
         transaction_validity_period,
+        disable_tx_routing: config.disable_tx_routing,
     };
 
     let rpc_handler_addr = spawn_rpc_handler_actor(
@@ -607,6 +608,7 @@ pub fn setup_tx_request_handler(
         tx_routing_height_horizon: client_config.tx_routing_height_horizon,
         epoch_length: chain_genesis.epoch_length,
         transaction_validity_period: chain_genesis.transaction_validity_period,
+        disable_tx_routing: client_config.disable_tx_routing,
     };
 
     RpcHandler::new(

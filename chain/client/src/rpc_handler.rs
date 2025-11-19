@@ -71,6 +71,7 @@ pub fn spawn_rpc_handler_actor(
 pub struct RpcHandlerConfig {
     pub handler_threads: usize,
     pub tx_routing_height_horizon: u64,
+    pub disable_tx_routing: bool,
     pub epoch_length: u64,
     pub transaction_validity_period: BlockHeightDelta,
 }
@@ -248,7 +249,7 @@ impl RpcHandler {
                 tracing::trace!(target: "client", account = ?me, %shard_id, tx_hash = ?signed_tx.get_hash(), is_forwarded, "recording a transaction");
                 metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
 
-                if !is_forwarded {
+                if !is_forwarded && !self.config.disable_tx_routing {
                     self.possibly_forward_tx_to_next_epoch(signed_tx)?;
                 }
                 return Ok(ProcessTxResponse::ValidTx);
@@ -256,6 +257,11 @@ impl RpcHandler {
             if !is_forwarded {
                 tracing::trace!(target: "client", %shard_id, tx_hash = ?signed_tx.get_hash(), "forwarding a transaction");
                 metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
+                // Only skip forwarding if we're a validator node.
+                if self.config.disable_tx_routing && me.is_some() {
+                    tracing::trace!(target: "client", %shard_id, tx_hash = ?signed_tx.get_hash(), "Tx routing disabled.");
+                    return Ok(ProcessTxResponse::ValidTx);
+                }
                 self.forward_tx(&epoch_id, signed_tx)?;
                 return Ok(ProcessTxResponse::RequestRouted);
             }
