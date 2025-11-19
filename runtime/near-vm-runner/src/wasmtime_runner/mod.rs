@@ -19,8 +19,8 @@ use crate::{
 use core::mem::transmute;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicU64, Ordering};
-use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::{LimitConfig, VMKind};
+use near_parameters::{ExtCosts, RuntimeFeesConfig};
 use near_primitives_core::gas::Gas;
 use near_primitives_core::types::Balance;
 use std::collections::HashMap;
@@ -471,19 +471,21 @@ impl WasmtimeVM {
     pub(crate) fn compile_uncached(
         &self,
         code: &ContractCode,
-    ) -> Result<(Vec<u8>, bool), CompilationError> {
+    ) -> Result<(Vec<u8>, u64, bool), CompilationError> {
         let start = std::time::Instant::now();
-        let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime)
-            .map_err(CompilationError::PrepareError)?;
+        let (prepared_code, instantiation_bytes) =
+            prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime)
+                .map_err(CompilationError::PrepareError)?;
         let is_component = wasmparser_236::Parser::is_component(&prepared_code);
         let serialized = if is_component && self.config.component_model {
             let mut builder = CodeBuilder::new(&self.engine);
             let builder = builder.wasm_binary(&prepared_code, None).unwrap();
             unsafe { builder.expose_unsafe_intrinsics("unsafe-intrinsics") }.compile_component_serialized()
         } else {
+            debug_assert_eq!(instantiation_bytes, 0);
             self.engine.precompile_module(&prepared_code)
         }
-        .map(|code| (code, is_component))
+        .map(|code| (code, instantiation_bytes, is_component))
         .map_err(|err| {
             tracing::error!(
                 ?err,
@@ -499,20 +501,22 @@ impl WasmtimeVM {
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
-    ) -> Result<Result<(Vec<u8>, bool), CompilationError>, CacheError> {
+    ) -> Result<Result<(Vec<u8>, u64, bool), CompilationError>, CacheError> {
         let serialized_or_error = self.compile_uncached(code);
         let key = get_contract_cache_key(*code.hash(), &self.config, self.vm_hash());
         let wasm_bytes = code.code().len() as u64;
         let record = match serialized_or_error {
-            Ok((ref serialized, is_component)) => CompiledContractInfo {
+            Ok((ref serialized, instantiation_bytes, is_component)) => CompiledContractInfo {
                 wasm_bytes,
-                is_component,
                 compiled: CompiledContract::Code(serialized.clone()),
+                is_component,
+                instantiation_bytes,
             },
             Err(ref err) => CompiledContractInfo {
                 wasm_bytes,
-                is_component: wasmparser_236::Parser::is_component(code.code()),
                 compiled: CompiledContract::CompileError(err.clone()),
+                is_component: wasmparser_236::Parser::is_component(code.code()),
+                instantiation_bytes: 0,
             },
         };
         cache.put(&key, record).map_err(CacheError::WriteError)?;
@@ -531,22 +535,28 @@ impl WasmtimeVM {
         ) -> VMResult<PreparedContract>,
     ) -> VMResult<PreparedContract> {
         type MemoryCacheType =
-            (u64, Result<Result<PreparedExecutable, FunctionCallError>, CompilationError>);
+            (u64, u64, Result<Result<PreparedExecutable, FunctionCallError>, CompilationError>);
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
         let key = get_contract_cache_key(contract.hash(), &self.config, self.vm_hash());
-        let (wasm_bytes, pre_result) = cache.memory_cache().try_lookup(
+        let (wasm_bytes, instantiation_bytes, pre_result) = cache.memory_cache().try_lookup(
             key,
             || {
                 let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
-                let (wasm_bytes, code, is_component) =
-                    if let Some(CompiledContractInfo { wasm_bytes, compiled, is_component }) =
-                        cache_record
+                let (wasm_bytes, instantiation_bytes, code, is_component) =
+                    if let Some(CompiledContractInfo {
+                        wasm_bytes,
+                        compiled,
+                        is_component,
+                        instantiation_bytes,
+                    }) = cache_record
                     {
                         match compiled {
                             CompiledContract::CompileError(err) => {
-                                return Ok(to_any((wasm_bytes, Err(err))));
+                                return Ok(to_any((wasm_bytes, instantiation_bytes, Err(err))));
                             }
-                            CompiledContract::Code(code) => (wasm_bytes, code, is_component),
+                            CompiledContract::Code(code) => {
+                                (wasm_bytes, instantiation_bytes, code, is_component)
+                            }
                         }
                     } else {
                         let Some(code) = contract.get_code() else {
@@ -554,8 +564,12 @@ impl WasmtimeVM {
                         };
                         let wasm_bytes = code.code().len() as u64;
                         match self.compile_and_cache(&code, cache)? {
-                            Err(err) => return Ok(to_any((wasm_bytes, Err(err)))),
-                            Ok((code, is_component)) => (wasm_bytes, code, is_component),
+                            Err(err) => {
+                                return Ok(to_any((wasm_bytes, 0, Err(err))));
+                            }
+                            Ok((code, instantiation_bytes, is_component)) => {
+                                (wasm_bytes, instantiation_bytes, code, is_component)
+                            }
                         }
                     };
                 // (UN-)SAFETY: the `code` must have been produced by
@@ -572,13 +586,19 @@ impl WasmtimeVM {
                 if is_component {
                     let pre =
                         unsafe { component::Prepared::load(&self.engine, &self.config, &code) }?;
-                    Ok(to_any((wasm_bytes, Ok(pre.map(PreparedExecutable::Component)))))
+                    Ok(to_any((
+                        wasm_bytes,
+                        instantiation_bytes,
+                        Ok(pre.map(PreparedExecutable::Component)),
+                    )))
                 } else {
+                    debug_assert_eq!(instantiation_bytes, 0);
                     let module = unsafe { Module::deserialize(&self.engine, &code) }
                         .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
                     let Some(memory) = module.get_export_index(MEMORY_EXPORT) else {
                         return Ok(to_any((
                             wasm_bytes,
+                            0,
                             Ok(Err(FunctionCallError::LinkError {
                                 msg: "memory export missing".into(),
                             })),
@@ -591,12 +611,13 @@ impl WasmtimeVM {
                     match linker.instantiate_pre(&module) {
                         Err(err) => {
                             let err = err.into_vm_error()?;
-                            Ok(to_any((wasm_bytes, Ok(Err(err)))))
+                            Ok(to_any((wasm_bytes, 0, Ok(Err(err)))))
                         }
                         Ok(pre) => {
                             let ResourcesRequired { num_tables, .. } = module.resources_required();
                             Ok(to_any((
                                 wasm_bytes,
+                                0,
                                 Ok(Ok(PreparedExecutable::Module(PreparedModule {
                                     pre,
                                     memory,
@@ -610,11 +631,11 @@ impl WasmtimeVM {
                 }
             },
             move |value| {
-                let &(wasm_bytes, ref downcast) = value
+                let &(wasm_bytes, instantiation_bytes, ref downcast) = value
                     .downcast_ref::<MemoryCacheType>()
                     .expect("downcast should always succeed");
 
-                (wasm_bytes, downcast.clone())
+                (wasm_bytes, instantiation_bytes, downcast.clone())
             },
         )?;
 
@@ -630,6 +651,16 @@ impl WasmtimeVM {
                 if let Err(e) = result {
                     let result = PreparationResult::OutcomeAbort(e);
                     return Ok(PreparedContract { config, gas_counter, result });
+                }
+                if instantiation_bytes > 0 {
+                    if let Err(_e) =
+                        gas_counter.pay_per(ExtCosts::contract_loading_bytes, instantiation_bytes)
+                    {
+                        let result = PreparationResult::OutcomeAbort(FunctionCallError::HostError(
+                            HostError::GasExceeded,
+                        ));
+                        return Ok(PreparedContract { config, gas_counter, result });
+                    }
                 }
                 closure(gas_counter, res)
             }

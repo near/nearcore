@@ -65,7 +65,7 @@ fn test_infinite_initializer_export_not_found() {
                 Err: MethodNotFound
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 163982773 used gas 163982773
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 214090343 used gas 214090343
                 Err: MethodNotFound
             "#]],
         ]);
@@ -94,7 +94,7 @@ fn test_simple_contract() {
         ])
         .component_expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 138975266 used gas 138975266
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 176011296 used gas 176011296
             "#]],
         ]);
 }
@@ -165,7 +165,7 @@ fn test_export_not_found() {
                 Err: MethodNotFound
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 132393218 used gas 132393218
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 169429248 used gas 169429248
                 Err: MethodNotFound
             "#]],
         ]);

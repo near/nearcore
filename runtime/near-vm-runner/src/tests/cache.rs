@@ -170,8 +170,9 @@ fn test_near_vm_artifact_output_stability() {
 
         let mut config = test_vm_config(Some(VMKind::NearVm));
         config.reftypes_bulk_memory = false; // NearVM cannot support this feature.
-        let prepared_code =
+        let (prepared_code, instantiation_bytes) =
             prepare::prepare_contract(contract.code(), &config, VMKind::NearVm).unwrap();
+        assert_eq!(instantiation_bytes, 0);
         let this_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
         got_prepared_hashes.push(this_hash);
         if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
@@ -253,8 +254,9 @@ fn test_wasmtime_artifact_output_stability() {
     for seed in seeds {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
         let config = test_vm_config(Some(VMKind::Wasmtime));
-        let prepared_code =
+        let (prepared_code, instantiation_bytes) =
             prepare::prepare_contract(contract.code(), &config, VMKind::Wasmtime).unwrap();
+        assert_eq!(instantiation_bytes, 0);
         let this_hash = crate::utils::stable_hash((&contract.code(), &prepared_code));
         got_prepared_hashes.push(this_hash);
         if std::env::var_os("NEAR_STABILITY_TEST_WRITE").is_some() {
@@ -262,8 +264,10 @@ fn test_wasmtime_artifact_output_stability() {
         }
         let vm = WasmtimeVM::new_for_target(Arc::new(config), Some("x86_64-unknown-none".into()))
             .unwrap();
-        let (serialized, is_component) = vm.compile_uncached(&contract).unwrap();
+        let (serialized, instantiation_bytes, is_component) =
+            vm.compile_uncached(&contract).unwrap();
         assert_eq!(is_component, false);
+        assert_eq!(instantiation_bytes, 0);
         let this_hash = crate::utils::stable_hash(&serialized);
         got_compiled_hashes.push(this_hash);
 

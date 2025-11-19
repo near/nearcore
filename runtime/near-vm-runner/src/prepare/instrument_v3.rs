@@ -120,6 +120,8 @@ struct InstrumentationReencoder<'a> {
     ctx: InstrumentContext<'a>,
     is_component: bool,
     type_depth: u32,
+    module_sizes: Vec<u64>,
+    instantiation_bytes: u64,
 }
 
 impl<'a> InstrumentationReencoder<'a> {
@@ -154,8 +156,17 @@ pub enum ReencodeUserError {
     #[error("function index remapping error")]
     FunctionIndex,
 
+    #[error("module index parsing error")]
+    ModuleIndex,
+
     #[error("unparsed bytes")]
     UnparsedBytes,
+
+    #[error("type is nested too deeply")]
+    TypeDepth,
+
+    #[error("instantiation bytes would overflow u64")]
+    InstantiationByteOverflow,
 
     #[error("inner error")]
     Inner(Box<Error>),
@@ -313,6 +324,10 @@ impl ReencodeComponent for InstrumentationReencoder<'_> {
     ) -> Result<(), ReencodeError<Self::Error>> {
         self.push_depth();
         let mut stream = parser.parse_all(module);
+        let size = u64::try_from(module.len()).map_err(|_err| {
+            ReencodeError::UserError(ReencodeUserError::InstantiationByteOverflow)
+        })?;
+        self.module_sizes.push(size);
         let module = ModuleInstrumentContext::new(self.ctx)
             .instrument_module(&mut stream)
             .map_err(Box::new)
@@ -330,7 +345,10 @@ impl ReencodeComponent for InstrumentationReencoder<'_> {
         &mut self,
         ty: Box<[wp::InstanceTypeDeclaration<'_>]>,
     ) -> Result<InstanceType, ReencodeError<Self::Error>> {
-        self.type_depth += 1;
+        self.type_depth = self
+            .type_depth
+            .checked_add(1)
+            .ok_or(ReencodeError::UserError(ReencodeUserError::TypeDepth))?;
         let ty = component_utils::component_instance_type(self, ty)?;
         self.type_depth -= 1;
         Ok(ty)
@@ -343,6 +361,16 @@ impl ReencodeComponent for InstrumentationReencoder<'_> {
     ) -> Result<(), ReencodeError<Self::Error>> {
         match instance {
             wp::Instance::Instantiate { module_index, args } => {
+                let module_index_usize = usize::try_from(module_index)
+                    .map_err(|_err| ReencodeError::UserError(ReencodeUserError::ModuleIndex))?;
+                let size = self
+                    .module_sizes
+                    .get(module_index_usize)
+                    .ok_or(ReencodeError::UserError(ReencodeUserError::ModuleIndex))?;
+                self.instantiation_bytes = self.instantiation_bytes.checked_add(*size).ok_or(
+                    ReencodeError::UserError(ReencodeUserError::InstantiationByteOverflow),
+                )?;
+
                 let mut args = args
                     .into_iter()
                     .map(|wp::InstantiationArg { name, kind, index }| match kind {
@@ -511,7 +539,7 @@ impl<'a> InstrumentContext<'a> {
         Self { analysis, wasm, import_env, op_cost, max_stack_height }
     }
 
-    pub(crate) fn run(self) -> anyhow::Result<Vec<u8>> {
+    pub(crate) fn run(self) -> anyhow::Result<(Vec<u8>, u64)> {
         let parser = wp::Parser::new(0);
         if wp::Parser::is_core_wasm(self.wasm) {
             let mut stream = parser.parse_all(self.wasm);
@@ -519,12 +547,18 @@ impl<'a> InstrumentContext<'a> {
             if let Some(Ok(_payload)) = stream.next() {
                 return Err(Error::UnparsedBytes.into());
             }
-            return Ok(module.finish());
+            return Ok((module.finish(), 0));
         }
-        let mut renc = InstrumentationReencoder { ctx: self, is_component: true, type_depth: 0 };
+        let mut renc = InstrumentationReencoder {
+            ctx: self,
+            is_component: true,
+            type_depth: 0,
+            module_sizes: Vec::default(),
+            instantiation_bytes: 0,
+        };
         let mut component = Component::new();
         renc.parse_component(&mut component, parser, self.wasm)?;
-        Ok(component.finish())
+        Ok((component.finish(), renc.instantiation_bytes))
     }
 }
 
@@ -593,6 +627,8 @@ impl<'a> ModuleInstrumentContext<'a> {
             ctx: self.ctx,
             is_component: wp::Parser::is_component(&self.wasm),
             type_depth: 0,
+            module_sizes: Vec::default(),
+            instantiation_bytes: 0,
         };
         for payload in stream {
             let payload = payload.map_err(Error::ParseSection)?;

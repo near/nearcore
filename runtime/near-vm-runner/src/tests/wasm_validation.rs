@@ -220,7 +220,7 @@ fn memory_export_method() {
         ])
         .component_expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 145511036 used gas 145511036
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 184725656 used gas 184725656
             "#]],
         ])
     ;
@@ -260,7 +260,7 @@ fn memory_export_clash() {
         ])
         .component_expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 196707901 used gas 196707901
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 247904766 used gas 247904766
             "#]],
         ]);
 }
@@ -317,7 +317,7 @@ fn start_export_clash() {
         ])
         .component_expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 193440016 used gas 193440016
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 243547586 used gas 243547586
             "#]],
         ]);
 }
@@ -358,7 +358,7 @@ fn start_export_clash_duplicate() {
         ])
         .component_expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 205468539 used gas 205468539
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 261022584 used gas 261022584
             "#]],
         ]);
 }
@@ -394,7 +394,7 @@ fn memory_export_internal() {
         ])
         .component_expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 155314691 used gas 155314691
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 208690146 used gas 208690146
             "#]],
         ]);
 }
@@ -429,7 +429,7 @@ fn memory_custom() {
         ])
         .component_expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 152046806 used gas 152046806
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 202154376 used gas 202154376
             "#]],
         ]);
 }
@@ -639,7 +639,7 @@ fn use_component_imports() {
         )
         .component_expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 1075664418 used gas 1075664418
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 1256487388 used gas 1256487388
             "#]],
         ]);
 }

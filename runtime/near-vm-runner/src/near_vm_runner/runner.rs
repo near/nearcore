@@ -159,8 +159,9 @@ impl NearVM {
     ) -> Result<UniversalExecutable, CompilationError> {
         let _span = tracing::debug_span!(target: "vm", "NearVM::compile_uncached").entered();
         let start = std::time::Instant::now();
-        let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::NearVm)
-            .map_err(CompilationError::PrepareError)?;
+        let (prepared_code, _) =
+            prepare::prepare_contract(code.code(), &self.config, VMKind::NearVm)
+                .map_err(CompilationError::PrepareError)?;
 
         debug_assert!(
             matches!(self.engine.validate(&prepared_code), Ok(_)),
@@ -187,6 +188,7 @@ impl NearVM {
         let record = CompiledContractInfo {
             wasm_bytes: code.code().len() as u64,
             is_component: false,
+            instantiation_bytes: 0,
             compiled: match &executable_or_error {
                 Ok(executable) => {
                     let code = executable

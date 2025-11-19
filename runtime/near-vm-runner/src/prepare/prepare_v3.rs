@@ -499,11 +499,11 @@ pub(crate) fn prepare_contract(
     features: crate::features::WasmFeatures,
     config: &Config,
     kind: VMKind,
-) -> Result<Vec<u8>, PrepareError> {
+) -> Result<(Vec<u8>, u64), PrepareError> {
     let lightly_steamed = PrepareContext::new(original_code, features, config).run()?;
 
     match kind {
-        VMKind::NearVm => return Ok(lightly_steamed),
+        VMKind::NearVm => return Ok((lightly_steamed, 0)),
         VMKind::Wasmer0 | VMKind::Wasmtime | VMKind::Wasmer2 => {}
     }
 
@@ -520,7 +520,7 @@ pub(crate) fn prepare_contract(
             PrepareError::Deserialization
         })?;
     // Make sure contracts can’t call the instrumentation functions via `env`.
-    let res = InstrumentContext::new(
+    let (wasm, instantiation_bytes) = InstrumentContext::new(
         &lightly_steamed,
         "internal",
         &analysis,
@@ -532,7 +532,7 @@ pub(crate) fn prepare_contract(
         tracing::error!(?err, ?kind, "Instrumentation failed");
         PrepareError::Serialization
     })?;
-    Ok(res)
+    Ok((wasm, instantiation_bytes))
 }
 
 // TODO: refactor to avoid copy-paste with the ones currently defined in near_vm_runner
@@ -716,7 +716,8 @@ mod test {
             if let Ok(_) = validate_contract(input, features, &config) {
                 match super::prepare_contract(input, features, &config, VMKind::Wasmtime) {
                     Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
-                    Ok(code) => {
+                    Ok((code, instantiation_bytes)) => {
+                        assert_eq!(instantiation_bytes, 0);
                         let mut validator = wp::Validator::new_with_features(features.into());
                         match validator.validate_all(&code) {
                             Ok(_) => (),

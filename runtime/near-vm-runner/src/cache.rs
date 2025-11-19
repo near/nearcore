@@ -75,8 +75,9 @@ impl CompiledContract {
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
 pub struct CompiledContractInfo {
     pub wasm_bytes: u64,
-    pub compiled: CompiledContract,
     pub is_component: bool,
+    pub instantiation_bytes: u64,
+    pub compiled: CompiledContract,
 }
 
 /// Cache for compiled modules
@@ -405,22 +406,35 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         let mut buffer = Vec::with_capacity(stat.st_size.try_into().unwrap());
         let mut file = std::fs::File::from(file);
         file.read_to_end(&mut buffer)?;
-        if buffer.len() < 9 {
+        if buffer.len() < 10 {
             // The file turns out to be empty/truncated? Treat as if there's no cached file.
             return Ok(None);
         }
         let wasm_bytes = u64::from_le_bytes(buffer[buffer.len() - 8..].try_into().unwrap());
-        let tag = buffer[buffer.len() - 9];
-        buffer.truncate(buffer.len() - 9);
-        Ok(match tag {
-            CODE_TAG => Some(CompiledContractInfo {
+        buffer.truncate(buffer.len() - 8);
+        let is_component = buffer.pop().unwrap();
+        let instantiation_bytes = if is_component == 1 {
+            if buffer.len() < 9 {
+                // The file turns out to be empty/truncated? Treat as if there's no cached file.
+                return Ok(None);
+            }
+            let n = u64::from_le_bytes(buffer[buffer.len() - 8..].try_into().unwrap());
+            buffer.truncate(buffer.len() - 8);
+            n
+        } else {
+            0
+        };
+        Ok(match (buffer.pop().unwrap(), is_component) {
+            (CODE_TAG, 0 | 1) => Some(CompiledContractInfo {
                 wasm_bytes,
-                is_component: false,
+                instantiation_bytes,
+                is_component: is_component == 1,
                 compiled: CompiledContract::Code(buffer),
             }),
-            ERROR_TAG => Some(CompiledContractInfo {
+            (ERROR_TAG, 0 | 1) => Some(CompiledContractInfo {
                 wasm_bytes,
-                is_component: false,
+                instantiation_bytes,
+                is_component: is_component == 1,
                 compiled: CompiledContract::CompileError(borsh::from_slice(&buffer)?),
             }),
             // File is malformed? For this code, since we're talking about a cache lets just treat
@@ -698,12 +712,14 @@ mod tests {
         let compiled_contract1 = CompiledContractInfo {
             wasm_bytes: 100,
             is_component: false,
+            instantiation_bytes: 0,
             compiled: CompiledContract::Code(contract1.code().to_vec()),
         };
 
         let compiled_contract2 = CompiledContractInfo {
             wasm_bytes: 200,
             is_component: false,
+            instantiation_bytes: 0,
             compiled: CompiledContract::Code(contract2.code().to_vec()),
         };
 
