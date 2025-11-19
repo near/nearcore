@@ -333,9 +333,9 @@ fn iterate_over_records(
                     near_store::get_pure::<ReceiptOrStateStoredReceipt>(&trie, &key).unwrap();
                 let Some(receipt) = value else {
                     tracing::warn!(
-                        "Expected delayed receipt with index {} in shard {} not found",
-                        index,
-                        shard_id
+                        %index,
+                        %shard_id,
+                        "expected delayed receipt not found"
                     );
                     continue;
                 };

@@ -28,7 +28,7 @@ pub fn load_memtrie_in_parallel(
 ) -> Result<(STArena, MemTrieNodeId), StorageError> {
     let reader = ParallelMemTrieLoader::new(store, shard_uid, root, num_subtrees_desired);
     let plan = reader.make_loading_plan()?;
-    tracing::info!("Loading {} subtrees in parallel", plan.subtrees_to_load.len());
+    tracing::info!(num_subtrees = plan.subtrees_to_load.len(), "loading subtrees in parallel");
     reader.load_in_parallel(plan, name)
 }
 

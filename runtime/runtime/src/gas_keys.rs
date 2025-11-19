@@ -140,6 +140,8 @@ mod tests {
     use std::sync::Arc;
 
     use crate::actions_test_utils::{setup_account, test_delete_large_account};
+    use crate::state_viewer::TrieViewer;
+    use crate::state_viewer::errors::ViewGasKeyError;
 
     use super::*;
     use near_crypto::{KeyType, SecretKey};
@@ -151,6 +153,7 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::trie_key::trie_key_parsers;
     use near_primitives::types::{BlockHeight, EpochId, NonceIndex, StateChangeCause};
+    use near_primitives::views::{GasKeyInfoView, GasKeyView};
     use near_store::{ShardUId, TrieUpdate, get_account, get_gas_key_nonce};
 
     const TEST_NUM_NONCES: NonceIndex = 2;
@@ -408,5 +411,76 @@ mod tests {
             .expect("could not get trie iterator")
             .count();
         assert_eq!(gas_key_count, 0);
+    }
+
+    #[test]
+    fn test_view_gas_key() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        let gas_key =
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key);
+
+        let viewer = TrieViewer::default();
+        let view_gas_key = viewer
+            .view_gas_key(&state_update, &account_id, &public_key)
+            .expect("expected to find gas key");
+        let expected_nonce = initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT);
+        let expected = GasKeyView::new(gas_key, vec![expected_nonce; TEST_NUM_NONCES as usize]);
+        assert_eq!(expected, view_gas_key);
+    }
+
+    #[test]
+    fn test_view_gas_key_nonexistent() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key);
+        let other_public_key = SecretKey::from_random(KeyType::ED25519).public_key();
+
+        let viewer = TrieViewer::default();
+        assert!(matches!(
+            viewer
+                .view_gas_key(&state_update, &account_id, &other_public_key)
+                .expect_err("expected error for nonexistent gas key"),
+            ViewGasKeyError::GasKeyDoesNotExist { .. }
+        ));
+    }
+
+    #[test]
+    fn test_view_gas_keys() {
+        let (account_id, public_key1, access_key) = test_account_keys();
+        let public_key2 = SecretKey::from_random(KeyType::ED25519).public_key();
+        let mut state_update = setup_account(&account_id, &public_key1, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        let gas_key1 =
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key1);
+        let gas_key2 =
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key2);
+
+        let viewer = TrieViewer::default();
+        let gas_keys = viewer.view_gas_keys(&state_update, &account_id).unwrap();
+        let expected_nonce = initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT);
+        let expected = vec![
+            GasKeyInfoView {
+                public_key: public_key1,
+                gas_key: GasKeyView::new(gas_key1, vec![expected_nonce; TEST_NUM_NONCES as usize]),
+            },
+            GasKeyInfoView {
+                public_key: public_key2,
+                gas_key: GasKeyView::new(gas_key2, vec![expected_nonce; TEST_NUM_NONCES as usize]),
+            },
+        ];
+        assert_eq!(expected, gas_keys);
+    }
+
+    #[test]
+    fn test_view_gas_keys_empty() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let state_update = setup_account(&account_id, &public_key, &access_key);
+
+        let viewer = TrieViewer::default();
+        let gas_keys = viewer.view_gas_keys(&state_update, &account_id).unwrap();
+        assert!(gas_keys.is_empty());
     }
 }

@@ -492,7 +492,7 @@ impl BandwidthScheduler {
     fn grant_more_bandwidth(&mut self, link: &ShardLink, bandwidth: Bandwidth) {
         let current_granted = self.granted_bandwidth.get(link).copied().unwrap_or(0);
         let new_granted = current_granted.checked_add(bandwidth).unwrap_or_else(|| {
-            tracing::warn!(target: "runtime", "Granting bandwidth on link {:?} would overflow, this is unexpected. Granting max bandwidth instead", link);
+            tracing::warn!(target: "runtime", ?link, "granting bandwidth on link would overflow, this is unexpected, granting max bandwidth instead");
             Bandwidth::MAX
         });
         self.granted_bandwidth.insert(*link, new_granted);

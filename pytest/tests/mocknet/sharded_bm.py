@@ -135,7 +135,8 @@ def handle_init(args):
         sys.exit(1)
 
     # if neard_binary_url is a local path - upload the file to each node
-    if os.path.isfile(args.neard_binary_url):
+    is_local_neard = os.path.isfile(args.neard_binary_url)
+    if is_local_neard:
         logger.info(f"handling local `neard` at {args.neard_binary_url}")
         local_path_on_remote = upload_local_neard(args)
         args.neard_binary_url = local_path_on_remote
@@ -156,7 +157,10 @@ def handle_init(args):
 
     # Grant CAP_SYS_NICE to neard binaries for realtime thread scheduling
     run_cmd_args = copy.deepcopy(args)
-    run_cmd_args.cmd = "sudo setcap cap_sys_nice+ep ~/.near/neard-runner/binaries/neard*"
+    if is_local_neard:
+        run_cmd_args.cmd = f"sudo setcap cap_sys_nice+ep \"{args.neard_binary_url}\""
+    else:
+        run_cmd_args.cmd = "sudo setcap cap_sys_nice+ep ~/.near/neard-runner/binaries/neard*"
     run_remote_cmd(CommandContext(run_cmd_args))
 
     upload_json_patches(args)

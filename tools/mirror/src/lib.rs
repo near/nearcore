@@ -166,7 +166,7 @@ fn put_target_nonce(
     public_key: &PublicKey,
     nonce: &LatestTargetNonce,
 ) -> anyhow::Result<()> {
-    tracing::trace!(target: "mirror", "storing {:?} in DB for ({}, {:?})", &nonce, account_id, public_key);
+    tracing::trace!(target: "mirror", ?nonce, %account_id, ?public_key, "storing nonce in DB for account and public key");
     let db_key = nonce_col_key(account_id, public_key);
     db.put_cf(
         db.cf_handle(DBCol::Nonces.name()).unwrap(),
@@ -200,7 +200,7 @@ fn put_pending_outcome(
     id: CryptoHash,
     access_keys: HashSet<(AccountId, PublicKey)>,
 ) -> anyhow::Result<()> {
-    tracing::trace!(target: "mirror", "storing {:?} in DB for {:?}", &access_keys, &id);
+    tracing::trace!(target: "mirror", ?access_keys, ?id, "storing access key outcomes in DB");
     Ok(db.put_cf(
         db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(),
         &borsh::to_vec(&id).unwrap(),
@@ -209,7 +209,7 @@ fn put_pending_outcome(
 }
 
 fn delete_pending_outcome(db: &DB, id: &CryptoHash) -> anyhow::Result<()> {
-    tracing::trace!(target: "mirror", "deleting {:?} from DB", &id);
+    tracing::trace!(target: "mirror", ?id, "deleting access key outcome from DB");
     Ok(db.delete_cf(
         db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(),
         &borsh::to_vec(&id).unwrap(),
@@ -1145,8 +1145,11 @@ impl<T: ChainAccess> TxMirror<T> {
                 if key.is_none() {
                     if let Some(k) = first_key {
                         tracing::warn!(
-                            target: "mirror", "preparing a transaction for {} for signer {} with key {} even though it is not yet known in the target chain",
-                            &provenance, &target_signer_id, &k.public_key(),
+                            target: "mirror",
+                            provenance = %provenance,
+                            target_signer_id = %target_signer_id,
+                            public_key = ?k.public_key(),
+                            "preparing a transaction for signer with key even though it is not yet known in the target chain"
                         );
                         key = Some(k);
                     }
@@ -1155,8 +1158,11 @@ impl<T: ChainAccess> TxMirror<T> {
                     Some(key) => key,
                     None => {
                         tracing::debug!(
-                            target: "mirror", "trying to prepare a transaction with the default extra key for {} because no full access key for {} in the source chain is known at block {}",
-                            &provenance, &target_signer_id, &block_hash,
+                            target: "mirror",
+                            provenance = %provenance,
+                            target_signer_id = %target_signer_id,
+                            ?block_hash,
+                            "trying to prepare a transaction with the default extra key because no full access key in the source chain is known at block"
                         );
                         self.default_extra_key.clone()
                     }
@@ -1596,8 +1602,8 @@ impl<T: ChainAccess> TxMirror<T> {
             } else {
                 // shouldn't happen
                 tracing::warn!(
-                    "something is wrong as there are no chunks to send transactions for at height {}",
-                    source_height
+                    %source_height,
+                    "something is wrong as there are no chunks to send transactions for at height"
                 );
             }
         }
@@ -2076,7 +2082,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 .await?;
             }
             if block.chunks.iter().any(|c| !c.txs.is_empty()) {
-                tracing::debug!(target: "mirror", "send extra create account transactions for the first {} blocks", CREATE_ACCOUNT_DELTA);
+                tracing::debug!(target: "mirror", n = %CREATE_ACCOUNT_DELTA, "sending extra create account transactions for the first n blocks");
                 let mut b = {
                     crate::chain_tracker::TxTracker::queue_block(
                         &tracker,

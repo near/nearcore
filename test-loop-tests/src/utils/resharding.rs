@@ -401,7 +401,7 @@ pub(crate) fn send_large_cross_shard_receipts(
                         outgoing_receipt_sizes.insert(target_shard, receipt_sizes);
                     }
                 }
-                tracing::info!(target: "test", "outgoing buffers from shard {}: {:?}", shard_uid.shard_id(), outgoing_receipt_sizes);
+                tracing::info!(target: "test", shard_id = %shard_uid.shard_id(), ?outgoing_receipt_sizes, "outgoing buffers from shard");
             }
 
             let is_epoch_before_resharding =
@@ -447,10 +447,10 @@ pub(crate) fn send_large_cross_shard_receipts(
                         );
                         tracing::info!(
                             target: "test",
-                            "Sending 3MB receipt from {} to {}. tx_hash: {:?}",
-                            signer_id,
-                            receiver_id,
-                            tx.get_hash()
+                            %signer_id,
+                            %receiver_id,
+                            tx_hash = ?tx.get_hash(),
+                            "sending 3MB receipt"
                         );
                         store_and_submit_tx(
                             &node_datas,

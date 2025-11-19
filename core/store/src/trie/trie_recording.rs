@@ -254,7 +254,7 @@ impl TrieRecorder {
                 Ok(raw_node_with_size) => raw_node_with_size.node,
                 Err(_) => {
                     tracing::error!(
-                        "get_subtree_root_by_key: failed to decode node, this shouldn't happen!"
+                        "get_subtree_root_by_key: failed to decode node, this shouldn't happen"
                     );
                     return None;
                 }
@@ -323,7 +323,7 @@ impl TrieRecorder {
                 Ok(raw_node_with_size) => raw_node_with_size.node,
                 Err(_) => {
                     tracing::error!(
-                        "get_subtree_size: failed to decode node, this shouldn't happen!"
+                        "get_subtree_size: failed to decode node, this shouldn't happen"
                     );
                     continue;
                 }

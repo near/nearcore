@@ -99,7 +99,7 @@ impl RotatingValidatorsRunner {
             assert_eq!(current_validators, validators, "{msg}");
         } else if current_validators != validators {
             tracing::warn!(
-                "{msg}; wrong validators for epoch {epoch_id:?}: current_validators={current_validators:?}; want_validators={validators:?}"
+                %msg, ?epoch_id, ?current_validators, ?validators, "wrong validators for epoch"
             );
         }
     }

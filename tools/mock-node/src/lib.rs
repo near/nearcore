@@ -195,8 +195,8 @@ impl IncomingRequests {
                     }
                     Err(e) => {
                         tracing::error!(
-                            "Can't construct chunk part request suitable for mock messages: {:?}",
-                            e
+                            ?e,
+                            "can't construct chunk part request suitable for mock messages"
                         );
                     }
                 };
@@ -251,9 +251,9 @@ impl InFlightMessages {
             me.next_delivery.reset(now + *me.response_delay);
         }
         tracing::debug!(
-            "mock peer queueing up message {} to be delivered in {:?}",
-            &message,
-            me.response_delay
+            %message,
+            response_delay = ?me.response_delay,
+            "mock peer queueing up message to be delivered"
         );
         me.messages.push_back(InFlightMessage { message, sent_at: now });
     }
@@ -324,14 +324,14 @@ impl MockPeer {
             Ok(m) => m,
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                    tracing::info!("{:?} disconnected", &conn);
+                    tracing::info!(?conn, "disconnected");
                     return Ok(false);
                 }
                 return Err(e)
                     .with_context(|| format!("failed receiving message from {:?}", &conn));
             }
         };
-        tracing::debug!("mock peer received message: {}", &message);
+        tracing::debug!(%message, "mock peer received message");
         match message {
             Message::Direct(msg) => {
                 match msg {
@@ -433,7 +433,7 @@ impl MockPeer {
                     }
                 }
                 msg = &mut messages => {
-                    tracing::debug!("mock peer sending message {}", &msg);
+                    tracing::debug!(%msg, "mock peer sending message");
                     match msg {
                         Message::Direct(msg) => conn.send_message(msg).await?,
                         Message::Routed(msg) => conn.send_routed_message(msg, conn.peer_id().clone(), 100).await?,
@@ -508,7 +508,7 @@ impl MockNode {
                     return Err(e).context("error accepting from TCP socket");
                 }
                 Err(e) => {
-                    tracing::warn!("Error accepting incoming connection: {:?}", &e);
+                    tracing::warn!(?e, "error accepting incoming connection");
                     continue;
                 }
             };
@@ -523,7 +523,7 @@ impl MockNode {
 
             tokio::spawn(async move {
                 if let Err(e) = peer.serve_peer(conn, target_height).await {
-                    tracing::error!("error serving requests: {:?}", e);
+                    tracing::error!(?e, "error serving requests");
                 }
             });
         }

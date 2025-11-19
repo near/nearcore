@@ -63,7 +63,7 @@ fn get_incoming_receipts(
                 }
             }
         } else {
-            tracing::error!(target: "state-viewer", chunk_hash = ?chunk.chunk_hash(), "Failed to get a partial chunk");
+            tracing::error!(target: "state-viewer", chunk_hash = ?chunk.chunk_hash(), "failed to get a partial chunk");
         }
     }
 
@@ -311,7 +311,7 @@ fn apply_tx_in_chunk(
                 let chunk = match chain_store.get_chunk(&chunk_hash) {
                     Ok(c) => c,
                     Err(_) => {
-                        tracing::warn!(target: "state-viewer", "chunk hash {:?} appears in DBCol::ChunkHashesByHeight but the chunk is not saved", &chunk_hash);
+                        tracing::warn!(target: "state-viewer", chunk_hash = ?&chunk_hash, "chunk hash appears in DBCol::ChunkHashesByHeight but the chunk is not saved");
                         continue;
                     }
                 };
@@ -447,7 +447,7 @@ fn apply_receipt_in_chunk(
                 let chunk = match chain_store.get_chunk(&chunk_hash) {
                     Ok(c) => c,
                     Err(_) => {
-                        tracing::warn!(target: "state-viewer", "chunk hash {:?} appears in DBCol::ChunkHashesByHeight but the chunk is not saved", &chunk_hash);
+                        tracing::warn!(target: "state-viewer", chunk_hash = ?&chunk_hash, "chunk hash appears in DBCol::ChunkHashesByHeight but the chunk is not saved");
                         continue;
                     }
                 };
