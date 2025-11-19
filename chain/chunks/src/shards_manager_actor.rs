@@ -170,6 +170,9 @@ pub enum ProcessPartialEncodedChunkResult {
     /// PartialEncodedChunkMessage is received earlier than Block for the same height.
     /// The chunk has been dropped without processing any part of it.
     NeedsBlockChunkDropped(Box<PartialEncodedChunk>),
+    /// The PartialEncodedChunk is not within the horizon of the chain head.
+    /// The chunk has been dropped without processing any part of it.
+    OutsideHorizon,
 }
 
 #[derive(Clone, Debug)]
@@ -1545,7 +1548,7 @@ impl ShardsManagerActor {
                 .height_within_horizon(partial_encoded_chunk.header.height_created())
             {
                 metrics::PARTIAL_ENCODED_CHUNK_OUTSIDE_HORIZON.inc();
-                return Err(Error::ChainError(near_chain::Error::InvalidChunkHeight));
+                return Ok(ProcessPartialEncodedChunkResult::OutsideHorizon);
             }
             // We shouldn't process un-requested chunk if we have seen one with same (height_created + shard_id) but different chunk_hash
             if let Some(hash) = self.encoded_chunks.get_chunk_hash_by_height_and_shard(
@@ -2209,7 +2212,8 @@ impl ShardsManagerActor {
                     Ok(ProcessPartialEncodedChunkResult::Known) |
                     Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts) |
                     Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts) |
-                    Ok(ProcessPartialEncodedChunkResult::NeedBlock)=> { return HandleNetworkRequestResult::Ok; }
+                    Ok(ProcessPartialEncodedChunkResult::NeedBlock) |
+                    Ok(ProcessPartialEncodedChunkResult::OutsideHorizon) => { return HandleNetworkRequestResult::Ok; }
                     Err(e) => {
                         warn!(target: "chunks", "Error processing partial encoded chunk: {:?}", e);
                         return HandleNetworkRequestResult::Err;
