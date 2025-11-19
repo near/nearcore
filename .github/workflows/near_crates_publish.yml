@@ -64,4 +64,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git push --no-follow-tags https://github.com/near/nearcore.git tag 'crates-*'
+          git push --no-follow-tags https://x-access-token:${GITHUB_TOKEN}@github.com/near/nearcore.git tag 'crates-*'

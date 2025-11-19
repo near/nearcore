@@ -11,7 +11,7 @@ use num_rational::Rational32;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use time::ext::InstantExt as _;
-use tracing::{debug, debug_span, field, info};
+use tracing::{debug_span, field};
 
 /// Have that many iterations in the timer instead of `loop` to prevent potential bugs from blocking
 /// the node
@@ -739,19 +739,19 @@ impl Doomslug {
             ApprovalInner::new(&self.tip.block_hash, self.tip.height, target_height);
         let Some(approval_trackers_at_height) = self.approval_trackers.get_mut(&target_height)
         else {
-            debug!(target: "doomslug", target_height, "No approval trackers at height");
+            tracing::debug!(target: "doomslug", target_height, "no approval trackers at height");
             return false;
         };
         let Some(approval_tracker) =
             approval_trackers_at_height.approval_trackers.get_mut(&hash_or_height)
         else {
-            debug!(target: "doomslug", target_height, ?hash_or_height, "No approval tracker");
+            tracing::debug!(target: "doomslug", target_height, ?hash_or_height, "no approval tracker");
             return false;
         };
 
         let when = match approval_tracker.get_block_production_readiness() {
             DoomslugBlockProductionReadiness::NotReady => {
-                debug!(target: "doomslug", target_height, ?hash_or_height, "Not ready to produce block");
+                tracing::debug!(target: "doomslug", target_height, ?hash_or_height, "not ready to produce block");
                 return false;
             }
             DoomslugBlockProductionReadiness::ReadySince(when) => when,
@@ -765,7 +765,7 @@ impl Doomslug {
             span.record("enough_chunks_for", enough_chunks_for.as_seconds_f64());
             metrics::BLOCK_APPROVAL_DELAY.observe(enough_chunks_for.as_seconds_f64());
             if verbose {
-                info!(
+                tracing::info!(
                     target: "doomslug", target_height, ?enough_approvals_for, ?enough_chunks_for,
                     "ready to produce block, has enough approvals, has enough chunks"
                 );
@@ -782,12 +782,12 @@ impl Doomslug {
         span.record("need_to_wait", !ready);
         if verbose {
             if ready {
-                info!(
+                tracing::info!(
                     target: "doomslug", target_height, ?enough_approvals_for,
                     "ready to produce block, but does not have enough chunks"
                 );
             } else {
-                info!(
+                tracing::info!(
                     target: "doomslug", target_height, need_to_wait_for = ?(when + delay - now),
                     ?enough_approvals_for, "not ready to produce block, need to wait"
                 );

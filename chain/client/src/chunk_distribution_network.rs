@@ -14,7 +14,6 @@ use near_primitives::{
     types::{EpochId, ShardId},
 };
 use std::fmt;
-use tracing::{debug, error};
 
 /// Basic interface for the chunk distribution network.
 pub trait ChunkDistributionClient: Send {
@@ -98,7 +97,7 @@ fn request_missing_chunk<C>(
     C::Error: fmt::Debug,
 {
     let shard_id = header.shard_id();
-    debug!(target: "client", %shard_id, chunk_hash=?header.chunk_hash(), "request_missing_chunk");
+    tracing::debug!(target: "client", %shard_id, chunk_hash=?header.chunk_hash(), "request_missing_chunk");
     // TODO(#14005): Use a TokioRuntimeHandle to spawn this future.
     tokio::spawn(async move {
         match client.lookup_chunk(prev_hash, shard_id).await {
@@ -116,7 +115,7 @@ fn request_missing_chunk<C>(
                 });
             }
             Err(err) => {
-                error!(target: "client", ?err, "Failed to find chunk via Chunk Distribution Network");
+                tracing::error!(target: "client", ?err, "failed to find chunk via chunk distribution network");
                 adapter.send(ShardsManagerRequestFromClient::RequestChunks {
                     chunks_to_request: vec![header],
                     prev_hash,
@@ -161,7 +160,7 @@ fn request_orphan_chunk<C>(
                 );
             }
             Err(err) => {
-                error!(target: "client", ?err, "Failed to find chunk via Chunk Distribution Network");
+                tracing::error!(target: "client", ?err, "failed to find chunk via chunk distribution network");
                 thread_local_shards_manager_adapter.send(
                     ShardsManagerRequestFromClient::RequestChunksForOrphan {
                         chunks_to_request: vec![header],

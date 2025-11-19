@@ -124,7 +124,7 @@ impl ValidationErrors {
     /// should only be used when you finished inserting all errors
     pub fn return_ok_or_error(&self) -> anyhow::Result<()> {
         if self.0.is_empty() {
-            tracing::info!(target: "config", "All validations have passed!");
+            tracing::info!(target: "config", "all validations have passed");
             Ok(())
         } else {
             Err(anyhow::Error::msg(format!(

@@ -1078,10 +1078,6 @@
             "description": "The account ID of the account registrar. This account ID allowed to create top-level\naccounts of any valid length."
           }
         },
-        "required": [
-          "min_allowed_top_level_account_length",
-          "registrar_account_id"
-        ],
         "type": "object"
       },
       "AccountDataView": {
@@ -1322,19 +1318,6 @@
             "description": "Base cost of making a transfer."
           }
         },
-        "required": [
-          "create_account_cost",
-          "deploy_contract_cost",
-          "deploy_contract_cost_per_byte",
-          "function_call_cost",
-          "function_call_cost_per_byte",
-          "transfer_cost",
-          "stake_cost",
-          "add_key_cost",
-          "delete_key_cost",
-          "delete_account_cost",
-          "delegate_cost"
-        ],
         "type": "object"
       },
       "ActionError": {
@@ -3291,10 +3274,6 @@
             "$ref": "#/components/schemas/ChunkDistributionUris"
           }
         },
-        "required": [
-          "enabled",
-          "uris"
-        ],
         "type": "object"
       },
       "ChunkDistributionUris": {
@@ -3309,10 +3288,6 @@
             "type": "string"
           }
         },
-        "required": [
-          "get",
-          "set"
-        ],
         "type": "object"
       },
       "ChunkHash": {
@@ -3612,20 +3587,6 @@
             "type": "number"
           }
         },
-        "required": [
-          "max_congestion_incoming_gas",
-          "max_congestion_outgoing_gas",
-          "max_congestion_memory_consumption",
-          "max_congestion_missed_chunks",
-          "max_outgoing_gas",
-          "min_outgoing_gas",
-          "allowed_shard_outgoing_gas",
-          "max_tx_gas",
-          "min_tx_gas",
-          "reject_tx_congestion_threshold",
-          "outgoing_receipts_usual_size_limit",
-          "outgoing_receipts_big_size_limit"
-        ],
         "type": "object"
       },
       "CongestionInfoView": {
@@ -3835,10 +3796,6 @@
             "description": "Additional cost per byte sent.\nBoth `send` and `exec` costs are burned when a function call finishes execution and returns\n`N` bytes of data to every output dependency. For each output dependency the cost is\n`(send(sir) + exec()) * N`."
           }
         },
-        "required": [
-          "base_cost",
-          "cost_per_byte"
-        ],
         "type": "object"
       },
       "DataReceiverView": {
@@ -4112,9 +4069,6 @@
             "type": "array"
           }
         },
-        "required": [
-          "location"
-        ],
         "type": "object"
       },
       "DurationAsStdSchemaProvider": {
@@ -4169,10 +4123,6 @@
             "description": "Timeout for epoch sync requests. The node will continue retrying indefinitely even\nif this timeout is exceeded."
           }
         },
-        "required": [
-          "epoch_sync_horizon",
-          "timeout_for_epoch_sync"
-        ],
         "type": "object"
       },
       "ErrorWrapper_for_GenesisConfigError": {
@@ -5927,95 +5877,6 @@
             "description": "Per byte cost of resume payload."
           }
         },
-        "required": [
-          "base",
-          "contract_loading_base",
-          "contract_loading_bytes",
-          "read_memory_base",
-          "read_memory_byte",
-          "write_memory_base",
-          "write_memory_byte",
-          "read_register_base",
-          "read_register_byte",
-          "write_register_base",
-          "write_register_byte",
-          "utf8_decoding_base",
-          "utf8_decoding_byte",
-          "utf16_decoding_base",
-          "utf16_decoding_byte",
-          "sha256_base",
-          "sha256_byte",
-          "keccak256_base",
-          "keccak256_byte",
-          "keccak512_base",
-          "keccak512_byte",
-          "ripemd160_base",
-          "ripemd160_block",
-          "ed25519_verify_base",
-          "ed25519_verify_byte",
-          "ecrecover_base",
-          "log_base",
-          "log_byte",
-          "storage_write_base",
-          "storage_write_key_byte",
-          "storage_write_value_byte",
-          "storage_write_evicted_byte",
-          "storage_read_base",
-          "storage_read_key_byte",
-          "storage_read_value_byte",
-          "storage_large_read_overhead_base",
-          "storage_large_read_overhead_byte",
-          "storage_remove_base",
-          "storage_remove_key_byte",
-          "storage_remove_ret_value_byte",
-          "storage_has_key_base",
-          "storage_has_key_byte",
-          "storage_iter_create_prefix_base",
-          "storage_iter_create_prefix_byte",
-          "storage_iter_create_range_base",
-          "storage_iter_create_from_byte",
-          "storage_iter_create_to_byte",
-          "storage_iter_next_base",
-          "storage_iter_next_key_byte",
-          "storage_iter_next_value_byte",
-          "touching_trie_node",
-          "read_cached_trie_node",
-          "promise_and_base",
-          "promise_and_per_promise",
-          "promise_return",
-          "validator_stake_base",
-          "validator_total_stake_base",
-          "contract_compile_base",
-          "contract_compile_bytes",
-          "alt_bn128_g1_multiexp_base",
-          "alt_bn128_g1_multiexp_element",
-          "alt_bn128_g1_sum_base",
-          "alt_bn128_g1_sum_element",
-          "alt_bn128_pairing_check_base",
-          "alt_bn128_pairing_check_element",
-          "yield_create_base",
-          "yield_create_byte",
-          "yield_resume_base",
-          "yield_resume_byte",
-          "bls12381_p1_sum_base",
-          "bls12381_p1_sum_element",
-          "bls12381_p2_sum_base",
-          "bls12381_p2_sum_element",
-          "bls12381_g1_multiexp_base",
-          "bls12381_g1_multiexp_element",
-          "bls12381_g2_multiexp_base",
-          "bls12381_g2_multiexp_element",
-          "bls12381_map_fp_to_g1_base",
-          "bls12381_map_fp_to_g1_element",
-          "bls12381_map_fp2_to_g2_base",
-          "bls12381_map_fp2_to_g2_element",
-          "bls12381_pairing_base",
-          "bls12381_pairing_element",
-          "bls12381_p1_decompress_base",
-          "bls12381_p1_decompress_element",
-          "bls12381_p2_decompress_base",
-          "bls12381_p2_decompress_element"
-        ],
         "type": "object"
       },
       "ExternalStorageConfig": {
@@ -6052,9 +5913,6 @@
             "type": "integer"
           }
         },
-        "required": [
-          "location"
-        ],
         "type": "object"
       },
       "ExternalStorageLocation": {
@@ -6511,10 +6369,80 @@
         },
         "type": "object"
       },
+      "GasKey": {
+        "description": "Gas key is like an access key, except it stores a balance separately, and transactions signed\nwith it deduct their cost from the gas key balance instead of the account balance.",
+        "properties": {
+          "balance": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "The balance of the gas key."
+          },
+          "num_nonces": {
+            "description": "The number of nonces this gas key has.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "permission": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccessKeyPermission"
+              }
+            ],
+            "description": "Defines the permissions for this gas key.\nIf this is a `FunctionCallPermission`, the allowance must be None (unlimited)."
+          }
+        },
+        "required": [
+          "num_nonces",
+          "balance",
+          "permission"
+        ],
+        "type": "object"
+      },
+      "GasKeyInfoView": {
+        "properties": {
+          "gas_key": {
+            "$ref": "#/components/schemas/GasKeyView"
+          },
+          "public_key": {
+            "$ref": "#/components/schemas/PublicKey"
+          }
+        },
+        "required": [
+          "public_key",
+          "gas_key"
+        ],
+        "type": "object"
+      },
+      "GasKeyList": {
+        "properties": {
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/GasKeyInfoView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "keys"
+        ],
+        "type": "object"
+      },
       "GasKeyView": {
         "properties": {
           "balance": {
             "$ref": "#/components/schemas/NearToken"
+          },
+          "nonces": {
+            "items": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
           },
           "num_nonces": {
             "format": "uint32",
@@ -6528,7 +6456,8 @@
         "required": [
           "num_nonces",
           "balance",
-          "permission"
+          "permission",
+          "nonces"
         ],
         "type": "object"
       },
@@ -10045,33 +9974,6 @@
             "type": "integer"
           }
         },
-        "required": [
-          "max_gas_burnt",
-          "max_stack_height",
-          "initial_memory_pages",
-          "max_memory_pages",
-          "registers_memory_limit",
-          "max_register_size",
-          "max_number_registers",
-          "max_number_logs",
-          "max_total_log_length",
-          "max_total_prepaid_gas",
-          "max_actions_per_receipt",
-          "max_number_bytes_method_names",
-          "max_length_method_name",
-          "max_arguments_length",
-          "max_length_returned_data",
-          "max_contract_size",
-          "max_transaction_size",
-          "max_receipt_size",
-          "max_length_storage_key",
-          "max_length_storage_value",
-          "max_promises_per_function_call_action",
-          "max_number_input_data_dependencies",
-          "yield_timeout_length_in_blocks",
-          "max_yield_payload_size",
-          "per_receipt_storage_proof_size_limit"
-        ],
         "type": "object"
       },
       "LogSummaryStyle": {
@@ -11835,69 +11737,6 @@
             "type": "integer"
           }
         },
-        "required": [
-          "version",
-          "chain_id",
-          "expected_shutdown",
-          "block_production_tracking_delay",
-          "min_block_production_delay",
-          "max_block_production_delay",
-          "max_block_wait_delay",
-          "chunk_wait_mult",
-          "skip_sync_wait",
-          "sync_check_period",
-          "sync_step_period",
-          "sync_height_threshold",
-          "sync_max_block_requests",
-          "header_sync_initial_timeout",
-          "header_sync_progress_timeout",
-          "header_sync_stall_ban_timeout",
-          "header_sync_expected_height_per_second",
-          "state_sync_external_timeout",
-          "state_sync_p2p_timeout",
-          "state_sync_retry_backoff",
-          "state_sync_external_backoff",
-          "min_num_peers",
-          "log_summary_period",
-          "log_summary_style",
-          "produce_empty_blocks",
-          "epoch_length",
-          "num_block_producer_seats",
-          "ttl_account_id_router",
-          "block_fetch_horizon",
-          "catchup_step_period",
-          "chunk_request_retry_period",
-          "doomslug_step_period",
-          "block_header_fetch_horizon",
-          "gc",
-          "tracked_shards_config",
-          "archive",
-          "save_trie_changes",
-          "save_tx_outcomes",
-          "save_untracked_partial_chunks_parts",
-          "view_client_threads",
-          "chunk_validation_threads",
-          "state_request_throttle_period",
-          "state_requests_per_throttle_period",
-          "state_request_server_threads",
-          "enable_statistics_export",
-          "client_background_migration_threads",
-          "state_sync_enabled",
-          "state_sync",
-          "epoch_sync",
-          "enable_multiline_logging",
-          "resharding_config",
-          "tx_routing_height_horizon",
-          "produce_chunk_add_transactions_time_limit",
-          "orphan_state_witness_pool_size",
-          "orphan_state_witness_max_size",
-          "save_latest_witnesses",
-          "save_invalid_witnesses",
-          "transaction_request_handler_threads",
-          "protocol_version_check",
-          "enable_early_prepare_transactions",
-          "dynamic_resharding_dry_run"
-        ],
         "type": "object"
       },
       "RpcCongestionLevelRequest": {
@@ -12957,41 +12796,6 @@
             "type": "integer"
           }
         },
-        "required": [
-          "protocol_version",
-          "genesis_time",
-          "chain_id",
-          "genesis_height",
-          "num_block_producer_seats",
-          "num_block_producer_seats_per_shard",
-          "avg_hidden_validator_seats_per_shard",
-          "dynamic_resharding",
-          "protocol_upgrade_stake_threshold",
-          "epoch_length",
-          "gas_limit",
-          "min_gas_price",
-          "max_gas_price",
-          "block_producer_kickout_threshold",
-          "chunk_producer_kickout_threshold",
-          "chunk_validator_only_kickout_threshold",
-          "target_validator_mandates_per_shard",
-          "online_min_threshold",
-          "online_max_threshold",
-          "gas_price_adjustment_rate",
-          "runtime_config",
-          "transaction_validity_period",
-          "protocol_reward_rate",
-          "max_inflation_rate",
-          "num_blocks_per_year",
-          "protocol_treasury_account",
-          "fishermen_threshold",
-          "minimum_stake_divisor",
-          "max_kickout_stake_perc",
-          "minimum_stake_ratio",
-          "shuffle_shard_assignment_for_chunk_producers",
-          "minimum_validators_per_shard",
-          "shard_layout"
-        ],
         "type": "object"
       },
       "RpcQueryError": {
@@ -13264,6 +13068,42 @@
               "name": {
                 "enum": [
                   "UNKNOWN_ACCESS_KEY"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "public_key",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_GAS_KEY"
                 ],
                 "type": "string"
               }
@@ -13575,6 +13415,78 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_gas_key"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id",
+                  "public_key"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_gas_key_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_gas_key_list"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_gas_key_list_by_block_id"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "block_id": {
+                    "$ref": "#/components/schemas/BlockId"
+                  }
+                },
+                "required": [
+                  "block_id"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
                   "args_base64": {
                     "$ref": "#/components/schemas/FunctionArgs"
                   },
@@ -13847,6 +13759,78 @@
               }
             ],
             "title": "view_access_key_list_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_gas_key"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id",
+                  "public_key"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_gas_key_by_finality"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "finality": {
+                    "$ref": "#/components/schemas/Finality"
+                  }
+                },
+                "required": [
+                  "finality"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_gas_key_list"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_gas_key_list_by_finality"
           },
           {
             "allOf": [
@@ -14157,6 +14141,78 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_gas_key"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id",
+                  "public_key"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_gas_key_by_sync_checkpoint"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "request_type": {
+                    "enum": [
+                      "view_gas_key_list"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_type",
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "view_gas_key_list_by_sync_checkpoint"
+          },
+          {
+            "allOf": [
+              {
+                "properties": {
+                  "sync_checkpoint": {
+                    "$ref": "#/components/schemas/SyncCheckpoint"
+                  }
+                },
+                "required": [
+                  "sync_checkpoint"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
                   "args_base64": {
                     "$ref": "#/components/schemas/FunctionArgs"
                   },
@@ -14272,6 +14328,12 @@
           },
           {
             "$ref": "#/components/schemas/AccessKeyList"
+          },
+          {
+            "$ref": "#/components/schemas/GasKeyView"
+          },
+          {
+            "$ref": "#/components/schemas/GasKeyList"
           }
         ],
         "properties": {
@@ -16127,14 +16189,6 @@
             "description": "Configuration specific to ChunkStateWitness."
           }
         },
-        "required": [
-          "storage_amount_per_byte",
-          "transaction_costs",
-          "wasm_config",
-          "account_creation_config",
-          "congestion_control_config",
-          "witness_config"
-        ],
         "type": "object"
       },
       "RuntimeFeesConfigView": {
@@ -16193,14 +16247,6 @@
             "description": "Describes fees for storage."
           }
         },
-        "required": [
-          "action_receipt_creation_config",
-          "data_receipt_creation_config",
-          "action_creation_config",
-          "storage_usage_config",
-          "burnt_gas_reward",
-          "pessimistic_gas_price_inflation_ratio"
-        ],
         "type": "object"
       },
       "ShardId": {
@@ -16937,7 +16983,7 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "gas_key": {
-                    "$ref": "#/components/schemas/GasKeyView"
+                    "$ref": "#/components/schemas/GasKey"
                   },
                   "public_key": {
                     "$ref": "#/components/schemas/PublicKey"
@@ -17379,10 +17425,6 @@
             "type": "integer"
           }
         },
-        "required": [
-          "num_bytes_account",
-          "num_extra_bytes_record"
-        ],
         "type": "object"
       },
       "StoreKey": {
@@ -17433,12 +17475,6 @@
             "type": "integer"
           }
         },
-        "required": [
-          "apply",
-          "apply_during_catchup",
-          "peer_downloads",
-          "per_shard"
-        ],
         "type": "object"
       },
       "SyncConfig": {
@@ -17770,24 +17806,6 @@
             "description": "See [VMConfig::vm_kind](crate::vm::Config::vm_kind)."
           }
         },
-        "required": [
-          "ext_costs",
-          "grow_mem_cost",
-          "regular_op_cost",
-          "linear_op_base_cost",
-          "linear_op_unit_cost",
-          "vm_kind",
-          "discard_custom_sections",
-          "saturating_float_to_int",
-          "global_contract_host_fns",
-          "reftypes_bulk_memory",
-          "deterministic_account_ids",
-          "storage_get_mode",
-          "fix_contract_loading_cost",
-          "implicit_account_creation",
-          "eth_implicit_accounts",
-          "limit_config"
-        ],
         "type": "object"
       },
       "VMKind": {
@@ -18192,11 +18210,6 @@
             "type": "integer"
           }
         },
-        "required": [
-          "main_storage_proof_size_soft_limit",
-          "combined_transactions_size_limit",
-          "new_transactions_validation_state_size_soft_limit"
-        ],
         "type": "object"
       }
     }

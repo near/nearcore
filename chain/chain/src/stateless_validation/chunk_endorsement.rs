@@ -27,7 +27,7 @@ pub fn validate_chunk_endorsements_in_block(
             target: "chain",
             num_chunks = block.chunks().len(),
             num_chunk_endorsement_shards = block.chunk_endorsements().len(),
-            "Number of chunks and chunk endorsements does not match",
+            "number of chunks and chunk endorsements does not match",
         );
         return Err(Error::InvalidChunkEndorsement);
     }
@@ -54,7 +54,7 @@ pub fn validate_chunk_endorsements_in_block(
                     target: "chain",
                     chunk_header_height_included = chunk_header.height_included(),
                     block_header_height = block.header().height(),
-                    "Expected chunk endorsements to be empty for old chunks in current block",
+                    "expected chunk endorsements to be empty for old chunks in current block",
                 );
                 return Err(Error::InvalidChunkEndorsement);
             }
@@ -77,7 +77,7 @@ pub fn validate_chunk_endorsements_in_block(
                 target: "chain",
                 num_ordered_chunk_validators = ordered_chunk_validators.len(),
                 num_chunk_endorsement_signatures = signatures.len(),
-                "Number of ordered chunk validators and chunk endorsement signatures does not match",
+                "number of ordered chunk validators and chunk endorsement signatures does not match",
             );
             return Err(Error::InvalidChunkEndorsement);
         }
@@ -98,9 +98,9 @@ pub fn validate_chunk_endorsements_in_block(
             ) {
                 tracing::error!(
                     target: "chain",
-                    "Invalid chunk endorsement signature for chunk {:?} and validator {:?}",
-                    chunk_header.chunk_hash(),
-                    validator.account_id(),
+                    chunk_hash = ?chunk_header.chunk_hash(),
+                    validator = ?validator.account_id(),
+                    "invalid chunk endorsement signature"
                 );
                 return Err(Error::InvalidChunkEndorsement);
             }
@@ -112,7 +112,7 @@ pub fn validate_chunk_endorsements_in_block(
         let endorsement_state =
             chunk_validator_assignments.compute_endorsement_state(endorsed_chunk_validators);
         if !endorsement_state.is_endorsed {
-            tracing::error!(target: "chain", ?endorsement_state, "Chunk does not have enough stake to be endorsed");
+            tracing::error!(target: "chain", ?endorsement_state, "chunk does not have enough stake to be endorsed");
             return Err(Error::InvalidChunkEndorsement);
         }
 

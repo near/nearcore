@@ -398,7 +398,7 @@ pub(crate) fn prepare_contract(
         })
         .analyze(&lightly_steamed)
         .map_err(|err| {
-            tracing::error!(?err, ?kind, "Analysis failed");
+            tracing::error!(?err, ?kind, "analysis failed");
             PrepareError::Deserialization
         })?;
     // Make sure contracts can’t call the instrumentation functions via `env`.
@@ -411,7 +411,7 @@ pub(crate) fn prepare_contract(
     )
     .run()
     .map_err(|err| {
-        tracing::error!(?err, ?kind, "Instrumentation failed");
+        tracing::error!(?err, ?kind, "instrumentation failed");
         PrepareError::Serialization
     })?;
     Ok(res)

@@ -273,7 +273,7 @@ impl<'a> StoreOpener<'a> {
     /// - If the state snapshot is already migrated
     fn migrate_state_snapshots(&self) -> Result<(), StoreOpenerError> {
         if self.migrator.is_none() {
-            tracing::debug!(target: "db_opener", "No migrator found, skipping state snapshots migration");
+            tracing::debug!(target: "db_opener", "no migrator found, skipping state snapshots migration");
             return Ok(());
         }
 
@@ -284,7 +284,7 @@ impl<'a> StoreOpener<'a> {
                 config.state_snapshots_dir().unwrap().to_path_buf()
             }
             StateSnapshotType::Disabled => {
-                tracing::debug!(target: "db_opener", "State snapshots are disabled, skipping state snapshots migration");
+                tracing::debug!(target: "db_opener", "state snapshots are disabled, skipping state snapshots migration");
                 return Ok(());
             }
         };
@@ -293,7 +293,7 @@ impl<'a> StoreOpener<'a> {
             tracing::debug!(
                 target: "db_opener",
                 ?state_snapshots_dir,
-                "State snapshots directory does not exist, skipping state snapshots migration"
+                "state snapshots directory does not exist, skipping state snapshots migration"
             );
             return Ok(());
         }
@@ -306,7 +306,7 @@ impl<'a> StoreOpener<'a> {
                 tracing::trace!(
                     target: "db_opener",
                     ?snapshot_path,
-                    "This entry is not a directory, skipping"
+                    "this entry is not a directory, skipping"
                 );
                 continue;
             }
@@ -328,7 +328,7 @@ impl<'a> StoreOpener<'a> {
                 Some(cold) => cold.path.display().to_string(),
                 None => String::from("none"),
             };
-            tracing::info!(target: "db_opener", path=hot_path, cold_path=cold_path, "Opening NodeStorage");
+            tracing::info!(target: "db_opener", path=hot_path, cold_path=cold_path, "opening node storage");
         }
 
         let hot_snapshot = {
@@ -347,7 +347,7 @@ impl<'a> StoreOpener<'a> {
 
         if let Err(error) = self.migrate_state_snapshots() {
             // If migration fails the node may not be able to share state parts.
-            tracing::error!(target: "db_opener", ?error, "Error migrating state snapshots");
+            tracing::error!(target: "db_opener", ?error, "error migrating state snapshots");
         }
 
         let (hot_db, _) = self.hot.open(mode, DB_VERSION)?;
@@ -386,7 +386,7 @@ impl<'a> StoreOpener<'a> {
                 Some(cold) => cold.path.display().to_string(),
                 None => String::from("none"),
             };
-            tracing::info!(target: "db_opener", path=hot_path, cold_path=cold_path, "Creating NodeStorage snapshots");
+            tracing::info!(target: "db_opener", path=hot_path, cold_path=cold_path, "creating node storage snapshots");
         }
 
         let hot_snapshot = {
@@ -413,14 +413,14 @@ impl<'a> StoreOpener<'a> {
         let meta = opener.get_metadata()?;
         match meta {
             Some(_) if !mode.must_create() => {
-                tracing::info!(target: "db_opener", path=%opener.path.display(), "The database exists.");
+                tracing::info!(target: "db_opener", path=%opener.path.display(), "the database exists");
                 return Ok(());
             }
             Some(_) => {
                 return Err(StoreOpenerError::DbAlreadyExists);
             }
             None if mode.can_create() => {
-                tracing::info!(target: "db_opener", path=%opener.path.display(), "The database doesn't exist, creating it.");
+                tracing::info!(target: "db_opener", path=%opener.path.display(), "the database doesn't exist, creating it");
 
                 let db = opener.create()?;
                 let store = Store::new(Arc::new(db));
@@ -442,7 +442,7 @@ impl<'a> StoreOpener<'a> {
         temp: Temperature,
     ) -> Result<(), StoreOpenerError> {
         let which: &'static str = temp.into();
-        tracing::debug!(target: "db_opener", path = %opener.path.display(), archive, which, "Ensure db kind is correct and set.");
+        tracing::debug!(target: "db_opener", path = %opener.path.display(), archive, which, "ensure db kind is correct and set");
         let store = Self::open_store_unsafe(mode, opener)?;
 
         let current_kind = store.get_db_kind()?;
@@ -463,7 +463,7 @@ impl<'a> StoreOpener<'a> {
 
         // Kind is not set, set it.
         if mode.read_write() {
-            tracing::info!(target: "db_opener", archive,  which, "Setting the db DbKind to {default_kind:#?}");
+            tracing::info!(target: "db_opener", archive, which, ?default_kind, "setting the db kind");
 
             store.set_db_kind(default_kind)?;
             return Ok(());
@@ -480,7 +480,7 @@ impl<'a> StoreOpener<'a> {
         opener: &DBOpener,
         migrator: &Option<&dyn StoreMigrator>,
     ) -> Result<Snapshot, StoreOpenerError> {
-        tracing::debug!(target: "db_opener", path=%opener.path.display(), "Ensure db version");
+        tracing::debug!(target: "db_opener", path=%opener.path.display(), "ensure db version");
 
         let metadata = opener.get_metadata()?;
         let metadata = metadata.ok_or(StoreOpenerError::DbDoesNotExist {})?;
@@ -517,9 +517,13 @@ impl<'a> StoreOpener<'a> {
         let snapshot = opener.snapshot()?;
 
         for version in version..DB_VERSION {
-            tracing::info!(target: "db_opener", path=%opener.path.display(),
-                           "Migrating the database from version {} to {}",
-                           version, version + 1);
+            tracing::info!(
+                target: "db_opener",
+                path=%opener.path.display(),
+                %version,
+                next_version = %(version + 1),
+                "migrating the database from version to next version",
+            );
 
             // Note: here we open the cold store as a regular Store object
             // backed by RocksDB. It doesn't matter today as we don't expect any
@@ -534,7 +538,7 @@ impl<'a> StoreOpener<'a> {
         if cfg!(feature = "nightly") {
             let version = 10000;
             tracing::info!(target: "db_opener", path=%opener.path.display(),
-            "Setting the database version to {version} for nightly");
+                %version, "setting the database version for nightly");
 
             // Set some dummy value to avoid conflict with other migrations from
             // nightly features.
