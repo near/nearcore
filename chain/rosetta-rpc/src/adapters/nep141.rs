@@ -1,7 +1,7 @@
 use crate::models::{AccountIdentifier, Currency, FungibleTokenEvent};
 use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
-use near_client::ViewClientActorInner;
+use near_client::ViewClientActor;
 use near_primitives::{types::BlockId, views::ExecutionOutcomeWithIdView};
 use std::{collections::HashMap, str::FromStr};
 pub(crate) fn collect_nep141_events(
@@ -82,7 +82,7 @@ fn compose_rosetta_nep141_events(
 }
 
 pub(crate) async fn get_fungible_token_balance_for_account(
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
     block_header: &near_primitives::views::BlockHeaderView,
     contract_address: &String,
     account_identifier: &AccountIdentifier,

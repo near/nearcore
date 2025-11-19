@@ -14,7 +14,7 @@ use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::ClientActor;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfig;
 use near_primitives::errors::InvalidTxError;
@@ -229,7 +229,7 @@ fn do_call_contract(
 /// height is greater than the target height.
 fn height_condition(
     test_loop_data: &TestLoopData,
-    client_handle: &TestLoopDataHandle<ClientActorInner>,
+    client_handle: &TestLoopDataHandle<ClientActor>,
     target_height: BlockHeight,
 ) -> bool {
     test_loop_data.get(&client_handle).client.chain.head().unwrap().height > target_height

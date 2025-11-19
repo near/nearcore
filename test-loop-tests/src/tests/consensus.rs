@@ -9,7 +9,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::Block;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::ClientActor;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{BlockApproval, BlockResponse};
 use near_network::types::NetworkRequests;
@@ -321,7 +321,7 @@ struct NetworkHandlingData {
 
     current_epoch: EpochId,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    client_senders: HashMap<AccountId, TestLoopSender<ClientActorInner>>,
+    client_senders: HashMap<AccountId, TestLoopSender<ClientActor>>,
     validators: Vec<Vec<AccountId>>,
 }
 

@@ -8,9 +8,7 @@ use near_chain::stateless_validation::processing_tracker::{
 use near_chain::{Block, Provenance};
 use near_chain_configs::Genesis;
 use near_chain_configs::default_orphan_state_witness_max_size;
-use near_client::{
-    BlockNotificationMessage, ChunkValidationActorInner, HandleOrphanWitnessOutcome,
-};
+use near_client::{BlockNotificationMessage, ChunkValidationActor, HandleOrphanWitnessOutcome};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
@@ -49,7 +47,7 @@ struct OrphanWitnessTestEnv {
     witness: ChunkStateWitness,
     excluded_validator: AccountId,
     excluded_validator_idx: usize,
-    chunk_validation_actor: ChunkValidationActorInner,
+    chunk_validation_actor: ChunkValidationActor,
 }
 
 /// This function prepares a scenario in which an orphaned chunk witness will occur.

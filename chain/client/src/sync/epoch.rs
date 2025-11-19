@@ -1,4 +1,4 @@
-use crate::client_actor::ClientActorInner;
+use crate::client_actor::ClientActor;
 use crate::metrics;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
@@ -875,7 +875,7 @@ impl EpochSync {
     }
 }
 
-impl Handler<EpochSyncRequestMessage> for ClientActorInner {
+impl Handler<EpochSyncRequestMessage> for ClientActor {
     #[perf]
     fn handle(&mut self, msg: EpochSyncRequestMessage) {
         if self.client.sync_handler.epoch_sync.config.ignore_epoch_sync_network_requests {
@@ -909,7 +909,7 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
     }
 }
 
-impl Handler<EpochSyncResponseMessage> for ClientActorInner {
+impl Handler<EpochSyncResponseMessage> for ClientActor {
     #[perf]
     fn handle(&mut self, msg: EpochSyncResponseMessage) {
         let (proof, _) = match msg.proof.decode() {

@@ -30,20 +30,20 @@ use std::sync::Arc;
 use crate::metrics;
 use near_async::multithread::MultithreadRuntimeHandle;
 
-impl Handler<ProcessTxRequest> for RpcHandler {
+impl Handler<ProcessTxRequest> for RpcHandlerActor {
     fn handle(&mut self, msg: ProcessTxRequest) {
         Handler::<ProcessTxRequest, ProcessTxResponse>::handle(self, msg);
     }
 }
 
-impl Handler<ProcessTxRequest, ProcessTxResponse> for RpcHandler {
+impl Handler<ProcessTxRequest, ProcessTxResponse> for RpcHandlerActor {
     fn handle(&mut self, msg: ProcessTxRequest) -> ProcessTxResponse {
         let ProcessTxRequest { transaction, is_forwarded, check_only } = msg;
         self.process_tx(transaction, is_forwarded, check_only)
     }
 }
 
-impl messaging::Actor for RpcHandler {}
+impl messaging::Actor for RpcHandlerActor {}
 
 pub fn spawn_rpc_handler_actor(
     actor_system: ActorSystem,
@@ -54,8 +54,8 @@ pub fn spawn_rpc_handler_actor(
     validator_signer: MutableValidatorSigner,
     runtime: Arc<dyn RuntimeAdapter>,
     network_adapter: PeerManagerAdapter,
-) -> MultithreadRuntimeHandle<RpcHandler> {
-    let actor = RpcHandler::new(
+) -> MultithreadRuntimeHandle<RpcHandlerActor> {
+    let actor = RpcHandlerActor::new(
         config.clone(),
         tx_pool,
         epoch_manager,
@@ -81,7 +81,7 @@ pub struct RpcHandlerConfig {
 /// Supposed to run multithreaded.
 /// Connects to the Client actor via (thread-safe) queues and pools to pass the data for consumption.
 #[derive(Clone)]
-pub struct RpcHandler {
+pub struct RpcHandlerActor {
     config: RpcHandlerConfig,
 
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
@@ -94,7 +94,7 @@ pub struct RpcHandler {
     network_adapter: PeerManagerAdapter,
 }
 
-impl RpcHandler {
+impl RpcHandlerActor {
     pub fn new(
         config: RpcHandlerConfig,
         tx_pool: Arc<Mutex<ShardedTransactionPool>>,
