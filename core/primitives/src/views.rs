@@ -6,8 +6,9 @@
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::action::{
-    DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, UseGlobalContractAction,
+    AddGasKeyAction, DeleteGasKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
+    GlobalContractDeployMode, GlobalContractIdentifier, TransferToGasKeyAction,
+    UseGlobalContractAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -1400,6 +1401,18 @@ pub enum ActionView {
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: Balance,
     } = 13,
+    AddGasKey {
+        public_key: PublicKey,
+        num_nonces: NonceIndex,
+        permission: AccessKeyPermissionView,
+    } = 14,
+    DeleteGasKey {
+        public_key: PublicKey,
+    } = 15,
+    TransferToGasKey {
+        public_key: PublicKey,
+        amount: Balance,
+    } = 16,
 }
 
 impl From<Action> for ActionView {
@@ -1458,6 +1471,18 @@ impl From<Action> for ActionView {
                     deposit: action.deposit,
                 }
             }
+            Action::AddGasKey(action) => ActionView::AddGasKey {
+                public_key: action.public_key,
+                num_nonces: action.num_nonces,
+                permission: action.permission.into(),
+            },
+            Action::DeleteGasKey(action) => {
+                ActionView::DeleteGasKey { public_key: action.public_key }
+            }
+            Action::TransferToGasKey(action) => ActionView::TransferToGasKey {
+                public_key: action.public_key,
+                amount: action.deposit,
+            },
         }
     }
 }
@@ -1525,6 +1550,22 @@ impl TryFrom<ActionView> for Action {
                     ),
                     deposit,
                 }))
+            }
+            ActionView::AddGasKey { public_key, num_nonces, permission } => {
+                Action::AddGasKey(Box::new(AddGasKeyAction {
+                    public_key,
+                    num_nonces,
+                    permission: permission.into(),
+                }))
+            }
+            ActionView::TransferToGasKey { public_key, amount } => {
+                Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+                    public_key,
+                    deposit: amount,
+                }))
+            }
+            ActionView::DeleteGasKey { public_key } => {
+                Action::DeleteGasKey(Box::new(DeleteGasKeyAction { public_key }))
             }
         })
     }

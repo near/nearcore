@@ -33,7 +33,7 @@ where
             function: Box::new(function),
         };
         if let Err(_) = self.send_message(message) {
-            tracing::info!(target: "tokio_runtime", seq, "Ignoring sync message, receiving actor is being shut down");
+            tracing::info!(target: "tokio_runtime", seq, "ignoring sync message, receiving actor is being shut down");
         }
     }
 }
@@ -70,7 +70,7 @@ where
 
 impl<A> FutureSpawner for TokioRuntimeHandle<A> {
     fn spawn_boxed(&self, description: &'static str, f: BoxFuture<'static, ()>) {
-        tracing::debug!(target: "tokio_runtime", description, "spawning future");
+        tracing::trace!(target: "tokio_runtime", description, "spawning future");
         self.runtime_handle.spawn(InstrumentingFuture::new(
             description,
             f,

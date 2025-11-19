@@ -503,6 +503,12 @@ pub struct GasKey {
     pub permission: AccessKeyPermission,
 }
 
+impl GasKey {
+    /// Maximum number of nonces a gas key can have.
+    /// Limited to prevent too many trie operations when creating / deleting gas keys.
+    pub const MAX_NONCES: NonceIndex = 1024;
+}
+
 /// Defines permissions for AccessKey
 #[derive(
     BorshSerialize,

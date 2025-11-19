@@ -250,7 +250,7 @@ impl CloudArchivalWriter {
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
     ) -> Result<(), CloudArchivalInitializationError> {
         let cloud_head_local = self.get_cloud_head_local()?;
-        let cloud_head_external = self.cloud_storage.get_cloud_head_if_exists().await?;
+        let cloud_head_external = self.cloud_storage.retrieve_cloud_head_if_exists().await?;
         match (cloud_head_local, cloud_head_external) {
             (None, None) => {
                 let hot_final_height = self.get_hot_final_head_height()?;

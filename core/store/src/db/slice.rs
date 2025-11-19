@@ -33,7 +33,7 @@ impl<'a> DBSlice<'a> {
     /// Constructs the object from a vector.
     ///
     /// In the current implementation, this is a zero-copy operation.
-    pub(super) fn from_vec(vec: Vec<u8>) -> Self {
+    pub(crate) fn from_vec(vec: Vec<u8>) -> Self {
         Self(Inner::Vec(vec))
     }
 

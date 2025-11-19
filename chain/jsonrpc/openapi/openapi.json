@@ -1869,6 +1869,54 @@
               "GlobalContractDoesNotExist"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "GasKeyDoesNotExist": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyDoesNotExist"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "GasKeyAlreadyExists": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyAlreadyExists"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -2175,6 +2223,80 @@
             },
             "required": [
               "DeterministicStateInit"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "AddGasKey": {
+                "properties": {
+                  "num_nonces": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "permission": {
+                    "$ref": "#/components/schemas/AccessKeyPermissionView"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "public_key",
+                  "num_nonces",
+                  "permission"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "AddGasKey"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DeleteGasKey": {
+                "properties": {
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "public_key"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DeleteGasKey"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "TransferToGasKey": {
+                "properties": {
+                  "amount": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "public_key",
+                  "amount"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "TransferToGasKey"
             ],
             "type": "object"
           }
@@ -2558,8 +2680,77 @@
               "DeterministicStateInitValueLengthExceeded"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "GasKeyPermissionInvalid": {
+                "properties": {
+                  "permission": {
+                    "$ref": "#/components/schemas/AccessKeyPermission"
+                  }
+                },
+                "required": [
+                  "permission"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyPermissionInvalid"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "GasKeyTooManyNoncesRequested": {
+                "properties": {
+                  "limit": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_nonces": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "requested_nonces",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyTooManyNoncesRequested"
+            ],
+            "type": "object"
           }
         ]
+      },
+      "AddGasKeyAction": {
+        "properties": {
+          "num_nonces": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "permission": {
+            "$ref": "#/components/schemas/AccessKeyPermission"
+          },
+          "public_key": {
+            "$ref": "#/components/schemas/PublicKey"
+          }
+        },
+        "required": [
+          "public_key",
+          "num_nonces",
+          "permission"
+        ],
+        "type": "object"
       },
       "AddKeyAction": {
         "description": "An action that adds key with public key associated",
@@ -3687,6 +3878,17 @@
         },
         "required": [
           "beneficiary_id"
+        ],
+        "type": "object"
+      },
+      "DeleteGasKeyAction": {
+        "properties": {
+          "public_key": {
+            "$ref": "#/components/schemas/PublicKey"
+          }
+        },
+        "required": [
+          "public_key"
         ],
         "type": "object"
       },
@@ -9112,6 +9314,42 @@
               "DeterministicStateInit"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "AddGasKey": {
+                "$ref": "#/components/schemas/AddGasKeyAction"
+              }
+            },
+            "required": [
+              "AddGasKey"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "DeleteGasKey": {
+                "$ref": "#/components/schemas/DeleteGasKeyAction"
+              }
+            },
+            "required": [
+              "DeleteGasKey"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "TransferToGasKey": {
+                "$ref": "#/components/schemas/TransferToGasKeyAction"
+              }
+            },
+            "required": [
+              "TransferToGasKey"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -9643,6 +9881,27 @@
             },
             "required": [
               "ReceiptSizeExceeded"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The `refund_to` of an ActionReceipt is not valid.",
+            "properties": {
+              "InvalidRefundTo": {
+                "properties": {
+                  "account_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "account_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "InvalidRefundTo"
             ],
             "type": "object"
           }
@@ -14923,6 +15182,21 @@
           }
         },
         "required": [
+          "deposit"
+        ],
+        "type": "object"
+      },
+      "TransferToGasKeyAction": {
+        "properties": {
+          "deposit": {
+            "$ref": "#/components/schemas/NearToken"
+          },
+          "public_key": {
+            "$ref": "#/components/schemas/PublicKey"
+          }
+        },
+        "required": [
+          "public_key",
           "deposit"
         ],
         "type": "object"

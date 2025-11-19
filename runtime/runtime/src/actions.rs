@@ -22,7 +22,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage,
+    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, Nonce, StorageUsage,
 };
 use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
@@ -510,10 +510,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     match account_id.get_account_type() {
         AccountType::NearImplicitAccount => {
             let mut access_key = AccessKey::full_access();
-            // Set default nonce for newly created access key to avoid transaction hash collision.
-            // See <https://github.com/near/nearcore/issues/3779>.
-            access_key.nonce = (block_height - 1)
-                * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+            access_key.nonce = initial_nonce_value(block_height);
 
             // unwrap: here it's safe because the `account_id` has already been determined to be implicit by `get_account_type`
             let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
@@ -765,8 +762,7 @@ pub(crate) fn action_add_key(
         return Ok(());
     }
     let mut access_key = add_key.access_key.clone();
-    access_key.nonce = (apply_state.block_height - 1)
-        * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+    access_key.nonce = initial_nonce_value(apply_state.block_height);
     set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
 
     let storage_config = &apply_state.config.fees.storage_usage_config;
@@ -1017,7 +1013,9 @@ pub(crate) fn check_actor_permissions(
         | Action::AddKey(_)
         | Action::DeleteKey(_)
         | Action::DeployGlobalContract(_)
-        | Action::UseGlobalContract(_) => {
+        | Action::UseGlobalContract(_)
+        | Action::AddGasKey(_)
+        | Action::DeleteGasKey(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
                     account_id: account_id.clone(),
@@ -1045,6 +1043,7 @@ pub(crate) fn check_actor_permissions(
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
         Action::Delegate(_) => (),
         Action::DeterministicStateInit(_) => (),
+        Action::TransferToGasKey(_) => (),
     };
     Ok(())
 }
@@ -1107,7 +1106,10 @@ pub(crate) fn check_account_existence(
         | Action::DeleteAccount(_)
         | Action::Delegate(_)
         | Action::DeployGlobalContract(_)
-        | Action::UseGlobalContract(_) => {
+        | Action::UseGlobalContract(_)
+        | Action::AddGasKey(_)
+        | Action::DeleteGasKey(_)
+        | Action::TransferToGasKey(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),
@@ -1156,10 +1158,17 @@ fn apply_recorded_storage_garbage(function_call: &FunctionCallAction, state_upda
     }
 }
 
+pub(crate) fn initial_nonce_value(block_height: BlockHeight) -> Nonce {
+    // Set default nonce for newly created access key to avoid transaction hash collision.
+    // See <https://github.com/near/nearcore/issues/3779>.
+    (block_height - 1) * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER
+}
+
 #[cfg(test)]
 mod tests {
 
     use super::*;
+    use crate::actions_test_utils::{setup_account, test_delete_large_account};
     use crate::near_primitives::shard_layout::ShardUId;
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::delegate::NonDelegateAction;
@@ -1168,10 +1177,8 @@ mod tests {
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::transaction::CreateAccountAction;
+    use near_primitives::types::EpochId;
     use near_primitives::types::Gas;
-    use near_primitives::types::{EpochId, StateChangeCause};
-    use near_primitives::version::PROTOCOL_VERSION;
-    use near_store::set_account;
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
 
@@ -1271,39 +1278,6 @@ mod tests {
         let predecessor_id = "near".parse().unwrap();
         let action_result = test_action_create_account(account_id, predecessor_id, 0);
         assert!(action_result.result.is_ok());
-    }
-
-    fn test_delete_large_account(
-        account_id: &AccountId,
-        code_hash: &CryptoHash,
-        storage_usage: u64,
-        state_update: &mut TrieUpdate,
-    ) -> ActionResult {
-        let mut account = Some(Account::new(
-            Balance::from_yoctonear(100),
-            Balance::ZERO,
-            AccountContract::from_local_code_hash(*code_hash),
-            storage_usage,
-        ));
-        let mut actor_id = account_id.clone();
-        let mut action_result = ActionResult::default();
-        let receipt = Receipt::new_balance_refund(
-            &"alice.near".parse().unwrap(),
-            Balance::ZERO,
-            ReceiptPriority::NoPriority,
-        );
-        let res = action_delete_account(
-            state_update,
-            &mut account,
-            &mut actor_id,
-            &receipt,
-            &mut action_result,
-            account_id,
-            &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
-            PROTOCOL_VERSION,
-        );
-        assert!(res.is_ok());
-        action_result
     }
 
     #[test]
@@ -1440,27 +1414,6 @@ mod tests {
         }
     }
 
-    fn setup_account(
-        account_id: &AccountId,
-        public_key: &PublicKey,
-        access_key: &AccessKey,
-    ) -> TrieUpdate {
-        let tries = TestTriesBuilder::new().build();
-        let mut state_update =
-            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        let account =
-            Account::new(Balance::from_yoctonear(100), Balance::ZERO, AccountContract::None, 100);
-        set_account(&mut state_update, account_id.clone(), &account);
-        set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
-
-        state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().unwrap().trie_changes;
-        let mut store_update = tries.store_update();
-        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
-        store_update.commit().unwrap();
-
-        tries.new_trie_update(ShardUId::single_shard(), root)
-    }
     fn non_delegate_action(action: Action) -> NonDelegateAction {
         NonDelegateAction::try_from(action)
             .expect("cannot violate type invariants, not even in test")

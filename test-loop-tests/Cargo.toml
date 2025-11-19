@@ -16,6 +16,7 @@ assert_matches.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
 derive_builder.workspace = true
+futures.workspace = true
 itertools.workspace = true
 parking_lot.workspace = true
 rand.workspace = true

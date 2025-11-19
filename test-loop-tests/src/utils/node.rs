@@ -291,4 +291,9 @@ impl<'a> TestLoopNode<'a> {
             self.client(test_loop_data).config.max_block_production_delay;
         max_block_production_delay * (num_blocks as u32 + 1)
     }
+
+    /// Returns new TestLoopNode that takes ownership of internal NodeExecutionData.
+    pub fn into_owned(self) -> TestLoopNode<'static> {
+        TestLoopNode::from(self.data.into_owned())
+    }
 }

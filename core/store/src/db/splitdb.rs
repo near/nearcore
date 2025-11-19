@@ -6,13 +6,14 @@ use std::sync::Arc;
 use near_o11y::log_assert_fail;
 
 use crate::DBCol;
+use crate::archive::cloud_storage::CloudStorage;
 use crate::db::{DBIterator, DBIteratorItem, DBSlice, DBTransaction, Database, StoreStatistics};
 
-/// A database that provides access to the hot and cold databases.
+/// A database that provides access to the hot, cold, and cloud databases.
 ///
 /// For hot-only columns it always reads from the hot database only. For cold
 /// columns it reads from hot first and if the value is present it returns it.
-/// If the value is not present it reads from the cold database.
+/// If the value is not present it reads from the cloud database, then cold database.
 ///
 /// The iter* methods return a merge iterator of hot and cold iterators.
 ///
@@ -20,12 +21,18 @@ use crate::db::{DBIterator, DBIteratorItem, DBSlice, DBTransaction, Database, St
 /// even the view client writes to the database in order to update caches.
 pub struct SplitDB {
     hot: Arc<dyn Database>,
-    cold: Arc<dyn Database>,
+    cold: Option<Arc<dyn Database>>,
+    cloud: Option<Arc<CloudStorage>>,
 }
 
 impl SplitDB {
-    pub fn new(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Arc<Self> {
-        return Arc::new(SplitDB { hot, cold });
+    pub fn new(
+        hot: Arc<dyn Database>,
+        cold: Option<Arc<dyn Database>>,
+        cloud: Option<Arc<CloudStorage>>,
+    ) -> Arc<Self> {
+        assert!(cold.is_some() || cloud.is_some());
+        return Arc::new(SplitDB { hot, cold, cloud });
     }
 
     /// The cmp function for the DBIteratorItems.
@@ -75,13 +82,23 @@ impl Database for SplitDB {
     /// if any.
     ///
     /// First tries to read the data from the hot db and returns it if found.
-    /// Then it tries to read the data from the cold db and returns the result.
+    /// Then it tries to read the data from the cloud db or cold db and returns the result.
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         if let Some(hot_result) = self.hot.get_raw_bytes(col, key)? {
             return Ok(Some(hot_result));
         }
-        if col.is_cold() {
-            return self.cold.get_raw_bytes(col, key);
+        if !col.is_cold() {
+            return Ok(None);
+        }
+        if let Some(cloud) = &self.cloud {
+            if let Some(cloud_result) = cloud.get(&self.hot, col, key)? {
+                return Ok(Some(cloud_result));
+            }
+        }
+        if let Some(cold) = &self.cold {
+            if let Some(cold_result) = cold.get_raw_bytes(col, key)? {
+                return Ok(Some(cold_result));
+            }
         }
         Ok(None)
     }
@@ -98,9 +115,16 @@ impl Database for SplitDB {
         if let Some(hot_result) = self.hot.get_with_rc_stripped(col, key)? {
             return Ok(Some(hot_result));
         }
-        if col.is_cold() {
-            return self.cold.get_with_rc_stripped(col, key);
+        if !col.is_cold() {
+            return Ok(None);
         }
+        if let Some(cold) = &self.cold {
+            return cold.get_with_rc_stripped(col, key);
+        }
+        // TODO(cloud_archival): Handle cloud archive for rc columns (State, Receipts,
+        // Transactions). Add a debug assert to ensure it's not called with unsupported rc
+        // cold columns. State will be served from the prefetch DB.
+
         Ok(None)
     }
 
@@ -110,11 +134,13 @@ impl Database for SplitDB {
     /// The returned iterator will iterate through items in both the cold store
     /// and the hot store. The items will be deduplicated and sorted.
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        if !col.is_cold() {
+        if !col.is_cold() || self.cold.is_none() {
             return self.hot.iter(col);
         }
-
-        Self::merge_iter(self.hot.iter(col), self.cold.iter(col))
+        // TODO(cloud_archival): Handle cloud archive. Add a debug assert to ensure it's
+        // not called with unsupported cold columns. The same applies to other iter_*
+        // methods.
+        Self::merge_iter(self.hot.iter(col), self.cold.as_ref().unwrap().iter(col))
     }
 
     /// Iterate over items in given column, whose keys start with given prefix,
@@ -123,13 +149,13 @@ impl Database for SplitDB {
     /// The returned iterator will iterate through items in both the cold store
     /// and the hot store. The items will be unique and sorted.
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        if !col.is_cold() {
+        if !col.is_cold() || self.cold.is_none() {
             return self.hot.iter_prefix(col, key_prefix);
         }
 
         return Self::merge_iter(
             self.hot.iter_prefix(col, key_prefix),
-            self.cold.iter_prefix(col, key_prefix),
+            self.cold.as_ref().unwrap().iter_prefix(col, key_prefix),
         );
     }
 
@@ -147,13 +173,13 @@ impl Database for SplitDB {
         lower_bound: Option<&[u8]>,
         upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
-        if !col.is_cold() {
+        if !col.is_cold() || self.cold.is_none() {
             return self.hot.iter_range(col, lower_bound, upper_bound);
         }
 
         return Self::merge_iter(
             self.hot.iter_range(col, lower_bound, upper_bound),
-            self.cold.iter_range(col, lower_bound, upper_bound),
+            self.cold.as_ref().unwrap().iter_range(col, lower_bound, upper_bound),
         );
     }
 
@@ -163,11 +189,14 @@ impl Database for SplitDB {
     /// The returned iterator will iterate through items in both the cold store
     /// and the hot store. The items will be unique and sorted.
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        if !col.is_cold() {
+        if !col.is_cold() || self.cold.is_none() {
             return self.hot.iter_raw_bytes(col);
         }
 
-        return Self::merge_iter(self.hot.iter_raw_bytes(col), self.cold.iter_raw_bytes(col));
+        return Self::merge_iter(
+            self.hot.iter_raw_bytes(col),
+            self.cold.as_ref().unwrap().iter_raw_bytes(col),
+        );
     }
 
     /// The split db, in principle, should be read only and only used in view client.
@@ -181,7 +210,9 @@ impl Database for SplitDB {
         let msg = "flush is not allowed - the split storage is read only.";
         log_assert_fail!("{}", msg);
         self.hot.flush()?;
-        self.cold.flush()?;
+        if let Some(cold) = &self.cold {
+            cold.flush()?;
+        }
         Ok(())
     }
 
@@ -189,7 +220,9 @@ impl Database for SplitDB {
         let msg = "compact is not allowed - the split storage is read only.";
         log_assert_fail!("{}", msg);
         self.hot.compact()?;
-        self.cold.compact()?;
+        if let Some(cold) = &self.cold {
+            cold.compact()?;
+        }
         Ok(())
     }
 
@@ -257,7 +290,7 @@ mod test {
     fn test_get_raw_bytes() {
         let hot = create_hot();
         let cold = create_cold();
-        let split = SplitDB::new(hot.clone(), cold.clone());
+        let split = SplitDB::new(hot.clone(), Some(cold.clone()), None);
 
         // Block is a nice column for testing because is a cold column but
         // cold doesn't do anything funny to it.
@@ -294,7 +327,7 @@ mod test {
     fn test_get_with_rc_stripped() {
         let hot = create_hot();
         let cold = create_cold();
-        let split = SplitDB::new(hot.clone(), cold.clone());
+        let split = SplitDB::new(hot.clone(), Some(cold.clone()), None);
 
         let col = DBCol::Transactions;
 
@@ -322,7 +355,7 @@ mod test {
     fn test_iter() {
         let hot = create_hot();
         let cold = create_cold();
-        let split = SplitDB::new(hot.clone(), cold.clone());
+        let split = SplitDB::new(hot.clone(), Some(cold.clone()), None);
 
         let col = DBCol::Transactions;
 
@@ -351,7 +384,7 @@ mod test {
     fn test_iter_raw_bytes() {
         let hot = create_hot();
         let cold = create_cold();
-        let split = SplitDB::new(hot.clone(), cold.clone());
+        let split = SplitDB::new(hot.clone(), Some(cold.clone()), None);
 
         let col = DBCol::Transactions;
 
@@ -378,7 +411,7 @@ mod test {
     fn test_iter_prefix() {
         let hot = create_hot();
         let cold = create_cold();
-        let split = SplitDB::new(hot.clone(), cold.clone());
+        let split = SplitDB::new(hot.clone(), Some(cold.clone()), None);
 
         let col = DBCol::Transactions;
 
@@ -406,7 +439,7 @@ mod test {
     fn test_iter_range() {
         let hot = create_hot();
         let cold = create_cold();
-        let split = SplitDB::new(hot.clone(), cold.clone());
+        let split = SplitDB::new(hot.clone(), Some(cold.clone()), None);
 
         let col = DBCol::Transactions;
 
