@@ -9,6 +9,43 @@
 ### Non-protocol Changes
 **No Changes**
 
+## [2.11.0]
+
+### Protocol Changes
+
+This is a special release that builds directly on top of 2.10.0 and includes just one, but major
+change: a new [Wasmtime](https://wasmtime.dev/)-based contract runtime. Wasmtime is a faster,
+better maintained implementation than what we had so far and makes it easier for us to enable new
+WebAssembly features that are required for more efficient code.
+
+This release does not contain any fee changes and, due to the strict and deterministic
+specification of how WebAssembly should be executed, no differences in how contracts are executed
+should be observed either. The only exception is that contracts can now use the newly enabled
+WebAssembly features.
+
+In this release we've allowed the following features in WebAssembly contracts:
+
+* [Reference types][reftypes];
+* [Bulk memory operations][bulk-memory];
+
+[reftypes]: https://webassembly.github.io/gc/core/appendix/changes.html#reference-types
+[bulk-memory]: https://webassembly.github.io/gc/core/appendix/changes.html#bulk-memory-and-table-instructions
+
+Among other things with these features it is now again possible to use current stable Rust
+toolchains to build contracts.
+
+To show a difference in performance, all shards of mainnet blocks 173554621..=173555645 have been
+applied and the time to apply them has been compared in a consistent setting. Results sorted by the
+shard "weight" in the block range:
+
+* shard 1 is 5% faster;
+* shard 10 is 2% slower;
+* shard 11 is 0% faster;
+* shard 4 is 2% faster;
+* shard 8 is 16% faster;
+* shard 6, 7 and 5 are 9% faster;
+* shard 9 is 10% faster.
+
 ## [2.10.0]
 
 ### Protocol Changes
