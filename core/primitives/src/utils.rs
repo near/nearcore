@@ -373,7 +373,7 @@ macro_rules! unwrap_or_return {
         match $obj {
             Ok(value) => value,
             Err(err) => {
-                tracing::error!(target: "near", "Unwrap error: {}", err);
+                tracing::error!(target: "near", ?err, "unwrap error");
                 return $ret;
             }
         }
@@ -382,7 +382,7 @@ macro_rules! unwrap_or_return {
         match $obj {
             Ok(value) => value,
             Err(err) => {
-                tracing::error!(target: "near", "Unwrap error: {}", err);
+                tracing::error!(target: "near", ?err, "unwrap error");
                 return;
             }
         }

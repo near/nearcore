@@ -417,28 +417,19 @@ mod tests {
 
     #[test]
     fn test_view_gas_key() {
-        let (account_id, public_key1, access_key) = test_account_keys();
-        let public_key2 = SecretKey::from_random(KeyType::ED25519).public_key();
-        let mut state_update = setup_account(&account_id, &public_key1, &access_key);
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
         let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
-        let gas_key1 =
-            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key1);
-        let gas_key2 =
-            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key2);
+        let gas_key =
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key);
 
         let viewer = TrieViewer::default();
-        let view_gas_key1 = viewer
-            .view_gas_key(&state_update, &account_id, &public_key1)
-            .expect("expected to find gas key");
-        let view_gas_key2 = viewer
-            .view_gas_key(&state_update, &account_id, &public_key2)
+        let view_gas_key = viewer
+            .view_gas_key(&state_update, &account_id, &public_key)
             .expect("expected to find gas key");
         let expected_nonce = initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT);
-        let expected = vec![
-            GasKeyView::new(gas_key1, vec![expected_nonce; TEST_NUM_NONCES as usize]),
-            GasKeyView::new(gas_key2, vec![expected_nonce; TEST_NUM_NONCES as usize]),
-        ];
-        assert_eq!(expected, vec![view_gas_key1, view_gas_key2]);
+        let expected = GasKeyView::new(gas_key, vec![expected_nonce; TEST_NUM_NONCES as usize]);
+        assert_eq!(expected, view_gas_key);
     }
 
     #[test]

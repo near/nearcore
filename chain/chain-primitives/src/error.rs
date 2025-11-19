@@ -281,7 +281,7 @@ pub trait LogTransientStorageError {
 impl<T> LogTransientStorageError for Result<T, Error> {
     fn log_storage_error(self, message: &str) -> Self {
         if let Err(err) = &self {
-            tracing::error!(target: "chain", "Transient storage error: {message}, {err}");
+            tracing::error!(target: "chain", %message, ?err, "transient storage error");
         }
         self
     }

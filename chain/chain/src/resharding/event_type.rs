@@ -5,7 +5,6 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
 use near_store::ShardUId;
 use near_store::flat::BlockInfo;
-use tracing::error;
 
 /// Struct used to destructure a new shard layout definition into the resulting resharding event.
 #[derive(Debug, Clone)]
@@ -51,7 +50,7 @@ impl ReshardingEventType {
         resharding_block: BlockInfo,
     ) -> Result<Option<ReshardingEventType>, Error> {
         let log_and_error = |err_msg: &str| {
-            error!(target: "resharding", ?next_shard_layout, err_msg);
+            tracing::error!(target: "resharding", ?next_shard_layout, err_msg);
             Err(Error::ReshardingError(err_msg.to_owned()))
         };
 

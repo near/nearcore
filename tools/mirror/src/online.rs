@@ -132,10 +132,10 @@ impl crate::ChainAccess for ChainAccess {
                 Err(e) => match e {
                     GetChunkError::UnknownChunk { .. } => {
                         tracing::error!(
-                            "Can't fetch source chain shard {} chunk {} at height {}. Are we tracking all shards?",
-                            c.shard_id,
-                            c.chunk_hash,
-                            height
+                            %c.shard_id,
+                            ?c.chunk_hash,
+                            %height,
+                            "can't fetch source chain shard chunk at height, are we tracking all shards?"
                         );
                         continue;
                     }

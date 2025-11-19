@@ -37,7 +37,6 @@ use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
-use tracing::warn;
 
 const MAX_GAS_PRICE: Balance = Balance::from_millinear(10);
 
@@ -284,6 +283,8 @@ impl From<&GenesisConfig> for EpochConfig {
                 .shuffle_shard_assignment_for_chunk_producers,
             validator_max_kickout_stake_perc: config.max_kickout_stake_perc,
             max_inflation_rate: config.max_inflation_rate,
+            protocol_reward_rate: config.protocol_reward_rate,
+            protocol_treasury_account: config.protocol_treasury_account.clone(),
         }
     }
 }
@@ -677,7 +678,7 @@ impl Genesis {
         match genesis_validation {
             GenesisValidationMode::Full => validate_genesis(self),
             GenesisValidationMode::UnsafeFast => {
-                warn!(target: "genesis", "Skipped genesis validation");
+                tracing::warn!(target: "genesis", "skipped genesis validation");
                 Ok(())
             }
         }

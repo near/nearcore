@@ -59,7 +59,7 @@ pub(crate) fn execute_function_call(
     view_config: Option<ViewConfig>,
 ) -> Result<VMOutcome, RuntimeError> {
     let account_id = runtime_ext.account_id().clone();
-    tracing::debug!(target: "runtime", %account_id, "Calling the contract");
+    tracing::debug!(target: "runtime", %account_id, "calling the contract");
     // Output data receipts are ignored if the function call is not the last action in the batch.
     let output_data_receivers: Vec<_> = if is_last_action {
         action_receipt.output_data_receivers().iter().map(|r| r.receiver_id.clone()).collect()
@@ -1154,7 +1154,7 @@ fn apply_recorded_storage_garbage(function_call: &FunctionCallAction, state_upda
         .and_then(|suf| suf.parse::<usize>().ok())
     {
         if state_update.trie.record_storage_garbage(garbage_size_mbs) {
-            tracing::warn!(target: "runtime", %garbage_size_mbs, "Generated storage proof garbage");
+            tracing::warn!(target: "runtime", %garbage_size_mbs, "generated storage proof garbage");
         }
     }
 }
