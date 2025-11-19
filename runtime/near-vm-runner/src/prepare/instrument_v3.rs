@@ -3,21 +3,31 @@
 // FIXME: Have `InstrumentContext` implement `Reencode` trait fully... rather than have it half way
 // manually implemented and half-way reliant on wasm_encoder::reencode...
 
-use crate::{REMAINING_GAS_EXPORT, START_EXPORT};
+use crate::{EXPORT_PREFIX, REMAINING_GAS_EXPORT, START_EXPORT};
 use core::num::NonZeroU64;
+use core::ops::Deref;
 use finite_wasm_6::gas::InstrumentationKind;
 use finite_wasm_6::{AnalysisOutcome, Fee};
-use wasm_encoder::reencode::{Error as ReencodeError, Reencode};
-use wasm_encoder::{self as we, InstructionSink};
+use wasm_encoder::reencode::{
+    Error as ReencodeError, Reencode, ReencodeComponent, component_utils,
+};
+use wasm_encoder::{
+    Alias, BlockType, CanonicalFunctionSection, CodeSection, Component, ComponentAliasSection,
+    ComponentExportKind, ComponentImportSection, ComponentOuterAliasKind, ComponentTypeRef,
+    ComponentTypeSection, ConstExpr, ElementSection, EntityType, ExportKind, ExportSection,
+    FuncType, Function, FunctionSection, GlobalSection, GlobalType, ImportSection, IndirectNameMap,
+    InstanceSection, InstanceType, InstructionSink, Module, ModuleArg, ModuleSection, NameMap,
+    NameSection, PrimitiveValType, RawSection, StartSection, TypeSection, ValType,
+};
 use wasmparser_236 as wp;
 
 const PLACEHOLDER_FOR_NAMES: u8 = !0;
 
-const GAS_GLOBAL: u32 = 0;
-const STACK_GLOBAL: u32 = GAS_GLOBAL + 1;
+const STACK_GLOBAL: u32 = 0;
+const GAS_GLOBAL: u32 = STACK_GLOBAL + 1;
 
 /// Total number of injected globals in the instrumented module.
-const G: u32 = STACK_GLOBAL + 1;
+const G: u32 = GAS_GLOBAL + 1;
 
 /// These function indices are known to be constant, as they are added at the beginning of the
 /// imports section.
@@ -30,6 +40,13 @@ const GAS_INSTRUMENTATION_FN: u32 = STACK_EXHAUSTED_FN + 1;
 
 /// Total number of injected functions in the instrumented module.
 const F: u32 = GAS_INSTRUMENTATION_FN + 1;
+
+const STORE_ADDR_FN: u32 = GAS_INSTRUMENTATION_FN + 1;
+const U64_LOAD_FN: u32 = STORE_ADDR_FN + 1;
+const U64_STORE_FN: u32 = U64_LOAD_FN + 1;
+
+/// Total number of injected functions in the instrumented module if it's part of a component.
+const F_COMPONENT: u32 = U64_STORE_FN + 1;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -61,8 +78,8 @@ pub enum Error {
     ParseNameMapName(#[source] wp::BinaryReaderError),
     #[error("could not parse an indirect name map entry")]
     ParseIndirectNameMapName(#[source] wp::BinaryReaderError),
-    #[error("could not parse a module section header")]
-    ParseModuleSection(#[source] wp::BinaryReaderError),
+    #[error("could not parse a section header")]
+    ParseSection(#[source] wp::BinaryReaderError),
     #[error("could not parse a type section entry")]
     ParseType(#[source] wp::BinaryReaderError),
     #[error("could not parse an import section entry")]
@@ -89,39 +106,27 @@ pub enum Error {
     TooManyGlobals,
     #[error("function contains too many locals")]
     TooManyLocals,
+    #[error("component contains too many functions")]
+    TooManyFunctions,
+    #[error("component contains too many instances")]
+    TooManyInstances,
+    #[error("section end was not reached")]
+    EndNotReached,
+    #[error("unparsed Wasm bytes left")]
+    UnparsedBytes,
 }
 
-pub(crate) struct InstrumentContext<'a> {
-    analysis: &'a AnalysisOutcome,
-    wasm: &'a [u8],
-    import_env: &'a str,
-    globals: u32,
-    op_cost: u32,
-    max_stack_height: u32,
-
-    type_section: we::TypeSection,
-    import_section: we::ImportSection,
-    function_section: we::FunctionSection,
-    table_section: Option<we::RawSection<'a>>,
-    memory_section: Option<we::RawSection<'a>>,
-    global_section: we::GlobalSection,
-    export_section: we::ExportSection,
-    start_section: Option<we::StartSection>,
-    element_section: we::ElementSection,
-    datacount_section: Option<we::RawSection<'a>>,
-    code_section: we::CodeSection,
-    name_section: we::NameSection,
-    raw_sections: Vec<we::RawSection<'a>>,
-
-    types: Vec<we::FuncType>,
-    function_types: std::vec::IntoIter<u32>,
+struct InstrumentationReencoder<'a> {
+    ctx: InstrumentContext<'a>,
+    is_component: bool,
+    type_depth: u32,
+    module_sizes: Vec<u64>,
+    instantiation_bytes: u64,
 }
 
-struct InstrumentationReencoder;
-
-impl InstrumentationReencoder {
-    fn namemap(&mut self, p: wp::NameMap, is_function: bool) -> Result<we::NameMap, Error> {
-        let mut new_name_map = we::NameMap::new();
+impl<'a> InstrumentationReencoder<'a> {
+    fn namemap(&mut self, p: wp::NameMap, is_function: bool) -> Result<NameMap, Error> {
+        let mut new_name_map = NameMap::new();
         for naming in p {
             let naming = naming.map_err(Error::ParseNameMapName)?;
             let idx = self
@@ -132,8 +137,8 @@ impl InstrumentationReencoder {
         Ok(new_name_map)
     }
 
-    fn indirectnamemap(&mut self, p: wp::IndirectNameMap) -> Result<we::IndirectNameMap, Error> {
-        let mut new_name_map = we::IndirectNameMap::new();
+    fn indirectnamemap(&mut self, p: wp::IndirectNameMap) -> Result<IndirectNameMap, Error> {
+        let mut new_name_map = IndirectNameMap::new();
         for naming in p {
             let naming = naming.map_err(Error::ParseIndirectNameMapName)?;
             let idx = self
@@ -150,14 +155,302 @@ impl InstrumentationReencoder {
 pub enum ReencodeUserError {
     #[error("function index remapping error")]
     FunctionIndex,
+
+    #[error("module index parsing error")]
+    ModuleIndex,
+
+    #[error("unparsed bytes")]
+    UnparsedBytes,
+
+    #[error("type is nested too deeply")]
+    TypeDepth,
+
+    #[error("instantiation bytes would overflow u64")]
+    InstantiationByteOverflow,
+
+    #[error("inner error")]
+    Inner(Box<Error>),
 }
 
-impl<'a> Reencode for InstrumentationReencoder {
+impl<'a> Reencode for InstrumentationReencoder<'_> {
     type Error = ReencodeUserError;
 
     fn function_index(&mut self, func: u32) -> Result<u32, ReencodeError<Self::Error>> {
-        func.checked_add(F).ok_or(ReencodeError::UserError(Self::Error::FunctionIndex))
+        let n = if self.is_component { F_COMPONENT } else { F };
+        func.checked_add(n).ok_or(ReencodeError::UserError(Self::Error::FunctionIndex))
     }
+
+    fn parse_import(
+        &mut self,
+        imports: &mut ImportSection,
+        import: wp::Import<'_>,
+    ) -> Result<(), ReencodeError<Self::Error>> {
+        if self.is_component {
+            imports.import(
+                &format!("{EXPORT_PREFIX}{}", import.module),
+                import.name,
+                self.entity_type(import.ty)?,
+            );
+        } else {
+            imports.import(import.module, import.name, self.entity_type(import.ty)?);
+        }
+        Ok(())
+    }
+}
+
+impl ReencodeComponent for InstrumentationReencoder<'_> {
+    fn component_type_index(&mut self, ty: u32) -> u32 {
+        if self.type_depth == 0 { ty + 2 } else { ty }
+    }
+
+    fn component_instance_index(&mut self, ty: u32) -> u32 {
+        if self.type_depth == 0 { ty + 2 } else { ty }
+    }
+
+    fn component_func_index(&mut self, ty: u32) -> u32 {
+        if self.type_depth == 0 { ty + F_COMPONENT } else { ty }
+    }
+
+    fn instance_index(&mut self, ty: u32) -> u32 {
+        if self.type_depth == 0 { ty + 1 } else { ty }
+    }
+
+    fn parse_component(
+        &mut self,
+        component: &mut Component,
+        parser: wp::Parser,
+        data: &[u8],
+    ) -> Result<(), ReencodeError<Self::Error>> {
+        let mut tys = ComponentTypeSection::new();
+
+        let mut instrument_ty = InstanceType::new();
+        instrument_ty.ty().function().params::<_, PrimitiveValType>([]).result(None);
+        instrument_ty.ty().function().params([("gas", PrimitiveValType::U64)]).result(None);
+        tys.instance(
+            instrument_ty
+                .export("gas-exhausted", ComponentTypeRef::Func(0))
+                .export("stack-exhausted", ComponentTypeRef::Func(0))
+                .export("burn-gas", ComponentTypeRef::Func(1)),
+        );
+
+        let mut intrinsic_ty = InstanceType::new();
+        intrinsic_ty
+            .ty()
+            .function()
+            .params::<_, PrimitiveValType>([])
+            .result(Some(PrimitiveValType::U64.into()));
+        intrinsic_ty
+            .ty()
+            .function()
+            .params([("ptr", PrimitiveValType::U64)])
+            .result(Some(PrimitiveValType::U64.into()));
+        intrinsic_ty
+            .ty()
+            .function()
+            .params([("ptr", PrimitiveValType::U64), ("val", PrimitiveValType::U64)])
+            .result(None);
+        tys.instance(
+            intrinsic_ty
+                .export("store-data-address", ComponentTypeRef::Func(0))
+                .export("u64-native-load", ComponentTypeRef::Func(1))
+                .export("u64-native-store", ComponentTypeRef::Func(2)),
+        );
+
+        component.section(&tys);
+
+        component.section(
+            ComponentImportSection::new()
+                .import("near:nearcore/finite-wasm@0.1.0", ComponentTypeRef::Instance(0))
+                .import("unsafe-intrinsics", ComponentTypeRef::Instance(1)),
+        );
+        component.section(
+            ComponentAliasSection::new()
+                .alias(Alias::InstanceExport {
+                    instance: 0,
+                    kind: ComponentExportKind::Func,
+                    name: "gas-exhausted",
+                })
+                .alias(Alias::InstanceExport {
+                    instance: 0,
+                    kind: ComponentExportKind::Func,
+                    name: "stack-exhausted",
+                })
+                .alias(Alias::InstanceExport {
+                    instance: 0,
+                    kind: ComponentExportKind::Func,
+                    name: "burn-gas",
+                })
+                .alias(Alias::InstanceExport {
+                    instance: 1,
+                    kind: ComponentExportKind::Func,
+                    name: "store-data-address",
+                })
+                .alias(Alias::InstanceExport {
+                    instance: 1,
+                    kind: ComponentExportKind::Func,
+                    name: "u64-native-load",
+                })
+                .alias(Alias::InstanceExport {
+                    instance: 1,
+                    kind: ComponentExportKind::Func,
+                    name: "u64-native-store",
+                }),
+        );
+        component.section(
+            CanonicalFunctionSection::new()
+                .lower(GAS_EXHAUSTED_FN, [])
+                .lower(STACK_EXHAUSTED_FN, [])
+                .lower(GAS_INSTRUMENTATION_FN, [])
+                .lower(STORE_ADDR_FN, [])
+                .lower(U64_LOAD_FN, [])
+                .lower(U64_STORE_FN, []),
+        );
+        component.section(InstanceSection::new().export_items([
+            ("finite_wasm_gas_exhausted", ExportKind::Func, GAS_EXHAUSTED_FN),
+            ("finite_wasm_stack_exhausted", ExportKind::Func, STACK_EXHAUSTED_FN),
+            ("finite_wasm_gas", ExportKind::Func, GAS_INSTRUMENTATION_FN),
+            ("store_data_address", ExportKind::Func, STORE_ADDR_FN),
+            ("u64_native_load", ExportKind::Func, U64_LOAD_FN),
+            ("u64_native_store", ExportKind::Func, U64_STORE_FN),
+        ]));
+        component_utils::parse_component(self, component, parser, data, data)
+    }
+
+    fn parse_component_submodule(
+        &mut self,
+        component: &mut Component,
+        parser: wp::Parser,
+        module: &[u8],
+    ) -> Result<(), ReencodeError<Self::Error>> {
+        self.push_depth();
+        let mut stream = parser.parse_all(module);
+        let size = u64::try_from(module.len()).map_err(|_err| {
+            ReencodeError::UserError(ReencodeUserError::InstantiationByteOverflow)
+        })?;
+        self.module_sizes.push(size);
+        let module = ModuleInstrumentContext::new(self.ctx)
+            .instrument_module(&mut stream)
+            .map_err(Box::new)
+            .map_err(ReencodeUserError::Inner)
+            .map_err(ReencodeError::UserError)?;
+        if let Some(Ok(_payload)) = stream.next() {
+            return Err(ReencodeError::UserError(ReencodeUserError::UnparsedBytes));
+        }
+        component.section(&ModuleSection(&module));
+        self.pop_depth();
+        Ok(())
+    }
+
+    fn component_instance_type(
+        &mut self,
+        ty: Box<[wp::InstanceTypeDeclaration<'_>]>,
+    ) -> Result<InstanceType, ReencodeError<Self::Error>> {
+        self.type_depth = self
+            .type_depth
+            .checked_add(1)
+            .ok_or(ReencodeError::UserError(ReencodeUserError::TypeDepth))?;
+        let ty = component_utils::component_instance_type(self, ty)?;
+        self.type_depth -= 1;
+        Ok(ty)
+    }
+
+    fn parse_instance(
+        &mut self,
+        instances: &mut InstanceSection,
+        instance: wp::Instance<'_>,
+    ) -> Result<(), ReencodeError<Self::Error>> {
+        match instance {
+            wp::Instance::Instantiate { module_index, args } => {
+                let module_index_usize = usize::try_from(module_index)
+                    .map_err(|_err| ReencodeError::UserError(ReencodeUserError::ModuleIndex))?;
+                let size = self
+                    .module_sizes
+                    .get(module_index_usize)
+                    .ok_or(ReencodeError::UserError(ReencodeUserError::ModuleIndex))?;
+                self.instantiation_bytes = self.instantiation_bytes.checked_add(*size).ok_or(
+                    ReencodeError::UserError(ReencodeUserError::InstantiationByteOverflow),
+                )?;
+
+                let mut args = args
+                    .into_iter()
+                    .map(|wp::InstantiationArg { name, kind, index }| match kind {
+                        wp::InstantiationArgKind::Instance => {
+                            let index = index.checked_add(1).ok_or(Error::TooManyInstances)?;
+                            Ok((format!("{EXPORT_PREFIX}{name}"), ModuleArg::Instance(index)))
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(Box::new)
+                    .map_err(ReencodeUserError::Inner)
+                    .map_err(ReencodeError::UserError)?;
+                args.push(("internal".into(), ModuleArg::Instance(0)));
+                instances.instantiate(module_index, args);
+            }
+            wp::Instance::FromExports(exports) => {
+                let exports = exports
+                    .into_iter()
+                    .map(|wp::Export { name, kind, mut index }| {
+                        if let wp::ExternalKind::Func = kind {
+                            index =
+                                index.checked_add(F_COMPONENT).ok_or(Error::TooManyFunctions)?;
+                        }
+                        Ok((name, kind.into(), index))
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(Box::new)
+                    .map_err(ReencodeUserError::Inner)
+                    .map_err(ReencodeError::UserError)?;
+                instances.export_items(exports);
+            }
+        }
+        Ok(())
+    }
+
+    fn component_alias<'a>(
+        &mut self,
+        alias: wp::ComponentAlias<'a>,
+    ) -> Result<Alias<'a>, ReencodeError<Self::Error>> {
+        match alias {
+            wp::ComponentAlias::InstanceExport { kind, instance_index, name } => {
+                Ok(Alias::InstanceExport {
+                    instance: self.component_instance_index(instance_index),
+                    kind: kind.into(),
+                    name,
+                })
+            }
+            wp::ComponentAlias::CoreInstanceExport { kind, instance_index, name } => {
+                Ok(Alias::CoreInstanceExport {
+                    instance: self.instance_index(instance_index),
+                    kind: kind.into(),
+                    name,
+                })
+            }
+            wp::ComponentAlias::Outer { kind, count, mut index } => match kind {
+                wp::ComponentOuterAliasKind::CoreModule => {
+                    Ok(Alias::Outer { kind: ComponentOuterAliasKind::CoreModule, count, index })
+                }
+                wp::ComponentOuterAliasKind::CoreType => {
+                    Ok(Alias::Outer { kind: ComponentOuterAliasKind::CoreType, count, index })
+                }
+                wp::ComponentOuterAliasKind::Type => {
+                    if count >= self.type_depth {
+                        // remap type index if this is reference to a type in a parent component
+                        index += 2;
+                    }
+                    Ok(Alias::Outer { kind: ComponentOuterAliasKind::Type, count, index })
+                }
+                wp::ComponentOuterAliasKind::Component => {
+                    Ok(Alias::Outer { kind: ComponentOuterAliasKind::Component, count, index })
+                }
+            },
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GasCounterAccess {
+    Global { offset: u32 },
+    External,
 }
 
 trait InstructionSinkExt {
@@ -193,26 +486,46 @@ trait InstructionSinkExt {
     /// end
     /// ```
     fn checked_mul_i64(self, f: u32) -> Self;
+
+    fn get_gas_counter(self, counter: GasCounterAccess) -> Self;
+    fn set_gas_counter(self, counter: GasCounterAccess) -> Self;
 }
 
-impl InstructionSinkExt for &mut we::InstructionSink<'_> {
+impl InstructionSinkExt for &mut InstructionSink<'_> {
     fn checked_add_i64(self, f: u32) -> Self {
-        self.i64_add128().i64_eqz().if_(we::BlockType::Empty).else_().call(f).unreachable().end()
+        self.i64_add128().i64_eqz().if_(BlockType::Empty).else_().call(f).unreachable().end()
     }
 
     fn checked_sub_i64(self, f: u32) -> Self {
-        self.i64_sub128().i64_eqz().if_(we::BlockType::Empty).else_().call(f).unreachable().end()
+        self.i64_sub128().i64_eqz().if_(BlockType::Empty).else_().call(f).unreachable().end()
     }
 
     fn checked_mul_i64(self, f: u32) -> Self {
-        self.i64_mul_wide_u()
-            .i64_eqz()
-            .if_(we::BlockType::Empty)
-            .else_()
-            .call(f)
-            .unreachable()
-            .end()
+        self.i64_mul_wide_u().i64_eqz().if_(BlockType::Empty).else_().call(f).unreachable().end()
     }
+
+    fn get_gas_counter(self, counter: GasCounterAccess) -> Self {
+        match counter {
+            GasCounterAccess::Global { offset } => self.global_get(offset + GAS_GLOBAL),
+            GasCounterAccess::External => self.call(STORE_ADDR_FN).call(U64_LOAD_FN),
+        }
+    }
+
+    fn set_gas_counter(self, counter: GasCounterAccess) -> Self {
+        match counter {
+            GasCounterAccess::Global { offset } => self.global_set(offset + GAS_GLOBAL),
+            GasCounterAccess::External => self.call(U64_STORE_FN),
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub(crate) struct InstrumentContext<'a> {
+    analysis: &'a AnalysisOutcome,
+    wasm: &'a [u8],
+    import_env: &'a str,
+    op_cost: u32,
+    max_stack_height: u32,
 }
 
 impl<'a> InstrumentContext<'a> {
@@ -223,26 +536,82 @@ impl<'a> InstrumentContext<'a> {
         op_cost: u32,
         max_stack_height: u32,
     ) -> Self {
-        Self {
-            analysis,
-            wasm,
-            import_env,
-            globals: 0,
-            op_cost,
-            max_stack_height,
+        Self { analysis, wasm, import_env, op_cost, max_stack_height }
+    }
 
-            type_section: we::TypeSection::new(),
-            import_section: we::ImportSection::new(),
-            function_section: we::FunctionSection::new(),
+    pub(crate) fn run(self) -> anyhow::Result<(Vec<u8>, u64)> {
+        let parser = wp::Parser::new(0);
+        if wp::Parser::is_core_wasm(self.wasm) {
+            let mut stream = parser.parse_all(self.wasm);
+            let module = ModuleInstrumentContext::new(self).instrument_module(&mut stream)?;
+            if let Some(Ok(_payload)) = stream.next() {
+                return Err(Error::UnparsedBytes.into());
+            }
+            return Ok((module.finish(), 0));
+        }
+        let mut renc = InstrumentationReencoder {
+            ctx: self,
+            is_component: true,
+            type_depth: 0,
+            module_sizes: Vec::default(),
+            instantiation_bytes: 0,
+        };
+        let mut component = Component::new();
+        renc.parse_component(&mut component, parser, self.wasm)?;
+        Ok((component.finish(), renc.instantiation_bytes))
+    }
+}
+
+struct ModuleInstrumentContext<'a> {
+    ctx: InstrumentContext<'a>,
+
+    globals: u32,
+
+    type_section: TypeSection,
+    import_section: ImportSection,
+    function_section: FunctionSection,
+    table_section: Option<RawSection<'a>>,
+    memory_section: Option<RawSection<'a>>,
+    global_section: GlobalSection,
+    export_section: ExportSection,
+    start_section: Option<StartSection>,
+    element_section: ElementSection,
+    datacount_section: Option<RawSection<'a>>,
+    code_section: CodeSection,
+    name_section: NameSection,
+    raw_sections: Vec<RawSection<'a>>,
+
+    types: Vec<FuncType>,
+    function_types: std::vec::IntoIter<u32>,
+}
+
+impl<'a> Deref for ModuleInstrumentContext<'a> {
+    type Target = InstrumentContext<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.ctx
+    }
+}
+
+impl<'a> ModuleInstrumentContext<'a> {
+    fn new(ctx: InstrumentContext<'a>) -> Self {
+        Self {
+            ctx,
+
+            globals: 0,
+
+            type_section: TypeSection::new(),
+            import_section: ImportSection::new(),
+            function_section: FunctionSection::new(),
             table_section: None,
             memory_section: None,
-            global_section: we::GlobalSection::new(),
-            export_section: we::ExportSection::new(),
+            global_section: GlobalSection::new(),
+            export_section: ExportSection::new(),
             start_section: None,
-            element_section: we::ElementSection::new(),
+            element_section: ElementSection::new(),
             datacount_section: None,
-            code_section: we::CodeSection::new(),
-            name_section: we::NameSection::new(),
+            code_section: CodeSection::new(),
+            name_section: NameSection::new(),
             raw_sections: vec![],
 
             types: vec![],
@@ -250,15 +619,68 @@ impl<'a> InstrumentContext<'a> {
         }
     }
 
-    pub(crate) fn run(mut self) -> Result<Vec<u8>, Error> {
-        let parser = wp::Parser::new(0);
-        let mut renc = InstrumentationReencoder;
-        for payload in parser.parse_all(self.wasm) {
-            let payload = payload.map_err(Error::ParseModuleSection)?;
+    fn instrument_module(
+        mut self,
+        stream: &mut impl Iterator<Item = wp::Result<wp::Payload<'a>>>,
+    ) -> Result<Module, Error> {
+        let mut renc = InstrumentationReencoder {
+            ctx: self.ctx,
+            is_component: wp::Parser::is_component(&self.wasm),
+            type_depth: 0,
+            module_sizes: Vec::default(),
+            instantiation_bytes: 0,
+        };
+        for payload in stream {
+            let payload = payload.map_err(Error::ParseSection)?;
             match payload {
                 // These two payload types are (re-)generated by wasm_encoder.
                 wp::Payload::Version { .. } => {}
-                wp::Payload::End(_) => {}
+                wp::Payload::End(_) => {
+                    // The type and import sections always come first in a module. They may potentially be
+                    // preceded or interspersed by custom sections in the original module, so we’re just hoping
+                    // that the ordering doesn’t matter for tests…
+                    let mut output = Module::new();
+                    if !self.type_section.is_empty() {
+                        output.section(&self.type_section);
+                    }
+                    if !self.import_section.is_empty() {
+                        output.section(&self.import_section);
+                    }
+                    if !self.function_section.is_empty() {
+                        output.section(&self.function_section);
+                    }
+                    if let Some(section) = self.table_section {
+                        output.section(&section);
+                    }
+                    if let Some(section) = self.memory_section {
+                        output.section(&section);
+                    }
+                    if !self.global_section.is_empty() {
+                        output.section(&self.global_section);
+                    }
+                    if !self.export_section.is_empty() {
+                        output.section(&self.export_section);
+                    }
+                    if let Some(section) = self.start_section {
+                        output.section(&section);
+                    }
+                    if !self.element_section.is_empty() {
+                        output.section(&self.element_section);
+                    }
+                    if let Some(section) = self.datacount_section {
+                        output.section(&section);
+                    }
+                    if !self.code_section.is_empty() {
+                        output.section(&self.code_section);
+                    }
+                    for section in self.raw_sections {
+                        match section.id {
+                            PLACEHOLDER_FOR_NAMES => output.section(&self.name_section),
+                            _ => output.section(&section),
+                        };
+                    }
+                    return Ok(output);
+                }
                 // We must manually reconstruct the type section because we’re appending types to
                 // it.
                 wp::Payload::TypeSection(types) => {
@@ -293,13 +715,17 @@ impl<'a> InstrumentContext<'a> {
                 wp::Payload::StartSection { func, .. } => {
                     let function_index =
                         renc.function_index(func).or(Err(Error::RemapFunctionIndex(func)))?;
-                    // Export the start function as a regular
-                    // function under well-known name, such that the runtime could:
-                    // 1. instantiate the module
-                    // 2. lookup the [`REMAINING_GAS_EXPORT`] global on the instance
-                    // 3. set the value of [`REMAINING_GAS_EXPORT`] global
-                    // 4. invoke [`START_EXPORT`]
-                    self.export_section.export(START_EXPORT, we::ExportKind::Func, function_index);
+                    if wp::Parser::is_core_wasm(&self.wasm) {
+                        // Export the start function as a regular
+                        // function under well-known name, such that the runtime could:
+                        // 1. instantiate the module
+                        // 2. lookup the [`REMAINING_GAS_EXPORT`] global on the instance
+                        // 3. set the value of [`REMAINING_GAS_EXPORT`] global
+                        // 4. invoke [`START_EXPORT`]
+                        self.export_section.export(START_EXPORT, ExportKind::Func, function_index);
+                    } else {
+                        self.start_section = Some(StartSection { function_index });
+                    }
                 }
                 wp::Payload::ElementSection(reader) => {
                     renc.parse_element_section(&mut self.element_section, reader)
@@ -319,7 +745,7 @@ impl<'a> InstrumentContext<'a> {
                 wp::Payload::TableSection(..) => {
                     let (id, range) = payload.as_section().unwrap();
                     let len = range.len();
-                    self.table_section = Some(we::RawSection {
+                    self.table_section = Some(RawSection {
                         id,
                         data: self.wasm.get(range).ok_or(Error::TableSectionRange(len))?,
                     });
@@ -327,7 +753,7 @@ impl<'a> InstrumentContext<'a> {
                 wp::Payload::MemorySection(..) => {
                     let (id, range) = payload.as_section().unwrap();
                     let len = range.len();
-                    self.memory_section = Some(we::RawSection {
+                    self.memory_section = Some(RawSection {
                         id,
                         data: self.wasm.get(range).ok_or(Error::MemorySectionRange(len))?,
                     });
@@ -350,12 +776,12 @@ impl<'a> InstrumentContext<'a> {
                                 let idx = renc
                                     .function_index(export.index)
                                     .or(Err(Error::RemapFunctionIndex(export.index)))?;
-                                (we::ExportKind::Func, idx)
+                                (ExportKind::Func, idx)
                             }
-                            wp::ExternalKind::Table => (we::ExportKind::Table, export.index),
-                            wp::ExternalKind::Memory => (we::ExportKind::Memory, export.index),
-                            wp::ExternalKind::Global => (we::ExportKind::Global, export.index),
-                            wp::ExternalKind::Tag => (we::ExportKind::Tag, export.index),
+                            wp::ExternalKind::Table => (ExportKind::Table, export.index),
+                            wp::ExternalKind::Memory => (ExportKind::Memory, export.index),
+                            wp::ExternalKind::Global => (ExportKind::Global, export.index),
+                            wp::ExternalKind::Tag => (ExportKind::Tag, export.index),
                         };
                         self.export_section.export(export.name, kind, index);
                     }
@@ -375,7 +801,7 @@ impl<'a> InstrumentContext<'a> {
                 wp::Payload::DataCountSection { .. } => {
                     let (id, range) = payload.as_section().unwrap();
                     let len = range.len();
-                    self.datacount_section = Some(we::RawSection {
+                    self.datacount_section = Some(RawSection {
                         id,
                         data: self.wasm.get(range).ok_or(Error::DataCountSection(len))?,
                     });
@@ -390,8 +816,7 @@ impl<'a> InstrumentContext<'a> {
                         // old section, or don't transform at all.
                         //
                         // (This is largely useful for fuzzing only)
-                        self.raw_sections
-                            .push(we::RawSection { id: PLACEHOLDER_FOR_NAMES, data: &[] });
+                        self.raw_sections.push(RawSection { id: PLACEHOLDER_FOR_NAMES, data: &[] });
                     }
                 }
                 // All the other sections are transparently copied over (they cannot reference a
@@ -401,57 +826,14 @@ impl<'a> InstrumentContext<'a> {
                         .as_section()
                         .expect("any non-section payloads should have been handled already");
                     let len = range.len();
-                    self.raw_sections.push(wasm_encoder::RawSection {
+                    self.raw_sections.push(RawSection {
                         id,
                         data: self.wasm.get(range).ok_or(Error::CustomSectionRange(id, len))?,
                     });
                 }
             }
         }
-        // The type and import sections always come first in a module. They may potentially be
-        // preceded or interspersed by custom sections in the original module, so we’re just hoping
-        // that the ordering doesn’t matter for tests…
-        let mut output = wasm_encoder::Module::new();
-        if !self.type_section.is_empty() {
-            output.section(&self.type_section);
-        }
-        if !self.import_section.is_empty() {
-            output.section(&self.import_section);
-        }
-        if !self.function_section.is_empty() {
-            output.section(&self.function_section);
-        }
-        if let Some(section) = self.table_section {
-            output.section(&section);
-        }
-        if let Some(section) = self.memory_section {
-            output.section(&section);
-        }
-        if !self.global_section.is_empty() {
-            output.section(&self.global_section);
-        }
-        if !self.export_section.is_empty() {
-            output.section(&self.export_section);
-        }
-        if let Some(section) = self.start_section {
-            output.section(&section);
-        }
-        if !self.element_section.is_empty() {
-            output.section(&self.element_section);
-        }
-        if let Some(section) = self.datacount_section {
-            output.section(&section);
-        }
-        if !self.code_section.is_empty() {
-            output.section(&self.code_section);
-        }
-        for section in self.raw_sections {
-            match section.id {
-                PLACEHOLDER_FOR_NAMES => output.section(&self.name_section),
-                _ => output.section(&section),
-            };
-        }
-        Ok(output.finish())
+        Err(Error::EndNotReached)
     }
 
     fn transform_code_section(
@@ -505,23 +887,28 @@ impl<'a> InstrumentContext<'a> {
         // NOTE: Function parameters become locals, rather than operands, so we don’t need to
         // handle them in any way when inserting the block.
         let block_type = match (params, results) {
-            (_, []) => we::BlockType::Empty,
-            (_, [result]) => we::BlockType::Result(*result),
-            ([], _) => we::BlockType::FunctionType(func_type_idx),
+            (_, []) => BlockType::Empty,
+            (_, [result]) => BlockType::Result(*result),
+            ([], _) => BlockType::FunctionType(func_type_idx),
             (_, results) => {
                 let new_block_type_idx = self.type_section.len();
                 self.type_section.ty().function(std::iter::empty(), results.iter().copied());
-                we::BlockType::FunctionType(new_block_type_idx)
+                BlockType::FunctionType(new_block_type_idx)
             }
         };
 
-        locals.push((1, we::ValType::I64));
-        locals.push((1, we::ValType::I32));
-        let mut new_function = we::Function::new(locals);
+        locals.push((1, ValType::I64));
+        locals.push((1, ValType::I32));
+        let mut new_function = Function::new(locals);
         'outer: {
             let Some(stack_charge) = stack_sz.checked_add(frame_sz).map(NonZeroU64::new) else {
                 new_function.instructions().call(STACK_EXHAUSTED_FN).unreachable().end();
                 break 'outer;
+            };
+            let counter = if wp::Parser::is_core_wasm(self.wasm) {
+                GasCounterAccess::Global { offset: self.globals }
+            } else {
+                GasCounterAccess::External
             };
             if let Some(stack_charge) = stack_charge {
                 let mut new_function = new_function.instructions();
@@ -548,7 +935,7 @@ impl<'a> InstrumentContext<'a> {
                     &mut new_function,
                     None,
                     Fee { constant: gas_charge, linear: 0 },
-                    self.globals,
+                    counter,
                     local_idx,
                 )?;
             }
@@ -562,7 +949,7 @@ impl<'a> InstrumentContext<'a> {
                             &mut new_function.instructions(),
                             Some(*k),
                             *g,
-                            self.globals,
+                            counter,
                             local_idx,
                         )?;
                     }
@@ -636,7 +1023,7 @@ impl<'a> InstrumentContext<'a> {
             let exhausted_fnty = self.type_section.len();
             self.type_section.ty().function([], []);
             let gas_fnty = self.type_section.len();
-            self.type_section.ty().function([we::ValType::I64], []);
+            self.type_section.ty().function([ValType::I64], []);
 
             // By inserting the imports at the beginning of the import section we make the new
             // function index mapping trivial (it is always just an increment by `F`)
@@ -644,42 +1031,78 @@ impl<'a> InstrumentContext<'a> {
             self.import_section.import(
                 self.import_env,
                 "finite_wasm_gas_exhausted",
-                we::EntityType::Function(exhausted_fnty),
+                EntityType::Function(exhausted_fnty),
             );
             debug_assert_eq!(self.import_section.len(), STACK_EXHAUSTED_FN);
             self.import_section.import(
                 self.import_env,
                 "finite_wasm_stack_exhausted",
-                we::EntityType::Function(exhausted_fnty),
+                EntityType::Function(exhausted_fnty),
             );
             debug_assert_eq!(self.import_section.len(), GAS_INSTRUMENTATION_FN);
             self.import_section.import(
                 self.import_env,
                 "finite_wasm_gas",
-                we::EntityType::Function(gas_fnty),
+                EntityType::Function(gas_fnty),
             );
             debug_assert_eq!(self.import_section.len(), F);
+
+            if wp::Parser::is_component(&self.wasm) {
+                let address_fnty = self.type_section.len();
+                self.type_section.ty().function([], [ValType::I64]);
+
+                let load_fnty = self.type_section.len();
+                self.type_section.ty().function([ValType::I64], [ValType::I64]);
+
+                let store_fnty = self.type_section.len();
+                self.type_section.ty().function([ValType::I64, ValType::I64], []);
+
+                debug_assert_eq!(self.import_section.len(), STORE_ADDR_FN);
+                self.import_section.import(
+                    self.import_env,
+                    "store_data_address",
+                    EntityType::Function(address_fnty),
+                );
+
+                debug_assert_eq!(self.import_section.len(), U64_LOAD_FN);
+                self.import_section.import(
+                    self.import_env,
+                    "u64_native_load",
+                    EntityType::Function(load_fnty),
+                );
+
+                debug_assert_eq!(self.import_section.len(), U64_STORE_FN);
+                self.import_section.import(
+                    self.import_env,
+                    "u64_native_store",
+                    EntityType::Function(store_fnty),
+                );
+
+                debug_assert_eq!(self.import_section.len(), F_COMPONENT);
+            }
         }
     }
 
     fn add_globals(&mut self) {
-        debug_assert!(self.global_section.len() <= self.globals + GAS_GLOBAL);
-        self.global_section.global(
-            we::GlobalType { val_type: we::ValType::I64, mutable: true, shared: false },
-            &we::ConstExpr::i64_const(0),
-        );
         debug_assert!(self.global_section.len() <= self.globals + STACK_GLOBAL);
         self.global_section.global(
-            we::GlobalType { val_type: we::ValType::I64, mutable: true, shared: false },
-            &we::ConstExpr::i64_const(self.max_stack_height.into()),
+            GlobalType { val_type: ValType::I64, mutable: true, shared: false },
+            &ConstExpr::i64_const(self.max_stack_height.into()),
         );
-        debug_assert!(self.global_section.len() <= self.globals + G);
+        if wp::Parser::is_core_wasm(self.wasm) {
+            debug_assert!(self.global_section.len() <= self.globals + GAS_GLOBAL);
+            self.global_section.global(
+                GlobalType { val_type: ValType::I64, mutable: true, shared: false },
+                &ConstExpr::i64_const(0),
+            );
+            debug_assert!(self.global_section.len() <= self.globals + G);
 
-        self.export_section.export(
-            REMAINING_GAS_EXPORT,
-            we::ExportKind::Global,
-            self.globals + GAS_GLOBAL,
-        );
+            self.export_section.export(
+                REMAINING_GAS_EXPORT,
+                ExportKind::Global,
+                self.globals + GAS_GLOBAL,
+            );
+        }
     }
 
     fn transform_name_section(
@@ -692,7 +1115,7 @@ impl<'a> InstrumentContext<'a> {
             match name {
                 wp::Name::Module { name, .. } => self.name_section.module(name),
                 wp::Name::Function(map) => {
-                    let mut new_name_map = we::NameMap::new();
+                    let mut new_name_map = NameMap::new();
                     new_name_map.append(GAS_EXHAUSTED_FN, "finite_wasm_gas_exhausted");
                     new_name_map.append(STACK_EXHAUSTED_FN, "finite_wasm_stack_exhausted");
                     new_name_map.append(GAS_INSTRUMENTATION_FN, "finite_wasm_gas");
@@ -739,7 +1162,7 @@ fn call_gas_instrumentation(
     func: &mut InstructionSink<'_>,
     k: Option<InstrumentationKind>,
     gas: Fee,
-    globals: u32,
+    counter: GasCounterAccess,
     local_idx: u32,
 ) -> Result<(), Error> {
     if matches!(gas, Fee::ZERO) {
@@ -747,21 +1170,24 @@ fn call_gas_instrumentation(
     } else if gas.linear == 0 {
         // The reinterpreting cast is intentional here. On the other side the host function is
         // expected to reinterpret the argument back to u64.
-        func.global_get(globals + GAS_GLOBAL)
+        func.get_gas_counter(counter)
             .i64_const(gas.constant as i64)
             // $gas | $constant
             .i64_lt_u()
             // $gas < $constant
-            .if_(we::BlockType::Empty)
+            .if_(BlockType::Empty)
             .i64_const(gas.constant as i64)
             .call(GAS_INSTRUMENTATION_FN)
             .unreachable()
-            .else_()
-            .global_get(globals + GAS_GLOBAL)
+            .else_();
+        if let GasCounterAccess::External = counter {
+            func.call(STORE_ADDR_FN);
+        }
+        func.get_gas_counter(counter)
             .i64_const(gas.constant as i64)
             .i64_sub()
             // $gas - $constant
-            .global_set(globals + GAS_GLOBAL)
+            .set_gas_counter(counter)
             .end();
         return Ok(());
     }
@@ -789,19 +1215,22 @@ fn call_gas_instrumentation(
                 .checked_add_i64(GAS_EXHAUSTED_FN)
                 // $count * $linear + $constant
                 .local_tee(local_idx)
-                .global_get(globals + GAS_GLOBAL)
+                .get_gas_counter(counter)
                 .i64_gt_u()
                 // $count * $linear + $constant > $gas
-                .if_(we::BlockType::Empty)
+                .if_(BlockType::Empty)
                 .local_get(local_idx)
                 .call(GAS_INSTRUMENTATION_FN)
                 .unreachable()
-                .else_()
-                .global_get(globals + GAS_GLOBAL)
+                .else_();
+            if let GasCounterAccess::External = counter {
+                func.call(STORE_ADDR_FN);
+            }
+            func.get_gas_counter(counter)
                 .local_get(local_idx)
                 .i64_sub()
                 // $gas - $count * $linear + $constant
-                .global_set(globals + GAS_GLOBAL)
+                .set_gas_counter(counter)
                 .end()
                 // $count
                 .local_get(count_idx);
