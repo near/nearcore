@@ -12,6 +12,7 @@ nightly_test_flags := "--features nightly,test_features"
 stable_test_flags := "--features test_features"
 
 export RUST_BACKTRACE := env("RUST_BACKTRACE", "short")
+export RUST_LOG := env("RUST_LOG", "info,test_loop=warn")
 ci_hack_nextest_profile := if env("CI_HACKS", "0") == "1" { "--profile ci" } else { "" }
 
 # all the tests, as close to CI as possible
@@ -40,7 +41,6 @@ test-extra: check-lychee
 # TYPE is one of "stable", "nightly"
 nextest TYPE *FLAGS:
     env RUSTFLAGS="-D warnings" \
-    env RUST_LOG="env('RUST_LOG', 'info,test_loop=warning')" \
     cargo nextest run \
         --locked \
         --workspace \
