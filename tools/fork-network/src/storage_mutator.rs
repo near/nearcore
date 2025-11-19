@@ -481,7 +481,7 @@ fn commit_to_existing_state(
     update.store_update().set_ser(DBCol::Misc, &key, &state_root)?;
 
     update.commit()?;
-    tracing::info!(?shard_uid, ?state_root, "Commit is done");
+    tracing::info!(?shard_uid, ?state_root, "commit is done");
     Ok(())
 }
 

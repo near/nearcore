@@ -251,7 +251,7 @@ fn copy_state_from_store(
     // We know that `copied_shards` includes all `tracked_shards`.
     // Emit a warning if `copied_shards` contains any unexpected extra shards.
     if copied_shards.len() > tracked_shards.len() {
-        tracing::warn!(target: "cold_store", "Copied state for shards {:?} while tracking {:?}", copied_shards, tracked_shards);
+        tracing::warn!(target: "cold_store", ?copied_shards, ?tracked_shards, "copied state for shards while tracking");
     }
 
     let read_duration = instant.elapsed();
@@ -330,7 +330,7 @@ pub fn update_cold_head(
     hot_store: &Store,
     height: &BlockHeight,
 ) -> io::Result<()> {
-    tracing::debug!(target: "cold_store", "update HEAD of cold db to {}", height);
+    tracing::debug!(target: "cold_store", %height, "update head of cold db");
 
     let height_key = height.to_le_bytes();
     let block_hash_key =
@@ -389,7 +389,7 @@ pub fn copy_all_data_to_cold(
 ) -> io::Result<CopyAllDataToColdStatus> {
     for col in DBCol::iter() {
         if col.is_cold() {
-            tracing::info!(target: "cold_store", ?col, "Started column migration");
+            tracing::info!(target: "cold_store", ?col, "started column migration");
             let mut transaction = BatchTransaction::new(cold_db.clone(), batch_size);
             for result in hot_store.iter(col) {
                 if !keep_going.load(std::sync::atomic::Ordering::Relaxed) {
@@ -400,7 +400,7 @@ pub fn copy_all_data_to_cold(
                 transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec())?;
             }
             transaction.write()?;
-            tracing::info!(target: "cold_store", ?col, "Finished column migration");
+            tracing::info!(target: "cold_store", ?col, "finished column migration");
         }
     }
     Ok(CopyAllDataToColdStatus::EverythingCopied)
@@ -484,7 +484,7 @@ fn get_keys_from_store(
             continue;
         };
         if !tracked_shards.contains(&shard_id) {
-            tracing::warn!(target: "cold_store", "Copied chunk for shard {} which is not tracked at height {}", shard_id, block.header().height());
+            tracing::warn!(target: "cold_store", %shard_id, height = block.header().height(), "copied chunk for shard which is not tracked at height");
         }
         chunks.push(chunk);
     }
@@ -723,7 +723,7 @@ impl BatchTransaction {
                 target: "cold_store",
                 ?column_label,
                 tx_size_in_megabytes = self.transaction_size as f64 / 1e6,
-                "Writing a Cold Store transaction");
+                "writing a cold store transaction");
 
         let transaction = std::mem::take(&mut self.transaction);
         self.cold_db.write(transaction)?;

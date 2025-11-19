@@ -5,7 +5,6 @@ use std::time::Duration;
 use std::{env, thread};
 
 use rand::Rng;
-use tracing::error;
 
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
@@ -148,7 +147,7 @@ impl Drop for ProcessNode {
     fn drop(&mut self) {
         match self.state {
             ProcessNodeState::Running(ref mut child) => {
-                let _ = child.kill().map_err(|_| error!("child process died"));
+                let _ = child.kill().map_err(|_| tracing::error!("child process died"));
                 std::fs::remove_dir_all(&self.work_dir).unwrap();
             }
             ProcessNodeState::Stopped => {}

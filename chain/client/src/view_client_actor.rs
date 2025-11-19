@@ -63,7 +63,6 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use tracing::warn;
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -420,6 +419,11 @@ impl ViewClientActorInner {
                     block_height,
                     block_hash,
                 } => QueryError::UnknownAccessKey { public_key, block_height, block_hash },
+                near_chain::near_chain_primitives::error::QueryError::UnknownGasKey {
+                    public_key,
+                    block_height,
+                    block_hash,
+                } => QueryError::UnknownGasKey { public_key, block_height, block_hash },
                 near_chain::near_chain_primitives::error::QueryError::ContractExecutionError {
                     error,
                     block_hash,
@@ -453,6 +457,8 @@ impl ViewClientActorInner {
             | QueryRequest::ViewState { account_id, .. }
             | QueryRequest::ViewAccessKey { account_id, .. }
             | QueryRequest::ViewAccessKeyList { account_id, .. }
+            | QueryRequest::ViewGasKey { account_id, .. }
+            | QueryRequest::ViewGasKeyList { account_id }
             | QueryRequest::CallFunction { account_id, .. }
             | QueryRequest::ViewCode { account_id, .. } => {
                 account_id_to_shard_id(self.epoch_manager.as_ref(), account_id, &epoch_id)
@@ -655,7 +661,7 @@ impl ViewClientActorInner {
                     }
                 }
                 Err(err) => {
-                    warn!(target: "client", ?err, "Error trying to get transaction result");
+                    tracing::warn!(target: "client", ?err, "error trying to get transaction result");
                     Err(err.into())
                 }
             }
@@ -1276,15 +1282,15 @@ impl Handler<NetworkAdversarialMessage, Option<u64>> for ViewClientActorInner {
             .start_timer();
         match msg {
             NetworkAdversarialMessage::AdvDisableDoomslug => {
-                tracing::info!(target: "adversary", "Turning Doomslug off");
+                tracing::info!(target: "adversary", "turning doomslug off");
                 self.adv.set_disable_doomslug(true);
             }
             NetworkAdversarialMessage::AdvDisableHeaderSync => {
-                tracing::info!(target: "adversary", "Blocking header sync");
+                tracing::info!(target: "adversary", "blocking header sync");
                 self.adv.set_disable_header_sync(true);
             }
             NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
-                tracing::info!(target: "adversary", "Switching to height");
+                tracing::info!(target: "adversary", "switching to height");
                 let mut chain_store_update = self.chain.mut_chain_store().store_update();
                 chain_store_update.save_largest_target_height(height);
                 chain_store_update
@@ -1324,7 +1330,7 @@ impl Handler<TxStatusResponse> for ViewClientActorInner {
             tx_hash = %tx_result.transaction.hash, status = ?tx_result.status,
             tx_outcome_status = ?tx_result.transaction_outcome.outcome.status,
             num_receipt_outcomes = tx_result.receipts_outcome.len(),
-            "receive TxStatusResponse"
+            "receive tx status response"
         );
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["TxStatusResponse"])
@@ -1416,7 +1422,7 @@ impl Handler<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>
                 // We currently do NOT ban the peer for either.
                 // TODO(gprusak): consider whether we should change that.
                 Err(err) => {
-                    tracing::debug!(target: "view_client", ?err, "Failed to validate account announce signature");
+                    tracing::debug!(target: "view_client", ?err, "failed to validate account announce signature");
                 }
             }
         }

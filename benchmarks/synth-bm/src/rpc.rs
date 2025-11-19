@@ -17,7 +17,6 @@ use near_primitives::{
     },
 };
 use tokio::sync::mpsc::Receiver;
-use tracing::{debug, info, warn};
 
 pub fn new_request(
     transaction: Transaction,
@@ -98,9 +97,10 @@ impl RpcResponseHandler {
             let response = match self.receiver.recv().await {
                 Some(res) => res,
                 None => {
-                    warn!(
-                        "Expected {} responses but channel closed after {num_received}",
-                        self.num_expected_responses
+                    tracing::warn!(
+                        num_expected = %self.num_expected_responses,
+                        %num_received,
+                        "expected responses but channel closed"
                     );
                     break;
                 }
@@ -122,21 +122,24 @@ impl RpcResponseHandler {
                     }
                 }
                 Err(err) => {
-                    warn!("Got error response from rpc: {err}");
+                    tracing::warn!(?err, "got error response from rpc");
                     num_rpc_error += 1;
                 }
             };
 
-            debug!(
-                "Received {} responses; num_success={} num_rpc_error={}",
-                num_received, num_succeeded, num_rpc_error
+            tracing::debug!(
+                %num_received,
+                %num_succeeded,
+                %num_rpc_error,
+                "received responses"
             );
         }
 
         if let Some(timer) = timer {
-            info!(
-                "Received {num_received} tx responses in {:.2} seconds",
-                timer.elapsed().as_secs_f64()
+            tracing::info!(
+                %num_received,
+                elapsed_secs = %timer.elapsed().as_secs_f64(),
+                "received tx responses"
             );
         }
     }
@@ -233,7 +236,7 @@ pub fn check_tx_response(
 
 fn warn_or_panic(msg: &str, response_check_severity: ResponseCheckSeverity) {
     match response_check_severity {
-        ResponseCheckSeverity::Log => warn!("{msg}"),
+        ResponseCheckSeverity::Log => tracing::warn!("{msg}"),
         ResponseCheckSeverity::Assert => panic!("{msg}"),
     }
 }

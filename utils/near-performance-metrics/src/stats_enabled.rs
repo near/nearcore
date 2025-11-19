@@ -10,7 +10,6 @@ use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
 use std::task::Poll;
 use std::time::{Duration, Instant};
-use tracing::{info, warn};
 
 // cspell:words NTHREADS
 
@@ -138,25 +137,25 @@ impl ThreadStats {
 
         if show_stats {
             let class_name = format!("{:?}", self.classes);
-            warn!(
-                "    {:?}: ratio: {:.3} {}:{:?} C mem: {}",
-                tid,
-                ratio,
-                class_name,
-                std::thread::current().id(),
-                self.c_mem,
+            tracing::warn!(
+                ?tid,
+                %ratio,
+                %class_name,
+                thread_id = ?std::thread::current().id(),
+                c_mem = %self.c_mem,
+                "thread occupancy ratio"
             );
             if self.write_buf_added.as_u64() > 0
                 || self.write_buf_capacity.as_u64() > 0
                 || self.write_buf_added.as_u64() > 0
                 || self.write_buf_drained.as_u64() > 0
             {
-                info!(
-                    "        Write_buffer len: {} cap: {} added: {} drained: {}",
-                    self.write_buf_len,
-                    self.write_buf_capacity,
-                    self.write_buf_added,
-                    self.write_buf_drained,
+                tracing::info!(
+                    write_buf_len = %self.write_buf_len,
+                    write_buf_capacity = %self.write_buf_capacity,
+                    write_buf_added = %self.write_buf_added,
+                    write_buf_drained = %self.write_buf_drained,
+                    "write buffer stats"
                 );
             }
             self.write_buf_added = Default::default();
@@ -166,14 +165,14 @@ impl ThreadStats {
             stat.sort_by_key(|f| f.0);
 
             for entry in stat {
-                warn!(
-                    "        func {}:{}:{} cnt: {} total: {}ms max: {}ms",
-                    (entry.0).0,
-                    (entry.0).1,
-                    (entry.0).2,
-                    entry.1.cnt,
-                    ((entry.1.time.as_millis()) as f64),
-                    ((entry.1.max_time.as_millis()) as f64)
+                tracing::warn!(
+                    func = (entry.0).0,
+                    line = (entry.0).1,
+                    msg = (entry.0).2,
+                    cnt = entry.1.cnt,
+                    total_ms = ((entry.1.time.as_millis()) as f64),
+                    max_ms = ((entry.1.max_time.as_millis()) as f64),
+                    "function performance stats"
                 );
             }
         }
@@ -234,10 +233,10 @@ impl Stats {
     }
 
     fn print_stats(&self, sleep_time: Duration) {
-        info!(
-            "Performance stats {} threads (min ratio = {})",
-            self.stats.len(),
-            MIN_OCCUPANCY_RATIO_THRESHOLD
+        tracing::info!(
+            threads = self.stats.len(),
+            min_ratio = MIN_OCCUPANCY_RATIO_THRESHOLD,
+            "performance stats summary"
         );
         let s: Vec<_> = self.stats.iter().collect();
 
@@ -250,12 +249,12 @@ impl Stats {
             ratio += tmp_ratio;
             other_ratio += tmp_other_ratio;
         }
-        info!("    Other threads ratio {:.3}", other_ratio);
+        tracing::info!(target: "metrics", %other_ratio, "other threads ratio");
         let c_memory_usage = get_c_memory_usage();
         if c_memory_usage > ByteSize::default() {
-            info!("    C alloc total memory usage: {}", c_memory_usage);
+            tracing::info!(target: "metrics", %c_memory_usage, "c alloc total memory usage");
         }
-        info!("Total ratio = {:.3}", ratio);
+        tracing::info!(target: "metrics", %ratio, "total ratio");
     }
 }
 
@@ -303,13 +302,13 @@ where
 
     if took >= SLOW_CALL_THRESHOLD {
         let text_field = msg_text.map_or(String::new(), |x| format!(" msg: {x}"));
-        warn!(
-            "Function exceeded time limit {}:{:?} {:?} took: {}ms {}",
-            class_name,
-            std::thread::current().id(),
-            std::any::type_name::<Message>(),
-            took.as_millis(),
-            text_field,
+        tracing::warn!(
+            %class_name,
+            thread_id = ?std::thread::current().id(),
+            message_type = std::any::type_name::<Message>(),
+            took_ms = took.as_millis(),
+            msg = %text_field,
+            "function exceeded time limit"
         );
     }
     stat.lock().log(
@@ -352,13 +351,13 @@ where
         stat.lock().log(this.class_name, this.file, this.line, took, ended, "");
 
         if took > SLOW_CALL_THRESHOLD {
-            warn!(
-                "Function exceeded time limit {}:{:?} {}:{} took: {}ms",
-                this.class_name,
-                std::thread::current().id(),
-                this.file,
-                this.line,
-                took.as_millis()
+            tracing::warn!(
+                class_name = this.class_name,
+                thread_id = ?std::thread::current().id(),
+                file = this.file,
+                line = this.line,
+                took_ms = took.as_millis(),
+                "function exceeded time limit"
             );
         }
         match res {
@@ -373,10 +372,15 @@ where
 
 pub fn print_performance_stats(sleep_time: Duration) {
     STATS.lock().print_stats(sleep_time);
-    info!("Futures waiting for completion");
+    tracing::info!("futures waiting for completion");
     for entry in REF_COUNTER.lock().iter() {
         if *entry.1 > 0 {
-            info!("    future {}:{} {}", (entry.0).0, (entry.0).1, entry.1);
+            tracing::info!(
+                file = (entry.0).0,
+                line = (entry.0).1,
+                count = entry.1,
+                "future waiting for completion"
+            );
         }
     }
 }

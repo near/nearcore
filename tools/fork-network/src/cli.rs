@@ -226,7 +226,7 @@ impl ForkNetworkCommand {
             self.run_impl(&mut near_config, verbose_target, o11y_opts, home_dir).await.unwrap();
             near_async::shutdown_all_actors();
         });
-        tracing::info!("Waiting for RocksDB to gracefully shutdown");
+        tracing::info!("waiting for rocksdb to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
         tracing::info!("exit");
         Ok(())
@@ -315,10 +315,10 @@ impl ForkNetworkCommand {
         let fork_snapshot_path = store_path.join("fork-snapshot");
 
         if fork_snapshot_path.exists() && fork_snapshot_path.is_dir() {
-            tracing::info!(?fork_snapshot_path, "Found a DB snapshot");
+            tracing::info!(?fork_snapshot_path, "found a DB snapshot");
             Ok(false)
         } else {
-            tracing::info!(destination = ?fork_snapshot_path, "Creating snapshot of original DB");
+            tracing::info!(destination = ?fork_snapshot_path, "creating snapshot of original DB");
             // checkpointing only hot storage, because cold storage will not be changed
             checkpoint_hot_storage_and_cleanup_columns(&store, &fork_snapshot_path, None)?;
             Ok(true)
@@ -403,7 +403,7 @@ impl ForkNetworkCommand {
             ?desired_flat_head,
             ?state_roots,
             ?epoch_id,
-            "Moved flat heads to a common block"
+            "moved flat heads to a common block"
         );
 
         let mut store_update = store.store_update();
@@ -537,7 +537,7 @@ impl ForkNetworkCommand {
                 Ok(())
             }
         }?;
-        tracing::info!("Validators set");
+        tracing::info!("validators set");
         Ok(())
     }
 
@@ -618,7 +618,7 @@ impl ForkNetworkCommand {
             storage_mutator,
         )?;
         let new_state_roots = update_state.into_iter().map(|u| u.state_root()).collect::<Vec<_>>();
-        tracing::info!("Creating a new genesis");
+        tracing::info!("creating a new genesis");
         backup_genesis_file(home_dir, &near_config)?;
 
         // 4. Create new genesis with updated state roots and validators.
@@ -753,7 +753,7 @@ impl ForkNetworkCommand {
             target_shard_layout,
             num_accounts_per_shard,
         )?;
-        tracing::info!("Creating a new genesis");
+        tracing::info!("creating a new genesis");
         backup_genesis_file(home_dir, &near_config)?;
         self.make_and_write_genesis(
             home_dir,
@@ -774,7 +774,7 @@ impl ForkNetworkCommand {
 
     /// Deletes DB columns that are not needed in the new chain.
     fn finalize(&self, near_config: &NearConfig, home_dir: &Path) -> anyhow::Result<()> {
-        tracing::info!("Delete unneeded columns in the original DB");
+        tracing::info!("delete unneeded columns in the original DB");
         let mut unwanted_cols = Vec::new();
         for col in DBCol::iter() {
             if !COLUMNS_TO_KEEP.contains(&col) {
@@ -873,23 +873,23 @@ impl ForkNetworkCommand {
         if !Path::new(&fork_snapshot_path).exists() {
             panic!("Fork snapshot does not exist");
         }
-        tracing::info!("Removing all current data");
+        tracing::info!("removing all current data");
         for entry in std::fs::read_dir(&store_path)? {
             let entry = entry?;
             if entry.file_type()?.is_file() {
                 std::fs::remove_file(&entry.path())?;
             }
         }
-        tracing::info!("Restoring fork snapshot");
+        tracing::info!("restoring fork snapshot");
         for entry in std::fs::read_dir(&fork_snapshot_path)? {
             let entry = entry?;
             std::fs::rename(&entry.path(), &store_path.join(entry.file_name()))?;
         }
         std::fs::remove_dir(&fork_snapshot_path)?;
 
-        tracing::info!("Restoring genesis file");
+        tracing::info!("restoring genesis file");
         restore_backup_genesis_file(home_dir, &near_config)?;
-        tracing::info!("Reset complete");
+        tracing::info!("reset complete");
         return Ok(());
     }
 
@@ -928,7 +928,7 @@ impl ForkNetworkCommand {
             None,
             &epoch_config_dir,
         );
-        tracing::info!(target: "near", "Generated epoch configs files in {}", epoch_config_dir.display());
+        tracing::info!(target: "near", epoch_config_dir = %epoch_config_dir.display(), "generated epoch configs files");
         Ok(first_config)
     }
 
@@ -1102,7 +1102,7 @@ impl ForkNetworkCommand {
             records_parsed,
             records_not_parsed,
             num_has_full_key = has_full_key.len(),
-            "Pass 1 done"
+            "pass 1 done"
         );
 
         // Now do another pass to ensure all accounts have full access keys.
@@ -1120,8 +1120,8 @@ impl ForkNetworkCommand {
                         Err(err) => {
                             tracing::error!(
                                 ?err,
-                                "Failed to parse account id {}",
-                                hex::encode(&key)
+                                key = %hex::encode(&key),
+                                "failed to parse account id"
                             );
                             continue;
                         }
@@ -1134,10 +1134,10 @@ impl ForkNetworkCommand {
                     let shard_id = source_shard_layout.account_id_to_shard_id(&account_id);
                     if shard_id != shard_uid.shard_id() {
                         tracing::warn!(
-                            "Account {} belongs to shard {} but was found in flat storage for shard {}",
-                            &account_id,
-                            shard_id,
-                            shard_uid.shard_id(),
+                            %account_id,
+                            %shard_id,
+                            found_in_shard = %shard_uid.shard_id(),
+                            "account belongs to shard but was found in flat storage for different shard"
                         );
                     }
                     let shard_idx = source_shard_layout.get_shard_index(shard_id).unwrap();
@@ -1155,7 +1155,7 @@ impl ForkNetworkCommand {
                 }
             }
         }
-        tracing::info!(?shard_uid, num_accounts, num_added, "Pass 2 done");
+        tracing::info!(?shard_uid, num_accounts, num_added, "pass 2 done");
         storage_mutator.commit()?;
         Ok(receipts_tracker)
     }
@@ -1262,7 +1262,7 @@ impl ForkNetworkCommand {
         )?;
 
         let state_roots = update_state.into_iter().map(|u| u.state_root()).collect();
-        tracing::info!(?state_roots, "All done");
+        tracing::info!(?state_roots, "all done");
         Ok(state_roots)
     }
 
@@ -1366,9 +1366,9 @@ impl ForkNetworkCommand {
             .collect::<Vec<_>>();
         for (account_prefix_idx, account_prefix) in account_prefixes.into_iter().enumerate() {
             tracing::info!(
-                "Creating accounts for shard: {} {}",
-                account_prefix_idx,
-                account_prefix
+                %account_prefix_idx,
+                %account_prefix,
+                "creating accounts for shard"
             );
             let state_roots_map: HashMap<ShardUId, StateRoot> = shard_uids
                 .iter()
@@ -1512,7 +1512,7 @@ impl ForkNetworkCommand {
         let genesis = Genesis::new_from_state_roots(new_config, new_state_roots);
         let original_genesis_file = home_dir.join(&genesis_file);
 
-        tracing::info!(?original_genesis_file, "Writing new genesis");
+        tracing::info!(?original_genesis_file, "writing new genesis");
         genesis.to_file(&original_genesis_file);
 
         Ok(())
@@ -1545,7 +1545,7 @@ fn backup_genesis_file(home_dir: &Path, near_config: &NearConfig) -> anyhow::Res
     let genesis_file = &near_config.config.genesis_file;
     let original_genesis_file = home_dir.join(&genesis_file);
     let backup_genesis_file = backup_genesis_file_path(home_dir, &genesis_file);
-    tracing::info!(?original_genesis_file, ?backup_genesis_file, "Backing up old genesis.");
+    tracing::info!(?original_genesis_file, ?backup_genesis_file, "backing up old genesis");
     std::fs::rename(&original_genesis_file, &backup_genesis_file)?;
     Ok(())
 }
@@ -1554,7 +1554,7 @@ fn restore_backup_genesis_file(home_dir: &Path, near_config: &NearConfig) -> any
     let genesis_file = &near_config.config.genesis_file;
     let backup_genesis_file = backup_genesis_file_path(home_dir, &genesis_file);
     let original_genesis_file = home_dir.join(&genesis_file);
-    tracing::info!(?backup_genesis_file, ?original_genesis_file, "Restoring genesis from a backup");
+    tracing::info!(?backup_genesis_file, ?original_genesis_file, "restoring genesis from a backup");
     std::fs::rename(&backup_genesis_file, &original_genesis_file)?;
     Ok(())
 }

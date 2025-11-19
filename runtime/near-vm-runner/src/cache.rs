@@ -462,7 +462,7 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
                         tracing::error!(
                             file_name = ?entry.file_name(),
                             err = &err as &dyn std::error::Error,
-                            "Failed to remove contract cache file",
+                            "failed to remove contract cache file",
                         );
                     }
                 }

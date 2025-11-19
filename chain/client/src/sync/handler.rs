@@ -24,7 +24,7 @@ use std::collections::HashMap;
 macro_rules! unwrap_and_report_state_sync_result (($obj: ident) => (match $obj {
     Ok(v) => v,
     Err(err) => {
-        tracing::error!(target: "sync", "Sync: Unexpected error: {}: {}", stringify!($obj), err);
+        tracing::error!(target: "sync", obj = stringify!($obj), ?err, "sync: unexpected error");
         return None;
     }
 }));
@@ -157,7 +157,7 @@ impl SyncHandler {
             return None;
         }
 
-        tracing::info!(target: "sync", "State sync: all shards are done");
+        tracing::info!(target: "sync", "state sync: all shards are done");
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
         let reset_heads_result = chain.reset_heads_post_state_sync(
@@ -291,7 +291,7 @@ impl SyncHandler {
                 target: "sync",
                 %block_hash,
                 ?timeout,
-                "State sync: block request timed out"
+                "state sync: block request timed out"
             );
             Ok((true, false))
         } else {

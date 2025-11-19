@@ -167,7 +167,7 @@ impl Block {
         let (time, vrf_value, vrf_proof, random_value) = optimistic_block
             .as_ref()
             .map(|ob| {
-                tracing::debug!(target: "client", "Taking metadata from optimistic block");
+                tracing::debug!(target: "client", "taking metadata from optimistic block");
                 (
                     ob.inner.block_timestamp,
                     ob.inner.vrf_value,
