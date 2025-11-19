@@ -131,11 +131,11 @@ impl Handler<SpanWrapped<SpiceChunkStateWitnessMessage>> for SpiceChunkValidator
         let msg = msg.span_unwrap();
         let SpiceChunkStateWitnessMessage { witness, raw_witness_size, .. } = msg;
         let Some(signer) = self.validator_signer.get() else {
-            tracing::error!(target: "spice_chunk_validator", ?witness, "Received a chunk state witness but this is not a validator node.");
+            tracing::error!(target: "spice_chunk_validator", ?witness, "received a chunk state witness but this is not a validator node");
             return;
         };
         if let Err(err) = self.process_chunk_state_witness(witness, raw_witness_size, signer) {
-            tracing::error!(target: "spice_chunk_validator", ?err, "Error processing chunk state witness");
+            tracing::error!(target: "spice_chunk_validator", ?err, "error processing chunk state witness");
         }
     }
 }
@@ -295,7 +295,7 @@ impl SpiceChunkValidatorActor {
                         ?err,
                         ?chunk_id,
                         ?block_height,
-                        "Failed to validate chunk"
+                        "failed to validate chunk"
                     );
                     return;
                 }

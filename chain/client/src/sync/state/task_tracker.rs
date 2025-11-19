@@ -67,7 +67,7 @@ pub(super) struct TaskHandle {
 impl TaskHandle {
     /// Sets the status string for this handle.
     pub fn set_status(&self, status: &str) {
-        tracing::debug!(%status, "State sync task status changed");
+        tracing::debug!(%status, "state sync task status changed");
         let mut statuses = self.statuses.lock();
         statuses.insert(self.id, format!("{}: {}", self.task_description, status));
     }

@@ -15,7 +15,7 @@ use crate::utils::transactions::{
 
 /// Write block height to contract storage.
 fn do_call_contract(env: &mut TestLoopEnv, rpc_id: &AccountId, contract_id: &AccountId) {
-    tracing::info!(target: "test", "Calling contract.");
+    tracing::info!(target: "test", "calling contract");
     let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
     let tx = call_contract(
         &mut env.test_loop,

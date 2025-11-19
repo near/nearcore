@@ -92,7 +92,7 @@ impl RpcFrom<StatusError> for RpcStatusError {
             StatusError::NoNewBlocks { elapsed } => Self::NoNewBlocks { elapsed },
             StatusError::EpochOutOfBounds { epoch_id } => Self::EpochOutOfBounds { epoch_id },
             StatusError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);
+                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcStatusError"])
                     .inc();

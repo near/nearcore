@@ -9,7 +9,6 @@ use std::collections::{
     btree_map::{self, BTreeMap},
     hash_map::{self, HashMap},
 };
-use tracing::{debug, warn};
 
 type BlockHash = CryptoHash;
 
@@ -93,7 +92,7 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
         // which were not added initially, or (b) someone will restart the node because something
         // has gone horribly wrong, in which case these HashMaps will be lost anyways.
         if self.blocks_missing_chunks.len() >= MAX_BLOCKS_MISSING_CHUNKS {
-            warn!(target: "chunks", "Not recording block with hash {} even though it is missing chunks. The missing chunks pool is full.", block_hash);
+            tracing::warn!(target: "chunks", %block_hash, "not recording block even though it is missing chunks, the missing chunks pool is full");
             return;
         }
 
@@ -115,7 +114,7 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
             // we know a block is missing chunks.
             hash_map::Entry::Occupied(mut entry) => {
                 let previous_chunks = entry.insert(missing_chunks);
-                warn!(target: "chunks", "Block with hash {} was already missing chunks {:?}.", block_hash, previous_chunks);
+                tracing::warn!(target: "chunks", %block_hash, ?previous_chunks, "block was already missing chunks");
             }
         }
 
@@ -127,7 +126,7 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
 
     pub fn accept_chunk(&mut self, chunk_hash: &ChunkHash) {
         let block_hashes = self.missing_chunks.remove(chunk_hash).unwrap_or_else(HashSet::new);
-        debug!(target: "chunks", ?chunk_hash, "Chunk accepted, {} blocks were waiting for it.", block_hashes.len());
+        tracing::debug!(target: "chunks", ?chunk_hash, blocks_waiting = %block_hashes.len(), "chunk accepted");
         for block_hash in block_hashes {
             match self.blocks_missing_chunks.entry(block_hash) {
                 hash_map::Entry::Occupied(mut missing_chunks_entry) => {
@@ -136,14 +135,14 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
                     if missing_chunks.is_empty() {
                         // No more missing chunks!
                         missing_chunks_entry.remove_entry();
-                        debug!(target: "chunks", %block_hash, "Block is ready - last chunk received.");
+                        tracing::debug!(target: "chunks", %block_hash, "block is ready - last chunk received");
                         self.mark_block_as_ready(&block_hash);
                     } else {
-                        debug!(target: "chunks", %block_hash, "Block is still waiting for {} chunks.", missing_chunks.len());
+                        tracing::debug!(target: "chunks", %block_hash, chunks_remaining = %missing_chunks.len(), "block is still waiting for chunks");
                     }
                 }
                 hash_map::Entry::Vacant(_) => {
-                    warn!(target: "chunks", "Invalid MissingChunksPool state. Block with hash {} was still a value of the missing_chunks map, but not present in the blocks_missing_chunks map", block_hash);
+                    tracing::warn!(target: "chunks", %block_hash, "invalid missing chunks pool state, block was still a value of the missing_chunks map, but not present in the blocks_missing_chunks map");
                     self.mark_block_as_ready(&block_hash);
                 }
             }
@@ -278,7 +277,7 @@ impl OptimisticBlockChunksPool {
         let chunk_hash = chunk_header.chunk_hash().clone();
         if let Some(chunk) = &chunk_entry {
             let existing_chunk_hash = chunk.chunk_hash();
-            tracing::info!(target: "chunks", ?prev_block_hash, ?chunk_hash, ?existing_chunk_hash, "Chunk already found for OptimisticBlock");
+            tracing::info!(target: "chunks", ?prev_block_hash, ?chunk_hash, ?existing_chunk_hash, "chunk already found for optimistic block");
             return;
         }
 
@@ -289,14 +288,14 @@ impl OptimisticBlockChunksPool {
             ?prev_block_hash,
             ?chunk_hash,
             remaining_chunks = entry.remaining_chunks,
-            "New chunk found for OptimisticBlock"
+            "new chunk found for optimistic block"
         );
 
         if entry.remaining_chunks == 0 {
             tracing::debug!(
                 target: "chunks",
                 ?prev_block_hash,
-                "All chunks received for OptimisticBlock"
+                "all chunks received for optimistic block"
             );
             self.update_latest_ready_block(&prev_block_hash);
         }
@@ -328,8 +327,8 @@ impl OptimisticBlockChunksPool {
             target: "chunks",
             ?prev_block_hash,
             optimistic_block_hash = ?block.hash(),
-            block_height = block.height(),
-            "OptimisticBlock is ready"
+            block_height = %block.height(),
+            "optimistic block is ready"
         );
         let chunks = chunks
             .chunks

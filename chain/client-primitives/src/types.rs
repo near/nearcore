@@ -13,7 +13,6 @@ use near_primitives::views::{
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use near_time::Duration;
 use std::collections::HashMap;
-use tracing::debug_span;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -190,7 +189,7 @@ impl SyncStatus {
 
     pub fn update(&mut self, new_value: Self) {
         let _span =
-            debug_span!(target: "sync", "update_sync_status", old_value = ?self, ?new_value)
+            tracing::debug_span!(target: "sync", "update_sync_status", old_value = ?self, ?new_value)
                 .entered();
         *self = new_value;
     }
@@ -395,6 +394,14 @@ pub enum QueryError {
         "Access key for public key {public_key} has never been observed on the node at block #{block_height}"
     )]
     UnknownAccessKey {
+        public_key: near_crypto::PublicKey,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error(
+        "Gas key for public key {public_key} has never been observed on the node at block #{block_height}"
+    )]
+    UnknownGasKey {
         public_key: near_crypto::PublicKey,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,

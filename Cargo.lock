@@ -5384,6 +5384,7 @@ dependencies = [
  "near-async",
  "near-chain",
  "near-chain-configs",
+ "near-chain-primitives",
  "near-chunks",
  "near-client",
  "near-client-primitives",

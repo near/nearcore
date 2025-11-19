@@ -758,7 +758,7 @@ pub async fn start_with_config_and_synchronization_impl(
         );
     }
 
-    tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
+    tracing::trace!(target: "diagnostic", key = "log", "starting NEAR node with diagnostic activated");
 
     #[cfg(feature = "tx_generator")]
     let tx_generator = near_transactions_generator::actor::start_tx_generator(

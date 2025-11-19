@@ -37,6 +37,12 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error("Gas key for public key {public_key} does not exist while viewing")]
+    UnknownGasKey {
+        public_key: near_crypto::PublicKey,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("Internal error occurred: {error_message}")]
     InternalError {
         error_message: String,
@@ -275,7 +281,7 @@ pub trait LogTransientStorageError {
 impl<T> LogTransientStorageError for Result<T, Error> {
     fn log_storage_error(self, message: &str) -> Self {
         if let Err(err) = &self {
-            tracing::error!(target: "chain", "Transient storage error: {message}, {err}");
+            tracing::error!(target: "chain", %message, ?err, "transient storage error");
         }
         self
     }
