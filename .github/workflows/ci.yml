@@ -66,7 +66,7 @@ jobs:
         uses: "google-github-actions/auth@v2"
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "github-service-account@nearone-services.iam.gserviceaccount.com"
+          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
@@ -146,7 +146,7 @@ jobs:
         uses: "google-github-actions/auth@v2"
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "github-service-account@nearone-services.iam.gserviceaccount.com"
+          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
       - run: |
           echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
@@ -194,7 +194,7 @@ jobs:
         uses: "google-github-actions/auth@v2"
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "github-service-account@nearone-services.iam.gserviceaccount.com"
+          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
       - run: |
           echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
@@ -249,7 +249,7 @@ jobs:
         uses: "google-github-actions/auth@v2"
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "github-service-account@nearone-services.iam.gserviceaccount.com"
+          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
       - run: |
           echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
@@ -275,7 +275,7 @@ jobs:
         uses: "google-github-actions/auth@v2"
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "github-service-account@nearone-services.iam.gserviceaccount.com"
+          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
       - run: |
           echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
@@ -349,7 +349,7 @@ jobs:
         uses: "google-github-actions/auth@v2"
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "github-service-account@nearone-services.iam.gserviceaccount.com"
+          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
       - run: |
           echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
@@ -375,7 +375,7 @@ jobs:
         uses: "google-github-actions/auth@v2"
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "github-service-account@nearone-services.iam.gserviceaccount.com"
+          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
       - run: |
           echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
@@ -520,7 +520,7 @@ jobs:
         uses: "google-github-actions/auth@v2"
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "github-service-account@nearone-services.iam.gserviceaccount.com"
+          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
       - run: |
           echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
