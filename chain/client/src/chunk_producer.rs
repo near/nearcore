@@ -1,5 +1,6 @@
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::metrics;
+use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
 use crate::prepare_transactions::{
     PrepareTransactionsJobInputs, PrepareTransactionsJobKey, PrepareTransactionsManager,
 };
@@ -92,6 +93,8 @@ pub struct ChunkProducer {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     // TODO: put mutex on individual shards instead of the complete pool
     pub sharded_tx_pool: Arc<Mutex<ShardedTransactionPool>>,
+    // TODO(spice-pending-tx): Should this be moved to pool?
+    pub pending_txs: Arc<Mutex<ShardedPendingTransactionQueue>>,
     /// A ReedSolomon instance to encode shard chunks.
     reed_solomon_encoder: ReedSolomon,
     /// Chunk production timing information. Used only for debug purposes.
@@ -131,6 +134,7 @@ impl ChunkProducer {
                 rng_seed,
                 transaction_pool_size_limit,
             ))),
+            pending_txs: Arc::new(Mutex::new(ShardedPendingTransactionQueue::new())),
             reed_solomon_encoder: ReedSolomon::new(data_parts, parity_parts).unwrap(),
             chunk_production_info: lru::LruCache::new(
                 NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap(),
