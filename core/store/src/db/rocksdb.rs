@@ -429,7 +429,7 @@ impl Database for RocksDB {
         let batch = self.build_write_batch(transaction)?;
         let elapsed = write_batch_start.elapsed();
         if elapsed.as_secs_f32() > 0.15 {
-            tracing::warn!(
+            tracing::debug!(
                 target = "store::db::rocksdb",
                 message = "making a write batch took a very long time, make smaller transactions",
                 ?elapsed,
