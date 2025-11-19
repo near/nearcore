@@ -1036,7 +1036,7 @@ def init_cluster(
 
     # TODO(logging): checking if /test is a part of the log isn't the most reliable way to get the node dirs
     node_dirs = [
-        re.split('=|\s', line)[-1]
+        re.split(r'=|\s', line)[-1]
         for line in err.decode('utf8').split('\n')
         if '/test' in line
     ]
