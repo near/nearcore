@@ -8,7 +8,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStore};
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValue};
-use near_chunks::shards_manager_actor::start_shards_manager;
+use near_chunks::shards_manager_actor::{start_chunk_distributor_actor, start_shards_manager};
 use near_client::adapter::client_sender_for_network;
 use near_client::client_actor::SpiceClientConfig;
 use near_client::{ChunkValidationActorInner, spawn_chunk_endorsement_handler_actor};
@@ -106,6 +106,7 @@ fn setup_network_node(
     };
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
+    let chunk_distributor_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
     let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
         Clock::real(),
@@ -119,6 +120,7 @@ fn setup_network_node(
         actor_system.new_future_spawner("state sync").into(),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
+        chunk_distributor_adapter.as_sender(),
         validator_signer.clone(),
         telemetry_actor.into_sender(),
         None,
@@ -178,13 +180,23 @@ fn setup_network_node(
         actor_system.clone(),
         epoch_manager.clone(),
         epoch_manager.clone(),
-        shard_tracker,
+        shard_tracker.clone(),
         network_adapter.as_sender(),
         client_actor.clone().into_sender(),
         validator_signer.clone(),
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
     );
+    shards_manager_adapter.bind(shards_manager_actor);
+    let chunk_distributor_actor = start_chunk_distributor_actor(
+        actor_system.clone(),
+        epoch_manager.clone(),
+        shard_tracker,
+        network_adapter.as_sender(),
+        validator_signer.clone(),
+        shards_manager_adapter.as_sender(),
+    );
+    chunk_distributor_adapter.bind(chunk_distributor_actor);
     let chain_store =
         ChainStore::new(runtime.store().clone(), false, genesis.config.genesis_height);
     let chunk_validation_actor = ChunkValidationActorInner::spawn_multithread_actor(
@@ -213,7 +225,6 @@ fn setup_network_node(
         Arc::new(RayonAsyncComputationSpawner),
         Arc::new(RayonAsyncComputationSpawner),
     ));
-    shards_manager_adapter.bind(shards_manager_actor);
     let peer_manager = PeerManagerActor::spawn(
         time::Clock::real(),
         actor_system,
