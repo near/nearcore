@@ -66,8 +66,6 @@ use near_network::types::{
     NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
 use near_o11y::span_wrapped_msg::SpanWrapped;
-use near_performance_metrics;
-use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_info::RngSeed;
@@ -1982,7 +1980,6 @@ impl Handler<SpanWrapped<BlockCatchUpResponse>> for ClientActor {
 }
 
 impl Handler<SpanWrapped<ShardsManagerResponse>> for ClientActor {
-    #[perf]
     fn handle(&mut self, msg: SpanWrapped<ShardsManagerResponse>) {
         let msg = msg.span_unwrap();
         match msg {
@@ -2041,7 +2038,6 @@ impl Handler<SpanWrapped<GetClientConfig>, Result<ClientConfig, GetClientConfigE
 impl Handler<SpanWrapped<StateHeaderValidationRequest>, Result<(), near_chain::Error>>
     for ClientActor
 {
-    #[perf]
     fn handle(
         &mut self,
         msg: SpanWrapped<StateHeaderValidationRequest>,
@@ -2056,7 +2052,6 @@ impl Handler<SpanWrapped<StateHeaderValidationRequest>, Result<(), near_chain::E
 }
 
 impl Handler<SpanWrapped<ChainFinalizationRequest>, Result<(), near_chain::Error>> for ClientActor {
-    #[perf]
     fn handle(
         &mut self,
         msg: SpanWrapped<ChainFinalizationRequest>,

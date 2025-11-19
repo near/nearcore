@@ -19,7 +19,6 @@ use near_client_primitives::{
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::log_assert;
-use near_performance_metrics_macros::perf;
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::EpochError;
 use near_primitives::state_sync::get_num_state_parts;
@@ -172,7 +171,6 @@ impl BlockProductionTracker {
 }
 
 impl Handler<DebugStatus, Result<DebugStatusResponse, StatusError>> for ClientActor {
-    #[perf]
     fn handle(&mut self, msg: DebugStatus) -> Result<DebugStatusResponse, StatusError> {
         match msg {
             DebugStatus::SyncStatus => Ok(DebugStatusResponse::SyncStatus(

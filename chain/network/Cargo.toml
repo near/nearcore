@@ -48,8 +48,6 @@ near-fmt.workspace = true
 near-o11y.workspace = true
 near-chain-configs.workspace = true
 near-crypto.workspace = true
-near-performance-metrics.workspace = true
-near-performance-metrics-macros.workspace = true
 near-primitives = { workspace = true, features = ["rand", "solomon", "clock", "test_utils"] }
 near-store.workspace = true
 near-schema-checker-lib.workspace = true
@@ -68,9 +66,6 @@ serde_json.workspace = true
 
 near-primitives = { workspace = true, features = ["rand", "solomon", "clock", "test_utils"] }
 
-[package.metadata.cargo-machete]
-ignored = ["near-performance-metrics"]
-
 [features]
 nightly = [
   "near-chain-configs/nightly",
@@ -78,9 +73,6 @@ nightly = [
   "near-o11y/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
-]
-performance_stats = [
-    "near-performance-metrics/performance_stats",
 ]
 test_features = []
 protocol_schema = [
