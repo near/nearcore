@@ -40,7 +40,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
-use tracing::{error, info, warn};
 
 /// NEAR Protocol Node
 #[derive(clap::Parser)]
@@ -64,7 +63,7 @@ impl NeardCmd {
         )
         .local();
 
-        info!(
+        tracing::info!(
             target: "neard",
             version = crate::NEARD_VERSION,
             build = crate::NEARD_BUILD,
@@ -74,13 +73,14 @@ impl NeardCmd {
 
         #[cfg(feature = "test_features")]
         {
-            error!("THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION.");
+            tracing::error!(
+                "this is a node compiled with adversarial behaviors, do not use in production"
+            );
             if std::env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
-                error!(
-                    "To run a node with adversarial behavior enabled give your consent \
-                            by setting an environment variable:"
+                tracing::error!(
+                    "to run a node with adversarial behavior enabled give your consent by setting an environment variable:"
                 );
-                error!("ADVERSARY_CONSENT=1");
+                tracing::error!("ADVERSARY_CONSENT=1");
                 std::process::exit(1);
             }
         }
@@ -200,7 +200,7 @@ impl NeardOpts {
     // TODO(nikurt): Delete in 1.38 or later.
     pub fn verbose_target(&self) -> Option<&str> {
         self.verbose.as_ref().map(|inner| {
-            tracing::error!(target: "neard", "--verbose flag is deprecated, please use RUST_LOG or log_config.json instead.");
+            tracing::error!(target: "neard", "--verbose flag is deprecated, please use RUST_LOG or log_config.json instead");
             inner.as_ref().map_or("", String::as_str)
         })
     }
@@ -359,21 +359,19 @@ fn check_release_build(chain: &str) {
     if !is_release_build
         && [near_primitives::chains::MAINNET, near_primitives::chains::TESTNET].contains(&chain)
     {
-        warn!(
+        tracing::warn!(
             target: "neard",
-            "Running a neard executable which wasn’t built with `make release` \
-             command isn’t supported on {}.",
-            chain
+            %chain,
+            "running a neard executable which wasn't built with `make release` command isn't supported"
         );
-        warn!(
+        tracing::warn!(
             target: "neard",
-            "Note that `cargo build --release` builds lack optimizations which \
-             may be needed to run properly on {}",
-            chain
+            %chain,
+            "note that `cargo build --release` builds lack optimizations which may be needed to run properly"
         );
-        warn!(
+        tracing::warn!(
             target: "neard",
-            "Consider recompiling the binary using `make release` command.");
+            "consider recompiling the binary using `make release` command");
     }
 }
 
@@ -591,7 +589,7 @@ impl RunCmd {
                     break sig;
                 }
             };
-            warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
+            tracing::warn!(target: "neard", %sig, "stopping, this may take a few minutes");
             if let Some(handle) = cold_store_loop_handle {
                 handle.store(false, std::sync::atomic::Ordering::Relaxed);
             }
@@ -600,7 +598,7 @@ impl RunCmd {
             // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some("off"), None).unwrap();
         });
-        info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
+        tracing::info!(target: "neard", "waiting for rocksdb to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
     }
 }
@@ -898,16 +896,18 @@ fn check_kernel_param(param_name: &str, expected_value: &str) {
             let expected_normalized = normalize_whitespace(expected_value);
 
             if actual_normalized != expected_normalized {
-                error!(
-                    "ERROR: {} is set to {}, expected {}. Please run `scripts/set_kernel_params.sh`.",
-                    param_name, actual_normalized, expected_normalized
+                tracing::error!(
+                    %param_name,
+                    %actual_normalized,
+                    %expected_normalized,
+                    "parameter is set to incorrect value, please run `scripts/set_kernel_params.sh`"
                 );
             } else {
-                info!("OK: {} is set to expected value {}", param_name, expected_normalized);
+                tracing::info!(%param_name, %expected_normalized, "parameter is set to expected value");
             }
         }
         Err(e) => {
-            error!("ERROR: failed to read parameter {} from {}: {}", param_name, path.display(), e);
+            tracing::error!(%param_name, path = %path.display(), ?e, "failed to read parameter");
         }
     }
 }

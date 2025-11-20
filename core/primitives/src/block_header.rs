@@ -705,7 +705,7 @@ impl BlockHeader {
         // because there are tests that check if we can downgrade a BlockHeader's view a previous version, in which case the hash
         // of the header changes.
         if header.hash() != expected_hash {
-            tracing::debug!(height, header_hash=?header.hash(), ?expected_hash, "Hash of the created header does not match expected hash");
+            tracing::debug!(height, header_hash=?header.hash(), ?expected_hash, "hash of the created header does not match expected hash");
         }
         header
     }

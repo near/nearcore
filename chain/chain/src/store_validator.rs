@@ -24,7 +24,6 @@ use near_store::{DBCol, Store, TrieChanges};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use strum::IntoEnumIterator;
-use tracing::warn;
 use validate::StoreValidatorError;
 
 mod validate;
@@ -353,7 +352,7 @@ impl StoreValidator {
             }
             if let Some(timeout) = self.timeout {
                 if self.start_time.elapsed() > Duration::milliseconds(timeout) {
-                    warn!(target: "adversary", "Store validator hit timeout at {col} ({}/{})", col.into_usize(), DBCol::LENGTH);
+                    tracing::warn!(target: "adversary", %col, col_index = %col.into_usize(), col_length = %DBCol::LENGTH, "store validator hit timeout");
                     return;
                 }
             }
@@ -361,7 +360,7 @@ impl StoreValidator {
         if let Some(timeout) = self.timeout {
             // We didn't complete all Column checks and cannot do final checks, returning here
             if self.start_time.elapsed() > Duration::milliseconds(timeout) {
-                warn!(target: "adversary", "Store validator hit timeout before final checks");
+                tracing::warn!(target: "adversary", "store validator hit timeout before final checks");
                 return;
             }
         }

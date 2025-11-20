@@ -9,7 +9,7 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{
     GetBlock, GetChunk, GetExecutionOutcomesForBlock, GetProtocolConfig, GetShardChunk,
     GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
-    ViewClientActorInner,
+    ViewClientActor,
 };
 use near_network::client::BlockHeadersRequest;
 use near_o11y::testonly::init_test_logger;
@@ -119,7 +119,7 @@ struct ViewClientTester<'a> {
     test_loop: &'a mut TestLoopV2,
     /// List of data handles to the view client senders for sending the requests.
     /// Used to locate the right view client to send a request (by index).
-    handles: Vec<TestLoopDataHandle<ViewClientActorInner>>,
+    handles: Vec<TestLoopDataHandle<ViewClientActor>>,
     /// Cache of block height to Blocks (as they are called in multiple checks).
     block_cache: HashMap<BlockHeight, BlockView>,
 }
@@ -142,7 +142,7 @@ impl<'a> ViewClientTester<'a> {
     where
         M: Send + 'static,
         R: Send,
-        ViewClientActorInner: Handler<M, R>,
+        ViewClientActor: Handler<M, R>,
     {
         let view_client = self.test_loop.data.get_mut(&self.handles[idx]);
         view_client.handle(request)

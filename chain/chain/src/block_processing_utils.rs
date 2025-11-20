@@ -241,7 +241,7 @@ impl ApplyChunksDoneWaiter {
             }
             if i % 1000 == 0 {
                 // If a node or test is somehow deadlocked on this for some reason, log it to help debugging.
-                tracing::error!("Still waiting for chunks application to complete...");
+                tracing::error!("still waiting for chunks application to complete");
                 debug_assert!(
                     start.elapsed().as_secs() < 30,
                     "Chunk application didn't complete in 30 seconds; is there a deadlock?"

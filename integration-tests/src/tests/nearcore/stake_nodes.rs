@@ -9,7 +9,7 @@ use rand::Rng;
 
 use crate::utils::genesis_helpers::genesis_hash;
 use near_chain_configs::{Genesis, TrackedShardsConfig};
-use near_client::{GetBlock, ProcessTxRequest, Query, RpcHandler, ViewClientActorInner};
+use near_client::{GetBlock, ProcessTxRequest, Query, RpcHandlerActor, ViewClientActor};
 use near_crypto::{InMemorySigner, Signer};
 use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout};
@@ -24,7 +24,7 @@ use near_async::ActorSystem;
 use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::ClientActor;
 use near_client_primitives::types::Status;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_store::db::RocksDB;
@@ -36,9 +36,9 @@ struct TestNode {
     account_id: AccountId,
     signer: Arc<Signer>,
     config: NearConfig,
-    client: TokioRuntimeHandle<ClientActorInner>,
-    view_client: MultithreadRuntimeHandle<ViewClientActorInner>,
-    tx_processor: MultithreadRuntimeHandle<RpcHandler>,
+    client: TokioRuntimeHandle<ClientActor>,
+    view_client: MultithreadRuntimeHandle<ViewClientActor>,
+    tx_processor: MultithreadRuntimeHandle<RpcHandlerActor>,
     genesis_hash: CryptoHash,
 }
 
@@ -447,18 +447,18 @@ async fn slow_test_inflation() {
 
                 if let Ok(Ok(block)) = view_client.send_async(GetBlock::latest()).await {
                     if block.header.height >= 2 && block.header.height <= epoch_length {
-                        tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, "Step1: epoch1");
+                        tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, "step1: epoch1");
                         if block.header.total_supply == initial_total_supply {
                             done1.store(true, Ordering::SeqCst);
                         }
                     } else {
-                        tracing::info!("Step1: not epoch1");
+                        tracing::info!("step1: not epoch1");
                     }
 
                     if block.header.height > epoch_length
                         && block.header.height < epoch_length * 2
                     {
-                        tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, "Step2: epoch2");
+                        tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, "step2: epoch2");
                         let base_reward = {
                             let genesis_block_view = view_client
                                 .send_async(
@@ -503,12 +503,12 @@ async fn slow_test_inflation() {
                         let validator_reward = base_reward .checked_sub(protocol_reward).unwrap();
                         // Chunk endorsement ratio 9/10 is mapped to 1 so the reward multiplier becomes 20/27.
                         let inflation = protocol_reward .checked_add(validator_reward.checked_mul(20).unwrap().checked_div(27).unwrap()).unwrap();
-                        tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, ?inflation, "Step2: epoch2");
+                        tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, ?inflation, "step2: epoch2");
                         if block.header.total_supply == initial_total_supply .checked_add(inflation).unwrap() {
                             done2.store(true, Ordering::SeqCst);
                         }
                     } else {
-                        tracing::info!("Step2: not epoch2");
+                        tracing::info!("step2: not epoch2");
                     }
                 }
 

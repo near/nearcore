@@ -7,7 +7,7 @@ use near_async::test_loop::data::TestLoopData;
 use near_chain::ChainStoreAccess;
 use near_chain::types::Tip;
 use near_client::Client;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::ClientActor;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -84,7 +84,7 @@ pub fn check_receipts_presence_after_resharding_block(
 
 /// Asserts the presence of any receipt of type `kind` at the provided chain `tip`.
 pub fn check_receipts_at_block(
-    client_actor: &ClientActorInner,
+    client_actor: &ClientActor,
     account: &AccountId,
     kind: &ReceiptKind,
     tip: &Tip,

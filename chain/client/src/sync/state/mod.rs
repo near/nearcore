@@ -217,7 +217,7 @@ impl StateSync {
                     Ok(result) => {
                         entry.remove();
                         if let Err(err) = result {
-                            tracing::error!(%shard_id, ?err, "State sync failed for shard");
+                            tracing::error!(%shard_id, ?err, "state sync failed for shard");
                             return Err(err);
                         }
                         ShardSyncStatus::StateSyncDone

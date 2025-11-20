@@ -52,7 +52,6 @@ use near_primitives::types::StateRoot;
 use near_store::{PrefetchApi, PrefetchError, Trie};
 use sha2::Digest;
 use std::str::FromStr;
-use tracing::{debug, warn};
 
 use crate::{SignedValidPeriodTransactions, metrics};
 /// Transaction runtime view of the prefetching subsystem.
@@ -238,11 +237,11 @@ impl TriePrefetcher {
         match res {
             Err(PrefetchError::QueueFull) => {
                 self.prefetch_queue_full.inc();
-                debug!(target: "runtime::prefetch", "I/O scheduler input queue is full, dropping prefetch request");
+                tracing::debug!(target: "runtime::prefetch", "IO scheduler input queue is full, dropping prefetch request");
             }
             Err(PrefetchError::QueueDisconnected) => {
                 // This shouldn't have happened, hence logging warning here
-                warn!(target: "runtime::prefetch", "I/O scheduler input queue is disconnected, dropping prefetch request");
+                tracing::warn!(target: "runtime::prefetch", "IO scheduler input queue is disconnected, dropping prefetch request");
             }
             Ok(()) => self.prefetch_enqueued.inc(),
         };

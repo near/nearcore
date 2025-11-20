@@ -326,11 +326,11 @@ fn produce_chunks(
 
         let header = clients[0].chain.get_block_header(&tip.last_block_hash).unwrap();
         tracing::debug!(
-            "chunk mask for #{} {:?} {} {:?}",
-            header.height(),
-            header.chunk_mask(),
-            tip.last_block_hash,
-            tip.epoch_id
+            height = %header.height(),
+            chunk_mask = ?header.chunk_mask(),
+            ?tip.last_block_hash,
+            ?tip.epoch_id,
+            "chunk mask for block"
         );
 
         if new_tip.epoch_id != tip.epoch_id {
@@ -371,11 +371,11 @@ fn run_test(state: TestState) {
             let tip = client.chain.head().unwrap();
             let header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
             tracing::debug!(
-                "chunk mask for #{} {:?} {} {:?}",
-                header.height(),
-                header.chunk_mask(),
-                tip.last_block_hash,
-                tip.epoch_id
+                height = %header.height(),
+                chunk_mask = ?header.chunk_mask(),
+                ?tip.last_block_hash,
+                ?tip.epoch_id,
+                "chunk mask for block"
             );
             tip.epoch_id != Default::default()
         },
@@ -511,7 +511,7 @@ struct StateSyncTest {
 }
 
 fn run_state_sync_test_case(t: StateSyncTest) {
-    tracing::info!("run test: {:?}", t);
+    tracing::info!(?t, "run test");
     let state = setup_initial_blockchain(
         t.num_validators,
         t.num_block_producer_seats,
@@ -529,7 +529,7 @@ fn run_state_sync_test_case(t: StateSyncTest) {
     assert_eq!(get_network_protocol_version(&state.env), t.initial_protocol_version);
     run_test(state);
 
-    tracing::info!("run test with added node: {:?}", t);
+    tracing::info!(?t, "run test with added node");
     let state = setup_initial_blockchain(
         t.num_validators,
         t.num_block_producer_seats,
@@ -896,11 +896,11 @@ fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
             let tip = client.chain.head().unwrap();
             let header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
             tracing::debug!(
-                "chunk mask for #{} {:?} {} {:?}",
-                header.height(),
-                header.chunk_mask(),
-                tip.last_block_hash,
-                tip.epoch_id
+                height = %header.height(),
+                chunk_mask = ?header.chunk_mask(),
+                ?tip.last_block_hash,
+                ?tip.epoch_id,
+                "chunk mask for block"
             );
             if tip.epoch_id == Default::default() {
                 return false;
@@ -913,7 +913,7 @@ fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
     let client = &env.test_loop.data.get(&client_handle).client;
     let tip = client.chain.head().unwrap();
     let sync_hash = client.chain.get_sync_hash(&tip.last_block_hash).unwrap().unwrap();
-    tracing::debug!("await_sync_hash: {sync_hash}");
+    tracing::debug!(%sync_hash, "await_sync_hash");
     sync_hash
 }
 

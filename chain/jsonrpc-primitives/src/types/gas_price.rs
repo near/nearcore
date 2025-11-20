@@ -25,6 +25,7 @@ pub enum RpcGasPriceError {
     )]
     UnknownBlock {
         #[serde(skip_serializing)]
+        #[cfg_attr(feature = "schemars", schemars(skip))]
         error_message: String,
     },
 }

@@ -388,7 +388,7 @@ impl ShardTracker {
         if shards_to_state_sync.is_empty() {
             Ok(None)
         } else {
-            tracing::debug!(target: "chain", "Downloading state for {:?}", shards_to_state_sync);
+            tracing::debug!(target: "chain", ?shards_to_state_sync, "downloading state");
             // Note that this block is the first block in an epoch because this function is only called
             // in get_catchup_and_state_sync_infos() when that is the case.
             let state_sync_info = StateSyncInfo::new(*block_hash, shards_to_state_sync);
