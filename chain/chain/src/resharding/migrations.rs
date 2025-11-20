@@ -9,7 +9,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::archive::cold_storage::{join_two_keys, rc_aware_set};
-use near_store::db::DBTransaction;
+use near_store::db::{ColdDB, DBTransaction, Database};
 use near_store::flat::{BlockInfo, FlatStorageManager};
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::{DBCol, ShardTries, StateSnapshotConfig, Store, StoreConfig, TrieConfig};
@@ -36,7 +36,7 @@ const MAINNET_RESHARDING_BLOCK_HASHES: [(ProtocolVersion, &str); 3] = [
 /// Note: This migration only applies to cold stores, and is only for mainnet resharding events.
 pub fn migrate_46_to_47(
     hot_store: &Store,
-    cold_store: &Store,
+    cold_db: &ColdDB,
     genesis_config: &GenesisConfig,
     store_config: &StoreConfig,
 ) -> anyhow::Result<()> {
@@ -48,6 +48,7 @@ pub fn migrate_46_to_47(
 
     tracing::info!(target: "migrations", "Starting migration 46->47 for cold store");
 
+    let cold_store = cold_db.as_store();
     let epoch_config_store =
         EpochConfigStore::for_chain_id(&genesis_config.chain_id, None).unwrap();
     let tries = ShardTries::new(
@@ -103,7 +104,7 @@ pub fn migrate_46_to_47(
     }
 
     tracing::info!(target: "migrations", "Writing changes to the database");
-    cold_store.database().write(transaction)?;
+    cold_db.write(transaction)?;
 
     Ok(())
 }

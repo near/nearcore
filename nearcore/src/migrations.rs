@@ -1,4 +1,5 @@
 use near_store::Store;
+use near_store::db::ColdDB;
 use near_store::db::metadata::{DB_VERSION, DbVersion, MIN_SUPPORTED_DB_VERSION};
 
 pub(super) struct Migrator<'a> {
@@ -32,7 +33,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
     fn migrate_cold(
         &self,
         latest_version_hot_store: &Store,
-        cold_store: &Store,
+        cold_store: &ColdDB,
         version: DbVersion,
     ) -> anyhow::Result<()> {
         match version {

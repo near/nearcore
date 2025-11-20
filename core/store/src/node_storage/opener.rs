@@ -1,6 +1,7 @@
 use crate::archive::cloud_storage::config::CloudArchivalConfig;
 use crate::archive::cloud_storage::opener::CloudStorageOpener;
 use crate::config::StateSnapshotType;
+use crate::db::ColdDB;
 use crate::db::rocksdb::RocksDB;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::metadata::{DB_VERSION, DbKind, DbMetadata, DbVersion};
@@ -539,15 +540,21 @@ impl<'a> StoreOpener<'a> {
                 "migrating the database from version to next version",
             );
 
-            let store = Self::open_store(mode, opener, version)?;
             match ensure_version_mode {
-                EnsureVersionMode::Hot => migrator.migrate(&store, version),
+                EnsureVersionMode::Hot => {
+                    let store = Self::open_store(mode, opener, version)?;
+                    migrator.migrate(&store, version).map_err(StoreOpenerError::MigrationError)?;
+                    store.set_db_version(version + 1)?;
+                }
                 EnsureVersionMode::Cold { ref hot_store } => {
-                    migrator.migrate_cold(hot_store, &store, version)
+                    let (db, _) = opener.open(mode, version)?;
+                    let cold_db = ColdDB::new(Arc::new(db));
+                    migrator
+                        .migrate_cold(hot_store, &cold_db, version)
+                        .map_err(StoreOpenerError::MigrationError)?;
+                    cold_db.as_store().set_db_version(version + 1)?;
                 }
             }
-            .map_err(StoreOpenerError::MigrationError)?;
-            store.set_db_version(version + 1)?;
         }
 
         if cfg!(feature = "nightly") {
@@ -680,7 +687,7 @@ pub trait StoreMigrator {
     fn migrate_cold(
         &self,
         latest_version_hot_store: &Store,
-        cold_store: &Store,
+        cold_store: &ColdDB,
         version: DbVersion,
     ) -> anyhow::Result<()>;
 }
