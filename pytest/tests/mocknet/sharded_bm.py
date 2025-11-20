@@ -574,7 +574,8 @@ def main():
     case = early_args.case
     
     if unique_id is None and mocknet_id is None:
-        logger.error(f"Error: Either --unique-id or --mocknet-id must be provided")
+        logger.error(
+            f"Error: Either --unique-id or --mocknet-id must be provided")
         sys.exit(1)
     if case is None:
         logger.error(f"Error: --case must be provided")
