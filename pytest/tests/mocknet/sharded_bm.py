@@ -511,7 +511,7 @@ def handle_get_profiles(args, extra):
     if args.host_filter is None:
         machines = sorted(args.forknet_details['cp_instance_names'])
         machine = machines[0]
-        logger.info(f"Targeting {machine}")
+        logger.info(f"Targeting {machine} for profile fetching")
         args.host_filter = machine
 
     extra_parameters = ' '.join(extra)
@@ -639,9 +639,9 @@ def main():
     start_parser.add_argument(
         '--receivers-from-senders-ratio',
         type=float,
-        default=0.0,
+        default=1.0,
         help=
-        'Ratio of receiver accounts selected from the sender accounts (default: 1.0 (all receivers are from senders - no cross-shard txs))',
+        'Ratio of receiver accounts selected from the sender accounts (default: 1.0 (all receivers are selected from senders list))',
     )
 
     stop_parser = subparsers.add_parser('stop', help='Stop the benchmark')
