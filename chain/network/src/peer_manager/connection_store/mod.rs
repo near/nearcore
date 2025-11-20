@@ -39,7 +39,7 @@ impl Inner {
     fn remove_outbound(&mut self, peer_id: &PeerId) {
         self.outbound.retain(|c| c.peer_info.id != *peer_id);
         if let Err(err) = self.store.set_recent_outbound_connections(&self.outbound) {
-            tracing::error!(target: "network", ?err, "Failed to save recent outbound connections");
+            tracing::error!(target: "network", ?err, "failed to save recent outbound connections");
         }
     }
 
@@ -63,7 +63,7 @@ impl Inner {
         conns.truncate(OUTBOUND_CONNECTIONS_CACHE_SIZE);
 
         if let Err(err) = self.store.set_recent_outbound_connections(&conns) {
-            tracing::error!(target: "network", ?err, "Failed to save recent outbound connections");
+            tracing::error!(target: "network", ?err, "failed to save recent outbound connections");
         }
         self.outbound = conns;
     }

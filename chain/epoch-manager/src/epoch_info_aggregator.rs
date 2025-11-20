@@ -88,7 +88,7 @@ impl EpochInfoAggregator {
                 tracing::debug!(
                     target: "epoch_tracker",
                     block_producer = ?epoch_info.validator_account_id(block_producer_id),
-                    block_height = height, "Missed block");
+                    block_height = height, "missed block");
                 entry
                     .and_modify(|validator_stats| {
                         validator_stats.expected += 1;
@@ -117,7 +117,7 @@ impl EpochInfoAggregator {
                             chunk_validator = ?epoch_info.validator_account_id(chunk_producer_id),
                             %shard_id,
                             block_height = prev_block_height + 1,
-                            "Missed chunk");
+                            "missed chunk");
                     }
                     *stats.expected_mut() += 1;
                 })

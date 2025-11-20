@@ -361,7 +361,7 @@ async fn ultra_slow_test_sync_state_dump() {
                     }
                 }
                 Ok(Ok(b)) if b.header.height <= state_sync_horizon => {
-                    tracing::info!("FIRST STAGE {}", b.header.height);
+                    tracing::info!(height = %b.header.height, "first stage");
                 }
                 Err(_) => {}
                 _ => {}
@@ -375,13 +375,13 @@ async fn ultra_slow_test_sync_state_dump() {
                     return ControlFlow::Break(());
                 }
                 Ok(Ok(b)) if b.header.height < 40 => {
-                    tracing::info!("SECOND STAGE {}", b.header.height)
+                    tracing::info!(height = %b.header.height, "second stage")
                 }
                 Ok(Err(e)) => {
-                    tracing::info!("SECOND STAGE ERROR1: {:?}", e);
+                    tracing::info!(?e, "second stage error1");
                 }
                 Err(e) => {
-                    tracing::info!("SECOND STAGE ERROR2: {:?}", e);
+                    tracing::info!(?e, "second stage error2");
                 }
                 _ => {
                     assert!(false);
@@ -464,12 +464,11 @@ async fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                         Provenance::PRODUCED,
                     )
                     .unwrap();
-                tracing::info!("Block {i}: {:?} -- produced no chunk", block.header().epoch_id());
+                tracing::info!(%i, epoch_id = ?block.header().epoch_id(), "block -- produced no chunk");
             } else {
                 env.process_block(0, block.clone(), Provenance::PRODUCED);
                 tracing::info!(
-                    "Block {i}: {:?} -- also produced a chunk",
-                    block.header().epoch_id()
+                    %i, epoch_id = ?block.header().epoch_id(), "block -- also produced a chunk"
                 );
             }
             env.process_block(1, block, Provenance::NONE);

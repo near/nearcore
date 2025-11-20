@@ -73,11 +73,11 @@ where
     A: Actor + Send + 'static,
 {
     let actor_name = pretty_type_name::<A>();
-    tracing::info!(
+    tracing::debug!(
         target: "multithread_runtime",
         actor_name,
         num_threads,
-        "Starting multithread actor",
+        "starting multithread actor",
     );
     let threads =
         Arc::new(rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap());
@@ -102,23 +102,23 @@ where
         loop {
             crossbeam_channel::select! {
                 recv(cancellation_signal) -> _ => {
-                    tracing::info!(target: "multithread_runtime", actor_name, thread_id, "cancellation received, exiting loop.");
+                    tracing::info!(target: "multithread_runtime", actor_name, thread_id, "cancellation received, exiting loop");
                     return;
                 }
                 recv(window_update_ticker) -> _ => {
-                    tracing::debug!(target: "multithread_runtime", actor_name, thread_id, "Updating instrumentation window");
+                    tracing::trace!(target: "multithread_runtime", actor_name, thread_id, "updating instrumentation window");
                     instrumentation.advance_window_if_needed();
                 }
                 recv(receiver) -> message => {
                     let Ok(message) = message else {
-                        tracing::warn!(target: "multithread_runtime", actor_name, thread_id, "message queue closed, exiting event loop.");
+                        tracing::warn!(target: "multithread_runtime", actor_name, thread_id, "message queue closed, exiting event loop");
                         return;
                     };
                     instrumented_queue.dequeue(message.name);
                     let seq = message.seq;
                     let dequeue_time_ns = handle_clone.instrumentation.current_time().saturating_sub(message.enqueued_time_ns);
                     instrumentation.start_event(message.name, dequeue_time_ns);
-                    tracing::debug!(target: "multithread_runtime", seq, "Executing message");
+                    tracing::trace!(target: "multithread_runtime", seq, "executing message");
                     (message.function)(&mut actor);
                     instrumentation.end_event(message.name);
                 }

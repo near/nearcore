@@ -141,4 +141,4 @@ wait_for_height(LARGE_HEIGHT, boot_node)
 wait_for_height(SMALL_HEIGHT, observer)
 
 tracker.reset()
-assert tracker.check("transition to State Sync")
+assert tracker.check("transition to state sync")

@@ -793,7 +793,7 @@ pub fn validate_chunk_state_witness(
             tracing::error!(
                 target: "stateless_validation",
                 ?storage_err,
-                "Failed to store invalid state witness"
+                "failed to store invalid state witness"
             );
         }
     }

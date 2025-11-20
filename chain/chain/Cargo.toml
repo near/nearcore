@@ -46,8 +46,6 @@ near-crypto.workspace = true
 near-epoch-manager.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
-near-performance-metrics.workspace = true
-near-performance-metrics-macros.workspace = true
 near-pool.workspace = true
 near-primitives = { workspace = true, features = ["solomon", "rand"] }
 near-store.workspace = true
@@ -104,6 +102,3 @@ protocol_schema = [
     "near-store/protocol_schema",
     "near-epoch-manager/protocol_schema",
 ]
-
-[package.metadata.cargo-machete]
-ignored = ["near-performance-metrics"]

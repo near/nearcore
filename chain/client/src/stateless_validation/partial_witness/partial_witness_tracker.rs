@@ -176,7 +176,7 @@ impl CacheEntry {
                 ?key,
                 expected = parts.encoded_length(),
                 actual = partial_witness.encoded_length(),
-                "Partial encoded witness encoded length field does not match",
+                "partial encoded witness encoded length field does not match",
             );
             return;
         }
@@ -199,7 +199,7 @@ impl CacheEntry {
                     target: "client",
                     ?key,
                     part_ord,
-                    "Received duplicate or redundant state witness part"
+                    "received duplicate or redundant state witness part"
                 );
             }
             InsertPartResult::InvalidPartOrd => {
@@ -207,7 +207,7 @@ impl CacheEntry {
                     target: "client",
                     ?key,
                     part_ord,
-                    "Received invalid partial witness part ord"
+                    "received invalid partial witness part ord"
                 );
             }
             InsertPartResult::Decoded(decode_result) => {
@@ -232,7 +232,7 @@ impl CacheEntry {
                 };
             }
             AccessedContractsState::Requested { .. } | AccessedContractsState::Received(_) => {
-                tracing::warn!(target: "client", "Already received accessed contract hashes");
+                tracing::warn!(target: "client", "already received accessed contract hashes");
             }
         }
     }
@@ -249,7 +249,7 @@ impl CacheEntry {
                         target: "client",
                         ?actual,
                         ?expected,
-                        "Received contracts hashes do not match the requested ones"
+                        "received contracts hashes do not match the requested ones"
                     );
                     return;
                 }
@@ -265,10 +265,10 @@ impl CacheEntry {
                 self.accessed_contracts = AccessedContractsState::Received(contract_codes);
             }
             AccessedContractsState::Unknown => {
-                tracing::warn!(target: "client", "Received accessed contracts without sending a request");
+                tracing::warn!(target: "client", "received accessed contracts without sending a request");
             }
             AccessedContractsState::Received(_) => {
-                tracing::warn!(target: "client", "Already received accessed contract codes");
+                tracing::warn!(target: "client", "already received accessed contract codes");
             }
         }
     }
@@ -421,7 +421,7 @@ impl PartialEncodedStateWitnessTracker {
             tracing::debug!(
                 target: "client",
                 ?key,
-                "Received data for already processed witness"
+                "received data for already processed witness"
             );
             return Ok(());
         }
@@ -466,7 +466,7 @@ impl PartialEncodedStateWitnessTracker {
                         ?err,
                         shard_id = %key.shard_id,
                         height_created = key.height_created,
-                        "Failed to reed solomon decode witness parts. Maybe malicious or corrupt data."
+                        "failed to reed solomon decode witness parts, maybe malicious or corrupt data"
                     );
                     return Err(Error::InvalidPartialChunkStateWitness(format!(
                         "Failed to reed solomon decode witness parts: {err}",
@@ -497,7 +497,7 @@ impl PartialEncodedStateWitnessTracker {
                 &mut witness.mut_main_state_transition().base_state;
             values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
 
-            tracing::debug!(target: "client", ?key, "Sending encoded witness to chunk validation actor.");
+            tracing::debug!(target: "client", ?key, "sending encoded witness to chunk validation actor");
             let _span = tracing::debug_span!(
                 target: "client",
                 "send_witness_to_chunk_validation_actor",
@@ -551,7 +551,7 @@ impl PartialEncodedStateWitnessTracker {
                     ?evicted_key,
                     data_parts_present = ?evicted_entry.data_parts_present(),
                     data_parts_required = ?evicted_entry.data_parts_required(),
-                    "Evicted unprocessed partial state witness."
+                    "evicted unprocessed partial state witness"
                 );
             }
         }

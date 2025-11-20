@@ -2106,9 +2106,9 @@ fn slow_test_catchup_gas_price_change() {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
         env.process_block(0, block.clone(), Provenance::PRODUCED);
-        tracing::error!("process_block:{i}:0");
+        tracing::error!(%i, "process_block:0");
         env.process_block(1, block, Provenance::NONE);
-        tracing::error!("process_block:{i}:1");
+        tracing::error!(%i, "process_block:1");
     }
 
     assert_ne!(blocks[3].header().next_gas_price(), blocks[4].header().next_gas_price());

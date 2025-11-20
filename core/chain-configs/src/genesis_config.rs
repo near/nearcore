@@ -37,7 +37,6 @@ use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
-use tracing::warn;
 
 const MAX_GAS_PRICE: Balance = Balance::from_millinear(10);
 
@@ -679,7 +678,7 @@ impl Genesis {
         match genesis_validation {
             GenesisValidationMode::Full => validate_genesis(self),
             GenesisValidationMode::UnsafeFast => {
-                warn!(target: "genesis", "Skipped genesis validation");
+                tracing::warn!(target: "genesis", "skipped genesis validation");
                 Ok(())
             }
         }

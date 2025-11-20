@@ -94,9 +94,9 @@ assert catch_up_height in boot_heights, "%s not in %s" % (catch_up_height,
 tracker.reset(
 )  # the transition might have happened before we initialized the tracker
 if catch_up_height >= 100:
-    assert tracker.check("transition to State Sync")
+    assert tracker.check("transition to state sync")
 elif catch_up_height <= 30:
-    assert not tracker.check("transition to State Sync")
+    assert not tracker.check("transition to state sync")
 
 if mode == 'manytx':
     while ctx.get_balances() != ctx.expected_balances:

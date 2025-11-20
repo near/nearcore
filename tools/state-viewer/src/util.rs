@@ -190,7 +190,7 @@ pub fn check_apply_block_result(
             Err(anyhow::anyhow!("No existing chunk extra available"))
         }
     } else {
-        tracing::warn!("No existing chunk extra available");
+        tracing::warn!("no existing chunk extra available");
         Ok(())
     }
 }
