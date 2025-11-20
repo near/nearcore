@@ -192,13 +192,12 @@ impl ChunkProducer {
         if insert {
             let signed_tx = SignedTransaction::new(
                 near_crypto::Signature::empty(near_crypto::KeyType::ED25519),
-                near_primitives::transaction::Transaction::new_v2(
+                near_primitives::transaction::Transaction::new_v0(
                     "test".parse().unwrap(),
                     near_crypto::PublicKey::empty(near_crypto::KeyType::SECP256K1),
                     "other".parse().unwrap(),
                     3,
                     prev_block_hash,
-                    0,
                 ),
             );
             let validated_tx =

@@ -282,13 +282,12 @@ mod tests {
     ) {
         let signed_tx = SignedTransaction::new(
             near_crypto::Signature::empty(near_crypto::KeyType::ED25519),
-            near_primitives::transaction::Transaction::new_v2(
+            near_primitives::transaction::Transaction::new_v0(
                 account_id,
                 pub_key,
                 "other".parse().unwrap(),
                 nonce,
                 CryptoHash::default(),
-                0,
             ),
         );
         let validated_tx = ValidatedTransaction::new_for_test(signed_tx);

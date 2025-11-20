@@ -1514,17 +1514,17 @@ mod tests {
             &config,
             &mut state_update,
             gas_price,
-            SignedTransaction::from_actions_v2(
+            SignedTransaction::from_actions_v1(
                 1,
                 alice_account(),
                 bob_account(),
                 &*signer,
+                None,
                 vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
                 CryptoHash::default(),
-                1,
             ),
             InvalidTxError::InvalidTransactionVersion,
-            PROTOCOL_VERSION,
+            ProtocolFeature::GasKeys.protocol_version() - 1,
         );
     }
 

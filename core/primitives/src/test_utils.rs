@@ -14,7 +14,7 @@ use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBit
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
-    TransactionKey, TransactionV0, TransactionV1, TransactionV2, TransferAction,
+    TransactionKey, TransactionV0, TransactionV1, TransferAction,
 };
 use crate::types::validator_stake::ValidatorStake;
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
@@ -56,31 +56,10 @@ impl Transaction {
         })
     }
 
-    pub fn new_v2(
-        signer_id: AccountId,
-        public_key: PublicKey,
-        receiver_id: AccountId,
-        nonce: Nonce,
-        block_hash: CryptoHash,
-        priority_fee: u64,
-    ) -> Self {
-        let key = TransactionKey::AccessKey { public_key };
-        Transaction::V2(TransactionV2 {
-            signer_id,
-            key,
-            nonce,
-            receiver_id,
-            block_hash,
-            actions: vec![],
-            priority_fee,
-        })
-    }
-
     pub fn actions_mut(&mut self) -> &mut Vec<Action> {
         match self {
             Transaction::V0(tx) => &mut tx.actions,
             Transaction::V1(tx) => &mut tx.actions,
-            Transaction::V2(tx) => &mut tx.actions,
         }
     }
 
@@ -88,7 +67,6 @@ impl Transaction {
         match self {
             Transaction::V0(tx) => &mut tx.nonce,
             Transaction::V1(tx) => &mut tx.nonce,
-            Transaction::V2(tx) => &mut tx.nonce,
         }
     }
 
@@ -194,29 +172,6 @@ impl SignedTransaction {
             receiver_id,
             block_hash,
             actions,
-        })
-        .sign(signer)
-    }
-
-    /// Explicitly create v2 transaction to test in cases where errors are expected.
-    pub fn from_actions_v2(
-        nonce: Nonce,
-        signer_id: AccountId,
-        receiver_id: AccountId,
-        signer: &Signer,
-        actions: Vec<Action>,
-        block_hash: CryptoHash,
-        priority_fee: u64,
-    ) -> Self {
-        let key = TransactionKey::AccessKey { public_key: signer.public_key() };
-        Transaction::V2(TransactionV2 {
-            signer_id,
-            key,
-            nonce,
-            receiver_id,
-            block_hash,
-            actions,
-            priority_fee,
         })
         .sign(signer)
     }
