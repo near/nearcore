@@ -260,6 +260,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         ChainConfig {
             save_trie_changes: near_config.client_config.save_trie_changes,
             save_tx_outcomes: near_config.client_config.save_tx_outcomes,
+            save_state_changes: near_config.client_config.save_state_changes,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),
