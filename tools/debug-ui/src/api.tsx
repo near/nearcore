@@ -410,6 +410,13 @@ export interface ChainProcessingInfo {
     floating_chunks_info: ChunkProcessingInfo[];
 }
 
+
+// Helper to format the URL through the proxy
+const getProxyUrl = (addr: string, endpoint: string) => {
+    // This requests /api-proxy/address/endpoint relative to current domain
+    return `/api-proxy/${addr}/${endpoint}`;
+};
+
 export interface ChainProcessingStatusResponse {
     status_response: {
         ChainProcessingStatus: ChainProcessingInfo;
@@ -417,22 +424,22 @@ export interface ChainProcessingStatusResponse {
 }
 
 export async function fetchBasicStatus(addr: string): Promise<StatusResponse> {
-    const response = await fetch(`http://${addr}/status`);
+    const response = await fetch(getProxyUrl(addr, 'status'));
     return await response.json();
 }
 
 export async function fetchFullStatus(addr: string): Promise<StatusResponse> {
-    const response = await fetch(`http://${addr}/debug/api/status`);
+    const response = await fetch(getProxyUrl(addr, 'debug/api/status'));
     return await response.json();
 }
 
 export async function fetchSyncStatus(addr: string): Promise<SyncStatusResponse> {
-    const response = await fetch(`http://${addr}/debug/api/sync_status`);
+    const response = await fetch(getProxyUrl(addr, 'debug/api/sync_status'));
     return await response.json();
 }
 
 export async function fetchTrackedShards(addr: string): Promise<TrackedShardsResponse> {
-    const response = await fetch(`http://${addr}/debug/api/tracked_shards`);
+    const response = await fetch(getProxyUrl(addr, 'debug/api/tracked_shards'));
     return await response.json();
 }
 
@@ -451,8 +458,8 @@ export async function fetchBlockStatus(
     }
     if (numBlocks !== null) {
         params.append('num_blocks', numBlocks.toString());
-    }
-    const url = `http://${addr}/debug/api/block_status${params.toString() ? '?' + params : ''}`;
+    }  
+    const url = `/api-proxy/${addr}/debug/api/block_status${params.toString() ? '?' + params : ''}`;
     const response = await fetch(url);
     return await response.json();
 }
@@ -461,8 +468,8 @@ export async function fetchEpochInfo(
     addr: string,
     epochId: string | null
 ): Promise<EpochInfoResponse> {
-    const trailing = epochId ? `/${epochId}` : '';
-    const response = await fetch(`http://${addr}/debug/api/epoch_info${trailing}`);
+    const trailing = epochId ? `/${epochId}` : '';    
+    const response = await fetch(`/api-proxy/${addr}/debug/api/epoch_info${trailing}`);
 
     if (!response.ok) {
         throw new Error(`Failed to fetch epoch info: ${response.statusText}`);
@@ -472,31 +479,31 @@ export async function fetchEpochInfo(
 }
 
 export async function fetchPeerStore(addr: string): Promise<PeerStoreResponse> {
-    const response = await fetch(`http://${addr}/debug/api/peer_store`);
+    const response = await fetch(`/api-proxy/${addr}/debug/api/peer_store`);
     return await response.json();
 }
 
 export async function fetchRecentOutboundConnections(
     addr: string
 ): Promise<RecentOutboundConnectionsResponse> {
-    const response = await fetch(`http://${addr}/debug/api/recent_outbound_connections`);
+    const response = await fetch(`/api-proxy/${addr}/debug/api/recent_outbound_connections`);
     return await response.json();
 }
 
 export async function fetchRoutingTable(addr: string): Promise<RoutingTableResponse> {
-    const response = await fetch(`http://${addr}/debug/api/network_routes`);
+    const response = await fetch(`/api-proxy/${addr}/debug/api/network_routes`);
     return await response.json();
 }
 
 export async function fetchSnapshotHosts(addr: string): Promise<SnapshotHostsResponse> {
-    const response = await fetch(`http://${addr}/debug/api/snapshot_hosts`);
+    const response = await fetch(`/api-proxy/${addr}/debug/api/snapshot_hosts`);
     return await response.json();
 }
 
 export async function fetchChainProcessingStatus(
     addr: string
 ): Promise<ChainProcessingStatusResponse> {
-    const response = await fetch(`http://${addr}/debug/api/chain_processing_status`);
+    const response = await fetch(`/api-proxy/${addr}/debug/api/chain_processing_status`);
     return await response.json();
 }
 
