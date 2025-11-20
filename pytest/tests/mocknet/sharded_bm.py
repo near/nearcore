@@ -568,11 +568,11 @@ def main():
         my_args = sys.argv[1:]
         extra_args = []
     early_args, _ = parser.parse_known_args(my_args)
-    
+
     unique_id = early_args.unique_id
     mocknet_id = early_args.mocknet_id
     case = early_args.case
-    
+
     if unique_id is None and mocknet_id is None:
         logger.error(
             f"Error: Either --unique-id or --mocknet-id must be provided")
