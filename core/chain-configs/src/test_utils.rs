@@ -308,6 +308,7 @@ impl ClientConfig {
             save_trie_changes: true,
             save_untracked_partial_chunks_parts: true,
             save_tx_outcomes: true,
+            save_state_changes: true,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
             chunk_validation_threads: 1,
