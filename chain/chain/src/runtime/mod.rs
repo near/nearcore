@@ -1007,7 +1007,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
 
         let proof_limit = config.witness_config.main_storage_proof_size_soft_limit;
-        trie = trie.recording_reads_with_proof_size_limit(proof_limit);
+        if apply_reason != ApplyChunkReason::ValidateChunkStateWitness {
+            trie = trie.recording_reads_with_proof_size_limit(proof_limit);
+        }
 
         match self.process_state_update(
             trie,
