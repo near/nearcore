@@ -539,11 +539,14 @@ def handle_start(args):
 
 
 def main():
-    try:
-        unique_id = os.environ['FORKNET_NAME']
-        case = os.environ['CASE']
-    except KeyError as e:
-        logger.error(f"Error: Required environment variable {e} is not set")
+    unique_id = os.environ.get('FORKNET_NAME', None)
+    mocknet_id = os.environ.get('MOCKNET_ID', None)
+    case = os.environ.get('CASE', None)
+    if unique_id is None and mocknet_id is None:
+        logger.error(f"Error: Required environment variable FORKNET_NAME or MOCKNET_ID is not set")
+        sys.exit(1)
+    if case is None:
+        logger.error(f"Error: Required environment variable CASE is not set")
         sys.exit(1)
 
     try:
@@ -554,7 +557,7 @@ def main():
         logger.error(f"Error reading binary_url from {bm_params_path}: {e}")
         sys.exit(1)
 
-    forknet_details = fetch_forknet_details(unique_id, bm_params)
+    forknet_details = fetch_forknet_details(unique_id or mocknet_id, bm_params)
     logger.info(forknet_details)
 
     parser = ArgumentParser(
@@ -570,6 +573,7 @@ def main():
         host_filter=None,
         host_type="nodes",
         select_partition=None,
+        mocknet_id=mocknet_id,
     )
     parser.add_argument("--start_height")
 
