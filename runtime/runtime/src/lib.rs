@@ -75,9 +75,9 @@ use near_store::{
     PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get,
     get_access_key_by_tx_key, get_account, get_gas_key, get_postponed_receipt,
     get_promise_yield_receipt, get_pure, get_received_data, has_received_data,
-    remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
-    set_access_key_or_gas_key_nonce, set_account, set_gas_key, set_postponed_receipt,
-    set_promise_yield_receipt, set_received_data,
+    remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key, set_account,
+    set_gas_key, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
+    set_transaction_key_nonce,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -1909,7 +1909,7 @@ impl Runtime {
                     );
                 }
             }
-            set_access_key_or_gas_key_nonce(
+            set_transaction_key_nonce(
                 &mut processing_state.state_update,
                 signer_id.clone(),
                 tx_key,

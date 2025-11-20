@@ -267,7 +267,7 @@ pub fn set_gas_key_nonce(
     set(state_update, TrieKey::GasKey { account_id, public_key, index: Some(index) }, &nonce);
 }
 
-pub fn set_access_key_or_gas_key_nonce(
+pub fn set_transaction_key_nonce(
     state_update: &mut TrieUpdate,
     account_id: AccountId,
     key: TransactionKeyRef,

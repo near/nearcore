@@ -26,8 +26,8 @@ use near_primitives::utils::derive_near_deterministic_account_id;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
 use near_store::{
-    StorageError, TrieUpdate, get_access_key_by_tx_key, get_account, get_gas_key,
-    set_access_key_or_gas_key_nonce, set_account, set_gas_key,
+    StorageError, TrieUpdate, get_access_key_by_tx_key, get_account, get_gas_key, set_account,
+    set_gas_key, set_transaction_key_nonce,
 };
 use near_vm_runner::logic::LimitConfig;
 
@@ -149,7 +149,7 @@ pub fn set_tx_state_changes(
     access_key: &AccessKey,
 ) {
     let tx: &Transaction = validated_tx.to_tx();
-    set_access_key_or_gas_key_nonce(state_update, tx.signer_id().clone(), tx.key(), access_key);
+    set_transaction_key_nonce(state_update, tx.signer_id().clone(), tx.key(), access_key);
     match (validated_tx.key(), payer) {
         (TransactionKeyRef::AccessKey { .. }, TransactionPayer::Account(account)) => {
             set_account(state_update, tx.signer_id().clone(), account)
