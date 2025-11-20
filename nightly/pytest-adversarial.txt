@@ -1,23 +1,32 @@
 pytest --timeout=600 adversarial/fork_sync.py
 pytest --timeout=600 adversarial/fork_sync.py --features nightly
+pytest --timeout=600 adversarial/fork_sync.py --features nightly,protocol_feature_spice
 pytest adversarial/malicious_chain.py
 pytest adversarial/malicious_chain.py --features nightly
+pytest adversarial/malicious_chain.py --features nightly,protocol_feature_spice
 pytest adversarial/malicious_chain.py valid_blocks_only
 pytest adversarial/malicious_chain.py valid_blocks_only --features nightly
+pytest adversarial/malicious_chain.py valid_blocks_only --features nightly,protocol_feature_spice
 pytest adversarial/start_from_genesis.py
 pytest adversarial/start_from_genesis.py --features nightly
+pytest adversarial/start_from_genesis.py --features nightly,protocol_feature_spice
 pytest adversarial/start_from_genesis.py overtake
 pytest adversarial/start_from_genesis.py overtake --features nightly
+pytest adversarial/start_from_genesis.py overtake --features nightly,protocol_feature_spice
 pytest adversarial/start_from_genesis.py doomslug_off
 pytest adversarial/start_from_genesis.py doomslug_off --features nightly
+pytest adversarial/start_from_genesis.py doomslug_off --features nightly,protocol_feature_spice
 # TODO(#6421): Currently broken.
 #pytest adversarial/start_from_genesis.py overtake doomslug_off
 #pytest adversarial/start_from_genesis.py overtake doomslug_off --features nightly
+#pytest adversarial/start_from_genesis.py overtake doomslug_off --features nightly,protocol_feature_spice
 
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix.
 #pytest adversarial/gc_rollback.py
 #pytest adversarial/gc_rollback.py --features nightly
+#pytest adversarial/gc_rollback.py --features nightly,protocol_feature_spice
 
 pytest adversarial/chunk_missing.py
 pytest adversarial/chunk_missing.py --features nightly
+pytest adversarial/chunk_missing.py --features nightly,protocol_feature_spice
