@@ -18,7 +18,7 @@ pub fn undo_block(
     let current_head_height = current_head.height;
     let prev_block_height = prev_tip.height;
 
-    tracing::info!(target: "neard", ?prev_block_hash, ?current_head_hash, ?prev_block_height, ?current_head_height, "Trying to update head");
+    tracing::info!(target: "neard", ?prev_block_hash, ?current_head_hash, ?prev_block_height, ?current_head_height, "trying to update head");
 
     // stop if it's already the final block
     if chain_store.final_head()?.height >= current_head.height {
@@ -43,7 +43,7 @@ pub fn undo_block(
     let new_head_height = new_chain_store_head.height;
     let new_header_height = new_chain_store_header_head.height;
 
-    tracing::info!(target: "neard", ?new_head_height, ?new_header_height, "The current chain store shows");
+    tracing::info!(target: "neard", ?new_head_height, ?new_header_height, "the current chain store shows");
     Ok(())
 }
 
@@ -60,10 +60,10 @@ pub fn undo_only_block_head(
     let tail_header = chain_store.get_block_header_by_height(tail_height)?;
     let new_head = Tip::from_header(&tail_header);
 
-    tracing::info!(target: "neard", ?tail_height, ?current_head_height, ?current_header_height, "Trying to update head");
+    tracing::info!(target: "neard", ?tail_height, ?current_head_height, ?current_header_height, "trying to update head");
 
     if current_head_height == tail_height {
-        tracing::info!(target: "neard", "Body head is already at the oldest block.");
+        tracing::info!(target: "neard", "body head is already at the oldest block");
         return Ok(());
     }
 
@@ -77,6 +77,6 @@ pub fn undo_only_block_head(
     let new_head_height = new_chain_store_head.height;
     let new_header_height = new_chain_store_header_head.height;
 
-    tracing::info!(target: "neard", ?new_head_height, ?new_header_height, "The current chain store shows");
+    tracing::info!(target: "neard", ?new_head_height, ?new_header_height, "the current chain store shows");
     Ok(())
 }

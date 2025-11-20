@@ -22,7 +22,6 @@ use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::warn;
 
 /// A trait that abstracts the interface of the EpochManager. The two
 /// implementations are EpochManagerHandle and KeyValueEpochManager. Strongly
@@ -90,7 +89,7 @@ pub trait EpochManagerAdapter: Send + Sync {
             Err(err @ EpochError::IOErr(_)) => Err(err),
             Err(EpochError::EpochOutOfBounds(_) | EpochError::MissingBlock(_)) => Ok(false),
             Err(err) => {
-                warn!(target: "epoch_manager", ?err, "Unexpected error in is_last_block_in_finished_epoch");
+                tracing::warn!(target: "epoch_manager", ?err, "unexpected error in is_last_block_in_finished_epoch");
                 Ok(false)
             }
         }

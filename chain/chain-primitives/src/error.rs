@@ -162,9 +162,6 @@ pub enum Error {
     /// Invalid chunk mask
     #[error("Invalid Chunk Mask")]
     InvalidChunkMask,
-    /// The chunk height is outside of the horizon
-    #[error("Invalid Chunk Height")]
-    InvalidChunkHeight,
     /// Invalid epoch hash
     #[error("Invalid Epoch Hash")]
     InvalidEpochHash,
@@ -296,7 +293,6 @@ impl Error {
             | Error::ChunkMissing(_)
             | Error::ChunksMissing(_)
             | Error::BlockPendingOptimisticExecution
-            | Error::InvalidChunkHeight
             | Error::IOErr(_)
             | Error::Other(_)
             | Error::ValidatorError(_)
@@ -380,7 +376,6 @@ impl Error {
             Error::ChunkMissing(_) => "chunk_missing",
             Error::ChunksMissing(_) => "chunks_missing",
             Error::BlockPendingOptimisticExecution => "block_pending_optimistic_execution",
-            Error::InvalidChunkHeight => "invalid_chunk_height",
             Error::IOErr(_) => "io_err",
             Error::Other(_) => "other",
             Error::ValidatorError(_) => "validator_error",

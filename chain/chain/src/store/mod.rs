@@ -281,6 +281,8 @@ pub struct ChainStore {
     save_trie_changes: bool,
     /// Whether to persist transaction outcomes on disk or not.
     save_tx_outcomes: bool,
+    /// Whether to persist state changes on disk or not.
+    save_state_changes: bool,
     /// The maximum number of blocks for which a transaction is valid since its creation.
     pub(super) transaction_validity_period: BlockHeightDelta,
 }
@@ -314,12 +316,17 @@ impl ChainStore {
             store: store.chain_store(),
             save_trie_changes,
             save_tx_outcomes: true,
+            save_state_changes: true,
             transaction_validity_period,
         }
     }
 
     pub fn with_save_tx_outcomes(self, save_tx_outcomes: bool) -> ChainStore {
         ChainStore { save_tx_outcomes, ..self }
+    }
+
+    pub fn with_save_state_changes(self, save_state_changes: bool) -> ChainStore {
+        ChainStore { save_state_changes, ..self }
     }
 
     pub fn store_update(&mut self) -> ChainStoreUpdate<'_> {
@@ -2089,8 +2096,11 @@ impl<'a> ChainStoreUpdate<'a> {
                 wrapped_trie_changes.apply_mem_changes();
                 wrapped_trie_changes.insertions_into(&mut store_update.trie_store_update());
                 wrapped_trie_changes.deletions_into(&mut deletions_store_update);
-                wrapped_trie_changes
-                    .state_changes_into(&block_hash, &mut store_update.trie_store_update());
+
+                if self.chain_store.save_state_changes {
+                    wrapped_trie_changes
+                        .state_changes_into(&block_hash, &mut store_update.trie_store_update());
+                }
 
                 if self.chain_store.save_trie_changes {
                     wrapped_trie_changes

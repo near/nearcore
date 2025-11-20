@@ -40,8 +40,8 @@ use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequ
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidTxError, RuntimeError,
-    TxExecutionError,
+    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidAccessKeyError,
+    InvalidTxError, RuntimeError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -1711,11 +1711,8 @@ impl Runtime {
             },
         );
 
-        let default_hash = CryptoHash::default();
-        let mut last_tx_hash = &default_hash;
         let (maybe_expired_txs, _) =
             signed_txs.get_potentially_expired_transactions_and_expiration_flags();
-
         for (tx, maybe_validation_error) in maybe_expired_txs.iter().zip(validations) {
             metrics::TRANSACTION_PROCESSED_TOTAL.inc();
             if let Some(err) = maybe_validation_error {
@@ -1728,8 +1725,6 @@ impl Runtime {
                 );
                 continue;
             }
-
-            last_tx_hash = tx.hash();
             let signer_id = tx.transaction.signer_id();
             let tx_key = tx.transaction.key();
             let gas_price = processing_state.apply_state.gas_price;
@@ -1756,61 +1751,59 @@ impl Runtime {
                     }
                 };
 
-            let verification_result = {
-                let payer_key = match tx_key {
-                    TransactionKeyRef::AccessKey { .. } => (signer_id, None),
-                    TransactionKeyRef::GasKey { key, .. } => (signer_id, Some(key)),
-                };
-                let mut payer = payers.get_mut(&payer_key);
-                let mut payer = match payer.as_deref_mut() {
-                    Some(Ok(Some(a))) => a,
-                    Some(Ok(None)) => {
-                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        tracing::debug!(%tx_hash, "transaction signed by unknown account");
-                        let outcome = ExecutionOutcomeWithId::failed(
-                            tx,
-                            InvalidTxError::InvalidSignerId { signer_id: signer_id.to_string() },
-                        );
-                        Self::register_outcome(
-                            processing_state.protocol_version,
-                            &mut processing_state.outcomes,
-                            outcome,
-                        );
-                        continue;
-                    }
-                    Some(Err(e)) => return Err(e.clone().into()),
-                    None => unreachable!("accounts should've been prefetched"),
-                };
-                let mut access_key = access_keys.get_mut(&(signer_id, tx_key));
-                let mut access_key = match access_key.as_deref_mut() {
-                    Some(Ok(Some(ak))) => ak,
-                    Some(Ok(None)) => {
-                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        tracing::debug!(%tx_hash, "transaction signed by unknown signing key");
-                        let outcome = ExecutionOutcomeWithId::failed(
-                            tx,
-                            InvalidTxError::InvalidAccessKeyError(
-                                near_primitives::errors::InvalidAccessKeyError::not_found(
-                                    signer_id.clone(),
-                                    tx_key,
-                                ),
-                            ),
-                        );
+            let payer_key = match tx_key {
+                TransactionKeyRef::AccessKey { .. } => (signer_id, None),
+                TransactionKeyRef::GasKey { key, .. } => (signer_id, Some(key)),
+            };
+            let mut payer = payers.get_mut(&payer_key);
+            let payer = match payer.as_deref_mut() {
+                Some(Ok(Some(a))) => a,
+                Some(Ok(None)) => {
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                    tracing::debug!(%tx_hash, "transaction signed by unknown account");
+                    let outcome = ExecutionOutcomeWithId::failed(
+                        tx,
+                        InvalidTxError::InvalidSignerId { signer_id: signer_id.to_string() },
+                    );
+                    Self::register_outcome(
+                        processing_state.protocol_version,
+                        &mut processing_state.outcomes,
+                        outcome,
+                    );
+                    continue;
+                }
+                Some(Err(e)) => return Err(e.clone().into()),
+                None => unreachable!("accounts should've been prefetched"),
+            };
+            let mut access_key = access_keys.get_mut(&(signer_id, tx_key));
+            let access_key = match access_key.as_deref_mut() {
+                Some(Ok(Some(ak))) => ak,
+                Some(Ok(None)) => {
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                    tracing::debug!(%tx_hash, "transaction signed by unknown signing key");
+                    let outcome = ExecutionOutcomeWithId::failed(
+                        tx,
+                        InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::not_found(
+                            signer_id.clone(),
+                            tx_key,
+                        )),
+                    );
 
-                        Self::register_outcome(
-                            processing_state.protocol_version,
-                            &mut processing_state.outcomes,
-                            outcome,
-                        );
-                        continue;
-                    }
-                    Some(Err(e)) => return Err(e.clone().into()),
-                    None => unreachable!("access keys should've been prefetched"),
-                };
+                    Self::register_outcome(
+                        processing_state.protocol_version,
+                        &mut processing_state.outcomes,
+                        outcome,
+                    );
+                    continue;
+                }
+                Some(Err(e)) => return Err(e.clone().into()),
+                None => unreachable!("access keys should've been prefetched"),
+            };
+            let verification_result = {
                 match verify_and_charge_tx_ephemeral(
                     &processing_state.apply_state.config,
-                    &mut payer,
-                    &mut access_key,
+                    payer,
+                    access_key,
                     &tx.transaction,
                     &cost,
                     Some(block_height),
@@ -1902,6 +1895,28 @@ impl Runtime {
             processing_state.total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
             processing_state.outcomes.push(outcome);
             metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
+            match payer {
+                AccountOrGasKey::Account(account) => {
+                    set_account(&mut processing_state.state_update, signer_id.clone(), account);
+                }
+                AccountOrGasKey::GasKey(gas_key) => {
+                    set_gas_key(
+                        &mut processing_state.state_update,
+                        signer_id.clone(),
+                        tx_key.public_key().clone(),
+                        &gas_key,
+                    );
+                }
+            }
+            set_access_key_or_gas_key_nonce(
+                &mut processing_state.state_update,
+                signer_id.clone(),
+                tx_key,
+                access_key,
+            );
+            processing_state
+                .state_update
+                .commit(StateChangeCause::TransactionProcessing { tx_hash: tx.get_hash() });
         }
 
         if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version) {
@@ -1911,39 +1926,6 @@ impl Runtime {
         processing_state
             .metrics
             .tx_processing_done(processing_state.total.gas, processing_state.total.compute);
-
-        for ((id, gas_key_id), payer) in payers {
-            let Ok(Some(payer)) = payer else {
-                continue;
-            };
-            match payer {
-                AccountOrGasKey::Account(account) => {
-                    set_account(&mut processing_state.state_update, id.clone(), &account);
-                }
-                AccountOrGasKey::GasKey(gas_key) => {
-                    set_gas_key(
-                        &mut processing_state.state_update,
-                        id.clone(),
-                        gas_key_id.unwrap().clone(),
-                        &gas_key,
-                    );
-                }
-            }
-        }
-        for ((id, key), ak) in access_keys {
-            if let Ok(Some(ak)) = ak {
-                set_access_key_or_gas_key_nonce(
-                    &mut processing_state.state_update,
-                    id.clone(),
-                    key,
-                    &ak,
-                );
-            }
-        }
-
-        processing_state
-            .state_update
-            .commit(StateChangeCause::TransactionProcessing { tx_hash: *last_tx_hash });
 
         Ok(())
     }

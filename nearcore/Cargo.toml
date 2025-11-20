@@ -51,7 +51,6 @@ near-jsonrpc-primitives = { workspace = true, optional = true }
 near-mainnet-res.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
-near-performance-metrics.workspace = true
 near-pool.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
@@ -62,6 +61,7 @@ near-transactions-generator = { workspace = true, optional = true }
 near-vm-runner.workspace = true
 node-runtime.workspace = true
 near-config-utils.workspace = true
+near-chain-primitives.workspace = true
 
 [dev-dependencies]
 near-time.workspace = true
@@ -92,10 +92,6 @@ harness = false
 [features]
 default = ["json_rpc", "rosetta_rpc"]
 
-performance_stats = [
-    "near-performance-metrics/performance_stats",
-]
-c_memory_stats = ["near-performance-metrics/c_memory_stats"]
 test_features = [
     "near-client/test_features",
     "near-network/test_features",
@@ -153,7 +149,6 @@ actor_instrumentation_testing = ["near-async/actor_instrumentation_testing"]
 ignored = [
     "near-client-primitives",
     "near-parameters",
-    "near-performance-metrics",
     "near-pool",
     "node-runtime",
 ]

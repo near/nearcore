@@ -9,7 +9,6 @@ use near_primitives::sharding::{
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 use std::collections::hash_map::Entry::Occupied;
 use time::ext::InstantExt;
-use tracing::warn;
 
 // This file implements EncodedChunksCache, which provides three main functionalities:
 // 1) It stores a map from a chunk hash to all the parts and receipts received so far for the chunk.
@@ -141,7 +140,7 @@ impl EncodedChunksCache {
             let previous_block_hash = &entry.header.prev_block_hash().clone();
             self.remove_chunk_from_incomplete_chunks(previous_block_hash, chunk_hash);
         } else {
-            warn!(target:"chunks", "cannot mark non-existent entry as complete {:?}", chunk_hash);
+            tracing::warn!(target: "chunks", ?chunk_hash, "cannot mark non-existent entry as complete");
         }
     }
 
@@ -191,7 +190,7 @@ impl EncodedChunksCache {
         if let Some(entry) = self.encoded_chunks.get_mut(chunk_hash) {
             entry.header_fully_validated = true;
         } else {
-            warn!("no entry exist {:?}", chunk_hash);
+            tracing::warn!(?chunk_hash, "no entry exist");
         }
     }
 

@@ -2,7 +2,7 @@ use itertools::Itertools;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::ClientActor;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::{AccountId, Balance};
 
@@ -33,8 +33,8 @@ fn do_call_contract(env: &mut TestLoopEnv, rpc_id: &AccountId, contract_id: &Acc
 
 /// Tracks latest block heights and checks that all chunks are produced.
 fn check_chunks(
-    actor: &ClientActorInner,
-    runner: &mut dyn DelayedActionRunner<ClientActorInner>,
+    actor: &ClientActor,
+    runner: &mut dyn DelayedActionRunner<ClientActor>,
     latest_block_height: std::cell::Cell<u64>,
 ) {
     let client = &actor.client;

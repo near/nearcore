@@ -25,7 +25,7 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::{ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::{Client, RpcHandler};
+use near_client::{Client, RpcHandlerActor};
 use near_crypto::Signer;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::{Action, FunctionCallAction};
@@ -611,7 +611,7 @@ impl WorkloadGenerator {
 
     pub fn run(
         &mut self,
-        client_sender: &TestLoopSender<RpcHandler>,
+        client_sender: &TestLoopSender<RpcHandlerActor>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
     ) {
@@ -662,7 +662,7 @@ impl WorkloadSender {
 
     pub fn run(
         &mut self,
-        client_sender: &TestLoopSender<RpcHandler>,
+        client_sender: &TestLoopSender<RpcHandlerActor>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
         rng: &mut ChaCha20Rng,
@@ -683,7 +683,7 @@ impl WorkloadSender {
 
     pub fn start_new_transaction(
         &mut self,
-        client_sender: &TestLoopSender<RpcHandler>,
+        client_sender: &TestLoopSender<RpcHandlerActor>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
         rng: &mut ChaCha20Rng,

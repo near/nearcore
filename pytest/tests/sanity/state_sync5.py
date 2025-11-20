@@ -54,4 +54,4 @@ while node1_height <= cur_height:
     nonce += 1
     time.sleep(0.05)
 
-assert tracker.check('transition to State Sync')
+assert tracker.check('transition to state sync')

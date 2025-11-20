@@ -4089,8 +4089,6 @@ dependencies = [
  "near-network",
  "near-o11y",
  "near-parameters",
- "near-performance-metrics",
- "near-performance-metrics-macros",
  "near-pool",
  "near-primitives",
  "near-schema-checker-lib",
@@ -4168,8 +4166,6 @@ dependencies = [
  "near-epoch-manager",
  "near-network",
  "near-o11y",
- "near-performance-metrics",
- "near-performance-metrics-macros",
  "near-pool",
  "near-primitives",
  "near-store",
@@ -4215,8 +4211,6 @@ dependencies = [
  "near-network",
  "near-o11y",
  "near-parameters",
- "near-performance-metrics",
- "near-performance-metrics-macros",
  "near-pool",
  "near-primitives",
  "near-store",
@@ -4682,8 +4676,6 @@ dependencies = [
  "near-crypto",
  "near-fmt",
  "near-o11y",
- "near-performance-metrics",
- "near-performance-metrics-macros",
  "near-primitives",
  "near-schema-checker-lib",
  "near-store",
@@ -4758,25 +4750,6 @@ dependencies = [
  "serde_yaml",
  "strum",
  "thiserror 2.0.16",
-]
-
-[[package]]
-name = "near-performance-metrics"
-version = "0.0.0"
-dependencies = [
- "bytesize 1.1.0",
- "futures",
- "libc",
- "parking_lot 0.12.1",
- "tracing",
-]
-
-[[package]]
-name = "near-performance-metrics-macros"
-version = "0.0.0"
-dependencies = [
- "quote",
- "syn 2.0.106",
 ]
 
 [[package]]
@@ -5073,8 +5046,6 @@ dependencies = [
  "futures",
  "near-async",
  "near-o11y",
- "near-performance-metrics",
- "near-performance-metrics-macros",
  "reqwest 0.12.4",
  "serde",
  "serde_json",
@@ -5383,6 +5354,7 @@ dependencies = [
  "near-async",
  "near-chain",
  "near-chain-configs",
+ "near-chain-primitives",
  "near-chunks",
  "near-client",
  "near-client-primitives",
@@ -5397,7 +5369,6 @@ dependencies = [
  "near-network",
  "near-o11y",
  "near-parameters",
- "near-performance-metrics",
  "near-pool",
  "near-primitives",
  "near-rosetta-rpc",
@@ -5448,7 +5419,6 @@ dependencies = [
  "near-mirror",
  "near-network",
  "near-o11y",
- "near-performance-metrics",
  "near-ping",
  "near-primitives",
  "near-replay-archive-tool",
