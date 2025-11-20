@@ -111,7 +111,6 @@ use near_network::types::{
 };
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
-use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -302,14 +301,12 @@ impl messaging::Actor for ShardsManagerActor {
 }
 
 impl Handler<ShardsManagerRequestFromClient> for ShardsManagerActor {
-    #[perf]
     fn handle(&mut self, msg: ShardsManagerRequestFromClient) {
         self.handle_client_request(msg);
     }
 }
 
 impl HandlerWithContext<ShardsManagerRequestFromNetwork> for ShardsManagerActor {
-    #[perf]
     fn handle(
         &mut self,
         msg: ShardsManagerRequestFromNetwork,

@@ -9,7 +9,6 @@ use near_chain::types::RuntimeAdapter;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
 use near_network::types::{StateResponseInfo, StateResponseInfoV2};
-use near_performance_metrics_macros::perf;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::StatePart;
@@ -234,7 +233,6 @@ fn new_part_response_empty(
 }
 
 impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActor {
-    #[perf]
     fn handle(&mut self, msg: StateRequestHeader) -> Option<StatePartOrHeader> {
         let StateRequestHeader { shard_id, sync_hash } = msg;
         let _timer = metrics::STATE_SYNC_REQUEST_TIME
@@ -287,7 +285,6 @@ impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActo
 }
 
 impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor {
-    #[perf]
     fn handle(&mut self, msg: StateRequestPart) -> Option<StatePartOrHeader> {
         let StateRequestPart { shard_id, sync_hash, part_id } = msg;
         let _timer =

@@ -24,7 +24,6 @@ use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
-use near_performance_metrics_macros::perf;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::state_witness::{
@@ -588,7 +587,6 @@ impl ChunkValidationActor {
 }
 
 impl Handler<ChunkStateWitnessMessage> for ChunkValidationActor {
-    #[perf]
     fn handle(&mut self, msg: ChunkStateWitnessMessage) {
         let _span = tracing::debug_span!(
             target: "chunk_validation",
@@ -606,7 +604,6 @@ impl Handler<ChunkStateWitnessMessage> for ChunkValidationActor {
 }
 
 impl Handler<BlockNotificationMessage> for ChunkValidationActor {
-    #[perf]
     fn handle(&mut self, msg: BlockNotificationMessage) {
         let BlockNotificationMessage { block } = msg;
 

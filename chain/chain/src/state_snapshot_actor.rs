@@ -3,7 +3,6 @@ use near_async::messaging::{Actor, CanSend, Handler, HandlerWithContext, Sender}
 use near_async::time::Duration;
 use near_async::{MultiSend, MultiSenderFrom};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
-use near_performance_metrics_macros::perf;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -194,14 +193,12 @@ impl StateSnapshotActor {
 }
 
 impl Handler<DeleteSnapshotRequest> for StateSnapshotActor {
-    #[perf]
     fn handle(&mut self, msg: DeleteSnapshotRequest) {
         self.handle_delete_snapshot_request(msg)
     }
 }
 
 impl HandlerWithContext<CreateSnapshotRequest> for StateSnapshotActor {
-    #[perf]
     fn handle(&mut self, msg: CreateSnapshotRequest, ctx: &mut dyn DelayedActionRunner<Self>) {
         self.handle_create_snapshot_request(msg, ctx)
     }

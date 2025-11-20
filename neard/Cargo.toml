@@ -44,7 +44,6 @@ near-jsonrpc-primitives.workspace = true
 near-mirror.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
-near-performance-metrics.workspace = true
 near-ping.workspace = true
 near-primitives.workspace = true
 near-replay-archive-tool.workspace = true
@@ -70,8 +69,6 @@ protocol_feature_spice = [
   "near-mirror/protocol_feature_spice",
 ]
 
-performance_stats = ["nearcore/performance_stats"]
-c_memory_stats = ["nearcore/c_memory_stats"]
 test_features = [
   "nearcore/test_features",
   "near-dump-test-contract/test_features",

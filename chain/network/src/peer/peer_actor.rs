@@ -42,7 +42,6 @@ use near_async::{ActorSystem, time};
 use near_crypto::Signature;
 use near_o11y::log_assert;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
-use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::EpochId;
@@ -1627,7 +1626,6 @@ impl messaging::Actor for PeerActor {
 }
 
 impl messaging::Handler<stream::Error> for PeerActor {
-    #[perf]
     fn handle(&mut self, err: stream::Error) {
         self.delay_if_registering(move |this| {
             let expected = match &err {
@@ -1663,7 +1661,6 @@ impl messaging::Handler<stream::Error> for PeerActor {
 }
 
 impl messaging::Handler<stream::Frame> for PeerActor {
-    #[perf]
     fn handle(&mut self, stream::Frame(msg): stream::Frame) {
         self.delay_if_registering(move |this| {
             let _span = tracing::debug_span!(
@@ -1751,7 +1748,6 @@ impl messaging::Handler<stream::Frame> for PeerActor {
 }
 
 impl messaging::Handler<SpanWrapped<SendMessage>> for PeerActor {
-    #[perf]
     fn handle(&mut self, msg: SpanWrapped<SendMessage>) {
         self.delay_if_registering(move |this| {
             let msg = msg.span_unwrap();
@@ -1767,7 +1763,6 @@ pub(crate) struct Stop {
 }
 
 impl messaging::Handler<SpanWrapped<Stop>> for PeerActor {
-    #[perf]
     fn handle(&mut self, msg: SpanWrapped<Stop>) {
         self.delay_if_registering(move |this| {
             let msg = msg.span_unwrap();
