@@ -64,8 +64,8 @@ impl SignerKind {
     BorshSerialize, BorshDeserialize, serde::Serialize, PartialEq, Eq, Debug, Clone, ProtocolSchema,
 )]
 pub enum TransactionKey {
-    AccessKey { key: PublicKey },
-    GasKey { key: PublicKey, nonce_index: NonceIndex },
+    AccessKey { public_key: PublicKey },
+    GasKey { public_key: PublicKey, nonce_index: NonceIndex },
 }
 
 #[derive(BorshSerialize, PartialEq, Eq, Hash, Clone, Copy)]
@@ -77,8 +77,8 @@ pub enum TransactionKeyRef<'a> {
 impl<'a> From<&'a TransactionKey> for TransactionKeyRef<'a> {
     fn from(value: &'a TransactionKey) -> Self {
         match value {
-            TransactionKey::AccessKey { key } => TransactionKeyRef::AccessKey { key },
-            TransactionKey::GasKey { key, nonce_index } => {
+            TransactionKey::AccessKey { public_key: key } => TransactionKeyRef::AccessKey { key },
+            TransactionKey::GasKey { public_key: key, nonce_index } => {
                 TransactionKeyRef::GasKey { key, nonce_index: *nonce_index }
             }
         }
@@ -808,7 +808,7 @@ mod tests {
         let public_key: PublicKey = "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap();
         TransactionV2 {
             signer_id: "test.near".parse().unwrap(),
-            key: TransactionKey::AccessKey { key: public_key.clone() },
+            key: TransactionKey::AccessKey { public_key: public_key.clone() },
             nonce: 1,
             receiver_id: "123".parse().unwrap(),
             block_hash: Default::default(),

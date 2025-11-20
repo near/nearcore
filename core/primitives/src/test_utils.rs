@@ -64,7 +64,7 @@ impl Transaction {
         block_hash: CryptoHash,
         priority_fee: u64,
     ) -> Self {
-        let key = TransactionKey::AccessKey { key: public_key };
+        let key = TransactionKey::AccessKey { public_key };
         Transaction::V2(TransactionV2 {
             signer_id,
             key,
@@ -187,9 +187,9 @@ impl SignedTransaction {
             signer_id,
             key: match nonce_index {
                 Some(index) => {
-                    TransactionKey::GasKey { key: signer.public_key(), nonce_index: index }
+                    TransactionKey::GasKey { public_key: signer.public_key(), nonce_index: index }
                 }
-                None => TransactionKey::AccessKey { key: signer.public_key() },
+                None => TransactionKey::AccessKey { public_key: signer.public_key() },
             },
             receiver_id,
             block_hash,
@@ -208,7 +208,7 @@ impl SignedTransaction {
         block_hash: CryptoHash,
         priority_fee: u64,
     ) -> Self {
-        let key = TransactionKey::AccessKey { key: signer.public_key() };
+        let key = TransactionKey::AccessKey { public_key: signer.public_key() };
         Transaction::V2(TransactionV2 {
             signer_id,
             key,
