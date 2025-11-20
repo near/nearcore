@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use near_chain_configs::GenesisConfig;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_primitives::chains::MAINNET;
 use near_primitives::hash::CryptoHash;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
@@ -14,9 +15,9 @@ use near_store::{DBCol, ShardTries, StateSnapshotConfig, Store, StoreConfig, Tri
 
 use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 
-/// Hashes of the blocks where resharding happened.
+/// Hashes of the blocks where resharding happened on mainnet.
 /// These are from resharding at protocol versions 75, 76, and 78 respectively.
-const RESHARDING_BLOCK_HASHES: [&str; 3] = [
+const MAINNET_RESHARDING_BLOCK_HASHES: [&str; 3] = [
     "CRixt9b6FhASJyTyc8YNj6g7tvjrnf37CSWbhGBwL3EP",
     "ATvDbPZYJSnu2j2CA9Dj7Q6aSBigi2aKuBGxbbnUZthU",
     "BpuCWLLпMQupM5Dm5VqxpKwZJb6fiFsU5nVhfHkoTQQs",
@@ -29,12 +30,22 @@ const RESHARDING_BLOCK_HASHES: [&str; 3] = [
 /// resharding are never moved to the cold storage. Once the garbage collection removes those
 /// nodes they are lost and the archival node cannot serve some queries for some range of blocks
 /// after resharding.
+///
+/// Note: This migration only applies to cold stores, and is only for mainnet resharding events.
 pub fn migrate_46_to_47(
     store: &Store,
     genesis_config: &GenesisConfig,
     store_config: &StoreConfig,
 ) -> anyhow::Result<()> {
+    // Current migration is targeted only for mainnet
+    if genesis_config.chain_id != MAINNET {
+        tracing::info!(target: "migrations", chain_id = ?genesis_config.chain_id, "skipping migration 46->47",);
+        return Ok(());
+    }
+
     // Check if this is a cold store, otherwise early return
+    // Note that in the migration code path, store object can either be hot store or cold store,
+    // but not split store
     let db_kind = store.get_db_kind()?;
     if db_kind != Some(DbKind::Cold) {
         tracing::info!(target: "migrations", ?db_kind, "skipping migration 46->47",);
@@ -53,7 +64,7 @@ pub fn migrate_46_to_47(
     );
 
     let mut transaction = DBTransaction::new();
-    for resharding_block_hash in RESHARDING_BLOCK_HASHES {
+    for resharding_block_hash in MAINNET_RESHARDING_BLOCK_HASHES {
         tracing::info!(target: "migrations", ?resharding_block_hash, "processing resharding block");
 
         let resharding_block_hash = CryptoHash::from_str(resharding_block_hash).unwrap();
