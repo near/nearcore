@@ -20,12 +20,27 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
         }
     }
 
-    fn migrate(&self, store: &Store, version: DbVersion) -> anyhow::Result<()> {
+    fn migrate(&self, _store: &Store, version: DbVersion) -> anyhow::Result<()> {
+        match version {
+            0..MIN_SUPPORTED_DB_VERSION => unreachable!(),
+            45 => Ok(()), // DBCol::StatePartsApplied column added, no need to perform a migration
+            46 => Ok(()), // no migration needed for hot store
+            DB_VERSION.. => unreachable!(),
+        }
+    }
+
+    fn migrate_cold(
+        &self,
+        latest_version_hot_store: &Store,
+        cold_store: &Store,
+        version: DbVersion,
+    ) -> anyhow::Result<()> {
         match version {
             0..MIN_SUPPORTED_DB_VERSION => unreachable!(),
             45 => Ok(()), // DBCol::StatePartsApplied column added, no need to perform a migration
             46 => near_chain::resharding::migrations::migrate_46_to_47(
-                store,
+                latest_version_hot_store,
+                cold_store,
                 &self.config.genesis.config,
                 &self.config.config.store,
             ),

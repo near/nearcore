@@ -9,6 +9,11 @@ use crate::{
 };
 use std::sync::Arc;
 
+enum EnsureVersionMode {
+    Hot,
+    Cold { hot_store: Store },
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StoreOpenerError {
     /// I/O or RocksDB-level error while opening or accessing the database.
@@ -334,13 +339,14 @@ impl<'a> StoreOpener<'a> {
         let hot_snapshot = {
             Self::ensure_created(mode, &self.hot)?;
             Self::ensure_kind(mode, &self.hot, self.is_archive(), Temperature::Hot)?;
-            Self::ensure_version(mode, &self.hot, &self.migrator)?
+            Self::ensure_version(mode, &self.hot, &self.migrator, EnsureVersionMode::Hot)?
         };
 
         let cold_snapshot = if let Some(cold) = &self.cold {
             Self::ensure_created(mode, cold)?;
             Self::ensure_kind(mode, cold, self.is_archive(), Temperature::Cold)?;
-            Self::ensure_version(mode, cold, &self.migrator)?
+            let hot_store = Self::open_store(Mode::ReadOnly, &self.hot, DB_VERSION)?;
+            Self::ensure_version(mode, cold, &self.migrator, EnsureVersionMode::Cold { hot_store })?
         } else {
             Snapshot::none()
         };
@@ -392,14 +398,21 @@ impl<'a> StoreOpener<'a> {
         let hot_snapshot = {
             Self::ensure_created(mode, &self.hot)?;
             Self::ensure_kind(mode, &self.hot, self.is_archive(), Temperature::Hot)?;
-            let snapshot = Self::ensure_version(mode, &self.hot, &self.migrator)?;
+            let snapshot =
+                Self::ensure_version(mode, &self.hot, &self.migrator, EnsureVersionMode::Hot)?;
             if snapshot.0.is_none() { self.hot.snapshot()? } else { snapshot }
         };
 
         let cold_snapshot = if let Some(cold) = &self.cold {
             Self::ensure_created(mode, cold)?;
             Self::ensure_kind(mode, cold, self.is_archive(), Temperature::Cold)?;
-            let snapshot = Self::ensure_version(mode, cold, &self.migrator)?;
+            let hot_store = Self::open_store(Mode::ReadOnly, &self.hot, DB_VERSION)?;
+            let snapshot = Self::ensure_version(
+                mode,
+                cold,
+                &self.migrator,
+                EnsureVersionMode::Cold { hot_store },
+            )?;
             if snapshot.0.is_none() { cold.snapshot()? } else { snapshot }
         } else {
             Snapshot::none()
@@ -479,6 +492,7 @@ impl<'a> StoreOpener<'a> {
         mode: Mode,
         opener: &DBOpener,
         migrator: &Option<&dyn StoreMigrator>,
+        ensure_version_mode: EnsureVersionMode,
     ) -> Result<Snapshot, StoreOpenerError> {
         tracing::debug!(target: "db_opener", path=%opener.path.display(), "ensure db version");
 
@@ -525,13 +539,14 @@ impl<'a> StoreOpener<'a> {
                 "migrating the database from version to next version",
             );
 
-            // Note: here we open the cold store as a regular Store object
-            // backed by RocksDB. It doesn't matter today as we don't expect any
-            // old migrations on the cold storage. In the future however it may
-            // be better to wrap it in the ColdDB object instead.
-
             let store = Self::open_store(mode, opener, version)?;
-            migrator.migrate(&store, version).map_err(StoreOpenerError::MigrationError)?;
+            match ensure_version_mode {
+                EnsureVersionMode::Hot => migrator.migrate(&store, version),
+                EnsureVersionMode::Cold { ref hot_store } => {
+                    migrator.migrate_cold(hot_store, &store, version)
+                }
+            }
+            .map_err(StoreOpenerError::MigrationError)?;
             store.set_db_version(version + 1)?;
         }
 
@@ -659,6 +674,15 @@ pub trait StoreMigrator {
     /// check support via [`Self::check_support`] method) or if it’s greater or
     /// equal to [`DB_VERSION`].
     fn migrate(&self, store: &Store, version: DbVersion) -> anyhow::Result<()>;
+
+    /// Similar to [`Self::migrate`] but for cold storage.
+    /// We provide the latest hot store to facilitate migration of cold store
+    fn migrate_cold(
+        &self,
+        latest_version_hot_store: &Store,
+        cold_store: &Store,
+        version: DbVersion,
+    ) -> anyhow::Result<()>;
 }
 
 /// Creates checkpoint of hot storage in `home_dir.join(checkpoint_relative_path)`

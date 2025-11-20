@@ -8,12 +8,9 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::archive::cold_storage::{join_two_keys, rc_aware_set};
 use near_store::db::DBTransaction;
-use near_store::db::metadata::DbKind;
 use near_store::flat::{BlockInfo, FlatStorageManager};
 use near_store::trie::ops::resharding::RetainMode;
-use near_store::{
-    DBCol, ShardTries, StateSnapshotConfig, Store, StoreConfig, TrieConfig, set_genesis_height,
-};
+use near_store::{DBCol, ShardTries, StateSnapshotConfig, Store, StoreConfig, TrieConfig};
 use near_vm_runner::logic::ProtocolVersion;
 
 use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
@@ -36,7 +33,8 @@ const MAINNET_RESHARDING_BLOCK_HASHES: [(ProtocolVersion, &str); 3] = [
 ///
 /// Note: This migration only applies to cold stores, and is only for mainnet resharding events.
 pub fn migrate_46_to_47(
-    store: &Store,
+    hot_store: &Store,
+    cold_store: &Store,
     genesis_config: &GenesisConfig,
     store_config: &StoreConfig,
 ) -> anyhow::Result<()> {
@@ -46,29 +44,15 @@ pub fn migrate_46_to_47(
         return Ok(());
     }
 
-    // Check if this is a cold store, otherwise early return
-    // Note that in the migration code path, store object can either be hot store or cold store,
-    // but not split store
-    let db_kind = store.get_db_kind()?;
-    if db_kind != Some(DbKind::Cold) {
-        tracing::info!(target: "migrations", ?db_kind, "skipping migration 46->47",);
-        return Ok(());
-    }
-
     tracing::info!(target: "migrations", "Starting migration 46->47 for cold store");
 
-    // Genesis height isn't set for cold store
-    let mut store_update = store.store_update();
-    set_genesis_height(&mut store_update, &genesis_config.genesis_height);
-    store_update.commit().unwrap();
-
-    let chain_store = store.chain_store();
+    let chain_store = hot_store.chain_store();
     let epoch_config_store =
         EpochConfigStore::for_chain_id(&genesis_config.chain_id, None).unwrap();
     let tries = ShardTries::new(
-        store.trie_store(),
+        cold_store.trie_store(),
         TrieConfig::from_store_config(store_config),
-        FlatStorageManager::new(store.flat_store()),
+        FlatStorageManager::new(cold_store.flat_store()),
         StateSnapshotConfig::Disabled,
     );
 
@@ -103,7 +87,7 @@ pub fn migrate_46_to_47(
             [(left_child_shard, RetainMode::Left), (right_child_shard, RetainMode::Right)]
         {
             let trie_changes = parent_trie.retain_split_shard(&boundary_account, retain_mode)?;
-            let mapped_shard_uid = get_shard_uid_mapping(&store, new_shard_uid);
+            let mapped_shard_uid = get_shard_uid_mapping(&cold_store, new_shard_uid);
             for op in trie_changes.insertions() {
                 let key = join_two_keys(&mapped_shard_uid.to_bytes(), op.hash().as_bytes());
                 let value = op.payload().to_vec();
@@ -113,7 +97,7 @@ pub fn migrate_46_to_47(
     }
 
     tracing::info!(target: "migrations", "Writing changes to the database");
-    store.database().write(transaction)?;
+    cold_store.database().write(transaction)?;
 
     Ok(())
 }
