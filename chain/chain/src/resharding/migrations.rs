@@ -11,7 +11,9 @@ use near_store::db::DBTransaction;
 use near_store::db::metadata::DbKind;
 use near_store::flat::{BlockInfo, FlatStorageManager};
 use near_store::trie::ops::resharding::RetainMode;
-use near_store::{DBCol, ShardTries, StateSnapshotConfig, Store, StoreConfig, TrieConfig};
+use near_store::{
+    DBCol, ShardTries, StateSnapshotConfig, Store, StoreConfig, TrieConfig, set_genesis_height,
+};
 
 use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 
@@ -53,6 +55,11 @@ pub fn migrate_46_to_47(
     }
 
     tracing::info!(target: "migrations", "Starting migration 46->47 for cold store");
+
+    // Genesis height isn't set for cold store
+    let mut store_update = store.store_update();
+    set_genesis_height(&mut store_update, &genesis_config.genesis_height);
+    store_update.commit().unwrap();
 
     let chain_store = store.chain_store();
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), genesis_config, None);
