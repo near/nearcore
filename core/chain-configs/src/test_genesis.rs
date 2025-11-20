@@ -142,7 +142,7 @@ impl Default for TestEpochConfigBuilder {
             shuffle_shard_assignment_for_chunk_producers: false,
             max_inflation_rate: Rational32::new(1, 40),
             protocol_reward_rate: Rational32::new(1, 10),
-            protocol_treasury_account: "near".to_string().parse().unwrap(),
+            protocol_treasury_account: "test.near".to_string().parse().unwrap(),
             // consider them ineffective
             num_block_producer_seats_per_shard: vec![1],
             genesis_protocol_version: None,
@@ -295,7 +295,7 @@ impl Default for TestGenesisBuilder {
             max_gas_price: Balance::ZERO,
             gas_limit: Gas::from_teragas(1000),
             transaction_validity_period: 100,
-            protocol_treasury_account: "near".to_string().parse().unwrap(),
+            protocol_treasury_account: "test.near".to_string().parse().unwrap(),
             max_inflation_rate: Rational32::new(1, 40),
             user_accounts: vec![],
             dynamic_resharding: false,

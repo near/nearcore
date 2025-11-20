@@ -53,7 +53,7 @@ fn test_stake_validator() {
         vec![vec![0, 0]],
         change_stake(vec![("test1".parse().unwrap(), amount_staked)]),
         vec![],
-        reward(vec![("near".parse().unwrap(), Balance::ZERO)]),
+        reward(vec![("test.near".parse().unwrap(), Balance::ZERO)]),
         Balance::ZERO,
         4,
         PROTOCOL_VERSION,
@@ -100,7 +100,7 @@ fn test_stake_validator() {
         // only the validator who produced the block in this epoch gets the reward since epoch length is 1
         reward(vec![
             ("test1".parse().unwrap(), Balance::ZERO),
-            ("near".parse().unwrap(), Balance::ZERO),
+            ("test.near".parse().unwrap(), Balance::ZERO),
         ]),
         Balance::ZERO,
         4,
@@ -155,7 +155,7 @@ fn test_validator_change_of_stake() {
         vec![
             ("test1".parse().unwrap(), Balance::ZERO),
             ("test2".parse().unwrap(), Balance::ZERO),
-            ("near".parse().unwrap(), Balance::ZERO),
+            ("test.near".parse().unwrap(), Balance::ZERO),
         ],
     );
     if let Some(ValidatorKickoutReason::NotEnoughStake { stake, .. }) =
@@ -349,7 +349,7 @@ fn test_validator_kickout() {
         epoch_info,
         vec![
             ("test2".parse().unwrap(), Balance::ZERO),
-            ("near".parse().unwrap(), Balance::ZERO),
+            ("test.near".parse().unwrap(), Balance::ZERO),
             ("test1".parse().unwrap(), Balance::ZERO),
         ],
     );
@@ -391,7 +391,7 @@ fn test_validator_unstake() {
         vec![
             ("test1".parse().unwrap(), Balance::ZERO),
             ("test2".parse().unwrap(), Balance::ZERO),
-            ("near".parse().unwrap(), Balance::ZERO),
+            ("test.near".parse().unwrap(), Balance::ZERO),
         ],
     );
 
@@ -407,7 +407,7 @@ fn test_validator_unstake() {
         vec![
             ("test1".parse().unwrap(), Balance::ZERO),
             ("test2".parse().unwrap(), Balance::ZERO),
-            ("near".parse().unwrap(), Balance::ZERO),
+            ("test.near".parse().unwrap(), Balance::ZERO),
         ],
     );
 
@@ -420,7 +420,10 @@ fn test_validator_unstake() {
     check_kickout(&epoch_info, &[]);
     check_reward(
         &epoch_info,
-        vec![("test2".parse().unwrap(), Balance::ZERO), ("near".parse().unwrap(), Balance::ZERO)],
+        vec![
+            ("test2".parse().unwrap(), Balance::ZERO),
+            ("test.near".parse().unwrap(), Balance::ZERO),
+        ],
     );
 }
 
@@ -523,7 +526,7 @@ fn test_validator_reward_one_validator() {
         &epoch_config,
     );
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
-    let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("near")).unwrap();
+    let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("test.near")).unwrap();
 
     let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
     check_validators(&epoch_info, &[("test2", stake_amount.checked_add(test2_reward).unwrap())]);
@@ -534,7 +537,10 @@ fn test_validator_reward_one_validator() {
     check_kickout(&epoch_info, &[]);
     check_reward(
         &epoch_info,
-        vec![("test2".parse().unwrap(), test2_reward), ("near".parse().unwrap(), protocol_reward)],
+        vec![
+            ("test2".parse().unwrap(), test2_reward),
+            ("test.near".parse().unwrap(), protocol_reward),
+        ],
     );
     assert_eq!(epoch_info.minted_amount(), inflation);
 }
@@ -604,7 +610,7 @@ fn test_validator_reward_weight_by_stake() {
     let test1_reward = *validator_reward.get(AccountIdRef::new_or_panic("test1")).unwrap();
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
     assert_eq!(test1_reward, test2_reward.checked_mul(2).unwrap());
-    let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("near")).unwrap();
+    let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("test.near")).unwrap();
 
     let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
     check_validators(
@@ -627,7 +633,7 @@ fn test_validator_reward_weight_by_stake() {
         vec![
             ("test1".parse().unwrap(), test1_reward),
             ("test2".parse().unwrap(), test2_reward),
-            ("near".parse().unwrap(), protocol_reward),
+            ("test.near".parse().unwrap(), protocol_reward),
         ],
     );
     assert_eq!(epoch_info.minted_amount(), inflation);
@@ -713,7 +719,7 @@ fn test_reward_multiple_shards() {
         &epoch_config,
     );
     let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
-    let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("near")).unwrap();
+    let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("test.near")).unwrap();
     let epoch_infos: Vec<_> =
         h.iter().filter_map(|x| epoch_manager.get_epoch_info(&EpochId(*x)).ok()).collect();
     let epoch_info = &epoch_infos[1];
@@ -731,7 +737,10 @@ fn test_reward_multiple_shards() {
     );
     check_reward(
         epoch_info,
-        vec![("test2".parse().unwrap(), test2_reward), ("near".parse().unwrap(), protocol_reward)],
+        vec![
+            ("test2".parse().unwrap(), test2_reward),
+            ("test.near".parse().unwrap(), protocol_reward),
+        ],
     );
     assert_eq!(epoch_info.minted_amount(), inflation);
 }
@@ -774,7 +783,7 @@ fn test_unstake_and_then_change_stake() {
         vec![
             ("test1".parse().unwrap(), Balance::ZERO),
             ("test2".parse().unwrap(), Balance::ZERO),
-            ("near".parse().unwrap(), Balance::ZERO),
+            ("test.near".parse().unwrap(), Balance::ZERO),
         ],
     );
 }
@@ -1013,7 +1022,7 @@ fn test_rewards_with_kickouts() {
             2,
             // test3 should still be rewarded even though it is in the kickouts for unstaking
             HashMap::from([
-                ("near".parse().unwrap(), Balance::from_yoctonear(792)),
+                ("test.near".parse().unwrap(), Balance::from_yoctonear(792)),
                 ("test1".parse().unwrap(), Balance::from_yoctonear(2378)),
                 ("test3".parse().unwrap(), Balance::from_yoctonear(2378)),
             ]),
@@ -1021,7 +1030,7 @@ fn test_rewards_with_kickouts() {
         (
             3,
             HashMap::from([
-                ("near".parse().unwrap(), Balance::from_yoctonear(792)),
+                ("test.near".parse().unwrap(), Balance::from_yoctonear(792)),
                 ("test1".parse().unwrap(), Balance::from_yoctonear(2378)),
                 ("test3".parse().unwrap(), Balance::from_yoctonear(2378)),
             ]),
@@ -1029,7 +1038,7 @@ fn test_rewards_with_kickouts() {
         (
             4,
             HashMap::from([
-                ("near".parse().unwrap(), Balance::from_yoctonear(792)),
+                ("test.near".parse().unwrap(), Balance::from_yoctonear(792)),
                 ("test1".parse().unwrap(), Balance::from_yoctonear(7135)),
             ]),
         ),

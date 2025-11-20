@@ -179,7 +179,7 @@ mod tests {
         assert_eq!(
             result.0,
             HashMap::from([
-                ("near".parse().unwrap(), Balance::ZERO),
+                ("test.near".parse().unwrap(), Balance::ZERO),
                 ("test1".parse().unwrap(), Balance::ZERO),
                 ("test2".parse().unwrap(), Balance::ZERO)
             ])
@@ -233,7 +233,7 @@ mod tests {
         assert_eq!(
             result.0,
             HashMap::from([
-                ("near".parse().unwrap(), Balance::ZERO),
+                ("test.near".parse().unwrap(), Balance::ZERO),
                 ("test1".parse().unwrap(), Balance::from_yoctonear(1_666_666)),
                 ("test2".parse().unwrap(), Balance::from_yoctonear(3_333_333)),
                 ("test3".parse().unwrap(), Balance::ZERO)
@@ -302,7 +302,7 @@ mod tests {
             assert_eq!(
                 result.0,
                 HashMap::from([
-                    ("near".parse().unwrap(), Balance::ZERO),
+                    ("test.near".parse().unwrap(), Balance::ZERO),
                     ("test1".parse().unwrap(), Balance::from_yoctonear(1_250_000)),
                     ("test2".parse().unwrap(), Balance::from_yoctonear(2_500_000)),
                     ("test3".parse().unwrap(), Balance::from_yoctonear(1_250_000)),
@@ -377,7 +377,7 @@ mod tests {
             assert_eq!(
                 result.0,
                 HashMap::from([
-                    ("near".parse().unwrap(), Balance::ZERO),
+                    ("test.near".parse().unwrap(), Balance::ZERO),
                     ("test1".parse().unwrap(), Balance::from_yoctonear(1_750_000)),
                     ("test2".parse().unwrap(), Balance::from_yoctonear(2_500_000)),
                     ("test3".parse().unwrap(), Balance::from_yoctonear(1_944_444)),
@@ -454,7 +454,7 @@ mod tests {
             assert_eq!(
                 result.0,
                 HashMap::from([
-                    ("near".parse().unwrap(), Balance::ZERO),
+                    ("test.near".parse().unwrap(), Balance::ZERO),
                     ("test1".parse().unwrap(), Balance::from_yoctonear(1_750_000)),
                     ("test2".parse().unwrap(), Balance::ZERO),
                     ("test3".parse().unwrap(), Balance::from_yoctonear(2_500_000)),

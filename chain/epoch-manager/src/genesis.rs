@@ -54,7 +54,7 @@ impl EpochManager {
                 Self::prod_genesis(&genesis_epoch_config, [0; 32], validators, validator_reward);
             let digest = CryptoHash::hash_borsh(&genesis_epoch_info).to_string();
             if self.config.chain_id() == MAINNET {
-                assert_eq!(digest, "3jPL9nxi6A4Zzf1ptnBePJeitb6HeV5ShuRr4XVGv7wq");
+                assert_eq!(digest, "Hsc6BpTrd77H7J29w8uLXQY7bhfQzRDcFyo8Dj2CMZCj");
             }
             if self.config.chain_id() == TESTNET {
                 assert_eq!(digest, "6oVGdXcDaLErQ3nHRgZVZVHPkV5gfBjVtYkjWrByrb53");
