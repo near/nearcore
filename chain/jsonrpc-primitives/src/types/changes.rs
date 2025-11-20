@@ -35,6 +35,7 @@ pub enum RpcStateChangesError {
     #[error("Block not found: {error_message}")]
     UnknownBlock {
         #[serde(skip_serializing)]
+        #[cfg_attr(feature = "schemars", schemars(skip))]
         error_message: String,
     },
     #[error("There are no fully synchronized blocks yet")]

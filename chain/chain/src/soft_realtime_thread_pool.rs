@@ -9,7 +9,6 @@ use parking_lot::Mutex;
 use thread_priority::{
     RealtimeThreadSchedulePolicy, ThreadBuilder, ThreadPriority, ThreadSchedulePolicy,
 };
-use tracing::debug;
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
 type IdleThreadQueue = Arc<Mutex<VecDeque<oneshot::Sender<Option<Job>>>>>;
@@ -81,7 +80,7 @@ impl ThreadPool {
             .priority(self.priority)
             .spawn(move |res| {
                 if let Err(err) = res {
-                    debug!(target: "chain::soft_realtime_thread_pool", name = name, err = %err, "Setting scheduler policy failed");
+                    tracing::debug!(target: "chain::soft_realtime_thread_pool", name = name, err = %err, "setting scheduler policy failed");
                 };
                 run_worker(job, idle_timeout, idle_queue, counter_guard)
             }).expect("Failed to spawn thread");
@@ -115,12 +114,12 @@ impl WorkerCounter {
     fn new_thread(self: &Arc<Self>) -> WorkerCounterGuard {
         let num_threads = self.num_threads.fetch_add(1, Ordering::SeqCst);
         if num_threads > self.limit {
-            debug!(
+            tracing::debug!(
                 target: "chain::soft_realtime_thread_pool",
                 name = self.name,
                 limit = self.limit,
                 num_threads = num_threads,
-                "Thread pool limit exceeded"
+                "thread pool limit exceeded"
             );
         }
         THREAD_POOL_NUM_THREADS.with_label_values(&[self.name]).inc();

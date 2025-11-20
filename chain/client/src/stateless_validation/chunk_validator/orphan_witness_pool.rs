@@ -29,9 +29,9 @@ impl OrphanStateWitnessPool {
         if cache_capacity > 128 {
             tracing::warn!(
                 target: "client",
-                "OrphanStateWitnessPool capacity is set to {}, which is larger than expected. \
-                OrphanStateWitnessPool uses a naive algorithm, using a large capacity might lead \
-                to performance problems.", cache_capacity);
+                cache_capacity,
+                "orphan state witness cache capacity is larger than expected, this might lead to performance problems"
+            );
         }
 
         OrphanStateWitnessPool {
@@ -59,7 +59,7 @@ impl OrphanStateWitnessPool {
                 ejected_witness_shard = ?header.shard_id(),
                 ejected_witness_chunk = ?header.chunk_hash(),
                 ejected_witness_prev_block = ?header.prev_block_hash(),
-                "Ejecting an orphaned ChunkStateWitness from the cache due to capacity limit. It will not be processed."
+                "ejecting an orphaned chunk state witness from the cache due to capacity limit, it will not be processed"
             );
         }
     }
@@ -104,8 +104,8 @@ impl OrphanStateWitnessPool {
                     ejected_witness_shard = ?cache_key.shard_id,
                     ejected_witness_chunk = ?header.chunk_hash(),
                     ejected_witness_prev_block = ?header.prev_block_hash(),
-                    "Ejecting an orphaned ChunkStateWitness from the cache because it's below \
-                    the final height of the chain. It will not be processed.");
+                    "ejecting an orphaned chunk state witness from the cache because it's below the final height of the chain, it will not be processed"
+                );
             }
         }
         for cache_key in to_remove {

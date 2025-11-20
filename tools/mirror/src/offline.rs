@@ -130,10 +130,10 @@ impl crate::ChainAccess for ChainAccess {
                 Ok(c) => c,
                 Err(e) => {
                     tracing::error!(
-                        "Can't fetch source chain shard {} chunk at height {}. Are we tracking all shards?: {:?}",
-                        chunk.shard_id(),
-                        height,
-                        e
+                        shard_id = %chunk.shard_id(),
+                        %height,
+                        ?e,
+                        "can't fetch source chain shard chunk at height, are we tracking all shards?"
                     );
                     continue;
                 }

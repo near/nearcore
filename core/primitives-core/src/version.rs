@@ -335,6 +335,7 @@ pub enum ProtocolFeature {
     DeterministicAccountIds,
     InvalidTxGenerateOutcomes,
     DynamicResharding,
+    GasKeys,
 }
 
 impl ProtocolFeature {
@@ -442,6 +443,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
+            ProtocolFeature::GasKeys => 149,
             // Place features that are not yet in Nightly below this line.
             ProtocolFeature::DynamicResharding => 152,
         }

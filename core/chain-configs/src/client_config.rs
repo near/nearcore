@@ -844,6 +844,8 @@ pub struct ClientConfig {
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
+    /// If true, the node won't forward transactions to next the chunk producers.
+    pub disable_tx_routing: bool,
     /// Limit the time of adding transactions to a chunk.
     /// A node produces a chunk by adding transactions from the transaction pool until
     /// some limit is reached. This time limit ensures that adding transactions won't take

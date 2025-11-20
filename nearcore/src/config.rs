@@ -54,7 +54,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::archive::cloud_storage::config::CloudStorageConfig;
+use near_store::archive::cloud_storage::config::CloudArchivalConfig;
 use near_store::config::{SplitStorageConfig, StateSnapshotType};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
@@ -66,7 +66,6 @@ use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{info, warn};
 
 /// Block production tracking delay.
 pub const BLOCK_PRODUCTION_TRACKING_DELAY: i64 = 10;
@@ -274,7 +273,7 @@ pub struct Config {
     pub archive: bool,
     /// Configuration for a cloud-based archival node.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cloud_archival: Option<CloudStorageConfig>,
+    pub cloud_archival: Option<CloudArchivalConfig>,
     /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
     /// writes chunk-related data based on the tracked shards.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -358,6 +357,8 @@ pub struct Config {
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
+    /// If true, the node won't forward transactions to next the chunk producers.
+    pub disable_tx_routing: bool,
     /// Limit the time of adding transactions to a chunk.
     ///
     /// A node produces a chunk by adding transactions from the transaction pool until
@@ -478,6 +479,7 @@ impl Default for Config {
             enable_multiline_logging: default_enable_multiline_logging(),
             resharding_config: ReshardingConfig::default(),
             tx_routing_height_horizon: default_tx_routing_height_horizon(),
+            disable_tx_routing: false,
             produce_chunk_add_transactions_time_limit:
                 default_produce_chunk_add_transactions_time_limit(),
             chunk_distribution_network: None,
@@ -534,10 +536,12 @@ impl Config {
         if !unrecognized_fields.is_empty() {
             let s = if unrecognized_fields.len() > 1 { "s" } else { "" };
             let fields = unrecognized_fields.join(", ");
-            warn!(
+            tracing::warn!(
                 target: "neard",
-                "{}: encountered unrecognized field{s}: {fields}",
-                path.display(),
+                path = %path.display(),
+                fields_count = %s,
+                %fields,
+                "encountered unrecognized fields"
             );
         }
 
@@ -580,7 +584,7 @@ impl Config {
                 target: "neard",
                 deprecated_key = %deprecated_key,
                 new_key        = %new_key,
-                "Deprecated config key detected – please migrate",
+                "deprecated config key detected – please migrate",
             );
         }
     }
@@ -623,7 +627,7 @@ impl Config {
     }
 
     /// Returns the cloud archival storage config.
-    pub fn cloud_storage_config(&self) -> Option<&CloudStorageConfig> {
+    pub fn cloud_storage_config(&self) -> Option<&CloudArchivalConfig> {
         self.cloud_archival.as_ref()
     }
 
@@ -737,6 +741,7 @@ impl NearConfig {
                     "resharding_config",
                 ),
                 tx_routing_height_horizon: config.tx_routing_height_horizon,
+                disable_tx_routing: config.disable_tx_routing,
                 produce_chunk_add_transactions_time_limit: MutableConfigValue::new(
                     config.produce_chunk_add_transactions_time_limit,
                     "produce_chunk_add_transactions_time_limit",
@@ -881,7 +886,7 @@ fn generate_or_load_key(
                 ));
             }
         }
-        info!(target: "near", "Reusing key {} for {}", signer.public_key(), signer.get_account_id());
+        tracing::info!(target: "near", public_key = %signer.public_key(), account_id = %signer.get_account_id(), "reusing key for account");
         Ok(Some(signer))
     } else if let Some(account_id) = account_id {
         let signer = if let Some(seed) = test_seed {
@@ -889,7 +894,7 @@ fn generate_or_load_key(
         } else {
             InMemorySigner::from_random(account_id, KeyType::ED25519).into()
         };
-        info!(target: "near", "Using key {} for {}", signer.public_key(), signer.get_account_id());
+        tracing::info!(target: "near", public_key = %signer.public_key(), account_id = %signer.get_account_id(), "using key for account");
         signer
             .write_to_file(&path)
             .with_context(|| anyhow!("Failed saving key to ‘{}’", path.display()))?;
@@ -1048,7 +1053,7 @@ pub fn init_configs(
         near_primitives::chains::MAINNET => {
             let genesis = near_mainnet_res::mainnet_genesis();
             genesis.to_file(dir.join(config.genesis_file));
-            info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
+            tracing::info!(target: "near", dir = %dir.display(), "generated mainnet genesis file");
         }
         near_primitives::chains::TESTNET => {
             if let Some(ref filename) = config.genesis_records_file {
@@ -1105,7 +1110,7 @@ pub fn init_configs(
             genesis.config.chain_id.clone_from(&chain_id);
 
             genesis.to_file(dir.join(config.genesis_file));
-            info!(target: "near", "Generated for {chain_id} network node key and genesis file in {}", dir.display());
+            tracing::info!(target: "near", %chain_id, dir = %dir.display(), "generated network node key and genesis file");
         }
         _ => {
             let validator_file = dir.join(&config.validator_key_file);
@@ -1162,7 +1167,7 @@ pub fn init_configs(
             };
             let genesis = Genesis::new(genesis_config, records.into())?;
             genesis.to_file(dir.join(config.genesis_file));
-            info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
+            tracing::info!(target: "near", dir = %dir.display(), "generated node key, validator key, genesis file");
         }
     }
 
@@ -1464,7 +1469,7 @@ pub fn init_localnet_configs(
         log_config
             .write_to_file(&node_dir.join(LOG_CONFIG_FILENAME))
             .expect("Error writing log config");
-        info!(target: "near", "Generated node key, validator key, genesis file in {}", node_dir.display());
+        tracing::info!(target: "near", node_dir = %node_dir.display(), "generated node key, validator key, genesis file");
     }
 }
 
@@ -1491,28 +1496,28 @@ pub fn get_config_url(chain_id: &str, config_type: DownloadConfigType) -> String
 }
 
 pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    info!(target: "near", "Downloading genesis file from: {} ...", url);
+    tracing::info!(target: "near", %url, "downloading genesis file");
     let result = run_download_file(url, path);
     if result.is_ok() {
-        info!(target: "near", "Saved the genesis file to: {} ...", path.display());
+        tracing::info!(target: "near", path = %path.display(), "saved the genesis file");
     }
     result
 }
 
 pub fn download_records(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    info!(target: "near", "Downloading records file from: {} ...", url);
+    tracing::info!(target: "near", %url, "downloading records file");
     let result = run_download_file(url, path);
     if result.is_ok() {
-        info!(target: "near", "Saved the records file to: {} ...", path.display());
+        tracing::info!(target: "near", path = %path.display(), "saved the records file");
     }
     result
 }
 
 pub fn download_config(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    info!(target: "near", "Downloading config file from: {} ...", url);
+    tracing::info!(target: "near", %url, "downloading config file");
     let result = run_download_file(url, path);
     if result.is_ok() {
-        info!(target: "near", "Saved the config file to: {} ...", path.display());
+        tracing::info!(target: "near", path = %path.display(), "saved the config file");
     }
     result
 }

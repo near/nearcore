@@ -6,8 +6,9 @@
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::action::{
-    DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, UseGlobalContractAction,
+    AddGasKeyAction, DeleteGasKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
+    GlobalContractDeployMode, GlobalContractIdentifier, TransferToGasKeyAction,
+    UseGlobalContractAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -229,24 +230,16 @@ pub struct GasKeyView {
     pub num_nonces: NonceIndex,
     pub balance: Balance,
     pub permission: AccessKeyPermissionView,
+    pub nonces: Vec<Nonce>,
 }
 
-impl From<GasKey> for GasKeyView {
-    fn from(gas_key: GasKey) -> Self {
-        Self {
+impl GasKeyView {
+    pub fn new(gas_key: GasKey, nonces: Vec<Nonce>) -> GasKeyView {
+        GasKeyView {
             num_nonces: gas_key.num_nonces,
             balance: gas_key.balance,
             permission: gas_key.permission.into(),
-        }
-    }
-}
-
-impl From<GasKeyView> for GasKey {
-    fn from(view: GasKeyView) -> Self {
-        Self {
-            num_nonces: view.num_nonces,
-            balance: view.balance,
-            permission: view.permission.into(),
+            nonces,
         }
     }
 }
@@ -306,6 +299,19 @@ impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct GasKeyInfoView {
+    pub public_key: PublicKey,
+    pub gas_key: GasKeyView,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct GasKeyList {
+    pub keys: Vec<GasKeyInfoView>,
+}
+
 // cspell:words deepsize
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -348,6 +354,8 @@ pub enum QueryResponseKind {
     CallResult(CallResult),
     AccessKey(AccessKeyView),
     AccessKeyList(AccessKeyList),
+    GasKey(GasKeyView),
+    GasKeyList(GasKeyList),
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -372,6 +380,13 @@ pub enum QueryRequest {
         public_key: PublicKey,
     },
     ViewAccessKeyList {
+        account_id: AccountId,
+    },
+    ViewGasKey {
+        account_id: AccountId,
+        public_key: PublicKey,
+    },
+    ViewGasKeyList {
         account_id: AccountId,
     },
     CallFunction {
@@ -1400,6 +1415,18 @@ pub enum ActionView {
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: Balance,
     } = 13,
+    AddGasKey {
+        public_key: PublicKey,
+        num_nonces: NonceIndex,
+        permission: AccessKeyPermissionView,
+    } = 14,
+    DeleteGasKey {
+        public_key: PublicKey,
+    } = 15,
+    TransferToGasKey {
+        public_key: PublicKey,
+        amount: Balance,
+    } = 16,
 }
 
 impl From<Action> for ActionView {
@@ -1458,6 +1485,18 @@ impl From<Action> for ActionView {
                     deposit: action.deposit,
                 }
             }
+            Action::AddGasKey(action) => ActionView::AddGasKey {
+                public_key: action.public_key,
+                num_nonces: action.num_nonces,
+                permission: action.permission.into(),
+            },
+            Action::DeleteGasKey(action) => {
+                ActionView::DeleteGasKey { public_key: action.public_key }
+            }
+            Action::TransferToGasKey(action) => ActionView::TransferToGasKey {
+                public_key: action.public_key,
+                amount: action.deposit,
+            },
         }
     }
 }
@@ -1525,6 +1564,22 @@ impl TryFrom<ActionView> for Action {
                     ),
                     deposit,
                 }))
+            }
+            ActionView::AddGasKey { public_key, num_nonces, permission } => {
+                Action::AddGasKey(Box::new(AddGasKeyAction {
+                    public_key,
+                    num_nonces,
+                    permission: permission.into(),
+                }))
+            }
+            ActionView::TransferToGasKey { public_key, amount } => {
+                Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+                    public_key,
+                    deposit: amount,
+                }))
+            }
+            ActionView::DeleteGasKey { public_key } => {
+                Action::DeleteGasKey(Box::new(DeleteGasKeyAction { public_key }))
             }
         })
     }
@@ -2702,7 +2757,7 @@ pub enum StateChangeValueView {
     GasKeyUpdate {
         account_id: AccountId,
         public_key: PublicKey,
-        gas_key: GasKeyView,
+        gas_key: GasKey,
     },
     GasKeyNonceUpdate {
         account_id: AccountId,
@@ -2754,7 +2809,7 @@ impl From<StateChangeValue> for StateChangeValueView {
                 Self::AccessKeyDeletion { account_id, public_key }
             }
             StateChangeValue::GasKeyUpdate { account_id, public_key, gas_key } => {
-                Self::GasKeyUpdate { account_id, public_key, gas_key: gas_key.into() }
+                Self::GasKeyUpdate { account_id, public_key, gas_key }
             }
             StateChangeValue::GasKeyNonceUpdate { account_id, public_key, index, nonce } => {
                 Self::GasKeyNonceUpdate { account_id, public_key, index, nonce }

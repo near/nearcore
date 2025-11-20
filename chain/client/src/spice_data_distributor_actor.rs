@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -161,6 +162,11 @@ struct DistributionData {
 
 impl near_async::messaging::Actor for SpiceDataDistributorActor {
     fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
+        if !cfg!(feature = "protocol_feature_spice") {
+            return;
+        }
+        self.start_waiting_on_missing_data()
+            .expect("we should be able to figure out missing data on startup");
         self.schedule_data_fetching(ctx);
     }
 }
@@ -779,7 +785,6 @@ impl SpiceDataDistributorActor {
         self.pending_partial_data.len()
     }
 
-    // TODO(spice): Do not request data we already decoded.
     // TODO(spice): Implement a state machine to track all the data we produce or may need. This
     // would help make sure that we cannot have and request data at the same time.
     fn start_waiting_on_data(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
@@ -797,8 +802,7 @@ impl SpiceDataDistributorActor {
         let shards_we_apply: HashSet<ShardId> = shard_layout
             .shard_ids()
             .filter(|shard_id| {
-                // We need a receipts from a block only if we would want to apply a block after.
-                let prev_hash = block.hash();
+                let prev_hash = block.header().prev_hash();
                 self.shard_tracker.should_apply_chunk(
                     ApplyChunksMode::IsCaughtUp,
                     prev_hash,
@@ -826,11 +830,25 @@ impl SpiceDataDistributorActor {
             }
         }
 
+        let shards_we_apply_in_next_block: HashSet<ShardId> = shard_layout
+            .shard_ids()
+            .filter(|shard_id| {
+                let prev_hash = block.hash();
+                self.shard_tracker.should_apply_chunk(
+                    ApplyChunksMode::IsCaughtUp,
+                    prev_hash,
+                    *shard_id,
+                )
+            })
+            .collect();
+
         for from_shard_id in shard_layout.shard_ids() {
+            // We need a receipts from a block only if we would want to apply a block after.
             if shards_we_apply.contains(&from_shard_id) {
                 continue;
             }
-            for to_shard_id in shards_we_apply.iter().copied() {
+            // TODO(spice-resharding): Handle resharding
+            for to_shard_id in shards_we_apply_in_next_block.iter().copied() {
                 new_ids.push(SpiceDataIdentifier::ReceiptProof {
                     block_hash: *block_hash,
                     from_shard_id,
@@ -840,6 +858,9 @@ impl SpiceDataDistributorActor {
         }
 
         for id in new_ids {
+            let (_recipients, producers) = self.recipients_and_producers(&id, &block)?;
+            assert!(!producers.contains(me));
+
             if self.waiting_on_data.contains_key(&id) {
                 continue;
             }
@@ -961,6 +982,30 @@ impl SpiceDataDistributorActor {
                 recipients,
             },
         ));
+        Ok(())
+    }
+
+    fn start_waiting_on_missing_data(&mut self) -> Result<(), Error> {
+        let start_block = match self.chain_store.spice_final_execution_head() {
+            Ok(final_execution_head) => final_execution_head.last_block_hash,
+            Err(near_chain::Error::DBNotFoundErr(_)) => {
+                let final_head_hash = self.chain_store.final_head()?.last_block_hash;
+                let mut header = self.chain_store.get_block_header(&final_head_hash)?;
+                // TODO(spice): Stop searching on the first non-spice block.
+                while !header.is_genesis() {
+                    header = self.chain_store.get_block_header(header.prev_hash())?;
+                }
+                *header.hash()
+            }
+            Err(err) => return Err(err.into()),
+        };
+
+        let mut next_block_hashes: VecDeque<_> =
+            self.chain_store.get_all_next_block_hashes(&start_block)?.into();
+        while let Some(block_hash) = next_block_hashes.pop_front() {
+            self.start_waiting_on_data(&block_hash)?;
+            next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash)?);
+        }
         Ok(())
     }
 }

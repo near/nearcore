@@ -4,10 +4,10 @@ use near_primitives::types::Balance;
 
 use crate::adapters::transactions::{ExecutionToReceipts, convert_block_changes_to_transactions};
 use near_async::multithread::MultithreadRuntimeHandle;
-use near_client::ViewClientActorInner;
+use near_client::ViewClientActor;
 
 pub async fn test_convert_block_changes_to_transactions(
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
     runtime_config: &RuntimeConfigView,
 ) {
     // cspell:ignore nfvalidator

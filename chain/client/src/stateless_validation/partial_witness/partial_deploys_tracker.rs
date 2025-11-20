@@ -42,7 +42,7 @@ impl CacheEntry {
                 expected = self.parts.encoded_length(),
                 actual = part.encoded_length,
                 part_ord,
-                "Partial encoded contract deploys encoded_length field doesn't match",
+                "partial encoded contract deploys encoded_length field doesn't match",
             );
             return None;
         }
@@ -53,7 +53,7 @@ impl CacheEntry {
                     target: "client",
                     ?key,
                     part_ord,
-                    "Received duplicate or redundant contract deploy part"
+                    "received duplicate or redundant contract deploy part"
                 );
                 None
             }
@@ -62,7 +62,7 @@ impl CacheEntry {
                     target: "client",
                     ?key,
                     part_ord,
-                    "Received invalid contract deploys part ord"
+                    "received invalid contract deploys part ord"
                 );
                 None
             }
@@ -100,7 +100,7 @@ impl PartialEncodedContractDeploysTracker {
                 target: "client",
                 ?key,
                 part = ?partial_deploys.part(),
-                "Received already processed partial deploys part"
+                "received already processed partial deploys part"
             );
             return true;
         }
@@ -123,7 +123,7 @@ impl PartialEncodedContractDeploysTracker {
                     ?evicted_key,
                     data_parts_present = ?evicted_entry.parts.data_parts_present(),
                     data_parts_required = ?evicted_entry.parts.data_parts_required(),
-                    "Evicted unprocessed contract deploys"
+                    "evicted unprocessed contract deploys"
                 );
             }
         }
@@ -142,7 +142,7 @@ impl PartialEncodedContractDeploysTracker {
                         target: "client",
                         ?err,
                         ?key,
-                        "Failed to reed solomon decode deployed contracts"
+                        "failed to reed solomon decode deployed contracts"
                     );
                     return Ok(None);
                 }

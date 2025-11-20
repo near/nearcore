@@ -40,7 +40,7 @@ pub(crate) fn resume_resharding(
 
     flat_storage_resharder.resume(shard_uid)?;
 
-    tracing::info!(target: "resharding", "FlatStorageResharder completed");
+    tracing::info!(target: "resharding", "flat storage resharder completed");
 
     let trie_state_resharder = TrieStateResharder::new(
         runtime_adapter,
@@ -50,7 +50,7 @@ pub(crate) fn resume_resharding(
     );
     trie_state_resharder.resume(shard_uid)?;
 
-    tracing::info!(target: "resharding", "TrieStateResharder completed");
+    tracing::info!(target: "resharding", "trie state resharder completed");
 
     Ok(())
 }

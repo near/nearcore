@@ -3,7 +3,6 @@ use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::ApplyChunksIterationMode;
 use near_chain::chain::{BlockCatchUpRequest, BlockCatchUpResponse, do_apply_chunks};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
-use near_performance_metrics_macros::perf;
 use near_primitives::optimistic_block::BlockToApply;
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -19,7 +18,6 @@ pub struct SyncJobsActor {
 impl messaging::Actor for SyncJobsActor {}
 
 impl Handler<BlockCatchUpRequest> for SyncJobsActor {
-    #[perf]
     fn handle(&mut self, msg: BlockCatchUpRequest) {
         self.handle_block_catch_up_request(msg);
     }

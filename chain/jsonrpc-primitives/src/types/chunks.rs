@@ -39,6 +39,7 @@ pub enum RpcChunkError {
     )]
     UnknownBlock {
         #[serde(skip_serializing)]
+        #[cfg_attr(feature = "schemars", schemars(skip))]
         error_message: String,
     },
     #[error("Shard id {shard_id} does not exist")]

@@ -147,7 +147,7 @@ impl ChunkInclusionTracker {
                 target: "client",
                 chunk_hash = ?chunk_info.chunk_header.chunk_hash(),
                 chunk_producer = ?chunk_info.chunk_producer,
-                "Not including chunk from a banned validator");
+                "not including chunk from a banned validator");
             metrics::CHUNK_DROPPED_BECAUSE_OF_BANNED_CHUNK_PRODUCER.inc();
         }
         banned
@@ -176,7 +176,7 @@ impl ChunkInclusionTracker {
                     target: "client",
                     chunk_hash = ?chunk_info.chunk_header.chunk_hash(),
                     chunk_producer = ?chunk_info.chunk_producer,
-                    "Not including chunk because of insufficient chunk endorsements"
+                    "not including chunk because of insufficient chunk endorsements"
                 );
             }
             if !banned && (is_endorsed || cfg!(feature = "protocol_feature_spice")) {

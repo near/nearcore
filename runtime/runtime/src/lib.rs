@@ -6,6 +6,7 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
+use crate::gas_keys::{action_add_gas_key, action_delete_gas_key, action_transfer_to_gas_key};
 use crate::metrics::{
     TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL,
     TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL,
@@ -91,10 +92,12 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::Arc;
-use tracing::{debug, instrument};
+use tracing::instrument;
 use verifier::ValidateReceiptMode;
 
 mod actions;
+#[cfg(test)]
+mod actions_test_utils;
 pub mod adapter;
 mod bandwidth_scheduler;
 pub mod config;
@@ -102,6 +105,7 @@ mod congestion_control;
 mod conversions;
 mod deterministic_account_id;
 pub mod ext;
+mod gas_keys;
 mod global_contracts;
 pub mod metrics;
 mod pipelining;
@@ -340,7 +344,7 @@ impl Runtime {
         if log.is_empty() {
             return;
         }
-        debug!(target: "runtime", "{}", log.join("\n"));
+        tracing::debug!(target: "runtime", logs = %log.join("\n"));
     }
 
     fn apply_action(
@@ -488,6 +492,10 @@ impl Runtime {
                     epoch_info_provider,
                 )?;
             }
+            Action::TransferToGasKey(transfer) => {
+                metrics::ACTION_CALLED_COUNT.transfer_to_gas_key.inc();
+                action_transfer_to_gas_key(state_update, account_id, transfer, &mut result)?;
+            }
             Action::Stake(stake) => {
                 metrics::ACTION_CALLED_COUNT.stake.inc();
                 action_stake(
@@ -510,6 +518,17 @@ impl Runtime {
                     add_key,
                 )?;
             }
+            Action::AddGasKey(add_gas_key) => {
+                metrics::ACTION_CALLED_COUNT.add_gas_key.inc();
+                action_add_gas_key(
+                    apply_state,
+                    state_update,
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    &mut result,
+                    account_id,
+                    add_gas_key,
+                )?;
+            }
             Action::DeleteKey(delete_key) => {
                 metrics::ACTION_CALLED_COUNT.delete_key.inc();
                 action_delete_key(
@@ -519,6 +538,17 @@ impl Runtime {
                     &mut result,
                     account_id,
                     delete_key,
+                )?;
+            }
+            Action::DeleteGasKey(delete_gas_key) => {
+                metrics::ACTION_CALLED_COUNT.delete_gas_key.inc();
+                action_delete_gas_key(
+                    &apply_state.config.fees,
+                    state_update,
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    &mut result,
+                    account_id,
+                    delete_gas_key,
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
@@ -1216,15 +1246,15 @@ impl Runtime {
         for (account_id, max_of_stakes) in &validator_accounts_update.stake_info {
             if let Some(mut account) = get_account(state_update, account_id)? {
                 if let Some(reward) = validator_accounts_update.validator_rewards.get(account_id) {
-                    debug!(target: "runtime", "account {} adding reward {} to stake {}", account_id, reward, account.locked());
+                    tracing::debug!(target: "runtime", %account_id, %reward, locked = %account.locked(), "account adding reward to stake");
                     account.set_locked(account.locked().checked_add(*reward).ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow("update_validator_accounts".into())
                     })?);
                 }
 
-                debug!(target: "runtime",
-                       "account {} stake {} max_of_stakes: {}",
-                       account_id, account.locked(), max_of_stakes
+                tracing::debug!(target: "runtime",
+                       %account_id, locked = %account.locked(), %max_of_stakes,
+                       "account stake and max of stakes"
                 );
                 if account.locked() < *max_of_stakes {
                     return Err(StorageError::StorageInconsistentState(format!(
@@ -1245,7 +1275,7 @@ impl Runtime {
                             "update_validator_accounts - return stake".into(),
                         )
                     })?;
-                debug!(target: "runtime", "account {} return stake {}", account_id, return_stake);
+                tracing::debug!(target: "runtime", %account_id, %return_stake, "account return stake");
                 account.set_locked(account.locked().checked_sub(return_stake).ok_or_else(
                     || {
                         RuntimeError::UnexpectedIntegerOverflow(
@@ -2432,7 +2462,7 @@ impl ApplyState {
         let start = std::time::Instant::now();
         let result = bootstrap_congestion_info(trie, &self.config, self.shard_id);
         let time = start.elapsed();
-        tracing::warn!(target: "runtime","bootstrapping congestion info done after {time:#.1?}");
+        tracing::warn!(target: "runtime", ?time, "bootstrapping congestion info done");
         let computed = result?;
         Ok(computed)
     }
