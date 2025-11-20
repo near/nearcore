@@ -1,8 +1,8 @@
 use std::str::FromStr;
 
 use near_chain_configs::GenesisConfig;
-use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::chains::MAINNET;
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
@@ -14,15 +14,16 @@ use near_store::trie::ops::resharding::RetainMode;
 use near_store::{
     DBCol, ShardTries, StateSnapshotConfig, Store, StoreConfig, TrieConfig, set_genesis_height,
 };
+use near_vm_runner::logic::ProtocolVersion;
 
 use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 
 /// Hashes of the blocks where resharding happened on mainnet.
 /// These are from resharding at protocol versions 75, 76, and 78 respectively.
-const MAINNET_RESHARDING_BLOCK_HASHES: [&str; 3] = [
-    "CRixt9b6FhASJyTyc8YNj6g7tvjrnf37CSWbhGBwL3EP",
-    "ATvDbPZYJSnu2j2CA9Dj7Q6aSBigi2aKuBGxbbnUZthU",
-    "BpuCWLLпMQupM5Dm5VqxpKwZJb6fiFsU5nVhfHkoTQQs",
+const MAINNET_RESHARDING_BLOCK_HASHES: [(ProtocolVersion, &str); 3] = [
+    (75, "CRixt9b6FhASJyTyc8YNj6g7tvjrnf37CSWbhGBwL3EP"),
+    (76, "ATvDbPZYJSnu2j2CA9Dj7Q6aSBigi2aKuBGxbbnUZthU"),
+    (78, "BpuCWLLпMQupM5Dm5VqxpKwZJb6fiFsU5nVhfHkoTQQs"),
 ];
 
 /// Migrates the database from version 46 to 47.
@@ -62,7 +63,8 @@ pub fn migrate_46_to_47(
     store_update.commit().unwrap();
 
     let chain_store = store.chain_store();
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), genesis_config, None);
+    let epoch_config_store =
+        EpochConfigStore::for_chain_id(&genesis_config.chain_id, None).unwrap();
     let tries = ShardTries::new(
         store.trie_store(),
         TrieConfig::from_store_config(store_config),
@@ -71,12 +73,11 @@ pub fn migrate_46_to_47(
     );
 
     let mut transaction = DBTransaction::new();
-    for resharding_block_hash in MAINNET_RESHARDING_BLOCK_HASHES {
+    for (protocol_version, resharding_block_hash) in MAINNET_RESHARDING_BLOCK_HASHES {
         tracing::info!(target: "migrations", ?resharding_block_hash, "processing resharding block");
 
         let resharding_block_hash = CryptoHash::from_str(resharding_block_hash).unwrap();
-        let shard_layout =
-            epoch_manager.get_shard_layout_from_prev_block(&resharding_block_hash)?;
+        let shard_layout = &epoch_config_store.get_config(protocol_version).shard_layout;
         let resharding_block = chain_store.get_block_header(&resharding_block_hash)?;
         let resharding_block_info = BlockInfo {
             hash: resharding_block_hash,
@@ -84,7 +85,7 @@ pub fn migrate_46_to_47(
             prev_hash: *resharding_block.prev_hash(),
         };
         let ReshardingEventType::SplitShard(split_shard_params) =
-            ReshardingEventType::from_shard_layout(&shard_layout, resharding_block_info)?.unwrap();
+            ReshardingEventType::from_shard_layout(shard_layout, resharding_block_info)?.unwrap();
         let ReshardingSplitShardParams {
             parent_shard,
             left_child_shard,
