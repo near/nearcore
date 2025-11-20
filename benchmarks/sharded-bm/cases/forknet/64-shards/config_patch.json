@@ -6,21 +6,6 @@
     },
     "produce_chunk_add_transactions_time_limit": {
         "secs": 0,
-        "nanos": 250000000
-    },
-    "consensus": {
-        "min_block_production_delay": {
-            "secs": 0,
-            "nanos": 900000000
-        },
-        "max_block_production_delay": {
-            "secs": 45,
-            "nanos": 0
-        },
-        "max_block_wait_delay": {
-            "secs": 45,
-            "nanos": 0
-        },
-        "chunk_wait_mult": [1, 2]
+        "nanos": 300000000
     }
 }
