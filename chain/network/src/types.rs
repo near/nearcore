@@ -239,7 +239,9 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 
 #[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 pub enum SnapshotHostEvent {
+    /// Triggers the snapshot host cache to update the current epoch if the new sync hash is different from the current one.
     NewSyncHashDetected { sync_hash: CryptoHash, epoch_height: EpochHeight },
+    /// Triggers the network to broadcast the snapshot host info to all peers.
     SnapshotCreated { sync_hash: CryptoHash, epoch_height: EpochHeight, shards: Vec<ShardId> },
 }
 
