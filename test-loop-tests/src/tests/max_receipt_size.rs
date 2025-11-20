@@ -427,9 +427,10 @@ fn assert_oversized_receipt_occurred(test_loop: &TestLoopV2, node_datas: &[NodeE
                 epoch_manager,
                 shard_id,
                 &cur_shard_layout,
-                *block.hash(),
+                block.header(),
                 prev_height_included,
                 ReceiptFilter::TargetShard,
+                |_, _| None,
             )
             .unwrap();
 

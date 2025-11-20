@@ -1,12 +1,17 @@
+use std::sync::Arc;
+
 use super::partial_witness::partial_witness_actor::DistributeStateWitnessRequest;
 use crate::Client;
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
 use near_async::messaging::{CanSend, IntoSender};
-use near_chain::BlockHeader;
+use near_chain::Block;
 use near_chain::stateless_validation::state_witness::CreateWitnessResult;
+use near_chain::update_shard::ShardUpdateResult;
 use near_chain_primitives::Error;
-use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
-use near_primitives::types::EpochId;
+use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
+use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::{EpochId, ShardId};
 
 impl Client {
     /// Distributes the chunk state witness to chunk validators that are
@@ -14,9 +19,12 @@ impl Client {
     pub fn send_chunk_state_witness_to_chunk_validators(
         &mut self,
         epoch_id: &EpochId,
-        prev_block_header: &BlockHeader,
+        prev_block: &Block,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
+        get_shard_result: impl Fn(&CryptoHash, ShardId) -> Option<ShardUpdateResult>,
+        get_chunk_extra: impl Fn(&CryptoHash, ShardId) -> Option<ChunkExtra>,
+        get_incoming_receipts: impl Fn(&CryptoHash, ShardId) -> Option<Arc<Vec<ReceiptProof>>>,
     ) -> Result<(), Error> {
         let chunk_header = chunk.cloned_header();
         let shard_id = chunk_header.shard_id();
@@ -39,9 +47,12 @@ impl Client {
         let CreateWitnessResult { state_witness, main_transition_shard_id, contract_updates } =
             self.chain.chain_store().create_state_witness(
                 self.epoch_manager.as_ref(),
-                prev_block_header,
+                prev_block,
                 prev_chunk_header,
                 chunk,
+                get_shard_result,
+                get_chunk_extra,
+                get_incoming_receipts,
             )?;
 
         if self.config.save_latest_witnesses {
