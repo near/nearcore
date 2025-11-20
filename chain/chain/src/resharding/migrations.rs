@@ -22,7 +22,7 @@ use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardPar
 const MAINNET_RESHARDING_BLOCK_HASHES: [(ProtocolVersion, &str); 3] = [
     (75, "CRixt9b6FhASJyTyc8YNj6g7tvjrnf37CSWbhGBwL3EP"),
     (76, "ATvDbPZYJSnu2j2CA9Dj7Q6aSBigi2aKuBGxbbnUZthU"),
-    (78, "BpuCWLLпMQupM5Dm5VqxpKwZJb6fiFsU5nVhfHkoTQQs"),
+    (78, "BpuCWLLnMQupM5Dm5VqxpKwZJb6fiFsU5nVhfHkoTQQs"),
 ];
 
 /// Migrates the database from version 46 to 47.
