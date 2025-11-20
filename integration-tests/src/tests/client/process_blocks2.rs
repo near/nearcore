@@ -68,6 +68,8 @@ fn test_not_process_height_twice() {
 /// block can't be put in processing.
 #[cfg(feature = "test_features")]
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_not_process_same_block_twice() {
     let mut env = TestEnv::default_builder().build();
 
@@ -118,6 +120,8 @@ fn test_not_process_same_block_twice() {
 
 /// Test that if a block contains chunks with invalid shard_ids, the client will return error.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_bad_shard_id() {
     let accounts = TestEnvBuilder::make_accounts(1);
     let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
@@ -317,26 +321,36 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_bad_congestion_info_receipt_bytes() {
     test_bad_congestion_info_impl(BadCongestionInfoMode::CorruptReceiptBytes);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_bad_congestion_info_corrupt_delayed_receipts_bytes() {
     test_bad_congestion_info_impl(BadCongestionInfoMode::CorruptDelayedReceiptsBytes);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_bad_congestion_info_corrupt_buffered_receipts_bytes() {
     test_bad_congestion_info_impl(BadCongestionInfoMode::CorruptBufferedReceiptsBytes);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_bad_congestion_info_corrupt_allowed_shard() {
     test_bad_congestion_info_impl(BadCongestionInfoMode::CorruptAllowedShard);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_bad_congestion_info_none() {
     test_bad_congestion_info_impl(BadCongestionInfoMode::None);
 }

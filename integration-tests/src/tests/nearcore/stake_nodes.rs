@@ -102,6 +102,8 @@ async fn init_test_staking(
 /// Runs one validator network, sends staking transaction for the second node and
 /// waits until it becomes a validator.
 #[tokio::test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn slow_test_stake_nodes() {
     let num_nodes = 2;
     let dirs = (0..num_nodes)
@@ -165,6 +167,8 @@ async fn slow_test_stake_nodes() {
 }
 
 #[tokio::test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn slow_test_validator_kickout() {
     let num_nodes = 4;
     let dirs = (0..num_nodes)
@@ -417,6 +421,8 @@ async fn ultra_slow_test_validator_join() {
 /// Checks that during the first epoch, total_supply matches total_supply in genesis.
 /// Checks that during the second epoch, total_supply matches the expected inflation rate.
 #[tokio::test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn slow_test_inflation() {
     let num_nodes = 1;
     let dirs = (0..num_nodes)

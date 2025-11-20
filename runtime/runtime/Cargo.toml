@@ -45,6 +45,10 @@ near-wallet-contract.workspace = true
 default = []
 estimator = ["near-primitives/test_utils"]
 io_trace = ["base64"]
+protocol_feature_spice = [
+    "near-primitives/protocol_feature_spice",
+    "near-store/protocol_feature_spice",
+]
 nightly = [
     "near-chain-configs/nightly",
     "near-o11y/nightly",
