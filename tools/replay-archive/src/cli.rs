@@ -186,13 +186,13 @@ impl ReplayController {
         let mut total_gas_burnt: Option<Gas> = None;
         match self.replay_block(self.next_height)? {
             ReplayBlockOutput::Genesis(block) => {
-                tracing::debug!(target: "replay-archive", "Skipping genesis block at height {}", block.header().height());
+                tracing::debug!(target: "replay-archive", height = %block.header().height(), "skipping genesis block at height");
             }
             ReplayBlockOutput::Missing(height) => {
-                tracing::debug!(target: "replay-archive", "Skipping missing block at height {}", height);
+                tracing::debug!(target: "replay-archive", %height, "skipping missing block at height");
             }
             ReplayBlockOutput::Replayed(block, gas_burnt) => {
-                tracing::debug!(target: "replay-archive", "Replayed block at height {}", block.header().height());
+                tracing::debug!(target: "replay-archive", height = %block.header().height(), "replayed block at height");
                 total_gas_burnt = Some(gas_burnt);
             }
         }
@@ -203,7 +203,7 @@ impl ReplayController {
     }
 
     fn replay_block(&mut self, height: BlockHeight) -> Result<ReplayBlockOutput> {
-        tracing::info!(target: "replay-archive", "Replaying block at height {}", self.next_height);
+        tracing::info!(target: "replay-archive", height = %self.next_height, "replaying block at height");
 
         let Ok(block_hash) = self.chain_store.get_block_hash_by_height(height) else {
             return Ok(ReplayBlockOutput::Missing(height));

@@ -34,7 +34,7 @@ impl RpcFrom<GetBlockError> for RpcStateChangesError {
             GetBlockError::NotSyncedYet => Self::NotSyncedYet,
             GetBlockError::IOError { error_message } => Self::InternalError { error_message },
             GetBlockError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);
+                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcStateChangesError"])
                     .inc();
@@ -55,7 +55,7 @@ impl RpcFrom<GetStateChangesError> for RpcStateChangesError {
             }
             GetStateChangesError::NotSyncedYet => Self::NotSyncedYet,
             GetStateChangesError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", error_message);
+                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcStateChangesError"])
                     .inc();

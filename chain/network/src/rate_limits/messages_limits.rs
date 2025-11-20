@@ -30,7 +30,7 @@ impl RateLimits {
             ) {
                 Ok(bucket) => buckets[*key] = Some(bucket),
                 Err(err) => {
-                    tracing::warn!(target: "network", "ignoring rate limit for {key} due to an error ({err})")
+                    tracing::warn!(target: "network", ?key, ?err, "ignoring rate limit due to an error")
                 }
             }
         }

@@ -12,11 +12,11 @@ use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::archive::cold_store_actor::ColdStoreActor;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::ClientActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{
-    ChunkEndorsementHandler, PartialWitnessActor, RpcHandler, StateRequestActor,
-    ViewClientActorInner,
+    ChunkEndorsementHandlerActor, PartialWitnessActor, RpcHandlerActor, StateRequestActor,
+    ViewClientActor,
 };
 use near_jsonrpc::ViewClientSenderForRpc;
 use near_network::client::SpiceChunkEndorsementMessage;
@@ -82,11 +82,11 @@ pub struct NodeExecutionData {
     pub identifier: String,
     pub account_id: AccountId,
     pub peer_id: PeerId,
-    pub client_sender: TestLoopSender<ClientActorInner>,
-    pub view_client_sender: TestLoopSender<ViewClientActorInner>,
+    pub client_sender: TestLoopSender<ClientActor>,
+    pub view_client_sender: TestLoopSender<ViewClientActor>,
     pub state_request_sender: TestLoopSender<StateRequestActor>,
-    pub rpc_handler_sender: TestLoopSender<RpcHandler>,
-    pub chunk_endorsement_handler_sender: TestLoopSender<ChunkEndorsementHandler>,
+    pub rpc_handler_sender: TestLoopSender<RpcHandlerActor>,
+    pub chunk_endorsement_handler_sender: TestLoopSender<ChunkEndorsementHandlerActor>,
     pub shards_manager_sender: TestLoopSender<ShardsManagerActor>,
     pub partial_witness_sender: TestLoopSender<PartialWitnessActor>,
     pub peer_manager_sender: TestLoopSender<TestLoopPeerManagerActor>,

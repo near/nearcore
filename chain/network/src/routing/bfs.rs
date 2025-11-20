@@ -2,7 +2,6 @@ use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
 use near_primitives::network::PeerId;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
-use tracing::warn;
 
 /// `Graph` is used to compute `peer_routing`, which contains information how to route messages to
 /// all known peers. That is, for each `peer`, we get a sub-set of peers to which we are connected
@@ -225,7 +224,7 @@ impl Graph {
             distances.insert(self.id2p[key].clone(), distance[key] as u32);
         }
         if unreachable_nodes > 1000 {
-            warn!("We store more than 1000 unreachable nodes: {}", unreachable_nodes);
+            tracing::warn!(%unreachable_nodes, "we store more than 1000 unreachable nodes");
         }
 
         (res, distances)

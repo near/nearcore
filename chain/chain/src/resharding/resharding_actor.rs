@@ -158,9 +158,9 @@ impl ReshardingActor {
         let chain_final_height = self.chain_store.final_head().unwrap().height;
         for event in events {
             tracing::info!(
-                "get_resharding_scheduling_status: head height: {}, resharding_block: {:?}",
-                chain_final_height,
-                event.resharding_block,
+                %chain_final_height,
+                resharding_block = ?event.resharding_block,
+                "get_resharding_scheduling_status: head height and resharding_block"
             );
 
             // To check whether we can start resharding, we need to check if the resharding block is final.
@@ -185,7 +185,7 @@ impl ReshardingActor {
             // This behavior is configured through `adv_task_delay_by_blocks`
             #[cfg(feature = "test_features")]
             if event.resharding_block.height + self.adv_task_delay_by_blocks > chain_final_height {
-                tracing::info!(target: "resharding", "resharding has been artificially postponed!");
+                tracing::info!(target: "resharding", "resharding has been artificially postponed");
                 return ReshardingSchedulingStatus::WaitForFinalBlock;
             }
 
@@ -205,19 +205,19 @@ impl ReshardingActor {
         if let Err(err) =
             self.trie_state_resharder.initialize_trie_state_resharding_status(&resharding_event)
         {
-            tracing::error!(target: "resharding", ?err, "Failed to initialize trie state resharding status");
+            tracing::error!(target: "resharding", ?err, "failed to initialize trie state resharding status");
             return;
         }
 
         // This is a long running task and would block the actor
         if let Err(err) = self.flat_storage_resharder.start_resharding_blocking(&resharding_event) {
-            tracing::error!(target: "resharding", ?err, "Failed to start flat storage resharding");
+            tracing::error!(target: "resharding", ?err, "failed to start flat storage resharding");
             return;
         }
 
-        tracing::info!(target: "resharding", "TrieStateResharder starting");
+        tracing::info!(target: "resharding", "trie state resharder starting");
         if let Err(err) = self.trie_state_resharder.start_resharding_blocking(&resharding_event) {
-            tracing::error!(target: "resharding", ?err, "Failed to start trie state resharding");
+            tracing::error!(target: "resharding", ?err, "failed to start trie state resharding");
             return;
         }
     }

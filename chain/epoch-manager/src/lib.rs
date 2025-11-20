@@ -3,7 +3,6 @@
 pub use crate::adapter::EpochManagerAdapter;
 use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
-pub use crate::reward_calculator::RewardCalculator;
 use epoch_info_aggregator::EpochInfoAggregator;
 use itertools::Itertools;
 use near_cache::SyncLruCache;
@@ -35,11 +34,10 @@ use near_store::{DBCol, HEADER_HEAD_KEY, Store, StoreUpdate};
 use num_rational::BigRational;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use primitive_types::U256;
-use reward_calculator::ValidatorOnlineThresholds;
+use reward_calculator::calculate_reward;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
-use tracing::{debug, warn};
 pub use validator_selection::proposals_to_epoch_info;
 use validator_stats::get_sortable_validator_online_ratio;
 
@@ -123,7 +121,6 @@ pub struct EpochManager {
     store: Store,
     /// Current epoch config.
     config: AllEpochConfig,
-    reward_calculator: RewardCalculator,
 
     /// Cache of epoch information.
     epochs_info: SyncLruCache<EpochId, Arc<EpochInfo>>,
@@ -207,7 +204,6 @@ impl EpochManager {
         epoch_config_store: EpochConfigStore,
     ) -> Arc<EpochManagerHandle> {
         let epoch_length = genesis_config.epoch_length;
-        let reward_calculator = RewardCalculator::new(genesis_config, epoch_length);
         let all_epoch_config = AllEpochConfig::from_epoch_config_store(
             genesis_config.chain_id.as_str(),
             epoch_length,
@@ -215,24 +211,22 @@ impl EpochManager {
             genesis_config.protocol_version,
         );
         Arc::new(
-            Self::new(store, all_epoch_config, reward_calculator, genesis_config.validators())
-                .unwrap()
-                .into_handle(),
+            Self::new(store, all_epoch_config, genesis_config.validators()).unwrap().into_handle(),
         )
     }
 
     pub fn new(
         store: Store,
         config: AllEpochConfig,
-        reward_calculator: RewardCalculator,
         validators: Vec<ValidatorStake>,
     ) -> Result<Self, EpochError> {
         let epoch_info_aggregator =
             store.get_ser(DBCol::EpochInfo, AGGREGATOR_KEY)?.unwrap_or_default();
+        let genesis = config.genesis_protocol_version();
+        let treasury_account = config.for_protocol_version(genesis).protocol_treasury_account;
         let mut epoch_manager = EpochManager {
             store,
             config,
-            reward_calculator,
             epochs_info: SyncLruCache::new(EPOCH_CACHE_SIZE),
             blocks_info: SyncLruCache::new(BLOCK_CACHE_SIZE),
             epoch_id_to_start: SyncLruCache::new(EPOCH_CACHE_SIZE),
@@ -246,7 +240,7 @@ impl EpochManager {
             largest_final_height: 0,
         };
         if !epoch_manager.has_epoch_info(&EpochId::default())? {
-            epoch_manager.initialize_genesis_epoch_info(validators)?;
+            epoch_manager.initialize_genesis_epoch_info(validators, treasury_account)?;
         }
         Ok(epoch_manager)
     }
@@ -477,7 +471,7 @@ impl EpochManager {
             }
         }
         if all_kicked_out {
-            tracing::info!(target:"epoch_manager", "We are about to kick out all validators in the next two epochs, so we are going to save one {:?}", max_validator);
+            tracing::info!(target: "epoch_manager", ?max_validator, "we are about to kick out all validators in the next two epochs, so we are going to save one");
             if let Some(validator) = max_validator {
                 validator_kickout.remove(&validator);
             }
@@ -528,7 +522,7 @@ impl EpochManager {
                 / U256::from(total_block_producer_stake.as_yoctonear()))
             .as_u128() as i64;
             PROTOCOL_VERSION_VOTES.with_label_values(&[&version.to_string()]).set(stake_percent);
-            tracing::info!(target: "epoch_manager", ?version, ?stake_percent, "Protocol version voting.");
+            tracing::info!(target: "epoch_manager", ?version, ?stake_percent, "protocol version voting");
         }
 
         let protocol_version = next_epoch_info.protocol_version();
@@ -552,7 +546,7 @@ impl EpochManager {
         };
 
         PROTOCOL_VERSION_NEXT.set(next_next_epoch_version as i64);
-        tracing::info!(target: "epoch_manager", ?next_next_epoch_version, "Protocol version voting.");
+        tracing::info!(target: "epoch_manager", ?next_next_epoch_version, "protocol version voting");
 
         let mut validator_kickout = HashMap::new();
 
@@ -599,10 +593,13 @@ impl EpochManager {
             prev_validator_kickout,
         );
         validator_kickout.extend(kickout);
-        debug!(
+        tracing::debug!(
             target: "epoch_manager",
-            "All proposals: {:?}, Kickouts: {:?}, Block Tracker: {:?}, Shard Tracker: {:?}",
-            proposals, validator_kickout, block_validator_tracker, chunk_validator_tracker
+            ?proposals,
+            ?validator_kickout,
+            ?block_validator_tracker,
+            ?chunk_validator_tracker,
+            "all proposals, kickouts, block tracker, shard tracker"
         );
 
         Ok(EpochSummary {
@@ -658,23 +655,12 @@ impl EpochManager {
                 }
             }
             let epoch_config = self.get_epoch_config(epoch_protocol_version);
-            // If ChunkEndorsementsInBlockHeader feature is enabled, we use the chunk validator kickout threshold
-            // as the cutoff threshold for the endorsement ratio to remap the ratio to 0 or 1.
-            let online_thresholds = ValidatorOnlineThresholds {
-                online_min_threshold: epoch_config.online_min_threshold,
-                online_max_threshold: epoch_config.online_max_threshold,
-                endorsement_cutoff_threshold: Some(
-                    epoch_config.chunk_validator_only_kickout_threshold,
-                ),
-            };
-            self.reward_calculator.calculate_reward(
+            calculate_reward(
                 validator_block_chunk_stats,
                 &validator_stake,
                 *block_info.total_supply(),
-                epoch_protocol_version,
                 epoch_duration,
-                online_thresholds,
-                epoch_config.max_inflation_rate,
+                &epoch_config,
             )
         };
         let next_next_epoch_config = self.config.for_protocol_version(next_next_epoch_version);
@@ -713,13 +699,13 @@ impl EpochManager {
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError { stake_sum, num_seats }) => {
-                warn!(target: "epoch_manager", "Not enough stake for required number of seats (all validators tried to unstake?): amount = {} for {}", stake_sum, num_seats);
+                tracing::warn!(target: "epoch_manager", %stake_sum, %num_seats, "not enough stake for required number of seats (all validators tried to unstake?)");
                 let mut epoch_info = EpochInfo::clone(&next_epoch_info);
                 *epoch_info.epoch_height_mut() += 1;
                 epoch_info
             }
             Err(EpochError::NotEnoughValidators { num_validators, num_shards }) => {
-                warn!(target: "epoch_manager", "Not enough validators for required number of shards (all validators tried to unstake?): num_validators={} num_shards={}", num_validators, num_shards);
+                tracing::warn!(target: "epoch_manager", %num_validators, %num_shards, "not enough validators for required number of shards (all validators tried to unstake?)");
                 let mut epoch_info = EpochInfo::clone(&next_epoch_info);
                 *epoch_info.epoch_height_mut() += 1;
                 epoch_info
@@ -727,12 +713,14 @@ impl EpochManager {
             Err(err) => return Err(err),
         };
         let next_next_epoch_id = EpochId(*last_block_hash);
-        debug!(target: "epoch_manager", "next next epoch height: {}, id: {:?}, protocol version: {} shard layout: {:?} config: {:?}",
-               next_next_epoch_info.epoch_height(),
-               &next_next_epoch_id,
-               next_next_epoch_info.protocol_version(),
-               self.config.for_protocol_version(next_next_epoch_info.protocol_version()).shard_layout,
-            self.config.for_protocol_version(next_next_epoch_info.protocol_version()));
+        tracing::debug!(
+            target: "epoch_manager",
+            next_next_epoch_height = %next_next_epoch_info.epoch_height(),
+            ?next_next_epoch_id,
+            next_next_protocol_version = %next_next_epoch_info.protocol_version(),
+            next_next_shard_layout = ?self.config.for_protocol_version(next_next_epoch_info.protocol_version()).shard_layout,
+            next_next_epoch_config = ?self.config.for_protocol_version(next_next_epoch_info.protocol_version()),
+        );
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
         self.save_epoch_info(store_update, &next_next_epoch_id, Arc::new(next_next_epoch_info))?;
@@ -1013,9 +1001,10 @@ impl EpochManager {
 
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let epoch_id = self.get_epoch_id(last_block_hash)?;
-        debug!(target: "epoch_manager",
-            "epoch id: {:?}, prev_epoch_id: {:?}, prev_prev_epoch_id: {:?}",
-            next_next_epoch_id, next_epoch_id, epoch_id
+        tracing::debug!(target: "epoch_manager",
+            epoch_id = ?next_next_epoch_id,
+            prev_epoch_id = ?next_epoch_id,
+            prev_prev_epoch_id= ?epoch_id,
         );
 
         // Since stake changes for epoch T are stored in epoch info for T+2, the one stored by epoch_id
@@ -1023,9 +1012,10 @@ impl EpochManager {
         let prev_prev_stake_change = self.get_epoch_info(&epoch_id)?.stake_change().clone();
         let prev_stake_change = self.get_epoch_info(&next_epoch_id)?.stake_change().clone();
         let stake_change = self.get_epoch_info(&next_next_epoch_id)?.stake_change().clone();
-        debug!(target: "epoch_manager",
-            "prev_prev_stake_change: {:?}, prev_stake_change: {:?}, stake_change: {:?}",
-            prev_prev_stake_change, prev_stake_change, stake_change,
+        tracing::debug!(target: "epoch_manager",
+            ?prev_prev_stake_change,
+            ?prev_stake_change,
+            ?stake_change,
         );
         let all_stake_changes =
             prev_prev_stake_change.iter().chain(&prev_stake_change).chain(&stake_change);
@@ -1040,7 +1030,7 @@ impl EpochManager {
                 vec![prev_prev_stake, prev_stake, new_stake].into_iter().max().unwrap();
             stake_info.insert(account_id.clone(), max_of_stakes);
         }
-        debug!(target: "epoch_manager", "stake_info: {:?}, validator_reward: {:?}", stake_info, validator_reward);
+        tracing::debug!(target: "epoch_manager", ?stake_info, ?validator_reward);
         Ok((stake_info, validator_reward))
     }
 
@@ -1297,7 +1287,7 @@ impl EpochManager {
         // Check that genesis block doesn't have any proposals.
         let prev_validator_proposals = block_info.proposals_iter().collect::<Vec<_>>();
         assert!(block_info.height() > 0 || prev_validator_proposals.is_empty());
-        debug!(target: "epoch_manager",
+        tracing::debug!(target: "epoch_manager",
             height = block_info.height(),
             proposals = ?prev_validator_proposals,
             "add_validator_proposals");

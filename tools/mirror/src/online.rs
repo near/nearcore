@@ -5,7 +5,7 @@ use near_async::ActorSystem;
 use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_chain_configs::GenesisValidationMode;
-use near_client::ViewClientActorInner;
+use near_client::ViewClientActor;
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcome, GetReceipt, GetShardChunk, Query,
 };
@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub(crate) struct ChainAccess {
-    view_client: MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client: MultithreadRuntimeHandle<ViewClientActor>,
 }
 
 impl ChainAccess {
@@ -132,10 +132,10 @@ impl crate::ChainAccess for ChainAccess {
                 Err(e) => match e {
                     GetChunkError::UnknownChunk { .. } => {
                         tracing::error!(
-                            "Can't fetch source chain shard {} chunk {} at height {}. Are we tracking all shards?",
-                            c.shard_id,
-                            c.chunk_hash,
-                            height
+                            %c.shard_id,
+                            ?c.chunk_hash,
+                            %height,
+                            "can't fetch source chain shard chunk at height, are we tracking all shards?"
                         );
                         continue;
                     }

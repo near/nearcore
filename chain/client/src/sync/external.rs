@@ -95,11 +95,11 @@ impl StateSyncConnection {
         let res = self.connection.put(location, data).await;
         let is_ok = match &res {
             Ok(()) => {
-                tracing::debug!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.storage_name, "Wrote a state part");
+                tracing::debug!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.storage_name, "wrote a state part");
                 "ok"
             }
             Err(error) => {
-                tracing::error!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.storage_name, ?error, "Failed to write a state part");
+                tracing::error!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.storage_name, ?error, "failed to write a state part");
                 "error"
             }
         };
@@ -121,7 +121,7 @@ impl StateSyncConnection {
         let _timer = metrics::STATE_SYNC_DUMP_LIST_OBJECT_ELAPSED
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
-        tracing::debug!(target: "state_sync_dump", %shard_id, directory_path, "List state parts");
+        tracing::debug!(target: "state_sync_dump", %shard_id, directory_path, "list state parts");
         self.connection.list(directory_path).await
     }
 
@@ -149,7 +149,7 @@ impl StateSyncConnection {
             "{}",
             match header_exits {
                 true => "Header has already been dumped.",
-                false => "Header has not been dumped.",
+                false => "header has not been dumped",
             }
         );
         Ok(header_exits)
@@ -273,7 +273,7 @@ mod test {
 
         // Generate random filename.
         let filename = random_string(8);
-        tracing::debug!("Filename: {:?}", filename);
+        tracing::debug!(?filename);
 
         // Define bucket.
         let location = ExternalStorageLocation::GCS { bucket: "state-parts".into() };
@@ -282,9 +282,9 @@ mod test {
 
         // Generate random data.
         let data = random_string(1000);
-        tracing::debug!("Data as string: {:?}", data);
+        tracing::debug!(?data);
         let data: Vec<u8> = data.into();
-        tracing::debug!("Data: {:?}", data);
+        tracing::debug!(?data);
 
         // Directory resembles real use case.
         let dir = "test_folder/chain_id=test/epoch_height=1/epoch_id=test/shard_id=0".to_string();
@@ -294,7 +294,7 @@ mod test {
         // Before uploading we shouldn't see filename in the list of files.
         let files =
             rt.block_on(async { connection.list_objects(ShardId::new(0), &dir).await.unwrap() });
-        tracing::debug!("Files before upload: {:?}", files);
+        tracing::debug!(?files, "before upload");
         assert_eq!(files.into_iter().filter(|x| *x == filename).count(), 0);
 
         // Uploading the file.
@@ -308,7 +308,7 @@ mod test {
         // After uploading we should see filename in the list of files.
         let files =
             rt.block_on(async { connection.list_objects(ShardId::new(0), &dir).await.unwrap() });
-        tracing::debug!("Files after upload: {:?}", files);
+        tracing::debug!(?files, "after upload");
         assert_eq!(files.into_iter().filter(|x| *x == filename).count(), 1);
 
         // And the data should match generates data.

@@ -13,7 +13,6 @@ use near_primitives::views::{
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use near_time::Duration;
 use std::collections::HashMap;
-use tracing::debug_span;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -50,6 +49,10 @@ pub enum ShardSyncStatus {
 impl ShardSyncStatus {
     pub fn repr(&self) -> u8 {
         match self {
+            // NOTE: This is used in metrics.
+            // Do not alter the order of existing values.
+            // Avoid reusing values for different states.
+            // When introducing a new state, always assign a unique, new value to prevent confusion.
             ShardSyncStatus::StateDownloadHeader => 0,
             ShardSyncStatus::StateDownloadParts => 1,
             ShardSyncStatus::StateApplyScheduling => 2,
@@ -160,6 +163,10 @@ impl SyncStatus {
 
     pub fn repr(&self) -> u8 {
         match self {
+            // NOTE: This is used in metrics.
+            // Do not alter the order of existing values.
+            // Avoid reusing values for different states.
+            // When introducing a new state, always assign a unique, new value to prevent confusion.
             // Represent NoSync as 0 because it is the state of a normal well-behaving node.
             SyncStatus::NoSync => 0,
             SyncStatus::AwaitingPeers => 1,
@@ -182,7 +189,7 @@ impl SyncStatus {
 
     pub fn update(&mut self, new_value: Self) {
         let _span =
-            debug_span!(target: "sync", "update_sync_status", old_value = ?self, ?new_value)
+            tracing::debug_span!(target: "sync", "update_sync_status", old_value = ?self, ?new_value)
                 .entered();
         *self = new_value;
     }
@@ -387,6 +394,14 @@ pub enum QueryError {
         "Access key for public key {public_key} has never been observed on the node at block #{block_height}"
     )]
     UnknownAccessKey {
+        public_key: near_crypto::PublicKey,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error(
+        "Gas key for public key {public_key} has never been observed on the node at block #{block_height}"
+    )]
+    UnknownGasKey {
         public_key: near_crypto::PublicKey,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,

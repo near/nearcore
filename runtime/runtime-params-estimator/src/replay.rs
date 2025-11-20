@@ -4,7 +4,6 @@ use std::fs::File;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::str::SplitWhitespace;
-use tracing::log::error;
 
 use self::fold_db_ops::FoldDbOps;
 use self::gas_charges::ChargedVsFree;
@@ -50,7 +49,7 @@ impl ReplayCmd {
         for line in input.lines() {
             let line = line?;
             if let Err(e) = visitor.eval_line(out, &line) {
-                error!("ERROR: {e} for input line: {line}");
+                tracing::error!(%e, %line, "error for input line");
             }
         }
         visitor.flush(out)?;

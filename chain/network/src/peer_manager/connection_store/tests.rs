@@ -61,7 +61,7 @@ fn test_overwrite_stored_connection() {
     let conn_info_a = make_connection_info(rng, now_utc);
     connection_store.insert_outbound_connections(vec![conn_info_a.clone()]);
 
-    tracing::debug!(target:"test", "insert a second connection with the same PeerId but different data");
+    tracing::debug!(target:"test", "insert a second connection with the same peer id but different data");
     clock.advance(time::Duration::seconds(123));
     let now_utc = clock.now_utc();
     let mut conn_info_b = make_connection_info(rng, now_utc);
@@ -80,12 +80,12 @@ fn test_evict_longest_disconnected() {
     let store = store::Store::from(near_store::db::TestDB::new());
     let connection_store = ConnectionStore::new(store).unwrap();
 
-    tracing::debug!(target:"test", "create and store live connections up to the ConnectionStore limit");
+    tracing::debug!(target:"test", "create and store live connections up to the connection store limit");
     let now_utc = clock.now_utc();
     let mut conn_infos = make_connection_infos(rng, now_utc, OUTBOUND_CONNECTIONS_CACHE_SIZE);
     connection_store.insert_outbound_connections(conn_infos.clone());
 
-    tracing::debug!(target:"test", "remove one of the connections, advance the clock and update the ConnectionStore");
+    tracing::debug!(target:"test", "remove one of the connections, advance the clock and update the connection store");
     conn_infos.remove(rand::thread_rng().gen_range(0..OUTBOUND_CONNECTIONS_CACHE_SIZE));
     clock.advance(time::Duration::hours(1));
     let now_utc = clock.now_utc();
@@ -111,7 +111,7 @@ fn test_recovery_from_clock_rewind() {
     let store = store::Store::from(near_store::db::TestDB::new());
     let connection_store = ConnectionStore::new(store).unwrap();
 
-    tracing::debug!(target:"test", "create and store live connections up to the ConnectionStore limit");
+    tracing::debug!(target:"test", "create and store live connections up to the connection store limit");
     let now_utc = clock.now_utc();
     connection_store.insert_outbound_connections(make_connection_infos(
         rng,

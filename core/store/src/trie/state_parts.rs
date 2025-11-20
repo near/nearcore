@@ -149,7 +149,7 @@ impl Trie {
             idx,
             total,
             ?boundaries_read_duration,
-            "Found state part boundaries",
+            "found state part boundaries",
         );
         Ok((recorded_trie.nodes, path_begin, path_end))
     }
@@ -279,7 +279,7 @@ impl Trie {
             ?lookup_values_duration,
             ?local_trie_creation_duration,
             ?final_part_creation_duration,
-            "Created state part",
+            "created state part",
         );
 
         metrics::GET_STATE_PART_WITH_FS_VALUES_INLINED
