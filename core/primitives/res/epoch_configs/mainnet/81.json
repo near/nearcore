@@ -146,5 +146,5 @@
     1,
     10
   ],
-  "protocol_treasury_account": "near"
+  "protocol_treasury_account": "treasury.near"
 }
