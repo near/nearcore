@@ -539,14 +539,45 @@ def handle_start(args):
 
 
 def main():
-    unique_id = os.environ.get('FORKNET_NAME', None)
-    mocknet_id = os.environ.get('MOCKNET_ID', None)
-    case = os.environ.get('CASE', None)
+    parser = ArgumentParser(
+        description='Forknet cluster parameters to launch a sharded benchmark')
+    parser.add_argument(
+        '--unique-id',
+        help='Forknet unique ID (FORKNET_NAME)',
+        default=os.environ.get('FORKNET_NAME'),
+    )
+    parser.add_argument(
+        '--mocknet-id',
+        help='Mocknet ID (MOCKNET_ID)',
+        default=os.environ.get('MOCKNET_ID'),
+    )
+    parser.add_argument(
+        '--case',
+        help='Benchmark case name',
+        default=os.environ.get('CASE'),
+        required=os.environ.get('CASE') is None,
+    )
+    parser.add_argument("--start-height", default=START_HEIGHT)
+
+    # Parse early to get unique_id, mocknet_id, and case
+    if '--' in sys.argv:
+        idx = sys.argv.index('--')
+        my_args = sys.argv[1:idx]
+        extra_args = sys.argv[idx + 1:]
+    else:
+        my_args = sys.argv[1:]
+        extra_args = []
+    early_args, _ = parser.parse_known_args(my_args)
+    
+    unique_id = early_args.unique_id
+    mocknet_id = early_args.mocknet_id
+    case = early_args.case
+    
     if unique_id is None and mocknet_id is None:
-        logger.error(f"Error: Required environment variable FORKNET_NAME or MOCKNET_ID is not set")
+        logger.error(f"Error: Either --unique-id or --mocknet-id must be provided")
         sys.exit(1)
     if case is None:
-        logger.error(f"Error: Required environment variable CASE is not set")
+        logger.error(f"Error: --case must be provided")
         sys.exit(1)
 
     try:
@@ -560,8 +591,6 @@ def main():
     forknet_details = fetch_forknet_details(unique_id or mocknet_id, bm_params)
     logger.info(forknet_details)
 
-    parser = ArgumentParser(
-        description='Forknet cluster parameters to launch a sharded benchmark')
     parser.set_defaults(
         chain_id=CHAIN_ID,
         start_height=START_HEIGHT,
@@ -575,7 +604,6 @@ def main():
         select_partition=None,
         mocknet_id=mocknet_id,
     )
-    parser.add_argument("--start_height")
 
     subparsers = parser.add_subparsers(
         dest='command',
@@ -652,14 +680,6 @@ def main():
     get_logs_parser.add_argument('--host-filter',
                                  default=None,
                                  help='Filter to select specific hosts')
-
-    if '--' in sys.argv:
-        idx = sys.argv.index('--')
-        my_args = sys.argv[1:idx]
-        extra_args = sys.argv[idx + 1:]
-    else:
-        my_args = sys.argv[1:]
-        extra_args = []
 
     args = parser.parse_args(my_args)
 
