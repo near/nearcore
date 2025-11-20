@@ -32,6 +32,22 @@ impl Client {
         )
         .entered();
 
+        // Skip witness generation for chunks from previous blocks.
+        // This can happen when optimistic block production starts before chunks from the
+        // previous block finish applying (race condition with early OB production).
+        // The witness would have already been sent at the correct height.
+        let expected_height = prev_block_header.height() + 1;
+        if height != expected_height {
+            tracing::debug!(
+                target: "client",
+                chunk_height = height,
+                block_height = expected_height,
+                %shard_id,
+                "Skipping optimistic witness for chunk from previous block"
+            );
+            return Ok(());
+        }
+
         let validator_signer = self.validator_signer.get();
         let my_signer = validator_signer
             .as_ref()
