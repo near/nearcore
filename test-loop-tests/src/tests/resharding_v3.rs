@@ -441,7 +441,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             &params.validators.iter().map(|account_id| account_id.as_str()).collect_vec(),
         ))
         .add_user_accounts_simple(&params.accounts, params.initial_balance)
-        .protocol_treasury_account("treasury.near".parse().unwrap())
+        .mainnet_protocol_treasury_account()
         .build();
 
     if let Some(second_resharding_boundary_account) = &params.second_resharding_boundary_account {

@@ -393,11 +393,8 @@ impl TestGenesisBuilder {
         self
     }
 
-    /// Specifies the protocol treasury account. If not specified, this will
-    /// pick an arbitrary account name and ensure that it is included in the
-    /// genesis records.
-    pub fn protocol_treasury_account(mut self, protocol_treasury_account: String) -> Self {
-        self.protocol_treasury_account = protocol_treasury_account;
+    pub fn mainnet_protocol_treasury_account(mut self) -> Self {
+        self.protocol_treasury_account = "treasury.near".parse().unwrap();
         self
     }
 
