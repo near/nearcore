@@ -366,11 +366,17 @@ impl AnalyseArchivalCommand {
                 zstd::encode_all(bytes.as_slice(), self.compression_level as i32).unwrap();
             total_size += bytes.len();
             total_compressed += compressed.len();
+            let mut avg_count_per_block = 0;
+            for i in &block_changes {
+                avg_count_per_block += i.1.len();
+            }
+            avg_count_per_block /= block_changes.len();
             eprintln!(
-                "Changes raw size: {}, compressed size {}, avg per block: {}",
+                "Changes raw size: {}, compressed size {}, avg per block (raw): {}, avg num changes per block: {}\n",
                 ByteSize::b(bytes.len() as u64),
                 ByteSize::b(compressed.len() as u64),
                 ByteSize::b(avg_per_block as u64),
+                avg_count_per_block,
             );
         }
         eprintln!("Blocks count: {}", blocks.len());
