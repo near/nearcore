@@ -4,6 +4,8 @@ use near_chain_configs::GenesisConfig;
 use near_primitives::chains::MAINNET;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::get_block_shard_uid;
+use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::archive::cold_storage::{join_two_keys, rc_aware_set};
@@ -46,7 +48,6 @@ pub fn migrate_46_to_47(
 
     tracing::info!(target: "migrations", "Starting migration 46->47 for cold store");
 
-    let chain_store = hot_store.chain_store();
     let epoch_config_store =
         EpochConfigStore::for_chain_id(&genesis_config.chain_id, None).unwrap();
     let tries = ShardTries::new(
@@ -62,7 +63,7 @@ pub fn migrate_46_to_47(
 
         let resharding_block_hash = CryptoHash::from_str(resharding_block_hash).unwrap();
         let shard_layout = &epoch_config_store.get_config(protocol_version).shard_layout;
-        let resharding_block = chain_store.get_block_header(&resharding_block_hash)?;
+        let resharding_block = hot_store.chain_store().get_block_header(&resharding_block_hash)?;
         let resharding_block_info = BlockInfo {
             hash: resharding_block_hash,
             height: resharding_block.height(),
@@ -78,7 +79,12 @@ pub fn migrate_46_to_47(
             ..
         } = split_shard_params;
 
-        let chunk_extra = chain_store.get_chunk_extra(&resharding_block_hash, &parent_shard)?;
+        let chunk_extra: ChunkExtra = cold_store
+            .get_ser(
+                DBCol::ChunkExtra,
+                &get_block_shard_uid(&resharding_block_hash, &parent_shard),
+            )?
+            .unwrap();
         let parent_trie = tries
             .get_trie_for_shard(parent_shard, *chunk_extra.state_root())
             .recording_reads_new_recorder();
