@@ -35,7 +35,7 @@ pub use near_crypto;
 use near_crypto::{PublicKey, Signature};
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
-use near_primitives::account::{AccessKey, Account, AccountOrGasKey};
+use near_primitives::account::{AccessKey, Account, TransactionPayer};
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
@@ -1639,7 +1639,7 @@ impl Runtime {
                     });
             },
             || {
-                type PayerV = Result<Option<AccountOrGasKey>, StorageError>;
+                type PayerV = Result<Option<TransactionPayer>, StorageError>;
                 type PayerK<'a> = (&'a AccountId, Option<&'a PublicKey>);
                 type AccessKeyV = Result<Option<AccessKey>, StorageError>;
 
@@ -1681,7 +1681,7 @@ impl Runtime {
                                     payers.entry((signer_id, None)).or_insert_with(|| {
                                         get_account(&processing_state.state_update, signer_id).map(
                                             |acc_opt| {
-                                                acc_opt.map(|acc| AccountOrGasKey::Account(acc))
+                                                acc_opt.map(|acc| TransactionPayer::Account(acc))
                                             },
                                         )
                                     });
@@ -1691,8 +1691,9 @@ impl Runtime {
                                     payers.entry((signer_id, Some(key))).or_insert_with(|| {
                                         get_gas_key(&processing_state.state_update, signer_id, key)
                                             .map(|gas_key_opt| {
-                                                gas_key_opt
-                                                    .map(|gas_key| AccountOrGasKey::GasKey(gas_key))
+                                                gas_key_opt.map(|gas_key| {
+                                                    TransactionPayer::GasKey(gas_key)
+                                                })
                                             })
                                     });
                                 }
@@ -1896,10 +1897,10 @@ impl Runtime {
             processing_state.outcomes.push(outcome);
             metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
             match payer {
-                AccountOrGasKey::Account(account) => {
+                TransactionPayer::Account(account) => {
                     set_account(&mut processing_state.state_update, signer_id.clone(), account);
                 }
-                AccountOrGasKey::GasKey(gas_key) => {
+                TransactionPayer::GasKey(gas_key) => {
                     set_gas_key(
                         &mut processing_state.state_update,
                         signer_id.clone(),

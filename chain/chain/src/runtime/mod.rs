@@ -12,7 +12,7 @@ use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
-use near_primitives::account::{AccessKey, Account, AccountOrGasKey};
+use near_primitives::account::{AccessKey, Account, TransactionPayer};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::congestion_info::{
@@ -861,11 +861,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                     let payer = match validated_tx.key() {
                         TransactionKeyRef::AccessKey { .. } => {
                             get_account(&state_update, signer_id)
-                                .map(|acc_opt| acc_opt.map(AccountOrGasKey::Account))
+                                .map(|acc_opt| acc_opt.map(TransactionPayer::Account))
                         }
                         TransactionKeyRef::GasKey { key, .. } => {
                             get_gas_key(&state_update, signer_id, key)
-                                .map(|acc_opt| acc_opt.map(AccountOrGasKey::GasKey))
+                                .map(|acc_opt| acc_opt.map(TransactionPayer::GasKey))
                         }
                     };
                     let payer = payer.transpose().and_then(|v| v.ok());
@@ -917,10 +917,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // the payers balance, as this code might operate over multiple access keys for the
                 // same account, or multiple nonce indexes for the same gas key.
                 match payer {
-                    AccountOrGasKey::Account(account) => {
+                    TransactionPayer::Account(account) => {
                         set_account(&mut state_update.trie_update, signer_id, &account);
                     }
-                    AccountOrGasKey::GasKey(gas_key) => {
+                    TransactionPayer::GasKey(gas_key) => {
                         set_gas_key(
                             &mut state_update.trie_update,
                             signer_id,

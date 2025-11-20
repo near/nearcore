@@ -3,7 +3,7 @@ use crate::config::{TransactionCost, total_prepaid_gas};
 use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
-use near_primitives::account::{AccessKey, AccessKeyPermission, AccountOrGasKey, GasKey};
+use near_primitives::account::{AccessKey, AccessKeyPermission, GasKey, TransactionPayer};
 use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::action::{
     AddGasKeyAction, AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
@@ -145,16 +145,16 @@ pub(crate) fn validate_transaction_well_formed<'a>(
 pub fn set_tx_state_changes(
     state_update: &mut TrieUpdate,
     validated_tx: &ValidatedTransaction,
-    payer: &AccountOrGasKey,
+    payer: &TransactionPayer,
     access_key: &AccessKey,
 ) {
     let tx: &Transaction = validated_tx.to_tx();
     set_access_key_or_gas_key_nonce(state_update, tx.signer_id().clone(), tx.key(), access_key);
     match (validated_tx.key(), payer) {
-        (TransactionKeyRef::AccessKey { .. }, AccountOrGasKey::Account(account)) => {
+        (TransactionKeyRef::AccessKey { .. }, TransactionPayer::Account(account)) => {
             set_account(state_update, tx.signer_id().clone(), account)
         }
-        (TransactionKeyRef::GasKey { key, .. }, AccountOrGasKey::GasKey(gas_key)) => {
+        (TransactionKeyRef::GasKey { key, .. }, TransactionPayer::GasKey(gas_key)) => {
             set_gas_key(state_update, tx.signer_id().clone(), key.clone(), gas_key);
         }
         _ => {
@@ -166,7 +166,7 @@ pub fn set_tx_state_changes(
 pub fn get_payer_and_access_key(
     state_update: &dyn near_store::TrieAccess,
     validated_tx: &ValidatedTransaction,
-) -> Result<(AccountOrGasKey, AccessKey), InvalidTxError> {
+) -> Result<(TransactionPayer, AccessKey), InvalidTxError> {
     let signer_id = validated_tx.signer_id();
     let payer = match validated_tx.key() {
         TransactionKeyRef::AccessKey { .. } => {
@@ -178,7 +178,7 @@ pub fn get_payer_and_access_key(
                     });
                 }
             };
-            AccountOrGasKey::Account(signer)
+            TransactionPayer::Account(signer)
         }
         TransactionKeyRef::GasKey { key, .. } => {
             let gas_key = match get_gas_key(state_update, signer_id, key)? {
@@ -190,7 +190,7 @@ pub fn get_payer_and_access_key(
                     });
                 }
             };
-            AccountOrGasKey::GasKey(gas_key)
+            TransactionPayer::GasKey(gas_key)
         }
     };
 
@@ -213,7 +213,7 @@ pub fn get_payer_and_access_key(
 /// `Ok`.
 pub fn verify_and_charge_tx_ephemeral(
     config: &RuntimeConfig,
-    payer: &mut AccountOrGasKey,
+    payer: &mut TransactionPayer,
     access_key: &mut AccessKey,
     tx: &Transaction,
     transaction_cost: &TransactionCost,
@@ -256,7 +256,7 @@ pub fn verify_and_charge_tx_ephemeral(
 
     // Note storage staking only locks balance from account, so spending balance from gas keys
     // does not need a storage staking check.
-    if let AccountOrGasKey::Account(account) = payer {
+    if let TransactionPayer::Account(account) = payer {
         match check_storage_stake(&account, new_amount, config) {
             Ok(()) => {}
             Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
