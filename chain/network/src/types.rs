@@ -237,6 +237,14 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
     }
 }
 
+#[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
+pub enum SnapshotHostEvent {
+    /// Triggered when the chain head progresses. Updates the epoch height threshold for discarding old snapshot infos.
+    ChainProgressed { epoch_height: EpochHeight },
+    /// Triggers the network to broadcast the snapshot host info to all peers.
+    SnapshotCreated { sync_hash: CryptoHash, epoch_height: EpochHeight, shards: Vec<ShardId> },
+}
+
 // TODO(#1313): Use Box
 #[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
@@ -273,7 +281,7 @@ pub enum NetworkRequests {
     /// Announce account
     AnnounceAccount(AnnounceAccount),
     /// Broadcast information about a hosted snapshot.
-    SnapshotHostInfo { sync_hash: CryptoHash, epoch_height: EpochHeight, shards: Vec<ShardId> },
+    SnapshotHostEvent(SnapshotHostEvent),
 
     /// Request chunk parts and/or receipts
     PartialEncodedChunkRequest {
