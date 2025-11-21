@@ -69,6 +69,7 @@ pub(crate) fn test_protocol_upgrade(
         .epoch_length(epoch_length)
         .validators_spec(validators_spec.clone())
         .add_user_accounts_simple(&accounts, initial_balance)
+        .mainnet_protocol_treasury_account()
         .build();
     let genesis_epoch_info = TestEpochConfigBuilder::new()
         .epoch_length(epoch_length)

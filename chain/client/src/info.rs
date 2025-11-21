@@ -1072,7 +1072,6 @@ mod tests {
             90,
             90,
             0,
-            default_reward_calculator(),
             Rational32::new(0, 1),
         )
         .into_handle();

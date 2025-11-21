@@ -73,6 +73,10 @@ pub struct EpochConfig {
     // #[default(false)]
     pub shuffle_shard_assignment_for_chunk_producers: bool,
     pub max_inflation_rate: Rational32,
+    // #[default(Rational32::new(1, 10))]
+    pub protocol_reward_rate: Rational32,
+    // #[default("test.near".parse().unwrap())]
+    pub protocol_treasury_account: AccountId,
 }
 
 impl EpochConfig {
@@ -124,6 +128,8 @@ impl EpochConfig {
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
             max_inflation_rate: Rational32::new(1, 40),
+            protocol_reward_rate: Rational32::new(1, 10),
+            protocol_treasury_account: "test.near".parse().unwrap(),
         }
     }
 
@@ -153,6 +159,8 @@ impl EpochConfig {
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
             max_inflation_rate: Rational32::new(1, 40),
+            protocol_reward_rate: Rational32::new(1, 10),
+            protocol_treasury_account: "test.near".parse().unwrap(),
         }
     }
 
@@ -181,6 +189,8 @@ impl EpochConfig {
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
             max_inflation_rate: Rational32::new(1, 40),
+            protocol_reward_rate: Rational32::new(1, 10),
+            protocol_treasury_account: "test.near".parse().unwrap(),
         }
     }
 }
