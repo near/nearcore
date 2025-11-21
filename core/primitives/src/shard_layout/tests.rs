@@ -31,7 +31,7 @@ impl ShardLayout {
 }
 
 #[test]
-fn test_shard_layout_v0() {
+fn v0() {
     let num_shards = 4;
     #[allow(deprecated)]
     let shard_layout = ShardLayout::v0(num_shards, 0);
@@ -60,7 +60,7 @@ fn test_shard_layout_v0() {
 }
 
 #[test]
-fn test_shard_layout_v1() {
+fn v1() {
     let aid = |s: &str| s.parse().unwrap();
     let sid = |s: u64| ShardId::new(s);
 
@@ -104,7 +104,7 @@ fn test_shard_layout_v1() {
 }
 
 #[test]
-fn test_shard_layout_v2() {
+fn v2() {
     let sid = |s: u64| ShardId::new(s);
     let shard_layout = get_test_shard_layout_v2();
 
@@ -167,7 +167,7 @@ fn get_test_shard_layout_v2() -> ShardLayout {
 }
 
 #[test]
-fn test_deriving_shard_layout() {
+fn derive_layout() {
     fn to_boundary_accounts<const N: usize>(accounts: [&str; N]) -> Vec<AccountId> {
         accounts.into_iter().map(|a| a.parse().unwrap()).collect()
     }

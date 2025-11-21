@@ -15,9 +15,10 @@ mod tests;
 mod v0;
 mod v1;
 mod v2;
+mod v3;
 
 use crate::hash::CryptoHash;
-use crate::types::{AccountId, NumShards};
+use crate::types::{AccountId, EpochId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives_core::types::{ShardId, ShardIndex};
@@ -27,7 +28,8 @@ use std::{fmt, str};
 
 pub use v0::ShardLayoutV0;
 pub use v1::ShardLayoutV1;
-pub use v2::ShardLayoutV2;
+pub use v2::{ShardLayoutV2, ShardsSplitMapV2};
+pub use v3::ShardLayoutV3;
 
 /// `ShardLayout` has a version number.
 ///
@@ -63,6 +65,7 @@ pub enum ShardLayout {
     V0(ShardLayoutV0) = 0,
     V1(ShardLayoutV1) = 1,
     V2(ShardLayoutV2) = 2,
+    V3(ShardLayoutV3) = 3,
 }
 
 /// Maps shards from the last shard layout to shards that it splits to in this
@@ -72,17 +75,6 @@ pub enum ShardLayout {
 /// For example, if a shard layout with only shard 0 splits into shards 0, 1,
 /// 2, 3, the ShardsSplitMap will be `[[0, 1, 2, 3]]`
 type ShardsSplitMap = Vec<Vec<ShardId>>;
-
-/// A mapping from the parent shard to child shards. It maps shards from the
-/// previous shard layout to shards that they split to in this shard layout.
-/// This structure is first used in ShardLayoutV2.
-///
-/// For example if a shard layout with shards [0, 2, 5] splits shard 2 into
-/// shards [6, 7] the ShardSplitMapV3 will be: 0 => [0] 2 => [6, 7] 5 => [5]
-type ShardsSplitMapV2 = BTreeMap<ShardId, Vec<ShardId>>;
-
-/// A mapping from the child shard to the parent shard.
-type ShardsParentMapV2 = BTreeMap<ShardId, ShardId>;
 
 pub fn shard_uids_to_ids(shard_uids: &[ShardUId]) -> Vec<ShardId> {
     shard_uids.iter().map(|shard_uid| shard_uid.shard_id()).collect_vec()
@@ -146,7 +138,7 @@ impl ShardLayout {
         // In order to test the non-contiguous shard ids randomize the order and
         // TODO(wacban) randomize the range of shard ids.
         let mut rng = StdRng::seed_from_u64(42);
-        let mut shard_ids = (0..num_shards).map(ShardId::new).collect::<Vec<ShardId>>();
+        let mut shard_ids = (0..num_shards).map(ShardId::new).collect_vec();
         shard_ids.shuffle(&mut rng);
 
         let (id_to_index_map, index_to_id_map) = shard_ids
@@ -179,28 +171,7 @@ impl ShardLayout {
         shards_split_map: Option<ShardsSplitMap>,
         version: ShardVersion,
     ) -> Self {
-        let to_parent_shard_map = if let Some(shards_split_map) = &shards_split_map {
-            let mut to_parent_shard_map = BTreeMap::new();
-            let num_shards = (boundary_accounts.len() + 1) as NumShards;
-            for (parent_shard_id, shard_ids) in shards_split_map.iter().enumerate() {
-                let parent_shard_id = ShardId::new(parent_shard_id as u64);
-                for &shard_id in shard_ids {
-                    let prev = to_parent_shard_map.insert(shard_id, parent_shard_id);
-                    assert!(prev.is_none(), "no shard should appear in the map twice");
-                    let shard_id: u64 = shard_id.into();
-                    assert!(shard_id < num_shards, "shard id should be valid");
-                }
-            }
-            Some((0..num_shards).map(|shard_id| to_parent_shard_map[&shard_id.into()]).collect())
-        } else {
-            None
-        };
-        Self::V1(ShardLayoutV1 {
-            boundary_accounts,
-            shards_split_map,
-            to_parent_shard_map,
-            version,
-        })
+        Self::V1(ShardLayoutV1::new(boundary_accounts, shards_split_map, version))
     }
 
     /// Return a V2 ShardLayout
@@ -209,32 +180,22 @@ impl ShardLayout {
         shard_ids: Vec<ShardId>,
         shards_split_map: Option<ShardsSplitMapV2>,
     ) -> Self {
-        // In the v2 layout the version is not updated with every shard layout.
-        const VERSION: ShardVersion = 3;
+        Self::V2(ShardLayoutV2::new(boundary_accounts, shard_ids, shards_split_map))
+    }
 
-        assert_eq!(boundary_accounts.len() + 1, shard_ids.len());
-        assert_eq!(boundary_accounts, boundary_accounts.iter().sorted().cloned().collect_vec());
-
-        let mut id_to_index_map = BTreeMap::new();
-        let mut index_to_id_map = BTreeMap::new();
-        for (shard_index, &shard_id) in shard_ids.iter().enumerate() {
-            id_to_index_map.insert(shard_id, shard_index);
-            index_to_id_map.insert(shard_index, shard_id);
-        }
-
-        let shards_parent_map = shards_split_map.as_ref().map(|shards_split_map| {
-            validate_and_derive_shard_parent_map_v2(&shard_ids, &shards_split_map)
-        });
-
-        Self::V2(ShardLayoutV2 {
+    /// Return a V3 layout
+    pub fn v3(
+        boundary_accounts: Vec<AccountId>,
+        shard_ids: Vec<ShardId>,
+        shards_split_map: ShardsSplitMapV2,
+        valid_since_epoch: EpochId,
+    ) -> Self {
+        Self::V3(ShardLayoutV3::new(
             boundary_accounts,
             shard_ids,
-            id_to_index_map,
-            index_to_id_map,
             shards_split_map,
-            shards_parent_map,
-            version: VERSION,
-        })
+            valid_since_epoch,
+        ))
     }
 
     /// Maps an account to the shard_id that it belongs to in this shard_layout
@@ -244,14 +205,10 @@ impl ShardLayout {
     ///       `Receipt::receiver_shard` should be used instead.
     pub fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
         match self {
-            ShardLayout::V0(v0) => {
-                let hash = CryptoHash::hash_bytes(account_id.as_bytes());
-                let (bytes, _) = stdx::split_array::<32, 8, 24>(hash.as_bytes());
-                let shard_id = u64::from_le_bytes(*bytes) % v0.num_shards;
-                shard_id.into()
-            }
+            ShardLayout::V0(v0) => v0.account_id_to_shard_id(account_id),
             ShardLayout::V1(v1) => v1.account_id_to_shard_id(account_id),
             ShardLayout::V2(v2) => v2.account_id_to_shard_id(account_id),
+            ShardLayout::V3(v3) => v3.account_id_to_shard_id(account_id),
         }
     }
 
@@ -275,20 +232,9 @@ impl ShardLayout {
     pub fn get_children_shards_ids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardId>> {
         match self {
             Self::V0(_) => None,
-            Self::V1(v1) => match &v1.shards_split_map {
-                Some(shards_split_map) => {
-                    // In V1 the shard id and the shard index are the same. It
-                    // is ok to cast the id to index here. The same is not the
-                    // case in V2.
-                    let parent_shard_index: ShardIndex = parent_shard_id.into();
-                    shards_split_map.get(parent_shard_index).cloned()
-                }
-                None => None,
-            },
-            Self::V2(v2) => match &v2.shards_split_map {
-                Some(shards_split_map) => shards_split_map.get(&parent_shard_id).cloned(),
-                None => None,
-            },
+            Self::V1(v1) => v1.get_children_shards_ids(parent_shard_id),
+            Self::V2(v2) => v2.get_children_shards_ids(parent_shard_id),
+            Self::V3(v3) => v3.get_children_shards_ids(parent_shard_id),
         }
     }
 
@@ -299,32 +245,12 @@ impl ShardLayout {
         &self,
         shard_id: ShardId,
     ) -> Result<Option<ShardId>, ShardLayoutError> {
-        if !self.shard_ids().any(|id| id == shard_id) {
-            return Err(ShardLayoutError::InvalidShardIdError { shard_id });
+        match self {
+            Self::V0(_) => Ok(None),
+            Self::V1(v1) => v1.try_get_parent_shard_id(shard_id),
+            Self::V2(v2) => v2.try_get_parent_shard_id(shard_id),
+            Self::V3(v3) => v3.try_get_parent_shard_id(shard_id),
         }
-        let parent_shard_id = match self {
-            Self::V0(_) => None,
-            Self::V1(v1) => match &v1.to_parent_shard_map {
-                // we can safely unwrap here because the construction of to_parent_shard_map guarantees
-                // that every shard has a parent shard
-                Some(to_parent_shard_map) => {
-                    let shard_index = self.get_shard_index(shard_id).unwrap();
-                    let parent_shard_id = to_parent_shard_map.get(shard_index).unwrap();
-                    Some(*parent_shard_id)
-                }
-                None => None,
-            },
-            Self::V2(v2) => match &v2.shards_parent_map {
-                // we can safely unwrap here because the construction of to_parent_shard_map guarantees
-                // that every shard has a parent shard
-                Some(to_parent_shard_map) => {
-                    let parent_shard_id = to_parent_shard_map.get(&shard_id).unwrap();
-                    Some(*parent_shard_id)
-                }
-                None => None,
-            },
-        };
-        Ok(parent_shard_id)
     }
 
     /// Return the parent shard id for a given shard in the shard layout. Only
@@ -337,40 +263,16 @@ impl ShardLayout {
     }
 
     /// Derive new shard layout from an existing one
-    pub fn derive_shard_layout(
-        base_shard_layout: &ShardLayout,
+    pub fn derive_shard_layout(base_shard_layout: &Self, new_boundary_account: AccountId) -> Self {
+        Self::V2(ShardLayoutV2::derive(base_shard_layout, new_boundary_account))
+    }
+
+    pub fn derive_v3(
+        base_shard_layout: &Self,
         new_boundary_account: AccountId,
-    ) -> ShardLayout {
-        let mut boundary_accounts = base_shard_layout.boundary_accounts().clone();
-        let mut shard_ids = base_shard_layout.shard_ids().collect::<Vec<_>>();
-        let mut shards_split_map = shard_ids
-            .iter()
-            .map(|id| (*id, vec![*id]))
-            .collect::<BTreeMap<ShardId, Vec<ShardId>>>();
-
-        assert!(!boundary_accounts.contains(&new_boundary_account), "duplicated boundary account");
-
-        // boundary accounts should be sorted such that the index points to the shard to be split
-        boundary_accounts.push(new_boundary_account.clone());
-        boundary_accounts.sort();
-        let new_boundary_account_index = boundary_accounts
-            .iter()
-            .position(|acc| acc == &new_boundary_account)
-            .expect("account should be guaranteed to exist at this point");
-
-        // new shard ids start from the current max
-        let max_shard_id =
-            *shard_ids.iter().max().expect("there should always be at least one shard");
-        let new_shards = vec![max_shard_id + 1, max_shard_id + 2];
-        let parent_shard_id = shard_ids
-            .splice(new_boundary_account_index..new_boundary_account_index + 1, new_shards.clone())
-            .collect::<Vec<_>>();
-        let [parent_shard_id] = parent_shard_id.as_slice() else {
-            panic!("should only splice one shard");
-        };
-        shards_split_map.insert(*parent_shard_id, new_shards);
-
-        ShardLayout::v2(boundary_accounts, shard_ids, Some(shards_split_map))
+        valid_since_epoch: EpochId,
+    ) -> Self {
+        Self::V3(ShardLayoutV3::derive(base_shard_layout, new_boundary_account, valid_since_epoch))
     }
 
     #[inline]
@@ -379,22 +281,25 @@ impl ShardLayout {
             Self::V0(v0) => v0.version,
             Self::V1(v1) => v1.version,
             Self::V2(v2) => v2.version,
+            Self::V3(v3) => v3.version,
         }
     }
 
     pub fn boundary_accounts(&self) -> &Vec<AccountId> {
         match self {
+            Self::V0(_) => panic!("ShardLayout::V0 doesn't have boundary accounts"),
             Self::V1(v1) => &v1.boundary_accounts,
             Self::V2(v2) => &v2.boundary_accounts,
-            _ => panic!("ShardLayout::V0 doesn't have boundary accounts"),
+            Self::V3(v3) => &v3.boundary_accounts,
         }
     }
 
     pub fn num_shards(&self) -> NumShards {
         match self {
             Self::V0(v0) => v0.num_shards,
-            Self::V1(v1) => (v1.boundary_accounts.len() + 1) as NumShards,
+            Self::V1(v1) => v1.num_shards() as NumShards,
             Self::V2(v2) => v2.shard_ids.len() as NumShards,
+            Self::V3(v3) => v3.shard_ids.len() as NumShards,
         }
     }
 
@@ -406,6 +311,7 @@ impl ShardLayout {
             Self::V0(_) => (0..self.num_shards()).map(Into::into).collect_vec().into_iter(),
             Self::V1(_) => (0..self.num_shards()).map(Into::into).collect_vec().into_iter(),
             Self::V2(v2) => v2.shard_ids.clone().into_iter(),
+            Self::V3(v3) => v3.shard_ids.clone().into_iter(),
         }
     }
 
@@ -419,7 +325,7 @@ impl ShardLayout {
         let num_shards: usize =
             self.num_shards().try_into().expect("Number of shards doesn't fit in usize");
         match self {
-            Self::V0(_) | Self::V1(_) | Self::V2(_) => (0..num_shards).into_iter(),
+            Self::V0(_) | Self::V1(_) | Self::V2(_) | Self::V3(_) => (0..num_shards).into_iter(),
         }
     }
 
@@ -437,35 +343,22 @@ impl ShardLayout {
     /// used when indexing into an array of chunk data.
     pub fn get_shard_index(&self, shard_id: ShardId) -> Result<ShardIndex, ShardLayoutError> {
         match self {
-            // In V0 the shard id and shard index are the same.
-            Self::V0(_) => Ok(shard_id.into()),
-            // In V1 the shard id and shard index are the same.
-            Self::V1(_) => Ok(shard_id.into()),
-            // In V2 the shard id and shard index are **not** the same.
-            Self::V2(v2) => v2
-                .id_to_index_map
-                .get(&shard_id)
-                .copied()
-                .ok_or(ShardLayoutError::InvalidShardIdError { shard_id }),
+            // In V0 & V1 the shard id and shard index are the same.
+            Self::V0(_) | Self::V1(_) => Ok(shard_id.into()),
+            // In V2 & V3 the shard id and shard index are **not** the same.
+            Self::V2(v2) => v2.get_shard_index(shard_id),
+            Self::V3(v3) => v3.get_shard_index(shard_id),
         }
     }
 
     /// Get the shard id for a given shard index. The shard id should be used to
     /// identify the shard and starting from the ShardLayoutV2 it is unique.
     pub fn get_shard_id(&self, shard_index: ShardIndex) -> Result<ShardId, ShardLayoutError> {
-        let num_shards = self.num_shards() as usize;
         match self {
-            Self::V0(_) | Self::V1(_) => {
-                if shard_index >= num_shards {
-                    return Err(ShardLayoutError::InvalidShardIndexError { shard_index });
-                }
-                Ok(ShardId::new(shard_index as u64))
-            }
-            Self::V2(v2) => v2
-                .shard_ids
-                .get(shard_index)
-                .copied()
-                .ok_or(ShardLayoutError::InvalidShardIndexError { shard_index }),
+            Self::V0(v0) => v0.get_shard_id(shard_index),
+            Self::V1(v1) => v1.get_shard_id(shard_index),
+            Self::V2(v2) => v2.get_shard_id(shard_index),
+            Self::V3(v3) => v3.get_shard_id(shard_index),
         }
     }
 
@@ -477,6 +370,11 @@ impl ShardLayout {
     /// Returns all the shards from the previous shard layout that were
     /// split into multiple shards in this shard layout.
     pub fn get_split_parent_shard_ids(&self) -> BTreeSet<ShardId> {
+        // V3 doesn't store shards which weren't split in the map
+        if let ShardLayout::V3(v3) = self {
+            return v3.shards_split_map.keys().cloned().collect();
+        }
+
         let mut parent_shard_ids = BTreeSet::new();
         for shard_id in self.shard_ids() {
             let parent_shard_id = self
@@ -503,34 +401,18 @@ impl ShardLayout {
             .collect()
     }
 }
+fn map_keys_to_string<K, V>(map: &BTreeMap<K, V>) -> BTreeMap<String, V>
+where
+    K: std::fmt::Display,
+    V: Clone,
+{
+    map.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+}
 
-// Validates the shards_split_map and derives the shards_parent_map from it.
-fn validate_and_derive_shard_parent_map_v2(
-    shard_ids: &Vec<ShardId>,
-    shards_split_map: &ShardsSplitMapV2,
-) -> ShardsParentMapV2 {
-    let mut shards_parent_map = ShardsParentMapV2::new();
-    for (&parent_shard_id, child_shard_ids) in shards_split_map {
-        for &child_shard_id in child_shard_ids {
-            let prev = shards_parent_map.insert(child_shard_id, parent_shard_id);
-            assert!(prev.is_none(), "no shard should appear in the map twice");
-        }
-        if let &[child_shard_id] = child_shard_ids.as_slice() {
-            // The parent shards with only one child shard are not split and
-            // should keep the same shard id.
-            assert_eq!(parent_shard_id, child_shard_id);
-        } else {
-            // The parent shards with multiple children shards are split.
-            // The parent shard id should no longer be used.
-            assert!(!shard_ids.contains(&parent_shard_id));
-        }
-    }
-
-    assert_eq!(
-        shard_ids.iter().copied().sorted().collect_vec(),
-        shards_parent_map.keys().copied().collect_vec()
-    );
-    shards_parent_map
+fn map_keys_to_shard_id<V>(
+    map: BTreeMap<String, V>,
+) -> Result<BTreeMap<ShardId, V>, Box<dyn std::error::Error + Send + Sync>> {
+    map.into_iter().map(|(k, v)| Ok((k.parse::<u64>()?.into(), v))).collect()
 }
 
 /// `ShardUId` is a unique representation for shards from different shard layouts.
