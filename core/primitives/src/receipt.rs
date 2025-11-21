@@ -784,7 +784,7 @@ pub struct ActionReceiptV2 {
     pub actions: Vec<Action>,
 }
 
-/// ActionReceiptV3 adds the ability to refund to a gas key.
+/// ActionReceiptV3 tracks whether the initiating transaction was signed by an access key or a gas key.
 #[derive(
     BorshSerialize,
     BorshDeserialize,
