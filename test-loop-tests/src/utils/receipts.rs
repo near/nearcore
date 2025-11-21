@@ -11,7 +11,7 @@ use near_client::client_actor::ClientActor;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, ActionReceiptV2, BufferedReceiptIndices, DelayedReceiptIndices,
+    ActionReceipt, ActionReceiptV2, ActionReceiptV3, BufferedReceiptIndices, DelayedReceiptIndices,
     PromiseYieldIndices, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
 };
 use near_primitives::trie_key::TrieKey;
@@ -178,14 +178,27 @@ pub fn action_receipt_v1_to_latest(input: &Receipt, protocol_version: ProtocolVe
         near_primitives::receipt::ReceiptEnum::ActionV2(action_receipt_v2) => {
             VersionedActionReceipt::from(action_receipt_v2)
         }
+        near_primitives::receipt::ReceiptEnum::ActionV3(action_receipt_v3) => {
+            VersionedActionReceipt::from(action_receipt_v3)
+        }
         _ => panic!("must be action receipt"),
     };
 
-    let action_receipt = if ProtocolFeature::DeterministicAccountIds.enabled(protocol_version) {
+    let action_receipt = if ProtocolFeature::GasKeys.enabled(protocol_version) {
+        ReceiptEnum::ActionV3(ActionReceiptV3 {
+            signer_id: versioned.signer_id().clone(),
+            refund_to: versioned.refund_to().clone(),
+            transaction_key: versioned.transaction_key().to_owned(),
+            gas_price: versioned.gas_price(),
+            output_data_receivers: versioned.output_data_receivers().to_vec(),
+            input_data_ids: versioned.input_data_ids().to_vec(),
+            actions: versioned.actions().to_vec(),
+        })
+    } else if ProtocolFeature::DeterministicAccountIds.enabled(protocol_version) {
         ReceiptEnum::ActionV2(ActionReceiptV2 {
             signer_id: versioned.signer_id().clone(),
             refund_to: versioned.refund_to().clone(),
-            signer_public_key: versioned.signer_public_key().clone(),
+            signer_public_key: versioned.transaction_key().public_key().clone(),
             gas_price: versioned.gas_price(),
             output_data_receivers: versioned.output_data_receivers().to_vec(),
             input_data_ids: versioned.input_data_ids().to_vec(),
@@ -194,7 +207,7 @@ pub fn action_receipt_v1_to_latest(input: &Receipt, protocol_version: ProtocolVe
     } else {
         ReceiptEnum::Action(ActionReceipt {
             signer_id: versioned.signer_id().clone(),
-            signer_public_key: versioned.signer_public_key().clone(),
+            signer_public_key: versioned.transaction_key().public_key().clone(),
             gas_price: versioned.gas_price(),
             output_data_receivers: versioned.output_data_receivers().to_vec(),
             input_data_ids: versioned.input_data_ids().to_vec(),

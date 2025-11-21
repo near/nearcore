@@ -360,7 +360,6 @@ impl TrieViewer {
         };
         let receipt = Receipt::V2(ReceiptV2 {
             predecessor_id: contract_id.clone(),
-            predecessor_gas_key: None,
             receiver_id: contract_id.clone(),
             receipt_id: empty_hash,
             receipt: ReceiptEnum::Action(action_receipt.clone()),

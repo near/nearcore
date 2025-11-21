@@ -342,7 +342,6 @@ pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
         .map(|account_id| {
             Receipt::V2(ReceiptV2 {
                 predecessor_id: account_id.clone(),
-                predecessor_gas_key: None,
                 receiver_id: account_id.clone(),
                 receipt_id: CryptoHash::default(),
                 receipt: ReceiptEnum::Data(DataReceipt {

@@ -1771,7 +1771,6 @@ fn test_storage_proof_garbage() {
     let garbage_size_mb = 50usize;
     let receipt = Receipt::V2(ReceiptV2 {
         predecessor_id: signer.validator_id().clone(),
-        predecessor_gas_key: None,
         receiver_id: signer.validator_id().clone(),
         receipt_id: CryptoHash::hash_bytes(&[42]),
         receipt: near_primitives::receipt::ReceiptEnum::Action(ActionReceipt {

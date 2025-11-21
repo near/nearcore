@@ -85,7 +85,7 @@ pub(crate) fn action_deterministic_state_init(
     if deposit_refund > Balance::ZERO {
         result.new_receipts.push(Receipt::new_balance_refund(
             receipt.balance_refund_receiver(),
-            receipt.predecessor_gas_key().clone(), // XXX: correct?
+            receipt.gas_key_refund_receiver().cloned(),
             deposit_refund,
             receipt.priority(),
         ));

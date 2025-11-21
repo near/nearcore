@@ -61,8 +61,17 @@ impl SignerKind {
 }
 
 #[derive(
-    BorshSerialize, BorshDeserialize, serde::Serialize, PartialEq, Eq, Debug, Clone, ProtocolSchema,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Debug,
+    Clone,
+    ProtocolSchema,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum TransactionKey {
     AccessKey { public_key: PublicKey },
     GasKey { public_key: PublicKey, nonce_index: NonceIndex },
@@ -72,6 +81,19 @@ pub enum TransactionKey {
 pub enum TransactionKeyRef<'a> {
     AccessKey { key: &'a PublicKey },
     GasKey { key: &'a PublicKey, nonce_index: NonceIndex },
+}
+
+impl<'a> TransactionKeyRef<'a> {
+    pub fn to_owned(&self) -> TransactionKey {
+        match self {
+            TransactionKeyRef::AccessKey { key } => {
+                TransactionKey::AccessKey { public_key: (*key).clone() }
+            }
+            TransactionKeyRef::GasKey { key, nonce_index } => {
+                TransactionKey::GasKey { public_key: (*key).clone(), nonce_index: *nonce_index }
+            }
+        }
+    }
 }
 
 impl<'a> From<&'a TransactionKey> for TransactionKeyRef<'a> {

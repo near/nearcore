@@ -817,6 +817,10 @@ impl Runtime {
                     | ReceiptEnum::PromiseYieldV2(new_action_receipt) => new_action_receipt
                         .output_data_receivers
                         .extend_from_slice(&action_receipt.output_data_receivers()),
+                    ReceiptEnum::ActionV3(new_action_receipt)
+                    | ReceiptEnum::PromiseYieldV3(new_action_receipt) => new_action_receipt
+                        .output_data_receivers
+                        .extend_from_slice(&action_receipt.output_data_receivers()),
                     _ => unreachable!("the receipt should be an action receipt"),
                 }
             } else {
@@ -855,6 +859,8 @@ impl Runtime {
                         | ReceiptEnum::PromiseYield(_)
                         | ReceiptEnum::ActionV2(_)
                         | ReceiptEnum::PromiseYieldV2(_)
+                        | ReceiptEnum::ActionV3(_)
+                        | ReceiptEnum::PromiseYieldV3(_)
                 );
 
                 let res =
@@ -969,7 +975,7 @@ impl Runtime {
         if deposit_refund > Balance::ZERO {
             result.new_receipts.push(Receipt::new_balance_refund(
                 receipt.balance_refund_receiver(),
-                receipt.predecessor_gas_key().clone(),
+                receipt.gas_key_refund_receiver().cloned(),
                 deposit_refund,
                 receipt.priority(),
             ));
@@ -980,7 +986,7 @@ impl Runtime {
             result.new_receipts.push(Receipt::new_gas_refund(
                 &action_receipt.signer_id(),
                 gas_balance_refund,
-                action_receipt.signer_public_key().clone(),
+                action_receipt.transaction_key().to_owned(),
                 receipt.priority(),
             ));
         }
@@ -1834,8 +1840,7 @@ impl Runtime {
                     receipt_id,
                     signer_id.clone(),
                     tx.transaction.receiver_id().clone(),
-                    tx_key.public_key().clone(),
-                    matches!(tx_key, TransactionKeyRef::GasKey { .. }),
+                    tx_key.to_owned(),
                     verification_result.receipt_gas_price,
                     tx.transaction.actions().to_vec(),
                 );
@@ -2525,13 +2530,12 @@ fn action_transfer_or_implicit_account_creation(
     Ok(if let Some(account) = account.as_mut() {
         action_transfer(account, deposit)?;
         // Check if this is a gas refund, then try to refund the access key allowance.
+        // Allowance for gas key is always None, so no refund is needed.
         if is_refund && action_receipt.signer_id() == receipt.receiver_id() {
-            try_refund_allowance(
-                state_update,
-                receipt.receiver_id(),
-                &action_receipt.signer_public_key(),
-                deposit,
-            )?;
+            // TODO(gas-keys): should we assert this instead of skipping?
+            if let TransactionKeyRef::AccessKey { key } = action_receipt.transaction_key() {
+                try_refund_allowance(state_update, receipt.receiver_id(), key, deposit)?;
+            }
         }
     } else {
         // Implicit account creation
@@ -2861,7 +2865,9 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
                 ReceiptEnum::Action(_)
                 | ReceiptEnum::PromiseYield(_)
                 | ReceiptEnum::ActionV2(_)
-                | ReceiptEnum::PromiseYieldV2(_) => {
+                | ReceiptEnum::PromiseYieldV2(_)
+                | ReceiptEnum::ActionV3(_)
+                | ReceiptEnum::PromiseYieldV3(_) => {
                     // This returns `true` if work may have been scheduled (thus we currently
                     // prepare actions in at most 2 "interesting" receipts in parallel due to
                     // staggering.)

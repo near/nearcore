@@ -233,14 +233,7 @@ impl PrepareBenchmarkCmd {
 
         let receipt = DataReceipt { data_id, data: Some(data) };
         let receipt = ReceiptEnum::Data(receipt);
-        let receipt = ReceiptV2 {
-            predecessor_id,
-            predecessor_gas_key: None,
-            receiver_id,
-            receipt_id,
-            receipt,
-            priority: 0,
-        };
+        let receipt = ReceiptV2 { predecessor_id, receiver_id, receipt_id, receipt, priority: 0 };
 
         Receipt::V2(receipt)
     }

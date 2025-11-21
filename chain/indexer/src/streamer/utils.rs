@@ -2,6 +2,7 @@ use near_indexer_primitives::IndexerTransactionWithOutcome;
 use near_parameters::RuntimeConfig;
 use near_primitives::action::Action;
 use near_primitives::receipt::Receipt;
+use near_primitives::transaction::TransactionKey;
 use near_primitives::types::Balance;
 use near_primitives::views::{ExecutionStatusView, ReceiptView};
 use node_runtime::config::calculate_tx_cost;
@@ -33,12 +34,18 @@ pub(crate) fn convert_transactions_sir_into_local_receipts<'a>(
         let cost =
             calculate_tx_cost(&tx.receiver_id, &tx.signer_id, &actions, &runtime_config, gas_price)
                 .unwrap();
+        let tx_key = match tx.nonce_index {
+            Some(_) => TransactionKey::GasKey {
+                public_key: tx.public_key.clone(),
+                nonce_index: tx.nonce_index.unwrap(),
+            },
+            None => TransactionKey::AccessKey { public_key: tx.public_key.clone() },
+        };
         let receipt = Receipt::from_tx(
             receipt_id,
             tx.signer_id.clone(),
             tx.receiver_id.clone(),
-            tx.public_key.clone(),
-            tx.nonce_index.is_some(), // If nonce_index is Some, the signer is a GasKey
+            tx_key,
             cost.receipt_gas_price,
             actions,
         );
