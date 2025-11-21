@@ -22,8 +22,8 @@ use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain_configs::Genesis;
-use near_client::client_actor::ClientActorInner;
-use near_client::{RpcHandler, ViewClientActorInner};
+use near_client::client_actor::ClientActor;
+use near_client::{RpcHandlerActor, ViewClientActor};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::{borsh::BorshDeserialize, types::Balance};
 
@@ -49,9 +49,9 @@ struct GenesisWithIdentifier {
 #[derive(Clone)]
 struct RosettaAppState {
     genesis: Arc<GenesisWithIdentifier>,
-    client_addr: TokioRuntimeHandle<ClientActorInner>,
-    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
-    tx_handler_addr: MultithreadRuntimeHandle<RpcHandler>,
+    client_addr: TokioRuntimeHandle<ClientActor>,
+    view_client_addr: MultithreadRuntimeHandle<ViewClientActor>,
+    tx_handler_addr: MultithreadRuntimeHandle<RpcHandlerActor>,
     currencies: Option<Vec<models::Currency>>,
 }
 
@@ -60,7 +60,7 @@ struct RosettaAppState {
 /// `blockchain` and `network` must match and `sub_network_identifier` must not
 /// be provided.  On success returns client actor’s status response.
 async fn check_network_identifier(
-    client_addr: &TokioRuntimeHandle<ClientActorInner>,
+    client_addr: &TokioRuntimeHandle<ClientActor>,
     identifier: models::NetworkIdentifier,
 ) -> Result<near_client::StatusResponse, errors::ErrorKind> {
     if identifier.blockchain != BLOCKCHAIN {
@@ -1068,9 +1068,9 @@ pub fn start_rosetta_rpc(
     config: crate::config::RosettaRpcConfig,
     genesis: Genesis,
     genesis_block_hash: &near_primitives::hash::CryptoHash,
-    client_addr: TokioRuntimeHandle<ClientActorInner>,
-    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
-    tx_handler_addr: MultithreadRuntimeHandle<RpcHandler>,
+    client_addr: TokioRuntimeHandle<ClientActor>,
+    view_client_addr: MultithreadRuntimeHandle<ViewClientActor>,
+    tx_handler_addr: MultithreadRuntimeHandle<RpcHandlerActor>,
     future_spawner: &dyn FutureSpawner,
 ) {
     let crate::config::RosettaRpcConfig { addr, cors_allowed_origins, limits, currencies } = config;

@@ -545,7 +545,7 @@ fn network_message_to_client_handler(
                 account = %my_account_id,
                 ?peer_id,
                 ?ban_reason,
-                "TestLoop banning peer"
+                "test loop banning peer"
             );
             shared_state.disallow_requests(my_peer_id.clone(), peer_id.clone());
             shared_state.disallow_requests(peer_id, my_peer_id);

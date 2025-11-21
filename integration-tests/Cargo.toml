@@ -77,10 +77,6 @@ regex.workspace = true
 rand_chacha.workspace = true
 
 [features]
-performance_stats = [
-  "nearcore/performance_stats",
-  "near-network/performance_stats",
-]
 test_features = [
   "nearcore/test_features",
   "near-store/test_features",

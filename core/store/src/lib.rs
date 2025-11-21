@@ -36,7 +36,6 @@ mod deserialized_column;
 pub mod flat;
 pub mod genesis;
 pub mod metrics;
-pub mod migrations;
 mod node_storage;
 mod store;
 pub mod trie;

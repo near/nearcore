@@ -61,7 +61,7 @@ pub fn run_bandwidth_scheduler(
     let mut scheduler_state = match get_bandwidth_scheduler_state(state_update)? {
         Some(prev_state) => prev_state,
         None => {
-            tracing::debug!(target: "runtime", "Bandwidth scheduler state not found - initializing");
+            tracing::debug!(target: "runtime", "bandwidth scheduler state not found - initializing");
             BandwidthSchedulerState::V1(BandwidthSchedulerStateV1 {
                 link_allowances: Vec::new(),
                 sanity_check_hash: CryptoHash::default(),

@@ -47,7 +47,7 @@ async fn test_peer_communication() -> anyhow::Result<()> {
         }
     };
 
-    tracing::info!(target:"test","RequestUpdateNonce");
+    tracing::info!(target:"test", "request update nonce");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
         &outbound.cfg.network.node_id(),
@@ -58,13 +58,13 @@ async fn test_peer_communication() -> anyhow::Result<()> {
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test","PeersRequest");
+    tracing::info!(target:"test", "peers request");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::PeersRequest(PeersRequest { max_peers: None, max_direct_peers: None });
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test","PeersResponse");
+    tracing::info!(target:"test", "peers response");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::PeersResponse(PeersResponse {
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
@@ -73,37 +73,37 @@ async fn test_peer_communication() -> anyhow::Result<()> {
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test","BlockRequest");
+    tracing::info!(target:"test", "block request");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::BlockRequest(*chain.blocks[5].hash());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test","Block");
+    tracing::info!(target: "test", "block");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::Block(chain.blocks[5].clone());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test","BlockHeadersRequest");
+    tracing::info!(target:"test", "block headers request");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| *b.hash()).collect());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test","BlockHeaders");
+    tracing::info!(target:"test", "block headers");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::BlockHeaders(chain.get_block_headers().map(Into::into).collect());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test","SyncRoutingTable");
+    tracing::info!(target:"test", "sync routing table");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::SyncRoutingTable(data::make_routing_table(&mut rng));
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test","PartialEncodedChunkRequest");
+    tracing::info!(target:"test", "partial encoded chunk request");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::Routed(Box::new(
         outbound.routed_message(
@@ -121,7 +121,7 @@ async fn test_peer_communication() -> anyhow::Result<()> {
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test","PartialEncodedChunkResponse");
+    tracing::info!(target:"test", "partial encoded chunk response");
     let mut events = inbound.events.from_now();
     let want_hash = chain.blocks[3].chunks()[0].chunk_hash().clone();
     let want_parts = data::make_chunk_parts(chain.chunks[&want_hash].clone());
@@ -141,7 +141,7 @@ async fn test_peer_communication() -> anyhow::Result<()> {
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test","Transaction");
+    tracing::info!(target: "test", "transaction");
     let mut events = inbound.events.from_now();
     let want = data::make_signed_transaction(&mut rng);
     let want = PeerMessage::Transaction(want);

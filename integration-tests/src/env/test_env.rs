@@ -10,7 +10,7 @@ use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, ProtocolVersionCheckConfig};
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
-use near_client::{Client, DistributeStateWitnessRequest, RpcHandler};
+use near_client::{Client, DistributeStateWitnessRequest, RpcHandlerActor};
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_network::client::ProcessTxResponse;
@@ -48,7 +48,7 @@ use time::ext::InstantExt as _;
 use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 
 use near_chain::chain::ChunkStateWitnessMessage;
-use near_client::ChunkValidationActorInner;
+use near_client::ChunkValidationActor;
 
 use super::setup::{TEST_SEED, setup_client_with_runtime};
 use super::test_env_builder::TestEnvBuilder;
@@ -69,8 +69,8 @@ pub struct TestEnv {
     pub partial_witness_adapters: Vec<MockPartialWitnessAdapter>,
     pub shards_manager_adapters: Vec<SynchronousShardsManagerAdapter>,
     pub clients: Vec<Client>,
-    pub chunk_validation_actors: Vec<ChunkValidationActorInner>,
-    pub rpc_handlers: Vec<RpcHandler>,
+    pub chunk_validation_actors: Vec<ChunkValidationActor>,
+    pub rpc_handlers: Vec<RpcHandlerActor>,
     pub(crate) account_indices: AccountIndices,
     pub(crate) paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceLock<()>>>>>,
     // random seed to be inject in each client according to AccountId
@@ -220,7 +220,7 @@ impl TestEnv {
         self.account_indices.lookup_mut(&mut self.clients, account_id)
     }
 
-    pub fn rpc_handler(&self, account_id: &AccountId) -> &RpcHandler {
+    pub fn rpc_handler(&self, account_id: &AccountId) -> &RpcHandlerActor {
         self.account_indices.lookup(&self.rpc_handlers, account_id)
     }
 
@@ -297,7 +297,7 @@ impl TestEnv {
         {
             let target_id = self.account_indices.index(&target.account_id.unwrap());
             let response = self.get_partial_encoded_chunk_response(target_id, request);
-            tracing::info!("Got response for PartialEncodedChunkRequest: {:?}", response);
+            tracing::info!(?response, "got response for partial encoded chunk request");
             if let Some(response) = response {
                 self.shards_manager_adapters[id].send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
@@ -422,7 +422,7 @@ impl TestEnv {
                     witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
 
                     if !self.contains_client(&account_id) {
-                        tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
+                        tracing::warn!(target: "test", %account_id, "client not found for account_id");
                         continue;
                     }
                     let account_index = self.get_client_index(&account_id);
@@ -466,7 +466,7 @@ impl TestEnv {
                     endorsement,
                 )) => {
                     if !self.contains_client(&account_id) {
-                        tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
+                        tracing::warn!(target: "test", %account_id, "client not found for account_id");
                         return None;
                     }
                     let processing_result = self.client(&account_id).chunk_endorsement_tracker.process_chunk_endorsement(endorsement);
@@ -874,7 +874,7 @@ impl TestEnv {
         let block = match block {
             Ok(block) => block,
             Err(err) => {
-                tracing::info!(target: "test", ?err, "Block {}: missing", height);
+                tracing::info!(target: "test", ?err, %height, "block: missing");
                 return;
             }
         };

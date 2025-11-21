@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use near_async::messaging::{CanSend, CanSendAsync, IntoMultiSender, IntoSender, noop};
-use tracing::info;
 
 use near_async::{ActorSystem, time};
 use near_network::tcp;
@@ -104,7 +103,7 @@ async fn stress_test() {
         async move {
             let s = state.load(Ordering::Relaxed);
             if s == 0 {
-                info!(target: "test", "Start round: {}", round.fetch_add(1, Ordering::Relaxed));
+                tracing::info!(target: "test", round_num = %round.fetch_add(1, Ordering::Relaxed), "start round");
 
                 for (ix, flag) in flags.iter().enumerate().skip(1) {
                     if !flag.load(Ordering::Relaxed) {
@@ -116,7 +115,7 @@ async fn stress_test() {
                                 flag1.store(true, Ordering::Relaxed);
                             }
                         } else {
-                            info!(target: "test", "Node {} have failed", ix);
+                            tracing::info!(target: "test", %ix, "node has failed");
                             return std::ops::ControlFlow::Break(());
                         }
                     }

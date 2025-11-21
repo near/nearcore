@@ -1,16 +1,16 @@
-use crate::chunk_endorsement_handler::ChunkEndorsementHandler;
-use crate::client_actor::ClientActorInner;
-use crate::{RpcHandler, ViewClientActorInner};
+use crate::chunk_endorsement_handler::ChunkEndorsementHandlerActor;
+use crate::client_actor::ClientActor;
+use crate::{RpcHandlerActor, ViewClientActor};
 use near_async::messaging::{IntoAsyncSender, IntoSender};
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_network::client::ClientSenderForNetwork;
 
 pub fn client_sender_for_network(
-    client_addr: TokioRuntimeHandle<ClientActorInner>,
-    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
-    rpc_handler: MultithreadRuntimeHandle<RpcHandler>,
-    chunk_endorsement_handler: MultithreadRuntimeHandle<ChunkEndorsementHandler>,
+    client_addr: TokioRuntimeHandle<ClientActor>,
+    view_client_addr: MultithreadRuntimeHandle<ViewClientActor>,
+    rpc_handler: MultithreadRuntimeHandle<RpcHandlerActor>,
+    chunk_endorsement_handler: MultithreadRuntimeHandle<ChunkEndorsementHandlerActor>,
 ) -> ClientSenderForNetwork {
     ClientSenderForNetwork {
         block: client_addr.clone().into_async_sender(),

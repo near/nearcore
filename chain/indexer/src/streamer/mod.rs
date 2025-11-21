@@ -7,7 +7,6 @@ use near_primitives::version::ProtocolFeature;
 use parking_lot::RwLock;
 use rocksdb::DB;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info};
 
 use near_indexer_primitives::{
     IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
@@ -76,6 +75,11 @@ pub async fn build_streamer_message(
         })
         .collect::<Vec<_>>();
 
+    // TODO(spice): Add indexer support for spice.
+    if cfg!(feature = "protocol_feature_spice") {
+        return Ok(StreamerMessage { block, shards: indexer_shards });
+    }
+
     for chunk in chunks {
         let ChunkView { transactions, author, header, receipts: chunk_prev_outgoing_receipts } =
             chunk;
@@ -96,7 +100,7 @@ pub async fn build_streamer_message(
                 if outcome.is_none()
                     && ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version)
                 {
-                    error!(
+                    tracing::error!(
                         target: INDEXER,
                         tx_hash = %transaction.hash,
                         shard_id = %header.shard_id,
@@ -147,8 +151,8 @@ pub async fn build_streamer_message(
                     // in the history of blocks (up to 1000 blocks back)
                     tracing::warn!(
                         target: INDEXER,
-                        "Receipt {} is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
-                        execution_outcome.id,
+                        receipt_id = ?execution_outcome.id,
+                        "receipt is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
                     );
                     lookup_delayed_local_receipt_in_previous_blocks(
                         &client,
@@ -322,7 +326,7 @@ pub async fn start(
     blocks_sink: mpsc::Sender<StreamerMessage>,
     clock: Clock,
 ) {
-    info!(target: INDEXER, "Starting Streamer...");
+    tracing::info!(target: INDEXER, "starting streamer");
     let indexer_db_path =
         near_store::NodeStorage::opener(&indexer_config.home_dir, &store_config, None, None)
             .path()
@@ -341,21 +345,21 @@ pub async fn start(
             AwaitForNodeSyncedEnum::WaitForFullSync => {
                 let status = client.fetch_status().await;
                 let Ok(status) = status else {
-                    tracing::error!(target: INDEXER, ?status, "Failed to fetch node status. Retrying.");
+                    tracing::error!(target: INDEXER, ?status, "failed to fetch node status, retrying");
                     continue;
                 };
                 if status.sync_info.syncing {
-                    tracing::debug!(target: INDEXER, ?status, "The node is syncing. Waiting.");
+                    tracing::debug!(target: INDEXER, ?status, "the node is syncing, waiting");
                     continue;
                 }
             }
             AwaitForNodeSyncedEnum::StreamWhileSyncing => {}
         };
 
-        tracing::debug!(target: INDEXER, "Starting streaming the next block range.");
+        tracing::debug!(target: INDEXER, "starting streaming the next block range");
         let block = view_client.fetch_latest_block(indexer_config.finality.clone()).await;
         let Ok(block) = block else {
-            tracing::error!(target: INDEXER, ?block, "Failed to fetch latest block. Retrying.");
+            tracing::error!(target: INDEXER, ?block, "failed to fetch latest block, retrying");
             continue;
         };
 
@@ -367,11 +371,11 @@ pub async fn start(
             latest_block_height,
         );
 
-        debug!(
+        tracing::debug!(
             target: INDEXER,
-            "Streaming is about to start from block #{} and the latest block is #{}",
-            start_syncing_block_height,
-            latest_block_height
+            %start_syncing_block_height,
+            %latest_block_height,
+            "streaming is about to start",
         );
         metrics::START_BLOCK_HEIGHT.set(start_syncing_block_height as i64);
         metrics::LATEST_BLOCK_HEIGHT.set(latest_block_height as i64);
@@ -393,18 +397,18 @@ pub async fn start(
             let streamer_message =
                 Box::pin(build_streamer_message(&view_client, block, &shard_tracker)).await;
             let Ok(streamer_message) = streamer_message else {
-                tracing::error!(target: INDEXER, ?block_height, ?streamer_message, "Failed to build StreamerMessage. Skipping.");
+                tracing::error!(target: INDEXER, ?block_height, ?streamer_message, "failed to build streamer message, skipping");
                 continue;
             };
 
-            debug!(target: INDEXER, ?block_height, "Sending streamer message to the listener");
+            tracing::debug!(target: INDEXER, ?block_height, "sending streamer message to the listener");
             let send_result = blocks_sink.send(streamer_message).await;
             if send_result.is_err() {
-                error!(
+                tracing::error!(
                     target: INDEXER,
                     ?block_height,
                     ?send_result,
-                    "Unable to send StreamerMessage to listener, listener doesn't listen. terminating..."
+                    "unable to send streamer message to listener, listener doesn't listen, terminating",
                 );
                 break 'main;
             };

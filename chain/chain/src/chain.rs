@@ -108,7 +108,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use time::ext::InstantExt as _;
-use tracing::{Span, debug, error, info, instrument, warn};
+use tracing::{Span, instrument};
 
 pub const APPLY_CHUNK_RESULTS_CACHE_SIZE: usize = 100;
 
@@ -461,7 +461,8 @@ impl Chain {
             chain_config.save_trie_changes,
             transaction_validity_period,
         )
-        .with_save_tx_outcomes(chain_config.save_tx_outcomes);
+        .with_save_tx_outcomes(chain_config.save_tx_outcomes)
+        .with_save_state_changes(chain_config.save_state_changes);
         let state_sync_adapter = ChainStateSyncAdapter::new(
             clock.clone(),
             ChainStoreAdapter::new(chain_store.store()),
@@ -534,9 +535,14 @@ impl Chain {
             true,
         )?;
 
-        info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
-              header_head.height, header_head.last_block_hash,
-              block_head.height, block_head.last_block_hash);
+        tracing::info!(
+            target: "chain",
+            header_height = %header_head.height,
+            ?header_head.last_block_hash,
+            block_height = %block_head.height,
+            ?block_head.last_block_hash,
+            "initializing chain"
+        );
         metrics::BLOCK_HEIGHT_HEAD.set(block_head.height as i64);
         let block_header = chain_store.get_block_header(&block_head.last_block_hash)?;
         metrics::BLOCK_ORDINAL_HEAD.set(block_header.block_ordinal() as i64);
@@ -834,10 +840,10 @@ impl Chain {
             self.epoch_manager.get_epoch_protocol_version(header.epoch_id())
         {
             if header.latest_protocol_version() < epoch_protocol_version {
-                error!(
-                    "header protocol version {} smaller than epoch protocol version {}",
-                    header.latest_protocol_version(),
-                    epoch_protocol_version
+                tracing::error!(
+                    header_version = %header.latest_protocol_version(),
+                    %epoch_protocol_version,
+                    "header protocol version smaller than epoch protocol version"
                 );
                 return Err(Error::InvalidProtocolVersion);
             }
@@ -960,7 +966,7 @@ impl Chain {
     /// based on this. We will update these once we get the block back after
     /// requesting it.
     pub fn process_block_header(&self, header: &BlockHeader) -> Result<(), Error> {
-        debug!(target: "chain", block_hash=?header.hash(), height=header.height(), "process_block_header");
+        tracing::debug!(target: "chain", block_hash=?header.hash(), height=header.height(), "process_block_header");
 
         if let BlockKnowledge::Known(err) = self.check_block_known(header.hash())? {
             return Err(Error::BlockKnown(err));
@@ -987,11 +993,11 @@ impl Chain {
         // content is not tampered
         let block_body_hash = block.compute_block_body_hash();
         if block_body_hash.is_none() {
-            warn!(block_hash = %block.hash(), "block version too old for block");
+            tracing::warn!(block_hash = %block.hash(), "block version too old for block");
             return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
         }
         if block.header().block_body_hash() != block_body_hash {
-            warn!(block_hash = %block.hash(), "invalid block body hash for block");
+            tracing::warn!(block_hash = %block.hash(), "invalid block body hash for block");
             return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
         }
 
@@ -1001,7 +1007,7 @@ impl Chain {
             self.epoch_manager.as_ref(),
             block.header(),
         )? {
-            error!(block_hash = %block.hash(), "wrong signature");
+            tracing::error!(block_hash = %block.hash(), "wrong signature");
             return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
         }
         Ok(VerifyBlockHashAndSignatureResult::Correct)
@@ -1211,7 +1217,7 @@ impl Chain {
         // incoming blocks that are not requested but already processed.
         self.save_block_hash_processed(hash);
         if let Err(e) = self.save_block_height_processed(block_height) {
-            warn!(target: "chain", "Failed to save processed height {}: {}", block_height, e);
+            tracing::warn!(target: "chain", %block_height, ?e, "failed to save processed height");
         }
 
         res
@@ -1227,7 +1233,7 @@ impl Chain {
         // Discard the block if it is old or not created by the right producer.
         if let Err(e) = self.check_optimistic_block(&block) {
             metrics::NUM_INVALID_OPTIMISTIC_BLOCKS.inc();
-            debug!(target: "client", ?e, "Optimistic block is invalid");
+            tracing::debug!(target: "client", ?e, "optimistic block is invalid");
             return;
         }
 
@@ -1249,29 +1255,29 @@ impl Chain {
         self.blocks_delay_tracker.record_optimistic_block_ready(block_height);
         if let Ok(true) = self.is_height_processed(block_height) {
             metrics::NUM_DROPPED_OPTIMISTIC_BLOCKS_BECAUSE_OF_PROCESSED_HEIGHT.inc();
-            debug!(
+            tracing::debug!(
                 target: "chain", prev_block_hash = ?prev_block_hash,
                 hash = ?block_hash, height = block_height,
-                "Dropping optimistic block, the height was already processed"
+                "dropping optimistic block, the height was already processed"
             );
             return;
         }
 
         match self.process_optimistic_block(block, chunks, apply_chunks_done_sender) {
             Ok(()) => {
-                debug!(
+                tracing::debug!(
                     target: "chain", prev_block_hash = ?prev_block_hash,
                     hash = ?block_hash, height = block_height,
-                    "Processed optimistic block"
+                    "processed optimistic block"
                 );
             }
             Err(err) => {
                 metrics::NUM_FAILED_OPTIMISTIC_BLOCKS.inc();
-                warn!(
+                tracing::warn!(
                     target: "chain", err = ?err,
                     prev_block_hash = ?prev_block_hash,
                     hash = ?block_hash, height = block_height,
-                    "Failed to process optimistic block"
+                    "failed to process optimistic block"
                 );
             }
         }
@@ -1450,14 +1456,14 @@ impl Chain {
         headers.sort_by_key(|left| left.height());
 
         if let (Some(first_header), Some(last_header)) = (headers.first(), headers.last()) {
-            info!(
+            tracing::info!(
                 target: "chain",
                 num_headers = headers.len(),
                 first_hash = ?first_header.hash(),
                 first_height = first_header.height(),
                 last_hash = ?last_header.hash(),
                 last_height = ?last_header.height(),
-                "Sync block headers");
+                "sync block headers");
         } else {
             // No headers.
             return Ok(());
@@ -1567,7 +1573,7 @@ impl Chain {
 
         let new_tail = tail_block.header().height();
         let new_chunk_tail = tail_block.chunks().min_height_included().unwrap();
-        debug!(target: "sync", ?new_tail, ?new_chunk_tail, "adjusting tail for sync blocks");
+        tracing::debug!(target: "sync", ?new_tail, ?new_chunk_tail, "adjusting tail for sync blocks");
 
         let tip = Tip::from_header(prev_block.header());
         let final_head = Tip::from_header(self.genesis.header());
@@ -1675,11 +1681,11 @@ impl Chain {
                         let orphan = Orphan { block, provenance, added: self.clock.now() };
                         self.blocks_with_missing_chunks
                             .add_block_with_missing_chunks(orphan, missing_chunk_hashes.clone());
-                        debug!(
+                        tracing::debug!(
                             target: "chain",
                             ?block_hash,
                             chunk_hashes=missing_chunk_hashes.iter().map(|h| format!("{:?}", h)).join(","),
-                            "Process block: missing chunks"
+                            "process block: missing chunks"
                         );
                     }
                     Error::BlockPendingOptimisticExecution => {
@@ -1687,24 +1693,24 @@ impl Chain {
                         self.blocks_delay_tracker.mark_block_pending_execution(&block_hash);
                         let orphan = Orphan { block, provenance, added: self.clock.now() };
                         self.blocks_pending_execution.add_block(orphan);
-                        debug!(
+                        tracing::debug!(
                             target: "chain",
                             ?block_hash,
-                            "Process block: optimistic block in processing"
+                            "process block: optimistic block in processing"
                         );
                     }
                     Error::EpochOutOfBounds(epoch_id) => {
                         // Possibly block arrived before we finished processing all of the blocks for epoch before last.
                         // Or someone is attacking with invalid chain.
-                        debug!(target: "chain", "Received block {}/{} ignored, as epoch {:?} is unknown", block_height, block.hash(), epoch_id);
+                        tracing::debug!(target: "chain", %block_height, block_hash = ?block.hash(), ?epoch_id, "received block ignored, as epoch is unknown");
                     }
                     Error::BlockKnown(block_known_error) => {
-                        debug!(
+                        tracing::debug!(
                             target: "chain",
                             block_hash=?block.hash(),
                             height=block_height,
                             error=?block_known_error,
-                            "Block known at this time");
+                            "block known at this time");
                     }
                     _ => {}
                 }
@@ -1720,7 +1726,7 @@ impl Chain {
 
         // 2) Start creating snapshot if needed.
         if let Err(err) = self.process_snapshot() {
-            error!(target: "state_snapshot", ?err, "failed to make a state snapshot");
+            tracing::error!(target: "state_snapshot", ?err, "failed to make a state snapshot");
         }
 
         let block = block.into_inner();
@@ -1878,7 +1884,7 @@ impl Chain {
                 // during catchup of this block.
                 cares_about_shard
             };
-            debug!(target: "chain", %shard_id, need_storage_update, "update storage");
+            tracing::debug!(target: "chain", %shard_id, need_storage_update);
 
             if need_storage_update {
                 self.resharding_manager.start_resharding(
@@ -2000,19 +2006,22 @@ impl Chain {
         for (shard_id, cached_shard_update_key, apply_result) in apply_result {
             match apply_result {
                 Ok(result) => {
-                    debug!(
-                        target: "chain", ?prev_block_hash, block_height,
-                        %shard_id, ?cached_shard_update_key,
-                        "Caching ShardUpdate result from OptimisticBlock"
+                    tracing::debug!(
+                        target: "chain",
+                        ?prev_block_hash,
+                        %block_height,
+                        %shard_id,
+                        ?cached_shard_update_key,
+                        "caching shard update result from optimistic block"
                     );
                     self.apply_chunk_results_cache.push(cached_shard_update_key, result);
                 }
                 Err(e) => {
-                    warn!(
+                    tracing::warn!(
                         target: "chain", ?e,
-                        ?prev_block_hash, block_height, %shard_id,
+                        ?prev_block_hash, %block_height, %shard_id,
                         ?cached_shard_update_key,
-                        "Error applying chunk for OptimisticBlock"
+                        "error applying chunk for optimistic block"
                     );
                 }
             }
@@ -2036,7 +2045,7 @@ impl Chain {
             block_processing_artifacts,
             apply_chunks_done_sender,
         ) {
-            debug!(target: "chain", "Pending block {:?} declined, error: {:?}", block_hash, err);
+            tracing::debug!(target: "chain", ?block_hash, ?err, "pending block declined");
         }
     }
 
@@ -2045,9 +2054,10 @@ impl Chain {
             self.epoch_manager.get_next_epoch_protocol_version(block_hash)
         {
             if PROTOCOL_VERSION < next_epoch_protocol_version {
-                error!(
-                    "The protocol version is about to be superseded, please upgrade nearcore as soon as possible. Client protocol version {}, new protocol version {}",
-                    PROTOCOL_VERSION, next_epoch_protocol_version,
+                tracing::error!(
+                    client_version = %PROTOCOL_VERSION,
+                    %next_epoch_protocol_version,
+                    "the protocol version is about to be superseded, please upgrade nearcore as soon as possible"
                 );
             }
         }
@@ -2076,7 +2086,7 @@ impl Chain {
         // If the full block is not available, skip getting candidate.
         // This is possible if the node just went through state sync.
         let Ok(last_final_block) = self.get_block(&last_final_block_hash) else {
-            warn!(
+            tracing::warn!(
                 %last_final_block_hash,
                 "get_new_flat_storage_head could not get last final block",
             );
@@ -2249,7 +2259,7 @@ impl Chain {
         // see if the block is already in processing or if there are too many blocks being processed
         self.blocks_in_processing.add_dry_run(&BlockToApply::Normal(*block.hash()))?;
 
-        debug!(target: "chain", height=header.height(), num_approvals = header.num_approvals(), "preprocess_block");
+        tracing::debug!(target: "chain", height=header.height(), num_approvals = header.num_approvals(), "preprocess_block");
 
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
@@ -2315,7 +2325,7 @@ impl Chain {
         let (is_caught_up, state_sync_info) =
             self.get_catchup_and_state_sync_infos(Some(header.hash()), &prev_hash, prev_prev_hash)?;
 
-        debug!(target: "chain", block_hash = ?header.hash(), is_caught_up=is_caught_up, "Process block");
+        tracing::debug!(target: "chain", block_hash = ?header.hash(), is_caught_up=is_caught_up, "processing block");
 
         // Check the header is valid before we proceed with the full block.
         self.validate_header(header, provenance)?;
@@ -2441,9 +2451,9 @@ impl Chain {
             Some(block_hash) => self.shard_tracker.get_state_sync_info(block_hash, prev_hash)?,
             None => None,
         };
-        debug!(
+        tracing::debug!(
             target: "chain", ?block_hash, shards_to_sync=?state_sync_info.as_ref().map(|s| s.shards()),
-            "Checked for shards to sync for epoch T+1 upon processing first block of epoch T"
+            "checked for shards to sync for epoch t+1 upon processing first block of epoch t"
         );
         Ok((state_sync_info.is_none(), state_sync_info))
     }
@@ -2464,7 +2474,7 @@ impl Chain {
     ) {
         let blocks = self.blocks_with_missing_chunks.ready_blocks();
         if !blocks.is_empty() {
-            debug!(target:"chain", "Got {} blocks that were missing chunks but now are ready.", blocks.len());
+            tracing::debug!(target: "chain", blocks_count = %blocks.len(), "got blocks that were missing chunks but now are ready");
         }
         for block in blocks {
             let block_hash = *block.block.header().hash();
@@ -2477,11 +2487,11 @@ impl Chain {
             );
             match res {
                 Ok(_) => {
-                    debug!(target: "chain", %block_hash, height, "Accepted block with missing chunks");
+                    tracing::debug!(target: "chain", %block_hash, height, "accepted block with missing chunks");
                     self.blocks_delay_tracker.mark_block_completed_missing_chunks(&block_hash);
                 }
                 Err(_) => {
-                    debug!(target: "chain", %block_hash, height, "Declined block with missing chunks is declined.");
+                    tracing::debug!(target: "chain", %block_hash, height, "declined block with missing chunks is declined");
                 }
             }
         }
@@ -2563,7 +2573,7 @@ impl Chain {
 
     /// Drop all downloaded or generated state parts and headers.
     pub fn clear_all_downloaded_parts(&mut self) -> Result<(), Error> {
-        debug!(target: "state_sync", "Clear old state parts");
+        tracing::debug!(target: "state_sync", "clear old state parts");
         let mut store_update = self.chain_store.store().store_update();
         store_update.delete_all(DBCol::StateParts);
         store_update.delete_all(DBCol::StateHeaders);
@@ -2577,7 +2587,7 @@ impl Chain {
         blocks_catch_up_state: &mut BlocksCatchUpState,
         block_catch_up_scheduler: &near_async::messaging::Sender<BlockCatchUpRequest>,
     ) -> Result<(), Error> {
-        debug!(
+        tracing::debug!(
             target: "catchup",
             pending_blocks = ?blocks_catch_up_state.pending_blocks,
             processed_blocks = ?blocks_catch_up_state.processed_blocks.keys().collect::<Vec<_>>(),
@@ -2612,7 +2622,7 @@ impl Chain {
                         blocks_catch_up_state.done_blocks.push(queued_block);
                     }
                     Err(err) => {
-                        error!(target: "chain", ?err, "Error processing block during catch up, retrying");
+                        tracing::error!(target: "chain", ?err, "error processing block during catch up, retrying");
                         blocks_catch_up_state.pending_blocks.push(queued_block);
                     }
                 }
@@ -2785,7 +2795,7 @@ impl Chain {
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
         affected_blocks: &[CryptoHash],
     ) -> Result<(), Error> {
-        debug!("Finishing catching up blocks after syncing pre {:?}", epoch_first_block);
+        tracing::debug!(?epoch_first_block, "finishing catching up blocks after syncing pre");
 
         let first_block = self.chain_store.get_block(epoch_first_block)?;
 
@@ -2799,7 +2809,7 @@ impl Chain {
             .remove_block_to_catchup(*first_block.header().prev_hash(), *epoch_first_block);
 
         for block_hash in affected_blocks {
-            debug!(target: "chain", "Catching up: removing prev={:?} from the queue.", block_hash);
+            tracing::debug!(target: "chain", ?block_hash, "catching up: removing prev from the queue");
             chain_store_update.remove_prev_block_to_catchup(*block_hash);
         }
         chain_store_update.remove_state_sync_info(*epoch_first_block);
@@ -3220,7 +3230,7 @@ impl Chain {
                 shard_id,
                 matches!(block.block_type, BlockType::Normal),
             ) {
-                debug!(target: "chain", %shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
+                tracing::debug!(target: "chain", %shard_id, ?cached_shard_update_key, "using cached shard update result");
                 return Ok(Some((
                     shard_id,
                     cached_shard_update_key,
@@ -3228,7 +3238,7 @@ impl Chain {
                 )));
             }
         }
-        debug!(target: "chain", %shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
+        tracing::debug!(target: "chain", %shard_id, ?cached_shard_update_key, "creating shard update job");
 
         let mut on_post_state_ready = None;
         let shard_update_reason = if is_new_chunk {
@@ -3249,14 +3259,14 @@ impl Chain {
                 chunk_header,
             )
             .map_err(|err| {
-                warn!(
+                tracing::warn!(
                     target: "chain",
                     ?err,
                     %shard_id,
                     prev_chunk_height_included,
                     ?prev_chunk_extra,
                     ?chunk_header,
-                    "Failed to validate chunk extra"
+                    "failed to validate chunk extra"
                 );
                 byzantine_assert!(false);
                 err

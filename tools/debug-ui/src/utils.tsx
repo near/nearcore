@@ -54,8 +54,6 @@ export function addDebugPortLink(peer_network_addr: string): ReactElement {
     const peer_network_addr_array = peer_network_addr.split(':');
     const peer_network_port = parseInt(peer_network_addr_array.pop() || '24567');
     const peer_network_ip = peer_network_addr_array.pop() || peer_network_addr;
-    const protocol =
-        (typeof window !== 'undefined' && window.location?.protocol === 'https:') ? 'https://' : 'http://';
     let peer_num = 0;
     if (peer_network_ip.includes('127.0.0.1')) {
         peer_num = peer_network_port - DEFAULT_NETWORK_PORT;
@@ -63,7 +61,7 @@ export function addDebugPortLink(peer_network_addr: string): ReactElement {
     const peer_rpc_port = DEFAULT_RPC_PORT + peer_num;
     const peer_rpc_address =
         peer_network_addr.replace(/:.*/, ':') + peer_rpc_port.toString() + '/debug';
-    return <a href={protocol + 'localhost:3000/' + peer_rpc_address}>{peer_network_addr}</a>;
+    return <a href={'http://localhost:3000/' + peer_rpc_address}>{peer_network_addr}</a>;
 }
 
 export function toHumanTime(seconds: number): string {

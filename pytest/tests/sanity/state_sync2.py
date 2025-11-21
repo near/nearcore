@@ -52,4 +52,4 @@ time.sleep(3)
 utils.wait_for_blocks(nodes[0], target=BLOCKS)
 
 # make sure `nodes[0]` actually state synced
-assert tracker.check("transition to State Sync")
+assert tracker.check("transition to state sync")

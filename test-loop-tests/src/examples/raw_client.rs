@@ -7,7 +7,7 @@ use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, MutableConfigValue, TrackedShardsConfig};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::ClientActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{AsyncComputationMultiSpawner, Client};
 use near_epoch_manager::EpochManager;
@@ -129,7 +129,7 @@ fn test_raw_client_test_loop_setup() {
         Duration::milliseconds(100),
     );
 
-    let client_actor = ClientActorInner::new(
+    let client_actor = ClientActor::new(
         test_loop.clock(),
         client,
         PeerId::random(),

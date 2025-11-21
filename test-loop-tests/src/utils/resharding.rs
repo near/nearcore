@@ -40,7 +40,7 @@ use crate::utils::transactions::{
 };
 use crate::utils::{get_node_data, retrieve_client_actor};
 use near_chain::types::Tip;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::ClientActor;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::trie_key::TrieKey;
 use near_store::flat::FlatStorageStatus;
@@ -401,7 +401,7 @@ pub(crate) fn send_large_cross_shard_receipts(
                         outgoing_receipt_sizes.insert(target_shard, receipt_sizes);
                     }
                 }
-                tracing::info!(target: "test", "outgoing buffers from shard {}: {:?}", shard_uid.shard_id(), outgoing_receipt_sizes);
+                tracing::info!(target: "test", shard_id = %shard_uid.shard_id(), ?outgoing_receipt_sizes, "outgoing buffers from shard");
             }
 
             let is_epoch_before_resharding =
@@ -447,10 +447,10 @@ pub(crate) fn send_large_cross_shard_receipts(
                         );
                         tracing::info!(
                             target: "test",
-                            "Sending 3MB receipt from {} to {}. tx_hash: {:?}",
-                            signer_id,
-                            receiver_id,
-                            tx.get_hash()
+                            %signer_id,
+                            %receiver_id,
+                            tx_hash = ?tx.get_hash(),
+                            "sending 3MB receipt"
                         );
                         store_and_submit_tx(
                             &node_datas,
@@ -1290,7 +1290,7 @@ fn get_resharded_shard_uids(
 // Helper function to retrieve any key from the trie. This bypasses all intermediate layers
 // (caching, memtrie, flat-storage).
 fn get_trie_node_value<I: borsh::BorshDeserialize + Default>(
-    client_actor: &ClientActorInner,
+    client_actor: &ClientActor,
     shard_uid: ShardUId,
     prev_block_hash: &CryptoHash,
     key: TrieKey,

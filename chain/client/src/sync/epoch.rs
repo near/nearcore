@@ -1,4 +1,4 @@
-use crate::client_actor::ClientActorInner;
+use crate::client_actor::ClientActor;
 use crate::metrics;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
@@ -13,7 +13,6 @@ use near_network::client::{EpochSyncRequestMessage, EpochSyncResponseMessage};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_performance_metrics_macros::perf;
 use near_primitives::block::{Approval, ApprovalInner, compute_bp_hash_from_validator_stakes};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
@@ -507,7 +506,7 @@ impl EpochSync {
         match status {
             SyncStatus::EpochSync(status) => {
                 if status.attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
-                    tracing::warn!("Epoch sync from {} timed out; retrying", status.source_peer_id);
+                    tracing::warn!(source_peer_id = %status.source_peer_id, "epoch sync from peer timed out, retrying");
                 } else {
                     return Ok(());
                 }
@@ -520,7 +519,7 @@ impl EpochSync {
             .choose(&mut rand::thread_rng())
             .ok_or_else(|| Error::Other("No peers to request epoch sync from".to_string()))?;
 
-        tracing::info!(peer_id=?peer.peer_info.id, "Bootstrapping node via epoch sync");
+        tracing::info!(peer_id=?peer.peer_info.id, "bootstrapping node via epoch sync");
 
         *status = SyncStatus::EpochSync(EpochSyncStatus {
             source_peer_id: peer.peer_info.id.clone(),
@@ -546,7 +545,7 @@ impl EpochSync {
         let proof = proof.into_v1();
         if let SyncStatus::EpochSync(status) = status {
             if status.source_peer_id != source_peer {
-                tracing::warn!("Ignoring epoch sync proof from unexpected peer: {}", source_peer);
+                tracing::warn!(%source_peer, expected_peer = %status.source_peer_id, "ignoring epoch sync proof from unexpected peer");
                 return Ok(());
             }
             if proof
@@ -557,8 +556,8 @@ impl EpochSync {
                 >= status.source_peer_height
             {
                 tracing::error!(
-                    "Ignoring epoch sync proof from peer {} that is too recent",
-                    source_peer
+                    %source_peer,
+                    "ignoring epoch sync proof from peer that is too recent"
                 );
                 return Ok(());
             }
@@ -570,13 +569,13 @@ impl EpochSync {
                 < status.source_peer_height
             {
                 tracing::error!(
-                    "Ignoring epoch sync proof from peer {} that is too old",
-                    source_peer
+                    %source_peer,
+                    "ignoring epoch sync proof from peer that is too old"
                 );
                 return Ok(());
             }
         } else {
-            tracing::warn!("Ignoring unexpected epoch sync proof from peer: {}", source_peer);
+            tracing::warn!(%source_peer, "ignoring unexpected epoch sync proof");
             return Ok(());
         }
 
@@ -654,7 +653,7 @@ impl EpochSync {
         store_update.commit()?;
 
         *status = SyncStatus::EpochSyncDone;
-        tracing::info!(epoch_id=?last_header.epoch_id(), "Bootstrapped from epoch sync");
+        tracing::info!(epoch_id=?last_header.epoch_id(), "bootstrapped from epoch sync");
 
         Ok(())
     }
@@ -875,8 +874,7 @@ impl EpochSync {
     }
 }
 
-impl Handler<EpochSyncRequestMessage> for ClientActorInner {
-    #[perf]
+impl Handler<EpochSyncRequestMessage> for ClientActor {
     fn handle(&mut self, msg: EpochSyncRequestMessage) {
         if self.client.sync_handler.epoch_sync.config.ignore_epoch_sync_network_requests {
             // Temporary kill switch for the rare case there were issues with this network request.
@@ -897,7 +895,7 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
                 ) {
                     Ok(epoch_sync_proof) => epoch_sync_proof,
                     Err(err) => {
-                        tracing::error!(?err, "Failed to derive epoch sync proof");
+                        tracing::error!(?err, "failed to derive epoch sync proof");
                         return;
                     }
                 };
@@ -909,13 +907,12 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
     }
 }
 
-impl Handler<EpochSyncResponseMessage> for ClientActorInner {
-    #[perf]
+impl Handler<EpochSyncResponseMessage> for ClientActor {
     fn handle(&mut self, msg: EpochSyncResponseMessage) {
         let (proof, _) = match msg.proof.decode() {
             Ok(proof) => proof,
             Err(err) => {
-                tracing::error!(?err, "Failed to uncompress epoch sync proof");
+                tracing::error!(?err, "failed to uncompress epoch sync proof");
                 return;
             }
         };
@@ -926,7 +923,7 @@ impl Handler<EpochSyncResponseMessage> for ClientActorInner {
             msg.from_peer,
             self.client.epoch_manager.as_ref(),
         ) {
-            tracing::error!(?err, "Failed to apply epoch sync proof");
+            tracing::error!(?err, "failed to apply epoch sync proof");
         }
     }
 }

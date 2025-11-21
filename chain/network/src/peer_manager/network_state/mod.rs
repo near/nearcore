@@ -281,7 +281,7 @@ impl NetworkState {
             peer.stop(Some(ban_reason));
         } else {
             if let Err(err) = self.peer_store.peer_ban(clock, peer_id, ban_reason) {
-                tracing::debug!(target: "network", ?err, "Failed to save peer data");
+                tracing::debug!(target: "network", ?err, "failed to save peer data");
             }
         }
     }
@@ -332,12 +332,12 @@ impl NetworkState {
             let peer_info = &conn.peer_info;
             // Check if this is a blacklisted peer.
             if peer_info.addr.as_ref().map_or(true, |addr| this.peer_store.is_blacklisted(addr)) {
-                tracing::debug!(target: "network", peer_info = ?peer_info, "Dropping connection from blacklisted peer or unknown address");
+                tracing::debug!(target: "network", peer_info = ?peer_info, "dropping connection from blacklisted peer or unknown address");
                 return Err(RegisterPeerError::Blacklisted);
             }
 
             if this.peer_store.is_banned(&peer_info.id) {
-                tracing::debug!(target: "network", id = ?peer_info.id, "Dropping connection from banned peer");
+                tracing::debug!(target: "network", id = ?peer_info.id, "dropping connection from banned peer");
                 return Err(RegisterPeerError::Banned);
             }
 
@@ -366,7 +366,7 @@ impl NetworkState {
                             tracing::debug!(target: "network",
                                 tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
                                 max_num_peers = this.config.max_num_peers,
-                                "Dropping handshake (network at max capacity)."
+                                "dropping handshake (network at max capacity)"
                             );
                             return Err(RegisterPeerError::ConnectionLimitExceeded);
                         }
@@ -456,7 +456,7 @@ impl NetworkState {
                 _ => this.peer_store.peer_disconnected(&clock, &conn.peer_info.id),
             };
             if let Err(err) = res {
-                tracing::debug!(target: "network", ?err, "Failed to save peer data");
+                tracing::debug!(target: "network", ?err, "failed to save peer data");
             }
 
             // Save the fact that we are disconnecting to the ConnectionStore,
@@ -509,7 +509,7 @@ impl NetworkState {
             let succeeded = !result.is_err();
 
             if let Err(ref err) = result {
-                tracing::info!(target:"network", err = format!("{:#}", err), "Failed to connect to {peer_info}");
+                tracing::info!(target:"network", ?err, %peer_info, "failed to connect");
             }
 
             // The peer may not be in the peer store; we try to record the connection attempt but
@@ -573,7 +573,7 @@ impl NetworkState {
         // Check if the message is for myself and don't try to send it in that case.
         if let PeerIdOrHash::PeerId(target) = msg.target() {
             if target == &my_peer_id {
-                tracing::debug!(target: "network", account_id = ?self.config.validator.account_id(), ?my_peer_id, ?msg, "Drop signed message to myself");
+                tracing::debug!(target: "network", account_id = ?self.config.validator.account_id(), ?my_peer_id, ?msg, "drop signed message to myself");
                 metrics::CONNECTED_TO_MYSELF.inc();
                 return false;
             }
@@ -615,7 +615,7 @@ impl NetworkState {
                               reason = ?find_route_error,
                               known_peers = ?self.graph.routing_table.reachable_peers(),
                               msg = ?msg.body(),
-                            "Drop signed message"
+                            "dropping signed message"
                         );
                         return false;
                     }
@@ -711,7 +711,8 @@ impl NetworkState {
             tracing::debug!(target: "network",
                    account_id = ?self.config.validator.account_id(),
                    to = ?account_id,
-                   ?msg,"Drop message: unknown account",
+                   ?msg,
+                   err = "unknown account",
             );
             return false;
         };
@@ -887,7 +888,7 @@ impl NetworkState {
                     None
                 }
                 body => {
-                    tracing::error!(target: "network", "Peer received unexpected message type: {:?}", body);
+                    tracing::error!(target: "network", ?body, "peer received unexpected message type");
                     None
                 }
             },

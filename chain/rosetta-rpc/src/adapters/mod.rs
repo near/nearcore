@@ -1,7 +1,7 @@
 use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_chain_configs::Genesis;
-use near_client::ViewClientActorInner;
+use near_client::ViewClientActor;
 use near_primitives::types::Balance;
 use validated_operations::ValidatedOperation;
 
@@ -20,7 +20,7 @@ mod validated_operations;
 /// We choose to do a proper implementation for the genesis block later.
 async fn convert_genesis_records_to_transaction(
     genesis: &Genesis,
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
     block: &near_primitives::views::BlockView,
 ) -> crate::errors::Result<crate::models::Transaction> {
     let mut genesis_account_ids = std::collections::HashSet::new();
@@ -114,7 +114,7 @@ async fn convert_genesis_records_to_transaction(
 }
 
 pub(crate) async fn convert_block_to_transactions(
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
     block: &near_primitives::views::BlockView,
     currencies: &Option<Vec<crate::models::Currency>>,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
@@ -186,7 +186,7 @@ pub(crate) async fn convert_block_to_transactions(
 
 pub(crate) async fn collect_transactions(
     genesis: &Genesis,
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
     block: &near_primitives::views::BlockView,
     currencies: &Option<Vec<crate::models::Currency>>,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
@@ -487,6 +487,11 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                 }
                 near_primitives::transaction::Action::DeterministicStateInit(_) => {
                     // TODO(#14073): Implement rosetta adapter, probably first requires global contracts, too
+                }
+                near_primitives::action::Action::AddGasKey(_)
+                | near_primitives::action::Action::DeleteGasKey(_)
+                | near_primitives::action::Action::TransferToGasKey(_) => {
+                    // TODO(gas-keys): Implement rosetta adapter, ignored for now.
                 }
             }
         }

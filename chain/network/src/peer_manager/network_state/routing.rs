@@ -200,7 +200,7 @@ impl NetworkState {
             return;
         }
 
-        tracing::trace!(target: "network", route_back = ?msg.clone(), "Received peer message that requires response");
+        tracing::trace!(target: "network", route_back = ?msg.clone(), "received peer message that requires response");
         let from = &conn.peer_info.id;
 
         match conn.tier {
