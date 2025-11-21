@@ -8,6 +8,10 @@ platform_excludes := if os() == "macos" {
     ""
 }
 
+# TODO(spice): Make spice run part of nightly once it's close to being done.
+# Releasing spice may take awhile and we should be able to test features without
+# spice until it's close to being done.
+spice_test_flags := "--features protocol_feature_spice,nightly,test_features"
 nightly_test_flags := "--features nightly,test_features"
 stable_test_flags := "--features test_features"
 
@@ -29,7 +33,7 @@ test-ci *FLAGS: check-cargo-fmt \
                 check-cargo-udeps \
                 (nextest "stable" FLAGS) \
                 (nextest "nightly" FLAGS) \
-                nextest-spice \
+                (nextest "spice" FLAGS) \
                 doctests
 # order them with the fastest / most likely to fail checks first
 # when changing this, remember to adjust the CI workflow in parallel, as CI runs each of these in a separate job
@@ -49,15 +53,12 @@ nextest TYPE *FLAGS:
         {{ platform_excludes }} \
         {{ if TYPE == "nightly" { nightly_test_flags } \
            else if TYPE == "stable" { stable_test_flags } \
-           else { error("TYPE is neither 'nightly' nor 'stable'") } }} \
+           else if TYPE == "spice" { spice_test_flags } \
+           else { error("TYPE is neither 'spice, 'nightly' nor 'stable'") } }} \
         {{ FLAGS }}
 
 nextest-slow TYPE *FLAGS: (nextest TYPE "--ignore-default-filter -E 'default() + test(/^(.*::slow_test|slow_test)/)'" FLAGS)
 nextest-all TYPE *FLAGS: (nextest TYPE "--ignore-default-filter -E 'all()'" FLAGS)
-
-# TODO(#13341): Remove once spice tests can run as part of nightly or stable tests.
-spice_test_filter := "-E 'all() & test(spice)'"
-nextest-spice *FLAGS: (nextest "stable" "--features protocol_feature_spice,test_features" "--ignore-default-filter" spice_test_filter FLAGS)
 
 doctests:
     cargo test --doc

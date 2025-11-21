@@ -95,6 +95,8 @@ fn safe_produce_blocks(
 
 /// Test that we preserve the validators from the epoch of the state dump.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_preserve_validators() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
@@ -144,6 +146,8 @@ fn test_dump_state_preserve_validators() {
 
 /// Test that we respect the specified account ID list in dump_state.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_respect_select_account_ids() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
@@ -227,6 +231,8 @@ fn test_dump_state_respect_select_account_ids() {
 
 /// Test that we preserve the validators from the epoch of the state dump.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_preserve_validators_in_memory() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
@@ -275,6 +281,8 @@ fn test_dump_state_preserve_validators_in_memory() {
 
 /// Test that we return locked tokens for accounts that are not validators.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_return_locked() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
@@ -323,6 +331,8 @@ fn test_dump_state_return_locked() {
 /// If the node does not track a shard, state dump will not give the correct result.
 #[test]
 #[should_panic(expected = "MissingTrieValue")]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_not_track_shard() {
     let epoch_length = 4;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -410,6 +420,8 @@ fn test_dump_state_not_track_shard() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_with_delayed_receipt() {
     init_test_logger();
 
@@ -496,6 +508,8 @@ fn test_dump_state_with_delayed_receipt() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_respect_select_whitelist_validators() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);

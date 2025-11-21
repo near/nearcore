@@ -84,6 +84,8 @@ fn test_rpc_single_shard_tracking() {
 /// Tests that an archival node tracking a parent shard correctly tracks its children after resharding.
 /// Verifies that GC works as expected and only relevant chunk data is kept.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_archival_single_shard_tracking_when_resharding() {
     init_test_logger();
 

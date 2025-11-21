@@ -230,6 +230,8 @@ impl MetricTrackers {
 
 /// Test that early transaction preparation works as expected on the happy path
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_early_prepare_tx_basic() {
     init_test_logger();
 
@@ -278,6 +280,8 @@ fn test_early_prepare_tx_basic() {
 
 /// Test that early transaction preparation works as expected when there is a missing chunk
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_early_prepare_tx_missing_chunk() {
     init_test_logger();
 
@@ -350,6 +354,8 @@ fn test_early_prepare_tx_missing_chunk() {
 /// jobs should be found and used. However sometimes testloop can cause weird timing issues where
 /// one of the jobs doesn't start in time.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_early_prepare_tx_missing_block() {
     init_test_logger();
 
@@ -415,6 +421,8 @@ fn test_early_prepare_tx_missing_block() {
 
 /// Test that early transaction preparation works as expected when there is an epoch switch
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_early_prepare_tx_epoch_switch() {
     init_test_logger();
 

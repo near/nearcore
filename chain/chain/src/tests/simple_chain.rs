@@ -13,6 +13,8 @@ use num_rational::Ratio;
 use std::sync::Arc;
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn build_chain() {
     init_test_logger();
     let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap()); // 2020-10-01 00:00:00
@@ -278,6 +280,8 @@ fn block_chunk_headers_iter() {
 /// it is marked as pending and can be processed later.
 #[cfg(feature = "test_features")]
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_pending_block() {
     init_test_logger();
     let clock = Clock::real();
@@ -352,6 +356,8 @@ fn test_pending_block() {
 /// skip pending pool and process block right away.
 #[cfg(feature = "test_features")]
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_pending_block_same_height() {
     use near_crypto::{KeyType, Signature};
 
