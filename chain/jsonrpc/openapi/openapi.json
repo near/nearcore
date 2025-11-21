@@ -10963,19 +10963,6 @@
       },
       "ReceiptView": {
         "properties": {
-          "predecessor_gas_key": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PublicKey"
-              },
-              {
-                "enum": [
-                  null
-                ],
-                "nullable": true
-              }
-            ]
-          },
           "predecessor_id": {
             "$ref": "#/components/schemas/AccountId"
           },
@@ -14530,19 +14517,6 @@
       },
       "RpcReceiptResponse": {
         "properties": {
-          "predecessor_gas_key": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PublicKey"
-              },
-              {
-                "enum": [
-                  null
-                ],
-                "nullable": true
-              }
-            ]
-          },
           "predecessor_id": {
             "$ref": "#/components/schemas/AccountId"
           },
@@ -16604,12 +16578,6 @@
             "format": "uint32",
             "minimum": 0,
             "nullable": true,
-            "type": "integer"
-          },
-          "priority_fee": {
-            "default": 0,
-            "format": "uint64",
-            "minimum": 0,
             "type": "integer"
           },
           "public_key": {
