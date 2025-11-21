@@ -54,10 +54,9 @@ The node, roughly, does the following steps:
 Great, the node knows to send (forward) the transaction to the validator, but
 how does the routing work? How do we know which peer is hosting a validator?
 
-Each validator is regularly (every `config.ttl_account_id_router`/2 seconds == 30
-minutes in production) broadcasting so called `AnnounceAccount`, which is
-basically a pair of `(account_id, peer_id)`, to the whole network. This way each
-node knows which `peer_id` to send the message to.
+Each validator regularly advertises its peer information through signed
+`AccountsData` messages, so every node knows which `peer_id` to use for a given
+validator account.
 
 Then it asks the routing table about the shortest path to the peer, and sends
 the `ForwardTx` message to the peer.

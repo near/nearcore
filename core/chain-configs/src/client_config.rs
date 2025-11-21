@@ -770,9 +770,6 @@ pub struct ClientConfig {
     pub epoch_length: BlockHeightDelta,
     /// Number of block producer seats
     pub num_block_producer_seats: NumSeats,
-    /// Time to persist Accounts Id in the router without removing them.
-    #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
-    pub ttl_account_id_router: Duration,
     /// Horizon at which instead of fetching block, fetch full state.
     pub block_fetch_horizon: BlockHeightDelta,
     /// Time between check to perform catchup.
