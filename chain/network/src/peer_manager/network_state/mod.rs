@@ -703,7 +703,7 @@ impl NetworkState {
             .map(|data| data.peer_id.clone());
         // Find the target peer_id in self.accounts_data.
         let target = if let Some(peer_id) = peer_id_from_account_data {
-            metrics::ACCOUNT_TO_PEER_LOOKUPS.with_label_values(&["AccountData"]).inc();
+            metrics::ACCOUNT_TO_PEER_LOOKUPS.inc();
             peer_id
         } else {
             // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
