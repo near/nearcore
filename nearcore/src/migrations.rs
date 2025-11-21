@@ -1,4 +1,5 @@
 use near_store::Store;
+use near_store::db::ColdDB;
 use near_store::db::metadata::{DB_VERSION, DbVersion, MIN_SUPPORTED_DB_VERSION};
 
 pub(super) struct Migrator<'a> {
@@ -21,7 +22,12 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
         }
     }
 
-    fn migrate(&self, _store: &Store, version: DbVersion) -> anyhow::Result<()> {
+    fn migrate(
+        &self,
+        _hot_store: &Store,
+        _cold_db: Option<&ColdDB>,
+        version: DbVersion,
+    ) -> anyhow::Result<()> {
         match version {
             0..MIN_SUPPORTED_DB_VERSION => unreachable!(),
             45 => Ok(()), // DBCol::StatePartsApplied column added, no need to perform a migration
