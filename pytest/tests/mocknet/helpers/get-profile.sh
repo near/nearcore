@@ -10,7 +10,7 @@ rm -f "$HOME/perf."*
 
 # 2. Allow perf to access necessary data
 # cspell:ignore kptr
-sudo sysctl -w kernel.perf_event_paranoid=0
+sudo sysctl -w kernel.perf_event_paranoid=-1
 sudo sysctl -w kernel.kptr_restrict=0
 
 # 3. Get PID of neard
@@ -41,30 +41,41 @@ gather_simple_perf() {
 # extended perf data
 gather_extended_perf() {
   sudo sysctl kernel.sched_schedstats=1
-  
+
   output_dir="./perf-data"
   rm -rf ${output_dir} && mkdir -p ${output_dir}
-  
-  perf stat \
+
+  sudo perf stat \
     -p ${pid} \
     --per-thread \
     -- sleep "${record_secs}" &> "${output_dir}/perf-stat.out"
+  sudo chown ${USER} "${output_dir}/perf-stat.out"
 
   rm -f "perf-on-cpu.data" "perf-off-cpu.data"
-  perf record -e cpu-clock -F1000 \
+  echo "▶️ Recording on-cpu perf data for neard (pid: $pid) for ${record_secs}s..."
+  sudo perf record -e cpu-clock -F1000 \
     -g --call-graph fp,65528 \
     -p ${pid} -o perf-on-cpu.data -- sleep "${record_secs}"
+  sudo chown ${USER} perf-on-cpu.data
+
+  echo "📜 Converting on-cpu perf data to perf-on-cpu.script"
   nice -n 19 perf script -F +pid -i perf-on-cpu.data > "${output_dir}/perf-on-cpu.script"
 
+  echo "▶️ Recording off-cpu perf data for neard (pid: $pid) for ${record_secs}s..."
   sudo perf record \
     -e sched:sched_stat_sleep -e sched:sched_switch -e sched:sched_process_exit \
     -g --call-graph fp,65528 \
     -p ${pid} \
     -o perf-off-cpu.data -- sleep "${record_secs}"
   sudo chown ${USER} perf-off-cpu.data
+
+  echo "📜 Converting off-cpu perf data to off-cpu-profile.script"
   nice -n 19 perf script -F +pid,+comm,+tid,+time,+ip,+sym -i perf-off-cpu.data > ${output_dir}/off-cpu-profile.script
 
+  echo "🗜Compressing all perf data to perf-data.tar.gz"
   nice -n 19 tar czf perf-data.tar.gz "${output_dir}"
+
+  echo "✅ Done: perf-data.tar.gz"
 }
 
 if [ "$mode" = "extended" ]; then
