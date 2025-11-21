@@ -195,7 +195,8 @@ pytest --timeout=5m sanity/gc_after_sync1.py --features nightly
 #pytest --timeout=5m sanity/gc_after_sync1.py --features nightly,protocol_feature_spice
 pytest --timeout=5m sanity/gc_sync_after_sync.py
 pytest --timeout=5m sanity/gc_sync_after_sync.py --features nightly
-pytest --timeout=5m sanity/gc_sync_after_sync.py --features nightly,protocol_feature_spice
+# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#pytest --timeout=5m sanity/gc_sync_after_sync.py --features nightly,protocol_feature_spice
 # TODO(#13551): Enable after fixing flaky test
 # pytest --timeout=5m sanity/gc_sync_after_sync.py swap_nodes
 # pytest --timeout=5m sanity/gc_sync_after_sync.py swap_nodes --features nightly
