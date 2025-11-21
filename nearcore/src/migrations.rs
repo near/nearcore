@@ -3,6 +3,7 @@ use near_store::db::ColdDB;
 use near_store::db::metadata::{DB_VERSION, DbVersion, MIN_SUPPORTED_DB_VERSION};
 
 pub(super) struct Migrator<'a> {
+    #[allow(dead_code)]
     config: &'a crate::config::NearConfig,
 }
 
@@ -21,30 +22,15 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
         }
     }
 
-    fn migrate(&self, _store: &Store, version: DbVersion) -> anyhow::Result<()> {
-        match version {
-            0..MIN_SUPPORTED_DB_VERSION => unreachable!(),
-            45 => Ok(()), // DBCol::StatePartsApplied column added, no need to perform a migration
-            46 => Ok(()), // no migration needed for hot store
-            DB_VERSION.. => unreachable!(),
-        }
-    }
-
-    fn migrate_cold(
+    fn migrate(
         &self,
-        latest_version_hot_store: &Store,
-        cold_store: &ColdDB,
+        _hot_store: &Store,
+        _cold_db: Option<&ColdDB>,
         version: DbVersion,
     ) -> anyhow::Result<()> {
         match version {
             0..MIN_SUPPORTED_DB_VERSION => unreachable!(),
             45 => Ok(()), // DBCol::StatePartsApplied column added, no need to perform a migration
-            46 => near_chain::resharding::migrations::migrate_46_to_47(
-                latest_version_hot_store,
-                cold_store,
-                &self.config.genesis.config,
-                &self.config.config.store,
-            ),
             DB_VERSION.. => unreachable!(),
         }
     }
