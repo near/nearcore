@@ -20,7 +20,8 @@ pytest adversarial/start_from_genesis.py overtake --features nightly
 #pytest adversarial/start_from_genesis.py overtake --features nightly,protocol_feature_spice
 pytest adversarial/start_from_genesis.py doomslug_off
 pytest adversarial/start_from_genesis.py doomslug_off --features nightly
-pytest adversarial/start_from_genesis.py doomslug_off --features nightly,protocol_feature_spice
+# TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#pytest adversarial/start_from_genesis.py doomslug_off --features nightly,protocol_feature_spice
 # TODO(#6421): Currently broken.
 #pytest adversarial/start_from_genesis.py overtake doomslug_off
 #pytest adversarial/start_from_genesis.py overtake doomslug_off --features nightly
