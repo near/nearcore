@@ -35,7 +35,7 @@ use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, NetworkRoutesView,
@@ -123,7 +123,6 @@ pub enum Event {
     PeerManagerStarted,
     ServerStarted,
     RoutedMessageDropped,
-    AccountsAdded(Vec<AnnounceAccount>),
     EdgesAdded(Vec<Edge>),
     Ping(Ping),
     Pong(Pong),

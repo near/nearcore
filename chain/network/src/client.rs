@@ -7,13 +7,13 @@ use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::state_sync::{PartIdOrHeader, StateRequestAck};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 use std::sync::Arc;
 
@@ -133,12 +133,6 @@ pub enum ProcessTxResponse {
     /// response.
     DoesNotTrackShard,
 }
-
-/// Account announcements that needs to be validated before being processed.
-/// They are paired with last epoch id known to this announcement, in order to accept only
-/// newer announcements.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChunkEndorsementMessage(pub ChunkEndorsement);
