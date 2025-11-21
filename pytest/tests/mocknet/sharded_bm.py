@@ -210,6 +210,14 @@ def handle_init(args):
 
     apply_json_patches(args)
 
+    # Force save_untracked_partial_chunks_parts=true for the initialization run.
+    # This ensures that chunks produced during init are persisted to disk and
+    # survive the node restart that happens when the benchmark actually starts.
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
+    run_cmd_args.cmd = f"jq '.save_untracked_partial_chunks_parts = true' {CONFIG_PATH} > tmp.json && mv tmp.json {CONFIG_PATH}"
+    run_remote_cmd(CommandContext(run_cmd_args))
+
     start_nodes(args)
 
     time.sleep(10)
@@ -265,6 +273,10 @@ def handle_init(args):
         run_remote_cmd(CommandContext(run_cmd_args))
 
     stop_nodes(args)
+
+    # Re-apply JSON patches to restore the original config
+    # so the benchmark runs with the intended settings.
+    apply_json_patches(args)
 
 
 def apply_json_patches(args):
