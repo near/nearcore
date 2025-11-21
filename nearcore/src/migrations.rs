@@ -24,13 +24,19 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
 
     fn migrate(
         &self,
-        _hot_store: &Store,
-        _cold_db: Option<&ColdDB>,
+        hot_store: &Store,
+        cold_db: Option<&ColdDB>,
         version: DbVersion,
     ) -> anyhow::Result<()> {
         match version {
             0..MIN_SUPPORTED_DB_VERSION => unreachable!(),
             45 => Ok(()), // DBCol::StatePartsApplied column added, no need to perform a migration
+            46 => near_chain::resharding::migrations::migrate_46_to_47(
+                hot_store,
+                cold_db,
+                &self.config.genesis.config,
+                &self.config.config.store,
+            ),
             DB_VERSION.. => unreachable!(),
         }
     }

@@ -36,17 +36,22 @@ const MAINNET_RESHARDING_BLOCK_HASHES: [(ProtocolVersion, &str); 3] = [
 /// Note: This migration only applies to cold stores, and is only for mainnet resharding events.
 pub fn migrate_46_to_47(
     hot_store: &Store,
-    cold_db: &ColdDB,
+    cold_db: Option<&ColdDB>,
     genesis_config: &GenesisConfig,
     store_config: &StoreConfig,
 ) -> anyhow::Result<()> {
+    let Some(cold_db) = cold_db else {
+        tracing::info!(target: "migrations", "skipping migration 46->47 for hot store only",);
+        return Ok(());
+    };
+
     // Current migration is targeted only for mainnet
     if genesis_config.chain_id != MAINNET {
         tracing::info!(target: "migrations", chain_id = ?genesis_config.chain_id, "skipping migration 46->47",);
         return Ok(());
     }
 
-    tracing::info!(target: "migrations", "Starting migration 46->47 for cold store");
+    tracing::info!(target: "migrations", "starting migration 46->47 for cold store");
 
     let cold_store = cold_db.as_store();
     let epoch_config_store =
