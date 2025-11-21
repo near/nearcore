@@ -454,8 +454,8 @@ export async function fetchSyncStatus(addr: string): Promise<SyncStatusResponse>
 }
     
 export async function fetchTrackedShards(addr: string): Promise<TrackedShardsResponse> {
-    const respons = await fetch(getTargetUrl(addr, 'debug/api/tracked_shards'));
-    return await respons.json();
+    const response = await fetch(getTargetUrl(addr, 'debug/api/tracked_shards'));
+    return await response.json();
 }
 
 export async function fetchBlockStatus(
