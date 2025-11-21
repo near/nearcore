@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use near_async::time::{Clock, Duration};
-use near_primitives::types::Balance;
+use near_primitives::types::{Balance, ProtocolVersion};
 use near_primitives::version::ProtocolFeature;
 use parking_lot::RwLock;
 use rocksdb::DB;
@@ -120,6 +120,7 @@ pub async fn build_streamer_message(
                 .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id),
             &runtime_config,
             gas_price,
+            protocol_version,
         );
 
         // Add local receipts to corresponding outcomes
@@ -160,6 +161,7 @@ pub async fn build_streamer_message(
                         block.clone(),
                         execution_outcome.id,
                         shard_tracker,
+                        protocol_version,
                     )
                     .await?
                 }
@@ -219,6 +221,7 @@ async fn lookup_delayed_local_receipt_in_previous_blocks(
     source_block: BlockView,
     receipt_id: CryptoHash,
     shard_tracker: &ShardTracker,
+    protocol_version: ProtocolVersion,
 ) -> Result<ReceiptView, FailedToFetchData> {
     let mut block = client.fetch_block(source_block.header.prev_hash).await?;
     for prev_block_tried in 0..1000 {
@@ -246,6 +249,7 @@ async fn lookup_delayed_local_receipt_in_previous_blocks(
             &runtime_config,
             shard_tracker,
             gas_price,
+            protocol_version,
         )
         .await?
         {
@@ -272,6 +276,7 @@ async fn find_local_receipt_by_id_in_block(
     runtime_config: &RuntimeConfig,
     shard_tracker: &ShardTracker,
     gas_price: Balance,
+    protocol_version: ProtocolVersion,
 ) -> Result<Option<ReceiptView>, FailedToFetchData> {
     let new_chunks = client.fetch_block_new_chunks(&block, shard_tracker).await?;
     let mut outcomes = client.fetch_outcomes(block.header.hash).await?;
@@ -307,8 +312,12 @@ async fn find_local_receipt_by_id_in_block(
             },
         };
 
-        let local_receipts =
-            convert_transactions_sir_into_local_receipts([&indexer_tx], &runtime_config, gas_price);
+        let local_receipts = convert_transactions_sir_into_local_receipts(
+            [&indexer_tx],
+            &runtime_config,
+            gas_price,
+            protocol_version,
+        );
         assert_eq!(local_receipts.len(), 1);
         return Ok(local_receipts.into_iter().next());
     }

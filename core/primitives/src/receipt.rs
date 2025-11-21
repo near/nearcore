@@ -8,7 +8,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
-use near_primitives_core::types::Gas;
+use near_primitives_core::types::{Gas, ProtocolVersion};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -408,21 +409,39 @@ impl Receipt {
         transaction_key: TransactionKey,
         gas_price: Balance,
         actions: Vec<Action>,
+        protocol_version: ProtocolVersion,
     ) -> Self {
-        // TODO(gas-keys): needs protocol versioning
-        Receipt::V0(ReceiptV0 {
-            predecessor_id: tx_signer_id.clone(),
-            receiver_id: tx_receiver_id,
-            receipt_id,
-            receipt: ReceiptEnum::ActionV3(ActionReceiptV3 {
-                signer_id: tx_signer_id,
+        let receipt_enum = if ProtocolFeature::GasKeys.enabled(protocol_version) {
+            ReceiptEnum::ActionV3(ActionReceiptV3 {
+                signer_id: tx_signer_id.clone(),
                 refund_to: None, // Defaults to receiver_id
                 transaction_key,
                 gas_price,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions,
-            }),
+            })
+        } else {
+            let signer_public_key = match transaction_key {
+                TransactionKey::AccessKey { public_key } => public_key,
+                TransactionKey::GasKey { .. } => {
+                    panic!("GasKey not enabled yet, unexpected behavior")
+                }
+            };
+            ReceiptEnum::Action(ActionReceipt {
+                signer_id: tx_signer_id.clone(),
+                signer_public_key,
+                gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            })
+        };
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: tx_signer_id,
+            receiver_id: tx_receiver_id,
+            receipt_id,
+            receipt: receipt_enum,
         })
     }
 

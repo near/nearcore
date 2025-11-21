@@ -1843,6 +1843,7 @@ impl Runtime {
                     tx_key.to_owned(),
                     verification_result.receipt_gas_price,
                     tx.transaction.actions().to_vec(),
+                    processing_state.protocol_version,
                 );
                 let gas_burnt = verification_result.gas_burnt;
                 let compute_usage = gas_burnt.as_gas();
