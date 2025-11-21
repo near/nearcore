@@ -28,12 +28,8 @@ use near_client_primitives::types::{
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_network::client::{
-    BlockHeadersRequest, BlockRequest, TxStatusRequest, TxStatusResponse,
-};
-use near_network::types::{
-    NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
-};
+use near_network::client::{BlockHeadersRequest, BlockRequest, TxStatusRequest, TxStatusResponse};
+use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::errors::EpochError;
