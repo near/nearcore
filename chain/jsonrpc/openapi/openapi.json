@@ -11558,6 +11558,10 @@
             "description": "Save observed instances of ChunkStateWitness to the database in DBCol::LatestChunkStateWitnesses.\nSaving the latest witnesses is useful for analysis and debugging.\nThis option can cause extra load on the database and is not recommended for production use.",
             "type": "boolean"
           },
+          "save_state_changes": {
+            "description": "Whether to persist state changes on disk or not.",
+            "type": "boolean"
+          },
           "save_trie_changes": {
             "description": "save_trie_changes should be set to true iff\n- archive if false - non-archival nodes need trie changes to perform garbage collection\n- archive is true, cold_store is configured and migration to split_storage is finished - node\nworking in split storage mode needs trie changes in order to do garbage collection on hot.",
             "type": "boolean"

@@ -801,6 +801,8 @@ pub struct ClientConfig {
     pub save_trie_changes: bool,
     /// Whether to persist transaction outcomes to disk or not.
     pub save_tx_outcomes: bool,
+    /// Whether to persist state changes on disk or not.
+    pub save_state_changes: bool,
     /// Whether to persist partial chunk parts for untracked shards or not.
     pub save_untracked_partial_chunks_parts: bool,
     /// Number of threads for ViewClientActor pool.
