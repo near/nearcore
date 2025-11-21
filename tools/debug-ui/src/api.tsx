@@ -410,7 +410,6 @@ export interface ChainProcessingInfo {
     floating_chunks_info: ChunkProcessingInfo[];
 }
 
-
 // Helper to format the URL through the proxy
 const getProxyUrl = (addr: string, endpoint: string) => {
     // This requests /api-proxy/address/endpoint relative to current domain
@@ -452,7 +451,7 @@ export async function fetchSyncStatus(addr: string): Promise<SyncStatusResponse>
     const response = await fetch(getTargetUrl(addr, 'debug/api/sync_status'));
     return await response.json();
 }
-    
+
 export async function fetchTrackedShards(addr: string): Promise<TrackedShardsResponse> {
     const response = await fetch(getTargetUrl(addr, 'debug/api/tracked_shards'));
     return await response.json();
