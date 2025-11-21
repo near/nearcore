@@ -553,6 +553,7 @@ pub fn setup_synchronous_shards_manager(
         ChainConfig {
             save_trie_changes: true,
             save_tx_outcomes: true,
+            save_state_changes: true,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),

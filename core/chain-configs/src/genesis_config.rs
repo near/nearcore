@@ -283,8 +283,6 @@ impl From<&GenesisConfig> for EpochConfig {
                 .shuffle_shard_assignment_for_chunk_producers,
             validator_max_kickout_stake_perc: config.max_kickout_stake_perc,
             max_inflation_rate: config.max_inflation_rate,
-            protocol_reward_rate: config.protocol_reward_rate,
-            protocol_treasury_account: config.protocol_treasury_account.clone(),
         }
     }
 }

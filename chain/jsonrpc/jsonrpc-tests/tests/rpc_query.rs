@@ -348,6 +348,8 @@ async fn test_query_state() {
 
 /// Connect to json rpc and call function
 #[tokio::test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_query_call_function() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
     let client = new_client(&setup.server_addr);
@@ -381,6 +383,8 @@ async fn test_query_call_function() {
 
 /// query contract code
 #[tokio::test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_query_contract_code() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
     let client = new_client(&setup.server_addr);
@@ -709,11 +713,15 @@ async fn test_get_chunk_with_object_in_params() {
 }
 
 #[tokio::test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_query_global_contract_code_by_hash() {
     test_query_global_contract_code(GlobalContractDeployMode::CodeHash).await;
 }
 
 #[tokio::test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_query_global_contract_code_by_account_id() {
     test_query_global_contract_code(GlobalContractDeployMode::AccountId).await;
 }

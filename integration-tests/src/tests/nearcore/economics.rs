@@ -59,6 +59,8 @@ fn calc_total_supply(env: &mut TestEnv) -> Balance {
 /// Test that node mints and burns tokens correctly with fees and epoch rewards.
 /// This combines Client & NightshadeRuntime to also test EpochManager.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_burn_mint() {
     let genesis = build_genesis();
     let mut env = setup_env(&genesis);

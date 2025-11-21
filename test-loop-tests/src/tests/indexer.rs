@@ -46,6 +46,8 @@ fn test_indexer_basic() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_indexer_local_receipt() {
     init_test_logger();
 
@@ -78,6 +80,8 @@ fn test_indexer_local_receipt() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_indexer_delayed_local_receipt() {
     init_test_logger();
 
@@ -127,6 +131,8 @@ fn test_indexer_delayed_local_receipt() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_indexer_failed_local_tx() {
     init_test_logger();
     if !ProtocolFeature::InvalidTxGenerateOutcomes.enabled(PROTOCOL_VERSION) {

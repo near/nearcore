@@ -117,6 +117,8 @@ async fn query_status_not_crash() {
 }
 
 #[tokio::test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_execution_outcome_for_chunk() {
     init_test_logger();
     let actor_system = ActorSystem::new();

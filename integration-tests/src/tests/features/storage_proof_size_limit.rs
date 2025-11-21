@@ -21,6 +21,8 @@ use crate::env::test_env::TestEnv;
 /// * per-receipt hard storage proof size limit
 /// * per-chunk soft storage proof size limit
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_storage_proof_size_limit() {
     near_o11y::testonly::init_test_logger();
 

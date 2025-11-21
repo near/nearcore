@@ -84,6 +84,8 @@ fn process_transaction(
 /// for `Value 1` and only 2 db reads for `Value 2`, because first 4 nodes were already put into the accounting
 /// cache. 4nd run should give the same results, because caching must not affect different chunks.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn compare_node_counts() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 10;

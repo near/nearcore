@@ -23,6 +23,8 @@ const NUM_CHUNK_VALIDATORS_ONLY: usize = 4;
 const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATORS_ONLY;
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_stateless_validators_with_multi_test_loop() {
     init_test_logger();
     let builder = TestLoopBuilder::new();

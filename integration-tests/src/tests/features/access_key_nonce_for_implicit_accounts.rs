@@ -45,6 +45,8 @@ fn check_tx_processing(
 
 /// Test that duplicate transactions are properly rejected.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_hash_collision() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -192,6 +194,8 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
 
 /// Test that duplicate transactions from NEAR-implicit accounts are properly rejected.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_hash_collision_for_near_implicit_account_fail() {
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
     let public_key = secret_key.public_key();
@@ -209,6 +213,8 @@ fn test_transaction_hash_collision_for_near_implicit_account_fail() {
 
 /// Test that chunks with transactions that have expired are considered invalid.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_chunk_transaction_validity() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -254,6 +260,8 @@ fn test_chunk_transaction_validity() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_nonce_too_large() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);

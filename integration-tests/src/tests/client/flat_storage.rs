@@ -29,6 +29,8 @@ fn setup_env(genesis: &Genesis, store: Store) -> TestEnv {
 
 /// Tests the flat storage iterator. Running on a chain with 3 shards, and couple blocks produced.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_flat_storage_iter() {
     init_test_logger();
     let boundary_accounts = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
@@ -95,6 +97,8 @@ fn test_flat_storage_iter() {
 /// exactly at the flat head block.
 /// Add another block to the flat state, which moves flat head and makes the
 /// state of the previous flat head inaccessible.
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_not_supported_block() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
