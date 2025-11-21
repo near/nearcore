@@ -946,11 +946,10 @@ impl PeerManagerActor {
                 tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id_or_header, ?body, %peer_id, "ack state request from host");
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::NewSyncHashDetected {
-                sync_hash,
+            NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::ChainProgressed {
                 epoch_height,
             }) => {
-                self.state.snapshot_hosts.set_current_epoch_if_changed(&epoch_height, &sync_hash);
+                self.state.snapshot_hosts.set_discard_epoch_threshold(epoch_height);
                 NetworkResponses::NoResponse
             }
             NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::SnapshotCreated {

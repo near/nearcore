@@ -122,12 +122,10 @@ impl StateSnapshotActor {
         msg: CreateSnapshotRequest,
         ctx: &mut dyn DelayedActionRunner<Self>,
     ) {
-        let sync_hash_detected_msg = SnapshotHostEvent::NewSyncHashDetected {
-            sync_hash: msg.prev_block_hash,
-            epoch_height: msg.epoch_height,
-        };
+        let chain_progressed_msg =
+            SnapshotHostEvent::ChainProgressed { epoch_height: msg.epoch_height };
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::SnapshotHostEvent(sync_hash_detected_msg),
+            NetworkRequests::SnapshotHostEvent(chain_progressed_msg),
         ));
 
         if let StateSnapshotConfig::Disabled = self.tries.state_snapshot_config() {

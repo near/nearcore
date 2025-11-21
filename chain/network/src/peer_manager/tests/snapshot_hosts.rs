@@ -328,12 +328,10 @@ async fn propagate() {
 
     tracing::info!(target:"test", "send a snapshot host info message from peer manager #1");
     let info1 = make_snapshot_host_info(&pms[1].peer_info().id, &pms[1].cfg.node_key, rng);
-    let new_epoch_event = PeerManagerMessageRequest::NetworkRequests(
-        NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::NewSyncHashDetected {
-            sync_hash: info1.sync_hash,
-            epoch_height: info1.epoch_height,
-        }),
-    );
+    let new_epoch_event =
+        PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostEvent(
+            SnapshotHostEvent::ChainProgressed { epoch_height: info1.epoch_height },
+        ));
     let message = PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostEvent(
         SnapshotHostEvent::SnapshotCreated {
             sync_hash: info1.sync_hash,
@@ -434,10 +432,9 @@ async fn too_many_shards_truncate() {
     let sync_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
     let epoch_height: EpochHeight = rng.r#gen();
 
-    let new_epoch_event =
-        PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostEvent(
-            SnapshotHostEvent::NewSyncHashDetected { sync_hash, epoch_height },
-        ));
+    let new_epoch_event = PeerManagerMessageRequest::NetworkRequests(
+        NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::ChainProgressed { epoch_height }),
+    );
     let message = PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostEvent(
         SnapshotHostEvent::SnapshotCreated {
             sync_hash,
