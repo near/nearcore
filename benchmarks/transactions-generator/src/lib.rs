@@ -80,7 +80,7 @@ fn default_receiver_accounts_zipf_skew() -> f64 {
 }
 
 fn default_receivers_from_senders_ratio() -> f64 {
-    0.0 // all receivers are from the receiver accounts, no special treatment for senders
+    0.0 // all receivers are selected from the sender accounts
 }
 
 impl Default for Config {

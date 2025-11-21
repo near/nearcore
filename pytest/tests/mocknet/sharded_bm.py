@@ -223,23 +223,6 @@ def handle_init(args):
 
     time.sleep(10)
 
-    run_cmd_args = copy.deepcopy(args)
-    run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
-    source_accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
-    receiver_accounts_dir = f"{BENCHNET_DIR}/user-data/receiver-accounts/"
-    source_accounts_dir = f"{BENCHNET_DIR}/user-data/"
-    run_cmd_args.cmd = f"\
-        shard=$(python3 {BENCHNET_DIR}/helpers/get_tracked_shard.py) && \
-        echo \"Tracked shard: $shard\" && \
-        rm -rf {BENCHNET_DIR}/user-data && \
-        mkdir -p {source_accounts_dir} && \
-        mkdir -p {receiver_accounts_dir} && \
-        cp {NEAR_HOME}/user-data/shard_$shard.json {source_accounts_path} && \
-        cp {NEAR_HOME}/user-data/shard_*.json {receiver_accounts_dir} \
-    "
-
-    run_remote_cmd(CommandContext(run_cmd_args))
-
     # Each CP gets its own account file with unique access keys
     cp_names = sorted(args.forknet_details['cp_instance_names'])
 
@@ -270,22 +253,23 @@ def handle_init(args):
     logger.info(
         f"Distributing account files across {len(shard_to_cps)} shards...")
     for shard, cps_in_shard in shard_to_cps.items():
-        cp_slot_map = {
-            cp_name: slot for slot, cp_name in enumerate(cps_in_shard)
-        }
         cp_names_csv = ','.join(sorted(cps_in_shard))
 
         logger.info(f"Shard {shard}: assigning {len(cps_in_shard)} CPs")
 
         run_cmd_args = copy.deepcopy(args)
         run_cmd_args.host_filter = f"({'|'.join(cps_in_shard)})"
-        accounts_path = f"{BENCHNET_DIR}/user-data/accounts.json"
+        source_accounts_path = f"{BENCHNET_DIR}/user-data/accounts.json"
+        source_accounts_dir = os.path.dirname(source_accounts_path)
+        receiver_accounts_dir = f"{BENCHNET_DIR}/user-data/receiver-accounts/"
         run_cmd_args.cmd = f"""
             my_hostname=$(hostname)
             slot=$(python3 -c "print('{cp_names_csv}'.split(',').index('$my_hostname'))")
             rm -rf {BENCHNET_DIR}/user-data
-            mkdir -p {BENCHNET_DIR}/user-data
-            cp {NEAR_HOME}/user-data/shard_{shard}_cp_${{slot}}.json {accounts_path}
+            mkdir -p {source_accounts_dir}
+            mkdir -p {receiver_accounts_dir}
+            cp {NEAR_HOME}/user-data/shard_{shard}_cp_${{slot}}.json {source_accounts_path}
+            cp {NEAR_HOME}/user-data/shard_*.json {receiver_accounts_dir}
             echo "CP $my_hostname assigned shard {shard}, slot $slot"
         """
         run_remote_cmd(CommandContext(run_cmd_args))
@@ -386,7 +370,7 @@ def enable_tx_generator(args, receivers_from_senders_ratio: float):
     logger.info("Setting tx generator parameters")
 
     # todo(slavas): these paths are implicitly assumed to correspond to similar from the handle_init() - terribly fragile.
-    accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
+    accounts_path = f"{BENCHNET_DIR}/user-data/accounts.json"
     receiver_accounts_dir = f"{BENCHNET_DIR}/user-data/receiver-accounts"
     tx_generator_settings = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings.json"
     tx_generator_settings_tmp = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings-tmp.json"

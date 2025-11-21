@@ -2,6 +2,7 @@
 	"tx_generator": {
 		"accounts_path": "{{near_accounts_path}}",
 		"receiver_accounts_path": "{{near_receiver_accounts_path}}",
+		"receivers_from_senders_ratio": {{near_receivers_from_senders_ratio}},
 		"sender_accounts_zipf_skew": 1.0,
 		"receiver_accounts_zipf_skew": 1.0,
 		"schedule": [
