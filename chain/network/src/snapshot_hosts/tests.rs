@@ -226,6 +226,8 @@ enum SelectPeerAction {
     InsertHosts(&'static [usize], EpochHeight, usize),
     /// PartReceived Marks the part as received for the given shard and part id.
     PartReceived,
+    /// CheckNumberOfHosts(expected_number_of_hosts) Checks that the number of hosts in the cache is equal to the expected number of hosts.
+    CheckNumberOfHosts(usize),
 }
 
 struct SelectPeerTest {
@@ -245,6 +247,7 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
         actions: &[
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, None),
             SelectPeerAction::InsertHosts(&[0, 1], FIRST_EPOCH_HEIGHT, 2),
+            SelectPeerAction::CheckNumberOfHosts(2),
             SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
@@ -259,11 +262,13 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, None),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, None),
             SelectPeerAction::InsertHosts(&[1, 2], FIRST_EPOCH_HEIGHT, 2),
+            SelectPeerAction::CheckNumberOfHosts(2),
             SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
             SelectPeerAction::InsertHosts(&[0], FIRST_EPOCH_HEIGHT, 1),
+            SelectPeerAction::CheckNumberOfHosts(3),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
             // Now 0 and 2 have been returned once and 1 has been returned twice.
             // We should go back to 0 and 2 once each, when each peer will have been returned twice.
@@ -308,6 +313,7 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
             SelectPeerAction::InsertHosts(&[0, 1, 4], FIRST_EPOCH_HEIGHT, 3),
+            SelectPeerAction::CheckNumberOfHosts(5),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(4)),
@@ -325,6 +331,7 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
             SelectPeerAction::InsertHosts(&[3, 1, 4], FIRST_EPOCH_HEIGHT, 2),
+            SelectPeerAction::CheckNumberOfHosts(4),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(4)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
@@ -341,9 +348,11 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
             SelectPeerAction::InsertHosts(&[1, 4], FIRST_EPOCH_HEIGHT + 1, 2),
+            SelectPeerAction::CheckNumberOfHosts(4),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
             SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT + 1),
+            SelectPeerAction::CheckNumberOfHosts(2),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 1, Some(1)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 1, Some(4)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 1, Some(1)),
@@ -356,13 +365,33 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
         actions: &[
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, None),
             SelectPeerAction::InsertHosts(&[2, 3], FIRST_EPOCH_HEIGHT, 2),
+            SelectPeerAction::CheckNumberOfHosts(2),
             SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
             SelectPeerAction::InsertHosts(&[3, 1, 4], FIRST_EPOCH_HEIGHT - 1, 0),
+            SelectPeerAction::CheckNumberOfHosts(2),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
+        ],
+    },
+    SelectPeerTest {
+        name: "test_number_of_hosts",
+        num_peers: 7,
+        part_selection_cache_batch_size: 2,
+        actions: &[
+            SelectPeerAction::InsertHosts(&[0, 1], FIRST_EPOCH_HEIGHT - 1, 2),
+            SelectPeerAction::InsertHosts(&[2, 3], FIRST_EPOCH_HEIGHT, 2),
+            SelectPeerAction::InsertHosts(&[4, 5], FIRST_EPOCH_HEIGHT + 1, 2),
+            SelectPeerAction::InsertHosts(&[5, 6], FIRST_EPOCH_HEIGHT + 2, 2),
+            SelectPeerAction::CheckNumberOfHosts(7),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
+            SelectPeerAction::CheckNumberOfHosts(5),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT + 1),
+            SelectPeerAction::CheckNumberOfHosts(3),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT + 2),
+            SelectPeerAction::CheckNumberOfHosts(2),
         ],
     },
 ];
@@ -395,8 +424,7 @@ async fn run_select_peer_test(
                 assert!(requested_insert_count == *expected_insert_count || err.is_none());
             }
             SelectPeerAction::CallSetEpoch(epoch_height) => {
-                let sync_hash = CryptoHash::hash_borsh(epoch_height);
-                cache.set_current_epoch_if_changed(&epoch_height, &sync_hash);
+                cache.set_discard_epoch_threshold(*epoch_height);
             }
             SelectPeerAction::CallSelect(epoch_height, wanted) => {
                 let sync_hash = CryptoHash::hash_borsh(epoch_height);
@@ -412,6 +440,9 @@ async fn run_select_peer_test(
                 assert!(cache.has_selector(shard_id, part_id));
                 cache.part_received(shard_id, part_id);
                 assert!(!cache.has_selector(shard_id, part_id));
+            }
+            SelectPeerAction::CheckNumberOfHosts(expected_number_of_hosts) => {
+                assert_eq!(cache.get_hosts().len(), *expected_number_of_hosts);
             }
         }
     }
