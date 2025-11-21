@@ -5,6 +5,8 @@
 # python3 pytest/tests/sanity/simple.py
 # python3 pytest/tests/sanity/simple.py SimpleTest.test_simple
 
+import json
+import os
 import unittest
 import sys
 import pathlib
@@ -23,67 +25,37 @@ class SimpleTest(unittest.TestCase):
     def test_simple(self):
         logger.info("The simple test is starting.")
 
-        [node] = start_cluster(
-            num_nodes=1,
-            num_observers=0,
-            num_shards=1,
-            config=None,
-            genesis_config_changes=[],
-            client_config_changes={},
-            message_handler=None,
-        )
-
-        wait_for_blocks(node, target=20)
-
-        # It's important to kill the nodes at the end of the test when there are
-        # multiple tests in the test suite. Otherwise the nodes from different
-        # tests can be mixed up.
-        node.kill()
-
-        logger.info("The simple test is finished.")
-
-    # Spin up a single node and wait for a few blocks. This test case is
-    # customized to showcase the various configuration options.
-    def test_custom(self):
-        logger.info("The custom test is starting.")
-
-        test_config = load_config()
-        epoch_length = 10
-        genesis_config_changes = [
-            ("epoch_length", epoch_length),
-        ]
-        client_config_changes = {
-            0: {
-                'archive': True,
-                'tracked_shards_config': 'AllShards',
-            },
+        rpc_polling_config = {
+            "rpc": {
+                "polling_config": {
+                    "polling_timeout": {"secs": 20, "nanos": 0},
+                    "polling_interval": {"secs": 0, "nanos": 10000000},
+                }
+            }
         }
 
-        near_root, [node_dir] = init_cluster(
-            num_nodes=1,
-            num_observers=0,
-            num_shards=1,
-            config=test_config,
-            genesis_config_changes=genesis_config_changes,
-            client_config_changes=client_config_changes,
-            prefix="test_custom_",
+        client_config_changes = {
+            0: rpc_polling_config,
+            1: rpc_polling_config,
+        }
+
+        num_validators = 2
+        num_mpc_nodes = 1
+        nodes = start_cluster(
+            num_validators,
+            num_mpc_nodes,
+            1,
+            None,
+            [("epoch_length", 1000), ("block_producer_kickout_threshold", 80)],
+            client_config_changes=client_config_changes
         )
 
-        node = spin_up_node(
-            test_config,
-            near_root,
-            node_dir,
-            0,
-        )
+        validators = nodes[:num_validators]
+        observers = nodes[num_validators:]
 
-        wait_for_blocks(node, target=2 * epoch_length)
+        wait_for_blocks(validators[0], target=20)
 
-        # It's important to kill the nodes at the end of the test when there are
-        # multiple tests in the test suite. Otherwise the nodes from different
-        # tests can be mixed up.
-        node.kill()
-
-        logger.info("The custom test is finished.")
+        logger.info("The simple test is finished.")
 
 
 if __name__ == '__main__':
