@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 ///
 /// For example if a shard layout with shards [0, 2, 5] splits shard 2 into
 /// shards [6, 7] the ShardSplitMap will be just: 2 => [6, 7]
-type ShardsSplitMapV3 = BTreeMap<ShardId, Vec<ShardId>>;
+pub type ShardsSplitMapV3 = BTreeMap<ShardId, Vec<ShardId>>;
 
 /// A mapping from the child shard to the parent shard.
 /// **Only includes shards that were actually split.**
@@ -216,7 +216,7 @@ impl ShardLayoutV3 {
     }
 
     pub fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
-        let shard_idx = self.boundary_accounts.partition_point(|x| x < account_id);
+        let shard_idx = self.boundary_accounts.partition_point(|x| x <= account_id);
         self.shard_ids[shard_idx]
     }
 
@@ -229,7 +229,15 @@ impl ShardLayoutV3 {
     }
 
     pub fn get_children_shards_ids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardId>> {
-        self.shards_split_map.get(&parent_shard_id).cloned()
+        if self.shards_split_map.is_empty() {
+            return None;
+        }
+        if let Some(children) = self.shards_split_map.get(&parent_shard_id).cloned() {
+            return Some(children);
+        }
+        // This method is supposed to return `None` only if the layout has no parent layout.
+        // Otherwise, if shard has no parent shard, it's considered its own parent.
+        Some(vec![parent_shard_id])
     }
 
     pub fn try_get_parent_shard_id(

@@ -264,7 +264,7 @@ impl ShardLayoutV2 {
     }
 
     pub fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
-        let shard_idx = self.boundary_accounts.partition_point(|x| x < account_id);
+        let shard_idx = self.boundary_accounts.partition_point(|x| x <= account_id);
         self.shard_ids[shard_idx]
     }
 

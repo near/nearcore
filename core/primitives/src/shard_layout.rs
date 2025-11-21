@@ -29,7 +29,7 @@ use std::{fmt, str};
 pub use v0::ShardLayoutV0;
 pub use v1::ShardLayoutV1;
 pub use v2::{ShardLayoutV2, ShardsSplitMapV2};
-pub use v3::ShardLayoutV3;
+pub use v3::{ShardLayoutV3, ShardsSplitMapV3};
 
 /// `ShardLayout` has a version number.
 ///
@@ -187,7 +187,7 @@ impl ShardLayout {
     pub fn v3(
         boundary_accounts: Vec<AccountId>,
         shard_ids: Vec<ShardId>,
-        shards_split_map: ShardsSplitMapV2,
+        shards_split_map: ShardsSplitMapV3,
         valid_since_epoch: EpochId,
     ) -> Self {
         Self::V3(ShardLayoutV3::new(
@@ -399,6 +399,15 @@ impl ShardLayout {
             .into_iter()
             .map(|shard_id| ShardUId::new(self.version(), shard_id))
             .collect()
+    }
+
+    /// Returns ID of the first epoch for which this layout applies (for V3 layout).
+    /// None for earlier versions.
+    pub fn valid_since_epoch(&self) -> Option<EpochId> {
+        match self {
+            Self::V0(_) | Self::V1(_) | Self::V2(_) => None,
+            ShardLayout::V3(v3) => Some(v3.valid_since_epoch),
+        }
     }
 }
 fn map_keys_to_string<K, V>(map: &BTreeMap<K, V>) -> BTreeMap<String, V>
