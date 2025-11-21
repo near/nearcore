@@ -459,9 +459,9 @@ mod tests {
             add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key2);
 
         let viewer = TrieViewer::default();
-        let gas_keys = viewer.view_gas_keys(&state_update, &account_id).unwrap();
+        let mut gas_keys = viewer.view_gas_keys(&state_update, &account_id).unwrap();
         let expected_nonce = initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT);
-        let expected = vec![
+        let mut expected = vec![
             GasKeyInfoView {
                 public_key: public_key1,
                 gas_key: GasKeyView::new(gas_key1, vec![expected_nonce; TEST_NUM_NONCES as usize]),
@@ -471,6 +471,10 @@ mod tests {
                 gas_key: GasKeyView::new(gas_key2, vec![expected_nonce; TEST_NUM_NONCES as usize]),
             },
         ];
+        // Sort both expected and actual gas keys by public_key to ensure consistent order for comparison
+        // as the API does not include an ordering guarantee.
+        expected.sort_by_key(|k| k.public_key.clone());
+        gas_keys.sort_by_key(|k| k.public_key.clone());
         assert_eq!(expected, gas_keys);
     }
 
