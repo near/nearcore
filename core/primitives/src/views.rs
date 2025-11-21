@@ -21,7 +21,7 @@ use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::receipt::{
     ActionReceipt, DataReceipt, DataReceiver, GlobalContractDistributionReceipt, Receipt,
-    ReceiptEnum, ReceiptV2, VersionedActionReceipt, VersionedReceiptEnum,
+    ReceiptEnum, ReceiptV1, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
@@ -2362,7 +2362,7 @@ impl TryFrom<ReceiptView> for Receipt {
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(receipt_view: ReceiptView) -> Result<Self, Self::Error> {
-        Ok(Receipt::V2(ReceiptV2 {
+        Ok(Receipt::V1(ReceiptV1 {
             predecessor_id: receipt_view.predecessor_id,
             receiver_id: receipt_view.receiver_id,
             receipt_id: receipt_view.receipt_id,
