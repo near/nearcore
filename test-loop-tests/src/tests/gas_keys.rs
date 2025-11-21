@@ -183,14 +183,15 @@ fn send_transfers_as_gas_keys(
         .map(|keys| keys.iter().map(|key| key.signer.public_key()).collect_vec())
         .collect_vec();
 
+    // Arbitrary deposit amounts for testing
+    let deposit1 = Balance::from_near(20);
+    let deposit2 = Balance::from_near(50);
     for (from_index, account) in accounts.iter().enumerate() {
         // The second key should fail, because it is a FunctionCall key only.
         for (from_key_index, key) in gas_keys[from_index].iter_mut().enumerate() {
             // Each nonce index can independently support a separate transaction sequence.
             for (nonce_index, nonce) in key.nonces.iter_mut().enumerate() {
                 for (to_index, other_account) in accounts.iter().enumerate() {
-                    let deposit1 = random_deposit();
-                    let deposit2 = random_deposit();
                     let to_key_index = rand::thread_rng().gen_range(0..2);
                     let use_old_nonce = rand::thread_rng().gen_bool(0.2);
                     let tx = SignedTransaction::from_actions_v1(
@@ -277,11 +278,4 @@ fn send_transfers_as_gas_keys(
             );
         }
     }
-}
-
-// Random deposit between 1 and 100 NEAR
-fn random_deposit() -> Balance {
-    let mut rng = rand::thread_rng();
-    let deposit = rng.gen_range(1..=100);
-    Balance::from_near(deposit)
 }
