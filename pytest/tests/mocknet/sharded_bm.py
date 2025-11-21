@@ -206,44 +206,55 @@ def handle_init(args):
 
     apply_json_patches(args)
 
+    # Force save_untracked_partial_chunks_parts=true for the initialization run.
+    # This ensures that chunks produced during init are persisted to disk and
+    # survive the node restart that happens when the benchmark actually starts.
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
+    run_cmd_args.cmd = f"jq '.save_untracked_partial_chunks_parts = true' {CONFIG_PATH} > tmp.json && mv tmp.json {CONFIG_PATH}"
+    run_remote_cmd(CommandContext(run_cmd_args))
+
     start_nodes(args)
 
     time.sleep(10)
 
     # Each CP gets its own account file with unique access keys
     cp_names = sorted(args.forknet_details['cp_instance_names'])
-    
+
     cp_nodes = []
     for cp_name in cp_names:
         run_cmd_args = copy.deepcopy(args)
         run_cmd_args.host_filter = cp_name
         ctx = CommandContext(run_cmd_args)
         cp_nodes.append(ctx.get_targeted()[0])
-    
+
     # Query all CPs in parallel to get their tracked shards
     query_cmd = f"python3 {BENCHNET_DIR}/helpers/get_tracked_shard.py"
     results = pmap(
         lambda node: (node, node.run_cmd(query_cmd, return_on_fail=True)),
-        cp_nodes
-    )
-    
+        cp_nodes)
+
     # Build mapping: shard_id -> list of CP names tracking that shard
     shard_to_cps = defaultdict(list)
     for node, result in results:
         shard = result.stdout.strip()
         if not shard.isdigit():
-            logger.error(f"Failed to get shard for {node.name()}: {result.stdout}")
+            logger.error(
+                f"Failed to get shard for {node.name()}: {result.stdout}")
             sys.exit(1)
         shard_to_cps[shard].append(node.name())
-    
+
     # For each shard, copy account files to all CPs tracking that shard
-    logger.info(f"Distributing account files across {len(shard_to_cps)} shards...")
+    logger.info(
+        f"Distributing account files across {len(shard_to_cps)} shards...")
     for shard, cps_in_shard in shard_to_cps.items():
-        cp_slot_map = {cp_name: slot for slot, cp_name in enumerate(cps_in_shard)}
+        cp_slot_map = {
+            cp_name: slot for slot, cp_name in enumerate(cps_in_shard)
+        }
         cp_names_csv = ','.join(sorted(cps_in_shard))
-        
+
         logger.info(f"Shard {shard}: assigning {len(cps_in_shard)} CPs")
-        
+
         run_cmd_args = copy.deepcopy(args)
         run_cmd_args.host_filter = f"({'|'.join(cps_in_shard)})"
         accounts_path = f"{BENCHNET_DIR}/user-data/accounts.json"
@@ -258,6 +269,10 @@ def handle_init(args):
         run_remote_cmd(CommandContext(run_cmd_args))
 
     stop_nodes(args)
+
+    # Re-apply JSON patches to restore the original config
+    # so the benchmark runs with the intended settings.
+    apply_json_patches(args)
 
 
 def apply_json_patches(args):
