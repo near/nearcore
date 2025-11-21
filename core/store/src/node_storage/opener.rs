@@ -485,7 +485,12 @@ impl<'a> StoreOpener<'a> {
         cold_opener: Option<&DBOpener>,
         migrator: &Option<&dyn StoreMigrator>,
     ) -> Result<(Snapshot, Snapshot), StoreOpenerError> {
-        tracing::debug!(target: "db_opener", hot_path=%hot_opener.path.display(), "ensure db version");
+        tracing::debug!(
+            target: "db_opener",
+            hot_path = %hot_opener.path.display(),
+            cold_path = ?cold_opener.map(|opener| opener.path.display()),
+            "ensure db version",
+        );
 
         // Get metadata from both stores
         let hot_metadata = hot_opener.get_metadata()?.ok_or(StoreOpenerError::DbDoesNotExist {})?;
@@ -545,7 +550,8 @@ impl<'a> StoreOpener<'a> {
         for version in version..DB_VERSION {
             tracing::info!(
                 target: "db_opener",
-                hot_path=%hot_opener.path.display(),
+                hot_path = %hot_opener.path.display(),
+                cold_path = ?cold_opener.map(|opener| opener.path.display()),
                 %version,
                 next_version = %(version + 1),
                 "migrating the database from version to next version",
@@ -577,8 +583,7 @@ impl<'a> StoreOpener<'a> {
         // Handle nightly version for both stores
         if cfg!(feature = "nightly") {
             let version = 10000;
-            tracing::info!(target: "db_opener", hot_path=%hot_opener.path.display(),
-                %version, "setting the database version for nightly");
+            tracing::info!(target: "db_opener", %version, "setting the database version for nightly");
 
             let hot_store = Self::open_store(mode, hot_opener, DB_VERSION)?;
             hot_store.set_db_version(version)?;
