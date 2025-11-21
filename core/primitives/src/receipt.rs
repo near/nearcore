@@ -1301,8 +1301,8 @@ mod tests {
     fn test_receipt_v1_serialization() {
         let receipt_v1 = get_receipt_v1();
         let serialized_receipt = borsh::to_vec(&receipt_v1).unwrap();
-        let receipt1 = Receipt::try_from_slice(&serialized_receipt).unwrap();
-        assert_eq!(receipt_v1, receipt1);
+        let receipt2 = Receipt::try_from_slice(&serialized_receipt).unwrap();
+        assert_eq!(receipt_v1, receipt2);
     }
 
     fn test_state_stored_receipt_serialization_impl(receipt: Receipt) {
@@ -1344,7 +1344,7 @@ mod tests {
         }
 
         // Case 2:
-        // Receipt V2 can be deserialized as ReceiptOrStateStoredReceipt
+        // Receipt V1 can be deserialized as ReceiptOrStateStoredReceipt
         {
             let receipt = get_receipt_v1();
             let receipt = Cow::Owned(receipt);
