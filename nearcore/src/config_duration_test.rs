@@ -35,6 +35,7 @@ fn test_config_duration_all_std() {
         expected_shutdown: Some(Default::default()),
         genesis_records_file: Some(Default::default()),
         max_gas_burnt_view: Some(Default::default()),
+        max_gas_burnt: Some(Default::default()),
         produce_chunk_add_transactions_time_limit: Some(Default::default()),
         rpc: Some(RpcConfig {
             experimental_debug_pages_src_path: Some(Default::default()),
