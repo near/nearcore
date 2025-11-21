@@ -383,6 +383,7 @@ tests and the <code>ultra_slow</code> ones are left to run on Nayduck.</p>
 included in <code>nightly/expensive.txt</code> file; for example:</p>
 <pre><code class="language-text">expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync
 expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync --features nightly
+expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync --features nightly,protocol_feature_spice
 </code></pre>
 <p>For more details regarding nightly tests see <code>nightly/README.md</code>.</p>
 <p>Note that what counts as a slow test is defined in
