@@ -448,8 +448,6 @@ mod tests {
     }
 
     #[test]
-    // TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-    #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     fn test_view_gas_keys() {
         let (account_id, public_key1, access_key) = test_account_keys();
         let public_key2 = SecretKey::from_random(KeyType::ED25519).public_key();
