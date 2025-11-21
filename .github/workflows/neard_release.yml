@@ -96,8 +96,7 @@ jobs:
           done
       
       - name: Trigger release metadata update workflow
-        if: github.event_name == 'release'
-        # TODO: Make the distinction between release (mainnet) and pre-release (testnet)
+        if: ${{ matrix.name == 'Intel Linux Ubuntu' && github.event_name == 'release' }}
         run: |
           curl -L -X POST -H "Accept: application/vnd.github+json" \
           --fail-with-body \

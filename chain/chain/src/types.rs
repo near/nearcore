@@ -211,6 +211,8 @@ pub struct ChainConfig {
     pub save_trie_changes: bool,
     /// Whether to persist transaction outcomes on disk or not.
     pub save_tx_outcomes: bool,
+    /// Whether to persist state changes on disk or not.
+    pub save_state_changes: bool,
     /// Number of threads to execute background migration work.
     /// Currently used for flat storage background creation.
     pub background_migration_threads: usize,
@@ -225,6 +227,7 @@ impl ChainConfig {
         Self {
             save_trie_changes: true,
             save_tx_outcomes: true,
+            save_state_changes: true,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::test(),
