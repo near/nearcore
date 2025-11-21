@@ -201,7 +201,7 @@ impl Inner {
         self.peer_selector.clear();
 
         // Rebuild the shard-specific caches with hosts that match the new sync hash
-        for (_, info) in self.hosts.iter() {
+        for (_, info) in &self.hosts {
             if info.sync_hash == *sync_hash {
                 for shard_id in &info.shards {
                     self.hosts_for_shard
