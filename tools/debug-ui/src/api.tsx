@@ -417,6 +417,21 @@ const getProxyUrl = (addr: string, endpoint: string) => {
     return `/api-proxy/${addr}/${endpoint}`;
 };
 
+// Helper to format the target URL based on current protocol
+function getTargetUrl(addr: string, endpoint: string): string {
+    const protocol = window.location.protocol;
+
+    if (protocol === 'https:') {
+        return getProxyUrl(addr, endpoint);
+    } 
+    
+    if (protocol === 'http:') {
+        return `http://${addr}/${endpoint}`;
+    }
+
+    throw new Error(`Unsupported protocol: ${protocol}`);
+}
+
 export interface ChainProcessingStatusResponse {
     status_response: {
         ChainProcessingStatus: ChainProcessingInfo;
@@ -424,52 +439,23 @@ export interface ChainProcessingStatusResponse {
 }
 
 export async function fetchBasicStatus(addr: string): Promise<StatusResponse> {
-    let response: Response;
-    if (window.location.protocol === 'https:') {
-        response = await fetch(getProxyUrl(addr, 'status'));
-    } else if (window.location.protocol === 'http:') {
-        response = await fetch(`http://${addr}/status`);
-    } else {
-        throw new Error("Unsupported protocol: must start with http:// or https://");
-    }
-
+    const response = await fetch(getTargetUrl(addr, 'status'));
     return await response.json();
 }
 
 export async function fetchFullStatus(addr: string): Promise<StatusResponse> {
-    let response: Response;
-    if (window.location.protocol === 'https:') {
-        response = await fetch(getProxyUrl(addr, 'debug/api/status'));
-    } else if (window.location.protocol === 'http:') {
-        response = await fetch(`http://${addr}/debug/api/status`);
-    } else {
-        throw new Error("Unsupported protocol: must start with http:// or https://");
-    }
+    const response = await fetch(getTargetUrl(addr, 'debug/api/status'));
     return await response.json();
 }
 
 export async function fetchSyncStatus(addr: string): Promise<SyncStatusResponse> {
-    let response: Response;
-    if (window.location.protocol === 'https:') {
-        response = await fetch(getProxyUrl(addr, 'debug/api/sync_status'));
-    } else if (window.location.protocol === 'http:') {
-        response = await fetch(`http://${addr}/debug/api/sync_status`);
-    } else {
-        throw new Error("Unsupported protocol: must start with http:// or https://");
-    }
+    const response = await fetch(getTargetUrl(addr, 'debug/api/sync_status'));
     return await response.json();
 }
-
+    
 export async function fetchTrackedShards(addr: string): Promise<TrackedShardsResponse> {
-    let response: Response;
-    if (window.location.protocol === 'https:') {
-        response = await fetch(getProxyUrl(addr, 'debug/api/tracked_shards'));
-    } else if (window.location.protocol === 'http:') {
-        response = await fetch(`http://${addr}/debug/api/tracked_shards`);
-    } else {
-        throw new Error("Unsupported protocol: must start with http:// or https://");
-    }
-    return await response.json();
+    const respons = await fetch(getTargetUrl(addr, 'debug/api/tracked_shards'));
+    return await respons.json();
 }
 
 export async function fetchBlockStatus(
@@ -489,15 +475,7 @@ export async function fetchBlockStatus(
         params.append('num_blocks', numBlocks.toString());
     }
     
-    let response: Response;
-    if (window.location.protocol === 'https:') {
-        response = await fetch(getProxyUrl(addr, `debug/api/block_status${params.toString() ? '?' + params : ''}`));
-    } else if (window.location.protocol === 'http:') {
-        const url = `http://${addr}/debug/api/block_status${params.toString() ? '?' + params : ''}`;
-        response = await fetch(url);
-    } else {
-        throw new Error("Unsupported protocol: must start with http:// or https://");
-    }
+    const response = await fetch(getTargetUrl(addr, `debug/api/block_status${params.toString() ? '?' + params : ''}`));
     return await response.json();
 }
 
@@ -506,15 +484,7 @@ export async function fetchEpochInfo(
     epochId: string | null
 ): Promise<EpochInfoResponse> {
     const trailing = epochId ? `/${epochId}` : '';
-    let response: Response;
-    if (window.location.protocol === 'https:') {
-        response = await fetch(getProxyUrl(addr, `debug/api/epoch_info${trailing}`));
-    } else if (window.location.protocol === 'http:') {
-        response = await fetch(`http://${addr}/debug/api/epoch_info${trailing}`);
-    } else {
-        throw new Error("Unsupported protocol: must start with http:// or https://");
-    }
-
+    const response = await fetch(getTargetUrl(addr, `debug/api/epoch_info${trailing}`));
     if (!response.ok) {
         throw new Error(`Failed to fetch epoch info: ${response.statusText}`);
     }
@@ -523,66 +493,31 @@ export async function fetchEpochInfo(
 }
 
 export async function fetchPeerStore(addr: string): Promise<PeerStoreResponse> {
-    let response: Response;
-    if (window.location.protocol === 'https:') {
-        response = await fetch(getProxyUrl(addr, 'debug/api/peer_store'));
-    } else if (window.location.protocol === 'http:') {
-        response = await fetch(`http://${addr}/debug/api/peer_store`)
-    } else {
-        throw new Error("Unsupported protocol: must start with http:// or https://");
-    }
+    const response = await fetch(getTargetUrl(addr, 'debug/api/peer_store'));
     return await response.json();
 }
 
 export async function fetchRecentOutboundConnections(
     addr: string
-): Promise<RecentOutboundConnectionsResponse> {
-    let response: Response;
-    if (window.location.protocol === 'https:') {
-        response = await fetch(getProxyUrl(addr, 'debug/api/recent_outbound_connections'));
-    } else if (window.location.protocol === 'http:') {
-        response = await fetch(`http://${addr}/debug/api/recent_outbound_connections`);
-    } else {
-        throw new Error("Unsupported protocol: must start with http:// or https://");
-    }
+): Promise<RecentOutboundConnectionsResponse> {   
+    const response = await fetch(getTargetUrl(addr, 'debug/api/recent_outbound_connections'));
     return await response.json();
 }
 
 export async function fetchRoutingTable(addr: string): Promise<RoutingTableResponse> {
-    let response: Response;
-    if (window.location.protocol === 'https:') {
-        response = await fetch(getProxyUrl(addr, 'debug/api/network_routes'));
-    } else if (window.location.protocol === 'http:') {
-        response = await fetch(`http://${addr}/debug/api/network_routes`);
-    } else {
-        throw new Error("Unsupported protocol: must start with http:// or https://");
-    }
+    const response = await fetch(getTargetUrl(addr, 'debug/api/network_routes'));
     return await response.json();
 }
 
 export async function fetchSnapshotHosts(addr: string): Promise<SnapshotHostsResponse> {
-    let response: Response;
-    if (window.location.protocol === 'https:') {
-        response = await fetch(getProxyUrl(addr, 'debug/api/snapshot_hosts'));
-    } else if (window.location.protocol === 'http:') {
-        response = await fetch(`http://${addr}/debug/api/snapshot_hosts`);
-    } else {
-        throw new Error("Unsupported protocol: must start with http:// or https://");
-    }
+    const response = await fetch(getTargetUrl(addr, 'debug/api/snapshot_hosts'));
     return await response.json();
 }
 
 export async function fetchChainProcessingStatus(
     addr: string
 ): Promise<ChainProcessingStatusResponse> {
-    let response: Response;
-    if (window.location.protocol === 'https:') {
-        response = await fetch(getProxyUrl(addr, 'debug/api/chain_processing_status'));
-    } else if (window.location.protocol === 'http:') {
-        response = await fetch(`http://${addr}/debug/api/chain_processing_status`);
-    } else {
-        throw new Error("Unsupported protocol: must start with http:// or https://");
-    }
+    const response = await fetch(getTargetUrl(addr, 'debug/api/chain_processing_status'));
     return await response.json();
 }
 
@@ -594,26 +529,13 @@ export async function fetchEntity(
     addr: string,
     request: EntityQueryWithParams
 ): Promise<ApiEntityDataEntryValue> {
-    let response: Response;
-    if (window.location.protocol === 'https:') {
-        response = await fetch(getProxyUrl(addr, 'debug/api/entity'), {
-            body: JSON.stringify(request),
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            method: 'POST',
-        });
-    } else if (window.location.protocol === 'http:') {
-        response = await fetch(`http://${addr}/debug/api/entity`, {
-            body: JSON.stringify(request),
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            method: 'POST',
-        });
-    } else {
-        throw new Error("Unsupported protocol: must start with http:// or https://");
-    }
+    const response = await fetch(getTargetUrl(addr, 'debug/api/entity'), {
+        body: JSON.stringify(request),
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        method: 'POST',
+    });
     if (response.status !== 200) {
         throw await response.text();
     }
@@ -625,14 +547,7 @@ export const INSTRUMENTED_WINDOW_LEN_MS = 500;
 export async function fetchInstrumentedThreadsView(
     addr: string
 ): Promise<InstrumentedThreadsViewResponse> {
-    let response: Response;
-    if (window.location.protocol === 'https:') {
-        response = await fetch(getProxyUrl(addr, 'debug/api/instrumented_threads'));
-    } else if (window.location.protocol === 'http:') {
-        response = await fetch(`http://${addr}/debug/api/instrumented_threads`);
-    } else {
-        throw new Error("Unsupported protocol: must start with http:// or https://");
-    }
+    const response = await fetch(getTargetUrl(addr, 'debug/api/instrumented_threads'));
     return await response.json();
 }
 
