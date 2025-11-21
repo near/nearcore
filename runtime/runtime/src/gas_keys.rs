@@ -126,11 +126,12 @@ fn gas_key_storage_cost(
     let storage_config = &fee_config.storage_usage_config;
     let nonce_storage_usage = gas_key.num_nonces as u64
         * (borsh::object_length(&(0 as NonceIndex)).unwrap() as u64 + // NonceIndex is part of the key
-            borsh::object_length(&(0 as Nonce)).unwrap() as u64 + // Value of nonce
+            borsh::object_length(&Some(0 as Nonce)).unwrap() as u64 + // Value of nonce
             storage_config.num_extra_bytes_record);
 
     borsh::object_length(public_key).unwrap() as u64
         + borsh::object_length(gas_key).unwrap() as u64
+        + borsh::object_length(&None::<NonceIndex>).unwrap() as u64 // NonceIndex (None) is part of the key
         + storage_config.num_extra_bytes_record
         + nonce_storage_usage
 }
@@ -461,7 +462,7 @@ mod tests {
         let viewer = TrieViewer::default();
         let gas_keys = viewer.view_gas_keys(&state_update, &account_id).unwrap();
         let expected_nonce = initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT);
-        let expected = vec![
+        let mut expected = vec![
             GasKeyInfoView {
                 public_key: public_key1,
                 gas_key: GasKeyView::new(gas_key1, vec![expected_nonce; TEST_NUM_NONCES as usize]),
@@ -471,6 +472,7 @@ mod tests {
                 gas_key: GasKeyView::new(gas_key2, vec![expected_nonce; TEST_NUM_NONCES as usize]),
             },
         ];
+        expected.sort_by_key(|k| k.public_key.clone()); // Sort by public_key to match trie iterator order
         assert_eq!(expected, gas_keys);
     }
 

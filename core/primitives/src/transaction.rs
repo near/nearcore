@@ -12,7 +12,8 @@ use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::RuntimeConfig;
 use near_primitives_core::serialize::{from_base64, to_base64};
-use near_primitives_core::types::Compute;
+use near_primitives_core::types::{Compute, NonceIndex, ProtocolVersion};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 #[cfg(feature = "schemars")]
 use schemars::json_schema;
@@ -45,13 +46,91 @@ pub struct TransactionV0 {
     pub actions: Vec<Action>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, ProtocolSchema)]
+pub enum SignerKind {
+    AccessKey,
+    GasKey(NonceIndex),
+}
+
+impl SignerKind {
+    pub fn nonce_index(&self) -> Option<NonceIndex> {
+        match self {
+            SignerKind::AccessKey => None,
+            SignerKind::GasKey(nonce_index) => Some(*nonce_index),
+        }
+    }
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Debug,
+    Clone,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum TransactionKey {
+    AccessKey { public_key: PublicKey },
+    GasKey { public_key: PublicKey, nonce_index: NonceIndex },
+}
+
+#[derive(BorshSerialize, PartialEq, Eq, Hash, Clone, Copy)]
+pub enum TransactionKeyRef<'a> {
+    AccessKey { key: &'a PublicKey },
+    GasKey { key: &'a PublicKey, nonce_index: NonceIndex },
+}
+
+impl<'a> TransactionKeyRef<'a> {
+    pub fn to_owned(&self) -> TransactionKey {
+        match self {
+            TransactionKeyRef::AccessKey { key } => {
+                TransactionKey::AccessKey { public_key: (*key).clone() }
+            }
+            TransactionKeyRef::GasKey { key, nonce_index } => {
+                TransactionKey::GasKey { public_key: (*key).clone(), nonce_index: *nonce_index }
+            }
+        }
+    }
+}
+
+impl<'a> From<&'a TransactionKey> for TransactionKeyRef<'a> {
+    fn from(value: &'a TransactionKey) -> Self {
+        match value {
+            TransactionKey::AccessKey { public_key: key } => TransactionKeyRef::AccessKey { key },
+            TransactionKey::GasKey { public_key: key, nonce_index } => {
+                TransactionKeyRef::GasKey { key, nonce_index: *nonce_index }
+            }
+        }
+    }
+}
+
+impl<'a> TransactionKeyRef<'a> {
+    pub fn public_key(&self) -> &PublicKey {
+        match self {
+            TransactionKeyRef::AccessKey { key } => key,
+            TransactionKeyRef::GasKey { key, .. } => key,
+        }
+    }
+
+    pub fn nonce_index(&self) -> Option<NonceIndex> {
+        match self {
+            TransactionKeyRef::AccessKey { .. } => None,
+            TransactionKeyRef::GasKey { nonce_index, .. } => Some(*nonce_index),
+        }
+    }
+}
+
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, PartialEq, Eq, Debug, Clone, ProtocolSchema,
+)]
 pub struct TransactionV1 {
     /// An account on which behalf transaction is signed
     pub signer_id: AccountId,
-    /// A public key of the access key which was used to sign an account.
-    /// Access key holds permissions for calling certain kinds of actions.
-    pub public_key: PublicKey,
+    /// AccessKey or (GasKey, NonceIndex) pair used to sign the transaction
+    pub key: TransactionKey,
     /// Nonce is used to determine order of transaction in the pool.
     /// It increments for a combination of `signer_id` and `public_key`
     pub nonce: Nonce,
@@ -61,8 +140,6 @@ pub struct TransactionV1 {
     pub block_hash: CryptoHash,
     /// A list of actions to be applied
     pub actions: Vec<Action>,
-    /// Priority fee. Unit is 10^12 yoctoNEAR
-    pub priority_fee: u64,
 }
 
 impl Transaction {
@@ -94,10 +171,10 @@ impl Transaction {
         }
     }
 
-    pub fn public_key(&self) -> &PublicKey {
+    pub fn key(&self) -> TransactionKeyRef<'_> {
         match self {
-            Transaction::V0(tx) => &tx.public_key,
-            Transaction::V1(tx) => &tx.public_key,
+            Transaction::V0(tx) => TransactionKeyRef::AccessKey { key: &tx.public_key },
+            Transaction::V1(tx) => (&tx.key).into(),
         }
     }
 
@@ -126,13 +203,6 @@ impl Transaction {
         match self {
             Transaction::V0(tx) => &tx.block_hash,
             Transaction::V1(tx) => &tx.block_hash,
-        }
-    }
-
-    pub fn priority_fee(&self) -> Option<u64> {
-        match self {
-            Transaction::V0(_) => None,
-            Transaction::V1(tx) => Some(tx.priority_fee),
         }
     }
 }
@@ -195,20 +265,18 @@ impl BorshDeserialize for Transaction {
         } else {
             let u5 = u8::deserialize_reader(reader)?;
             let signer_id = read_signer_id([u2, u3, u4, u5], reader)?;
-            let public_key = PublicKey::deserialize_reader(reader)?;
+            let key = TransactionKey::deserialize_reader(reader)?;
             let nonce = Nonce::deserialize_reader(reader)?;
             let receiver_id = AccountId::deserialize_reader(reader)?;
             let block_hash = CryptoHash::deserialize_reader(reader)?;
             let actions = Vec::<Action>::deserialize_reader(reader)?;
-            let priority_fee = u64::deserialize_reader(reader)?;
             Ok(Transaction::V1(TransactionV1 {
                 signer_id,
-                public_key,
+                key,
                 nonce,
                 receiver_id,
                 block_hash,
                 actions,
-                priority_fee,
             }))
         }
     }
@@ -226,15 +294,16 @@ impl ValidatedTransaction {
     pub fn new(
         config: &RuntimeConfig,
         signed_tx: SignedTransaction,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<Self, (InvalidTxError, SignedTransaction)> {
-        match Self::check_valid_for_config(config, &signed_tx) {
+        match Self::check_valid_for_config(config, &signed_tx, current_protocol_version) {
             Ok(()) => {}
             Err(err) => return Err((err, signed_tx)),
         }
 
         if !signed_tx
             .signature
-            .verify(signed_tx.get_hash().as_ref(), signed_tx.transaction.public_key())
+            .verify(signed_tx.get_hash().as_ref(), signed_tx.transaction.key().public_key())
         {
             return Err((InvalidTxError::InvalidSignature, signed_tx));
         }
@@ -246,9 +315,11 @@ impl ValidatedTransaction {
     pub fn check_valid_for_config(
         config: &RuntimeConfig,
         signed_tx: &SignedTransaction,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
-        // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
-        if matches!(signed_tx.transaction, Transaction::V1(_)) {
+        if matches!(signed_tx.transaction, Transaction::V1(_))
+            && !ProtocolFeature::GasKeys.enabled(current_protocol_version)
+        {
             return Err(InvalidTxError::InvalidTransactionVersion);
         }
         let tx_size = signed_tx.get_size();
@@ -302,8 +373,8 @@ impl ValidatedTransaction {
         self.to_tx().nonce()
     }
 
-    pub fn public_key(&self) -> &PublicKey {
-        self.to_tx().public_key()
+    pub fn key(&self) -> TransactionKeyRef<'_> {
+        self.to_tx().key()
     }
 
     pub fn actions(&self) -> &[Action] {
@@ -698,7 +769,7 @@ mod tests {
         let public_key: PublicKey = "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap();
         TransactionV1 {
             signer_id: "test.near".parse().unwrap(),
-            public_key: public_key.clone(),
+            key: TransactionKey::AccessKey { public_key: public_key.clone() },
             nonce: 1,
             receiver_id: "123".parse().unwrap(),
             block_hash: Default::default(),
@@ -732,7 +803,6 @@ mod tests {
                     beneficiary_id: "123".parse().unwrap(),
                 }),
             ],
-            priority_fee: 1,
         }
     }
 

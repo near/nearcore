@@ -7608,6 +7608,68 @@
               "DepositWithFunctionCall"
             ],
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "GasKeyNotFound": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "nonce_index": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key",
+                  "nonce_index"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyNotFound"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "NotEnoughAllowanceGasKey": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "allowance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "cost": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key",
+                  "allowance",
+                  "cost"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "NotEnoughAllowanceGasKey"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -7959,6 +8021,31 @@
             },
             "required": [
               "ShardStuck"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The gas key doesn't exist for the account",
+            "properties": {
+              "GasKeyDoesNotExist": {
+                "properties": {
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "signer_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "signer_id",
+                  "public_key"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyDoesNotExist"
             ],
             "type": "object"
           }
@@ -10568,6 +10655,12 @@
                   "is_promise_yield": {
                     "default": false,
                     "type": "boolean"
+                  },
+                  "nonce_index": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "output_data_receivers": {
                     "items": {
@@ -16486,10 +16579,11 @@
             "minimum": 0,
             "type": "integer"
           },
-          "priority_fee": {
-            "default": 0,
-            "format": "uint64",
+          "nonce_index": {
+            "description": "None for AccessKey transactions, specifies the nonce index for GasKey transactions.",
+            "format": "uint32",
             "minimum": 0,
+            "nullable": true,
             "type": "integer"
           },
           "public_key": {

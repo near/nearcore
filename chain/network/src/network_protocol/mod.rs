@@ -560,7 +560,7 @@ impl TieredMessageBody {
                 T2MessageBody::TxStatusRequest(account_id, crypto_hash).into()
             }
             RoutedMessageBody::TxStatusResponse(final_execution_outcome_view) => {
-                T2MessageBody::TxStatusResponse(Box::new(final_execution_outcome_view)).into()
+                T2MessageBody::TxStatusResponse(final_execution_outcome_view).into()
             }
             RoutedMessageBody::PartialEncodedChunkRequest(partial_encoded_chunk_request_msg) => {
                 T2MessageBody::PartialEncodedChunkRequest(partial_encoded_chunk_request_msg).into()
@@ -748,7 +748,7 @@ pub enum RoutedMessageBody {
     BlockApproval(Approval),
     ForwardTx(SignedTransaction),
     TxStatusRequest(AccountId, CryptoHash),
-    TxStatusResponse(FinalExecutionOutcomeView),
+    TxStatusResponse(Box<FinalExecutionOutcomeView>),
     /// Not used, but needed for borsh backward compatibility.
     _UnusedQueryRequest,
     _UnusedQueryResponse,
@@ -987,7 +987,7 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                     RoutedMessageBody::TxStatusRequest(account_id, crypto_hash)
                 }
                 T2MessageBody::TxStatusResponse(final_execution_outcome_view) => {
-                    RoutedMessageBody::TxStatusResponse(*final_execution_outcome_view)
+                    RoutedMessageBody::TxStatusResponse(final_execution_outcome_view)
                 }
                 T2MessageBody::PartialEncodedChunkRequest(partial_encoded_chunk_request_msg) => {
                     RoutedMessageBody::PartialEncodedChunkRequest(partial_encoded_chunk_request_msg)

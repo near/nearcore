@@ -45,7 +45,7 @@ use borsh::BorshSerialize as _;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::GenericCounter;
 use near_primitives::receipt::{Receipt, VersionedActionReceipt, VersionedReceiptEnum};
-use near_primitives::transaction::Action;
+use near_primitives::transaction::{Action, TransactionKeyRef};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use near_primitives::types::StateRoot;
@@ -105,9 +105,20 @@ impl TriePrefetcher {
                 let trie_key = TrieKey::Account { account_id: account_id.clone() };
                 self.prefetch_trie_key(trie_key)?;
                 if is_refund {
-                    let trie_key = TrieKey::AccessKey {
-                        account_id: account_id.clone(),
-                        public_key: action_receipt.signer_public_key().clone(),
+                    let tx_key = action_receipt.transaction_key();
+                    let trie_key = match tx_key {
+                        TransactionKeyRef::AccessKey { key } => TrieKey::AccessKey {
+                            account_id: account_id.clone(),
+                            public_key: key.clone(),
+                        },
+                        TransactionKeyRef::GasKey { key, nonce_index: _nonce_index } => {
+                            TrieKey::GasKey {
+                                account_id: account_id.clone(),
+                                public_key: key.clone(),
+                                index: None,
+                            }
+                            // TODO(gas-keys): probably we need to fetch both the gas key with None and with index
+                        }
                     };
                     self.prefetch_trie_key(trie_key)?;
                 }
@@ -197,12 +208,24 @@ impl TriePrefetcher {
         if self.prefetch_api.enable_receipt_prefetching {
             for t in signed_txs.iter_nonexpired_transactions() {
                 let account_id = t.transaction.signer_id().clone();
-                let trie_key = TrieKey::Account { account_id };
+                let trie_key = match t.transaction.key() {
+                    TransactionKeyRef::AccessKey { .. } => TrieKey::Account { account_id },
+                    TransactionKeyRef::GasKey { key, .. } => {
+                        TrieKey::GasKey { account_id, public_key: key.clone(), index: None }
+                    }
+                };
                 self.prefetch_trie_key(trie_key)?;
 
-                let trie_key = TrieKey::AccessKey {
-                    account_id: t.transaction.signer_id().clone(),
-                    public_key: t.transaction.public_key().clone(),
+                let trie_key = match t.transaction.key() {
+                    TransactionKeyRef::AccessKey { key } => TrieKey::AccessKey {
+                        account_id: t.transaction.signer_id().clone(),
+                        public_key: key.clone(),
+                    },
+                    TransactionKeyRef::GasKey { key, nonce_index } => TrieKey::GasKey {
+                        account_id: t.transaction.signer_id().clone(),
+                        public_key: key.clone(),
+                        index: Some(nonce_index),
+                    },
                 };
                 self.prefetch_trie_key(trie_key)?;
             }

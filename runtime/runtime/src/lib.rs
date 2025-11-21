@@ -17,7 +17,7 @@ use crate::verifier::{
     StorageStakingError, check_storage_stake, validate_receipt, validate_transaction_well_formed,
 };
 pub use crate::verifier::{
-    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
+    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_payer_and_access_key, set_tx_state_changes,
     validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use ahash::RandomState as AHashRandomState;
@@ -35,7 +35,7 @@ pub use near_crypto;
 use near_crypto::{PublicKey, Signature};
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
-use near_primitives::account::Account;
+use near_primitives::account::{AccessKey, Account, TransactionPayer};
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
@@ -54,7 +54,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
-    SignedTransaction, TransferAction,
+    SignedTransaction, TransactionKeyRef, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
@@ -72,10 +72,12 @@ use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
-    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
-    get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
-    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
-    set_account, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
+    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get,
+    get_access_key_by_tx_key, get_account, get_gas_key, get_postponed_receipt,
+    get_promise_yield_receipt, get_pure, get_received_data, has_received_data,
+    remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key, set_account,
+    set_gas_key, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
+    set_transaction_key_nonce,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -815,6 +817,10 @@ impl Runtime {
                     | ReceiptEnum::PromiseYieldV2(new_action_receipt) => new_action_receipt
                         .output_data_receivers
                         .extend_from_slice(&action_receipt.output_data_receivers()),
+                    ReceiptEnum::ActionV3(new_action_receipt)
+                    | ReceiptEnum::PromiseYieldV3(new_action_receipt) => new_action_receipt
+                        .output_data_receivers
+                        .extend_from_slice(&action_receipt.output_data_receivers()),
                     _ => unreachable!("the receipt should be an action receipt"),
                 }
             } else {
@@ -853,6 +859,8 @@ impl Runtime {
                         | ReceiptEnum::PromiseYield(_)
                         | ReceiptEnum::ActionV2(_)
                         | ReceiptEnum::PromiseYieldV2(_)
+                        | ReceiptEnum::ActionV3(_)
+                        | ReceiptEnum::PromiseYieldV3(_)
                 );
 
                 let res =
@@ -967,6 +975,7 @@ impl Runtime {
         if deposit_refund > Balance::ZERO {
             result.new_receipts.push(Receipt::new_balance_refund(
                 receipt.balance_refund_receiver(),
+                receipt.gas_key_refund_receiver().cloned(),
                 deposit_refund,
                 receipt.priority(),
             ));
@@ -977,7 +986,7 @@ impl Runtime {
             result.new_receipts.push(Receipt::new_gas_refund(
                 &action_receipt.signer_id(),
                 gas_balance_refund,
-                action_receipt.signer_public_key().clone(),
+                action_receipt.transaction_key().to_owned(),
                 receipt.priority(),
             ));
         }
@@ -1554,7 +1563,7 @@ impl Runtime {
 
         let mut validations: Vec<Option<InvalidTxError>> = vec![None; num_transactions];
 
-        let ((), (accounts, access_keys)) = rayon::join(
+        let ((), (payers, access_keys)) = rayon::join(
             || {
                 let validation_chunks = validations.par_chunks_mut(chunk_size);
                 let (maybe_expired_txs, tx_expiration_flags) =
@@ -1636,14 +1645,23 @@ impl Runtime {
                     });
             },
             || {
+                type PayerV = Result<Option<TransactionPayer>, StorageError>;
+                type PayerK<'a> = (&'a AccountId, Option<&'a PublicKey>);
+                type AccessKeyV = Result<Option<AccessKey>, StorageError>;
+
                 // Use a faster hash builder and more shards to shorten time spent in
                 // these shared maps when many rayon workers prefetch signer data.
-                let accounts = dashmap::DashMap::with_capacity_and_hasher_and_shard_amount(
-                    num_transactions,
-                    AHashRandomState::new(),
-                    128,
-                );
-                let access_keys = dashmap::DashMap::with_capacity_and_hasher_and_shard_amount(
+                let payers =
+                    dashmap::DashMap::<PayerK, PayerV, AHashRandomState>::with_capacity_and_hasher_and_shard_amount(
+                        num_transactions,
+                        AHashRandomState::new(),
+                        128,
+                    );
+                let access_keys = dashmap::DashMap::<
+                    (&AccountId, TransactionKeyRef),
+                    AccessKeyV,
+                    AHashRandomState,
+                >::with_capacity_and_hasher_and_shard_amount(
                     num_transactions,
                     AHashRandomState::new(),
                     128,
@@ -1662,16 +1680,41 @@ impl Runtime {
                             }
 
                             let signer_id = tx.transaction.signer_id();
-                            let pubkey = tx.transaction.public_key();
-                            accounts.entry(signer_id).or_insert_with(|| {
-                                get_account(&processing_state.state_update, signer_id)
-                            });
-                            access_keys.entry((signer_id, pubkey)).or_insert_with(|| {
-                                get_access_key(&processing_state.state_update, signer_id, pubkey)
+                            let tx_key = tx.transaction.key();
+                            match tx_key {
+                                TransactionKeyRef::AccessKey { .. } => {
+                                    // Payer is Account
+                                    payers.entry((signer_id, None)).or_insert_with(|| {
+                                        get_account(&processing_state.state_update, signer_id).map(
+                                            |acc_opt| {
+                                                acc_opt.map(|acc| TransactionPayer::Account(acc))
+                                            },
+                                        )
+                                    });
+                                }
+                                TransactionKeyRef::GasKey { key, .. } => {
+                                    // Payer is GasKey
+                                    payers.entry((signer_id, Some(key))).or_insert_with(|| {
+                                        get_gas_key(&processing_state.state_update, signer_id, key)
+                                            .map(|gas_key_opt| {
+                                                gas_key_opt.map(|gas_key| {
+                                                    TransactionPayer::GasKey(gas_key)
+                                                })
+                                            })
+                                    });
+                                }
+                            }
+
+                            access_keys.entry((signer_id, tx_key)).or_insert_with(|| {
+                                get_access_key_by_tx_key(
+                                    &processing_state.state_update,
+                                    signer_id,
+                                    tx_key,
+                                )
                             });
                         }
                     });
-                (accounts, access_keys)
+                (payers, access_keys)
             },
         );
 
@@ -1690,7 +1733,7 @@ impl Runtime {
                 continue;
             }
             let signer_id = tx.transaction.signer_id();
-            let pubkey = tx.transaction.public_key();
+            let tx_key = tx.transaction.key();
             let gas_price = processing_state.apply_state.gas_price;
             let tx_hash = tx.hash();
             let block_height = processing_state.apply_state.block_height;
@@ -1715,8 +1758,12 @@ impl Runtime {
                     }
                 };
 
-            let mut account = accounts.get_mut(signer_id);
-            let account = match account.as_deref_mut() {
+            let payer_key = match tx_key {
+                TransactionKeyRef::AccessKey { .. } => (signer_id, None),
+                TransactionKeyRef::GasKey { key, .. } => (signer_id, Some(key)),
+            };
+            let mut payer = payers.get_mut(&payer_key);
+            let payer = match payer.as_deref_mut() {
                 Some(Ok(Some(a))) => a,
                 Some(Ok(None)) => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
@@ -1735,7 +1782,7 @@ impl Runtime {
                 Some(Err(e)) => return Err(e.clone().into()),
                 None => unreachable!("accounts should've been prefetched"),
             };
-            let mut access_key = access_keys.get_mut(&(signer_id, pubkey));
+            let mut access_key = access_keys.get_mut(&(signer_id, tx_key));
             let access_key = match access_key.as_deref_mut() {
                 Some(Ok(Some(ak))) => ak,
                 Some(Ok(None)) => {
@@ -1743,12 +1790,10 @@ impl Runtime {
                     tracing::debug!(%tx_hash, "transaction signed by unknown signing key");
                     let outcome = ExecutionOutcomeWithId::failed(
                         tx,
-                        InvalidTxError::InvalidAccessKeyError(
-                            InvalidAccessKeyError::AccessKeyNotFound {
-                                account_id: signer_id.clone(),
-                                public_key: Box::new(pubkey.clone()),
-                            },
-                        ),
+                        InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::not_found(
+                            signer_id.clone(),
+                            tx_key,
+                        )),
                     );
 
                     Self::register_outcome(
@@ -1764,7 +1809,7 @@ impl Runtime {
             let verification_result = {
                 match verify_and_charge_tx_ephemeral(
                     &processing_state.apply_state.config,
-                    account,
+                    payer,
                     access_key,
                     &tx.transaction,
                     &cost,
@@ -1795,9 +1840,10 @@ impl Runtime {
                     receipt_id,
                     signer_id.clone(),
                     tx.transaction.receiver_id().clone(),
-                    pubkey.clone(),
+                    tx_key.to_owned(),
                     verification_result.receipt_gas_price,
                     tx.transaction.actions().to_vec(),
+                    processing_state.protocol_version,
                 );
                 let gas_burnt = verification_result.gas_burnt;
                 let compute_usage = gas_burnt.as_gas();
@@ -1856,11 +1902,23 @@ impl Runtime {
             processing_state.total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
             processing_state.outcomes.push(outcome);
             metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-            set_account(&mut processing_state.state_update, signer_id.clone(), account);
-            set_access_key(
+            match payer {
+                TransactionPayer::Account(account) => {
+                    set_account(&mut processing_state.state_update, signer_id.clone(), account);
+                }
+                TransactionPayer::GasKey(gas_key) => {
+                    set_gas_key(
+                        &mut processing_state.state_update,
+                        signer_id.clone(),
+                        tx_key.public_key().clone(),
+                        &gas_key,
+                    );
+                }
+            }
+            set_transaction_key_nonce(
                 &mut processing_state.state_update,
                 signer_id.clone(),
-                pubkey.clone(),
+                tx_key,
                 access_key,
             );
             processing_state
@@ -2431,8 +2489,9 @@ impl Runtime {
 fn get_batchable_signature_and_public_key(
     signed_tx: &SignedTransaction,
 ) -> Option<(&ed25519_dalek::Signature, ed25519_dalek::VerifyingKey)> {
+    let key = signed_tx.transaction.key();
     let (Signature::ED25519(sig), PublicKey::ED25519(key)) =
-        (&signed_tx.signature, signed_tx.transaction.public_key())
+        (&signed_tx.signature, key.public_key())
     else {
         return None;
     };
@@ -2472,13 +2531,12 @@ fn action_transfer_or_implicit_account_creation(
     Ok(if let Some(account) = account.as_mut() {
         action_transfer(account, deposit)?;
         // Check if this is a gas refund, then try to refund the access key allowance.
+        // Allowance for gas key is always None, so no refund is needed.
         if is_refund && action_receipt.signer_id() == receipt.receiver_id() {
-            try_refund_allowance(
-                state_update,
-                receipt.receiver_id(),
-                &action_receipt.signer_public_key(),
-                deposit,
-            )?;
+            // TODO(gas-keys): should we assert this instead of skipping?
+            if let TransactionKeyRef::AccessKey { key } = action_receipt.transaction_key() {
+                try_refund_allowance(state_update, receipt.receiver_id(), key, deposit)?;
+            }
         }
     } else {
         // Implicit account creation
@@ -2808,7 +2866,9 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
                 ReceiptEnum::Action(_)
                 | ReceiptEnum::PromiseYield(_)
                 | ReceiptEnum::ActionV2(_)
-                | ReceiptEnum::PromiseYieldV2(_) => {
+                | ReceiptEnum::PromiseYieldV2(_)
+                | ReceiptEnum::ActionV3(_)
+                | ReceiptEnum::PromiseYieldV3(_) => {
                     // This returns `true` if work may have been scheduled (thus we currently
                     // prepare actions in at most 2 "interesting" receipts in parallel due to
                     // staggering.)

@@ -1,14 +1,15 @@
-use crate::action::GlobalContractIdentifier;
+use crate::action::{GlobalContractIdentifier, TransferToGasKeyAction};
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::shard_layout::ShardLayout;
-use crate::transaction::{Action, TransferAction};
+use crate::transaction::{Action, TransactionKey, TransactionKeyRef, TransferAction};
 use crate::types::{AccountId, Balance, BlockHeight, ShardId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
-use near_primitives_core::types::Gas;
+use near_primitives_core::types::{Gas, ProtocolVersion};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -405,22 +406,42 @@ impl Receipt {
         receipt_id: CryptoHash,
         tx_signer_id: AccountId,
         tx_receiver_id: AccountId,
-        signer_public_key: PublicKey,
+        transaction_key: TransactionKey,
         gas_price: Balance,
         actions: Vec<Action>,
+        protocol_version: ProtocolVersion,
     ) -> Self {
-        Receipt::V0(ReceiptV0 {
-            predecessor_id: tx_signer_id.clone(),
-            receiver_id: tx_receiver_id,
-            receipt_id,
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: tx_signer_id,
+        let receipt_enum = if ProtocolFeature::GasKeys.enabled(protocol_version) {
+            ReceiptEnum::ActionV3(ActionReceiptV3 {
+                signer_id: tx_signer_id.clone(),
+                refund_to: None, // Defaults to receiver_id
+                transaction_key,
+                gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            })
+        } else {
+            let signer_public_key = match transaction_key {
+                TransactionKey::AccessKey { public_key } => public_key,
+                TransactionKey::GasKey { .. } => {
+                    panic!("GasKey not enabled yet, unexpected behavior")
+                }
+            };
+            ReceiptEnum::Action(ActionReceipt {
+                signer_id: tx_signer_id.clone(),
                 signer_public_key,
                 gas_price,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions,
-            }),
+            })
+        };
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: tx_signer_id,
+            receiver_id: tx_receiver_id,
+            receipt_id,
+            receipt: receipt_enum,
         })
     }
 
@@ -510,11 +531,32 @@ impl Receipt {
             | ReceiptEnum::GlobalContractDistribution(_) => &None,
             ReceiptEnum::ActionV2(action_receipt_v2)
             | ReceiptEnum::PromiseYieldV2(action_receipt_v2) => &action_receipt_v2.refund_to,
+            ReceiptEnum::ActionV3(action_receipt_v3)
+            | ReceiptEnum::PromiseYieldV3(action_receipt_v3) => &action_receipt_v3.refund_to,
         }
     }
 
     pub fn balance_refund_receiver(&self) -> &AccountId {
         self.refund_to().as_ref().unwrap_or_else(|| self.predecessor_id())
+    }
+
+    pub fn gas_key_refund_receiver(&self) -> Option<&PublicKey> {
+        match self.receipt() {
+            ReceiptEnum::Action(_)
+            | ReceiptEnum::Data(_)
+            | ReceiptEnum::PromiseYield(_)
+            | ReceiptEnum::PromiseResume(_)
+            | ReceiptEnum::GlobalContractDistribution(_)
+            | ReceiptEnum::ActionV2(_)
+            | ReceiptEnum::PromiseYieldV2(_) => None,
+            ReceiptEnum::ActionV3(action_receipt_v3)
+            | ReceiptEnum::PromiseYieldV3(action_receipt_v3) => {
+                match &action_receipt_v3.transaction_key {
+                    TransactionKey::AccessKey { .. } => None,
+                    TransactionKey::GasKey { public_key, .. } => Some(public_key),
+                }
+            }
+        }
     }
 
     /// It's not a content hash, but receipt_id is unique.
@@ -526,9 +568,11 @@ impl Receipt {
         let shard_id = match self.receipt() {
             ReceiptEnum::Action(_)
             | ReceiptEnum::ActionV2(_)
+            | ReceiptEnum::ActionV3(_)
             | ReceiptEnum::Data(_)
             | ReceiptEnum::PromiseYield(_)
             | ReceiptEnum::PromiseYieldV2(_)
+            | ReceiptEnum::PromiseYieldV3(_)
             | ReceiptEnum::PromiseResume(_) => {
                 shard_layout.account_id_to_shard_id(self.receiver_id())
             }
@@ -557,9 +601,17 @@ impl Receipt {
     /// It doesn't refund the allowance of the access key. For gas refunds use `new_gas_refund`.
     pub fn new_balance_refund(
         receiver_id: &AccountId,
+        receiver_gas_key: Option<PublicKey>,
         refund: Balance,
         priority: ReceiptPriority,
     ) -> Self {
+        let action = match receiver_gas_key {
+            Some(public_key) => Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+                deposit: refund,
+                public_key,
+            })),
+            None => Action::Transfer(TransferAction { deposit: refund }),
+        };
         match priority {
             ReceiptPriority::Priority(priority) => Receipt::V1(ReceiptV1 {
                 predecessor_id: "system".parse().unwrap(),
@@ -572,7 +624,7 @@ impl Receipt {
                     gas_price: Balance::ZERO,
                     output_data_receivers: vec![],
                     input_data_ids: vec![],
-                    actions: vec![Action::Transfer(TransferAction { deposit: refund })],
+                    actions: vec![action],
                 }),
                 priority,
             }),
@@ -587,7 +639,7 @@ impl Receipt {
                     gas_price: Balance::ZERO,
                     output_data_receivers: vec![],
                     input_data_ids: vec![],
-                    actions: vec![Action::Transfer(TransferAction { deposit: refund })],
+                    actions: vec![action],
                 }),
             }),
         }
@@ -603,38 +655,44 @@ impl Receipt {
     pub fn new_gas_refund(
         receiver_id: &AccountId,
         refund: Balance,
-        signer_public_key: PublicKey,
+        transaction_key: TransactionKey,
         priority: ReceiptPriority,
     ) -> Self {
+        let receipt_enum = match transaction_key.clone() {
+            TransactionKey::AccessKey { public_key } => ReceiptEnum::Action(ActionReceipt {
+                signer_id: receiver_id.clone(),
+                signer_public_key: public_key,
+                gas_price: Balance::ZERO,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit: refund })],
+            }),
+            TransactionKey::GasKey { public_key, .. } => ReceiptEnum::ActionV3(ActionReceiptV3 {
+                signer_id: receiver_id.clone(),
+                refund_to: None,
+                transaction_key,
+                gas_price: Balance::ZERO,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::TransferToGasKey(
+                    TransferToGasKeyAction { public_key, deposit: refund }.into(),
+                )],
+            }),
+        };
+
         match priority {
             ReceiptPriority::Priority(priority) => Receipt::V1(ReceiptV1 {
                 predecessor_id: "system".parse().unwrap(),
                 receiver_id: receiver_id.clone(),
                 receipt_id: CryptoHash::default(),
-
-                receipt: ReceiptEnum::Action(ActionReceipt {
-                    signer_id: receiver_id.clone(),
-                    signer_public_key,
-                    gas_price: Balance::ZERO,
-                    output_data_receivers: vec![],
-                    input_data_ids: vec![],
-                    actions: vec![Action::Transfer(TransferAction { deposit: refund })],
-                }),
+                receipt: receipt_enum,
                 priority,
             }),
             ReceiptPriority::NoPriority => Receipt::V0(ReceiptV0 {
                 predecessor_id: "system".parse().unwrap(),
                 receiver_id: receiver_id.clone(),
                 receipt_id: CryptoHash::default(),
-
-                receipt: ReceiptEnum::Action(ActionReceipt {
-                    signer_id: receiver_id.clone(),
-                    signer_public_key,
-                    gas_price: Balance::ZERO,
-                    output_data_receivers: vec![],
-                    input_data_ids: vec![],
-                    actions: vec![Action::Transfer(TransferAction { deposit: refund })],
-                }),
+                receipt: receipt_enum,
             }),
         }
     }
@@ -675,6 +733,8 @@ pub enum ReceiptEnum {
     GlobalContractDistribution(GlobalContractDistributionReceipt) = 4,
     ActionV2(ActionReceiptV2) = 5,
     PromiseYieldV2(ActionReceiptV2) = 6,
+    ActionV3(ActionReceiptV3) = 7,
+    PromiseYieldV3(ActionReceiptV3) = 8,
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
@@ -743,12 +803,47 @@ pub struct ActionReceiptV2 {
     pub actions: Vec<Action>,
 }
 
+/// ActionReceiptV3 tracks whether the initiating transaction was signed by an access key or a gas key.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ActionReceiptV3 {
+    /// A signer of the original transaction
+    pub signer_id: AccountId,
+    /// The receiver of any balance refunds form this receipt if it is different from receiver_id.
+    pub refund_to: Option<AccountId>,
+    /// Access key or gas key which was used to sign the original transaction
+    pub transaction_key: TransactionKey,
+    /// A gas_price which has been used to buy gas in the original transaction
+    pub gas_price: Balance,
+    /// If present, where to route the output data
+    pub output_data_receivers: Vec<DataReceiver>,
+    /// A list of the input data dependencies for this Receipt to process.
+    /// If all `input_data_ids` for this receipt are delivered to the account
+    /// that means we have all the `ReceivedData` input which will be than converted to a
+    /// `PromiseResult::Successful(value)` or `PromiseResult::Failed`
+    /// depending on `ReceivedData` is `Some(_)` or `None`
+    pub input_data_ids: Vec<CryptoHash>,
+    /// A list of actions to process when all input_data_ids are filled
+    pub actions: Vec<Action>,
+}
+
 /// Convenience wrapper for common logic accessing fields on action receipts of
 /// different versions.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum VersionedActionReceipt<'a> {
     V1(Cow<'a, ActionReceipt>),
     V2(Cow<'a, ActionReceiptV2>),
+    V3(Cow<'a, ActionReceiptV3>),
 }
 
 impl VersionedActionReceipt<'_> {
@@ -757,6 +852,7 @@ impl VersionedActionReceipt<'_> {
         match self {
             VersionedActionReceipt::V1(action_receipt) => &action_receipt.signer_id,
             VersionedActionReceipt::V2(action_receipt) => &action_receipt.signer_id,
+            VersionedActionReceipt::V3(action_receipt) => &action_receipt.signer_id,
         }
     }
 
@@ -765,14 +861,22 @@ impl VersionedActionReceipt<'_> {
         match self {
             VersionedActionReceipt::V1(_) => &None,
             VersionedActionReceipt::V2(action_receipt) => &action_receipt.refund_to,
+            VersionedActionReceipt::V3(action_receipt) => &action_receipt.refund_to,
         }
     }
 
-    /// An access key which was used to sign the original transaction
-    pub fn signer_public_key(&self) -> &PublicKey {
+    /// Access key or gas key which was used to sign the original transaction
+    pub fn transaction_key(&self) -> TransactionKeyRef {
         match self {
-            VersionedActionReceipt::V1(action_receipt) => &action_receipt.signer_public_key,
-            VersionedActionReceipt::V2(action_receipt) => &action_receipt.signer_public_key,
+            VersionedActionReceipt::V1(action_receipt) => {
+                TransactionKeyRef::AccessKey { key: &action_receipt.signer_public_key }
+            }
+            VersionedActionReceipt::V2(action_receipt) => {
+                TransactionKeyRef::AccessKey { key: &action_receipt.signer_public_key }
+            }
+            VersionedActionReceipt::V3(action_receipt) => {
+                TransactionKeyRef::from(&action_receipt.transaction_key)
+            }
         }
     }
 
@@ -781,6 +885,7 @@ impl VersionedActionReceipt<'_> {
         match self {
             VersionedActionReceipt::V1(action_receipt) => action_receipt.gas_price,
             VersionedActionReceipt::V2(action_receipt) => action_receipt.gas_price,
+            VersionedActionReceipt::V3(action_receipt) => action_receipt.gas_price,
         }
     }
 
@@ -789,6 +894,7 @@ impl VersionedActionReceipt<'_> {
         match self {
             VersionedActionReceipt::V1(action_receipt) => &action_receipt.output_data_receivers,
             VersionedActionReceipt::V2(action_receipt) => &action_receipt.output_data_receivers,
+            VersionedActionReceipt::V3(action_receipt) => &action_receipt.output_data_receivers,
         }
     }
 
@@ -801,6 +907,7 @@ impl VersionedActionReceipt<'_> {
         match self {
             VersionedActionReceipt::V1(action_receipt) => &action_receipt.input_data_ids,
             VersionedActionReceipt::V2(action_receipt) => &action_receipt.input_data_ids,
+            VersionedActionReceipt::V3(action_receipt) => &action_receipt.input_data_ids,
         }
     }
 
@@ -809,6 +916,7 @@ impl VersionedActionReceipt<'_> {
         match self {
             VersionedActionReceipt::V1(action_receipt) => &action_receipt.actions,
             VersionedActionReceipt::V2(action_receipt) => &action_receipt.actions,
+            VersionedActionReceipt::V3(action_receipt) => &action_receipt.actions,
         }
     }
 }
@@ -834,6 +942,18 @@ impl<'a> From<&'a ActionReceiptV2> for VersionedActionReceipt<'a> {
 impl From<ActionReceiptV2> for VersionedActionReceipt<'_> {
     fn from(other: ActionReceiptV2) -> Self {
         VersionedActionReceipt::V2(Cow::Owned(other))
+    }
+}
+
+impl<'a> From<&'a ActionReceiptV3> for VersionedActionReceipt<'a> {
+    fn from(other: &'a ActionReceiptV3) -> Self {
+        VersionedActionReceipt::V3(Cow::Borrowed(other))
+    }
+}
+
+impl From<ActionReceiptV3> for VersionedActionReceipt<'_> {
+    fn from(other: ActionReceiptV3) -> Self {
+        VersionedActionReceipt::V3(Cow::Owned(other))
     }
 }
 
@@ -880,6 +1000,12 @@ impl<'a> From<&'a ReceiptEnum> for VersionedReceiptEnum<'a> {
             ReceiptEnum::PromiseYieldV2(action_receipt) => {
                 VersionedReceiptEnum::PromiseYield(action_receipt.into())
             }
+            ReceiptEnum::ActionV3(action_receipt) => {
+                VersionedReceiptEnum::Action(action_receipt.into())
+            }
+            ReceiptEnum::PromiseYieldV3(action_receipt) => {
+                VersionedReceiptEnum::PromiseYield(action_receipt.into())
+            }
         }
     }
 }
@@ -906,6 +1032,12 @@ impl<'a> From<ReceiptEnum> for VersionedReceiptEnum<'a> {
                 VersionedReceiptEnum::Action(action_receipt.into())
             }
             ReceiptEnum::PromiseYieldV2(action_receipt) => {
+                VersionedReceiptEnum::PromiseYield(action_receipt.into())
+            }
+            ReceiptEnum::ActionV3(action_receipt) => {
+                VersionedReceiptEnum::Action(action_receipt.into())
+            }
+            ReceiptEnum::PromiseYieldV3(action_receipt) => {
                 VersionedReceiptEnum::PromiseYield(action_receipt.into())
             }
         }
