@@ -65,6 +65,7 @@ impl ReshardingEventType {
                 };
                 (shards_split_map, layout.boundary_accounts())
             }
+            ShardLayout::V3(layout) => (layout.shards_split_map(), layout.boundary_accounts()),
         };
 
         let mut event = None;
