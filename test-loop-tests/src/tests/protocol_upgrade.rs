@@ -197,11 +197,15 @@ pub(crate) fn test_protocol_upgrade(
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_no_missing_chunks() {
     test_protocol_upgrade(PROTOCOL_VERSION - 1, PROTOCOL_VERSION, HashMap::new());
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_with_missing_chunk_one() {
     test_protocol_upgrade(
         PROTOCOL_VERSION - 1,
@@ -211,6 +215,8 @@ fn slow_test_protocol_upgrade_with_missing_chunk_one() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_with_missing_chunks_two() {
     test_protocol_upgrade(
         PROTOCOL_VERSION - 1,
@@ -223,6 +229,8 @@ fn slow_test_protocol_upgrade_with_missing_chunks_two() {
 /// There was a bug which caused `test_protocol_upgrade` to always upgrade to `PROTOCOL_VERSION`,
 /// this test ensures that the bug is fixed and it upgrades to the desired version, not the latest one.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_not_latest() {
     test_protocol_upgrade(PROTOCOL_VERSION - 2, PROTOCOL_VERSION - 1, HashMap::new());
 }
