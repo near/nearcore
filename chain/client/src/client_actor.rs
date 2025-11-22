@@ -29,8 +29,8 @@ use near_async::messaging::{
     self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender,
 };
 use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::time::Duration;
 use near_async::time::{Clock, Utc};
-use near_async::time::{Duration, Instant};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
 #[cfg(feature = "test_features")]
@@ -70,7 +70,7 @@ use near_primitives::block::Tip;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
@@ -285,8 +285,6 @@ pub struct ClientActor {
     /// Identity that represents this Client at the network level.
     /// It is used as part of the messages that identify this client.
     node_id: PeerId,
-    /// Last time we announced our accounts as validators.
-    last_validator_announce_time: Option<Instant>,
     /// Info helper.
     info_helper: InfoHelper,
 
@@ -430,7 +428,6 @@ impl ClientActor {
                 tier1_accounts_keys: vec![],
                 tier1_accounts_data: vec![],
             },
-            last_validator_announce_time: None,
             info_helper,
             block_production_next_attempt: now,
             log_summary_timer_next_attempt: now,
@@ -974,56 +971,6 @@ impl ClientActor {
         }
     }
 
-    /// Check if client Account Id should be sent and send it.
-    /// Account Id is sent when is not current a validator but are becoming a validator soon.
-    fn check_send_announce_account(&mut self, prev_block_hash: CryptoHash) {
-        // If no peers, there is no one to announce to.
-        if self.network_info.num_connected_peers == 0 {
-            tracing::debug!(target: "client", "no peers: skip account announce");
-            return;
-        }
-
-        // First check that we currently have an AccountId
-        let signer = match self.client.validator_signer.get() {
-            None => return,
-            Some(signer) => signer,
-        };
-
-        let now = self.clock.now();
-        // Check that we haven't announced it too recently
-        if let Some(last_validator_announce_time) = self.last_validator_announce_time {
-            // Don't make announcement if have passed less than half of the time in which other peers
-            // should remove our Account Id from their Routing Tables.
-            if 2 * (now - last_validator_announce_time) < self.client.config.ttl_account_id_router {
-                return;
-            }
-        }
-
-        tracing::debug!(
-            target: "client",
-            validator_id = %signer.validator_id(),
-            last_validator_announce_time = ?self.last_validator_announce_time,
-            "check announce account for validator"
-        );
-
-        // Announce AccountId if client is becoming a validator soon.
-        let next_epoch_id = unwrap_or_return!(
-            self.client.epoch_manager.get_next_epoch_id_from_prev_block(&prev_block_hash)
-        );
-
-        // Check client is part of the futures validators
-        if self.client.is_validator(&next_epoch_id) {
-            tracing::debug!(target: "client", validator_id = %signer.validator_id(), "sending announce account for validator");
-            self.last_validator_announce_time = Some(now);
-
-            let announce_account =
-                AnnounceAccount::new(signer.as_ref(), self.node_id.clone(), next_epoch_id);
-            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::AnnounceAccount(announce_account),
-            ));
-        }
-    }
-
     /// Process the sandbox fast forward request. If the change in block height is past an epoch,
     /// we fast forward to just right before the epoch, produce some blocks to get past and into
     /// a new epoch, then we continue on with the residual amount to fast forward.
@@ -1553,7 +1500,6 @@ impl ClientActor {
             tracing::debug!(target: "client", height=block.header().height(), "process_accepted_block");
             self.send_chunks_metrics(&block);
             self.send_block_metrics(&block);
-            self.check_send_announce_account(*block.header().last_final_block());
             self.chunk_executor_sender.send(ProcessedBlock { block_hash: accepted_block });
             self.spice_chunk_validator_sender.send(ProcessedBlock { block_hash: accepted_block });
             self.spice_data_distributor_sender.send(ProcessedBlock { block_hash: accepted_block });
@@ -1735,15 +1681,6 @@ impl ClientActor {
                     // Initial transition out of "syncing" state.
                     tracing::debug!(target: "sync", prev_sync_status = ?self.client.sync_handler.sync_status, "disabling sync");
                     self.client.sync_handler.sync_status.update(SyncStatus::NoSync);
-                    // Announce this client's account id if their epoch is coming up.
-                    let head = match self.client.chain.head() {
-                        Ok(v) => v,
-                        Err(err) => {
-                            tracing::error!(target: "sync", ?err, "sync: unexpected error");
-                            return;
-                        }
-                    };
-                    self.check_send_announce_account(head.prev_block_hash);
                 }
             }
 

@@ -376,15 +376,10 @@ pub(crate) static ALREADY_CONNECTED_ACCOUNT: LazyLock<IntCounter> = LazyLock::ne
     .unwrap()
 });
 
-pub(crate) static ACCOUNT_TO_PEER_LOOKUPS: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
+pub(crate) static ACCOUNT_TO_PEER_LOOKUPS: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
         "near_account_to_peer_lookups",
         "number of lookups of peer_id by account_id (for routed messages)",
-        // Source is either "AnnounceAccount" or "AccountData".
-        // We want to deprecate AnnounceAccount, so eventually we want all
-        // lookups to be done via AccountData. For now AnnounceAccount is
-        // used as a fallback.
-        &["source"],
     )
     .unwrap()
 });

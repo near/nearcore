@@ -167,8 +167,6 @@ pub struct NetworkConfig {
     pub max_send_peers: u32,
     /// Duration for checking on stats from the peers.
     pub peer_stats_period: time::Duration,
-    /// Time to persist Accounts Id in the router without removing them.
-    pub ttl_account_id_router: time::Duration,
     /// Number of hops a message is allowed to travel before being dropped.
     /// This is used to avoid infinite loop because of inconsistent view of the network
     /// by different nodes.
@@ -386,7 +384,6 @@ impl NetworkConfig {
             archival_peer_connections_lower_bound: cfg.archival_peer_connections_lower_bound,
             max_send_peers: PEERS_RESPONSE_MAX_PEERS,
             peer_stats_period: cfg.peer_stats_period.try_into()?,
-            ttl_account_id_router: cfg.ttl_account_id_router.try_into()?,
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: MAX_ROUTES_TO_STORE,
             highest_peer_horizon: HIGHEST_PEER_HORIZON,
@@ -461,7 +458,6 @@ impl NetworkConfig {
             archival_peer_connections_lower_bound: 10,
             max_send_peers: PEERS_RESPONSE_MAX_PEERS,
             peer_stats_period: time::Duration::seconds(5),
-            ttl_account_id_router: time::Duration::seconds(60 * 60),
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: 1,
             highest_peer_horizon: 5,

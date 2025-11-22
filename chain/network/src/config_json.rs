@@ -3,9 +3,6 @@ use crate::rate_limits::messages_limits;
 use crate::stun;
 use near_async::time::Duration;
 
-/// Time to persist Accounts Id in the router without removing them in seconds.
-pub const TTL_ACCOUNT_ID_ROUTER: i64 = 60 * 60;
-
 /// Maximum number of active peers. Hard limit.
 fn default_max_num_peers() -> u32 {
     40
@@ -42,10 +39,6 @@ fn default_safe_set_size() -> u32 {
 /// if we are an archival node.
 fn default_archival_peer_connections_lower_bound() -> u32 {
     10
-}
-/// Time to persist Accounts Id in the router without removing them in seconds.
-fn default_ttl_account_id_router() -> Duration {
-    Duration::seconds(TTL_ACCOUNT_ID_ROUTER)
 }
 /// Period to check on peer status
 fn default_peer_stats_period() -> Duration {
@@ -140,10 +133,6 @@ pub struct Config {
     /// It can be IP:Port or IP (to blacklist all connections coming from this address).
     #[serde(default)]
     pub blacklist: Vec<String>,
-    /// Time to persist Accounts Id in the router without removing them in seconds.
-    #[serde(default = "default_ttl_account_id_router")]
-    #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub ttl_account_id_router: Duration,
     /// Period to check on peer status
     #[serde(default = "default_peer_stats_period")]
     #[serde(with = "near_async::time::serde_duration_as_std")]
@@ -345,7 +334,6 @@ impl Default for Config {
             skip_sync_wait: false,
             ban_window: Duration::hours(3),
             blacklist: vec![],
-            ttl_account_id_router: default_ttl_account_id_router(),
             peer_stats_period: default_peer_stats_period(),
             monitor_peers_max_period: default_monitor_peers_max_period(),
             peer_states_cache_size: default_peer_states_cache_size(),
