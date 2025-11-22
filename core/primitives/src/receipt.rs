@@ -93,6 +93,7 @@ pub struct ReceiptV1 {
     /// A receipt type
     pub receipt: ReceiptEnum,
     /// Priority of a receipt
+    /// TODO(gas-keys): Remove priority or ReceiptV1 entirely if no longer needed.
     pub priority: u64,
 }
 
