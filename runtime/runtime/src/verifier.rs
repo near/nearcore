@@ -27,7 +27,7 @@ use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
 use near_store::{
     StorageError, TrieUpdate, get_access_key_by_tx_key, get_account, get_gas_key, set_account,
-    set_gas_key, set_transaction_key_nonce,
+    set_gas_key,
 };
 use near_vm_runner::logic::LimitConfig;
 
@@ -138,24 +138,18 @@ pub(crate) fn validate_transaction_well_formed<'a>(
     ValidatedTransaction::check_valid_for_config(config, signed_tx, current_protocol_version)
 }
 
-/// Updates the state with changes from the transaction, including new amount
-/// (from `payer`) and nonce (from `access_key`).
-///
-/// Note that this does not commit state changes to the `TrieUpdate`.
-pub fn set_tx_state_changes(
+pub fn set_tx_balance_changes(
     state_update: &mut TrieUpdate,
-    validated_tx: &ValidatedTransaction,
+    account_id: AccountId,
+    key: TransactionKeyRef,
     payer: &TransactionPayer,
-    access_key: &AccessKey,
 ) {
-    let tx: &Transaction = validated_tx.to_tx();
-    set_transaction_key_nonce(state_update, tx.signer_id().clone(), tx.key(), access_key);
-    match (validated_tx.key(), payer) {
+    match (key, payer) {
         (TransactionKeyRef::AccessKey { .. }, TransactionPayer::Account(account)) => {
-            set_account(state_update, tx.signer_id().clone(), account)
+            set_account(state_update, account_id, account)
         }
         (TransactionKeyRef::GasKey { key, .. }, TransactionPayer::GasKey(gas_key)) => {
-            set_gas_key(state_update, tx.signer_id().clone(), key.clone(), gas_key);
+            set_gas_key(state_update, account_id, key.clone(), gas_key);
         }
         _ => {
             panic!("Mismatched signer and transaction key types");
@@ -794,6 +788,7 @@ mod tests {
     use near_store::test_utils::TestTriesBuilder;
     use near_store::{
         get_access_key, get_gas_key_nonce, set, set_access_key, set_account, set_gas_key_nonce,
+        set_tx_nonce_changes,
     };
     use near_vm_runner::ContractCode;
     use std::collections::BTreeMap;
@@ -982,18 +977,29 @@ mod tests {
             Ok(validated_tx) => validated_tx,
             Err((err, _tx)) => return Err(err),
         };
-        let (mut signer, mut access_key) = get_payer_and_access_key(state_update, &validated_tx)?;
+        let (mut payer, mut access_key) = get_payer_and_access_key(state_update, &validated_tx)?;
 
         let transaction_cost = tx_cost(config, &validated_tx.to_tx(), gas_price)?;
         let vr = verify_and_charge_tx_ephemeral(
             config,
-            &mut signer,
+            &mut payer,
             &mut access_key,
             validated_tx.to_tx(),
             &transaction_cost,
             block_height,
         )?;
-        set_tx_state_changes(state_update, &validated_tx, &signer, &access_key);
+        set_tx_nonce_changes(
+            state_update,
+            validated_tx.signer_id().clone(),
+            validated_tx.key(),
+            &access_key,
+        );
+        set_tx_balance_changes(
+            state_update,
+            validated_tx.signer_id().clone(),
+            validated_tx.key(),
+            &payer,
+        );
         Ok(vr)
     }
 

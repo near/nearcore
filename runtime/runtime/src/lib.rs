@@ -17,7 +17,7 @@ use crate::verifier::{
     StorageStakingError, check_storage_stake, validate_receipt, validate_transaction_well_formed,
 };
 pub use crate::verifier::{
-    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_payer_and_access_key, set_tx_state_changes,
+    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_payer_and_access_key, set_tx_balance_changes,
     validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use ahash::RandomState as AHashRandomState;
@@ -76,8 +76,7 @@ use near_store::{
     get_access_key_by_tx_key, get_account, get_gas_key, get_postponed_receipt,
     get_promise_yield_receipt, get_pure, get_received_data, has_received_data,
     remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key, set_account,
-    set_gas_key, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
-    set_transaction_key_nonce,
+    set_postponed_receipt, set_promise_yield_receipt, set_received_data, set_tx_nonce_changes,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -1902,20 +1901,13 @@ impl Runtime {
             processing_state.total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
             processing_state.outcomes.push(outcome);
             metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
-            match payer {
-                TransactionPayer::Account(account) => {
-                    set_account(&mut processing_state.state_update, signer_id.clone(), account);
-                }
-                TransactionPayer::GasKey(gas_key) => {
-                    set_gas_key(
-                        &mut processing_state.state_update,
-                        signer_id.clone(),
-                        tx_key.public_key().clone(),
-                        &gas_key,
-                    );
-                }
-            }
-            set_transaction_key_nonce(
+            set_tx_balance_changes(
+                &mut processing_state.state_update,
+                signer_id.clone(),
+                tx_key,
+                payer,
+            );
+            set_tx_nonce_changes(
                 &mut processing_state.state_update,
                 signer_id.clone(),
                 tx_key,
