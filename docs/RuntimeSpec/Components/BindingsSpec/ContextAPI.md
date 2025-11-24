@@ -100,6 +100,30 @@ that does function invocation on the contract or another contract as a result of
 
 ---
 
+#### refund_to_account_id
+
+```rust
+refund_to_account_id(register_id: u64)
+```
+
+If a receipt fails execution, a balance refund usually goes to the predecessor of the receipt. However, the predecessor
+can set this to another account id when sending the receipt.
+
+###### Normal operation
+
+- Saves the bytes of the account id receiving balance refunds into the register.
+
+###### Panics
+
+- If the registers exceed the memory limit panics with `MemoryAccessViolation`;
+- If called in a view function panics with `ProhibitedInView`.
+
+###### Current bugs
+
+- Not implemented.
+
+---
+
 #### input
 
 ```rust
