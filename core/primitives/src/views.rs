@@ -1602,6 +1602,9 @@ pub struct SignedTransactionView {
     pub nonce: Nonce,
     pub receiver_id: AccountId,
     pub actions: Vec<ActionView>,
+    /// Deprecated, retained for backward compatibility.
+    #[serde(default, rename = "priority_fee")]
+    pub _priority_fee: u64,
     pub signature: Signature,
     pub hash: CryptoHash,
     /// None for AccessKey transactions, specifies the nonce index for GasKey transactions.
@@ -1622,6 +1625,7 @@ impl From<SignedTransaction> for SignedTransactionView {
             actions: transaction.take_actions().into_iter().map(|action| action.into()).collect(),
             signature: signed_tx.signature,
             hash,
+            _priority_fee: 0,
         }
     }
 }
