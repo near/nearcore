@@ -16586,6 +16586,13 @@
             "nullable": true,
             "type": "integer"
           },
+          "priority_fee": {
+            "default": 0,
+            "description": "Deprecated, retained for backward compatibility.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "public_key": {
             "$ref": "#/components/schemas/PublicKey"
           },
