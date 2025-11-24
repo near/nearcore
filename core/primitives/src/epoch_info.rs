@@ -568,8 +568,6 @@ impl EpochInfo {
     }
 
     /// Samples a chunk producer for the given shard and height, excluding validators in the exclusion set.
-    /// If the sampled validator is excluded, deterministically tries the next validators in order
-    /// until finding one that is not excluded.
     pub fn sample_chunk_producer_with_exclusions(
         &self,
         shard_layout: &ShardLayout,
@@ -578,7 +576,6 @@ impl EpochInfo {
         excluded_validators: &HashSet<ValidatorId>,
     ) -> Option<ValidatorId> {
         if excluded_validators.is_empty() {
-            // Fast path: no exclusions, use original method
             return self.sample_chunk_producer_impl(shard_layout, shard_id, height);
         }
 
@@ -604,16 +601,12 @@ impl EpochInfo {
             return self.sample_chunk_producer_impl(shard_layout, shard_id, height);
         }
 
-        // Sample from filtered list deterministically
         match &self {
             Self::V1(_) | Self::V2(_) => {
-                // For V1/V2, use modulo on filtered list
                 let index = (height as u64 % (filtered_validators.len() as u64)) as usize;
                 filtered_validators.get(index).copied()
             }
             Self::V3(_) | Self::V4(_) | Self::V5(_) => {
-                // For V3/V4/V5, create a stake-weighted sampler from filtered validators
-                // and use the full seed, matching the original implementation
                 let rng_seed = self.rng_seed();
                 let seed = Self::chunk_produce_seed(&rng_seed, height, shard_id);
                 let stakes: Vec<Balance> =
