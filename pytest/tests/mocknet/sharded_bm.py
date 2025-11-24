@@ -156,7 +156,6 @@ def handle_init(args):
     # TODO: check neard binary version
 
     # Grant CAP_SYS_NICE to neard binaries for realtime thread scheduling
-    # todo(slavas): this does not work at the moment because neard0 is a symlink
     run_cmd_args = copy.deepcopy(args)
     if is_local_neard:
         run_cmd_args.cmd = f"sudo setcap cap_sys_nice+ep \"{args.neard_binary_url}\""
