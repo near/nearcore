@@ -262,7 +262,7 @@ impl From<&GenesisConfig> for EpochConfig {
             .num_block_producer_seats(config.num_block_producer_seats)
             .num_chunk_producer_seats(config.num_chunk_producer_seats)
             .num_chunk_validator_seats(config.num_chunk_validator_seats)
-            .num_chunk_only_producer_seats(300)
+            .num_chunk_only_producer_seats(config.num_chunk_only_producer_seats)
             .target_validator_mandates_per_shard(config.target_validator_mandates_per_shard)
             .avg_hidden_validator_seats_per_shard(
                 config.avg_hidden_validator_seats_per_shard.clone(),
