@@ -336,7 +336,8 @@ mod tests {
     use super::*;
     use near_crypto::{InMemorySigner, KeyType};
     use near_primitives::hash::CryptoHash;
-    use near_primitives::transaction::{SignedTransaction, SignerKind};
+    use near_primitives::test_utils::SignerKind;
+    use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::Balance;
     use rand::seq::SliceRandom;
     use rand::thread_rng;

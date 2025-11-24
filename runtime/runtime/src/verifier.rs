@@ -779,10 +779,9 @@ mod tests {
     };
     use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::receipt::{ActionReceipt, ReceiptPriority};
-    use near_primitives::test_utils::account_new;
+    use near_primitives::test_utils::{SignerKind, account_new};
     use near_primitives::transaction::{
-        CreateAccountAction, DeleteAccountAction, DeleteKeyAction, SignerKind, StakeAction,
-        TransferAction,
+        CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction, TransferAction,
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, NonceIndex, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;

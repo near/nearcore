@@ -13,8 +13,8 @@ use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, SignedTransaction, SignerKind, StakeAction,
-    Transaction, TransactionKey, TransactionV0, TransactionV1, TransferAction,
+    DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
+    TransactionKey, TransactionV0, TransactionV1, TransferAction,
 };
 use crate::types::validator_stake::ValidatorStake;
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
@@ -24,10 +24,16 @@ use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
-use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
+use near_primitives_core::types::{BlockHeight, MerkleHash, NonceIndex, ProtocolVersion};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
 use std::sync::Arc;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignerKind {
+    AccessKey,
+    GasKey(NonceIndex),
+}
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account::new(
