@@ -16,17 +16,17 @@ use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_writer::create_cloud_archival_writer;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::chunk_executor_actor::ChunkExecutorActor;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::ClientActor;
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
-    AsyncComputationMultiSpawner, ChunkEndorsementHandler, Client, PartialWitnessActor, RpcHandler,
-    RpcHandlerConfig, StateRequestActor, ViewClientActorInner,
+    AsyncComputationMultiSpawner, ChunkEndorsementHandlerActor, Client, PartialWitnessActor,
+    RpcHandlerActor, RpcHandlerConfig, StateRequestActor, ViewClientActor,
 };
 use near_client::{
-    ChunkValidationActorInner, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
+    ChunkValidationActor, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -204,7 +204,7 @@ pub fn setup_client(
         } else {
             (epoch_manager.clone(), shard_tracker.clone(), runtime_adapter.clone())
         };
-    let view_client_actor = ViewClientActorInner::new(
+    let view_client_actor = ViewClientActor::new(
         test_loop.clock(),
         chain_genesis.clone(),
         view_epoch_manager.clone(),
@@ -242,7 +242,7 @@ pub fn setup_client(
     );
 
     let genesis_block = client.chain.genesis_block();
-    let chunk_validation_actor = ChunkValidationActorInner::new(
+    let chunk_validation_actor = ChunkValidationActor::new(
         client.chain.chain_store().clone(),
         genesis_block,
         epoch_manager.clone(),
@@ -275,7 +275,7 @@ pub fn setup_client(
     } else {
         noop().into_sender()
     };
-    let client_actor = ClientActorInner::new(
+    let client_actor = ClientActor::new(
         test_loop.clock(),
         client,
         peer_id.clone(),
@@ -297,8 +297,9 @@ pub fn setup_client(
         tx_routing_height_horizon: client_config.tx_routing_height_horizon,
         epoch_length: client_config.epoch_length,
         transaction_validity_period: genesis.config.transaction_validity_period,
+        disable_tx_routing: client_config.disable_tx_routing,
     };
-    let rpc_handler = RpcHandler::new(
+    let rpc_handler = RpcHandlerActor::new(
         rpc_handler_config,
         client_actor.client.chunk_producer.sharded_tx_pool.clone(),
         epoch_manager.clone(),
@@ -308,7 +309,7 @@ pub fn setup_client(
         network_adapter.as_multi_sender(),
     );
     let chunk_endorsement_handler =
-        ChunkEndorsementHandler::new(client_actor.client.chunk_endorsement_tracker.clone());
+        ChunkEndorsementHandlerActor::new(client_actor.client.chunk_endorsement_tracker.clone());
 
     let chunk_validation_adapter = LateBoundSender::<ChunkValidationSenderForPartialWitness>::new();
 

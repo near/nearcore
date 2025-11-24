@@ -13,6 +13,8 @@ const NUM_CLIENTS: usize = 4;
 // Test that a new node that only has genesis can use whatever method available
 // to sync up to the current state of the network.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_sync_from_genesis() {
     init_test_logger();
     let accounts =

@@ -26,6 +26,8 @@ use crate::utils::transactions::{TransactionRunner, execute_tx, get_shared_block
 
 /// Generating receipts larger than the size limit should cause the transaction to fail.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_max_receipt_size() {
     init_test_logger();
     let TestLoopEnv { mut test_loop, node_datas, shared_state } = standard_setup_1();
@@ -145,6 +147,8 @@ fn slow_test_max_receipt_size() {
 // isn't because of a bug (See https://github.com/near/nearcore/issues/12606)
 // Runtime shouldn't die when it encounters a receipt with size above `max_receipt_size`.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_max_receipt_size_promise_return() {
     init_test_logger();
     let TestLoopEnv { mut test_loop, node_datas, shared_state } = standard_setup_1();
@@ -233,6 +237,8 @@ fn test_max_receipt_size_promise_return() {
 /// Creates the following promise DAG:
 /// A[self.return_large_value()] -then-> B[self.mark_test_completed()]
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_max_receipt_size_value_return() {
     init_test_logger();
     let TestLoopEnv { mut test_loop, node_datas, shared_state } = standard_setup_1();

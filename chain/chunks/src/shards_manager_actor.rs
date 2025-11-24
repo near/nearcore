@@ -111,7 +111,6 @@ use near_network::types::{
 };
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
-use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -170,6 +169,9 @@ pub enum ProcessPartialEncodedChunkResult {
     /// PartialEncodedChunkMessage is received earlier than Block for the same height.
     /// The chunk has been dropped without processing any part of it.
     NeedsBlockChunkDropped(Box<PartialEncodedChunk>),
+    /// The PartialEncodedChunk is not within the horizon of the chain head.
+    /// The chunk has been dropped without processing any part of it.
+    OutsideHorizon,
 }
 
 #[derive(Clone, Debug)]
@@ -299,14 +301,12 @@ impl messaging::Actor for ShardsManagerActor {
 }
 
 impl Handler<ShardsManagerRequestFromClient> for ShardsManagerActor {
-    #[perf]
     fn handle(&mut self, msg: ShardsManagerRequestFromClient) {
         self.handle_client_request(msg);
     }
 }
 
 impl HandlerWithContext<ShardsManagerRequestFromNetwork> for ShardsManagerActor {
-    #[perf]
     fn handle(
         &mut self,
         msg: ShardsManagerRequestFromNetwork,
@@ -1509,7 +1509,12 @@ impl ShardsManagerActor {
     ///    are needed for processing the full chunk
     ///  ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts: if all parts and
     ///    receipts in the chunk are received and the chunk has been processed.
-    ///  ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped: process request is received earlier than Block for the same height and the chunk has been dropped without processing any part of it.
+    ///  ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped: process request is
+    ///    received earlier than Block for the same height and the chunk has been dropped
+    ///    without processing any part of it.
+    ///  ProcessPartialEncodedChunkResult::OutsideHorizon: if the chunk is
+    ///    outside of the horizon and the chunk has been dropped without processing any part
+    ///    of it.
     #[instrument(
         target = "chunks",
         level = "debug",
@@ -1554,7 +1559,8 @@ impl ShardsManagerActor {
                 .height_within_horizon(partial_encoded_chunk.header.height_created())
             {
                 metrics::PARTIAL_ENCODED_CHUNK_OUTSIDE_HORIZON.inc();
-                return Err(Error::ChainError(near_chain::Error::InvalidChunkHeight));
+                tracing::debug!(target: "chunks", ?chunk_hash, height_created=partial_encoded_chunk.header.height_created(), "Dropping a chunk outside of the horizon");
+                return Ok(ProcessPartialEncodedChunkResult::OutsideHorizon);
             }
             // We shouldn't process un-requested chunk if we have seen one with same (height_created + shard_id) but different chunk_hash
             if let Some(hash) = self.encoded_chunks.get_chunk_hash_by_height_and_shard(
@@ -2219,7 +2225,8 @@ impl ShardsManagerActor {
                     Ok(ProcessPartialEncodedChunkResult::Known) |
                     Ok(ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts) |
                     Ok(ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts) |
-                    Ok(ProcessPartialEncodedChunkResult::NeedBlock)=> { return HandleNetworkRequestResult::Ok; }
+                    Ok(ProcessPartialEncodedChunkResult::NeedBlock) |
+                    Ok(ProcessPartialEncodedChunkResult::OutsideHorizon) => { return HandleNetworkRequestResult::Ok; }
                     Err(e) => {
                         tracing::warn!(target: "chunks", ?e, "error processing partial encoded chunk");
                         return HandleNetworkRequestResult::Err;

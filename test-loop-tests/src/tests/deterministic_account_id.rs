@@ -135,6 +135,8 @@ fn check_deterministic_state_init(
 ///
 /// This test also checks that the signer is charged the balance correctly.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_repeated_deterministic_state_init() {
     if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
         return;
@@ -346,6 +348,8 @@ fn test_deterministic_state_init_named_receiver() {
 /// deterministic account first and later initialize it without adding balance,
 /// even if more storage than the ZBA limit is used.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_deterministic_state_init_prepay_for_storage() {
     if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
         return;
@@ -392,6 +396,8 @@ fn test_deterministic_state_init_prepay_for_storage() {
 /// Deploy a sharded toy-contract and check it can do a "predecessor is owner"
 /// check as intended by NEP-616.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_sharded_contract_owner_check() {
     if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
         return;

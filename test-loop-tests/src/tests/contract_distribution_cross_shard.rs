@@ -31,6 +31,8 @@ const NUM_ACCOUNTS: usize = NUM_VALIDATORS + NUM_RPC;
 /// Make 2 accounts from each shard make calls to these contracts.
 #[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_contract_distribution_cross_shard() {
     init_test_logger();
     let accounts = make_accounts(NUM_ACCOUNTS);

@@ -3,8 +3,8 @@ use async_trait::async_trait;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_configs::GenesisValidationMode;
 use near_chain_primitives::error::QueryError as RuntimeQueryError;
-use near_client::ViewClientActorInner;
-use near_client::{ProcessTxRequest, ProcessTxResponse, RpcHandler};
+use near_client::ViewClientActor;
+use near_client::{ProcessTxRequest, ProcessTxResponse, RpcHandlerActor};
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcomeError, GetReceiptError, Query,
     QueryError, Status,
@@ -51,7 +51,7 @@ pub use cli::MirrorCommand;
 use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::ClientActor;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 
 #[derive(strum::EnumIter)]
@@ -773,7 +773,7 @@ impl From<&MappedBlock> for TxBatch {
 }
 
 async fn account_exists(
-    view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client: &MultithreadRuntimeHandle<ViewClientActor>,
     account_id: &AccountId,
 ) -> anyhow::Result<bool> {
     match view_client
@@ -797,7 +797,7 @@ async fn account_exists(
 }
 
 async fn fetch_access_key_nonce(
-    view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client: &MultithreadRuntimeHandle<ViewClientActor>,
     account_id: &AccountId,
     public_key: &PublicKey,
 ) -> anyhow::Result<Option<Nonce>> {
@@ -870,7 +870,7 @@ impl<T: ChainAccess> TxMirror<T> {
     }
 
     async fn send_transactions<'a, I: Iterator<Item = &'a mut TargetChainTx>>(
-        target_client: &MultithreadRuntimeHandle<RpcHandler>,
+        target_client: &MultithreadRuntimeHandle<RpcHandlerActor>,
         txs: I,
     ) -> anyhow::Result<()> {
         for tx in txs {
@@ -931,7 +931,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
     async fn map_actions(
         &self,
-        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
         tx: &SignedTransaction,
     ) -> anyhow::Result<(Vec<Action>, HashSet<(AccountId, PublicKey)>)> {
         let mut actions = Vec::new();
@@ -1021,7 +1021,7 @@ impl<T: ChainAccess> TxMirror<T> {
         &self,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
-        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
         source_signer_id: AccountId,
         source_receiver_id: AccountId,
         target_signer_id: AccountId,
@@ -1102,7 +1102,7 @@ impl<T: ChainAccess> TxMirror<T> {
         &self,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
-        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
         block_hash: CryptoHash,
         txs: &mut Vec<TargetChainTx>,
         predecessor_id: AccountId,
@@ -1256,7 +1256,7 @@ impl<T: ChainAccess> TxMirror<T> {
         &self,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
-        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
         txs: &mut Vec<TargetChainTx>,
         receipt_id: &CryptoHash,
         receiver_id: &AccountId,
@@ -1373,7 +1373,7 @@ impl<T: ChainAccess> TxMirror<T> {
         ref_hash: &CryptoHash,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
-        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
         txs: &mut Vec<TargetChainTx>,
     ) -> anyhow::Result<()> {
         // if signer and receiver are the same then the resulting local receipt
@@ -1417,7 +1417,7 @@ impl<T: ChainAccess> TxMirror<T> {
         ref_hash: &CryptoHash,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
-        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
         txs: &mut Vec<TargetChainTx>,
     ) -> anyhow::Result<()> {
         if let ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) = receipt.receipt() {
@@ -1448,7 +1448,7 @@ impl<T: ChainAccess> TxMirror<T> {
         ref_hash: CryptoHash,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
-        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
         txs: &mut Vec<TargetChainTx>,
     ) -> anyhow::Result<()> {
         let source_block =
@@ -1502,7 +1502,7 @@ impl<T: ChainAccess> TxMirror<T> {
         ref_hash: CryptoHash,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
-        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
     ) -> anyhow::Result<MappedBlock> {
         let source_block =
             self.source_chain_access.get_txs(source_height).await.with_context(|| {
@@ -1618,7 +1618,7 @@ impl<T: ChainAccess> TxMirror<T> {
         &self,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
-        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
         ref_hash: CryptoHash,
         have_stop_height: bool,
     ) -> anyhow::Result<()> {
@@ -1680,8 +1680,8 @@ impl<T: ChainAccess> TxMirror<T> {
         &self,
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
-        target_client: &MultithreadRuntimeHandle<RpcHandler>,
-        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
+        target_client: &MultithreadRuntimeHandle<RpcHandlerActor>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
         stakes: HashMap<(AccountId, PublicKey), AccountId>,
         source_hash: &CryptoHash,
         target_hash: &CryptoHash,
@@ -1723,7 +1723,7 @@ impl<T: ChainAccess> TxMirror<T> {
         tx_block_queue: Arc<Mutex<VecDeque<MappedBlock>>>,
         mut send_time: Pin<Box<tokio::time::Sleep>>,
         send_delay: Arc<Mutex<Duration>>,
-        target_client: MultithreadRuntimeHandle<RpcHandler>,
+        target_client: MultithreadRuntimeHandle<RpcHandlerActor>,
     ) -> anyhow::Result<()> {
         let mut sent_source_height = None;
 
@@ -1785,9 +1785,9 @@ impl<T: ChainAccess> TxMirror<T> {
         home_dir: PathBuf,
         db: Arc<DB>,
         clients_tx: tokio::sync::oneshot::Sender<(
-            TokioRuntimeHandle<ClientActorInner>,
-            MultithreadRuntimeHandle<ViewClientActorInner>,
-            MultithreadRuntimeHandle<RpcHandler>,
+            TokioRuntimeHandle<ClientActor>,
+            MultithreadRuntimeHandle<ViewClientActor>,
+            MultithreadRuntimeHandle<RpcHandlerActor>,
         )>,
         accounts_to_unstake: mpsc::Sender<HashMap<(AccountId, PublicKey), AccountId>>,
         target_height: Arc<RwLock<BlockHeight>>,
@@ -1853,8 +1853,8 @@ impl<T: ChainAccess> TxMirror<T> {
         &self,
         tracker: Arc<Mutex<crate::chain_tracker::TxTracker>>,
         tx_block_queue: Arc<Mutex<VecDeque<MappedBlock>>>,
-        target_client: MultithreadRuntimeHandle<RpcHandler>,
-        target_view_client: MultithreadRuntimeHandle<ViewClientActorInner>,
+        target_client: MultithreadRuntimeHandle<RpcHandlerActor>,
+        target_view_client: MultithreadRuntimeHandle<ViewClientActor>,
         mut blocks_sent: mpsc::Receiver<TxBatch>,
         mut accounts_to_unstake: mpsc::Receiver<HashMap<(AccountId, PublicKey), AccountId>>,
         send_delay: Arc<Mutex<Duration>>,
@@ -1917,7 +1917,7 @@ impl<T: ChainAccess> TxMirror<T> {
         }
     }
 
-    async fn target_chain_syncing(target_client: &TokioRuntimeHandle<ClientActorInner>) -> bool {
+    async fn target_chain_syncing(target_client: &TokioRuntimeHandle<ClientActor>) -> bool {
         target_client
             .send_async(Status { is_health_check: false, detailed: false }.span_wrap())
             .await
@@ -1927,7 +1927,7 @@ impl<T: ChainAccess> TxMirror<T> {
     }
 
     async fn target_chain_head(
-        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
     ) -> anyhow::Result<(BlockHeight, CryptoHash)> {
         let header = target_view_client
             .send_async(GetBlock(BlockReference::Finality(Finality::Final)))
@@ -1944,8 +1944,8 @@ impl<T: ChainAccess> TxMirror<T> {
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_stream: &mut mpsc::Receiver<StreamerMessage>,
         db: &DB,
-        target_view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
-        target_client: &TokioRuntimeHandle<ClientActorInner>,
+        target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
+        target_client: &TokioRuntimeHandle<ClientActor>,
     ) -> anyhow::Result<(BlockHeight, CryptoHash)> {
         let mut head = None;
 

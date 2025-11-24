@@ -296,6 +296,10 @@ pub struct Config {
     /// - All shards are tracked (i.e. node is an RPC node).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_tx_outcomes: Option<bool>,
+    /// Whether to persist state changes on disk or not.
+    /// If `None`, defaults to true (persist).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_state_changes: Option<bool>,
     /// Whether to persist partial chunk parts for untracked shards in the database.
     /// If `None`, defaults to true (persist).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -357,6 +361,8 @@ pub struct Config {
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
+    /// If true, the node won't forward transactions to next the chunk producers.
+    pub disable_tx_routing: bool,
     /// Limit the time of adding transactions to a chunk.
     ///
     /// A node produces a chunk by adding transactions from the transaction pool until
@@ -454,6 +460,7 @@ impl Default for Config {
             cloud_archival: None,
             cloud_archival_writer: None,
             save_trie_changes: None,
+            save_state_changes: None,
             save_tx_outcomes: None,
             save_untracked_partial_chunks_parts: None,
             log_summary_style: LogSummaryStyle::Colored,
@@ -477,6 +484,7 @@ impl Default for Config {
             enable_multiline_logging: default_enable_multiline_logging(),
             resharding_config: ReshardingConfig::default(),
             tx_routing_height_horizon: default_tx_routing_height_horizon(),
+            disable_tx_routing: false,
             produce_chunk_add_transactions_time_limit:
                 default_produce_chunk_add_transactions_time_limit(),
             chunk_distribution_network: None,
@@ -712,6 +720,7 @@ impl NearConfig {
                 cloud_archival_writer: config.cloud_archival_writer,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 save_tx_outcomes: config.save_tx_outcomes.unwrap_or(is_archive_or_rpc),
+                save_state_changes: config.save_state_changes.unwrap_or(true),
                 save_untracked_partial_chunks_parts: config
                     .save_untracked_partial_chunks_parts
                     .unwrap_or(true),
@@ -738,6 +747,7 @@ impl NearConfig {
                     "resharding_config",
                 ),
                 tx_routing_height_horizon: config.tx_routing_height_horizon,
+                disable_tx_routing: config.disable_tx_routing,
                 produce_chunk_add_transactions_time_limit: MutableConfigValue::new(
                     config.produce_chunk_add_transactions_time_limit,
                     "produce_chunk_add_transactions_time_limit",

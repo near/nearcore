@@ -2,7 +2,7 @@ use crate::models::{AccountIdentifier, Currency, FungibleTokenEvent};
 use near_account_id::AccountId;
 use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
-use near_client::ViewClientActorInner;
+use near_client::ViewClientActor;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::Balance;
 use near_primitives::views::{ExecutionOutcomeWithIdView, SignedTransactionView};
@@ -29,7 +29,7 @@ impl ExecutionToReceipts {
     /// transaction or receipt causing the execution to list of created
     /// receipts’ hashes.
     pub(crate) async fn for_block(
-        view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+        view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
         block_hash: CryptoHash,
         currencies: &Option<Vec<Currency>>,
     ) -> crate::errors::Result<Self> {
@@ -161,7 +161,7 @@ fn convert_cause_to_transaction_id(
 }
 
 async fn get_predecessor_id_from_receipt_or_transaction(
-    view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client: &MultithreadRuntimeHandle<ViewClientActor>,
     cause: &near_primitives::views::StateChangeCauseView,
     transactions_in_block: &HashMap<CryptoHash, SignedTransactionView>,
     receipts_in_block: &HashMap<CryptoHash, AccountId>,
@@ -200,7 +200,7 @@ async fn get_predecessor_id_from_receipt_or_transaction(
 }
 
 async fn get_predecessor_id_from_receipt_hash(
-    view_client: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client: &MultithreadRuntimeHandle<ViewClientActor>,
     receipt_id: CryptoHash,
 ) -> Option<AccountId> {
     let receipt_view =
@@ -276,7 +276,7 @@ impl<'a> RosettaTransactions<'a> {
 
 /// Returns Rosetta transactions which map to given account changes.
 pub(crate) async fn convert_block_changes_to_transactions(
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
     runtime_config: &near_parameters::RuntimeConfigView,
     block_hash: &CryptoHash,
     accounts_changes: near_primitives::views::StateChangesView,

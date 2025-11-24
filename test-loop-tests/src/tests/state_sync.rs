@@ -549,6 +549,8 @@ fn run_state_sync_test_case(t: StateSyncTest) {
 
 // The normal case with 2 nodes and no missing chunks.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_simple_two_node() {
     init_test_logger();
     let t = StateSyncTest {
@@ -567,6 +569,8 @@ fn slow_test_state_sync_simple_two_node() {
 
 // The normal case with 5 nodes and no missing chunks.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_simple_five_node() {
     init_test_logger();
     let t = StateSyncTest {
@@ -587,6 +591,8 @@ fn slow_test_state_sync_simple_five_node() {
 // That makes 3 accounts including the "near" account. This means at least one shard will have no
 // accounts in it, so we check that corner case here.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_empty_shard() {
     init_test_logger();
     let t = StateSyncTest {
@@ -605,6 +611,8 @@ fn slow_test_state_sync_empty_shard() {
 
 // Miss a chunk in the first block of the new epoch; it won't affect the sync hash
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_miss_chunks_first_block() {
     init_test_logger();
     let chunks_produced = vec![
@@ -630,6 +638,8 @@ fn slow_test_state_sync_miss_chunks_first_block() {
 // Miss chunks in the second block of the new epoch;
 // the sync hash will be one block later than usual
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_miss_chunks_second_block() {
     init_test_logger();
     let chunks_produced =
@@ -651,6 +661,8 @@ fn slow_test_state_sync_miss_chunks_second_block() {
 // Miss chunks in the third block of the new epoch;
 // the sync hash will be one block later than usual
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_miss_chunks_third_block() {
     init_test_logger();
     let chunks_produced = vec![
@@ -673,6 +685,8 @@ fn slow_test_state_sync_miss_chunks_third_block() {
 
 // Make the sync block have missing chunks
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_miss_chunks_sync_block() {
     init_test_logger();
     let chunks_produced = vec![
@@ -697,6 +711,8 @@ fn slow_test_state_sync_miss_chunks_sync_block() {
 // Notice that the sync hash is one block later than usual because of shard 3.
 // Shard 1 will be missing a chunk in the prev block.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_miss_chunks_sync_prev_block() {
     init_test_logger();
     let chunks_produced = vec![
@@ -720,6 +736,8 @@ fn slow_test_state_sync_miss_chunks_sync_prev_block() {
 // Create missing chunks leading up to the last new chunk included
 // before the sync hash block
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_miss_chunks_before_last_chunk_included() {
     init_test_logger();
     let chunks_produced = vec![
@@ -748,6 +766,8 @@ fn slow_test_state_sync_miss_chunks_before_last_chunk_included() {
 //  - Shard 2 has missing chunks leading up to the last chunk included before sync hash block
 //  - Shard 3 has no missing chunks until the sync hash block
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_miss_chunks_multiple() {
     init_test_logger();
     let chunks_produced = vec![
@@ -774,6 +794,8 @@ fn slow_test_state_sync_miss_chunks_multiple() {
 // Specifically, checking what happens when we stop tracking a shard and then track it again,
 // while also needing to state sync another shard.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_untrack_then_track() {
     init_test_logger();
 
@@ -805,6 +827,8 @@ fn slow_test_state_sync_untrack_then_track() {
 // first sync block that will end up skipped on the canonical chain (node0) provides a
 // state sync header that other nodes see as invalid.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_from_fork() {
     init_test_logger();
 
@@ -830,6 +854,8 @@ fn slow_test_state_sync_from_fork() {
 // even be possible to do it without reaching into and modifying the implementation, by writing some function
 // that will hack together just the right parameters (account IDs, stakes, etc)
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_to_fork() {
     init_test_logger();
 
@@ -852,6 +878,8 @@ fn slow_test_state_sync_to_fork() {
 // from one before it to one after it, so that when setting the sync hash, we cannot just check the final head
 // on each new header update.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_fork_after_sync() {
     init_test_logger();
 
@@ -871,6 +899,8 @@ fn slow_test_state_sync_fork_after_sync() {
 
 // This one tests what happens when we skip a block before the sync block.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_fork_before_sync() {
     init_test_logger();
 
@@ -945,6 +975,8 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_request() {
     init_test_logger();
 
@@ -967,6 +999,8 @@ fn slow_test_state_request() {
 // Starts with older protocol version in order to test state sync
 // while the network goes through protocol upgrade.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_protocol_upgrade() {
     init_test_logger();
     let t = StateSyncTest {

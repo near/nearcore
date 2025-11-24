@@ -1,4 +1,4 @@
-use crate::client_actor::ClientActorInner;
+use crate::client_actor::ClientActor;
 use crate::metrics;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
@@ -13,7 +13,6 @@ use near_network::client::{EpochSyncRequestMessage, EpochSyncResponseMessage};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_performance_metrics_macros::perf;
 use near_primitives::block::{Approval, ApprovalInner, compute_bp_hash_from_validator_stakes};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
@@ -875,8 +874,7 @@ impl EpochSync {
     }
 }
 
-impl Handler<EpochSyncRequestMessage> for ClientActorInner {
-    #[perf]
+impl Handler<EpochSyncRequestMessage> for ClientActor {
     fn handle(&mut self, msg: EpochSyncRequestMessage) {
         if self.client.sync_handler.epoch_sync.config.ignore_epoch_sync_network_requests {
             // Temporary kill switch for the rare case there were issues with this network request.
@@ -909,8 +907,7 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
     }
 }
 
-impl Handler<EpochSyncResponseMessage> for ClientActorInner {
-    #[perf]
+impl Handler<EpochSyncResponseMessage> for ClientActor {
     fn handle(&mut self, msg: EpochSyncResponseMessage) {
         let (proof, _) = match msg.proof.decode() {
             Ok(proof) => proof,

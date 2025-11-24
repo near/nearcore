@@ -129,6 +129,8 @@ impl ProcessNode {
             command.args(&["run", "-p", "neard"]);
             #[cfg(feature = "nightly")]
             command.args(&["--features", "nightly"]);
+            #[cfg(feature = "protocol_feature_spice")]
+            command.args(&["--features", "protocol_feature_spice"]);
             command.args(&["--bin", "neard", "--", "--home"]);
             command.arg(&self.work_dir);
             command.arg("run");

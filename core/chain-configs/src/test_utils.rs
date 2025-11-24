@@ -311,6 +311,7 @@ impl ClientConfig {
             save_trie_changes: true,
             save_untracked_partial_chunks_parts: true,
             save_tx_outcomes: true,
+            save_state_changes: true,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
             chunk_validation_threads: 1,
@@ -344,6 +345,7 @@ impl ClientConfig {
             protocol_version_check: Default::default(),
             enable_early_prepare_transactions: default_enable_early_prepare_transactions(),
             dynamic_resharding_dry_run: false,
+            disable_tx_routing: false,
         }
     }
 }

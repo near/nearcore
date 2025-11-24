@@ -1,3 +1,5 @@
+use crate::NUM_SECONDS_IN_A_YEAR;
+use crate::RewardCalculator;
 use crate::RngSeed;
 use crate::genesis::find_threshold;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
@@ -164,8 +166,6 @@ pub fn epoch_config(
         .shard_layout(ShardLayout::multi_shard(num_shards, 0))
         .validator_max_kickout_stake_perc(100)
         .max_inflation_rate(max_inflation_rate)
-        .protocol_reward_rate(Ratio::new(1, 10))
-        .protocol_treasury_account("near".parse().unwrap())
         .build()
         .expect("config field missing");
     let config_store = EpochConfigStore::test_single_version(PROTOCOL_VERSION, epoch_config);
@@ -182,6 +182,18 @@ pub fn stake(account_id: AccountId, amount: Balance) -> ValidatorStake {
     ValidatorStake::new(account_id, public_key, amount)
 }
 
+/// No-op reward calculator. Will produce no reward
+pub fn default_reward_calculator() -> RewardCalculator {
+    RewardCalculator {
+        num_blocks_per_year: 1,
+        epoch_length: 1,
+        protocol_reward_rate: Ratio::from_integer(0),
+        protocol_treasury_account: "near".parse().unwrap(),
+        num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
+        genesis_protocol_version: PROTOCOL_VERSION,
+    }
+}
+
 pub fn reward(info: Vec<(AccountId, Balance)>) -> HashMap<AccountId, Balance> {
     info.into_iter().collect()
 }
@@ -194,6 +206,7 @@ pub fn setup_epoch_manager(
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
     chunk_validator_only_kickout_threshold: u8,
+    reward_calculator: RewardCalculator,
     max_inflation_rate: Rational32,
 ) -> EpochManager {
     let store = create_test_store();
@@ -210,6 +223,7 @@ pub fn setup_epoch_manager(
     EpochManager::new(
         store,
         config,
+        reward_calculator,
         validators
             .iter()
             .map(|(account_id, balance)| stake(account_id.clone(), *balance))
@@ -234,6 +248,7 @@ pub fn setup_default_epoch_manager(
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
         0,
+        default_reward_calculator(),
         Ratio::new(0, 1),
     )
 }
@@ -279,6 +294,7 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
     let epoch_manager = EpochManager::new(
         store,
         config,
+        default_reward_calculator(),
         validators
             .iter()
             .map(|(account_id, balance)| stake(account_id.clone(), *balance))

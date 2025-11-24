@@ -11,10 +11,10 @@ use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValu
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::client_actor::SpiceClientConfig;
-use near_client::{ChunkValidationActorInner, spawn_chunk_endorsement_handler_actor};
+use near_client::{ChunkValidationActor, spawn_chunk_endorsement_handler_actor};
 use near_client::{
-    PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActor,
-    ViewClientActorInner, spawn_rpc_handler_actor, start_client,
+    PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor,
+    spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -136,7 +136,7 @@ fn setup_network_node(
             spice_core_writer_sender: noop().into_sender(),
         },
     );
-    let view_client_addr = ViewClientActorInner::spawn_multithread_actor(
+    let view_client_addr = ViewClientActor::spawn_multithread_actor(
         Clock::real(),
         actor_system.clone(),
         chain_genesis,
@@ -161,6 +161,7 @@ fn setup_network_node(
         tx_routing_height_horizon: client_config.tx_routing_height_horizon,
         epoch_length: client_config.epoch_length,
         transaction_validity_period: genesis.config.transaction_validity_period,
+        disable_tx_routing: client_config.disable_tx_routing,
     };
     let rpc_handler = spawn_rpc_handler_actor(
         actor_system.clone(),
@@ -187,7 +188,7 @@ fn setup_network_node(
     );
     let chain_store =
         ChainStore::new(runtime.store().clone(), false, genesis.config.genesis_height);
-    let chunk_validation_actor = ChunkValidationActorInner::spawn_multithread_actor(
+    let chunk_validation_actor = ChunkValidationActor::spawn_multithread_actor(
         actor_system.clone(),
         chain_store,
         Arc::new(genesis_block),

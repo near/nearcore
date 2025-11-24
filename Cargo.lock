@@ -730,7 +730,7 @@ dependencies = [
 [[package]]
 name = "bolero"
 version = "0.10.0"
-source = "git+https://github.com/Ekleog-NEAR/bolero?rev=c37993bd70dcf5b1778b03daf29f686225e9a504#c37993bd70dcf5b1778b03daf29f686225e9a504"
+source = "git+https://github.com/near/bolero?rev=c37993bd70dcf5b1778b03daf29f686225e9a504#c37993bd70dcf5b1778b03daf29f686225e9a504"
 dependencies = [
  "bolero-afl",
  "bolero-engine",
@@ -745,7 +745,7 @@ dependencies = [
 [[package]]
 name = "bolero-afl"
 version = "0.10.0"
-source = "git+https://github.com/Ekleog-NEAR/bolero?rev=c37993bd70dcf5b1778b03daf29f686225e9a504#c37993bd70dcf5b1778b03daf29f686225e9a504"
+source = "git+https://github.com/near/bolero?rev=c37993bd70dcf5b1778b03daf29f686225e9a504#c37993bd70dcf5b1778b03daf29f686225e9a504"
 dependencies = [
  "bolero-engine",
  "cc",
@@ -754,7 +754,7 @@ dependencies = [
 [[package]]
 name = "bolero-engine"
 version = "0.10.0"
-source = "git+https://github.com/Ekleog-NEAR/bolero?rev=c37993bd70dcf5b1778b03daf29f686225e9a504#c37993bd70dcf5b1778b03daf29f686225e9a504"
+source = "git+https://github.com/near/bolero?rev=c37993bd70dcf5b1778b03daf29f686225e9a504#c37993bd70dcf5b1778b03daf29f686225e9a504"
 dependencies = [
  "anyhow",
  "backtrace",
@@ -767,7 +767,7 @@ dependencies = [
 [[package]]
 name = "bolero-generator"
 version = "0.10.1"
-source = "git+https://github.com/Ekleog-NEAR/bolero?rev=c37993bd70dcf5b1778b03daf29f686225e9a504#c37993bd70dcf5b1778b03daf29f686225e9a504"
+source = "git+https://github.com/near/bolero?rev=c37993bd70dcf5b1778b03daf29f686225e9a504#c37993bd70dcf5b1778b03daf29f686225e9a504"
 dependencies = [
  "arbitrary",
  "bolero-generator-derive",
@@ -778,7 +778,7 @@ dependencies = [
 [[package]]
 name = "bolero-generator-derive"
 version = "0.10.0"
-source = "git+https://github.com/Ekleog-NEAR/bolero?rev=c37993bd70dcf5b1778b03daf29f686225e9a504#c37993bd70dcf5b1778b03daf29f686225e9a504"
+source = "git+https://github.com/near/bolero?rev=c37993bd70dcf5b1778b03daf29f686225e9a504#c37993bd70dcf5b1778b03daf29f686225e9a504"
 dependencies = [
  "proc-macro-crate 1.3.1",
  "proc-macro2",
@@ -789,7 +789,7 @@ dependencies = [
 [[package]]
 name = "bolero-honggfuzz"
 version = "0.10.0"
-source = "git+https://github.com/Ekleog-NEAR/bolero?rev=c37993bd70dcf5b1778b03daf29f686225e9a504#c37993bd70dcf5b1778b03daf29f686225e9a504"
+source = "git+https://github.com/near/bolero?rev=c37993bd70dcf5b1778b03daf29f686225e9a504#c37993bd70dcf5b1778b03daf29f686225e9a504"
 dependencies = [
  "bolero-engine",
 ]
@@ -797,7 +797,7 @@ dependencies = [
 [[package]]
 name = "bolero-kani"
 version = "0.10.0"
-source = "git+https://github.com/Ekleog-NEAR/bolero?rev=c37993bd70dcf5b1778b03daf29f686225e9a504#c37993bd70dcf5b1778b03daf29f686225e9a504"
+source = "git+https://github.com/near/bolero?rev=c37993bd70dcf5b1778b03daf29f686225e9a504#c37993bd70dcf5b1778b03daf29f686225e9a504"
 dependencies = [
  "bolero-engine",
 ]
@@ -805,7 +805,7 @@ dependencies = [
 [[package]]
 name = "bolero-libfuzzer"
 version = "0.10.0"
-source = "git+https://github.com/Ekleog-NEAR/bolero?rev=c37993bd70dcf5b1778b03daf29f686225e9a504#c37993bd70dcf5b1778b03daf29f686225e9a504"
+source = "git+https://github.com/near/bolero?rev=c37993bd70dcf5b1778b03daf29f686225e9a504#c37993bd70dcf5b1778b03daf29f686225e9a504"
 dependencies = [
  "bolero-engine",
  "cc",
@@ -4089,8 +4089,6 @@ dependencies = [
  "near-network",
  "near-o11y",
  "near-parameters",
- "near-performance-metrics",
- "near-performance-metrics-macros",
  "near-pool",
  "near-primitives",
  "near-schema-checker-lib",
@@ -4168,8 +4166,6 @@ dependencies = [
  "near-epoch-manager",
  "near-network",
  "near-o11y",
- "near-performance-metrics",
- "near-performance-metrics-macros",
  "near-pool",
  "near-primitives",
  "near-store",
@@ -4215,8 +4211,6 @@ dependencies = [
  "near-network",
  "near-o11y",
  "near-parameters",
- "near-performance-metrics",
- "near-performance-metrics-macros",
  "near-pool",
  "near-primitives",
  "near-store",
@@ -4682,8 +4676,6 @@ dependencies = [
  "near-crypto",
  "near-fmt",
  "near-o11y",
- "near-performance-metrics",
- "near-performance-metrics-macros",
  "near-primitives",
  "near-schema-checker-lib",
  "near-store",
@@ -4758,25 +4750,6 @@ dependencies = [
  "serde_yaml",
  "strum",
  "thiserror 2.0.16",
-]
-
-[[package]]
-name = "near-performance-metrics"
-version = "0.0.0"
-dependencies = [
- "bytesize 1.1.0",
- "futures",
- "libc",
- "parking_lot 0.12.1",
- "tracing",
-]
-
-[[package]]
-name = "near-performance-metrics-macros"
-version = "0.0.0"
-dependencies = [
- "quote",
- "syn 2.0.106",
 ]
 
 [[package]]
@@ -5074,8 +5047,6 @@ dependencies = [
  "futures",
  "near-async",
  "near-o11y",
- "near-performance-metrics",
- "near-performance-metrics-macros",
  "reqwest 0.12.4",
  "serde",
  "serde_json",
@@ -5399,7 +5370,6 @@ dependencies = [
  "near-network",
  "near-o11y",
  "near-parameters",
- "near-performance-metrics",
  "near-pool",
  "near-primitives",
  "near-rosetta-rpc",
@@ -5450,7 +5420,6 @@ dependencies = [
  "near-mirror",
  "near-network",
  "near-o11y",
- "near-performance-metrics",
  "near-ping",
  "near-primitives",
  "near-replay-archive-tool",
