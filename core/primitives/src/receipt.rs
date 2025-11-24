@@ -426,7 +426,7 @@ impl Receipt {
             let signer_public_key = match transaction_key {
                 TransactionKey::AccessKey { public_key } => public_key,
                 TransactionKey::GasKey { .. } => {
-                    panic!("GasKey not enabled yet, unexpected behavior")
+                    unreachable!("GasKey not enabled yet, unexpected behavior")
                 }
             };
             ReceiptEnum::Action(ActionReceipt {
