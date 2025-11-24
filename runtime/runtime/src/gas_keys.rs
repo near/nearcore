@@ -124,16 +124,17 @@ fn gas_key_storage_cost(
     gas_key: &GasKey,
 ) -> StorageUsage {
     let storage_config = &fee_config.storage_usage_config;
-    let nonce_storage_usage = gas_key.num_nonces as u64
-        * (borsh::object_length(&(0 as NonceIndex)).unwrap() as u64 + // NonceIndex is part of the key
-            borsh::object_length(&Some(0 as Nonce)).unwrap() as u64 + // Value of nonce
-            storage_config.num_extra_bytes_record);
+    let value_size = borsh::object_length(gas_key).unwrap() as u64;
+    let key_size = borsh::object_length(public_key).unwrap() as u64
+        + borsh::object_length(&None::<NonceIndex>).unwrap() as u64; // NonceIndex (None) is part of the key
+    let per_nonce_value_size = borsh::object_length(&(0 as Nonce)).unwrap() as u64; // Value of nonce
+    let per_nonce_key_size = borsh::object_length(&Some(0 as NonceIndex)).unwrap() as u64; // NonceIndex is part of the nonce-specific key, the rest of the key is common.
+    let num_records = 1 + gas_key.num_nonces as u64; // 1 for GasKey + num_nonces for NonceIndex records
 
-    borsh::object_length(public_key).unwrap() as u64
-        + borsh::object_length(gas_key).unwrap() as u64
-        + borsh::object_length(&None::<NonceIndex>).unwrap() as u64 // NonceIndex (None) is part of the key
-        + storage_config.num_extra_bytes_record
-        + nonce_storage_usage
+    key_size
+        + value_size
+        + gas_key.num_nonces as u64 * (per_nonce_key_size + per_nonce_value_size)
+        + num_records * storage_config.num_extra_bytes_record
 }
 
 #[cfg(test)]
