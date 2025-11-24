@@ -360,7 +360,7 @@ mod tests {
                     signer_id.clone(),
                     "bob.near".parse().unwrap(),
                     &*signer,
-                    signer_kind.nonce_index(),
+                    signer_kind,
                     Balance::from_yoctonear(u128::from(i)),
                     CryptoHash::default(),
                 );

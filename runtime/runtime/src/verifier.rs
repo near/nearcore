@@ -1178,7 +1178,7 @@ mod tests {
             alice_account(),
             alice_account(),
             &signer,
-            Some(nonce_index),
+            SignerKind::GasKey(nonce_index),
             vec![Action::Transfer(TransferAction { deposit })],
             CryptoHash::default(),
         );
@@ -1272,7 +1272,7 @@ mod tests {
             alice_account(),
             alice_account(),
             &gas_key_signer,
-            Some(nonce_index),
+            SignerKind::GasKey(nonce_index),
             vec![Action::Transfer(TransferAction { deposit })],
             CryptoHash::default(),
         );
@@ -1343,7 +1343,7 @@ mod tests {
             alice_account(),
             alice_account(),
             &bad_signer,
-            Some(nonce_index),
+            SignerKind::GasKey(nonce_index),
             vec![Action::Transfer(TransferAction { deposit })],
             CryptoHash::default(),
         );
@@ -1450,7 +1450,7 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            s.nonce_index(),
+            s,
             Balance::from_yoctonear(100),
             CryptoHash::default(),
         );
@@ -1495,7 +1495,7 @@ mod tests {
                 alice_account(),
                 bob_account(),
                 &*signer,
-                s.nonce_index(),
+                s,
                 Balance::MAX,
                 CryptoHash::default(),
             ),
@@ -1525,7 +1525,7 @@ mod tests {
                 alice_account(),
                 bob_account(),
                 &*signer,
-                None,
+                SignerKind::AccessKey,
                 vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
                 CryptoHash::default(),
             ),
@@ -1552,7 +1552,7 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            s.nonce_index(),
+            s,
             TESTING_INIT_BALANCE,
             CryptoHash::default(),
         );
@@ -1599,7 +1599,7 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            s.nonce_index(),
+            s,
             vec![Action::TransferToGasKey(
                 TransferToGasKeyAction {
                     public_key: PublicKey::from_seed(KeyType::ED25519, "gas_key"),
@@ -1655,7 +1655,7 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            s.nonce_index(),
+            s,
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
@@ -1817,7 +1817,7 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            s.nonce_index(),
+            s,
             vec![
                 Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "hello".to_string(),
@@ -1845,7 +1845,7 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            s.nonce_index(),
+            s,
             vec![],
             CryptoHash::default(),
         );
@@ -1865,7 +1865,7 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            s.nonce_index(),
+            s,
             vec![Action::CreateAccount(CreateAccountAction {})],
             CryptoHash::default(),
         );
@@ -1907,7 +1907,7 @@ mod tests {
             alice_account(),
             eve_dot_alice_account(),
             &*signer,
-            s.nonce_index(),
+            s,
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
@@ -1962,7 +1962,7 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            s.nonce_index(),
+            s,
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
@@ -2016,7 +2016,7 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            s.nonce_index(),
+            s,
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
@@ -2064,7 +2064,7 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            s.nonce_index(),
+            s,
             vec![Action::DeployContract(DeployContractAction { code: vec![1; 5] })],
             CryptoHash::default(),
         );

@@ -46,18 +46,10 @@ pub struct TransactionV0 {
     pub actions: Vec<Action>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignerKind {
     AccessKey,
     GasKey(NonceIndex),
-}
-
-impl SignerKind {
-    pub fn nonce_index(&self) -> Option<NonceIndex> {
-        match self {
-            SignerKind::AccessKey => None,
-            SignerKind::GasKey(nonce_index) => Some(*nonce_index),
-        }
-    }
 }
 
 #[derive(

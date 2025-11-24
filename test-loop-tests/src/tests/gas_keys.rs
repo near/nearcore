@@ -9,7 +9,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::{Action, AddGasKeyAction, TransferAction, TransferToGasKeyAction};
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, SignerKind};
 use near_primitives::types::{AccountId, Balance, Nonce, NonceIndex};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::AccessKeyPermissionView;
@@ -111,7 +111,7 @@ fn create_gas_keys(
             account.clone(),
             account.clone(),
             &InMemorySigner::test_signer(account),
-            None,
+            SignerKind::AccessKey,
             vec![action1, action2, action3, action4],
             anchor_hash,
         );
@@ -199,7 +199,7 @@ fn send_transfers_as_gas_keys(
                         account.clone(),
                         other_account.clone(),
                         &key.signer,
-                        Some(nonce_index as NonceIndex),
+                        SignerKind::GasKey(nonce_index as NonceIndex),
                         vec![
                             // Transfer from gas key to an account.
                             Action::Transfer(TransferAction { deposit: deposit1 }),
