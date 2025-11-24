@@ -509,27 +509,6 @@ impl GasKey {
     pub const MAX_NONCES: NonceIndex = 1024;
 }
 
-pub enum TransactionPayer {
-    Account(Account),
-    GasKey(GasKey),
-}
-
-impl TransactionPayer {
-    pub fn amount(&self) -> Balance {
-        match self {
-            TransactionPayer::Account(account) => account.amount(),
-            TransactionPayer::GasKey(gas_key) => gas_key.balance,
-        }
-    }
-
-    pub fn set_amount(&mut self, amount: Balance) {
-        match self {
-            TransactionPayer::Account(account) => account.set_amount(amount),
-            TransactionPayer::GasKey(gas_key) => gas_key.balance = amount,
-        }
-    }
-}
-
 /// Defines permissions for AccessKey
 #[derive(
     BorshSerialize,

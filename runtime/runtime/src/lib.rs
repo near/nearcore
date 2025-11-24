@@ -13,6 +13,7 @@ use crate::metrics::{
 };
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
+use crate::types::TransactionPayer;
 use crate::verifier::{
     StorageStakingError, check_storage_stake, validate_receipt, validate_transaction_well_formed,
 };
@@ -35,7 +36,7 @@ pub use near_crypto;
 use near_crypto::{PublicKey, Signature};
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
-use near_primitives::account::{AccessKey, Account, TransactionPayer};
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};

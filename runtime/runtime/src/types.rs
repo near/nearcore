@@ -1,4 +1,6 @@
+use near_primitives::account::{Account, GasKey};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::Balance;
 
 #[derive(Clone)]
 pub struct SignedValidPeriodTransactions {
@@ -57,5 +59,26 @@ impl SignedValidPeriodTransactions {
         &self,
     ) -> (&[SignedTransaction], &[bool]) {
         (&self.transactions, &self.transaction_validity_check_passed)
+    }
+}
+
+pub enum TransactionPayer {
+    Account(Account),
+    GasKey(GasKey),
+}
+
+impl TransactionPayer {
+    pub fn amount(&self) -> Balance {
+        match self {
+            TransactionPayer::Account(account) => account.amount(),
+            TransactionPayer::GasKey(gas_key) => gas_key.balance,
+        }
+    }
+
+    pub fn set_amount(&mut self, amount: Balance) {
+        match self {
+            TransactionPayer::Account(account) => account.set_amount(amount),
+            TransactionPayer::GasKey(gas_key) => gas_key.balance = amount,
+        }
     }
 }
