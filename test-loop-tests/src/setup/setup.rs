@@ -239,6 +239,7 @@ pub fn setup_client(
         <_>::clone(&head),
         <_>::clone(&header_head),
         Duration::milliseconds(100),
+        client_config.chunks_cache_height_horizon,
     );
 
     let genesis_block = client.chain.genesis_block();
