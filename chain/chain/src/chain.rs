@@ -89,7 +89,7 @@ use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, ShardIndex,
 };
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
@@ -1300,16 +1300,16 @@ impl Chain {
         chunk_headers: Vec<ShardChunkHeader>,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), Error> {
-        if cfg!(feature = "protocol_feature_spice") {
-            return Ok(());
-        }
-
         let block_height = block.height();
         let prev_block_hash = *block.prev_block_hash();
         let prev_block = self.get_block(&prev_block_hash)?;
         let prev_prev_hash = prev_block.header().prev_hash();
         let prev_chunk_headers = self.epoch_manager.get_prev_chunk_headers(&prev_block)?;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        if !ProtocolFeature::Spice.enabled(protocol_version) {
+            return Ok(());
+        }
 
         let (is_caught_up, _) =
             self.get_catchup_and_state_sync_infos(None, &prev_block_hash, prev_prev_hash)?;
