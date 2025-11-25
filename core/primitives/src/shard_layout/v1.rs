@@ -1,9 +1,17 @@
-use crate::shard_layout::{ShardLayoutError, ShardVersion, ShardsSplitMap};
+use crate::shard_layout::{ShardLayoutError, ShardVersion};
 use crate::types::AccountId;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::{NumShards, ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::BTreeMap;
+
+/// Maps shards from the last shard layout to shards that it splits to in this
+/// shard layout. Instead of using map, we just use a vec here because shard_id
+/// ranges from 0 to num_shards-1.
+///
+/// For example, if a shard layout with only shard 0 splits into shards 0, 1,
+/// 2, 3, the ShardsSplitMap will be `[[0, 1, 2, 3]]`
+pub type ShardsSplitMapV1 = Vec<Vec<ShardId>>;
 
 #[derive(
     BorshSerialize,
@@ -26,7 +34,7 @@ pub struct ShardLayoutV1 {
     /// Maps shards from the last shard layout to shards that it splits to in this shard layout,
     /// Useful for constructing states for the shards.
     /// None for the genesis shard layout
-    pub(crate) shards_split_map: Option<ShardsSplitMap>,
+    pub(crate) shards_split_map: Option<ShardsSplitMapV1>,
     /// Maps shard in this shard layout to their parent shard
     /// Since shard_ids always range from 0 to num_shards - 1, we use vec instead of a hashmap
     pub(crate) to_parent_shard_map: Option<Vec<ShardId>>,
@@ -35,7 +43,7 @@ pub struct ShardLayoutV1 {
 }
 
 fn derive_to_parent_shard_map(
-    shards_split_map: &ShardsSplitMap,
+    shards_split_map: &ShardsSplitMapV1,
     num_shards: NumShards,
 ) -> Vec<ShardId> {
     let mut to_parent_shard_map = BTreeMap::new();
@@ -54,7 +62,7 @@ fn derive_to_parent_shard_map(
 impl ShardLayoutV1 {
     pub fn new(
         boundary_accounts: Vec<AccountId>,
-        shards_split_map: Option<ShardsSplitMap>,
+        shards_split_map: Option<ShardsSplitMapV1>,
         version: ShardVersion,
     ) -> Self {
         let to_parent_shard_map = shards_split_map.as_ref().map(|shards_split_map| {

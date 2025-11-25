@@ -12,6 +12,7 @@
 
 #[cfg(test)]
 mod tests;
+mod utils;
 mod v0;
 mod v1;
 mod v2;
@@ -22,11 +23,11 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::{fmt, str};
 
 pub use v0::ShardLayoutV0;
-pub use v1::ShardLayoutV1;
+pub use v1::{ShardLayoutV1, ShardsSplitMapV1};
 pub use v2::{ShardLayoutV2, ShardsSplitMapV2};
 
 /// `ShardLayout` has a version number.
@@ -64,14 +65,6 @@ pub enum ShardLayout {
     V1(ShardLayoutV1) = 1,
     V2(ShardLayoutV2) = 2,
 }
-
-/// Maps shards from the last shard layout to shards that it splits to in this
-/// shard layout. Instead of using map, we just use a vec here because shard_id
-/// ranges from 0 to num_shards-1.
-///
-/// For example, if a shard layout with only shard 0 splits into shards 0, 1,
-/// 2, 3, the ShardsSplitMap will be `[[0, 1, 2, 3]]`
-type ShardsSplitMap = Vec<Vec<ShardId>>;
 
 pub fn shard_uids_to_ids(shard_uids: &[ShardUId]) -> Vec<ShardId> {
     shard_uids.iter().map(|shard_uid| shard_uid.shard_id()).collect_vec()
@@ -165,7 +158,7 @@ impl ShardLayout {
     #[deprecated(note = "Use multi_shard() instead")]
     pub fn v1(
         boundary_accounts: Vec<AccountId>,
-        shards_split_map: Option<ShardsSplitMap>,
+        shards_split_map: Option<ShardsSplitMapV1>,
         version: ShardVersion,
     ) -> Self {
         Self::V1(ShardLayoutV1::new(boundary_accounts, shards_split_map, version))
@@ -360,19 +353,6 @@ impl ShardLayout {
             .map(|shard_id| ShardUId::new(self.version(), shard_id))
             .collect()
     }
-}
-fn map_keys_to_string<K, V>(map: &BTreeMap<K, V>) -> BTreeMap<String, V>
-where
-    K: std::fmt::Display,
-    V: Clone,
-{
-    map.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
-}
-
-fn map_keys_to_shard_id<V>(
-    map: BTreeMap<String, V>,
-) -> Result<BTreeMap<ShardId, V>, Box<dyn std::error::Error + Send + Sync>> {
-    map.into_iter().map(|(k, v)| Ok((k.parse::<u64>()?.into(), v))).collect()
 }
 
 /// `ShardUId` is a unique representation for shards from different shard layouts.

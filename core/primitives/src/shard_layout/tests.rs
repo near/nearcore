@@ -8,13 +8,13 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, HashMap};
 
-use super::{ShardsSplitMap, ShardsSplitMapV2};
+use super::{ShardsSplitMapV1, ShardsSplitMapV2};
 
 fn new_shard_ids_vec(shard_ids: Vec<u64>) -> Vec<ShardId> {
     shard_ids.into_iter().map(Into::into).collect()
 }
 
-fn new_shards_split_map(shards_split_map: Vec<Vec<u64>>) -> ShardsSplitMap {
+fn new_shards_split_map(shards_split_map: Vec<Vec<u64>>) -> ShardsSplitMapV1 {
     shards_split_map.into_iter().map(new_shard_ids_vec).collect()
 }
 

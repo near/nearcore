@@ -1,6 +1,5 @@
-use crate::shard_layout::{
-    ShardLayout, ShardLayoutError, ShardVersion, map_keys_to_shard_id, map_keys_to_string,
-};
+use crate::shard_layout::utils::{map_keys_to_shard_id, map_keys_to_string};
+use crate::shard_layout::{ShardLayout, ShardLayoutError, ShardVersion};
 use crate::types::AccountId;
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
