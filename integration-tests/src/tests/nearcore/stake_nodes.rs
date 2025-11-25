@@ -504,7 +504,7 @@ async fn slow_test_inflation() {
                         // (using min_online_threshold=9/10 and max_online_threshold=99/100).
                         //
                         // For additional details check: chain/epoch-manager/src/reward_calculator.rs or
-                        // https://nomicon.io/Economics/Economic#validator-rewards-calculation
+                        // https://nomicon.io/Economics/Economics.html#validator-rewards-calculation
                         let protocol_reward = base_reward .checked_mul(1).unwrap().checked_div(10).unwrap();
                         let validator_reward = base_reward .checked_sub(protocol_reward).unwrap();
                         // Chunk endorsement ratio 9/10 is mapped to 1 so the reward multiplier becomes 20/27.

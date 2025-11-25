@@ -16170,7 +16170,7 @@
                 "$ref": "#/components/schemas/NearToken"
               }
             ],
-            "description": "Amount of yN per byte required to have on the account.  See\n<https://nomicon.io/Economics/Economic#state-stake> for details."
+            "description": "Amount of yN per byte required to have on the account.  See\n<https://nomicon.io/Economics/Economics.html#state-stake> for details."
           },
           "transaction_costs": {
             "allOf": [
