@@ -43,7 +43,6 @@ use near_vm_runner::{PreparedContract, precompile_contract};
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::vec;
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
