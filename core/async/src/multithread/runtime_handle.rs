@@ -100,7 +100,6 @@ where
         let instrumented_queue = instrumented_queue.clone();
         let handle_clone = handle_clone.clone();
         let thread_index = thread_index.clone();
-        let actor_name = actor_name;
         let make_actor_fn = make_actor_fn.clone();
 
         thread::spawn(move || {
