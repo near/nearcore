@@ -466,14 +466,14 @@ impl NightshadeRuntime {
         let partial_state = part.to_partial_state();
         let Ok(partial_state) = part.to_partial_state() else {
             // Deserialization error means we've got the data from malicious peer
-            tracing::error!(target: "state-parts", ?partial_state, "State part deserialization error");
+            tracing::error!(target: "state-parts", ?partial_state, "state part deserialization error");
             return StatePartValidationResult::Invalid;
         };
         match Trie::validate_state_part(state_root, part_id, partial_state) {
             Ok(_) => StatePartValidationResult::Valid,
             // Storage error should not happen
             Err(err) => {
-                tracing::error!(target: "state-parts", ?err, "State part storage error");
+                tracing::error!(target: "state-parts", ?err, "state part storage error");
                 StatePartValidationResult::Invalid
             }
         }
