@@ -6939,7 +6939,7 @@ happens at epoch boundaries.</p>
 in epoch lasting a little bit longer (if we cannot get enough signatures on the
 last blocks of the previous epoch).</p>
 <p>You can read specific details on our
-<a href="https://nomicon.io/BlockchainLayer/EpochAndStaking/Epoch">nomicon page</a>.</p>
+<a href="https://nomicon.io/ChainSpec/EpochAndStaking/Epoch.html">nomicon page</a>.</p>
 <h2 id="how-do-we-pick-the-next-validators"><a class="header" href="#how-do-we-pick-the-next-validators">How do we pick the next validators?</a></h2>
 <p><strong>TL;DR:</strong> in the last block of the epoch T, we look at the accounts that have
 highest stake and we pick them to become validators in <strong>T+2</strong>.</p>
@@ -6947,7 +6947,7 @@ highest stake and we pick them to become validators in <strong>T+2</strong>.</p>
 validators have enough time to prepare for block production and validation (they
 have to download the state of shards etc).</p>
 <p>For more info on how we pick validators please look at
-<a href="https://nomicon.io/Economics/Economic#validator-selection">nomicon</a>.</p>
+<a href="https://nomicon.io/Economics/Economics.html#validator-selection">nomicon</a>.</p>
 <h2 id="epoch-and-sharding"><a class="header" href="#epoch-and-sharding">Epoch and Sharding</a></h2>
 <p>Sharding changes happen only on epoch boundary - that’s why many of the requests
 (like which shard does my account belong to), require also an <code>epoch_id</code> as a
