@@ -871,23 +871,23 @@ fn test_state_sync() {
     ));
     let mut root_node_wrong = root_node;
     root_node_wrong.memory_usage += 1;
-    assert!(!matches!(
+    assert!(matches!(
         new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]),
-        StateRootNodeValidationResult::Valid
+        StateRootNodeValidationResult::Invalid
     ));
     root_node_wrong.data = std::sync::Arc::new([123]);
-    assert!(!matches!(
+    assert!(matches!(
         new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]),
-        StateRootNodeValidationResult::Valid
+        StateRootNodeValidationResult::Invalid
     ));
-    assert!(!matches!(
+    assert!(matches!(
         new_env.runtime.validate_state_part(
             ShardId::new(0),
             &Trie::EMPTY_ROOT,
             PartId::new(0, 1),
             &state_part
         ),
-        StatePartValidationResult::Valid
+        StatePartValidationResult::Invalid
     ));
     new_env.runtime.validate_state_part(
         ShardId::new(0),
