@@ -22,8 +22,9 @@ impl EpochManager {
     pub fn initialize_genesis_epoch_info(
         &mut self,
         validators: Vec<ValidatorStake>,
+        treasury_account: AccountId,
     ) -> Result<(), EpochError> {
-        let genesis_epoch_info = self.make_genesis_epoch_info(validators)?;
+        let genesis_epoch_info = self.make_genesis_epoch_info(validators, treasury_account)?;
         // Dummy block info.
         // Artificial block we add to simplify implementation: dummy block is the
         // parent of genesis block that points to itself.
@@ -40,14 +41,12 @@ impl EpochManager {
     fn make_genesis_epoch_info(
         &self,
         validators: Vec<ValidatorStake>,
+        treasury_account: AccountId,
     ) -> Result<EpochInfo, EpochError> {
         // Missing genesis epoch, means that there is no validator initialize yet.
         let genesis_protocol_version = self.config.genesis_protocol_version();
         let genesis_epoch_config = self.config.for_protocol_version(genesis_protocol_version);
-        let validator_reward = HashMap::from([(
-            self.reward_calculator.protocol_treasury_account.clone(),
-            Balance::ZERO,
-        )]);
+        let validator_reward = HashMap::from([(treasury_account, Balance::ZERO)]);
 
         // use custom code for genesis protocol version 29 used in mainnet and testnet
         if genesis_protocol_version == PROD_GENESIS_PROTOCOL_VERSION {

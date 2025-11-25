@@ -62,6 +62,7 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
         .validators_spec(ValidatorsSpec::raw(validators, 3, 3, 3))
         .max_inflation_rate(Rational32::new(0, 1))
         .add_user_accounts_simple(&accounts, initial_balance)
+        .mainnet_protocol_treasury_account()
         .build();
 
     let TestLoopEnv { mut test_loop, node_datas, shared_state } = test_loop_builder

@@ -45,5 +45,10 @@
   "max_inflation_rate": [
     1,
     20
-  ]
+  ],
+  "protocol_reward_rate": [
+    1,
+    10
+  ],
+  "protocol_treasury_account": "test.near"
 }

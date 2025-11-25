@@ -49,6 +49,7 @@ fn slow_test_fix_validator_stake_threshold() {
         .validators_spec(validators_spec)
         .max_inflation_rate(Rational32::new(0, 1))
         .add_user_accounts_simple(&accounts, initial_balance)
+        .mainnet_protocol_treasury_account()
         .build();
 
     let TestLoopEnv { test_loop, node_datas, shared_state } = test_loop_builder
