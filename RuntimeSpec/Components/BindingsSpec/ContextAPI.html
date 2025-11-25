@@ -232,6 +232,28 @@ that does function invocation on the contract or another contract as a result of
 <li>Not implemented.</li>
 </ul>
 <hr />
+<h4 id="refund_to_account_id"><a class="header" href="#refund_to_account_id">refund_to_account_id</a></h4>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>refund_to_account_id(register_id: u64)
+<span class="boring">}
+</span></code></pre></pre>
+<p>If a receipt fails execution, a balance refund usually goes to the predecessor of the receipt. However, the predecessor
+can set this to another account id when sending the receipt.</p>
+<h6 id="normal-operation-2"><a class="header" href="#normal-operation-2">Normal operation</a></h6>
+<ul>
+<li>Saves the bytes of the account id receiving balance refunds into the register.</li>
+</ul>
+<h6 id="panics-4"><a class="header" href="#panics-4">Panics</a></h6>
+<ul>
+<li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
+<li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
+</ul>
+<h6 id="current-bugs-3"><a class="header" href="#current-bugs-3">Current bugs</a></h6>
+<ul>
+<li>Not implemented.</li>
+</ul>
+<hr />
 <h4 id="input"><a class="header" href="#input">input</a></h4>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -239,7 +261,7 @@ that does function invocation on the contract or another contract as a result of
 <span class="boring">}
 </span></code></pre></pre>
 <p>Reads input to the contract call into the register. Input is expected to be in JSON-format.</p>
-<h6 id="normal-operation-2"><a class="header" href="#normal-operation-2">Normal operation</a></h6>
+<h6 id="normal-operation-3"><a class="header" href="#normal-operation-3">Normal operation</a></h6>
 <ul>
 <li>If input is provided saves the bytes (potentially zero) of input into register.</li>
 <li>If input is not provided does not modify the register.</li>
@@ -249,11 +271,11 @@ that does function invocation on the contract or another contract as a result of
 <li>If input was not provided returns <code>0</code>;</li>
 <li>If input was provided returns <code>1</code>; If input is zero bytes returns <code>1</code>, too.</li>
 </ul>
-<h6 id="panics-4"><a class="header" href="#panics-4">Panics</a></h6>
+<h6 id="panics-5"><a class="header" href="#panics-5">Panics</a></h6>
 <ul>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
 </ul>
-<h6 id="current-bugs-3"><a class="header" href="#current-bugs-3">Current bugs</a></h6>
+<h6 id="current-bugs-4"><a class="header" href="#current-bugs-4">Current bugs</a></h6>
 <ul>
 <li>Implemented as part of <code>data_read</code>. However there is no reason to have one unified function, like <code>data_read</code> that can
 be used to read all</li>

@@ -155,6 +155,9 @@
     DeleteKey(DeleteKeyAction),
     DeleteAccount(DeleteAccountAction),
     Delegate(SignedDelegateAction),
+    DeployGlobalContract(DeployGlobalContractAction),
+    UseGlobalContract(UseGlobalContractAction),
+    DeterministicStateInit(DeterministicStateInitAction),
 }
 <span class="boring">}
 </span></code></pre></pre>
@@ -587,6 +590,101 @@ DelegateActionInvalidNonce
 DelegateActionNonceTooLarge
 <span class="boring">}
 </span></code></pre></pre>
+<h2 id="deployglobalcontractaction"><a class="header" href="#deployglobalcontractaction">DeployGlobalContractAction</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct DeployGlobalContractAction {
+    /// WebAssembly binary
+    pub code: Vec&lt;u8&gt;,
+    /// How this global contract should be referenced
+    pub deploy_mode: GlobalContractDeployMode,
+}
+
+pub enum GlobalContractDeployMode {
+    /// Contract is deployed under its code hash.
+    /// Users will be able reference it by that hash.
+    /// This effectively makes the contract immutable.
+    CodeHash,
+    /// Contract is deployed under the owner account id.
+    /// Users will be able reference it by that account id.
+    /// This allows the owner to update the contract for all its users.
+    AccountId,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Outcome</strong>:</p>
+<ul>
+<li>First, the provided code is made available as global contract on the current shard.</li>
+<li>The same code propagates globally, shard by shard.</li>
+<li>Eventually, all accounts on all shards can reference the submitted code by the corresponding global contract identifier.</li>
+</ul>
+<h3 id="errors-8"><a class="header" href="#errors-8">Errors</a></h3>
+<p><strong>Validation Error</strong>:</p>
+<ul>
+<li><code>ContractSizeExceeded</code> if the provided WebAssembly code is larger than <code>max_contract_size</code> (4MiB).</li>
+</ul>
+<p><strong>Execution Error</strong>:</p>
+<ul>
+<li><code>LackBalanceForState</code> if the account does not hold enough NEAR to cover the added storage.</li>
+</ul>
+<h2 id="useglobalcontractaction"><a class="header" href="#useglobalcontractaction">UseGlobalContractAction</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct UseGlobalContractAction {
+    /// References a deployed global contract to use in the receiver account.
+    pub contract_identifier: GlobalContractIdentifier,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Outcome</strong>:</p>
+<h3 id="errors-9"><a class="header" href="#errors-9">Errors</a></h3>
+<p><strong>Validation Error</strong>:</p>
+<ul>
+<li><code>InvalidAccountId</code> if the provided account id does not follow the <a href="../DataStructures/Account.html">AccountId specification</a>.</li>
+</ul>
+<p><strong>Execution Error</strong>:</p>
+<ul>
+<li><code>GlobalContractDoesNotExist</code> if the referenced global contract does not exist on the shard of the receiver. (It may
+take a while for it to propagate to all shards.)</li>
+</ul>
+<h2 id="deterministicstateinitaction"><a class="header" href="#deterministicstateinitaction">DeterministicStateInitAction</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct DeterministicStateInitAction {
+    /// The data required to initialize the account.
+    pub state_init: DeterministicAccountStateInit,
+    /// A NEAR balance to cover storage requirements. Extra balance is refunded.
+    pub deposit: Balance,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Outcome</strong>:</p>
+<ul>
+<li>if the account was already created before:
+<ul>
+<li>do nothing</li>
+</ul>
+</li>
+<li>if the account was not created before:
+<ul>
+<li>creates an account with deterministic account id</li>
+<li>sets the contract code to the specified global contract</li>
+<li>stores the initial data into the contract storage</li>
+</ul>
+</li>
+</ul>
+<h3 id="errors-10"><a class="header" href="#errors-10">Errors</a></h3>
+<p><strong>Validation Error</strong>:</p>
+<ul>
+<li><code>InvalidDeterministicStateInitReceiver</code> if the receiver id is not derived from the provided <code>DeterministicAccountStateInit</code></li>
+<li><code>DeterministicStateInitKeyLengthExceeded</code> if any data key is longer than <code>max_length_storage_key</code> (4MiB)</li>
+<li><code>DeterministicStateInitValueLengthExceeded</code> if any data value is longer than <code>max_length_storage_value</code> (4MiB)</li>
+</ul>
+<p><strong>Execution Error</strong>:</p>
+<ul>
+<li><code>GlobalContractDoesNotExist</code> if the referenced global contract does not exist on the shard of the receiver. (It may
+take a while for it to propagate to all shards.)</li>
+</ul>
 
                     </main>
 

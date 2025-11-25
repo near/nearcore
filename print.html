@@ -240,6 +240,7 @@ is identified by a unique (within the account) public key. Access keys are store
 <li><strong>Account ID part</strong> consists of lowercase alphanumeric symbols separated by either <code>_</code> or <code>-</code>.</li>
 <li><strong>Account ID</strong> that is 64 characters long and consists of lowercase hex characters is a specific <strong>NEAR-implicit account ID</strong>.</li>
 <li><strong>Account ID</strong> that is <code>0x</code> followed by 40 lowercase hex characters is a specific <strong>ETH-implicit account ID</strong>.</li>
+<li><strong>Account ID</strong> that is <code>0s</code> followed by 40 lowercase hex characters is a specific <strong>NEAR-deterministic account ID</strong>.</li>
 </ul>
 <p>Account names are similar to a domain names.
 Top level account (TLA) like <code>near</code>, <code>com</code>, <code>eth</code> can only be created by <code>registrar</code> account (see next section for more details).
@@ -329,6 +330,48 @@ Then, the contract parses <code>tx_bytes_b64</code> and verifies it is signed wi
 <li>Add <code>AccessKey</code> with <code>FunctionCallPermission</code>. This allows adding a relayer's public key to an ETH-implicit account, enabling the relayer to pay the gas fee for transactions from this account. Still, each transaction has to be signed by the owner of the account (corresponding Secp256K1 private key).</li>
 <li>Delete <code>AccessKey</code>.</li>
 </ul>
+<h2 id="deterministic-accounts"><a class="header" href="#deterministic-accounts">Deterministic accounts</a></h2>
+<p>Deterministic accounts are an advanced kind of implicit account.
+A normal implicit account has a fixed access key that is implicitly associated with it.
+Deterministic accounts have a fixed code and fixed initial state associated with it.</p>
+<h3 id="state-initializing-data-of-deterministic-accounts"><a class="header" href="#state-initializing-data-of-deterministic-accounts">State-initializing data of deterministic accounts</a></h3>
+<p>The initial state of a deterministic account is fully defined by an instance of <code>DeterministicAccountStateInit</code>.</p>
+<p>Key-value pairs in <code>data</code> must be at most <code>max_length_storage_key</code> and <code>max_length_storage_value</code> bytes long,
+respectively. These parameters are currently both set to 4Mib (4194304 bytes).</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub enum DeterministicAccountStateInit {
+    V1(DeterministicAccountStateInitV1),
+}
+
+pub struct DeterministicAccountStateInitV1 {
+    pub code: GlobalContractIdentifier,
+    pub data: BTreeMap&lt;Vec&lt;u8&gt;, Vec&lt;u8&gt;&gt;,
+}
+
+pub enum GlobalContractIdentifier {
+    CodeHash(CryptoHash) = 0,
+    AccountId(AccountId) = 1,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<h3 id="deterministic-account-id"><a class="header" href="#deterministic-account-id">Deterministic account ID</a></h3>
+<p>The account ID is derived from a <code>DeterministicAccountStateInit</code> instance.</p>
+<p>To derive the deterministic account id, borsh-encode the <code>DeterministicAccountStateInit</code> enum instance into raw
+bytes. Then use the following formula: <code>'0s' + keccak256(bytes)[12:32].hex()</code>.</p>
+<h3 id="deterministic-account-creation"><a class="header" href="#deterministic-account-creation">Deterministic account creation</a></h3>
+<p>Deterministic accounts cannot be created with a <code>CreateAccount</code> nor with a <code>Transfer</code> action.
+A special action, <code>DeterministicStateInitAction</code>, is required.
+This action validates that the account id matches its initial state.</p>
+<p>As with all account types, you have to attach a large enough deposit to cover for the account storage. If the code and
+initial state is small enough to fit below the zero-balance limit, no balance is required. The
+<code>DeterministicStateInitAction</code> has a field to include a balance specifically to cover storage. Anything above the
+required amount to cover storage requirements is refunded.</p>
+<p>A <code>Transfer</code> can also deposit a balance before the <code>DeterministicStateInitAction</code>. The account will not be usable,
+however, until the <code>DeterministicStateInitAction</code> is also executed.</p>
+<p>After successful initialization, the account will have all key-value pairs in <code>data: BTreeMap&lt;Vec&lt;u8&gt;, Vec&lt;u8&gt;&gt;</code> in its
+contract storage. The contract code will be set to that of the global contract defined with
+<code>code: GlobalContractIdentifier</code>.</p>
 <h2 id="account"><a class="header" href="#account">Account</a></h2>
 <p>Data for a single account is collocated in one shard. The account data consists of the following:</p>
 <ul>
@@ -2569,6 +2612,9 @@ That would still be an improvement of having to send just <code>4 MiB</code> ove
     DeleteKey(DeleteKeyAction),
     DeleteAccount(DeleteAccountAction),
     Delegate(SignedDelegateAction),
+    DeployGlobalContract(DeployGlobalContractAction),
+    UseGlobalContract(UseGlobalContractAction),
+    DeterministicStateInit(DeterministicStateInitAction),
 }
 <span class="boring">}
 </span></code></pre></pre>
@@ -3001,6 +3047,101 @@ DelegateActionInvalidNonce
 DelegateActionNonceTooLarge
 <span class="boring">}
 </span></code></pre></pre>
+<h2 id="deployglobalcontractaction"><a class="header" href="#deployglobalcontractaction">DeployGlobalContractAction</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct DeployGlobalContractAction {
+    /// WebAssembly binary
+    pub code: Vec&lt;u8&gt;,
+    /// How this global contract should be referenced
+    pub deploy_mode: GlobalContractDeployMode,
+}
+
+pub enum GlobalContractDeployMode {
+    /// Contract is deployed under its code hash.
+    /// Users will be able reference it by that hash.
+    /// This effectively makes the contract immutable.
+    CodeHash,
+    /// Contract is deployed under the owner account id.
+    /// Users will be able reference it by that account id.
+    /// This allows the owner to update the contract for all its users.
+    AccountId,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Outcome</strong>:</p>
+<ul>
+<li>First, the provided code is made available as global contract on the current shard.</li>
+<li>The same code propagates globally, shard by shard.</li>
+<li>Eventually, all accounts on all shards can reference the submitted code by the corresponding global contract identifier.</li>
+</ul>
+<h3 id="errors-8"><a class="header" href="#errors-8">Errors</a></h3>
+<p><strong>Validation Error</strong>:</p>
+<ul>
+<li><code>ContractSizeExceeded</code> if the provided WebAssembly code is larger than <code>max_contract_size</code> (4MiB).</li>
+</ul>
+<p><strong>Execution Error</strong>:</p>
+<ul>
+<li><code>LackBalanceForState</code> if the account does not hold enough NEAR to cover the added storage.</li>
+</ul>
+<h2 id="useglobalcontractaction"><a class="header" href="#useglobalcontractaction">UseGlobalContractAction</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct UseGlobalContractAction {
+    /// References a deployed global contract to use in the receiver account.
+    pub contract_identifier: GlobalContractIdentifier,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Outcome</strong>:</p>
+<h3 id="errors-9"><a class="header" href="#errors-9">Errors</a></h3>
+<p><strong>Validation Error</strong>:</p>
+<ul>
+<li><code>InvalidAccountId</code> if the provided account id does not follow the <a href="RuntimeSpec/../DataStructures/Account.html">AccountId specification</a>.</li>
+</ul>
+<p><strong>Execution Error</strong>:</p>
+<ul>
+<li><code>GlobalContractDoesNotExist</code> if the referenced global contract does not exist on the shard of the receiver. (It may
+take a while for it to propagate to all shards.)</li>
+</ul>
+<h2 id="deterministicstateinitaction"><a class="header" href="#deterministicstateinitaction">DeterministicStateInitAction</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct DeterministicStateInitAction {
+    /// The data required to initialize the account.
+    pub state_init: DeterministicAccountStateInit,
+    /// A NEAR balance to cover storage requirements. Extra balance is refunded.
+    pub deposit: Balance,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Outcome</strong>:</p>
+<ul>
+<li>if the account was already created before:
+<ul>
+<li>do nothing</li>
+</ul>
+</li>
+<li>if the account was not created before:
+<ul>
+<li>creates an account with deterministic account id</li>
+<li>sets the contract code to the specified global contract</li>
+<li>stores the initial data into the contract storage</li>
+</ul>
+</li>
+</ul>
+<h3 id="errors-10"><a class="header" href="#errors-10">Errors</a></h3>
+<p><strong>Validation Error</strong>:</p>
+<ul>
+<li><code>InvalidDeterministicStateInitReceiver</code> if the receiver id is not derived from the provided <code>DeterministicAccountStateInit</code></li>
+<li><code>DeterministicStateInitKeyLengthExceeded</code> if any data key is longer than <code>max_length_storage_key</code> (4MiB)</li>
+<li><code>DeterministicStateInitValueLengthExceeded</code> if any data value is longer than <code>max_length_storage_value</code> (4MiB)</li>
+</ul>
+<p><strong>Execution Error</strong>:</p>
+<ul>
+<li><code>GlobalContractDoesNotExist</code> if the referenced global contract does not exist on the shard of the receiver. (It may
+take a while for it to propagate to all shards.)</li>
+</ul>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="applying-chunk"><a class="header" href="#applying-chunk">Applying chunk</a></h1>
 <h2 id="inputs-and-outputs"><a class="header" href="#inputs-and-outputs">Inputs and outputs</a></h2>
@@ -3321,6 +3462,28 @@ that does function invocation on the contract or another contract as a result of
 <li>Not implemented.</li>
 </ul>
 <hr />
+<h4 id="refund_to_account_id"><a class="header" href="#refund_to_account_id">refund_to_account_id</a></h4>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>refund_to_account_id(register_id: u64)
+<span class="boring">}
+</span></code></pre></pre>
+<p>If a receipt fails execution, a balance refund usually goes to the predecessor of the receipt. However, the predecessor
+can set this to another account id when sending the receipt.</p>
+<h6 id="normal-operation-2"><a class="header" href="#normal-operation-2">Normal operation</a></h6>
+<ul>
+<li>Saves the bytes of the account id receiving balance refunds into the register.</li>
+</ul>
+<h6 id="panics-4"><a class="header" href="#panics-4">Panics</a></h6>
+<ul>
+<li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
+<li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
+</ul>
+<h6 id="current-bugs-3"><a class="header" href="#current-bugs-3">Current bugs</a></h6>
+<ul>
+<li>Not implemented.</li>
+</ul>
+<hr />
 <h4 id="input-7"><a class="header" href="#input-7">input</a></h4>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -3328,7 +3491,7 @@ that does function invocation on the contract or another contract as a result of
 <span class="boring">}
 </span></code></pre></pre>
 <p>Reads input to the contract call into the register. Input is expected to be in JSON-format.</p>
-<h6 id="normal-operation-2"><a class="header" href="#normal-operation-2">Normal operation</a></h6>
+<h6 id="normal-operation-3"><a class="header" href="#normal-operation-3">Normal operation</a></h6>
 <ul>
 <li>If input is provided saves the bytes (potentially zero) of input into register.</li>
 <li>If input is not provided does not modify the register.</li>
@@ -3338,11 +3501,11 @@ that does function invocation on the contract or another contract as a result of
 <li>If input was not provided returns <code>0</code>;</li>
 <li>If input was provided returns <code>1</code>; If input is zero bytes returns <code>1</code>, too.</li>
 </ul>
-<h6 id="panics-4"><a class="header" href="#panics-4">Panics</a></h6>
+<h6 id="panics-5"><a class="header" href="#panics-5">Panics</a></h6>
 <ul>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
 </ul>
-<h6 id="current-bugs-3"><a class="header" href="#current-bugs-3">Current bugs</a></h6>
+<h6 id="current-bugs-4"><a class="header" href="#current-bugs-4">Current bugs</a></h6>
 <ul>
 <li>Implemented as part of <code>data_read</code>. However there is no reason to have one unified function, like <code>data_read</code> that can
 be used to read all</li>
@@ -3404,12 +3567,12 @@ attached_deposit(balance_ptr: u64)
 <span class="boring">}
 </span></code></pre></pre>
 <p>-- writes the value into the <code>u128</code> variable pointed by <code>balance_ptr</code>.</p>
-<h6 id="panics-5"><a class="header" href="#panics-5">Panics</a></h6>
+<h6 id="panics-6"><a class="header" href="#panics-6">Panics</a></h6>
 <ul>
 <li>If <code>balance_ptr + 16</code> points outside the memory of the guest with <code>MemoryAccessViolation</code>;</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
-<h6 id="current-bugs-4"><a class="header" href="#current-bugs-4">Current bugs</a></h6>
+<h6 id="current-bugs-5"><a class="header" href="#current-bugs-5">Current bugs</a></h6>
 <ul>
 <li>Use a different name;</li>
 </ul>
@@ -3421,7 +3584,7 @@ attached_deposit(balance_ptr: u64)
 used_gas() -&gt; u64
 <span class="boring">}
 </span></code></pre></pre>
-<h6 id="panics-6"><a class="header" href="#panics-6">Panics</a></h6>
+<h6 id="panics-7"><a class="header" href="#panics-7">Panics</a></h6>
 <ul>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
@@ -3434,7 +3597,7 @@ used_gas() -&gt; u64
 <span class="boring">}
 </span></code></pre></pre>
 <p>Returns random seed that can be used for pseudo-random number generation in deterministic way.</p>
-<h6 id="panics-7"><a class="header" href="#panics-7">Panics</a></h6>
+<h6 id="panics-8"><a class="header" href="#panics-8">Panics</a></h6>
 <ul>
 <li>If the size of the registers exceed the set limit <code>MemoryAccessViolation</code>;</li>
 </ul>
@@ -3446,7 +3609,7 @@ used_gas() -&gt; u64
 <span class="boring">}
 </span></code></pre></pre>
 <p>Hashes the random sequence of bytes using sha256 and returns it into <code>register_id</code>.</p>
-<h6 id="panics-8"><a class="header" href="#panics-8">Panics</a></h6>
+<h6 id="panics-9"><a class="header" href="#panics-9">Panics</a></h6>
 <ul>
 <li>If <code>value_len + value_ptr</code> points outside the memory or the registers use more memory than the limit with <code>MemoryAccessViolation</code>.</li>
 </ul>
@@ -3458,7 +3621,7 @@ used_gas() -&gt; u64
 <span class="boring">}
 </span></code></pre></pre>
 <p>Hashes the random sequence of bytes using keccak256 and returns it into <code>register_id</code>.</p>
-<h6 id="panics-9"><a class="header" href="#panics-9">Panics</a></h6>
+<h6 id="panics-10"><a class="header" href="#panics-10">Panics</a></h6>
 <ul>
 <li>If <code>value_len + value_ptr</code> points outside the memory or the registers use more memory than the limit with <code>MemoryAccessViolation</code>.</li>
 </ul>
@@ -3470,7 +3633,7 @@ used_gas() -&gt; u64
 <span class="boring">}
 </span></code></pre></pre>
 <p>Hashes the random sequence of bytes using keccak512 and returns it into <code>register_id</code>.</p>
-<h6 id="panics-10"><a class="header" href="#panics-10">Panics</a></h6>
+<h6 id="panics-11"><a class="header" href="#panics-11">Panics</a></h6>
 <ul>
 <li>If <code>value_len + value_ptr</code> points outside the memory or the registers use more memory than the limit with <code>MemoryAccessViolation</code>.</li>
 </ul>
@@ -3482,7 +3645,7 @@ used_gas() -&gt; u64
 <span class="boring">}
 </span></code></pre></pre>
 <p>Sets the blob of data as the return value of the contract.</p>
-<h6 id="panics-11"><a class="header" href="#panics-11">Panics</a></h6>
+<h6 id="panics-12"><a class="header" href="#panics-12">Panics</a></h6>
 <ul>
 <li>If <code>value_len + value_ptr</code> exceeds the memory container or points to an unused register it panics with <code>MemoryAccessViolation</code>;</li>
 </ul>
@@ -3503,7 +3666,7 @@ used_gas() -&gt; u64
 <p>Terminates the execution of the program with panic <code>GuestPanic(s)</code>, where <code>s</code> is the given UTF-8 encoded string.</p>
 <h6 id="normal-behavior"><a class="header" href="#normal-behavior">Normal behavior</a></h6>
 <p>If <code>len == u64::MAX</code> then treats the string as null-terminated with character <code>'\0'</code>;</p>
-<h6 id="panics-12"><a class="header" href="#panics-12">Panics</a></h6>
+<h6 id="panics-13"><a class="header" href="#panics-13">Panics</a></h6>
 <ul>
 <li>If string extends outside the memory of the guest with <code>MemoryAccessViolation</code>;</li>
 <li>If string is not UTF-8 returns <code>BadUtf8</code>.</li>
@@ -3519,7 +3682,7 @@ used_gas() -&gt; u64
 <p>Logs the UTF-8 encoded string.</p>
 <h6 id="normal-behavior-1"><a class="header" href="#normal-behavior-1">Normal behavior</a></h6>
 <p>If <code>len == u64::MAX</code> then treats the string as null-terminated with character <code>'\0'</code>;</p>
-<h6 id="panics-13"><a class="header" href="#panics-13">Panics</a></h6>
+<h6 id="panics-14"><a class="header" href="#panics-14">Panics</a></h6>
 <ul>
 <li>If string extends outside the memory of the guest with <code>MemoryAccessViolation</code>;</li>
 <li>If string is not UTF-8 returns <code>BadUtf8</code>.</li>
@@ -3536,7 +3699,7 @@ used_gas() -&gt; u64
 See https://stackoverflow.com/a/5923961 that explains that null termination is not defined through encoding.</p>
 <h6 id="normal-behavior-2"><a class="header" href="#normal-behavior-2">Normal behavior</a></h6>
 <p>If <code>len == u64::MAX</code> then treats the string as null-terminated with two-byte sequence of <code>0x00 0x00</code>.</p>
-<h6 id="panics-14"><a class="header" href="#panics-14">Panics</a></h6>
+<h6 id="panics-15"><a class="header" href="#panics-15">Panics</a></h6>
 <ul>
 <li>If string extends outside the memory of the guest with <code>MemoryAccessViolation</code>;</li>
 </ul>
@@ -3578,7 +3741,7 @@ and can throw a panic if there is an attempted copying that exceeds the guest re
 </span></code></pre></pre>
 <p>Creates a promise that will execute a method on account with given arguments and attaches the given amount.
 <code>amount_ptr</code> point to slices of bytes representing <code>u128</code>.</p>
-<h6 id="panics-15"><a class="header" href="#panics-15">Panics</a></h6>
+<h6 id="panics-16"><a class="header" href="#panics-16">Panics</a></h6>
 <ul>
 <li>If <code>account_id_len + account_id_ptr</code> or <code>method_name_len + method_name_ptr</code> or <code>arguments_len + arguments_ptr</code>
 or <code>amount_ptr + 16</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
@@ -3604,7 +3767,7 @@ or <code>amount_ptr + 16</code> points outside the memory of the guest or host, 
 <span class="boring">}
 </span></code></pre></pre>
 <p>Attaches the callback that is executed after promise pointed by <code>promise_idx</code> is complete.</p>
-<h6 id="panics-16"><a class="header" href="#panics-16">Panics</a></h6>
+<h6 id="panics-17"><a class="header" href="#panics-17">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
 <li>If <code>account_id_len + account_id_ptr</code> or <code>method_name_len + method_name_ptr</code> or <code>arguments_len + arguments_ptr</code>
@@ -3625,7 +3788,7 @@ or <code>amount_ptr + 16</code> points outside the memory of the guest or host, 
 <p>Creates a new promise which completes when time all promises passed as arguments complete. Cannot be used with registers.
 <code>promise_idx_ptr</code> points to an array of <code>u64</code> elements, with <code>promise_idx_count</code> denoting the number of elements.
 The array contains indices of promises that need to be waited on jointly.</p>
-<h6 id="panics-17"><a class="header" href="#panics-17">Panics</a></h6>
+<h6 id="panics-18"><a class="header" href="#panics-18">Panics</a></h6>
 <ul>
 <li>If <code>promise_ids_ptr + 8 * promise_idx_count</code> extend outside the guest memory with <code>MemoryAccessViolation</code>;</li>
 <li>If any of the promises in the array do not correspond to existing promises panics with <code>InvalidPromiseIndex</code>.</li>
@@ -3651,7 +3814,7 @@ caused the callback. This function returns the number of complete and incomplete
 <li>If there are multiple callbacks (e.g. created through <code>promise_and</code>) <code>promise_results_count()</code> returns their number.</li>
 <li>If the function was called not through the callback <code>promise_results_count()</code> returns <code>0</code>.</li>
 </ul>
-<h6 id="panics-18"><a class="header" href="#panics-18">Panics</a></h6>
+<h6 id="panics-19"><a class="header" href="#panics-19">Panics</a></h6>
 <ul>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
@@ -3675,13 +3838,13 @@ caused the callback. This function returns the result in blob format and places 
 <li>If promise result is complete and successful returns <code>1</code>;</li>
 <li>If promise result is complete and failed returns <code>2</code>.</li>
 </ul>
-<h6 id="panics-19"><a class="header" href="#panics-19">Panics</a></h6>
+<h6 id="panics-20"><a class="header" href="#panics-20">Panics</a></h6>
 <ul>
 <li>If <code>result_idx</code> does not correspond to an existing result panics with <code>InvalidResultIndex</code>.</li>
 <li>If copying the blob exhausts the memory limit it panics with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
 </ul>
-<h6 id="current-bugs-5"><a class="header" href="#current-bugs-5">Current bugs</a></h6>
+<h6 id="current-bugs-6"><a class="header" href="#current-bugs-6">Current bugs</a></h6>
 <ul>
 <li>We currently have two separate functions to check for result completion and copy it.</li>
 </ul>
@@ -3693,11 +3856,11 @@ caused the callback. This function returns the result in blob format and places 
 <span class="boring">}
 </span></code></pre></pre>
 <p>When promise <code>promise_idx</code> finishes executing its result is considered to be the result of the current function.</p>
-<h6 id="panics-20"><a class="header" href="#panics-20">Panics</a></h6>
+<h6 id="panics-21"><a class="header" href="#panics-21">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
 </ul>
-<h6 id="current-bugs-6"><a class="header" href="#current-bugs-6">Current bugs</a></h6>
+<h6 id="current-bugs-7"><a class="header" href="#current-bugs-7">Current bugs</a></h6>
 <ul>
 <li>The current name <code>return_promise</code> is inconsistent with the naming convention of Promise API.</li>
 </ul>
@@ -3708,7 +3871,7 @@ caused the callback. This function returns the result in blob format and places 
 <span class="boring">}
 </span></code></pre></pre>
 <p>Creates a new promise towards given <code>account_id</code> without any actions attached to it.</p>
-<h6 id="panics-21"><a class="header" href="#panics-21">Panics</a></h6>
+<h6 id="panics-22"><a class="header" href="#panics-22">Panics</a></h6>
 <ul>
 <li>If <code>account_id_len + account_id_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
 <li>If called in a view function panics with <code>ProhibitedInView</code>.</li>
@@ -3725,7 +3888,7 @@ caused the callback. This function returns the result in blob format and places 
 <span class="boring">}
 </span></code></pre></pre>
 <p>Attaches a new empty promise that is executed after promise pointed by <code>promise_idx</code> is complete.</p>
-<h6 id="panics-22"><a class="header" href="#panics-22">Panics</a></h6>
+<h6 id="panics-23"><a class="header" href="#panics-23">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
 <li>If <code>account_id_len + account_id_ptr</code> points outside the memory of the guest or host, with <code>MemoryAccessViolation</code>.</li>
@@ -3744,7 +3907,7 @@ caused the callback. This function returns the result in blob format and places 
 </span></code></pre></pre>
 <p>Appends <code>CreateAccount</code> action to the batch of actions for the given promise pointed by <code>promise_idx</code>.
 Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-15b6752ec7d78e7b85b8c7de4a19cbd4R48</p>
-<h6 id="panics-23"><a class="header" href="#panics-23">Panics</a></h6>
+<h6 id="panics-24"><a class="header" href="#panics-24">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
 <li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
@@ -3759,7 +3922,7 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 </span></code></pre></pre>
 <p>Appends <code>DeployContract</code> action to the batch of actions for the given promise pointed by <code>promise_idx</code>.
 Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-15b6752ec7d78e7b85b8c7de4a19cbd4R49</p>
-<h6 id="panics-24"><a class="header" href="#panics-24">Panics</a></h6>
+<h6 id="panics-25"><a class="header" href="#panics-25">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
 <li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
@@ -3782,7 +3945,7 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 <p>Appends <code>FunctionCall</code> action to the batch of actions for the given promise pointed by <code>promise_idx</code>.
 Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-15b6752ec7d78e7b85b8c7de4a19cbd4R50</p>
 <p><em>NOTE: Calling <code>promise_batch_create</code> and then <code>promise_batch_action_function_call</code> will produce the same promise as calling <code>promise_create</code> directly.</em></p>
-<h6 id="panics-25"><a class="header" href="#panics-25">Panics</a></h6>
+<h6 id="panics-26"><a class="header" href="#panics-26">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
 <li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
@@ -3799,7 +3962,7 @@ or <code>amount_ptr + 16</code> points outside the memory of the guest or host, 
 </span></code></pre></pre>
 <p>Appends <code>Transfer</code> action to the batch of actions for the given promise pointed by <code>promise_idx</code>.
 Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-15b6752ec7d78e7b85b8c7de4a19cbd4R51</p>
-<h6 id="panics-26"><a class="header" href="#panics-26">Panics</a></h6>
+<h6 id="panics-27"><a class="header" href="#panics-27">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
 <li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
@@ -3818,7 +3981,7 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 </span></code></pre></pre>
 <p>Appends <code>Stake</code> action to the batch of actions for the given promise pointed by <code>promise_idx</code>.
 Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-15b6752ec7d78e7b85b8c7de4a19cbd4R52</p>
-<h6 id="panics-27"><a class="header" href="#panics-27">Panics</a></h6>
+<h6 id="panics-28"><a class="header" href="#panics-28">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
 <li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
@@ -3839,7 +4002,7 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 <p>Appends <code>AddKey</code> action to the batch of actions for the given promise pointed by <code>promise_idx</code>.
 Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-15b6752ec7d78e7b85b8c7de4a19cbd4R54
 The access key will have <code>FullAccess</code> permission, details: [/Proposals/0005-access-keys.md#guide-level-explanation](click here)</p>
-<h6 id="panics-28"><a class="header" href="#panics-28">Panics</a></h6>
+<h6 id="panics-29"><a class="header" href="#panics-29">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
 <li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
@@ -3869,7 +4032,7 @@ The access key will have <code>FunctionCall</code> permission, details: [/Propos
 <li>If the <code>allowance</code> value (not the pointer) is <code>0</code>, the allowance is set to <code>None</code> (which means unlimited allowance). And positive value represents a <code>Some(...)</code> allowance.</li>
 <li>Given <code>method_names</code> is a <code>utf-8</code> string with <code>,</code> used as a separator. The vm will split the given string into a vector of strings.</li>
 </ul>
-<h6 id="panics-29"><a class="header" href="#panics-29">Panics</a></h6>
+<h6 id="panics-30"><a class="header" href="#panics-30">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
 <li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
@@ -3890,7 +4053,7 @@ The access key will have <code>FunctionCall</code> permission, details: [/Propos
 </span></code></pre></pre>
 <p>Appends <code>DeleteKey</code> action to the batch of actions for the given promise pointed by <code>promise_idx</code>.
 Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-15b6752ec7d78e7b85b8c7de4a19cbd4R55</p>
-<h6 id="panics-30"><a class="header" href="#panics-30">Panics</a></h6>
+<h6 id="panics-31"><a class="header" href="#panics-31">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
 <li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
@@ -3910,7 +4073,7 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 <p>Appends <code>DeleteAccount</code> action to the batch of actions for the given promise pointed by <code>promise_idx</code>.
 Action is used to delete an account. It can be performed on a newly created account, on your own account or an account with
 insufficient funds to pay rent. Takes <code>beneficiary_id</code> to indicate where to send the remaining funds.</p>
-<h6 id="panics-31"><a class="header" href="#panics-31">Panics</a></h6>
+<h6 id="panics-32"><a class="header" href="#panics-32">Panics</a></h6>
 <ul>
 <li>If <code>promise_idx</code> does not correspond to an existing promise panics with <code>InvalidPromiseIndex</code>.</li>
 <li>If the promise pointed by the <code>promise_idx</code> is an ephemeral promise created by <code>promise_and</code>.</li>
@@ -3957,7 +4120,7 @@ order and can for instance save some blob in register <code>5000</code> and anot
 <span class="boring">}
 </span></code></pre></pre>
 <p>Writes the entire content from the register <code>register_id</code> into the memory of the guest starting with <code>ptr</code>.</p>
-<h6 id="panics-32"><a class="header" href="#panics-32">Panics</a></h6>
+<h6 id="panics-33"><a class="header" href="#panics-33">Panics</a></h6>
 <ul>
 <li>If the content extends outside the memory allocated to the guest. In Wasmer, it returns <code>MemoryAccessViolation</code> error message;</li>
 <li>If <code>register_id</code> is pointing to unused register returns <code>InvalidRegisterId</code> error message.</li>
@@ -3974,7 +4137,7 @@ wrong location this function will overwrite memory that it is not supposed to ov
 <span class="boring">}
 </span></code></pre></pre>
 <p>Returns the size of the blob stored in the given register.</p>
-<h6 id="normal-operation-3"><a class="header" href="#normal-operation-3">Normal operation</a></h6>
+<h6 id="normal-operation-4"><a class="header" href="#normal-operation-4">Normal operation</a></h6>
 <ul>
 <li>If register is used, then returns the size, which can potentially be zero;</li>
 <li>If register is not used, returns <code>u64::MAX</code></li>
@@ -3991,7 +4154,7 @@ not follow the specification are considered to be bugs that need to be fixed.</p
 <span class="boring">}
 </span></code></pre></pre>
 <p>Writes key-value into storage.</p>
-<h6 id="normal-operation-4"><a class="header" href="#normal-operation-4">Normal operation</a></h6>
+<h6 id="normal-operation-5"><a class="header" href="#normal-operation-5">Normal operation</a></h6>
 <ul>
 <li>If key is not in use it inserts the key-value pair and does not modify the register;</li>
 <li>If key is in use it inserts the key-value and copies the old value into the <code>register_id</code>.</li>
@@ -4001,14 +4164,14 @@ not follow the specification are considered to be bugs that need to be fixed.</p
 <li>If key was not used returns <code>0</code>;</li>
 <li>If key was used returns <code>1</code>.</li>
 </ul>
-<h6 id="panics-33"><a class="header" href="#panics-33">Panics</a></h6>
+<h6 id="panics-34"><a class="header" href="#panics-34">Panics</a></h6>
 <ul>
 <li>If <code>key_len + key_ptr</code> or <code>value_len + value_ptr</code> exceeds the memory container or points to an unused register it panics
 with <code>MemoryAccessViolation</code>. (When we say that something panics with the given error we mean that we use Wasmer API to
 create this error and terminate the execution of VM. For mocks of the host that would only cause a non-name panic.)</li>
 <li>If returning the preempted value into the registers exceed the memory container it panics with <code>MemoryAccessViolation</code>;</li>
 </ul>
-<h6 id="current-bugs-7"><a class="header" href="#current-bugs-7">Current bugs</a></h6>
+<h6 id="current-bugs-8"><a class="header" href="#current-bugs-8">Current bugs</a></h6>
 <ul>
 <li><code>External::storage_set</code> trait can return an error which is then converted to a generic non-descriptive
 <code>StorageUpdateError</code>, <a href="https://github.com/nearprotocol/nearcore/blob/942bd7bdbba5fb3403e5c2f1ee3c08963947d0c6/runtime/wasm/src/runtime.rs#L210">here</a>
@@ -4023,7 +4186,7 @@ however the actual implementation does not return error at all, <a href="https:/
 <span class="boring">}
 </span></code></pre></pre>
 <p>Reads the value stored under the given key.</p>
-<h6 id="normal-operation-5"><a class="header" href="#normal-operation-5">Normal operation</a></h6>
+<h6 id="normal-operation-6"><a class="header" href="#normal-operation-6">Normal operation</a></h6>
 <ul>
 <li>If key is used copies the content of the value into the <code>register_id</code>, even if the content is zero bytes;</li>
 <li>If key is not present then does not modify the register.</li>
@@ -4033,12 +4196,12 @@ however the actual implementation does not return error at all, <a href="https:/
 <li>If key was not present returns <code>0</code>;</li>
 <li>If key was present returns <code>1</code>.</li>
 </ul>
-<h6 id="panics-34"><a class="header" href="#panics-34">Panics</a></h6>
+<h6 id="panics-35"><a class="header" href="#panics-35">Panics</a></h6>
 <ul>
 <li>If <code>key_len + key_ptr</code> exceeds the memory container or points to an unused register it panics with <code>MemoryAccessViolation</code>;</li>
 <li>If returning the preempted value into the registers exceed the memory container it panics with <code>MemoryAccessViolation</code>;</li>
 </ul>
-<h6 id="current-bugs-8"><a class="header" href="#current-bugs-8">Current bugs</a></h6>
+<h6 id="current-bugs-9"><a class="header" href="#current-bugs-9">Current bugs</a></h6>
 <ul>
 <li>This function currently does not exist.</li>
 </ul>
@@ -4050,7 +4213,7 @@ however the actual implementation does not return error at all, <a href="https:/
 <span class="boring">}
 </span></code></pre></pre>
 <p>Removes the value stored under the given key.</p>
-<h6 id="normal-operation-6"><a class="header" href="#normal-operation-6">Normal operation</a></h6>
+<h6 id="normal-operation-7"><a class="header" href="#normal-operation-7">Normal operation</a></h6>
 <p>Very similar to <code>storage_read</code>:</p>
 <ul>
 <li>If key is used, removes the key-value from the trie and copies the content of the value into the <code>register_id</code>, even if the content is zero bytes.</li>
@@ -4061,13 +4224,13 @@ however the actual implementation does not return error at all, <a href="https:/
 <li>If key was not present returns <code>0</code>;</li>
 <li>If key was present returns <code>1</code>.</li>
 </ul>
-<h6 id="panics-35"><a class="header" href="#panics-35">Panics</a></h6>
+<h6 id="panics-36"><a class="header" href="#panics-36">Panics</a></h6>
 <ul>
 <li>If <code>key_len + key_ptr</code> exceeds the memory container or points to an unused register it panics with <code>MemoryAccessViolation</code>;</li>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
 <li>If returning the preempted value into the registers exceed the memory container it panics with <code>MemoryAccessViolation</code>;</li>
 </ul>
-<h6 id="current-bugs-9"><a class="header" href="#current-bugs-9">Current bugs</a></h6>
+<h6 id="current-bugs-10"><a class="header" href="#current-bugs-10">Current bugs</a></h6>
 <ul>
 <li>Does not return into the registers.</li>
 </ul>
@@ -4079,12 +4242,12 @@ however the actual implementation does not return error at all, <a href="https:/
 <span class="boring">}
 </span></code></pre></pre>
 <p>Checks if there is a key-value pair.</p>
-<h6 id="normal-operation-7"><a class="header" href="#normal-operation-7">Normal operation</a></h6>
+<h6 id="normal-operation-8"><a class="header" href="#normal-operation-8">Normal operation</a></h6>
 <ul>
 <li>If key is used returns <code>1</code>, even if the value is zero bytes;</li>
 <li>Otherwise returns <code>0</code>.</li>
 </ul>
-<h6 id="panics-36"><a class="header" href="#panics-36">Panics</a></h6>
+<h6 id="panics-37"><a class="header" href="#panics-37">Panics</a></h6>
 <ul>
 <li>If <code>key_len + key_ptr</code> exceeds the memory container it panics with <code>MemoryAccessViolation</code>;</li>
 </ul>
@@ -4099,12 +4262,12 @@ however the actual implementation does not return error at all, <a href="https:/
 Creates an iterator object inside the host.
 Returns the identifier that uniquely differentiates the given iterator from other iterators that can be simultaneously
 created.</p>
-<h6 id="normal-operation-8"><a class="header" href="#normal-operation-8">Normal operation</a></h6>
+<h6 id="normal-operation-9"><a class="header" href="#normal-operation-9">Normal operation</a></h6>
 <ul>
 <li>It iterates over the keys that have the provided prefix. The order of iteration is defined by the lexicographic
 order of the bytes in the keys. If there are no keys, it creates an empty iterator, see below on empty iterators;</li>
 </ul>
-<h6 id="panics-37"><a class="header" href="#panics-37">Panics</a></h6>
+<h6 id="panics-38"><a class="header" href="#panics-38">Panics</a></h6>
 <ul>
 <li>If <code>prefix_len + prefix_ptr</code> exceeds the memory container it panics with <code>MemoryAccessViolation</code>;</li>
 </ul>
@@ -4118,11 +4281,11 @@ order of the bytes in the keys. If there are no keys, it creates an empty iterat
 <p>DEPRECATED, calling it will result in <code>HostError::Deprecated</code> error.
 Similarly to <code>storage_iter_prefix</code>
 creates an iterator object inside the host.</p>
-<h6 id="normal-operation-9"><a class="header" href="#normal-operation-9">Normal operation</a></h6>
+<h6 id="normal-operation-10"><a class="header" href="#normal-operation-10">Normal operation</a></h6>
 <p>Unless lexicographically <code>start &lt; end</code>, it creates an empty iterator.
 Iterates over all key-values such that keys are between <code>start</code> and <code>end</code>, where <code>start</code> is inclusive and <code>end</code> is exclusive.</p>
 <p>Note, this definition allows for <code>start</code> or <code>end</code> keys to not actually exist on the given trie.</p>
-<h6 id="panics-38"><a class="header" href="#panics-38">Panics</a></h6>
+<h6 id="panics-39"><a class="header" href="#panics-39">Panics</a></h6>
 <ul>
 <li>If <code>start_len + start_ptr</code> or <code>end_len + end_ptr</code> exceeds the memory container or points to an unused register it panics with <code>MemoryAccessViolation</code>;</li>
 </ul>
@@ -4135,13 +4298,13 @@ Iterates over all key-values such that keys are between <code>start</code> and <
 </span></code></pre></pre>
 <p>DEPRECATED, calling it will result in <code>HostError::Deprecated</code> error.
 Advances iterator and saves the next key and value in the register.</p>
-<h6 id="normal-operation-10"><a class="header" href="#normal-operation-10">Normal operation</a></h6>
+<h6 id="normal-operation-11"><a class="header" href="#normal-operation-11">Normal operation</a></h6>
 <ul>
 <li>If iterator is not empty (after calling next it points to a key-value), copies the key into <code>key_register_id</code> and value into <code>value_register_id</code> and returns <code>1</code>;</li>
 <li>If iterator is empty returns <code>0</code>.</li>
 </ul>
 <p>This allows us to iterate over the keys that have zero bytes stored in values.</p>
-<h6 id="panics-39"><a class="header" href="#panics-39">Panics</a></h6>
+<h6 id="panics-40"><a class="header" href="#panics-40">Panics</a></h6>
 <ul>
 <li>If <code>key_register_id == value_register_id</code> panics with <code>MemoryAccessViolation</code>;</li>
 <li>If the registers exceed the memory limit panics with <code>MemoryAccessViolation</code>;</li>
@@ -4149,7 +4312,7 @@ Advances iterator and saves the next key and value in the register.</p>
 <li>If between the creation of the iterator and calling <code>storage_iter_next</code> any modification to storage was done through
 <code>storage_write</code> or <code>storage_remove</code> the iterator is invalidated and the error message is <code>IteratorWasInvalidated</code>.</li>
 </ul>
-<h6 id="current-bugs-10"><a class="header" href="#current-bugs-10">Current bugs</a></h6>
+<h6 id="current-bugs-11"><a class="header" href="#current-bugs-11">Current bugs</a></h6>
 <ul>
 <li>Not implemented, currently we have <code>storage_iter_next</code> and <code>data_read</code> + <code>DATA_TYPE_STORAGE_ITER</code> that together fulfill
 the purpose, but have unspecified behavior.</li>
@@ -4437,7 +4600,7 @@ returned value. Eventually, these <code>DataReceipt</code> will be delivered to 
 One example could be a callback. In this case, we assume the new Receipt will send its Value
 Result to the <a href="RuntimeSpec/Receipts.html#output_data_receivers"><code>output_data_receivers</code></a> of the current
 <code>ActionReceipt</code>.</p>
-<h3 id="errors-8"><a class="header" href="#errors-8">Errors</a></h3>
+<h3 id="errors-11"><a class="header" href="#errors-11">Errors</a></h3>
 <p>As with other actions, errors can be divided into two categories: validation error and execution
 error.</p>
 <h4 id="validation-error"><a class="header" href="#validation-error">Validation Error</a></h4>

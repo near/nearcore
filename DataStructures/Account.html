@@ -152,6 +152,7 @@
 <li><strong>Account ID part</strong> consists of lowercase alphanumeric symbols separated by either <code>_</code> or <code>-</code>.</li>
 <li><strong>Account ID</strong> that is 64 characters long and consists of lowercase hex characters is a specific <strong>NEAR-implicit account ID</strong>.</li>
 <li><strong>Account ID</strong> that is <code>0x</code> followed by 40 lowercase hex characters is a specific <strong>ETH-implicit account ID</strong>.</li>
+<li><strong>Account ID</strong> that is <code>0s</code> followed by 40 lowercase hex characters is a specific <strong>NEAR-deterministic account ID</strong>.</li>
 </ul>
 <p>Account names are similar to a domain names.
 Top level account (TLA) like <code>near</code>, <code>com</code>, <code>eth</code> can only be created by <code>registrar</code> account (see next section for more details).
@@ -241,6 +242,48 @@ Then, the contract parses <code>tx_bytes_b64</code> and verifies it is signed wi
 <li>Add <code>AccessKey</code> with <code>FunctionCallPermission</code>. This allows adding a relayer's public key to an ETH-implicit account, enabling the relayer to pay the gas fee for transactions from this account. Still, each transaction has to be signed by the owner of the account (corresponding Secp256K1 private key).</li>
 <li>Delete <code>AccessKey</code>.</li>
 </ul>
+<h2 id="deterministic-accounts"><a class="header" href="#deterministic-accounts">Deterministic accounts</a></h2>
+<p>Deterministic accounts are an advanced kind of implicit account.
+A normal implicit account has a fixed access key that is implicitly associated with it.
+Deterministic accounts have a fixed code and fixed initial state associated with it.</p>
+<h3 id="state-initializing-data-of-deterministic-accounts"><a class="header" href="#state-initializing-data-of-deterministic-accounts">State-initializing data of deterministic accounts</a></h3>
+<p>The initial state of a deterministic account is fully defined by an instance of <code>DeterministicAccountStateInit</code>.</p>
+<p>Key-value pairs in <code>data</code> must be at most <code>max_length_storage_key</code> and <code>max_length_storage_value</code> bytes long,
+respectively. These parameters are currently both set to 4Mib (4194304 bytes).</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub enum DeterministicAccountStateInit {
+    V1(DeterministicAccountStateInitV1),
+}
+
+pub struct DeterministicAccountStateInitV1 {
+    pub code: GlobalContractIdentifier,
+    pub data: BTreeMap&lt;Vec&lt;u8&gt;, Vec&lt;u8&gt;&gt;,
+}
+
+pub enum GlobalContractIdentifier {
+    CodeHash(CryptoHash) = 0,
+    AccountId(AccountId) = 1,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<h3 id="deterministic-account-id"><a class="header" href="#deterministic-account-id">Deterministic account ID</a></h3>
+<p>The account ID is derived from a <code>DeterministicAccountStateInit</code> instance.</p>
+<p>To derive the deterministic account id, borsh-encode the <code>DeterministicAccountStateInit</code> enum instance into raw
+bytes. Then use the following formula: <code>'0s' + keccak256(bytes)[12:32].hex()</code>.</p>
+<h3 id="deterministic-account-creation"><a class="header" href="#deterministic-account-creation">Deterministic account creation</a></h3>
+<p>Deterministic accounts cannot be created with a <code>CreateAccount</code> nor with a <code>Transfer</code> action.
+A special action, <code>DeterministicStateInitAction</code>, is required.
+This action validates that the account id matches its initial state.</p>
+<p>As with all account types, you have to attach a large enough deposit to cover for the account storage. If the code and
+initial state is small enough to fit below the zero-balance limit, no balance is required. The
+<code>DeterministicStateInitAction</code> has a field to include a balance specifically to cover storage. Anything above the
+required amount to cover storage requirements is refunded.</p>
+<p>A <code>Transfer</code> can also deposit a balance before the <code>DeterministicStateInitAction</code>. The account will not be usable,
+however, until the <code>DeterministicStateInitAction</code> is also executed.</p>
+<p>After successful initialization, the account will have all key-value pairs in <code>data: BTreeMap&lt;Vec&lt;u8&gt;, Vec&lt;u8&gt;&gt;</code> in its
+contract storage. The contract code will be set to that of the global contract defined with
+<code>code: GlobalContractIdentifier</code>.</p>
 <h2 id="account"><a class="header" href="#account">Account</a></h2>
 <p>Data for a single account is collocated in one shard. The account data consists of the following:</p>
 <ul>
