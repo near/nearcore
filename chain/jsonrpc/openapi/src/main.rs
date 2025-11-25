@@ -885,49 +885,49 @@ The `QueryRequest` enum provides multiple variants for performing the following 
     add_spec_for_path::<RpcViewAccountRequest, RpcViewAccountResponse, RpcQueryError>(
         &mut all_schemas,
         &mut all_paths,
-        "view_account".to_string(),
+        "EXPERIMENTAL_view_account".to_string(),
         "Returns information about an account for given account_id.".to_string(),
     );
     add_spec_for_path::<RpcViewCodeRequest, RpcViewCodeResponse, RpcQueryError>(
         &mut all_schemas,
         &mut all_paths,
-        "view_code".to_string(),
+        "EXPERIMENTAL_view_code".to_string(),
         "Returns the contract code (Wasm binary) deployed to the account.".to_string(),
     );
     add_spec_for_path::<RpcViewStateRequest, RpcViewStateResponse, RpcQueryError>(
         &mut all_schemas,
         &mut all_paths,
-        "view_state".to_string(),
+        "EXPERIMENTAL_view_state".to_string(),
         "Returns the state (key-value pairs) of a contract based on the key prefix.".to_string(),
     );
     add_spec_for_path::<RpcViewAccessKeyRequest, RpcViewAccessKeyResponse, RpcQueryError>(
         &mut all_schemas,
         &mut all_paths,
-        "view_access_key".to_string(),
+        "EXPERIMENTAL_view_access_key".to_string(),
         "Returns information about a single access key for given account.".to_string(),
     );
     add_spec_for_path::<RpcViewAccessKeyListRequest, RpcViewAccessKeyListResponse, RpcQueryError>(
         &mut all_schemas,
         &mut all_paths,
-        "view_access_key_list".to_string(),
+        "EXPERIMENTAL_view_access_key_list".to_string(),
         "Returns all access keys for a given account.".to_string(),
     );
     add_spec_for_path::<RpcCallFunctionRequest, RpcCallFunctionResponse, RpcQueryError>(
         &mut all_schemas,
         &mut all_paths,
-        "call_function".to_string(),
+        "EXPERIMENTAL_call_function".to_string(),
         "Calls a view function on a contract and returns the result.".to_string(),
     );
     add_spec_for_path::<RpcViewGasKeyRequest, RpcViewGasKeyResponse, RpcQueryError>(
         &mut all_schemas,
         &mut all_paths,
-        "view_gas_key".to_string(),
+        "EXPERIMENTAL_view_gas_key".to_string(),
         "Returns information about a single gas key for given account.".to_string(),
     );
     add_spec_for_path::<RpcViewGasKeyListRequest, RpcViewGasKeyListResponse, RpcQueryError>(
         &mut all_schemas,
         &mut all_paths,
-        "view_gas_key_list".to_string(),
+        "EXPERIMENTAL_view_gas_key_list".to_string(),
         "Returns all gas keys for a given account.".to_string(),
     );
 

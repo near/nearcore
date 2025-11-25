@@ -459,28 +459,28 @@ impl JsonRpcHandler {
             "client_config" => {
                 process_method_call(request, |_params: ()| self.client_config()).await
             }
-            "view_account" => {
+            "EXPERIMENTAL_view_account" => {
                 process_method_call(request, |params| self.view_account(params)).await
             }
-            "view_code" => {
+            "EXPERIMENTAL_view_code" => {
                 process_method_call(request, |params| self.view_code(params)).await
             }
-            "view_state" => {
+            "EXPERIMENTAL_view_state" => {
                 process_method_call(request, |params| self.view_state(params)).await
             }
-            "view_access_key" => {
+            "EXPERIMENTAL_view_access_key" => {
                 process_method_call(request, |params| self.view_access_key(params)).await
             }
-            "view_access_key_list" => {
+            "EXPERIMENTAL_view_access_key_list" => {
                 process_method_call(request, |params| self.view_access_key_list(params)).await
             }
-            "call_function" => {
+            "EXPERIMENTAL_call_function" => {
                 process_method_call(request, |params| self.call_function(params)).await
             }
-            "view_gas_key" => {
+            "EXPERIMENTAL_view_gas_key" => {
                 process_method_call(request, |params| self.view_gas_key(params)).await
             }
-            "view_gas_key_list" => {
+            "EXPERIMENTAL_view_gas_key_list" => {
                 process_method_call(request, |params| self.view_gas_key_list(params)).await
             }
             "EXPERIMENTAL_congestion_level" => {
