@@ -779,7 +779,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 result.limited_by = Some(PrepareTransactionsLimit::Gas);
                 break;
             }
-            if total_size >= size_limit {
+            if total_size >= size_limit || result.transactions.len() > 40_000 {
                 result.limited_by = Some(PrepareTransactionsLimit::Size);
                 break;
             }
