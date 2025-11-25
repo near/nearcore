@@ -10656,12 +10656,6 @@
                     "default": false,
                     "type": "boolean"
                   },
-                  "nonce_index": {
-                    "format": "uint32",
-                    "minimum": 0,
-                    "nullable": true,
-                    "type": "integer"
-                  },
                   "output_data_receivers": {
                     "items": {
                       "$ref": "#/components/schemas/DataReceiverView"
