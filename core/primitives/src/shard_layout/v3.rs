@@ -73,9 +73,9 @@ pub struct ShardLayoutV3 {
     /// not uniquely identify the shard layout.
     pub(crate) version: ShardVersion,
 
-    /// ID of the first epoch for which this layout applies. It is used to efficiently
+    /// ID of the last epoch of the previous layout. It is used to efficiently
     /// retrieve the previous layout (without iterating through all epochs).
-    pub(crate) valid_since_epoch: EpochId,
+    pub(crate) valid_after_epoch: EpochId,
 }
 
 /// Counterpart to `ShardLayoutV3` composed of maps with string keys to aid
@@ -88,7 +88,7 @@ struct SerdeShardLayoutV3 {
     id_to_index_map: BTreeMap<String, ShardIndex>,
     shards_split_map: BTreeMap<String, Vec<ShardId>>,
     version: ShardVersion,
-    valid_since_epoch: EpochId,
+    valid_after_epoch: EpochId,
 }
 
 impl From<&ShardLayoutV3> for SerdeShardLayoutV3 {
@@ -99,7 +99,7 @@ impl From<&ShardLayoutV3> for SerdeShardLayoutV3 {
             id_to_index_map: map_keys_to_string(&layout.id_to_index_map),
             shards_split_map: map_keys_to_string(&layout.shards_split_map),
             version: layout.version,
-            valid_since_epoch: layout.valid_since_epoch,
+            valid_after_epoch: layout.valid_after_epoch,
         }
     }
 }
@@ -114,7 +114,7 @@ impl TryFrom<SerdeShardLayoutV3> for ShardLayoutV3 {
             id_to_index_map,
             shards_split_map,
             version,
-            valid_since_epoch,
+            valid_after_epoch: valid_since_epoch,
         } = layout;
 
         let id_to_index_map = map_keys_to_shard_id(id_to_index_map)?;
@@ -128,7 +128,7 @@ impl TryFrom<SerdeShardLayoutV3> for ShardLayoutV3 {
             shards_split_map,
             shards_parent_map,
             version,
-            valid_since_epoch,
+            valid_after_epoch: valid_since_epoch,
         })
     }
 }
@@ -185,7 +185,7 @@ impl ShardLayoutV3 {
             shards_split_map,
             shards_parent_map,
             version: VERSION,
-            valid_since_epoch,
+            valid_after_epoch: valid_since_epoch,
         }
     }
 

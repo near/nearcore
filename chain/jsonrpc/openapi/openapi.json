@@ -16472,7 +16472,7 @@
             },
             "type": "object"
           },
-          "valid_since_epoch": {
+          "valid_after_epoch": {
             "$ref": "#/components/schemas/EpochId"
           },
           "version": {
@@ -16487,7 +16487,7 @@
           "id_to_index_map",
           "shards_split_map",
           "version",
-          "valid_since_epoch"
+          "valid_after_epoch"
         ],
         "type": "object"
       },

@@ -401,12 +401,12 @@ impl ShardLayout {
             .collect()
     }
 
-    /// Returns ID of the first epoch for which this layout applies (for V3 layout).
+    /// Returns ID of the last epoch of the previous layout (for V3 layout).
     /// None for earlier versions.
-    pub fn valid_since_epoch(&self) -> Option<EpochId> {
+    pub fn valid_after_epoch(&self) -> Option<EpochId> {
         match self {
             Self::V0(_) | Self::V1(_) | Self::V2(_) => None,
-            ShardLayout::V3(v3) => Some(v3.valid_since_epoch),
+            ShardLayout::V3(v3) => Some(v3.valid_after_epoch),
         }
     }
 }

@@ -58,7 +58,7 @@ fn v0() {
     .into_iter()
     .collect();
     assert_eq!(shard_id_distribution, expected_distribution);
-    assert!(shard_layout.valid_since_epoch().is_none());
+    assert!(shard_layout.valid_after_epoch().is_none());
 }
 
 #[test]
@@ -104,7 +104,7 @@ fn v1() {
     assert_eq!(shard_layout.account_id_to_shard_id(&aid("goo")), sid(4));
     assert_eq!(shard_layout.account_id_to_shard_id(&aid("zoo")), sid(5));
 
-    assert!(shard_layout.valid_since_epoch().is_none());
+    assert!(shard_layout.valid_after_epoch().is_none());
 }
 
 #[test]
@@ -151,7 +151,7 @@ fn v2() {
         new_shard_ids_vec(vec![4])
     );
 
-    assert!(shard_layout.valid_since_epoch().is_none());
+    assert!(shard_layout.valid_after_epoch().is_none());
 }
 
 fn get_test_shard_layout_v2() -> ShardLayout {
@@ -216,7 +216,7 @@ fn v3() {
         new_shard_ids_vec(vec![4])
     );
 
-    assert_eq!(shard_layout.valid_since_epoch(), Some(EpochId::default()));
+    assert_eq!(shard_layout.valid_after_epoch(), Some(EpochId::default()));
 }
 
 fn get_test_shard_layout_v3() -> ShardLayout {
