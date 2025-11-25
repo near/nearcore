@@ -1,5 +1,8 @@
 use super::*;
-use crate::types::{BlockType, ChainConfig, RuntimeStorageConfig};
+use crate::types::{
+    BlockType, ChainConfig, RuntimeStorageConfig, StatePartValidationResult,
+    StateRootNodeValidationResult,
+};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use borsh::BorshDeserialize;
 use near_async::messaging::{IntoMultiSender, noop};
@@ -862,17 +865,29 @@ fn test_state_sync() {
         new_env.last_proposals = proposals;
         new_env.time += 10u64.pow(9);
     }
-    assert!(new_env.runtime.validate_state_root_node(&root_node, &env.state_roots[0]));
+    assert!(matches!(
+        new_env.runtime.validate_state_root_node(&root_node, &env.state_roots[0]),
+        StateRootNodeValidationResult::Valid
+    ));
     let mut root_node_wrong = root_node;
     root_node_wrong.memory_usage += 1;
-    assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
+    assert!(matches!(
+        new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]),
+        StateRootNodeValidationResult::Invalid
+    ));
     root_node_wrong.data = std::sync::Arc::new([123]);
-    assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
-    assert!(!new_env.runtime.validate_state_part(
-        ShardId::new(0),
-        &Trie::EMPTY_ROOT,
-        PartId::new(0, 1),
-        &state_part
+    assert!(matches!(
+        new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]),
+        StateRootNodeValidationResult::Invalid
+    ));
+    assert!(matches!(
+        new_env.runtime.validate_state_part(
+            ShardId::new(0),
+            &Trie::EMPTY_ROOT,
+            PartId::new(0, 1),
+            &state_part
+        ),
+        StatePartValidationResult::Invalid
     ));
     new_env.runtime.validate_state_part(
         ShardId::new(0),
