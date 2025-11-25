@@ -830,7 +830,7 @@ impl LibCall {
             Self::Memory32Copy => near_vm_memory32_copy as usize,
             Self::ImportedMemory32Copy => near_vm_imported_memory32_copy as usize,
             Self::Memory32Fill => near_vm_memory32_fill as usize,
-            Self::ImportedMemory32Fill => near_vm_memory32_fill as usize,
+            Self::ImportedMemory32Fill => near_vm_imported_memory32_fill as usize,
             Self::Memory32Init => near_vm_memory32_init as usize,
             Self::DataDrop => near_vm_data_drop as usize,
             Self::Probestack => near_vm_probestack as usize,
