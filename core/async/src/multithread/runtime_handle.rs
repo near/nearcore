@@ -3,7 +3,6 @@ use crate::instrumentation::writer::InstrumentedThreadWriterSharedPart;
 use crate::messaging::Actor;
 use crate::pretty_type_name;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -89,20 +88,17 @@ where
         cancellation_signal_holder,
         instrumentation: shared_instrumentation,
     };
-    let thread_index = Arc::new(AtomicUsize::new(0));
     let make_actor_fn = Arc::new(make_actor_fn);
 
     // Spawn num_threads OS-level threads
-    for _ in 0..num_threads {
+    for thread_id in 0..num_threads {
         let receiver = receiver.clone();
         let cancellation_signal = cancellation_signal.clone();
         let instrumented_queue = instrumented_queue.clone();
         let handle = handle.clone();
-        let thread_index = thread_index.clone();
         let make_actor_fn = make_actor_fn.clone();
 
         thread::spawn(move || {
-            let thread_id = thread_index.fetch_add(1, Ordering::Relaxed);
             let mut instrumentation =
                 handle.instrumentation.new_writer_with_global_registration(Some(thread_id));
             let mut actor = make_actor_fn();
