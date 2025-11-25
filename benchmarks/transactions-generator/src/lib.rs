@@ -526,6 +526,12 @@ impl TxGenerator {
                             tracing::warn!(target: "transaction-generator", rate, "controller suggested tps is out of range, clamping");
                             rate = rate.clamp(1.0, 100000.0);
                         }
+                        let _span = tracing::debug_span!(
+                            "update_tx_generator_rate",
+                            %height,
+                            %rate,
+                            tag_block_production = true)
+                        .entered();
                         let micros = ((1_000_000.0 * TX_GENERATOR_TASK_COUNT as f64) / rate) as u64;
                         tx_tps_values
                             .send(tokio::time::Duration::from_micros(micros))

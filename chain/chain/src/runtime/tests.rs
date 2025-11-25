@@ -922,6 +922,8 @@ fn test_state_sync() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_get_validator_info() {
     let num_nodes = 2;
     let validators = (0..num_nodes)

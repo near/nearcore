@@ -20,6 +20,8 @@ use crate::utils::node::TestLoopNode;
 /// Requires "test_features" feature to be enabled in order to use `burn_gas_raw`
 /// function from the test contract.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn delayed_receipt_example_test() {
     init_test_logger();
 

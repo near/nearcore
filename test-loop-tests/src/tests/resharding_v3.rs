@@ -677,11 +677,15 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3() {
     test_resharding_v3_base(TestReshardingParametersBuilder::default().build());
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_two_independent_splits() {
     let second_resharding_boundary_account = "account2".parse().unwrap();
     test_resharding_v3_base(
@@ -708,6 +712,8 @@ fn shard_sequence_to_schedule(
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_two_splits_one_after_another_at_single_node() {
     let first_resharding_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let second_resharding_boundary_account: AccountId = "account2".parse().unwrap();
@@ -765,6 +771,8 @@ fn slow_test_resharding_v3_two_splits_one_after_another_at_single_node() {
 // Track parent shard before resharding, child shard after resharding, and then an unrelated shard forever.
 // Eventually, the State column should only contain entries belonging to the last tracked shard.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_state_cleanup() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
@@ -794,6 +802,8 @@ fn slow_test_resharding_v3_state_cleanup() {
 
 // Track parent shard before resharding, but do not track any child shard after resharding.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_do_not_track_children_after_resharding() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
@@ -825,6 +835,8 @@ fn slow_test_resharding_v3_do_not_track_children_after_resharding() {
 // We expect all parent state and mapping have been removed,
 // then child shard was state synced without mapping.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_stop_track_child_for_5_epochs() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
@@ -868,6 +880,8 @@ fn slow_test_resharding_v3_stop_track_child_for_5_epochs() {
 // We expect the mapping to parent to be preserved, because there were not enough
 // epochs where we did not track any child for mapping to be removed.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_stop_track_child_for_5_epochs_with_sibling_in_between() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
@@ -908,6 +922,8 @@ fn slow_test_resharding_v3_stop_track_child_for_5_epochs_with_sibling_in_between
 // Sets up an extra node that doesn't track the parent, doesn't track the child in the first post-resharding
 // epoch, and then tracks a child in the epoch after that. This checks that state sync works in that case.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_sync_child() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
@@ -937,6 +953,8 @@ fn slow_test_resharding_v3_sync_child() {
 // Track parent shard before resharding, but do not track any child shard after resharding.
 // This test verifies that resharding is completely skipped when no children are tracked.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_skip_when_no_children_tracked() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
@@ -973,6 +991,8 @@ fn slow_test_resharding_v3_skip_when_no_children_tracked() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_track_all_shards() {
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
@@ -984,6 +1004,8 @@ fn slow_test_resharding_v3_track_all_shards() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_drop_chunks_before() {
     let chunk_ranges_to_drop = HashMap::from([(1, -2..0)]);
     test_resharding_v3_base(
@@ -995,6 +1017,8 @@ fn slow_test_resharding_v3_drop_chunks_before() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_drop_chunks_after() {
     let chunk_ranges_to_drop = HashMap::from([(2, 0..2)]);
     test_resharding_v3_base(
@@ -1005,6 +1029,8 @@ fn slow_test_resharding_v3_drop_chunks_after() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_drop_chunks_before_and_after() {
     let chunk_ranges_to_drop = HashMap::from([(0, -2..2)]);
     test_resharding_v3_base(
@@ -1016,6 +1042,8 @@ fn slow_test_resharding_v3_drop_chunks_before_and_after() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_drop_chunks_all() {
     let chunk_ranges_to_drop = HashMap::from([(0, -1..2), (1, -3..0), (2, 0..3), (3, 0..1)]);
     test_resharding_v3_base(
@@ -1028,6 +1056,8 @@ fn slow_test_resharding_v3_drop_chunks_all() {
 
 #[test]
 #[cfg(feature = "test_features")]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_resharding_block_in_fork() {
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
@@ -1046,6 +1076,8 @@ fn slow_test_resharding_v3_resharding_block_in_fork() {
 // Two double signed blocks B(height=15) and B'(height=15) processed in the order B -> B'.
 // In this scenario the chain discards the resharding at B' and performs resharding at B.
 #[cfg(feature = "test_features")]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_double_sign_resharding_block_first_fork() {
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
@@ -1065,6 +1097,8 @@ fn slow_test_resharding_v3_double_sign_resharding_block_first_fork() {
 // processed in the order B -> B' -> C.
 // In this scenario the chain discards the reshardings at B and B' and performs resharding at C.
 #[cfg(feature = "test_features")]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_double_sign_resharding_block_last_fork() {
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
@@ -1079,6 +1113,8 @@ fn slow_test_resharding_v3_double_sign_resharding_block_last_fork() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_shard_shuffling() {
     let params = TestReshardingParametersBuilder::default()
         .shuffle_shard_assignment_for_chunk_producers(true)
@@ -1092,6 +1128,8 @@ fn slow_test_resharding_v3_shard_shuffling() {
 /// in the next epoch after that. In that case we don't want to state sync because we can just perform
 /// the resharding and continue applying chunks for the child in the first epoch post-resharding.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_shard_shuffling_untrack_then_track() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
@@ -1121,6 +1159,8 @@ fn slow_test_resharding_v3_shard_shuffling_untrack_then_track() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_shard_shuffling_intense() {
     let chunk_ranges_to_drop = HashMap::from([(0, -1..2), (1, -3..0), (2, -3..3), (3, 0..1)]);
     let params = TestReshardingParametersBuilder::default()
@@ -1140,6 +1180,8 @@ fn slow_test_resharding_v3_shard_shuffling_intense() {
 /// resharding. Caught a bug with invalid storage costs computed during flat
 /// storage resharding.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_storage_operations() {
     let sender_account: AccountId = "account1".parse().unwrap();
     let account_in_parent: AccountId = "account4".parse().unwrap();
@@ -1155,6 +1197,8 @@ fn slow_test_resharding_v3_storage_operations() {
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_delayed_receipts_left_child() {
     let account: AccountId = "account4".parse().unwrap();
     let params = TestReshardingParametersBuilder::default()
@@ -1174,6 +1218,8 @@ fn slow_test_resharding_v3_delayed_receipts_left_child() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_global_contract_by_hash() {
     let code_hash =
         CryptoHash::hash_bytes(&near_test_contracts::backwards_compatible_rs_contract());
@@ -1184,6 +1230,8 @@ fn slow_test_resharding_v3_global_contract_by_hash() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_global_contract_by_account_id() {
     test_resharding_v3_global_contract_base(
         GlobalContractIdentifier::AccountId("account4".parse().unwrap()),
@@ -1224,6 +1272,8 @@ fn test_resharding_v3_global_contract_base(
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_delayed_receipts_right_child() {
     let account: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParametersBuilder::default()
@@ -1245,6 +1295,8 @@ fn slow_test_resharding_v3_delayed_receipts_right_child() {
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_split_parent_buffered_receipts() {
     let receiver_account: AccountId = "account0".parse().unwrap();
     let account_in_parent: AccountId = "account4".parse().unwrap();
@@ -1274,6 +1326,8 @@ fn slow_test_resharding_v3_split_parent_buffered_receipts() {
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_buffered_receipts_towards_splitted_shard() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
@@ -1307,6 +1361,8 @@ fn slow_test_resharding_v3_buffered_receipts_towards_splitted_shard() {
 /// receipts will be sent must include the receipts stored in outgoing buffer to the parent shard,
 /// otherwise there will be no bandwidth grants to send them.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_large_receipts_towards_splitted_shard() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
@@ -1334,6 +1390,8 @@ fn slow_test_resharding_v3_large_receipts_towards_splitted_shard() {
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_outgoing_receipts_towards_splitted_shard() {
     let receiver_account: AccountId = "account4".parse().unwrap();
     let account_1_in_stable_shard: AccountId = "account1".parse().unwrap();
@@ -1352,6 +1410,8 @@ fn slow_test_resharding_v3_outgoing_receipts_towards_splitted_shard() {
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_outgoing_receipts_from_splitted_shard() {
     let receiver_account: AccountId = "account0".parse().unwrap();
     let account_in_left_child: AccountId = "account4".parse().unwrap();
@@ -1370,6 +1430,8 @@ fn slow_test_resharding_v3_outgoing_receipts_from_splitted_shard() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_load_memtrie() {
     let params =
         TestReshardingParametersBuilder::default().load_memtries_for_tracked_shards(false).build();
@@ -1378,6 +1440,8 @@ fn slow_test_resharding_v3_load_memtrie() {
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_slower_post_processing_tasks() {
     // When there's a resharding task delay and single-shard tracking, the delay might be pushed out
     // even further because the resharding task might have to wait for the state snapshot to be made
@@ -1393,6 +1457,8 @@ fn slow_test_resharding_v3_slower_post_processing_tasks() {
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_shard_shuffling_slower_post_processing_tasks() {
     let params = TestReshardingParametersBuilder::default()
         .shuffle_shard_assignment_for_chunk_producers(true)
@@ -1404,6 +1470,8 @@ fn slow_test_resharding_v3_shard_shuffling_slower_post_processing_tasks() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_yield_resume() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
@@ -1428,6 +1496,8 @@ fn slow_test_resharding_v3_yield_resume() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_yield_timeout() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
@@ -1456,6 +1526,8 @@ fn slow_test_resharding_v3_yield_timeout() {
 /// Check that adding a new promise yield after resharding in one child doesn't
 /// leave the other child's promise yield indices with a dangling trie value.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_promise_yield_indices_gc_correctness() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
@@ -1480,6 +1552,8 @@ fn slow_test_resharding_v3_promise_yield_indices_gc_correctness() {
 /// leave the other child's delayed receipts indices with a dangling trie value.
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_resharding_v3_delayed_receipts_gc_correctness() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();

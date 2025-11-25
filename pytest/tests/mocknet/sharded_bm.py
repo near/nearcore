@@ -210,6 +210,14 @@ def handle_init(args):
 
     apply_json_patches(args)
 
+    # Force save_untracked_partial_chunks_parts=true for the initialization run.
+    # This ensures that chunks produced during init are persisted to disk and
+    # survive the node restart that happens when the benchmark actually starts.
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
+    run_cmd_args.cmd = f"jq '.save_untracked_partial_chunks_parts = true' {CONFIG_PATH} > tmp.json && mv tmp.json {CONFIG_PATH}"
+    run_remote_cmd(CommandContext(run_cmd_args))
+
     start_nodes(args)
 
     time.sleep(10)
@@ -265,6 +273,10 @@ def handle_init(args):
         run_remote_cmd(CommandContext(run_cmd_args))
 
     stop_nodes(args)
+
+    # Re-apply JSON patches to restore the original config
+    # so the benchmark runs with the intended settings.
+    apply_json_patches(args)
 
 
 def apply_json_patches(args):
@@ -539,11 +551,46 @@ def handle_start(args):
 
 
 def main():
-    try:
-        unique_id = os.environ['FORKNET_NAME']
-        case = os.environ['CASE']
-    except KeyError as e:
-        logger.error(f"Error: Required environment variable {e} is not set")
+    parser = ArgumentParser(
+        description='Forknet cluster parameters to launch a sharded benchmark')
+    parser.add_argument(
+        '--unique-id',
+        help='Forknet unique ID (FORKNET_NAME)',
+        default=os.environ.get('FORKNET_NAME'),
+    )
+    parser.add_argument(
+        '--mocknet-id',
+        help='Mocknet ID (MOCKNET_ID)',
+        default=os.environ.get('MOCKNET_ID'),
+    )
+    parser.add_argument(
+        '--case',
+        help='Benchmark case name',
+        default=os.environ.get('CASE'),
+        required=os.environ.get('CASE') is None,
+    )
+    parser.add_argument("--start-height", default=START_HEIGHT)
+
+    # Parse early to get unique_id, mocknet_id, and case
+    if '--' in sys.argv:
+        idx = sys.argv.index('--')
+        my_args = sys.argv[1:idx]
+        extra_args = sys.argv[idx + 1:]
+    else:
+        my_args = sys.argv[1:]
+        extra_args = []
+    early_args, _ = parser.parse_known_args(my_args)
+
+    unique_id = early_args.unique_id
+    mocknet_id = early_args.mocknet_id
+    case = early_args.case
+
+    if unique_id is None and mocknet_id is None:
+        logger.error(
+            f"Error: Either --unique-id or --mocknet-id must be provided")
+        sys.exit(1)
+    if case is None:
+        logger.error(f"Error: --case must be provided")
         sys.exit(1)
 
     try:
@@ -554,11 +601,9 @@ def main():
         logger.error(f"Error reading binary_url from {bm_params_path}: {e}")
         sys.exit(1)
 
-    forknet_details = fetch_forknet_details(unique_id, bm_params)
+    forknet_details = fetch_forknet_details(unique_id or mocknet_id, bm_params)
     logger.info(forknet_details)
 
-    parser = ArgumentParser(
-        description='Forknet cluster parameters to launch a sharded benchmark')
     parser.set_defaults(
         chain_id=CHAIN_ID,
         start_height=START_HEIGHT,
@@ -570,8 +615,8 @@ def main():
         host_filter=None,
         host_type="nodes",
         select_partition=None,
+        mocknet_id=mocknet_id,
     )
-    parser.add_argument("--start_height")
 
     subparsers = parser.add_subparsers(
         dest='command',
@@ -648,14 +693,6 @@ def main():
     get_logs_parser.add_argument('--host-filter',
                                  default=None,
                                  help='Filter to select specific hosts')
-
-    if '--' in sys.argv:
-        idx = sys.argv.index('--')
-        my_args = sys.argv[1:idx]
-        extra_args = sys.argv[idx + 1:]
-    else:
-        my_args = sys.argv[1:]
-        extra_args = []
 
     args = parser.parse_args(my_args)
 

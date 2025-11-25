@@ -296,6 +296,10 @@ pub struct Config {
     /// - All shards are tracked (i.e. node is an RPC node).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_tx_outcomes: Option<bool>,
+    /// Whether to persist state changes on disk or not.
+    /// If `None`, defaults to true (persist).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_state_changes: Option<bool>,
     /// Whether to persist partial chunk parts for untracked shards in the database.
     /// If `None`, defaults to true (persist).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -456,6 +460,7 @@ impl Default for Config {
             cloud_archival: None,
             cloud_archival_writer: None,
             save_trie_changes: None,
+            save_state_changes: None,
             save_tx_outcomes: None,
             save_untracked_partial_chunks_parts: None,
             log_summary_style: LogSummaryStyle::Colored,
@@ -715,6 +720,7 @@ impl NearConfig {
                 cloud_archival_writer: config.cloud_archival_writer,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 save_tx_outcomes: config.save_tx_outcomes.unwrap_or(is_archive_or_rpc),
+                save_state_changes: config.save_state_changes.unwrap_or(true),
                 save_untracked_partial_chunks_parts: config
                     .save_untracked_partial_chunks_parts
                     .unwrap_or(true),

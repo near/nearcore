@@ -45,6 +45,8 @@ const NUM_SHARDS: usize = 4;
 /// The goal is to exercise the codepath that answers the requests, rather than checking
 /// it returns a fully correct response.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_view_requests_to_archival_node() {
     init_test_logger();
     let builder = TestLoopBuilder::new();

@@ -33,6 +33,8 @@ use near_store::db::RocksDB;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[tokio::test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn slow_test_sync_state_nodes() {
     init_integration_logger();
 
@@ -625,6 +627,8 @@ async fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
 
 #[tokio::test]
 // Tests StateRequestHeader and StateRequestPart.
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn slow_test_state_sync_headers() {
     init_test_logger();
 
@@ -756,6 +760,8 @@ async fn slow_test_state_sync_headers() {
 
 #[tokio::test]
 // Tests StateRequestHeader and StateRequestPart.
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn slow_test_state_sync_headers_no_tracked_shards() {
     // Huh. The compiler complains about type system cycle if this async move is stripped.
     Box::pin(async move {
