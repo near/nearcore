@@ -473,11 +473,9 @@ impl TxGenerator {
         mut controller: FilteredRateController,
         initial_rate: u64,
         mut rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
-    ) -> tokio::sync::watch::Receiver<tokio::time::Duration> {
+    ) -> tokio::sync::watch::Receiver<u64> {
         let mut rate = std::cmp::max(initial_rate, 1) as f64;
-        let (tx_tps_values, rx_tps_values) = tokio::sync::watch::channel(
-            tokio::time::Duration::from_micros(1_000_000 * TX_GENERATOR_TASK_COUNT / rate as u64),
-        );
+        let (tx_tps_values, rx_tps_values) = tokio::sync::watch::channel(0);
         tracing::debug!(target: "transaction-generator", rate, "starting controller");
 
         let _ = rx_block
@@ -508,9 +506,6 @@ impl TxGenerator {
                                 let dt = now.duration_since(last_update_time);
                                 if let Some(threshold_ms) = controller.block_pause_threshold_ms {
                                     if Duration::from_millis(threshold_ms) < dt {
-                                        tx_tps_values
-                                            .send(tokio::time::Duration::from_secs(100))
-                                            .unwrap();
                                         tracing::warn!(target: "transaction-generator", dt=?dt, "long delay between blocks, skipping controller update and pausing transaction generation");
                                     }
                                 }
@@ -532,9 +527,8 @@ impl TxGenerator {
                             %rate,
                             tag_block_production = true)
                         .entered();
-                        let micros = ((1_000_000.0 * TX_GENERATOR_TASK_COUNT as f64) / rate) as u64;
                         tx_tps_values
-                            .send(tokio::time::Duration::from_micros(micros))
+                            .send((rate / TX_GENERATOR_TASK_COUNT as f64) as u64)
                             .unwrap();
                     }
                 }
@@ -574,7 +568,7 @@ impl TxGenerator {
         client_sender: ClientSender,
         accounts: Arc<Vec<Account>>,
         mut rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
-        mut tx_rates: tokio::sync::watch::Receiver<tokio::time::Duration>,
+        mut tx_rates: tokio::sync::watch::Receiver<u64>,
         stats: Arc<Stats>,
         choice: Arc<Choice>,
     ) {
@@ -585,37 +579,46 @@ impl TxGenerator {
             .await
             .is_ok();
         let BlockHeaderView { hash: mut latest_block_hash, .. } = *rx_block.borrow();
-        let mut tx_interval = tokio::time::interval(*tx_rates.borrow());
 
-        async {
-            loop {
-                tokio::select! {
-                    _ = rx_block.changed() => {
-                        BlockHeaderView{hash: latest_block_hash, .. } = *rx_block.borrow();
-                    }
-                    _ = tx_rates.changed() => {
-                            tx_interval = tokio::time::interval(*tx_rates.borrow());
-                        }
-                    _ = tx_interval.tick() => {
-                        let ok = Self::generate_send_transaction(
-                            &mut rnd,
-                            &accounts,
-                            &latest_block_hash,
-                            &client_sender,
-                            &choice,
-                        )
-                        .await;
-
-                        if ok {
-                            stats.pool_accepted.fetch_add(1, atomic::Ordering::Relaxed);
-                        } else {
-                            stats.pool_rejected.fetch_add(1, atomic::Ordering::Relaxed);
-                        }
-                    }
+        loop {
+            tokio::select! {
+                _ = rx_block.changed() => {
+                    BlockHeaderView{hash: latest_block_hash, .. } = *rx_block.borrow();
+                }
+                _ = tx_rates.changed() => {
+                    let txs_to_gen: u64 = *tx_rates.borrow();
+                    Self::generate_transactions(txs_to_gen, &mut rnd, &accounts, &latest_block_hash, &client_sender, &choice, &stats).await;
                 }
             }
         }
-        .await;
+    }
+
+    #[tracing::instrument(level = "debug", target = "transaction-generator", "generate_transactions", skip_all, fields(%txs_num, tag_block_production = true))]
+    async fn generate_transactions(
+        txs_num: u64,
+        rnd: &mut StdRng,
+        accounts: &Arc<Vec<Account>>,
+        latest_block_hash: &CryptoHash,
+        client_sender: &ClientSender,
+        choice: &Choice,
+        stats: &Stats,
+    ) {
+        for _ in 0..txs_num {
+            let ok = Self::generate_send_transaction(
+                rnd,
+                &accounts,
+                &latest_block_hash,
+                &client_sender,
+                &choice,
+            )
+            .await;
+
+            if ok {
+                stats.pool_accepted.fetch_add(1, atomic::Ordering::Relaxed);
+            } else {
+                stats.pool_rejected.fetch_add(1, atomic::Ordering::Relaxed);
+            }
+        }
     }
 
     fn start_transactions_loop(
