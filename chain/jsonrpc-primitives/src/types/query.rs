@@ -105,6 +105,183 @@ pub enum QueryResponseKind {
     GasKeyList(near_primitives::views::GasKeyList),
 }
 
+// ==================== view_account ====================
+
+/// Request type for `view_account` RPC method.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcViewAccountRequest {
+    #[serde(flatten)]
+    pub block_reference: near_primitives::types::BlockReference,
+    pub account_id: near_primitives::types::AccountId,
+}
+
+/// Response type for `view_account` RPC method.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcViewAccountResponse {
+    #[serde(flatten)]
+    pub account: near_primitives::views::AccountView,
+    pub block_height: near_primitives::types::BlockHeight,
+    pub block_hash: near_primitives::hash::CryptoHash,
+}
+
+// ==================== view_code ====================
+
+/// Request type for `view_code` RPC method.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcViewCodeRequest {
+    #[serde(flatten)]
+    pub block_reference: near_primitives::types::BlockReference,
+    pub account_id: near_primitives::types::AccountId,
+}
+
+/// Response type for `view_code` RPC method.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcViewCodeResponse {
+    #[serde(flatten)]
+    pub code: near_primitives::views::ContractCodeView,
+    pub block_height: near_primitives::types::BlockHeight,
+    pub block_hash: near_primitives::hash::CryptoHash,
+}
+
+// ==================== view_state ====================
+
+/// Request type for `view_state` RPC method.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcViewStateRequest {
+    #[serde(flatten)]
+    pub block_reference: near_primitives::types::BlockReference,
+    pub account_id: near_primitives::types::AccountId,
+    #[serde(rename = "prefix_base64")]
+    pub prefix: near_primitives::types::StoreKey,
+    #[serde(default)]
+    pub include_proof: bool,
+}
+
+/// Response type for `view_state` RPC method.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcViewStateResponse {
+    #[serde(flatten)]
+    pub state: near_primitives::views::ViewStateResult,
+    pub block_height: near_primitives::types::BlockHeight,
+    pub block_hash: near_primitives::hash::CryptoHash,
+}
+
+// ==================== view_access_key ====================
+
+/// Request type for `view_access_key` RPC method.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcViewAccessKeyRequest {
+    #[serde(flatten)]
+    pub block_reference: near_primitives::types::BlockReference,
+    pub account_id: near_primitives::types::AccountId,
+    pub public_key: near_crypto::PublicKey,
+}
+
+/// Response type for `view_access_key` RPC method.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcViewAccessKeyResponse {
+    #[serde(flatten)]
+    pub access_key: near_primitives::views::AccessKeyView,
+    pub block_height: near_primitives::types::BlockHeight,
+    pub block_hash: near_primitives::hash::CryptoHash,
+}
+
+// ==================== view_access_key_list ====================
+
+/// Request type for `view_access_key_list` RPC method.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcViewAccessKeyListRequest {
+    #[serde(flatten)]
+    pub block_reference: near_primitives::types::BlockReference,
+    pub account_id: near_primitives::types::AccountId,
+}
+
+/// Response type for `view_access_key_list` RPC method.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcViewAccessKeyListResponse {
+    #[serde(flatten)]
+    pub access_key_list: near_primitives::views::AccessKeyList,
+    pub block_height: near_primitives::types::BlockHeight,
+    pub block_hash: near_primitives::hash::CryptoHash,
+}
+
+// ==================== call_function ====================
+
+/// Request type for `call_function` RPC method.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcCallFunctionRequest {
+    #[serde(flatten)]
+    pub block_reference: near_primitives::types::BlockReference,
+    pub account_id: near_primitives::types::AccountId,
+    pub method_name: String,
+    #[serde(rename = "args_base64")]
+    pub args: near_primitives::types::FunctionArgs,
+}
+
+/// Response type for `call_function` RPC method.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcCallFunctionResponse {
+    #[serde(flatten)]
+    pub result: near_primitives::views::CallResult,
+    pub block_height: near_primitives::types::BlockHeight,
+    pub block_hash: near_primitives::hash::CryptoHash,
+}
+
+// ==================== view_gas_key ====================
+
+/// Request type for `view_gas_key` RPC method.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcViewGasKeyRequest {
+    #[serde(flatten)]
+    pub block_reference: near_primitives::types::BlockReference,
+    pub account_id: near_primitives::types::AccountId,
+    pub public_key: near_crypto::PublicKey,
+}
+
+/// Response type for `view_gas_key` RPC method.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcViewGasKeyResponse {
+    #[serde(flatten)]
+    pub gas_key: near_primitives::views::GasKeyView,
+    pub block_height: near_primitives::types::BlockHeight,
+    pub block_hash: near_primitives::hash::CryptoHash,
+}
+
+// ==================== view_gas_key_list ====================
+
+/// Request type for `view_gas_key_list` RPC method.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcViewGasKeyListRequest {
+    #[serde(flatten)]
+    pub block_reference: near_primitives::types::BlockReference,
+    pub account_id: near_primitives::types::AccountId,
+}
+
+/// Response type for `view_gas_key_list` RPC method.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcViewGasKeyListResponse {
+    #[serde(flatten)]
+    pub gas_key_list: near_primitives::views::GasKeyList,
+    pub block_height: near_primitives::types::BlockHeight,
+    pub block_hash: near_primitives::hash::CryptoHash,
+}
+
 impl From<RpcQueryError> for crate::errors::RpcError {
     fn from(error: RpcQueryError) -> Self {
         let error_data = Some(serde_json::Value::String(error.to_string()));

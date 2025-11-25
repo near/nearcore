@@ -38,7 +38,13 @@ use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::blocks::RpcBlockRequest;
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigResponse};
 use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQueryWithParams};
-use near_jsonrpc_primitives::types::query::RpcQueryRequest;
+use near_jsonrpc_primitives::types::query::{
+    RpcCallFunctionRequest, RpcCallFunctionResponse, RpcQueryError, RpcQueryRequest,
+    RpcViewAccessKeyListRequest, RpcViewAccessKeyListResponse, RpcViewAccessKeyRequest,
+    RpcViewAccessKeyResponse, RpcViewAccountRequest, RpcViewAccountResponse, RpcViewCodeRequest,
+    RpcViewCodeResponse, RpcViewGasKeyListRequest, RpcViewGasKeyListResponse, RpcViewGasKeyRequest,
+    RpcViewGasKeyResponse, RpcViewStateRequest, RpcViewStateResponse,
+};
 use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
 };
@@ -452,6 +458,30 @@ impl JsonRpcHandler {
             "validators" => process_method_call(request, |params| self.validators(params)).await,
             "client_config" => {
                 process_method_call(request, |_params: ()| self.client_config()).await
+            }
+            "view_account" => {
+                process_method_call(request, |params| self.view_account(params)).await
+            }
+            "view_code" => {
+                process_method_call(request, |params| self.view_code(params)).await
+            }
+            "view_state" => {
+                process_method_call(request, |params| self.view_state(params)).await
+            }
+            "view_access_key" => {
+                process_method_call(request, |params| self.view_access_key(params)).await
+            }
+            "view_access_key_list" => {
+                process_method_call(request, |params| self.view_access_key_list(params)).await
+            }
+            "call_function" => {
+                process_method_call(request, |params| self.call_function(params)).await
+            }
+            "view_gas_key" => {
+                process_method_call(request, |params| self.view_gas_key(params)).await
+            }
+            "view_gas_key_list" => {
+                process_method_call(request, |params| self.view_gas_key_list(params)).await
             }
             "EXPERIMENTAL_congestion_level" => {
                 process_method_call(request, |params| self.congestion_level(params)).await
@@ -961,6 +991,210 @@ impl JsonRpcHandler {
             .view_client_send(ClientQuery::new(request_data.block_reference, request_data.request))
             .await?;
         Ok(query_response.rpc_into())
+    }
+
+    async fn view_account(
+        &self,
+        request_data: RpcViewAccountRequest,
+    ) -> Result<RpcViewAccountResponse, RpcQueryError> {
+        let query_response: QueryResponse = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewAccount { account_id: request_data.account_id },
+            ))
+            .await?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::ViewAccount(account) => {
+                Ok(RpcViewAccountResponse {
+                    account,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: "Unexpected response kind".to_string(),
+            }),
+        }
+    }
+
+    async fn view_code(
+        &self,
+        request_data: RpcViewCodeRequest,
+    ) -> Result<RpcViewCodeResponse, RpcQueryError> {
+        let query_response: QueryResponse = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewCode { account_id: request_data.account_id },
+            ))
+            .await?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::ViewCode(code) => Ok(RpcViewCodeResponse {
+                code,
+                block_height: query_response.block_height,
+                block_hash: query_response.block_hash,
+            }),
+            _ => Err(RpcQueryError::InternalError {
+                error_message: "Unexpected response kind".to_string(),
+            }),
+        }
+    }
+
+    async fn view_state(
+        &self,
+        request_data: RpcViewStateRequest,
+    ) -> Result<RpcViewStateResponse, RpcQueryError> {
+        let query_response: QueryResponse = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewState {
+                    account_id: request_data.account_id,
+                    prefix: request_data.prefix,
+                    include_proof: request_data.include_proof,
+                },
+            ))
+            .await?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::ViewState(state) => {
+                Ok(RpcViewStateResponse {
+                    state,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: "Unexpected response kind".to_string(),
+            }),
+        }
+    }
+
+    async fn view_access_key(
+        &self,
+        request_data: RpcViewAccessKeyRequest,
+    ) -> Result<RpcViewAccessKeyResponse, RpcQueryError> {
+        let query_response: QueryResponse = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewAccessKey {
+                    account_id: request_data.account_id,
+                    public_key: request_data.public_key,
+                },
+            ))
+            .await?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::AccessKey(access_key) => {
+                Ok(RpcViewAccessKeyResponse {
+                    access_key,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: "Unexpected response kind".to_string(),
+            }),
+        }
+    }
+
+    async fn view_access_key_list(
+        &self,
+        request_data: RpcViewAccessKeyListRequest,
+    ) -> Result<RpcViewAccessKeyListResponse, RpcQueryError> {
+        let query_response: QueryResponse = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewAccessKeyList { account_id: request_data.account_id },
+            ))
+            .await?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::AccessKeyList(access_key_list) => {
+                Ok(RpcViewAccessKeyListResponse {
+                    access_key_list,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: "Unexpected response kind".to_string(),
+            }),
+        }
+    }
+
+    async fn call_function(
+        &self,
+        request_data: RpcCallFunctionRequest,
+    ) -> Result<RpcCallFunctionResponse, RpcQueryError> {
+        let query_response: QueryResponse = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::CallFunction {
+                    account_id: request_data.account_id,
+                    method_name: request_data.method_name,
+                    args: request_data.args,
+                },
+            ))
+            .await?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::CallResult(result) => {
+                Ok(RpcCallFunctionResponse {
+                    result,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: "Unexpected response kind".to_string(),
+            }),
+        }
+    }
+
+    async fn view_gas_key(
+        &self,
+        request_data: RpcViewGasKeyRequest,
+    ) -> Result<RpcViewGasKeyResponse, RpcQueryError> {
+        let query_response: QueryResponse = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewGasKey {
+                    account_id: request_data.account_id,
+                    public_key: request_data.public_key,
+                },
+            ))
+            .await?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::GasKey(gas_key) => {
+                Ok(RpcViewGasKeyResponse {
+                    gas_key,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: "Unexpected response kind".to_string(),
+            }),
+        }
+    }
+
+    async fn view_gas_key_list(
+        &self,
+        request_data: RpcViewGasKeyListRequest,
+    ) -> Result<RpcViewGasKeyListResponse, RpcQueryError> {
+        let query_response: QueryResponse = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewGasKeyList { account_id: request_data.account_id },
+            ))
+            .await?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::GasKeyList(gas_key_list) => {
+                Ok(RpcViewGasKeyListResponse {
+                    gas_key_list,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: "Unexpected response kind".to_string(),
+            }),
+        }
     }
 
     async fn tx_status_common(

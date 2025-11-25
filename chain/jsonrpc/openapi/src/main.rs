@@ -24,7 +24,14 @@ use near_jsonrpc_primitives::types::{
         RpcMaintenanceWindowsError, RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse,
     },
     network_info::{RpcNetworkInfoError, RpcNetworkInfoResponse},
-    query::{RpcQueryError, RpcQueryRequest, RpcQueryResponse},
+    query::{
+        RpcCallFunctionRequest, RpcCallFunctionResponse, RpcQueryError, RpcQueryRequest,
+        RpcQueryResponse, RpcViewAccessKeyListRequest, RpcViewAccessKeyListResponse,
+        RpcViewAccessKeyRequest, RpcViewAccessKeyResponse, RpcViewAccountRequest,
+        RpcViewAccountResponse, RpcViewCodeRequest, RpcViewCodeResponse, RpcViewGasKeyListRequest,
+        RpcViewGasKeyListResponse, RpcViewGasKeyRequest, RpcViewGasKeyResponse,
+        RpcViewStateRequest, RpcViewStateResponse,
+    },
     receipts::{RpcReceiptError, RpcReceiptRequest, RpcReceiptResponse},
     split_storage::{
         RpcSplitStorageInfoError, RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
@@ -874,6 +881,54 @@ The `QueryRequest` enum provides multiple variants for performing the following 
  - View the `AccessKey` of an account
  - View the `AccessKeyList` of an account
  - Call a function in a contract deployed on the network.".to_string(),
+    );
+    add_spec_for_path::<RpcViewAccountRequest, RpcViewAccountResponse, RpcQueryError>(
+        &mut all_schemas,
+        &mut all_paths,
+        "view_account".to_string(),
+        "Returns information about an account for given account_id.".to_string(),
+    );
+    add_spec_for_path::<RpcViewCodeRequest, RpcViewCodeResponse, RpcQueryError>(
+        &mut all_schemas,
+        &mut all_paths,
+        "view_code".to_string(),
+        "Returns the contract code (Wasm binary) deployed to the account.".to_string(),
+    );
+    add_spec_for_path::<RpcViewStateRequest, RpcViewStateResponse, RpcQueryError>(
+        &mut all_schemas,
+        &mut all_paths,
+        "view_state".to_string(),
+        "Returns the state (key-value pairs) of a contract based on the key prefix.".to_string(),
+    );
+    add_spec_for_path::<RpcViewAccessKeyRequest, RpcViewAccessKeyResponse, RpcQueryError>(
+        &mut all_schemas,
+        &mut all_paths,
+        "view_access_key".to_string(),
+        "Returns information about a single access key for given account.".to_string(),
+    );
+    add_spec_for_path::<RpcViewAccessKeyListRequest, RpcViewAccessKeyListResponse, RpcQueryError>(
+        &mut all_schemas,
+        &mut all_paths,
+        "view_access_key_list".to_string(),
+        "Returns all access keys for a given account.".to_string(),
+    );
+    add_spec_for_path::<RpcCallFunctionRequest, RpcCallFunctionResponse, RpcQueryError>(
+        &mut all_schemas,
+        &mut all_paths,
+        "call_function".to_string(),
+        "Calls a view function on a contract and returns the result.".to_string(),
+    );
+    add_spec_for_path::<RpcViewGasKeyRequest, RpcViewGasKeyResponse, RpcQueryError>(
+        &mut all_schemas,
+        &mut all_paths,
+        "view_gas_key".to_string(),
+        "Returns information about a single gas key for given account.".to_string(),
+    );
+    add_spec_for_path::<RpcViewGasKeyListRequest, RpcViewGasKeyListResponse, RpcQueryError>(
+        &mut all_schemas,
+        &mut all_paths,
+        "view_gas_key_list".to_string(),
+        "Returns all gas keys for a given account.".to_string(),
     );
 
     let path_schema = whole_spec(all_schemas, all_paths);

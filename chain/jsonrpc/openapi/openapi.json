@@ -453,6 +453,34 @@
         }
       }
     },
+    "/call_function": {
+      "post": {
+        "description": "Calls a view function on a contract and returns the result.",
+        "operationId": "call_function",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_call_function"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcCallFunctionResponse_and_RpcQueryError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/changes": {
       "post": {
         "description": "Returns changes for a given account, contract or contract code for given block height or hash.",
@@ -866,6 +894,202 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/JsonRpcResponse_for_RpcValidatorResponse_and_RpcValidatorError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/view_access_key": {
+      "post": {
+        "description": "Returns information about a single access key for given account.",
+        "operationId": "view_access_key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_view_access_key"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewAccessKeyResponse_and_RpcQueryError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/view_access_key_list": {
+      "post": {
+        "description": "Returns all access keys for a given account.",
+        "operationId": "view_access_key_list",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_view_access_key_list"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewAccessKeyListResponse_and_RpcQueryError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/view_account": {
+      "post": {
+        "description": "Returns information about an account for given account_id.",
+        "operationId": "view_account",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_view_account"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewAccountResponse_and_RpcQueryError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/view_code": {
+      "post": {
+        "description": "Returns the contract code (Wasm binary) deployed to the account.",
+        "operationId": "view_code",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_view_code"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewCodeResponse_and_RpcQueryError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/view_gas_key": {
+      "post": {
+        "description": "Returns information about a single gas key for given account.",
+        "operationId": "view_gas_key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_view_gas_key"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewGasKeyResponse_and_RpcQueryError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/view_gas_key_list": {
+      "post": {
+        "description": "Returns all gas keys for a given account.",
+        "operationId": "view_gas_key_list",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_view_gas_key_list"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewGasKeyListResponse_and_RpcQueryError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/view_state": {
+      "post": {
+        "description": "Returns the state (key-value pairs) of a contract based on the key prefix.",
+        "operationId": "view_state",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_view_state"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewStateResponse_and_RpcQueryError"
                 }
               }
             }
@@ -8396,6 +8620,33 @@
         "title": "JsonRpcRequest_for_broadcast_tx_commit",
         "type": "object"
       },
+      "JsonRpcRequest_for_call_function": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "call_function"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcCallFunctionRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_call_function",
+        "type": "object"
+      },
       "JsonRpcRequest_for_changes": {
         "properties": {
           "id": {
@@ -8801,6 +9052,195 @@
         "title": "JsonRpcRequest_for_validators",
         "type": "object"
       },
+      "JsonRpcRequest_for_view_access_key": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "view_access_key"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewAccessKeyRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_view_access_key",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_view_access_key_list": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "view_access_key_list"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewAccessKeyListRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_view_access_key_list",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_view_account": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "view_account"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewAccountRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_view_account",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_view_code": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "view_code"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewCodeRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_view_code",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_view_gas_key": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "view_gas_key"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewGasKeyRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_view_gas_key",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_view_gas_key_list": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "view_gas_key_list"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewGasKeyListRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_view_gas_key_list",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_view_state": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "view_state"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewStateRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_view_state",
+        "type": "object"
+      },
       "JsonRpcResponse_for_Array_of_Range_of_uint64_and_RpcMaintenanceWindowsError": {
         "oneOf": [
           {
@@ -9055,6 +9495,46 @@
           "id"
         ],
         "title": "JsonRpcResponse_for_RpcBlockResponse_and_RpcBlockError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_RpcCallFunctionResponse_and_RpcQueryError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcCallFunctionResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcQueryError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcCallFunctionResponse_and_RpcQueryError",
         "type": "object"
       },
       "JsonRpcResponse_for_RpcChunkResponse_and_RpcChunkError": {
@@ -9735,6 +10215,286 @@
           "id"
         ],
         "title": "JsonRpcResponse_for_RpcValidatorResponse_and_RpcValidatorError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_RpcViewAccessKeyListResponse_and_RpcQueryError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcViewAccessKeyListResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcQueryError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcViewAccessKeyListResponse_and_RpcQueryError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_RpcViewAccessKeyResponse_and_RpcQueryError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcViewAccessKeyResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcQueryError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcViewAccessKeyResponse_and_RpcQueryError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_RpcViewAccountResponse_and_RpcQueryError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcViewAccountResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcQueryError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcViewAccountResponse_and_RpcQueryError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_RpcViewCodeResponse_and_RpcQueryError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcViewCodeResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcQueryError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcViewCodeResponse_and_RpcQueryError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_RpcViewGasKeyListResponse_and_RpcQueryError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcViewGasKeyListResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcQueryError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcViewGasKeyListResponse_and_RpcQueryError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_RpcViewGasKeyResponse_and_RpcQueryError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcViewGasKeyResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcQueryError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcViewGasKeyResponse_and_RpcQueryError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_RpcViewStateResponse_and_RpcQueryError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcViewStateResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcQueryError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcViewStateResponse_and_RpcQueryError",
         "type": "object"
       },
       "KnownProducerView": {
@@ -11028,6 +11788,97 @@
           "author",
           "header",
           "chunks"
+        ],
+        "type": "object"
+      },
+      "RpcCallFunctionRequest": {
+        "description": "Request type for `call_function` RPC method.",
+        "oneOf": [
+          {
+            "properties": {
+              "block_id": {
+                "$ref": "#/components/schemas/BlockId"
+              }
+            },
+            "required": [
+              "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "finality": {
+                "$ref": "#/components/schemas/Finality"
+              }
+            },
+            "required": [
+              "finality"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "sync_checkpoint": {
+                "$ref": "#/components/schemas/SyncCheckpoint"
+              }
+            },
+            "required": [
+              "sync_checkpoint"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "args_base64": {
+            "$ref": "#/components/schemas/FunctionArgs"
+          },
+          "method_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "method_name",
+          "args_base64"
+        ],
+        "title": "RpcCallFunctionRequest",
+        "type": "object"
+      },
+      "RpcCallFunctionResponse": {
+        "description": "Response type for `call_function` RPC method.",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "block_height": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "logs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "result": {
+            "items": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result",
+          "logs",
+          "block_height",
+          "block_hash"
         ],
         "type": "object"
       },
@@ -13126,12 +13977,12 @@
                     "minimum": 0,
                     "type": "integer"
                   },
-                  "vm_error": {
-                    "type": "string"
+                  "error": {
+                    "$ref": "#/components/schemas/FunctionCallError"
                   }
                 },
                 "required": [
-                  "vm_error",
+                  "error",
                   "block_height",
                   "block_hash"
                 ],
@@ -16135,6 +16986,603 @@
           }
         },
         "title": "RpcValidatorsOrderedRequest",
+        "type": "object"
+      },
+      "RpcViewAccessKeyListRequest": {
+        "description": "Request type for `view_access_key_list` RPC method.",
+        "oneOf": [
+          {
+            "properties": {
+              "block_id": {
+                "$ref": "#/components/schemas/BlockId"
+              }
+            },
+            "required": [
+              "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "finality": {
+                "$ref": "#/components/schemas/Finality"
+              }
+            },
+            "required": [
+              "finality"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "sync_checkpoint": {
+                "$ref": "#/components/schemas/SyncCheckpoint"
+              }
+            },
+            "required": [
+              "sync_checkpoint"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "title": "RpcViewAccessKeyListRequest",
+        "type": "object"
+      },
+      "RpcViewAccessKeyListResponse": {
+        "description": "Response type for `view_access_key_list` RPC method.",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "block_height": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/AccessKeyInfoView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "keys",
+          "block_height",
+          "block_hash"
+        ],
+        "type": "object"
+      },
+      "RpcViewAccessKeyRequest": {
+        "description": "Request type for `view_access_key` RPC method.",
+        "oneOf": [
+          {
+            "properties": {
+              "block_id": {
+                "$ref": "#/components/schemas/BlockId"
+              }
+            },
+            "required": [
+              "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "finality": {
+                "$ref": "#/components/schemas/Finality"
+              }
+            },
+            "required": [
+              "finality"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "sync_checkpoint": {
+                "$ref": "#/components/schemas/SyncCheckpoint"
+              }
+            },
+            "required": [
+              "sync_checkpoint"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "public_key": {
+            "$ref": "#/components/schemas/PublicKey"
+          }
+        },
+        "required": [
+          "account_id",
+          "public_key"
+        ],
+        "title": "RpcViewAccessKeyRequest",
+        "type": "object"
+      },
+      "RpcViewAccessKeyResponse": {
+        "description": "Response type for `view_access_key` RPC method.",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "block_height": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nonce": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "permission": {
+            "$ref": "#/components/schemas/AccessKeyPermissionView"
+          }
+        },
+        "required": [
+          "nonce",
+          "permission",
+          "block_height",
+          "block_hash"
+        ],
+        "type": "object"
+      },
+      "RpcViewAccountRequest": {
+        "description": "Request type for `view_account` RPC method.",
+        "oneOf": [
+          {
+            "properties": {
+              "block_id": {
+                "$ref": "#/components/schemas/BlockId"
+              }
+            },
+            "required": [
+              "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "finality": {
+                "$ref": "#/components/schemas/Finality"
+              }
+            },
+            "required": [
+              "finality"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "sync_checkpoint": {
+                "$ref": "#/components/schemas/SyncCheckpoint"
+              }
+            },
+            "required": [
+              "sync_checkpoint"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "title": "RpcViewAccountRequest",
+        "type": "object"
+      },
+      "RpcViewAccountResponse": {
+        "description": "Response type for `view_account` RPC method.",
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/NearToken"
+          },
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "block_height": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "code_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "global_contract_account_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
+          },
+          "global_contract_hash": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
+          },
+          "locked": {
+            "$ref": "#/components/schemas/NearToken"
+          },
+          "storage_paid_at": {
+            "default": 0,
+            "description": "TODO(2271): deprecated.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "storage_usage": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "amount",
+          "locked",
+          "code_hash",
+          "storage_usage",
+          "block_height",
+          "block_hash"
+        ],
+        "type": "object"
+      },
+      "RpcViewCodeRequest": {
+        "description": "Request type for `view_code` RPC method.",
+        "oneOf": [
+          {
+            "properties": {
+              "block_id": {
+                "$ref": "#/components/schemas/BlockId"
+              }
+            },
+            "required": [
+              "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "finality": {
+                "$ref": "#/components/schemas/Finality"
+              }
+            },
+            "required": [
+              "finality"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "sync_checkpoint": {
+                "$ref": "#/components/schemas/SyncCheckpoint"
+              }
+            },
+            "required": [
+              "sync_checkpoint"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "title": "RpcViewCodeRequest",
+        "type": "object"
+      },
+      "RpcViewCodeResponse": {
+        "description": "Response type for `view_code` RPC method.",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "block_height": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "code_base64": {
+            "type": "string"
+          },
+          "hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        "required": [
+          "code_base64",
+          "hash",
+          "block_height",
+          "block_hash"
+        ],
+        "type": "object"
+      },
+      "RpcViewGasKeyListRequest": {
+        "description": "Request type for `view_gas_key_list` RPC method.",
+        "oneOf": [
+          {
+            "properties": {
+              "block_id": {
+                "$ref": "#/components/schemas/BlockId"
+              }
+            },
+            "required": [
+              "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "finality": {
+                "$ref": "#/components/schemas/Finality"
+              }
+            },
+            "required": [
+              "finality"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "sync_checkpoint": {
+                "$ref": "#/components/schemas/SyncCheckpoint"
+              }
+            },
+            "required": [
+              "sync_checkpoint"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "title": "RpcViewGasKeyListRequest",
+        "type": "object"
+      },
+      "RpcViewGasKeyListResponse": {
+        "description": "Response type for `view_gas_key_list` RPC method.",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "block_height": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/GasKeyInfoView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "keys",
+          "block_height",
+          "block_hash"
+        ],
+        "type": "object"
+      },
+      "RpcViewGasKeyRequest": {
+        "description": "Request type for `view_gas_key` RPC method.",
+        "oneOf": [
+          {
+            "properties": {
+              "block_id": {
+                "$ref": "#/components/schemas/BlockId"
+              }
+            },
+            "required": [
+              "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "finality": {
+                "$ref": "#/components/schemas/Finality"
+              }
+            },
+            "required": [
+              "finality"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "sync_checkpoint": {
+                "$ref": "#/components/schemas/SyncCheckpoint"
+              }
+            },
+            "required": [
+              "sync_checkpoint"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "public_key": {
+            "$ref": "#/components/schemas/PublicKey"
+          }
+        },
+        "required": [
+          "account_id",
+          "public_key"
+        ],
+        "title": "RpcViewGasKeyRequest",
+        "type": "object"
+      },
+      "RpcViewGasKeyResponse": {
+        "description": "Response type for `view_gas_key` RPC method.",
+        "properties": {
+          "balance": {
+            "$ref": "#/components/schemas/NearToken"
+          },
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "block_height": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nonces": {
+            "items": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "num_nonces": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "permission": {
+            "$ref": "#/components/schemas/AccessKeyPermissionView"
+          }
+        },
+        "required": [
+          "num_nonces",
+          "balance",
+          "permission",
+          "nonces",
+          "block_height",
+          "block_hash"
+        ],
+        "type": "object"
+      },
+      "RpcViewStateRequest": {
+        "description": "Request type for `view_state` RPC method.",
+        "oneOf": [
+          {
+            "properties": {
+              "block_id": {
+                "$ref": "#/components/schemas/BlockId"
+              }
+            },
+            "required": [
+              "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "finality": {
+                "$ref": "#/components/schemas/Finality"
+              }
+            },
+            "required": [
+              "finality"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "sync_checkpoint": {
+                "$ref": "#/components/schemas/SyncCheckpoint"
+              }
+            },
+            "required": [
+              "sync_checkpoint"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "include_proof": {
+            "default": false,
+            "type": "boolean"
+          },
+          "prefix_base64": {
+            "$ref": "#/components/schemas/StoreKey"
+          }
+        },
+        "required": [
+          "account_id",
+          "prefix_base64"
+        ],
+        "title": "RpcViewStateRequest",
+        "type": "object"
+      },
+      "RpcViewStateResponse": {
+        "description": "Response type for `view_state` RPC method.",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "block_height": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "proof": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/StateItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "values",
+          "block_height",
+          "block_hash"
+        ],
         "type": "object"
       },
       "RuntimeConfigView": {

@@ -3,7 +3,11 @@ use serde_json::Value;
 
 use near_client_primitives::types::QueryError;
 use near_jsonrpc_primitives::errors::RpcParseError;
-use near_jsonrpc_primitives::types::query::{RpcQueryError, RpcQueryRequest, RpcQueryResponse};
+use near_jsonrpc_primitives::types::query::{
+    RpcCallFunctionRequest, RpcQueryError, RpcQueryRequest, RpcQueryResponse,
+    RpcViewAccessKeyListRequest, RpcViewAccessKeyRequest, RpcViewAccountRequest,
+    RpcViewCodeRequest, RpcViewGasKeyListRequest, RpcViewGasKeyRequest, RpcViewStateRequest,
+};
 use near_primitives::types::BlockReference;
 use near_primitives::views::{QueryRequest, QueryResponse};
 
@@ -32,6 +36,54 @@ fn parse_bs58_data(max_len: usize, encoded: String) -> Result<Vec<u8>, RpcParseE
 impl RpcRequest for RpcQueryRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
         Params::new(value).try_pair(parse_path_data).unwrap_or_parse()
+    }
+}
+
+impl RpcRequest for RpcViewAccountRequest {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
+        Params::new(value).unwrap_or_parse()
+    }
+}
+
+impl RpcRequest for RpcViewCodeRequest {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
+        Params::new(value).unwrap_or_parse()
+    }
+}
+
+impl RpcRequest for RpcViewStateRequest {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
+        Params::new(value).unwrap_or_parse()
+    }
+}
+
+impl RpcRequest for RpcViewAccessKeyRequest {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
+        Params::new(value).unwrap_or_parse()
+    }
+}
+
+impl RpcRequest for RpcViewAccessKeyListRequest {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
+        Params::new(value).unwrap_or_parse()
+    }
+}
+
+impl RpcRequest for RpcCallFunctionRequest {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
+        Params::new(value).unwrap_or_parse()
+    }
+}
+
+impl RpcRequest for RpcViewGasKeyRequest {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
+        Params::new(value).unwrap_or_parse()
+    }
+}
+
+impl RpcRequest for RpcViewGasKeyListRequest {
+    fn parse(value: Value) -> Result<Self, RpcParseError> {
+        Params::new(value).unwrap_or_parse()
     }
 }
 
