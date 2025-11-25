@@ -1062,10 +1062,8 @@ pub fn receipt_proof_exists(
     store.exists(DBCol::receipt_proofs(), &key)
 }
 
-type UpdateShardJob = (
-    ShardId,
-    Box<dyn FnOnce(&tracing::Span) -> Result<ShardUpdateResult, Error> + Send + Sync + 'static>,
-);
+type UpdateShardJob =
+    (ShardId, Box<dyn FnOnce(&tracing::Span) -> Result<ShardUpdateResult, Error> + Send + 'static>);
 
 #[instrument(
     level = "debug",
