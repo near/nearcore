@@ -412,6 +412,7 @@ impl TxGenerator {
                 anyhow::bail!("No receiver accounts available");
             }
 
+            // shuffle the receivers to avoid shard hot spots from non-uniform account id distribution
             receivers.shuffle(&mut StdRng::from_entropy());
             receivers
         } else {
