@@ -105,20 +105,9 @@ impl TriePrefetcher {
                 let trie_key = TrieKey::Account { account_id: account_id.clone() };
                 self.prefetch_trie_key(trie_key)?;
                 if is_refund {
-                    let tx_key = action_receipt.transaction_key();
-                    let trie_key = match tx_key {
-                        TransactionKeyRef::AccessKey { key } => TrieKey::AccessKey {
-                            account_id: account_id.clone(),
-                            public_key: key.clone(),
-                        },
-                        TransactionKeyRef::GasKey { key, nonce_index: _nonce_index } => {
-                            TrieKey::GasKey {
-                                account_id: account_id.clone(),
-                                public_key: key.clone(),
-                                index: None,
-                            }
-                            // TODO(gas-keys): probably we need to fetch both the gas key with None and with index
-                        }
+                    let trie_key = TrieKey::AccessKey {
+                        account_id: account_id.clone(),
+                        public_key: action_receipt.signer_public_key().clone(),
                     };
                     self.prefetch_trie_key(trie_key)?;
                 }

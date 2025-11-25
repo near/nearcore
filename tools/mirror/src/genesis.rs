@@ -181,10 +181,6 @@ pub fn map_receipt(
                 default_key,
             );
         }
-        ReceiptEnum::ActionV3(_r) | ReceiptEnum::PromiseYieldV3(_r) => {
-            // TODO(gas-keys): mirror for GasKeys
-            todo!("unimplemented")
-        }
         _ => {}
     }
 }

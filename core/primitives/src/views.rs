@@ -20,8 +20,8 @@ use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::receipt::{
-    ActionReceipt, ActionReceiptV3, DataReceipt, DataReceiver, GlobalContractDistributionReceipt,
-    Receipt, ReceiptEnum, ReceiptV1, VersionedActionReceipt, VersionedReceiptEnum,
+    ActionReceipt, DataReceipt, DataReceiver, GlobalContractDistributionReceipt, Receipt,
+    ReceiptEnum, ReceiptV1, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
@@ -34,7 +34,7 @@ use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
     ExecutionStatus, FunctionCallAction, PartialExecutionOutcome, PartialExecutionStatus,
-    SignedTransaction, StakeAction, TransactionKey, TransferAction,
+    SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochHeight, EpochId, FunctionArgs, Gas,
@@ -2266,8 +2266,6 @@ pub enum ReceiptEnumView {
         actions: Vec<ActionView>,
         #[serde(default = "default_is_promise")]
         is_promise_yield: bool,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        nonce_index: Option<NonceIndex>,
     } = 0,
     Data {
         data_id: CryptoHash,
@@ -2341,8 +2339,7 @@ impl ReceiptEnumView {
     ) -> ReceiptEnumView {
         ReceiptEnumView::Action {
             signer_id: action_receipt.signer_id().clone(),
-            signer_public_key: action_receipt.transaction_key().public_key().clone(),
-            nonce_index: action_receipt.transaction_key().nonce_index(),
+            signer_public_key: action_receipt.signer_public_key().clone(),
             gas_price: action_receipt.gas_price(),
             output_data_receivers: action_receipt
                 .output_data_receivers()
@@ -2377,58 +2374,34 @@ impl TryFrom<ReceiptView> for Receipt {
                 ReceiptEnumView::Action {
                     signer_id,
                     signer_public_key,
-                    nonce_index,
                     gas_price,
                     output_data_receivers,
                     input_data_ids,
                     actions,
                     is_promise_yield,
                 } => {
-                    let output_data_receivers = output_data_receivers
-                        .into_iter()
-                        .map(|data_receiver_view| DataReceiver {
-                            data_id: data_receiver_view.data_id,
-                            receiver_id: data_receiver_view.receiver_id,
-                        })
-                        .collect();
-                    let input_data_ids = input_data_ids.into_iter().map(Into::into).collect();
-                    let actions = actions
-                        .into_iter()
-                        .map(TryInto::try_into)
-                        .collect::<Result<Vec<_>, _>>()?;
+                    let action_receipt = ActionReceipt {
+                        signer_id,
+                        signer_public_key,
+                        gas_price,
+                        output_data_receivers: output_data_receivers
+                            .into_iter()
+                            .map(|data_receiver_view| DataReceiver {
+                                data_id: data_receiver_view.data_id,
+                                receiver_id: data_receiver_view.receiver_id,
+                            })
+                            .collect(),
+                        input_data_ids: input_data_ids.into_iter().map(Into::into).collect(),
+                        actions: actions
+                            .into_iter()
+                            .map(TryInto::try_into)
+                            .collect::<Result<Vec<_>, _>>()?,
+                    };
 
-                    if let Some(nonce_index) = nonce_index {
-                        let action_receipt = ActionReceiptV3 {
-                            signer_id,
-                            refund_to: None,
-                            transaction_key: TransactionKey::GasKey {
-                                public_key: signer_public_key,
-                                nonce_index,
-                            },
-                            gas_price,
-                            output_data_receivers,
-                            input_data_ids,
-                            actions,
-                        };
-                        if is_promise_yield {
-                            ReceiptEnum::PromiseYieldV3(action_receipt)
-                        } else {
-                            ReceiptEnum::ActionV3(action_receipt)
-                        }
+                    if is_promise_yield {
+                        ReceiptEnum::PromiseYield(action_receipt)
                     } else {
-                        let action_receipt = ActionReceipt {
-                            signer_id,
-                            signer_public_key,
-                            gas_price,
-                            output_data_receivers,
-                            input_data_ids,
-                            actions,
-                        };
-                        if is_promise_yield {
-                            ReceiptEnum::PromiseYield(action_receipt)
-                        } else {
-                            ReceiptEnum::Action(action_receipt)
-                        }
+                        ReceiptEnum::Action(action_receipt)
                     }
                 }
                 ReceiptEnumView::Data { data_id, data, is_promise_resume } => {

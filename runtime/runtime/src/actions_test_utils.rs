@@ -47,7 +47,6 @@ pub(crate) fn test_delete_large_account(
     let mut action_result = ActionResult::default();
     let receipt = Receipt::new_balance_refund(
         &"alice.near".parse().unwrap(),
-        None,
         Balance::ZERO,
         ReceiptPriority::NoPriority,
     );

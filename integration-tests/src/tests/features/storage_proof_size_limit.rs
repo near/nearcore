@@ -185,8 +185,6 @@ fn count_transfer_receipts(receipts: &[Receipt]) -> usize {
 fn receipt_action(receipt: &Receipt) -> &Action {
     match receipt.receipt() {
         ReceiptEnum::Action(action_receipt) => &action_receipt.actions[0],
-        ReceiptEnum::ActionV2(action_receipt) => &action_receipt.actions[0],
-        ReceiptEnum::ActionV3(action_receipt) => &action_receipt.actions[0],
         _ => panic!("Expected Action receipt"),
     }
 }

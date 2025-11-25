@@ -3,7 +3,7 @@ use crate::runtime_group_tools::RuntimeGroup;
 use near_crypto::InMemorySigner;
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, ActionReceiptV2, ActionReceiptV3, ReceiptEnum};
+use near_primitives::receipt::{ActionReceipt, ActionReceiptV2, ReceiptEnum};
 use near_primitives::serialize::to_base64;
 use near_primitives::types::AccountId;
 use near_primitives::types::{Balance, Gas};
@@ -50,7 +50,7 @@ fn test_simple_func_call() {
     };
     let receipts = &*assert_receipts!(group,
         "near_0" => r0 @ "near_1",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(_function_call_action), {}
@@ -100,7 +100,7 @@ fn test_single_promise_no_callback() {
         panic!("Incorrect number of produced receipts")
     };
     let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action),
@@ -113,7 +113,7 @@ fn test_single_promise_no_callback() {
     assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -174,7 +174,7 @@ fn test_single_promise_with_callback() {
     };
     let receipts = &*assert_receipts!(
         group, "near_0" => r0 @ "near_1",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -188,7 +188,7 @@ fn test_single_promise_with_callback() {
     let data_id;
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
-    ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, output_data_receivers, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, output_data_receivers, ..}),
+    ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, output_data_receivers, ..}),
     {
         assert_eq!(output_data_receivers.len(), 1);
         data_id = output_data_receivers[0].data_id;
@@ -201,7 +201,7 @@ fn test_single_promise_with_callback() {
     assert_eq!(receipts, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r2 @ "near_3",
-        ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, input_data_ids, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, input_data_ids, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, input_data_ids, ..}),
         {
             assert_eq!(input_data_ids.len(), 1);
             assert_eq!(data_id, input_data_ids[0].clone());
@@ -266,7 +266,7 @@ fn test_two_promises_no_callbacks() {
         panic!("Incorrect number of produced receipts")
     };
     let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -278,7 +278,7 @@ fn test_two_promises_no_callbacks() {
     assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -290,7 +290,7 @@ fn test_two_promises_no_callbacks() {
     assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_2" => r2 @ "near_3",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -370,7 +370,7 @@ fn test_two_promises_with_two_callbacks() {
     };
 
     let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -384,7 +384,7 @@ fn test_two_promises_with_two_callbacks() {
     assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -398,7 +398,7 @@ fn test_two_promises_with_two_callbacks() {
     assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_2" => r2 @ "near_3",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -409,7 +409,7 @@ fn test_two_promises_with_two_callbacks() {
     assert_eq!(receipts, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_2" => cb2 @ "near_4",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         { },
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -420,7 +420,7 @@ fn test_two_promises_with_two_callbacks() {
     assert_eq!(receipts, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => cb1 @ "near_5",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -478,7 +478,7 @@ fn test_single_promise_no_callback_batch() {
         panic!("Incorrect number of produced receipts")
     };
     let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -490,7 +490,7 @@ fn test_single_promise_no_callback_batch() {
     assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -558,7 +558,7 @@ fn test_single_promise_with_callback_batch() {
     };
 
     let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -571,7 +571,7 @@ fn test_single_promise_with_callback_batch() {
 
     let data_id;
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
-        ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions,  output_data_receivers, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions,  output_data_receivers, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions,  output_data_receivers, ..}),
         {
             assert_eq!(output_data_receivers.len(), 1);
             data_id = output_data_receivers[0].data_id;
@@ -585,7 +585,7 @@ fn test_single_promise_with_callback_batch() {
     assert_eq!(receipts, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r2 @ "near_3",
-        ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, input_data_ids, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, input_data_ids, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, input_data_ids, ..}),
         {
             assert_eq!(input_data_ids.len(), 1);
             assert_eq!(data_id, input_data_ids[0].clone());
@@ -641,7 +641,7 @@ fn test_simple_transfer() {
     };
 
     let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -654,7 +654,7 @@ fn test_simple_transfer() {
     assert_eq!(refunds, [], "refund should have been avoided");
 
     let refunds = assert_receipts!(group, "near_1" => r1 @ "near_2",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::Transfer(TransferAction{deposit}), {
@@ -715,7 +715,7 @@ fn test_create_account_with_transfer_and_full_key() {
         panic!("Incorrect number of produced receipts")
     };
     let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-    ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+    ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -727,7 +727,7 @@ fn test_create_account_with_transfer_and_full_key() {
     assert_eq!(refunds, [], "refund should have been avoided");
 
     let refunds = assert_receipts!(group, "near_1" => r1 @ "near_2",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::CreateAccount(CreateAccountAction{}), {},
@@ -834,7 +834,7 @@ fn test_account_factory() {
     let [r0] = receipts else { panic!("Incorrect number of produced receipts") };
 
     let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -848,7 +848,7 @@ fn test_account_factory() {
 
     let data_id;
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
-        ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, output_data_receivers, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, output_data_receivers, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, output_data_receivers, ..}),
         {
             assert_eq!(output_data_receivers.len(), 1);
             data_id = output_data_receivers[0].data_id;
@@ -881,7 +881,7 @@ fn test_account_factory() {
     assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r2 @ "near_2",
-        ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, input_data_ids, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, input_data_ids, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, input_data_ids, ..}),
         {
             assert_eq!(input_data_ids, &[data_id]);
         },
@@ -896,7 +896,7 @@ fn test_account_factory() {
     assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_2" => r3 @ "near_0",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -907,7 +907,7 @@ fn test_account_factory() {
     assert_eq!(receipts, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_2" => r4 @ "near_1",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0,
@@ -997,7 +997,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         panic!("Incorrect number of produced receipts")
     };
     let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -1011,7 +1011,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
     assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_3",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::CreateAccount(CreateAccountAction{}), {},
@@ -1043,7 +1043,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
     assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_3" => r2 @ "near_0",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -1107,7 +1107,7 @@ fn test_transfer_64len_hex() {
         panic!("Incorrect number of produced receipts")
     };
     let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -1119,7 +1119,7 @@ fn test_transfer_64len_hex() {
     assert_eq!(refunds, [], "refund should have been avoided");
 
     let refunds = assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
-    ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+    ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::Transfer(TransferAction{deposit}), {
@@ -1182,7 +1182,7 @@ fn test_create_transfer_64len_hex_fail() {
         panic!("Incorrect number of produced receipts")
     };
     let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -1197,7 +1197,7 @@ fn test_create_transfer_64len_hex_fail() {
     assert_eq!(refunds, [], "refund should have been avoided");
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::CreateAccount(CreateAccountAction{}), {},
@@ -1282,7 +1282,7 @@ fn test_refund_to() {
     };
 
     let receipts = &*assert_receipts!(group, "near_0" => r0 @ "near_1",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {
@@ -1294,7 +1294,7 @@ fn test_refund_to() {
     let [r1] = &receipts else { panic!("Incorrect number of produced receipts") };
 
     let receipts = &*assert_receipts!(group, "near_1" => r1 @ "near_2",
-        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}) | ReceiptEnum::ActionV3(ActionReceiptV3{actions, ..}),
+        ReceiptEnum::Action(ActionReceipt{actions, ..}) | ReceiptEnum::ActionV2(ActionReceiptV2{actions, ..}),
         {},
         actions,
         a0, Action::FunctionCall(function_call_action), {

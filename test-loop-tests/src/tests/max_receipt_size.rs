@@ -338,9 +338,7 @@ fn test_max_receipt_size_yield_resume() {
     )
     .unwrap();
 
-    let expected_size = if ProtocolFeature::GasKeys.enabled(PROTOCOL_VERSION) {
-        4194505
-    } else if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+    let expected_size = if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
         4194504
     } else {
         4194503

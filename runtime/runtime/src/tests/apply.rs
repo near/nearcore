@@ -228,7 +228,6 @@ fn test_apply_check_balance_validation_rewards() {
             &apply_state,
             &[Receipt::new_balance_refund(
                 &alice_account(),
-                None,
                 small_refund,
                 ReceiptPriority::NoPriority,
             )],
@@ -498,7 +497,6 @@ fn generate_refund_receipts(small_transfer: Balance, n: u64) -> Vec<Receipt> {
             receipt_id = hash(receipt_id.as_ref());
             Receipt::new_balance_refund(
                 &alice_account(),
-                None,
                 small_transfer.checked_add(Balance::from_yoctonear(u128::from(i))).unwrap(),
                 ReceiptPriority::NoPriority,
             )

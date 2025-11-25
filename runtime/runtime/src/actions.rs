@@ -13,8 +13,8 @@ use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, ActionReceiptV2, ActionReceiptV3, DataReceipt, Receipt, ReceiptEnum,
-    ReceiptPriority, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
+    ActionReceipt, ActionReceiptV2, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
+    VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
@@ -72,7 +72,7 @@ pub(crate) fn execute_function_call(
     let context = VMContext {
         current_account_id: runtime_ext.account_id().clone(),
         signer_account_id: action_receipt.signer_id().clone(),
-        signer_account_pk: borsh::to_vec(&action_receipt.transaction_key().public_key()) // Note this means VM cannot distinguish between access key or gas key
+        signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key())
             .expect("Failed to serialize"),
         predecessor_account_id: predecessor_id.clone(),
         refund_to_account_id: action_receipt.refund_to().as_ref().unwrap_or(predecessor_id).clone(),
@@ -287,29 +287,12 @@ pub(crate) fn action_function_call(
                     );
                 }
 
-                let new_receipt = if ProtocolFeature::GasKeys
-                    .enabled(apply_state.current_protocol_version)
-                {
-                    let new_action_receipt = ActionReceiptV3 {
-                        signer_id: action_receipt.signer_id().clone(),
-                        transaction_key: action_receipt.transaction_key().to_owned(),
-                        refund_to: receipt.refund_to,
-                        gas_price: action_receipt.gas_price(),
-                        output_data_receivers: receipt.output_data_receivers,
-                        input_data_ids: receipt.input_data_ids,
-                        actions: receipt.actions,
-                    };
-                    if receipt.is_promise_yield {
-                        ReceiptEnum::PromiseYieldV3(new_action_receipt)
-                    } else {
-                        ReceiptEnum::ActionV3(new_action_receipt)
-                    }
-                } else if ProtocolFeature::DeterministicAccountIds
+                let new_receipt = if ProtocolFeature::DeterministicAccountIds
                     .enabled(apply_state.current_protocol_version)
                 {
                     let new_action_receipt = ActionReceiptV2 {
                         signer_id: action_receipt.signer_id().clone(),
-                        signer_public_key: action_receipt.transaction_key().public_key().clone(),
+                        signer_public_key: action_receipt.signer_public_key().clone(),
                         refund_to: receipt.refund_to,
                         gas_price: action_receipt.gas_price(),
                         output_data_receivers: receipt.output_data_receivers,
@@ -324,7 +307,7 @@ pub(crate) fn action_function_call(
                 } else {
                     let new_action_receipt = ActionReceipt {
                         signer_id: action_receipt.signer_id().clone(),
-                        signer_public_key: action_receipt.transaction_key().public_key().clone(),
+                        signer_public_key: action_receipt.signer_public_key().clone(),
                         gas_price: action_receipt.gas_price(),
                         output_data_receivers: receipt.output_data_receivers,
                         input_data_ids: receipt.input_data_ids,
@@ -670,7 +653,6 @@ pub(crate) fn action_delete_account(
     if account_balance > Balance::ZERO {
         result.new_receipts.push(Receipt::new_balance_refund(
             &delete_account.beneficiary_id,
-            None,
             account_balance,
             ReceiptPriority::NoPriority,
         ));
@@ -838,34 +820,20 @@ pub(crate) fn apply_delegate_action(
         return Ok(());
     }
 
-    let receipt_enum = match action_receipt {
-        VersionedActionReceipt::V1(_) | VersionedActionReceipt::V2(_) => {
-            ReceiptEnum::Action(ActionReceipt {
-                signer_id: action_receipt.signer_id().clone(),
-                signer_public_key: action_receipt.transaction_key().public_key().clone(),
-                gas_price: action_receipt.gas_price(),
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions: delegate_action.get_actions(),
-            })
-        }
-        VersionedActionReceipt::V3(_) => ReceiptEnum::ActionV3(ActionReceiptV3 {
-            signer_id: action_receipt.signer_id().clone(),
-            refund_to: None,
-            transaction_key: action_receipt.transaction_key().to_owned(),
-            gas_price: action_receipt.gas_price(),
-            output_data_receivers: vec![],
-            input_data_ids: vec![],
-            actions: delegate_action.get_actions(),
-        }),
-    };
-
     // Generate a new receipt from DelegateAction.
     let new_receipt = Receipt::V0(ReceiptV0 {
         predecessor_id: sender_id.clone(),
         receiver_id: delegate_action.receiver_id.clone(),
         receipt_id: CryptoHash::default(),
-        receipt: receipt_enum,
+
+        receipt: ReceiptEnum::Action(ActionReceipt {
+            signer_id: action_receipt.signer_id().clone(),
+            signer_public_key: action_receipt.signer_public_key().clone(),
+            gas_price: action_receipt.gas_price(),
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: delegate_action.get_actions(),
+        }),
     });
 
     // Note, Relayer prepaid all fees and all things required by actions: attached deposits and attached gas.
