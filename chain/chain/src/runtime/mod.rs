@@ -731,6 +731,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         fields(
             height = prev_block.height + 1,
             shard_id = %shard_id,
+            prepared_transactions_num = tracing::field::Empty,
+            skipped_transactions_num = tracing::field::Empty,
+            total_gas_burnt = tracing::field::Empty,
+            total_size = tracing::field::Empty,
+            recorded_storage_size = tracing::field::Empty,
             tag_block_production = true
         )
     )]
@@ -745,6 +750,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
+        let span = tracing::Span::current();
         let start_time = std::time::Instant::now();
 
         let epoch_id = prev_block.next_epoch_id;
@@ -905,6 +911,22 @@ impl RuntimeAdapter for NightshadeRuntime {
                 set_account(&mut state_update.trie_update, signer_id, &account);
             }
         }
+
+        span.record(
+            "prepared_transactions_num",
+            tracing::field::display(result.transactions.len()),
+        );
+        span.record(
+            "skipped_transactions_num",
+            tracing::field::display(skipped_transactions.len()),
+        );
+        span.record("total_gas_burnt", tracing::field::display(total_gas_burnt));
+        span.record("total_size", tracing::field::display(total_size));
+        span.record(
+            "recorded_storage_size",
+            tracing::field::display(state_update.recorded_storage_size()),
+        );
+
         // NOTE: this state update must not be committed or finalized!
         drop(state_update);
         tracing::debug!(target: "runtime", limited_by = ?result.limited_by, valid_count = %result.transactions.len(), %num_checked_transactions, "transaction filtering results");
