@@ -90,7 +90,6 @@ where
         instrumentation: shared_instrumentation,
     };
     let thread_index = Arc::new(AtomicUsize::new(0));
-    let handle_clone = handle.clone();
     let make_actor_fn = Arc::new(make_actor_fn);
 
     // Spawn num_threads OS-level threads
@@ -98,14 +97,14 @@ where
         let receiver = receiver.clone();
         let cancellation_signal = cancellation_signal.clone();
         let instrumented_queue = instrumented_queue.clone();
-        let handle_clone = handle_clone.clone();
+        let handle = handle.clone();
         let thread_index = thread_index.clone();
         let make_actor_fn = make_actor_fn.clone();
 
         thread::spawn(move || {
             let thread_id = thread_index.fetch_add(1, Ordering::Relaxed);
             let mut instrumentation =
-                handle_clone.instrumentation.new_writer_with_global_registration(Some(thread_id));
+                handle.instrumentation.new_writer_with_global_registration(Some(thread_id));
             let mut actor = make_actor_fn();
             let window_update_ticker = crossbeam_channel::tick(Duration::from_secs(1));
             loop {
@@ -125,7 +124,7 @@ where
                         };
                         instrumented_queue.dequeue(message.name);
                         let seq = message.seq;
-                        let dequeue_time_ns = handle_clone.instrumentation.current_time().saturating_sub(message.enqueued_time_ns);
+                        let dequeue_time_ns = handle.instrumentation.current_time().saturating_sub(message.enqueued_time_ns);
                         instrumentation.start_event(message.name, dequeue_time_ns);
                         tracing::trace!(target: "multithread_runtime", seq, "executing message");
                         (message.function)(&mut actor);
