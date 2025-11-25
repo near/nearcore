@@ -87,13 +87,6 @@ pub fn account_ids_from_path(path: &Path) -> anyhow::Result<Vec<AccountId>> {
     }
 
     let mut account_ids = vec![];
-    // for entry in fs::read_dir(path).context(format!("reading account ids from {path:?}"))? {
-    //     account_ids_from_path(&entry?.path())?
-    //         .into_iter()
-    //         .for_each(|account_id| account_ids.push(account_id));
-    // }
-
-    // hierwasik
     for entry in fs::read_dir(path).context(format!("reading account ids from {path:?}"))? {
         account_ids.extend(account_ids_from_path(&entry?.path())?);
     }

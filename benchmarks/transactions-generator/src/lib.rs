@@ -1,6 +1,6 @@
 use account::Account;
 use anyhow::Context as _;
-use choice::Choice;
+use choice::{Choice, TxAccountsSelector};
 use near_async::messaging::AsyncSender;
 use near_client::{GetBlock, Query, QueryError};
 use near_client_primitives::types::GetBlockError;
@@ -22,8 +22,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, atomic};
 use std::time::Duration;
 use tokio::task::{self, JoinSet};
-
-use crate::choice::TxAccountsSelector;
 
 pub mod account;
 pub mod actor;
@@ -406,8 +404,8 @@ impl TxGenerator {
             let mut receivers = account::account_ids_from_path(receiver_accounts_path)
                 .context("loading receiver account ids")?;
             tracing::info!(target: "transaction-generator",
-                total_receiver_accounts=receivers.len(),
-                path=?receiver_accounts_path,
+                total_receiver_accounts = receivers.len(),
+                path = ?receiver_accounts_path,
                 "loaded receiver accounts"
             );
             if receivers.is_empty() {

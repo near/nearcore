@@ -35,6 +35,9 @@ create-accounts num_accounts="500":
     kill ${NEARD_PID}
     sleep 3
 
+# Enables the transaction generator in the localnet config.
+# Updates the accounts_path field to point to the created accounts and merges the `tx-generator-settings.json` into config file
+# If `tx-generator-settings.json` does not exist, it is copied from `tx-generator-settings.json.in` .
 enable-tx:
     cp -n tx-generator-settings.json.in tx-generator-settings.json
     jq '.tx_generator.accounts_path = "{{near_accounts_path}}"' tx-generator-settings.json > {{near_localnet_home}}/tx-generator-settings.tmp.json
