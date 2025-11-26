@@ -15,6 +15,7 @@ use crate::adapter::StoreAdapter;
 use crate::{DBCol, KeyForStateChanges, Store};
 
 /// Versioned container for shard-related data stored in the cloud archive.
+/// This is for a single block height (taken from the file path).
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub enum ShardData {
     V1(ShardDataV1),

@@ -5,11 +5,11 @@ use std::path::PathBuf;
 /// Each variant maps to a specific logical file within the archive.
 #[derive(Clone, Debug)]
 pub enum CloudStorageFileID {
-    /// The metadata file storing the current archival head.
+    /// Identifier of the metadata file storing the current archival head.
     Head,
-    /// A block data associated with the given block height.
+    /// Identifier of the block file for the given block height.
     Block(BlockHeight),
-    /// A shard data associated with the given block height.
+    /// Identifier of the shard file for the given block height and shard.
     Shard(BlockHeight, ShardId),
 }
 

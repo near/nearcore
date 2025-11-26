@@ -10,14 +10,13 @@ use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain_configs::{CloudArchivalWriterConfig, InterruptHandle};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::download::CloudRetrievalError;
 use near_store::archive::cloud_storage::upload::CloudArchivingError;
 use near_store::db::{CLOUD_HEAD_KEY, DBTransaction};
-use near_store::{DBCol, FINAL_HEAD_KEY, ShardUId, Store};
+use near_store::{DBCol, FINAL_HEAD_KEY, Store};
 use time::Duration;
 
 /// Result of a single archiving attempt.
@@ -258,22 +257,14 @@ impl CloudArchivalWriter {
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let tracked_shards =
             self.shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?;
-        self.archive_data_impl(&shard_layout, height, tracked_shards).await
-    }
 
-    async fn archive_data_impl(
-        &self,
-        shard_layout: &ShardLayout,
-        height: BlockHeight,
-        shards: Vec<ShardUId>,
-    ) -> Result<(), CloudArchivingError> {
         self.cloud_storage.archive_block_data(&self.hot_store, height).await?;
-        for shard_uid in shards {
+        for shard_uid in tracked_shards {
             self.cloud_storage
                 .archive_shard_data(
                     &self.hot_store,
                     self.genesis_height,
-                    shard_layout,
+                    &shard_layout,
                     height,
                     shard_uid,
                 )
