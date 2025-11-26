@@ -24,9 +24,9 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::ShardUId;
 use num_rational::Ratio;
+use parking_lot::Mutex;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::mem::swap;
-use parking_lot::Mutex;
 use std::sync::Arc;
 
 impl Client {
