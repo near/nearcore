@@ -333,7 +333,7 @@ impl Drop for Chain {
 pub type UpdateShardJob = (
     ShardId,
     CachedShardUpdateKey,
-    Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send + Sync + 'static>,
+    Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send + 'static>,
 );
 
 /// PreprocessBlockResult is a tuple where the first element is a vector of jobs
