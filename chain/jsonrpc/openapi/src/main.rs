@@ -6,6 +6,7 @@ use serde_json::json;
 
 use near_jsonrpc_primitives::types::{
     blocks::{RpcBlockError, RpcBlockRequest, RpcBlockResponse},
+    call_function::{RpcCallFunctionError, RpcCallFunctionRequest, RpcCallFunctionResponse},
     changes::{
         RpcStateChangesError, RpcStateChangesInBlockByTypeRequest,
         RpcStateChangesInBlockByTypeResponse, RpcStateChangesInBlockRequest,
@@ -25,14 +26,6 @@ use near_jsonrpc_primitives::types::{
     },
     network_info::{RpcNetworkInfoError, RpcNetworkInfoResponse},
     query::{RpcQueryError, RpcQueryRequest, RpcQueryResponse},
-    call_function::{RpcCallFunctionRequest, RpcCallFunctionResponse},
-    view_access_key::{RpcViewAccessKeyRequest, RpcViewAccessKeyResponse},
-    view_access_key_list::{RpcViewAccessKeyListRequest, RpcViewAccessKeyListResponse},
-    view_account::{RpcViewAccountRequest, RpcViewAccountResponse},
-    view_code::{RpcViewCodeRequest, RpcViewCodeResponse},
-    view_gas_key::{RpcViewGasKeyRequest, RpcViewGasKeyResponse},
-    view_gas_key_list::{RpcViewGasKeyListRequest, RpcViewGasKeyListResponse},
-    view_state::{RpcViewStateRequest, RpcViewStateResponse},
     receipts::{RpcReceiptError, RpcReceiptRequest, RpcReceiptResponse},
     split_storage::{
         RpcSplitStorageInfoError, RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
@@ -46,6 +39,17 @@ use near_jsonrpc_primitives::types::{
         RpcValidatorError, RpcValidatorRequest, RpcValidatorResponse, RpcValidatorsOrderedRequest,
         RpcValidatorsOrderedResponse,
     },
+    view_access_key::{RpcViewAccessKeyError, RpcViewAccessKeyRequest, RpcViewAccessKeyResponse},
+    view_access_key_list::{
+        RpcViewAccessKeyListError, RpcViewAccessKeyListRequest, RpcViewAccessKeyListResponse,
+    },
+    view_account::{RpcViewAccountError, RpcViewAccountRequest, RpcViewAccountResponse},
+    view_code::{RpcViewCodeError, RpcViewCodeRequest, RpcViewCodeResponse},
+    view_gas_key::{RpcViewGasKeyError, RpcViewGasKeyRequest, RpcViewGasKeyResponse},
+    view_gas_key_list::{
+        RpcViewGasKeyListError, RpcViewGasKeyListRequest, RpcViewGasKeyListResponse,
+    },
+    view_state::{RpcViewStateError, RpcViewStateRequest, RpcViewStateResponse},
 };
 use near_jsonrpc_primitives::{
     errors::RpcRequestValidationErrorKind,
@@ -883,49 +887,53 @@ The `QueryRequest` enum provides multiple variants for performing the following 
  - View the `AccessKeyList` of an account
  - Call a function in a contract deployed on the network.".to_string(),
     );
-    add_spec_for_path::<RpcViewAccountRequest, RpcViewAccountResponse, RpcQueryError>(
+    add_spec_for_path::<RpcViewAccountRequest, RpcViewAccountResponse, RpcViewAccountError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_view_account".to_string(),
         "Returns information about an account for given account_id.".to_string(),
     );
-    add_spec_for_path::<RpcViewCodeRequest, RpcViewCodeResponse, RpcQueryError>(
+    add_spec_for_path::<RpcViewCodeRequest, RpcViewCodeResponse, RpcViewCodeError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_view_code".to_string(),
         "Returns the contract code (Wasm binary) deployed to the account.".to_string(),
     );
-    add_spec_for_path::<RpcViewStateRequest, RpcViewStateResponse, RpcQueryError>(
+    add_spec_for_path::<RpcViewStateRequest, RpcViewStateResponse, RpcViewStateError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_view_state".to_string(),
         "Returns the state (key-value pairs) of a contract based on the key prefix.".to_string(),
     );
-    add_spec_for_path::<RpcViewAccessKeyRequest, RpcViewAccessKeyResponse, RpcQueryError>(
+    add_spec_for_path::<RpcViewAccessKeyRequest, RpcViewAccessKeyResponse, RpcViewAccessKeyError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_view_access_key".to_string(),
         "Returns information about a single access key for given account.".to_string(),
     );
-    add_spec_for_path::<RpcViewAccessKeyListRequest, RpcViewAccessKeyListResponse, RpcQueryError>(
+    add_spec_for_path::<
+        RpcViewAccessKeyListRequest,
+        RpcViewAccessKeyListResponse,
+        RpcViewAccessKeyListError,
+    >(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_view_access_key_list".to_string(),
         "Returns all access keys for a given account.".to_string(),
     );
-    add_spec_for_path::<RpcCallFunctionRequest, RpcCallFunctionResponse, RpcQueryError>(
+    add_spec_for_path::<RpcCallFunctionRequest, RpcCallFunctionResponse, RpcCallFunctionError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_call_function".to_string(),
         "Calls a view function on a contract and returns the result.".to_string(),
     );
-    add_spec_for_path::<RpcViewGasKeyRequest, RpcViewGasKeyResponse, RpcQueryError>(
+    add_spec_for_path::<RpcViewGasKeyRequest, RpcViewGasKeyResponse, RpcViewGasKeyError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_view_gas_key".to_string(),
         "Returns information about a single gas key for given account.".to_string(),
     );
-    add_spec_for_path::<RpcViewGasKeyListRequest, RpcViewGasKeyListResponse, RpcQueryError>(
+    add_spec_for_path::<RpcViewGasKeyListRequest, RpcViewGasKeyListResponse, RpcViewGasKeyListError>(
         &mut all_schemas,
         &mut all_paths,
         "EXPERIMENTAL_view_gas_key_list".to_string(),

@@ -8,9 +8,10 @@ use reqwest::StatusCode;
 use near_crypto::{InMemorySigner, Signature};
 use near_jsonrpc::client::{ChunkId, JsonRpcClient, new_client};
 use near_jsonrpc_primitives::errors::RpcError;
-use near_jsonrpc_primitives::types::call_function::RpcCallFunctionRequest;
 use near_jsonrpc_primitives::errors::RpcErrorKind;
+use near_jsonrpc_primitives::types::call_function::RpcCallFunctionRequest;
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
+use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_jsonrpc_primitives::types::view_access_key::RpcViewAccessKeyRequest;
 use near_jsonrpc_primitives::types::view_access_key_list::RpcViewAccessKeyListRequest;
 use near_jsonrpc_primitives::types::view_account::RpcViewAccountRequest;
@@ -18,7 +19,6 @@ use near_jsonrpc_primitives::types::view_code::RpcViewCodeRequest;
 use near_jsonrpc_primitives::types::view_gas_key::RpcViewGasKeyRequest;
 use near_jsonrpc_primitives::types::view_gas_key_list::RpcViewGasKeyListRequest;
 use near_jsonrpc_primitives::types::view_state::RpcViewStateRequest;
-use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
@@ -857,7 +857,10 @@ async fn test_experimental_view_account() {
 
     assert!(response.block_height < 100);
     assert_ne!(response.block_hash, CryptoHash::default());
-    assert_eq!(response.account.amount.checked_add(response.account.locked).unwrap(), TESTING_INIT_BALANCE);
+    assert_eq!(
+        response.account.amount.checked_add(response.account.locked).unwrap(),
+        TESTING_INIT_BALANCE
+    );
     assert_eq!(response.account.code_hash, CryptoHash::default());
     assert_eq!(response.account.storage_paid_at, 0);
 }
@@ -1018,13 +1021,11 @@ async fn test_experimental_view_access_key() {
     let signer = InMemorySigner::test_signer(&account);
 
     let response = client
-        .EXPERIMENTAL_view_access_key(
-            RpcViewAccessKeyRequest {
-                block_reference: BlockReference::latest(),
-                account_id: account,
-                public_key: signer.public_key(),
-            },
-        )
+        .EXPERIMENTAL_view_access_key(RpcViewAccessKeyRequest {
+            block_reference: BlockReference::latest(),
+            account_id: account,
+            public_key: signer.public_key(),
+        })
         .await
         .unwrap();
 
@@ -1044,13 +1045,11 @@ async fn test_experimental_view_access_key_unknown_key() {
     let missing_key_signer = InMemorySigner::test_signer(&"missing.test".parse().unwrap());
 
     let result = client
-        .EXPERIMENTAL_view_access_key(
-            RpcViewAccessKeyRequest {
-                block_reference: BlockReference::latest(),
-                account_id: account,
-                public_key: missing_key_signer.public_key(),
-            },
-        )
+        .EXPERIMENTAL_view_access_key(RpcViewAccessKeyRequest {
+            block_reference: BlockReference::latest(),
+            account_id: account,
+            public_key: missing_key_signer.public_key(),
+        })
         .await;
 
     let err = result.expect_err("expected missing access key error");
@@ -1074,12 +1073,10 @@ async fn test_experimental_view_access_key_list() {
     let signer = InMemorySigner::test_signer(&account);
 
     let response = client
-        .EXPERIMENTAL_view_access_key_list(
-            RpcViewAccessKeyListRequest {
-                block_reference: BlockReference::latest(),
-                account_id: account,
-            },
-        )
+        .EXPERIMENTAL_view_access_key_list(RpcViewAccessKeyListRequest {
+            block_reference: BlockReference::latest(),
+            account_id: account,
+        })
         .await
         .unwrap();
 
@@ -1097,12 +1094,10 @@ async fn test_experimental_view_access_key_list_unknown_block() {
     let client = new_client(&setup.server_addr);
 
     let result = client
-        .EXPERIMENTAL_view_access_key_list(
-            RpcViewAccessKeyListRequest {
-                block_reference: BlockReference::BlockId(BlockId::Hash(CryptoHash::new())),
-                account_id: "test1".parse().unwrap(),
-            },
-        )
+        .EXPERIMENTAL_view_access_key_list(RpcViewAccessKeyListRequest {
+            block_reference: BlockReference::BlockId(BlockId::Hash(CryptoHash::new())),
+            account_id: "test1".parse().unwrap(),
+        })
         .await;
 
     assert_unknown_block_error(result, "EXPERIMENTAL_view_access_key_list");
@@ -1119,14 +1114,12 @@ async fn test_experimental_call_function() {
     deploy_contract(&client, &account, code).await;
 
     let response = client
-        .EXPERIMENTAL_call_function(
-            RpcCallFunctionRequest {
-                block_reference: BlockReference::latest(),
-                account_id: "test1".parse().unwrap(),
-                method_name: "run_test".to_string(),
-                args: vec![].into(),
-            },
-        )
+        .EXPERIMENTAL_call_function(RpcCallFunctionRequest {
+            block_reference: BlockReference::latest(),
+            account_id: "test1".parse().unwrap(),
+            method_name: "run_test".to_string(),
+            args: vec![].into(),
+        })
         .await
         .unwrap();
 
@@ -1147,14 +1140,12 @@ async fn test_experimental_call_function_nonexisting_method() {
     deploy_contract(&client, &account, code).await;
 
     let result = client
-        .EXPERIMENTAL_call_function(
-            RpcCallFunctionRequest {
-                block_reference: BlockReference::latest(),
-                account_id: account,
-                method_name: "nonexisting".to_string(),
-                args: vec![].into(),
-            },
-        )
+        .EXPERIMENTAL_call_function(RpcCallFunctionRequest {
+            block_reference: BlockReference::latest(),
+            account_id: account,
+            method_name: "nonexisting".to_string(),
+            args: vec![].into(),
+        })
         .await;
 
     let err = result.expect_err("expected method not found error");
@@ -1194,11 +1185,7 @@ async fn test_experimental_view_gas_key_not_found() {
     let (name, info) = error_name_and_info(&err);
     assert_eq!(name, "UNKNOWN_GAS_KEY");
     let public_key = info.get("public_key").and_then(|v| v.as_str()).unwrap_or_default();
-    assert_eq!(
-        public_key,
-        signer.public_key().to_string(),
-        "Error must mention missing gas key"
-    );
+    assert_eq!(public_key, signer.public_key().to_string(), "Error must mention missing gas key");
 }
 
 /// Test EXPERIMENTAL_view_gas_key_list method - expects empty list since test account has no gas keys
@@ -1210,12 +1197,10 @@ async fn test_experimental_view_gas_key_list() {
     let account: AccountId = "test1".parse().unwrap();
 
     let response = client
-        .EXPERIMENTAL_view_gas_key_list(
-            RpcViewGasKeyListRequest {
-                block_reference: BlockReference::latest(),
-                account_id: account,
-            },
-        )
+        .EXPERIMENTAL_view_gas_key_list(RpcViewGasKeyListRequest {
+            block_reference: BlockReference::latest(),
+            account_id: account,
+        })
         .await
         .unwrap();
 

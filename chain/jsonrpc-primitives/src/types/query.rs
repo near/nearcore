@@ -105,7 +105,6 @@ pub enum QueryResponseKind {
     GasKeyList(near_primitives::views::GasKeyList),
 }
 
-
 impl From<RpcQueryError> for crate::errors::RpcError {
     fn from(error: RpcQueryError) -> Self {
         let error_data = Some(serde_json::Value::String(error.to_string()));

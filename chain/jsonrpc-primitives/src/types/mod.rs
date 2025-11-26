@@ -1,4 +1,5 @@
 pub mod blocks;
+pub mod call_function;
 pub mod changes;
 pub mod chunks;
 pub mod client_config;
@@ -23,4 +24,3 @@ pub mod view_code;
 pub mod view_gas_key;
 pub mod view_gas_key_list;
 pub mod view_state;
-pub mod call_function;
