@@ -1,5 +1,6 @@
 use crate::epoch_manager::EpochConfigStore;
 use crate::shard_layout::{ShardLayout, ShardUId};
+use crate::types::EpochId;
 use itertools::Itertools;
 use near_primitives_core::types::ProtocolVersion;
 use near_primitives_core::types::{AccountId, ShardId};
@@ -14,7 +15,7 @@ fn new_shard_ids_vec(shard_ids: Vec<u64>) -> Vec<ShardId> {
     shard_ids.into_iter().map(Into::into).collect()
 }
 
-fn new_shards_split_map(shards_split_map: Vec<Vec<u64>>) -> ShardsSplitMapV1 {
+fn new_shards_split_map_v1(shards_split_map: Vec<Vec<u64>>) -> ShardsSplitMapV1 {
     shards_split_map.into_iter().map(new_shard_ids_vec).collect()
 }
 
@@ -57,6 +58,7 @@ fn v0() {
     .into_iter()
     .collect();
     assert_eq!(shard_id_distribution, expected_distribution);
+    assert!(shard_layout.valid_after_epoch().is_none());
 }
 
 #[test]
@@ -69,7 +71,7 @@ fn v1() {
     #[allow(deprecated)]
     let shard_layout = ShardLayout::v1(
         boundary_accounts,
-        Some(new_shards_split_map(vec![vec![0, 1, 2], vec![3, 4, 5]])),
+        Some(new_shards_split_map_v1(vec![vec![0, 1, 2], vec![3, 4, 5]])),
         1,
     );
     assert_eq!(
@@ -101,6 +103,8 @@ fn v1() {
     assert_eq!(shard_layout.account_id_to_shard_id(&aid("foo.goo")), sid(4));
     assert_eq!(shard_layout.account_id_to_shard_id(&aid("goo")), sid(4));
     assert_eq!(shard_layout.account_id_to_shard_id(&aid("zoo")), sid(5));
+
+    assert!(shard_layout.valid_after_epoch().is_none());
 }
 
 #[test]
@@ -146,6 +150,8 @@ fn v2() {
         shard_layout.get_children_shards_ids(ShardId::new(4)).unwrap(),
         new_shard_ids_vec(vec![4])
     );
+
+    assert!(shard_layout.valid_after_epoch().is_none());
 }
 
 fn get_test_shard_layout_v2() -> ShardLayout {
@@ -164,6 +170,69 @@ fn get_test_shard_layout_v2() -> ShardLayout {
     let shards_split_map = Some(shards_split_map);
 
     ShardLayout::v2(boundary_accounts, shard_ids, shards_split_map)
+}
+
+#[test]
+fn v3() {
+    let sid = |s: u64| ShardId::new(s);
+    let shard_layout = get_test_shard_layout_v3();
+
+    // check accounts mapping in the middle of each range
+    assert_eq!(shard_layout.account_id_to_shard_id(&"aaa".parse().unwrap()), sid(3));
+    assert_eq!(shard_layout.account_id_to_shard_id(&"ddd".parse().unwrap()), sid(8));
+    assert_eq!(shard_layout.account_id_to_shard_id(&"mmm".parse().unwrap()), sid(4));
+    assert_eq!(shard_layout.account_id_to_shard_id(&"rrr".parse().unwrap()), sid(7));
+
+    // check accounts mapping for the boundary accounts
+    assert_eq!(shard_layout.account_id_to_shard_id(&"ccc".parse().unwrap()), sid(8));
+    assert_eq!(shard_layout.account_id_to_shard_id(&"kkk".parse().unwrap()), sid(4));
+    assert_eq!(shard_layout.account_id_to_shard_id(&"ppp".parse().unwrap()), sid(7));
+
+    // check shard ids
+    assert_eq!(shard_layout.shard_ids().collect_vec(), new_shard_ids_vec(vec![3, 8, 4, 7]));
+
+    // check shard uids
+    let version = 3;
+    let u = |shard_id| ShardUId { shard_id, version };
+    assert_eq!(shard_layout.shard_uids().collect_vec(), vec![u(3), u(8), u(4), u(7)]);
+
+    // check parent
+    assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(3)).unwrap(), sid(3));
+    assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(8)).unwrap(), sid(1));
+    assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(4)).unwrap(), sid(4));
+    assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(7)).unwrap(), sid(1));
+
+    // check child
+    assert_eq!(
+        shard_layout.get_children_shards_ids(ShardId::new(1)).unwrap(),
+        new_shard_ids_vec(vec![7, 8])
+    );
+    assert_eq!(
+        shard_layout.get_children_shards_ids(ShardId::new(3)).unwrap(),
+        new_shard_ids_vec(vec![3])
+    );
+    assert_eq!(
+        shard_layout.get_children_shards_ids(ShardId::new(4)).unwrap(),
+        new_shard_ids_vec(vec![4])
+    );
+
+    assert_eq!(shard_layout.valid_after_epoch(), Some(EpochId::default()));
+}
+
+fn get_test_shard_layout_v3() -> ShardLayout {
+    let b0 = "ccc".parse().unwrap();
+    let b1 = "kkk".parse().unwrap();
+    let b2 = "ppp".parse().unwrap();
+
+    let boundary_accounts = vec![b0, b1, b2];
+    let shard_ids = new_shard_ids_vec(vec![3, 8, 4, 7]);
+
+    let shards_split_map = BTreeMap::from([(1, vec![7, 8])]);
+    let shards_split_map = new_shards_split_map_v2(shards_split_map);
+
+    let epoch_id = EpochId::default();
+
+    ShardLayout::v3(boundary_accounts, shard_ids, shards_split_map, epoch_id)
 }
 
 #[test]
@@ -191,7 +260,7 @@ fn derive_layout() {
     // [0] -> [1,2]
     let base_layout = ShardLayout::v2(vec![], vec![ShardId::new(0)], None);
     let boundary: AccountId = "test1.near".parse().unwrap();
-    let derived_layout = ShardLayout::derive_shard_layout(&base_layout, boundary);
+    let derived_layout = ShardLayout::derive_shard_layout(&base_layout, boundary.clone());
     assert_eq!(
         derived_layout,
         ShardLayout::v2(
@@ -200,13 +269,24 @@ fn derive_layout() {
             Some(to_shards_split_map([(0, vec![1, 2])])),
         ),
     );
+    let epoch_id = EpochId::default();
+    let derived_v3 = ShardLayout::derive_v3(&base_layout, boundary, epoch_id);
+    assert_eq!(
+        derived_v3,
+        ShardLayout::v3(
+            to_boundary_accounts(["test1.near"]),
+            to_shard_ids([1, 2]),
+            to_shards_split_map([(0, vec![1, 2])]),
+            epoch_id
+        ),
+    );
 
     // ["test1"] -> ["test1", "test3"]
     // [(1, [1]), (2, [3, 4])]
     // [1, 2] -> [1, 3, 4]
     let base_layout = derived_layout;
     let boundary: AccountId = "test3.near".parse().unwrap();
-    let derived_layout = ShardLayout::derive_shard_layout(&base_layout, boundary);
+    let derived_layout = ShardLayout::derive_shard_layout(&base_layout, boundary.clone());
     assert_eq!(
         derived_layout,
         ShardLayout::v2(
@@ -215,13 +295,23 @@ fn derive_layout() {
             Some(to_shards_split_map([(1, vec![1]), (2, vec![3, 4])])),
         ),
     );
+    let derived_v3 = ShardLayout::derive_v3(&base_layout, boundary, epoch_id);
+    assert_eq!(
+        derived_v3,
+        ShardLayout::v3(
+            to_boundary_accounts(["test1.near", "test3.near"]),
+            to_shard_ids([1, 3, 4]),
+            to_shards_split_map([(2, vec![3, 4])]),
+            epoch_id
+        ),
+    );
 
     // ["test1", "test3"] -> ["test0", "test1", "test3"]
     // [(1, [5, 6]), (3, [3]), (4, [4])]
     // [1, 3, 4] -> [5, 6, 3, 4]
     let base_layout = derived_layout;
     let boundary: AccountId = "test0.near".parse().unwrap();
-    let derived_layout = ShardLayout::derive_shard_layout(&base_layout, boundary);
+    let derived_layout = ShardLayout::derive_shard_layout(&base_layout, boundary.clone());
     assert_eq!(
         derived_layout,
         ShardLayout::v2(
@@ -230,13 +320,23 @@ fn derive_layout() {
             Some(to_shards_split_map([(1, vec![5, 6]), (3, vec![3]), (4, vec![4]),])),
         ),
     );
+    let derived_v3 = ShardLayout::derive_v3(&base_layout, boundary, epoch_id);
+    assert_eq!(
+        derived_v3,
+        ShardLayout::v3(
+            to_boundary_accounts(["test0.near", "test1.near", "test3.near"]),
+            to_shard_ids([5, 6, 3, 4]),
+            to_shards_split_map([(1, vec![5, 6])]),
+            epoch_id
+        ),
+    );
 
     // ["test0", "test1", "test3"] -> ["test0", "test1", "test2", "test3"]
     // [(5, [5]), (6, [6]), (3, [7, 8]), (4, [4])]
     // [5, 6, 3, 4] -> [5, 6, 7, 8, 4]
     let base_layout = derived_layout;
     let boundary: AccountId = "test2.near".parse().unwrap();
-    let derived_layout = ShardLayout::derive_shard_layout(&base_layout, boundary);
+    let derived_layout = ShardLayout::derive_shard_layout(&base_layout, boundary.clone());
     assert_eq!(
         derived_layout,
         ShardLayout::v2(
@@ -245,12 +345,23 @@ fn derive_layout() {
             Some(to_shards_split_map([(5, vec![5]), (6, vec![6]), (3, vec![7, 8]), (4, vec![4]),])),
         )
     );
+    let derived_v3 = ShardLayout::derive_v3(&base_layout, boundary, epoch_id);
+    assert_eq!(
+        derived_v3,
+        ShardLayout::v3(
+            to_boundary_accounts(["test0.near", "test1.near", "test2.near", "test3.near"]),
+            to_shard_ids([5, 6, 7, 8, 4]),
+            to_shards_split_map([(3, vec![7, 8])]),
+            epoch_id
+        ),
+    );
 
     // In case we are changing the shard layout version from hardcoded 3,
     // make sure that we correctly return the shard_uid of the parent shards in
     // get_split_parent_shard_uids function.
     assert_eq!(base_layout.version(), 3);
     assert_eq!(base_layout.version(), derived_layout.version());
+    assert_eq!(base_layout.version(), derived_v3.version());
 }
 
 // Check that the ShardLayout::multi_shard method returns interesting shard
