@@ -665,6 +665,12 @@ pub fn default_enable_early_prepare_transactions() -> bool {
     cfg!(feature = "nightly")
 }
 
+/// Returns the default value for `chunks_cache_height_horizon`.
+/// A chunk is out of rear horizon if its height + chunks_cache_height_horizon < largest_seen_height.
+pub fn default_chunks_cache_height_horizon() -> BlockHeightDelta {
+    128
+}
+
 /// Config for the Chunk Distribution Network feature.
 /// This allows nodes to push and pull chunks from a central stream.
 /// The two benefits of this approach are: (1) less request/response traffic
@@ -886,6 +892,10 @@ pub struct ClientConfig {
     /// The current implementation increases latency on low-load chains, which will be fixed in the future.
     /// The default is disabled.
     pub enable_early_prepare_transactions: bool,
+    /// Height horizon for the chunk cache. A chunk is removed from the cache
+    /// if its height + chunks_cache_height_horizon < largest_seen_height.
+    /// The default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.
+    pub chunks_cache_height_horizon: BlockHeightDelta,
     /// If true, the runtime will do a dynamic resharding 'dry run' at the last block of each epoch.
     /// This means calculating tentative boundary accounts for splitting the tracked shards.
     pub dynamic_resharding_dry_run: bool,
