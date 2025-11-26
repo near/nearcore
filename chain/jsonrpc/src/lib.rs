@@ -1012,7 +1012,7 @@ impl JsonRpcHandler {
                 })
             }
             _ => Err(RpcQueryError::InternalError {
-                error_message: "Unexpected response kind".to_string(),
+                error_message: format!("Unexpected response kind from near client. Expected: ViewAccount, found: {:?}", query_response.kind),
             }),
         }
     }
@@ -1034,7 +1034,7 @@ impl JsonRpcHandler {
                 block_hash: query_response.block_hash,
             }),
             _ => Err(RpcQueryError::InternalError {
-                error_message: "Unexpected response kind".to_string(),
+                error_message: format!("Unexpected response kind from near client. Expected: ViewCode, found: {:?}", query_response.kind),
             }),
         }
     }
@@ -1062,7 +1062,7 @@ impl JsonRpcHandler {
                 })
             }
             _ => Err(RpcQueryError::InternalError {
-                error_message: "Unexpected response kind".to_string(),
+                error_message: format!("Unexpected response kind from near client. Expected: ViewState, found: {:?}", query_response.kind),
             }),
         }
     }
@@ -1089,7 +1089,7 @@ impl JsonRpcHandler {
                 })
             }
             _ => Err(RpcQueryError::InternalError {
-                error_message: "Unexpected response kind".to_string(),
+                error_message: format!("Unexpected response kind from near client. Expected: AccessKey, found: {:?}", query_response.kind),
             }),
         }
     }
@@ -1113,7 +1113,7 @@ impl JsonRpcHandler {
                 })
             }
             _ => Err(RpcQueryError::InternalError {
-                error_message: "Unexpected response kind".to_string(),
+                error_message: format!("Unexpected response kind from near client. Expected: AccessKeyList, found: {:?}", query_response.kind),
             }),
         }
     }
@@ -1141,7 +1141,7 @@ impl JsonRpcHandler {
                 })
             }
             _ => Err(RpcQueryError::InternalError {
-                error_message: "Unexpected response kind".to_string(),
+                error_message: format!("Unexpected response kind from near client. Expected: CallResult, found: {:?}", query_response.kind),
             }),
         }
     }
@@ -1168,7 +1168,7 @@ impl JsonRpcHandler {
                 })
             }
             _ => Err(RpcQueryError::InternalError {
-                error_message: "Unexpected response kind".to_string(),
+                error_message: format!("Unexpected response kind from near client. Expected: GasKey, found: {:?}", query_response.kind),
             }),
         }
     }
@@ -1192,7 +1192,7 @@ impl JsonRpcHandler {
                 })
             }
             _ => Err(RpcQueryError::InternalError {
-                error_message: "Unexpected response kind".to_string(),
+                error_message: format!("Unexpected response kind from near client. Expected: GasKeyList, found: {:?}", query_response.kind),
             }),
         }
     }
