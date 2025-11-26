@@ -5,7 +5,7 @@
         "ideal_connections_hi": 155
     },
     "produce_chunk_add_transactions_time_limit": {
-        "secs": 0,
-        "nanos": 300000000
+        "secs": 100,
+        "nanos": 0
     }
 }
