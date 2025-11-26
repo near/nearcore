@@ -8,6 +8,8 @@ use near_async::futures::FutureSpawner;
 use near_async::time::Clock;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain_configs::{CloudArchivalWriterConfig, InterruptHandle};
+use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
@@ -99,6 +101,8 @@ struct CloudArchivalWriter {
     genesis_height: BlockHeight,
     hot_store: Store,
     cloud_storage: Arc<CloudStorage>,
+    shard_tracker: ShardTracker,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
     handle: CloudArchivalWriterHandle,
 }
 
@@ -111,6 +115,8 @@ pub fn create_cloud_archival_writer(
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     hot_store: Store,
     cloud_storage: Option<&Arc<CloudStorage>>,
+    shard_tracker: ShardTracker,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
 ) -> anyhow::Result<Option<CloudArchivalWriterHandle>> {
     let Some(config) = writer_config else {
         tracing::debug!(target: "cloud_archival", "not creating the cloud archival writer because it is not configured");
@@ -118,8 +124,15 @@ pub fn create_cloud_archival_writer(
     };
     let cloud_storage = cloud_storage
         .expect("Cloud archival writer is configured but cloud storage was not initialized.");
-    let writer =
-        CloudArchivalWriter::new(clock, config, genesis_height, hot_store, cloud_storage.clone());
+    let writer = CloudArchivalWriter::new(
+        clock,
+        config,
+        genesis_height,
+        hot_store,
+        cloud_storage.clone(),
+        shard_tracker,
+        epoch_manager,
+    );
     let handle = writer.handle.clone();
     tracing::info!(target: "cloud_archival", "starting the cloud archival writer");
     future_spawner.spawn_boxed("cloud_archival_writer", writer.start(runtime_adapter).boxed());
@@ -133,9 +146,20 @@ impl CloudArchivalWriter {
         genesis_height: BlockHeight,
         hot_store: Store,
         cloud_storage: Arc<CloudStorage>,
+        shard_tracker: ShardTracker,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Self {
         let handle = CloudArchivalWriterHandle::new();
-        Self { clock, config, genesis_height, hot_store, cloud_storage, handle }
+        Self {
+            clock,
+            config,
+            genesis_height,
+            hot_store,
+            cloud_storage,
+            shard_tracker,
+            epoch_manager,
+            handle,
+        }
     }
 
     async fn start(self, runtime_adapter: Arc<dyn RuntimeAdapter>) {
@@ -228,8 +252,24 @@ impl CloudArchivalWriter {
 
     /// Persist finalized data for `height` to cloud storage.
     async fn archive_data(&self, height: BlockHeight) -> Result<(), CloudArchivingError> {
+        let block_hash = self.hot_store.chain_store().get_block_hash_by_height(height)?;
+        let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        let tracked_shards =
+            self.shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?;
+
         self.cloud_storage.archive_block_data(&self.hot_store, height).await?;
-        // TODO(cloud_archival) Archive chunk data
+        for shard_uid in tracked_shards {
+            self.cloud_storage
+                .archive_shard_data(
+                    &self.hot_store,
+                    self.genesis_height,
+                    &shard_layout,
+                    height,
+                    shard_uid,
+                )
+                .await?;
+        }
         Ok(())
     }
 

@@ -404,11 +404,14 @@ async fn load_state_parts(
                 tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "loaded a state part");
             }
             LoadAction::Validate => {
-                assert!(chain.runtime_adapter.validate_state_part(
-                    shard_id,
-                    &state_root,
-                    PartId::new(part_id, num_parts),
-                    &part
+                assert!(matches!(
+                    chain.runtime_adapter.validate_state_part(
+                        shard_id,
+                        &state_root,
+                        PartId::new(part_id, num_parts),
+                        &part
+                    ),
+                    near_chain::types::StatePartValidationResult::Valid
                 ));
                 tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "validated a state part");
             }

@@ -475,6 +475,8 @@ pub async fn start_with_config_and_synchronization_impl(
         runtime.clone(),
         storage.get_hot_store(),
         storage.get_cloud_storage(),
+        shard_tracker.clone(),
+        epoch_manager.clone(),
     )?;
 
     let telemetry =
