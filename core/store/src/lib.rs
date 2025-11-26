@@ -35,12 +35,12 @@ pub mod db;
 mod deserialized_column;
 pub mod flat;
 pub mod genesis;
+pub mod merkle_proof;
 pub mod metrics;
 mod node_storage;
 mod store;
 pub mod trie;
 mod utils;
-pub mod merkle_proof;
 
 #[cfg(test)]
 mod tests {
