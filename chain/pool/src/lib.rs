@@ -1,6 +1,7 @@
 use crate::types::{PoolKey, TransactionGroup, TransactionGroupIterator};
 use near_crypto::PublicKey;
 use near_o11y::metrics::prometheus::core::{AtomicI64, GenericGauge};
+use near_o11y::tracing;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
@@ -41,6 +42,7 @@ pub struct TransactionPool {
     /// Metrics tracked for transaction pool.
     transaction_pool_count_metric: GenericGauge<AtomicI64>,
     transaction_pool_size_metric: GenericGauge<AtomicI64>,
+    last_span_time: std::time::Instant,
 }
 
 impl TransactionPool {
@@ -66,6 +68,7 @@ impl TransactionPool {
             total_transaction_size: 0,
             transaction_pool_count_metric,
             transaction_pool_size_metric,
+            last_span_time: std::time::Instant::now(),
         }
     }
 
@@ -115,6 +118,7 @@ impl TransactionPool {
 
         self.transaction_pool_count_metric.inc();
         self.transaction_pool_size_metric.set(self.total_transaction_size as i64);
+        self.report_stats_span();
         InsertTransactionResult::Success
     }
 
@@ -122,6 +126,7 @@ impl TransactionPool {
     /// transaction groups in the proper order defined by the protocol.
     /// When the iterator is dropped, all remaining groups are inserted back into the pool.
     pub fn pool_iterator(&mut self) -> PoolIteratorWrapper<'_> {
+        self.report_stats_span();
         PoolIteratorWrapper::new(self)
     }
 
@@ -167,6 +172,8 @@ impl TransactionPool {
         // We can update metrics only once for the whole batch of transactions.
         self.transaction_pool_count_metric.set(self.unique_transactions.len() as i64);
         self.transaction_pool_size_metric.set(self.total_transaction_size as i64);
+
+        self.report_stats_span();
     }
 
     /// Returns the number of unique transactions in the pool.
@@ -177,6 +184,22 @@ impl TransactionPool {
     /// Returns the total size of transactions in the pool in bytes.
     pub fn transaction_size(&self) -> u64 {
         self.total_transaction_size
+    }
+
+    /// Emit a span with transaction pool stats every 50ms.
+    fn report_stats_span(&mut self) {
+        if self.last_span_time.elapsed() < std::time::Duration::from_millis(50) {
+            return;
+        }
+
+        self.last_span_time = std::time::Instant::now();
+        let _span = tracing::debug_span!(target: "client",
+            "tx_pool_stats",
+            len=self.len(),
+            size=self.transaction_size(),
+            tag_block_production=true
+        )
+        .entered();
     }
 }
 
