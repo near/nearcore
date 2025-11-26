@@ -79,7 +79,9 @@ nightly = [
     "near-primitives/nightly",
 ]
 
-protocol_feature_spice = []
+protocol_feature_spice = [
+  "near-primitives-core/protocol_feature_spice",
+]
 
 calimero_zero_storage = []
 
