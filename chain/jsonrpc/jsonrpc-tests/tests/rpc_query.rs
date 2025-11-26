@@ -786,3 +786,258 @@ async fn deploy_global_contract(
         FinalExecutionStatus::SuccessValue(Vec::new())
     );
 }
+
+// ==================== EXPERIMENTAL query methods tests ====================
+
+/// Test EXPERIMENTAL_view_account method
+#[tokio::test]
+async fn test_experimental_view_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let response = client
+        .EXPERIMENTAL_view_account(near_jsonrpc_primitives::types::query::RpcViewAccountRequest {
+            block_reference: BlockReference::latest(),
+            account_id: "test1".parse().unwrap(),
+        })
+        .await
+        .unwrap();
+
+    assert!(response.block_height < 100);
+    assert_ne!(response.block_hash, CryptoHash::default());
+    assert_eq!(response.account.amount.checked_add(response.account.locked).unwrap(), TESTING_INIT_BALANCE);
+    assert_eq!(response.account.code_hash, CryptoHash::default());
+    assert_eq!(response.account.storage_paid_at, 0);
+}
+
+/// Test EXPERIMENTAL_view_account with different block references
+#[tokio::test]
+async fn test_experimental_view_account_block_references() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let status = client.status().await.unwrap();
+    let block_hash = status.sync_info.latest_block_hash;
+
+    // Test with latest block
+    let response1 = client
+        .EXPERIMENTAL_view_account(near_jsonrpc_primitives::types::query::RpcViewAccountRequest {
+            block_reference: BlockReference::latest(),
+            account_id: "test1".parse().unwrap(),
+        })
+        .await
+        .unwrap();
+
+    // Test with block height
+    let response2 = client
+        .EXPERIMENTAL_view_account(near_jsonrpc_primitives::types::query::RpcViewAccountRequest {
+            block_reference: BlockReference::BlockId(BlockId::Height(0)),
+            account_id: "test1".parse().unwrap(),
+        })
+        .await
+        .unwrap();
+
+    // Test with block hash
+    let response3 = client
+        .EXPERIMENTAL_view_account(near_jsonrpc_primitives::types::query::RpcViewAccountRequest {
+            block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
+            account_id: "test1".parse().unwrap(),
+        })
+        .await
+        .unwrap();
+
+    for response in &[response1, response2, response3] {
+        assert!(response.block_height < 100);
+        assert_ne!(response.block_hash, CryptoHash::default());
+    }
+}
+
+/// Test EXPERIMENTAL_view_code method
+#[tokio::test]
+async fn test_experimental_view_code() {
+    let setup = create_test_setup_with_node_type(NodeType::Validator);
+    let client = new_client(&setup.server_addr);
+
+    let account = "test1".parse().unwrap();
+    let code = near_test_contracts::rs_contract().to_vec();
+    deploy_contract(&client, &account, code.clone()).await;
+
+    let response = client
+        .EXPERIMENTAL_view_code(near_jsonrpc_primitives::types::query::RpcViewCodeRequest {
+            block_reference: BlockReference::latest(),
+            account_id: account,
+        })
+        .await
+        .unwrap();
+
+    assert!(response.block_height < 100);
+    assert_ne!(response.block_hash, CryptoHash::default());
+    assert_eq!(response.code.code, code);
+    assert_eq!(response.code.hash, CryptoHash::hash_bytes(&code));
+}
+
+/// Test EXPERIMENTAL_view_state method
+#[tokio::test]
+async fn test_experimental_view_state() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let response = client
+        .EXPERIMENTAL_view_state(near_jsonrpc_primitives::types::query::RpcViewStateRequest {
+            block_reference: BlockReference::latest(),
+            account_id: "test1".parse().unwrap(),
+            prefix: vec![].into(),
+            include_proof: false,
+        })
+        .await
+        .unwrap();
+
+    assert!(response.block_height < 100);
+    assert_ne!(response.block_hash, CryptoHash::default());
+    assert_eq!(response.state.values.len(), 0);
+}
+
+/// Test EXPERIMENTAL_view_state with include_proof
+#[tokio::test]
+async fn test_experimental_view_state_with_proof() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let response = client
+        .EXPERIMENTAL_view_state(near_jsonrpc_primitives::types::query::RpcViewStateRequest {
+            block_reference: BlockReference::latest(),
+            account_id: "test1".parse().unwrap(),
+            prefix: vec![].into(),
+            include_proof: true,
+        })
+        .await
+        .unwrap();
+
+    assert!(response.block_height < 100);
+    assert_ne!(response.block_hash, CryptoHash::default());
+}
+
+/// Test EXPERIMENTAL_view_access_key method
+#[tokio::test]
+async fn test_experimental_view_access_key() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let account: AccountId = "test1".parse().unwrap();
+    let signer = InMemorySigner::test_signer(&account);
+
+    let response = client
+        .EXPERIMENTAL_view_access_key(
+            near_jsonrpc_primitives::types::query::RpcViewAccessKeyRequest {
+                block_reference: BlockReference::latest(),
+                account_id: account,
+                public_key: signer.public_key(),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(response.block_height < 100);
+    assert_ne!(response.block_hash, CryptoHash::default());
+    assert_eq!(response.access_key.nonce, 0);
+    assert_eq!(response.access_key.permission, AccessKeyPermission::FullAccess.into());
+}
+
+/// Test EXPERIMENTAL_view_access_key_list method
+#[tokio::test]
+async fn test_experimental_view_access_key_list() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let account: AccountId = "test1".parse().unwrap();
+    let signer = InMemorySigner::test_signer(&account);
+
+    let response = client
+        .EXPERIMENTAL_view_access_key_list(
+            near_jsonrpc_primitives::types::query::RpcViewAccessKeyListRequest {
+                block_reference: BlockReference::latest(),
+                account_id: account,
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(response.block_height < 100);
+    assert_ne!(response.block_hash, CryptoHash::default());
+    assert_eq!(response.access_key_list.keys.len(), 1);
+    assert_eq!(response.access_key_list.keys[0].access_key, AccessKey::full_access().into());
+    assert_eq!(response.access_key_list.keys[0].public_key, signer.public_key());
+}
+
+/// Test EXPERIMENTAL_call_function method
+#[tokio::test]
+async fn test_experimental_call_function() {
+    let setup = create_test_setup_with_node_type(NodeType::Validator);
+    let client = new_client(&setup.server_addr);
+
+    let account: AccountId = "test1".parse().unwrap();
+    let code = near_test_contracts::rs_contract().to_vec();
+    deploy_contract(&client, &account, code).await;
+
+    let response = client
+        .EXPERIMENTAL_call_function(
+            near_jsonrpc_primitives::types::query::RpcCallFunctionRequest {
+                block_reference: BlockReference::latest(),
+                account_id: "test1".parse().unwrap(),
+                method_name: "run_test".to_string(),
+                args: vec![].into(),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(response.block_height < 100);
+    assert_ne!(response.block_hash, CryptoHash::default());
+    assert_eq!(response.result.result, 10i32.to_le_bytes());
+    assert_eq!(response.result.logs.len(), 0);
+}
+
+/// Test EXPERIMENTAL_view_gas_key method - expects error since test account has no gas keys
+#[tokio::test]
+async fn test_experimental_view_gas_key_not_found() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let account: AccountId = "test1".parse().unwrap();
+    let signer = InMemorySigner::test_signer(&account);
+
+    let result = client
+        .EXPERIMENTAL_view_gas_key(near_jsonrpc_primitives::types::query::RpcViewGasKeyRequest {
+            block_reference: BlockReference::latest(),
+            account_id: account,
+            public_key: signer.public_key(),
+        })
+        .await;
+
+    // Gas keys don't exist for test accounts, so this should return an error
+    assert!(result.is_err());
+}
+
+/// Test EXPERIMENTAL_view_gas_key_list method - expects empty list since test account has no gas keys
+#[tokio::test]
+async fn test_experimental_view_gas_key_list() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let account: AccountId = "test1".parse().unwrap();
+
+    let response = client
+        .EXPERIMENTAL_view_gas_key_list(
+            near_jsonrpc_primitives::types::query::RpcViewGasKeyListRequest {
+                block_reference: BlockReference::latest(),
+                account_id: account,
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(response.block_height < 100);
+    assert_ne!(response.block_hash, CryptoHash::default());
+    // Test accounts don't have gas keys by default, so list should be empty
+    assert_eq!(response.gas_key_list.keys.len(), 0);
+}

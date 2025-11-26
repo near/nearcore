@@ -209,7 +209,7 @@ pub fn create_test_setup_with_accounts_and_validity(
     );
 
     // 10. Create TestServer with real HTTP transport to get an address
-    let test_server = TestServer::builder()
+    let test_server: TestServer = TestServer::builder()
         .http_transport()
         .build(app.clone())
         .expect("Failed to create TestServer");

@@ -5,6 +5,34 @@
     "version": "1.2.0"
   },
   "paths": {
+    "/EXPERIMENTAL_call_function": {
+      "post": {
+        "description": "Calls a view function on a contract and returns the result.",
+        "operationId": "EXPERIMENTAL_call_function",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_call_function"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcCallFunctionResponse_and_RpcQueryError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/EXPERIMENTAL_changes": {
       "post": {
         "description": "[Deprecated] Returns changes for a given account, contract or contract code for given block height or hash. Consider using changes instead.",
@@ -341,6 +369,202 @@
         }
       }
     },
+    "/EXPERIMENTAL_view_access_key": {
+      "post": {
+        "description": "Returns information about a single access key for given account.",
+        "operationId": "EXPERIMENTAL_view_access_key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_view_access_key"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewAccessKeyResponse_and_RpcQueryError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/EXPERIMENTAL_view_access_key_list": {
+      "post": {
+        "description": "Returns all access keys for a given account.",
+        "operationId": "EXPERIMENTAL_view_access_key_list",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_view_access_key_list"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewAccessKeyListResponse_and_RpcQueryError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/EXPERIMENTAL_view_account": {
+      "post": {
+        "description": "Returns information about an account for given account_id.",
+        "operationId": "EXPERIMENTAL_view_account",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_view_account"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewAccountResponse_and_RpcQueryError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/EXPERIMENTAL_view_code": {
+      "post": {
+        "description": "Returns the contract code (Wasm binary) deployed to the account.",
+        "operationId": "EXPERIMENTAL_view_code",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_view_code"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewCodeResponse_and_RpcQueryError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/EXPERIMENTAL_view_gas_key": {
+      "post": {
+        "description": "Returns information about a single gas key for given account.",
+        "operationId": "EXPERIMENTAL_view_gas_key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_view_gas_key"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewGasKeyResponse_and_RpcQueryError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/EXPERIMENTAL_view_gas_key_list": {
+      "post": {
+        "description": "Returns all gas keys for a given account.",
+        "operationId": "EXPERIMENTAL_view_gas_key_list",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_view_gas_key_list"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewGasKeyListResponse_and_RpcQueryError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/EXPERIMENTAL_view_state": {
+      "post": {
+        "description": "Returns the state (key-value pairs) of a contract based on the key prefix.",
+        "operationId": "EXPERIMENTAL_view_state",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_view_state"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewStateResponse_and_RpcQueryError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/block": {
       "post": {
         "description": "Returns block details for given height or hash",
@@ -446,34 +670,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/JsonRpcResponse_for_RpcTransactionResponse_and_RpcTransactionError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/call_function": {
-      "post": {
-        "description": "Calls a view function on a contract and returns the result.",
-        "operationId": "call_function",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/JsonRpcRequest_for_call_function"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcCallFunctionResponse_and_RpcQueryError"
                 }
               }
             }
@@ -894,202 +1090,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/JsonRpcResponse_for_RpcValidatorResponse_and_RpcValidatorError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/view_access_key": {
-      "post": {
-        "description": "Returns information about a single access key for given account.",
-        "operationId": "view_access_key",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/JsonRpcRequest_for_view_access_key"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewAccessKeyResponse_and_RpcQueryError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/view_access_key_list": {
-      "post": {
-        "description": "Returns all access keys for a given account.",
-        "operationId": "view_access_key_list",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/JsonRpcRequest_for_view_access_key_list"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewAccessKeyListResponse_and_RpcQueryError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/view_account": {
-      "post": {
-        "description": "Returns information about an account for given account_id.",
-        "operationId": "view_account",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/JsonRpcRequest_for_view_account"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewAccountResponse_and_RpcQueryError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/view_code": {
-      "post": {
-        "description": "Returns the contract code (Wasm binary) deployed to the account.",
-        "operationId": "view_code",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/JsonRpcRequest_for_view_code"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewCodeResponse_and_RpcQueryError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/view_gas_key": {
-      "post": {
-        "description": "Returns information about a single gas key for given account.",
-        "operationId": "view_gas_key",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/JsonRpcRequest_for_view_gas_key"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewGasKeyResponse_and_RpcQueryError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/view_gas_key_list": {
-      "post": {
-        "description": "Returns all gas keys for a given account.",
-        "operationId": "view_gas_key_list",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/JsonRpcRequest_for_view_gas_key_list"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewGasKeyListResponse_and_RpcQueryError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/view_state": {
-      "post": {
-        "description": "Returns the state (key-value pairs) of a contract based on the key prefix.",
-        "operationId": "view_state",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/JsonRpcRequest_for_view_state"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewStateResponse_and_RpcQueryError"
                 }
               }
             }
@@ -8188,6 +8188,33 @@
           }
         ]
       },
+      "JsonRpcRequest_for_EXPERIMENTAL_call_function": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_call_function"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcCallFunctionRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_call_function",
+        "type": "object"
+      },
       "JsonRpcRequest_for_EXPERIMENTAL_changes": {
         "properties": {
           "id": {
@@ -8512,6 +8539,195 @@
         "title": "JsonRpcRequest_for_EXPERIMENTAL_validators_ordered",
         "type": "object"
       },
+      "JsonRpcRequest_for_EXPERIMENTAL_view_access_key": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_view_access_key"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewAccessKeyRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_view_access_key",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_EXPERIMENTAL_view_access_key_list": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_view_access_key_list"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewAccessKeyListRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_view_access_key_list",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_EXPERIMENTAL_view_account": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_view_account"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewAccountRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_view_account",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_EXPERIMENTAL_view_code": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_view_code"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewCodeRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_view_code",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_EXPERIMENTAL_view_gas_key": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_view_gas_key"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewGasKeyRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_view_gas_key",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_EXPERIMENTAL_view_gas_key_list": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_view_gas_key_list"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewGasKeyListRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_view_gas_key_list",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_EXPERIMENTAL_view_state": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_view_state"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewStateRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_view_state",
+        "type": "object"
+      },
       "JsonRpcRequest_for_block": {
         "properties": {
           "id": {
@@ -8618,33 +8834,6 @@
           "method"
         ],
         "title": "JsonRpcRequest_for_broadcast_tx_commit",
-        "type": "object"
-      },
-      "JsonRpcRequest_for_call_function": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "jsonrpc": {
-            "type": "string"
-          },
-          "method": {
-            "enum": [
-              "call_function"
-            ],
-            "type": "string"
-          },
-          "params": {
-            "$ref": "#/components/schemas/RpcCallFunctionRequest"
-          }
-        },
-        "required": [
-          "jsonrpc",
-          "id",
-          "params",
-          "method"
-        ],
-        "title": "JsonRpcRequest_for_call_function",
         "type": "object"
       },
       "JsonRpcRequest_for_changes": {
@@ -9050,195 +9239,6 @@
           "method"
         ],
         "title": "JsonRpcRequest_for_validators",
-        "type": "object"
-      },
-      "JsonRpcRequest_for_view_access_key": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "jsonrpc": {
-            "type": "string"
-          },
-          "method": {
-            "enum": [
-              "view_access_key"
-            ],
-            "type": "string"
-          },
-          "params": {
-            "$ref": "#/components/schemas/RpcViewAccessKeyRequest"
-          }
-        },
-        "required": [
-          "jsonrpc",
-          "id",
-          "params",
-          "method"
-        ],
-        "title": "JsonRpcRequest_for_view_access_key",
-        "type": "object"
-      },
-      "JsonRpcRequest_for_view_access_key_list": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "jsonrpc": {
-            "type": "string"
-          },
-          "method": {
-            "enum": [
-              "view_access_key_list"
-            ],
-            "type": "string"
-          },
-          "params": {
-            "$ref": "#/components/schemas/RpcViewAccessKeyListRequest"
-          }
-        },
-        "required": [
-          "jsonrpc",
-          "id",
-          "params",
-          "method"
-        ],
-        "title": "JsonRpcRequest_for_view_access_key_list",
-        "type": "object"
-      },
-      "JsonRpcRequest_for_view_account": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "jsonrpc": {
-            "type": "string"
-          },
-          "method": {
-            "enum": [
-              "view_account"
-            ],
-            "type": "string"
-          },
-          "params": {
-            "$ref": "#/components/schemas/RpcViewAccountRequest"
-          }
-        },
-        "required": [
-          "jsonrpc",
-          "id",
-          "params",
-          "method"
-        ],
-        "title": "JsonRpcRequest_for_view_account",
-        "type": "object"
-      },
-      "JsonRpcRequest_for_view_code": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "jsonrpc": {
-            "type": "string"
-          },
-          "method": {
-            "enum": [
-              "view_code"
-            ],
-            "type": "string"
-          },
-          "params": {
-            "$ref": "#/components/schemas/RpcViewCodeRequest"
-          }
-        },
-        "required": [
-          "jsonrpc",
-          "id",
-          "params",
-          "method"
-        ],
-        "title": "JsonRpcRequest_for_view_code",
-        "type": "object"
-      },
-      "JsonRpcRequest_for_view_gas_key": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "jsonrpc": {
-            "type": "string"
-          },
-          "method": {
-            "enum": [
-              "view_gas_key"
-            ],
-            "type": "string"
-          },
-          "params": {
-            "$ref": "#/components/schemas/RpcViewGasKeyRequest"
-          }
-        },
-        "required": [
-          "jsonrpc",
-          "id",
-          "params",
-          "method"
-        ],
-        "title": "JsonRpcRequest_for_view_gas_key",
-        "type": "object"
-      },
-      "JsonRpcRequest_for_view_gas_key_list": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "jsonrpc": {
-            "type": "string"
-          },
-          "method": {
-            "enum": [
-              "view_gas_key_list"
-            ],
-            "type": "string"
-          },
-          "params": {
-            "$ref": "#/components/schemas/RpcViewGasKeyListRequest"
-          }
-        },
-        "required": [
-          "jsonrpc",
-          "id",
-          "params",
-          "method"
-        ],
-        "title": "JsonRpcRequest_for_view_gas_key_list",
-        "type": "object"
-      },
-      "JsonRpcRequest_for_view_state": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "jsonrpc": {
-            "type": "string"
-          },
-          "method": {
-            "enum": [
-              "view_state"
-            ],
-            "type": "string"
-          },
-          "params": {
-            "$ref": "#/components/schemas/RpcViewStateRequest"
-          }
-        },
-        "required": [
-          "jsonrpc",
-          "id",
-          "params",
-          "method"
-        ],
-        "title": "JsonRpcRequest_for_view_state",
         "type": "object"
       },
       "JsonRpcResponse_for_Array_of_Range_of_uint64_and_RpcMaintenanceWindowsError": {
