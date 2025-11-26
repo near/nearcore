@@ -3,7 +3,7 @@ use crate::store::utils::{
     get_block_header_on_chain_by_height, get_chunk_clone_from_header,
     get_incoming_receipts_for_shard,
 };
-use crate::types::RuntimeAdapter;
+use crate::types::{RuntimeAdapter, StatePartValidationResult, StateRootNodeValidationResult};
 use crate::validate::validate_chunk_proofs;
 use crate::{ReceiptFilter, byzantine_assert, metrics};
 use near_async::time::{Clock, Instant};
@@ -505,9 +505,12 @@ impl ChainStateSyncAdapter {
 
         // 5. Checking that state_root_node is valid
         let chunk_inner = chunk.take_header().take_inner();
-        if !self.runtime_adapter.validate_state_root_node(
-            shard_state_header.state_root_node(),
-            chunk_inner.prev_state_root(),
+        if matches!(
+            self.runtime_adapter.validate_state_root_node(
+                shard_state_header.state_root_node(),
+                chunk_inner.prev_state_root(),
+            ),
+            StateRootNodeValidationResult::Invalid
         ) {
             byzantine_assert!(false);
             return Err(Error::Other("set_shard_state failed: state_root_node is invalid".into()));
@@ -532,7 +535,10 @@ impl ChainStateSyncAdapter {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
         let state_root = *chunk.take_header().take_inner().prev_state_root();
-        if !self.runtime_adapter.validate_state_part(shard_id, &state_root, part_id, part) {
+        if matches!(
+            self.runtime_adapter.validate_state_part(shard_id, &state_root, part_id, part),
+            StatePartValidationResult::Invalid
+        ) {
             byzantine_assert!(false);
             return Err(Error::Other(format!(
                 "set_state_part failed: validate_state_part failed. state_root={:?}",
