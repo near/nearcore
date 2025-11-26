@@ -7,6 +7,8 @@ use reqwest::StatusCode;
 
 use near_crypto::{InMemorySigner, Signature};
 use near_jsonrpc::client::{ChunkId, JsonRpcClient, new_client};
+use near_jsonrpc_primitives::errors::RpcError;
+use near_jsonrpc_primitives::errors::RpcErrorKind;
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_network::test_utils::wait_or_timeout;
@@ -17,6 +19,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockId, BlockReference, EpochId, Gas, ShardId, SyncCheckpoint,
 };
 use near_primitives::views::{FinalExecutionStatus, QueryRequest};
+use serde_json::Value;
 
 use near_jsonrpc_tests::{NodeType, create_test_setup_with_node_type};
 
@@ -789,6 +792,47 @@ async fn deploy_global_contract(
 
 // ==================== EXPERIMENTAL query methods tests ====================
 
+fn error_name_and_info<'a>(err: &'a RpcError) -> (&'a str, &'a Value) {
+    match err.error_struct.as_ref() {
+        Some(RpcErrorKind::HandlerError(value)) | Some(RpcErrorKind::InternalError(value)) => {
+            let name =
+                value.get("name").and_then(|n| n.as_str()).expect("error name must be present");
+            let info = value.get("info").unwrap_or(value.as_ref());
+            (name, info)
+        }
+        other => panic!("unexpected RPC error kind: {other:?}"),
+    }
+}
+
+fn assert_missing_account_error<T: std::fmt::Debug>(
+    result: Result<T, RpcError>,
+    account_id: &AccountId,
+    method_name: &str,
+) {
+    let err = result.expect_err("expected RPC error");
+    let (name, info) = error_name_and_info(&err);
+    assert_eq!(
+        name, "UNKNOWN_ACCOUNT",
+        "{method_name} error must indicate missing account, got: {name:?}"
+    );
+    let requested_account =
+        info.get("requested_account_id").and_then(|v| v.as_str()).unwrap_or_default();
+    assert_eq!(
+        requested_account,
+        account_id.as_str(),
+        "{method_name} error must mention missing account {account_id}, got info: {info}"
+    );
+}
+
+fn assert_unknown_block_error<T: std::fmt::Debug>(result: Result<T, RpcError>, method_name: &str) {
+    let err = result.expect_err("expected RPC error");
+    let (name, _info) = error_name_and_info(&err);
+    assert!(
+        name == "UNKNOWN_BLOCK" || name == "GARBAGE_COLLECTED_BLOCK",
+        "{method_name} error must indicate unknown block, got: {name:?}"
+    );
+}
+
 /// Test EXPERIMENTAL_view_account method
 #[tokio::test]
 async fn test_experimental_view_account() {
@@ -852,6 +896,23 @@ async fn test_experimental_view_account_block_references() {
     }
 }
 
+/// Test EXPERIMENTAL_view_account error on missing account
+#[tokio::test]
+async fn test_experimental_view_account_missing_account() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let missing_account: AccountId = "missing.test".parse().unwrap();
+    let result = client
+        .EXPERIMENTAL_view_account(near_jsonrpc_primitives::types::query::RpcViewAccountRequest {
+            block_reference: BlockReference::latest(),
+            account_id: missing_account.clone(),
+        })
+        .await;
+
+    assert_missing_account_error(result, &missing_account, "EXPERIMENTAL_view_account");
+}
+
 /// Test EXPERIMENTAL_view_code method
 #[tokio::test]
 async fn test_experimental_view_code() {
@@ -874,6 +935,28 @@ async fn test_experimental_view_code() {
     assert_ne!(response.block_hash, CryptoHash::default());
     assert_eq!(response.code.code, code);
     assert_eq!(response.code.hash, CryptoHash::hash_bytes(&code));
+}
+
+/// Test EXPERIMENTAL_view_code error when code is missing
+#[tokio::test]
+async fn test_experimental_view_code_missing_code_error() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let account: AccountId = "test1".parse().unwrap();
+    let result = client
+        .EXPERIMENTAL_view_code(near_jsonrpc_primitives::types::query::RpcViewCodeRequest {
+            block_reference: BlockReference::latest(),
+            account_id: account.clone(),
+        })
+        .await;
+
+    let err = result.expect_err("expected missing contract code error");
+    let (name, info) = error_name_and_info(&err);
+    assert_eq!(name, "NO_CONTRACT_CODE");
+    let contract_account =
+        info.get("contract_account_id").and_then(|v| v.as_str()).unwrap_or_default();
+    assert_eq!(contract_account, account.as_str());
 }
 
 /// Test EXPERIMENTAL_view_state method
@@ -943,6 +1026,36 @@ async fn test_experimental_view_access_key() {
     assert_eq!(response.access_key.permission, AccessKeyPermission::FullAccess.into());
 }
 
+/// Test EXPERIMENTAL_view_access_key error on unknown key
+#[tokio::test]
+async fn test_experimental_view_access_key_unknown_key() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let account: AccountId = "test1".parse().unwrap();
+    let missing_key_signer = InMemorySigner::test_signer(&"missing.test".parse().unwrap());
+
+    let result = client
+        .EXPERIMENTAL_view_access_key(
+            near_jsonrpc_primitives::types::query::RpcViewAccessKeyRequest {
+                block_reference: BlockReference::latest(),
+                account_id: account,
+                public_key: missing_key_signer.public_key(),
+            },
+        )
+        .await;
+
+    let err = result.expect_err("expected missing access key error");
+    let (name, info) = error_name_and_info(&err);
+    assert_eq!(name, "UNKNOWN_ACCESS_KEY");
+    let public_key = info.get("public_key").and_then(|v| v.as_str()).unwrap_or_default();
+    assert_eq!(
+        public_key,
+        missing_key_signer.public_key().to_string(),
+        "Error must mention missing access key"
+    );
+}
+
 /// Test EXPERIMENTAL_view_access_key_list method
 #[tokio::test]
 async fn test_experimental_view_access_key_list() {
@@ -967,6 +1080,24 @@ async fn test_experimental_view_access_key_list() {
     assert_eq!(response.access_key_list.keys.len(), 1);
     assert_eq!(response.access_key_list.keys[0].access_key, AccessKey::full_access().into());
     assert_eq!(response.access_key_list.keys[0].public_key, signer.public_key());
+}
+
+/// Test EXPERIMENTAL_view_access_key_list error on unknown block
+#[tokio::test]
+async fn test_experimental_view_access_key_list_unknown_block() {
+    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
+    let client = new_client(&setup.server_addr);
+
+    let result = client
+        .EXPERIMENTAL_view_access_key_list(
+            near_jsonrpc_primitives::types::query::RpcViewAccessKeyListRequest {
+                block_reference: BlockReference::BlockId(BlockId::Hash(CryptoHash::new())),
+                account_id: "test1".parse().unwrap(),
+            },
+        )
+        .await;
+
+    assert_unknown_block_error(result, "EXPERIMENTAL_view_access_key_list");
 }
 
 /// Test EXPERIMENTAL_call_function method
@@ -997,6 +1128,41 @@ async fn test_experimental_call_function() {
     assert_eq!(response.result.logs.len(), 0);
 }
 
+/// Test EXPERIMENTAL_call_function error on missing method (MethodNotFound)
+#[tokio::test]
+async fn test_experimental_call_function_nonexisting_method() {
+    let setup = create_test_setup_with_node_type(NodeType::Validator);
+    let client = new_client(&setup.server_addr);
+
+    let account: AccountId = "test1".parse().unwrap();
+    let code = near_test_contracts::rs_contract().to_vec();
+    deploy_contract(&client, &account, code).await;
+
+    let result = client
+        .EXPERIMENTAL_call_function(
+            near_jsonrpc_primitives::types::query::RpcCallFunctionRequest {
+                block_reference: BlockReference::latest(),
+                account_id: account,
+                method_name: "nonexisting".to_string(),
+                args: vec![].into(),
+            },
+        )
+        .await;
+
+    let err = result.expect_err("expected method not found error");
+    let (name, info) = error_name_and_info(&err);
+    assert_eq!(name, "CONTRACT_EXECUTION_ERROR");
+    let method_error = info
+        .get("error")
+        .and_then(|error| error.get("MethodResolveError"))
+        .expect("expected MethodResolveError for missing method");
+    assert_eq!(
+        method_error.as_str().unwrap_or_default(),
+        "MethodNotFound",
+        "Expected MethodNotFound error when calling missing method"
+    );
+}
+
 /// Test EXPERIMENTAL_view_gas_key method - expects error since test account has no gas keys
 #[tokio::test]
 async fn test_experimental_view_gas_key_not_found() {
@@ -1015,7 +1181,15 @@ async fn test_experimental_view_gas_key_not_found() {
         .await;
 
     // Gas keys don't exist for test accounts, so this should return an error
-    assert!(result.is_err());
+    let err = result.expect_err("expected missing gas key error");
+    let (name, info) = error_name_and_info(&err);
+    assert_eq!(name, "UNKNOWN_GAS_KEY");
+    let public_key = info.get("public_key").and_then(|v| v.as_str()).unwrap_or_default();
+    assert_eq!(
+        public_key,
+        signer.public_key().to_string(),
+        "Error must mention missing gas key"
+    );
 }
 
 /// Test EXPERIMENTAL_view_gas_key_list method - expects empty list since test account has no gas keys
