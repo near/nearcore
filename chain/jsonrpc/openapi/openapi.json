@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.1"
+    "version": "1.2.2"
   },
   "paths": {
     "/EXPERIMENTAL_changes": {
@@ -11317,6 +11317,12 @@
             "minItems": 2,
             "type": "array"
           },
+          "chunks_cache_height_horizon": {
+            "description": "Height horizon for the chunk cache. A chunk is removed from the cache\nif its height + chunks_cache_height_horizon < largest_seen_height.\nThe default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "client_background_migration_threads": {
             "description": "Number of threads to execute background migration work in client.",
             "format": "uint",
@@ -16170,7 +16176,7 @@
                 "$ref": "#/components/schemas/NearToken"
               }
             ],
-            "description": "Amount of yN per byte required to have on the account.  See\n<https://nomicon.io/Economics/Economic#state-stake> for details."
+            "description": "Amount of yN per byte required to have on the account.  See\n<https://nomicon.io/Economics/Economics.html#state-stake> for details."
           },
           "transaction_costs": {
             "allOf": [

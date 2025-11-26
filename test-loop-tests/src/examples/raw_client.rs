@@ -6,6 +6,7 @@ use near_chain::chain::ApplyChunksIterationMode;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, MutableConfigValue, TrackedShardsConfig};
+use near_chunks::DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
@@ -127,6 +128,7 @@ fn test_raw_client_test_loop_setup() {
         <_>::clone(&head),
         <_>::clone(&header_head),
         Duration::milliseconds(100),
+        DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
     );
 
     let client_actor = ClientActor::new(

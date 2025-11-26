@@ -26,9 +26,7 @@ use crate::stateless_validation::chunk_endorsement::{
 };
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for_shard};
-use crate::store::{
-    ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
-};
+use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter};
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, BlockType, ChainConfig,
     PrepareTransactionsBlockContext, RuntimeAdapter, StorageDataSource,
@@ -89,7 +87,7 @@ use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, ShardIndex,
 };
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
@@ -98,6 +96,7 @@ use near_primitives::views::{
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
+use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{DBCol, StateSnapshotConfig};
 use node_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -1300,16 +1299,16 @@ impl Chain {
         chunk_headers: Vec<ShardChunkHeader>,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), Error> {
-        if cfg!(feature = "protocol_feature_spice") {
-            return Ok(());
-        }
-
         let block_height = block.height();
         let prev_block_hash = *block.prev_block_hash();
         let prev_block = self.get_block(&prev_block_hash)?;
         let prev_prev_hash = prev_block.header().prev_hash();
         let prev_chunk_headers = self.epoch_manager.get_prev_chunk_headers(&prev_block)?;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        if ProtocolFeature::Spice.enabled(protocol_version) {
+            return Ok(());
+        }
 
         let (is_caught_up, _) =
             self.get_catchup_and_state_sync_infos(None, &prev_block_hash, prev_prev_hash)?;
@@ -3491,10 +3490,6 @@ impl Chain {
 
     pub fn transaction_validity_period(&self) -> BlockHeightDelta {
         self.chain_store.transaction_validity_period
-    }
-
-    pub fn set_transaction_validity_period(&mut self, to: BlockHeightDelta) {
-        self.chain_store.transaction_validity_period = to;
     }
 
     /// Check if block is known: head, orphan, in processing or in store.

@@ -8,6 +8,7 @@ pub mod upload;
 
 pub(super) mod block_data;
 pub(super) mod file_id;
+pub(super) mod shard_data;
 
 /// Handles operations related to cloud storage used for archival data.
 pub struct CloudStorage {
