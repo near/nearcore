@@ -295,7 +295,7 @@ impl<'a> ChainUpdate<'a> {
             BlockInfo::from_header(block.header(), last_finalized_height),
             *block.header().random_value(),
         )?;
-        self.chain_store_update.merge(epoch_manager_update);
+        self.chain_store_update.merge(epoch_manager_update.into());
 
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(Arc::clone(&block));
