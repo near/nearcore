@@ -15,6 +15,7 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
+use crate::snapshot_hosts::STATE_SNAPSHOT_INFO_RETENTION_WINDOW;
 use crate::spice_data_distribution::SpiceDataDistributorSenderForNetwork;
 use crate::state_witness::PartialWitnessSenderForNetwork;
 use crate::stats::metrics;
@@ -23,9 +24,9 @@ use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostInfo, StateHeaderRequestBody,
-    StatePartRequestBody, StateRequestSenderForNetwork, StateSyncEvent, Tier3Request,
-    Tier3RequestBody,
+    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostEvent, SnapshotHostInfo,
+    StateHeaderRequestBody, StatePartRequestBody, StateRequestSenderForNetwork, StateSyncEvent,
+    Tier3Request, Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use anyhow::Context as _;
@@ -948,7 +949,19 @@ impl PeerManagerActor {
                 tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id_or_header, ?body, "ack state request from host {peer_id}");
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::SnapshotHostInfo { sync_hash, mut epoch_height, mut shards } => {
+            NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::ChainProgressed {
+                epoch_height,
+            }) => {
+                self.state.snapshot_hosts.set_discard_epoch_threshold(
+                    epoch_height.saturating_sub(STATE_SNAPSHOT_INFO_RETENTION_WINDOW),
+                );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::SnapshotCreated {
+                sync_hash,
+                mut epoch_height,
+                mut shards,
+            }) => {
                 if shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
                     tracing::warn!(
                         "PeerManager: Sending out a SnapshotHostInfo message with {} shards, \

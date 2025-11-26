@@ -12,7 +12,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
-use rand::Rng;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -219,123 +218,222 @@ async fn test_lru_eviction() {
 // we should expect to get, in this case expressed as the rank of the returned PeerId by priority score
 #[derive(Debug)]
 enum SelectPeerAction {
-    CallSelect(Option<usize>),
-    InsertHosts(&'static [usize]),
+    // CallSelect(epoch_height, wanted)
+    CallSelect(EpochHeight, Option<usize>),
+    /// CallSetEpoch(epoch_height) Sets the current epoch height for the cache.
+    CallSetEpoch(EpochHeight),
+    /// InsertHosts(hosts, epoch_height, expected_insert_count) Inserts the given hosts into the cache for the given epoch height.
+    InsertHosts(&'static [usize], EpochHeight, usize),
+    /// PartReceived Marks the part as received for the given shard and part id.
     PartReceived,
+    /// CheckNumberOfHosts(expected_number_of_hosts) Checks that the number of hosts in the cache is equal to the expected number of hosts.
+    CheckNumberOfHosts(usize),
 }
 
 struct SelectPeerTest {
+    name: &'static str,
     num_peers: usize,
     part_selection_cache_batch_size: u32,
     actions: &'static [SelectPeerAction],
 }
 
+const FIRST_EPOCH_HEIGHT: EpochHeight = 123;
+
 static SELECT_PEER_CASES: &[SelectPeerTest] = &[
     SelectPeerTest {
+        name: "test_select_peer_2_peers",
         num_peers: 2,
         part_selection_cache_batch_size: 1,
         actions: &[
-            SelectPeerAction::CallSelect(None),
-            SelectPeerAction::InsertHosts(&[0, 1]),
-            SelectPeerAction::CallSelect(Some(0)),
-            SelectPeerAction::CallSelect(Some(1)),
-            SelectPeerAction::CallSelect(Some(0)),
-            SelectPeerAction::CallSelect(Some(1)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, None),
+            SelectPeerAction::InsertHosts(&[0, 1], FIRST_EPOCH_HEIGHT, 2),
+            SelectPeerAction::CheckNumberOfHosts(2),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
         ],
     },
     SelectPeerTest {
+        name: "test_select_peer_3_peers",
         num_peers: 3,
         part_selection_cache_batch_size: 1,
         actions: &[
-            SelectPeerAction::CallSelect(None),
-            SelectPeerAction::CallSelect(None),
-            SelectPeerAction::InsertHosts(&[1, 2]),
-            SelectPeerAction::CallSelect(Some(1)),
-            SelectPeerAction::CallSelect(Some(2)),
-            SelectPeerAction::CallSelect(Some(1)),
-            SelectPeerAction::InsertHosts(&[0]),
-            SelectPeerAction::CallSelect(Some(0)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, None),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, None),
+            SelectPeerAction::InsertHosts(&[1, 2], FIRST_EPOCH_HEIGHT, 2),
+            SelectPeerAction::CheckNumberOfHosts(2),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
+            SelectPeerAction::InsertHosts(&[0], FIRST_EPOCH_HEIGHT, 1),
+            SelectPeerAction::CheckNumberOfHosts(3),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
             // Now 0 and 2 have been returned once and 1 has been returned twice.
             // We should go back to 0 and 2 once each, when each peer will have been returned twice.
             // Then after that it's just a normal looking round robin
-            SelectPeerAction::CallSelect(Some(0)),
-            SelectPeerAction::CallSelect(Some(2)),
-            SelectPeerAction::CallSelect(Some(0)),
-            SelectPeerAction::CallSelect(Some(1)),
-            SelectPeerAction::CallSelect(Some(2)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
         ],
     },
     SelectPeerTest {
+        name: "test_select_peer_2_part_received",
         num_peers: 2,
         part_selection_cache_batch_size: 1,
         actions: &[
-            SelectPeerAction::CallSelect(None),
-            SelectPeerAction::InsertHosts(&[0]),
-            SelectPeerAction::CallSelect(Some(0)),
-            SelectPeerAction::CallSelect(Some(0)),
-            SelectPeerAction::CallSelect(Some(0)),
-            SelectPeerAction::CallSelect(Some(0)),
-            SelectPeerAction::CallSelect(Some(0)),
-            SelectPeerAction::InsertHosts(&[1]),
-            SelectPeerAction::CallSelect(Some(1)),
-            SelectPeerAction::CallSelect(Some(1)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, None),
+            SelectPeerAction::InsertHosts(&[0], FIRST_EPOCH_HEIGHT, 1),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
+            SelectPeerAction::InsertHosts(&[1], FIRST_EPOCH_HEIGHT, 1),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
             // calling part_received() should result in correct/acceptable subsequent values
             // returned by select_host(), but where we forget everything about previous calls
             SelectPeerAction::PartReceived,
-            SelectPeerAction::CallSelect(Some(0)),
-            SelectPeerAction::CallSelect(Some(1)),
-            SelectPeerAction::CallSelect(Some(0)),
-            SelectPeerAction::CallSelect(Some(1)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
         ],
     },
     SelectPeerTest {
+        name: "test_select_peer_5_peers",
         num_peers: 5,
         part_selection_cache_batch_size: 2,
         actions: &[
-            SelectPeerAction::CallSelect(None),
-            SelectPeerAction::InsertHosts(&[2, 3]),
-            SelectPeerAction::CallSelect(Some(2)),
-            SelectPeerAction::CallSelect(Some(3)),
-            SelectPeerAction::InsertHosts(&[0, 1, 4]),
-            SelectPeerAction::CallSelect(Some(0)),
-            SelectPeerAction::CallSelect(Some(1)),
-            SelectPeerAction::CallSelect(Some(4)),
-            SelectPeerAction::CallSelect(Some(0)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, None),
+            SelectPeerAction::InsertHosts(&[2, 3], FIRST_EPOCH_HEIGHT, 2),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
+            SelectPeerAction::InsertHosts(&[0, 1, 4], FIRST_EPOCH_HEIGHT, 3),
+            SelectPeerAction::CheckNumberOfHosts(5),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(4)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
+        ],
+    },
+    SelectPeerTest {
+        name: "test_select_peer_5_peers_insert_older",
+        num_peers: 5,
+        part_selection_cache_batch_size: 2,
+        actions: &[
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, None),
+            SelectPeerAction::InsertHosts(&[2, 3], FIRST_EPOCH_HEIGHT, 2),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
+            SelectPeerAction::InsertHosts(&[3, 1, 4], FIRST_EPOCH_HEIGHT, 2),
+            SelectPeerAction::CheckNumberOfHosts(4),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(4)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
+        ],
+    },
+    SelectPeerTest {
+        name: "test_select_insert_new_epoch_hosts",
+        num_peers: 5,
+        part_selection_cache_batch_size: 2,
+        actions: &[
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, None),
+            SelectPeerAction::InsertHosts(&[2, 3], FIRST_EPOCH_HEIGHT, 2),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
+            SelectPeerAction::InsertHosts(&[1, 4], FIRST_EPOCH_HEIGHT + 1, 2),
+            SelectPeerAction::CheckNumberOfHosts(4),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT + 1),
+            SelectPeerAction::CheckNumberOfHosts(2),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 1, Some(1)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 1, Some(4)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 1, Some(1)),
+        ],
+    },
+    SelectPeerTest {
+        name: "test_select_insert_old_epoch_hosts",
+        num_peers: 5,
+        part_selection_cache_batch_size: 2,
+        actions: &[
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, None),
+            SelectPeerAction::InsertHosts(&[2, 3], FIRST_EPOCH_HEIGHT, 2),
+            SelectPeerAction::CheckNumberOfHosts(2),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
+            SelectPeerAction::InsertHosts(&[3, 1, 4], FIRST_EPOCH_HEIGHT - 1, 0),
+            SelectPeerAction::CheckNumberOfHosts(2),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
+        ],
+    },
+    SelectPeerTest {
+        name: "test_number_of_hosts",
+        num_peers: 7,
+        part_selection_cache_batch_size: 2,
+        actions: &[
+            SelectPeerAction::InsertHosts(&[0, 1], FIRST_EPOCH_HEIGHT - 1, 2),
+            SelectPeerAction::InsertHosts(&[2, 3], FIRST_EPOCH_HEIGHT, 2),
+            SelectPeerAction::InsertHosts(&[4, 5], FIRST_EPOCH_HEIGHT + 1, 2),
+            SelectPeerAction::InsertHosts(&[5, 6], FIRST_EPOCH_HEIGHT + 2, 2),
+            SelectPeerAction::CheckNumberOfHosts(7),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
+            SelectPeerAction::CheckNumberOfHosts(5),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT + 1),
+            SelectPeerAction::CheckNumberOfHosts(3),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT + 2),
+            SelectPeerAction::CheckNumberOfHosts(2),
         ],
     },
 ];
 
 async fn run_select_peer_test(
+    test_name: &'static str,
     actions: &[SelectPeerAction],
-    peers: &[Arc<SnapshotHostInfo>],
-    sync_hash: &CryptoHash,
+    keys: &[SecretKey],
     part_id: u64,
     part_selection_cache_batch_size: u32,
 ) {
     let config =
-        Config { snapshot_hosts_cache_size: peers.len() as u32, part_selection_cache_batch_size };
+        Config { snapshot_hosts_cache_size: keys.len() as u32, part_selection_cache_batch_size };
     let cache = SnapshotHostsCache::new(config);
 
-    tracing::debug!("start run_select_peer_test");
+    tracing::debug!(test_name, "start");
 
     for action in actions {
-        tracing::debug!("run_select_peer_test action {:?}", action);
+        tracing::debug!(test_name, ?action, "run");
         match action {
-            SelectPeerAction::InsertHosts(hosts) => {
-                let mut new_hosts = Vec::new();
-                for h in *hosts {
-                    new_hosts.push(peers[*h].clone());
-                }
-                let (_res, err) = cache.insert(new_hosts).await;
-                assert!(err.is_none());
+            SelectPeerAction::InsertHosts(hosts, epoch_height, expected_insert_count) => {
+                let new_hosts = make_snapshot_hosts_info(hosts, keys, *epoch_height);
+                let requested_insert_count = new_hosts.len();
+                let (res, err) = cache.insert(new_hosts).await;
+                assert_eq!(
+                    res.len(),
+                    *expected_insert_count,
+                    "{test_name} insert should return the expected number of hosts"
+                );
+                assert!(requested_insert_count == *expected_insert_count || err.is_none());
             }
-            SelectPeerAction::CallSelect(wanted) => {
-                let peer = cache.select_host_for_part(sync_hash, ShardId::new(0), part_id);
+            SelectPeerAction::CallSetEpoch(epoch_height) => {
+                cache.set_discard_epoch_threshold(*epoch_height);
+            }
+            SelectPeerAction::CallSelect(epoch_height, wanted) => {
+                let sync_hash = CryptoHash::hash_borsh(epoch_height);
+                let peer = cache.select_host_for_part(&sync_hash, ShardId::new(0), part_id);
                 let wanted = match wanted {
-                    Some(idx) => Some(&peers[*idx].peer_id),
+                    Some(idx) => Some(PeerId::new(keys[*idx].public_key())),
                     None => None,
                 };
-                assert!(peer.as_ref() == wanted, "got: {:?} want: {:?}", &peer, &wanted);
+                assert!(peer == wanted, "{test_name} got: {:?} want: {:?}", &peer, &wanted);
             }
             SelectPeerAction::PartReceived => {
                 let shard_id = ShardId::new(0);
@@ -343,44 +441,61 @@ async fn run_select_peer_test(
                 cache.part_received(shard_id, part_id);
                 assert!(!cache.has_selector(shard_id, part_id));
             }
+            SelectPeerAction::CheckNumberOfHosts(expected_number_of_hosts) => {
+                assert_eq!(cache.get_hosts().len(), *expected_number_of_hosts);
+            }
         }
     }
+}
+
+fn make_snapshot_hosts_info(
+    hosts: &[usize],
+    keys: &[SecretKey],
+    epoch_height: EpochHeight,
+) -> Vec<Arc<SnapshotHostInfo>> {
+    let mut peers = Vec::with_capacity(keys.len());
+    let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
+    for host in hosts {
+        let key = &keys[*host];
+        let peer_id = PeerId::new(key.public_key());
+        let sync_hash = CryptoHash::hash_borsh(epoch_height);
+        let info = Arc::new(SnapshotHostInfo::new(
+            peer_id,
+            sync_hash,
+            epoch_height,
+            sid_vec(&[0, 1, 2, 3]),
+            &key,
+        ));
+        peers.push(info);
+    }
+
+    peers
 }
 
 #[tokio::test]
 async fn test_select_peer() {
     init_test_logger();
     let mut rng = make_rng(2947294234);
-    let sync_hash = CryptoHash(rng.r#gen());
     let part_id = 0;
     let num_peers = SELECT_PEER_CASES.iter().map(|t| t.num_peers).max().unwrap();
-    let mut peers = Vec::with_capacity(num_peers);
 
-    let sid_vec = |v: &[u64]| v.iter().cloned().map(Into::into).collect_vec();
+    let mut keys = Vec::with_capacity(num_peers);
 
     for _ in 0..num_peers {
         let key = data::make_secret_key(&mut rng);
         let peer_id = PeerId::new(key.public_key());
         let score = priority_score(&peer_id, ShardId::new(0), part_id);
-        let info =
-            Arc::new(SnapshotHostInfo::new(peer_id, sync_hash, 123, sid_vec(&[0, 1, 2, 3]), &key));
-        peers.push((info, score));
+        keys.push((key.clone(), score));
     }
-    // cspell:ignore linfo lscore rinfo rscore
-    peers.sort_by(|(_linfo, lscore), (_rinfo, rscore)| {
-        lscore.partial_cmp(rscore).unwrap().reverse()
-    });
-    let peers = peers.into_iter().map(|(info, _score)| info).collect::<Vec<_>>();
-    tracing::debug!(
-        "run_select_peer_test peers: {:?}",
-        peers.iter().map(|info| &info.peer_id).collect::<Vec<_>>()
-    );
+    // cspell:ignore lkey lscore rkey rscore
+    keys.sort_by(|(_lkey, lscore), (_rkey, rscore)| lscore.partial_cmp(rscore).unwrap().reverse());
+    let keys = keys.into_iter().map(|(key, _score)| key).collect::<Vec<_>>();
 
     for t in SELECT_PEER_CASES {
         run_select_peer_test(
+            t.name,
             &t.actions,
-            &peers[..t.num_peers],
-            &sync_hash,
+            &keys[..t.num_peers],
             part_id,
             t.part_selection_cache_batch_size,
         )
