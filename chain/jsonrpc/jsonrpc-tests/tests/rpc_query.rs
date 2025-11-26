@@ -8,8 +8,16 @@ use reqwest::StatusCode;
 use near_crypto::{InMemorySigner, Signature};
 use near_jsonrpc::client::{ChunkId, JsonRpcClient, new_client};
 use near_jsonrpc_primitives::errors::RpcError;
+use near_jsonrpc_primitives::types::call_function::RpcCallFunctionRequest;
 use near_jsonrpc_primitives::errors::RpcErrorKind;
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
+use near_jsonrpc_primitives::types::view_access_key::RpcViewAccessKeyRequest;
+use near_jsonrpc_primitives::types::view_access_key_list::RpcViewAccessKeyListRequest;
+use near_jsonrpc_primitives::types::view_account::RpcViewAccountRequest;
+use near_jsonrpc_primitives::types::view_code::RpcViewCodeRequest;
+use near_jsonrpc_primitives::types::view_gas_key::RpcViewGasKeyRequest;
+use near_jsonrpc_primitives::types::view_gas_key_list::RpcViewGasKeyListRequest;
+use near_jsonrpc_primitives::types::view_state::RpcViewStateRequest;
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_test_logger;
@@ -840,7 +848,7 @@ async fn test_experimental_view_account() {
     let client = new_client(&setup.server_addr);
 
     let response = client
-        .EXPERIMENTAL_view_account(near_jsonrpc_primitives::types::query::RpcViewAccountRequest {
+        .EXPERIMENTAL_view_account(RpcViewAccountRequest {
             block_reference: BlockReference::latest(),
             account_id: "test1".parse().unwrap(),
         })
@@ -865,7 +873,7 @@ async fn test_experimental_view_account_block_references() {
 
     // Test with latest block
     let response1 = client
-        .EXPERIMENTAL_view_account(near_jsonrpc_primitives::types::query::RpcViewAccountRequest {
+        .EXPERIMENTAL_view_account(RpcViewAccountRequest {
             block_reference: BlockReference::latest(),
             account_id: "test1".parse().unwrap(),
         })
@@ -874,7 +882,7 @@ async fn test_experimental_view_account_block_references() {
 
     // Test with block height
     let response2 = client
-        .EXPERIMENTAL_view_account(near_jsonrpc_primitives::types::query::RpcViewAccountRequest {
+        .EXPERIMENTAL_view_account(RpcViewAccountRequest {
             block_reference: BlockReference::BlockId(BlockId::Height(0)),
             account_id: "test1".parse().unwrap(),
         })
@@ -883,7 +891,7 @@ async fn test_experimental_view_account_block_references() {
 
     // Test with block hash
     let response3 = client
-        .EXPERIMENTAL_view_account(near_jsonrpc_primitives::types::query::RpcViewAccountRequest {
+        .EXPERIMENTAL_view_account(RpcViewAccountRequest {
             block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
             account_id: "test1".parse().unwrap(),
         })
@@ -904,7 +912,7 @@ async fn test_experimental_view_account_missing_account() {
 
     let missing_account: AccountId = "missing.test".parse().unwrap();
     let result = client
-        .EXPERIMENTAL_view_account(near_jsonrpc_primitives::types::query::RpcViewAccountRequest {
+        .EXPERIMENTAL_view_account(RpcViewAccountRequest {
             block_reference: BlockReference::latest(),
             account_id: missing_account.clone(),
         })
@@ -924,7 +932,7 @@ async fn test_experimental_view_code() {
     deploy_contract(&client, &account, code.clone()).await;
 
     let response = client
-        .EXPERIMENTAL_view_code(near_jsonrpc_primitives::types::query::RpcViewCodeRequest {
+        .EXPERIMENTAL_view_code(RpcViewCodeRequest {
             block_reference: BlockReference::latest(),
             account_id: account,
         })
@@ -945,7 +953,7 @@ async fn test_experimental_view_code_missing_code_error() {
 
     let account: AccountId = "test1".parse().unwrap();
     let result = client
-        .EXPERIMENTAL_view_code(near_jsonrpc_primitives::types::query::RpcViewCodeRequest {
+        .EXPERIMENTAL_view_code(RpcViewCodeRequest {
             block_reference: BlockReference::latest(),
             account_id: account.clone(),
         })
@@ -966,7 +974,7 @@ async fn test_experimental_view_state() {
     let client = new_client(&setup.server_addr);
 
     let response = client
-        .EXPERIMENTAL_view_state(near_jsonrpc_primitives::types::query::RpcViewStateRequest {
+        .EXPERIMENTAL_view_state(RpcViewStateRequest {
             block_reference: BlockReference::latest(),
             account_id: "test1".parse().unwrap(),
             prefix: vec![].into(),
@@ -987,7 +995,7 @@ async fn test_experimental_view_state_with_proof() {
     let client = new_client(&setup.server_addr);
 
     let response = client
-        .EXPERIMENTAL_view_state(near_jsonrpc_primitives::types::query::RpcViewStateRequest {
+        .EXPERIMENTAL_view_state(RpcViewStateRequest {
             block_reference: BlockReference::latest(),
             account_id: "test1".parse().unwrap(),
             prefix: vec![].into(),
@@ -1011,7 +1019,7 @@ async fn test_experimental_view_access_key() {
 
     let response = client
         .EXPERIMENTAL_view_access_key(
-            near_jsonrpc_primitives::types::query::RpcViewAccessKeyRequest {
+            RpcViewAccessKeyRequest {
                 block_reference: BlockReference::latest(),
                 account_id: account,
                 public_key: signer.public_key(),
@@ -1037,7 +1045,7 @@ async fn test_experimental_view_access_key_unknown_key() {
 
     let result = client
         .EXPERIMENTAL_view_access_key(
-            near_jsonrpc_primitives::types::query::RpcViewAccessKeyRequest {
+            RpcViewAccessKeyRequest {
                 block_reference: BlockReference::latest(),
                 account_id: account,
                 public_key: missing_key_signer.public_key(),
@@ -1067,7 +1075,7 @@ async fn test_experimental_view_access_key_list() {
 
     let response = client
         .EXPERIMENTAL_view_access_key_list(
-            near_jsonrpc_primitives::types::query::RpcViewAccessKeyListRequest {
+            RpcViewAccessKeyListRequest {
                 block_reference: BlockReference::latest(),
                 account_id: account,
             },
@@ -1090,7 +1098,7 @@ async fn test_experimental_view_access_key_list_unknown_block() {
 
     let result = client
         .EXPERIMENTAL_view_access_key_list(
-            near_jsonrpc_primitives::types::query::RpcViewAccessKeyListRequest {
+            RpcViewAccessKeyListRequest {
                 block_reference: BlockReference::BlockId(BlockId::Hash(CryptoHash::new())),
                 account_id: "test1".parse().unwrap(),
             },
@@ -1112,7 +1120,7 @@ async fn test_experimental_call_function() {
 
     let response = client
         .EXPERIMENTAL_call_function(
-            near_jsonrpc_primitives::types::query::RpcCallFunctionRequest {
+            RpcCallFunctionRequest {
                 block_reference: BlockReference::latest(),
                 account_id: "test1".parse().unwrap(),
                 method_name: "run_test".to_string(),
@@ -1140,7 +1148,7 @@ async fn test_experimental_call_function_nonexisting_method() {
 
     let result = client
         .EXPERIMENTAL_call_function(
-            near_jsonrpc_primitives::types::query::RpcCallFunctionRequest {
+            RpcCallFunctionRequest {
                 block_reference: BlockReference::latest(),
                 account_id: account,
                 method_name: "nonexisting".to_string(),
@@ -1174,7 +1182,7 @@ async fn test_experimental_view_gas_key_not_found() {
     let signer = InMemorySigner::test_signer(&account);
 
     let result = client
-        .EXPERIMENTAL_view_gas_key(near_jsonrpc_primitives::types::query::RpcViewGasKeyRequest {
+        .EXPERIMENTAL_view_gas_key(RpcViewGasKeyRequest {
             block_reference: BlockReference::latest(),
             account_id: account,
             public_key: signer.public_key(),
@@ -1203,7 +1211,7 @@ async fn test_experimental_view_gas_key_list() {
 
     let response = client
         .EXPERIMENTAL_view_gas_key_list(
-            near_jsonrpc_primitives::types::query::RpcViewGasKeyListRequest {
+            RpcViewGasKeyListRequest {
                 block_reference: BlockReference::latest(),
                 account_id: account,
             },

@@ -38,12 +38,28 @@ use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::blocks::RpcBlockRequest;
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigResponse};
 use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQueryWithParams};
-use near_jsonrpc_primitives::types::query::{
-    RpcCallFunctionRequest, RpcCallFunctionResponse, RpcQueryError, RpcQueryRequest,
-    RpcViewAccessKeyListRequest, RpcViewAccessKeyListResponse, RpcViewAccessKeyRequest,
-    RpcViewAccessKeyResponse, RpcViewAccountRequest, RpcViewAccountResponse, RpcViewCodeRequest,
-    RpcViewCodeResponse, RpcViewGasKeyListRequest, RpcViewGasKeyListResponse, RpcViewGasKeyRequest,
-    RpcViewGasKeyResponse, RpcViewStateRequest, RpcViewStateResponse,
+use near_jsonrpc_primitives::types::call_function::{
+    RpcCallFunctionRequest, RpcCallFunctionResponse,
+};
+use near_jsonrpc_primitives::types::query::{RpcQueryError, RpcQueryRequest};
+use near_jsonrpc_primitives::types::view_access_key::{
+    RpcViewAccessKeyRequest, RpcViewAccessKeyResponse,
+};
+use near_jsonrpc_primitives::types::view_access_key_list::{
+    RpcViewAccessKeyListRequest, RpcViewAccessKeyListResponse,
+};
+use near_jsonrpc_primitives::types::view_account::{
+    RpcViewAccountRequest, RpcViewAccountResponse,
+};
+use near_jsonrpc_primitives::types::view_code::{RpcViewCodeRequest, RpcViewCodeResponse};
+use near_jsonrpc_primitives::types::view_gas_key::{
+    RpcViewGasKeyRequest, RpcViewGasKeyResponse,
+};
+use near_jsonrpc_primitives::types::view_gas_key_list::{
+    RpcViewGasKeyListRequest, RpcViewGasKeyListResponse,
+};
+use near_jsonrpc_primitives::types::view_state::{
+    RpcViewStateRequest, RpcViewStateResponse,
 };
 use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,

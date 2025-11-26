@@ -3,11 +3,15 @@ use serde_json::Value;
 
 use near_client_primitives::types::QueryError;
 use near_jsonrpc_primitives::errors::RpcParseError;
-use near_jsonrpc_primitives::types::query::{
-    RpcCallFunctionRequest, RpcQueryError, RpcQueryRequest, RpcQueryResponse,
-    RpcViewAccessKeyListRequest, RpcViewAccessKeyRequest, RpcViewAccountRequest,
-    RpcViewCodeRequest, RpcViewGasKeyListRequest, RpcViewGasKeyRequest, RpcViewStateRequest,
-};
+use near_jsonrpc_primitives::types::call_function::RpcCallFunctionRequest;
+use near_jsonrpc_primitives::types::query::{RpcQueryError, RpcQueryRequest, RpcQueryResponse};
+use near_jsonrpc_primitives::types::view_access_key::RpcViewAccessKeyRequest;
+use near_jsonrpc_primitives::types::view_access_key_list::RpcViewAccessKeyListRequest;
+use near_jsonrpc_primitives::types::view_account::RpcViewAccountRequest;
+use near_jsonrpc_primitives::types::view_code::RpcViewCodeRequest;
+use near_jsonrpc_primitives::types::view_gas_key::RpcViewGasKeyRequest;
+use near_jsonrpc_primitives::types::view_gas_key_list::RpcViewGasKeyListRequest;
+use near_jsonrpc_primitives::types::view_state::RpcViewStateRequest;
 use near_primitives::types::BlockReference;
 use near_primitives::views::{QueryRequest, QueryResponse};
 
