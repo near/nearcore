@@ -3,9 +3,5 @@
         "max_num_peers": 160,
         "ideal_connections_lo": 150,
         "ideal_connections_hi": 155
-    },
-    "produce_chunk_add_transactions_time_limit": {
-        "secs": 100,
-        "nanos": 0
     }
 }
