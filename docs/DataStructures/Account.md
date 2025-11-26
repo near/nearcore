@@ -12,6 +12,7 @@ NEAR Protocol has an account names system. Account ID is similar to a username. 
 - **Account ID part** consists of lowercase alphanumeric symbols separated by either `_` or `-`.
 - **Account ID** that is 64 characters long and consists of lowercase hex characters is a specific **NEAR-implicit account ID**.
 - **Account ID** that is `0x` followed by 40 lowercase hex characters is a specific **ETH-implicit account ID**.
+- **Account ID** that is `0s` followed by 40 lowercase hex characters is a specific **NEAR-deterministic account ID**.
 
 Account names are similar to a domain names.
 Top level account (TLA) like `near`, `com`, `eth` can only be created by `registrar` account (see next section for more details).
@@ -133,6 +134,60 @@ Under the hood, the transaction encodes a NEAR-native action. Currently supporte
 - Function call (call another contract).
 - Add `AccessKey` with `FunctionCallPermission`. This allows adding a relayer's public key to an ETH-implicit account, enabling the relayer to pay the gas fee for transactions from this account. Still, each transaction has to be signed by the owner of the account (corresponding Secp256K1 private key).
 - Delete `AccessKey`.
+
+## Deterministic accounts
+
+Deterministic accounts are an advanced kind of implicit account.
+A normal implicit account has a fixed access key that is implicitly associated with it.
+Deterministic accounts have a fixed code and fixed initial state associated with it.
+
+### State-initializing data of deterministic accounts
+
+The initial state of a deterministic account is fully defined by an instance of `DeterministicAccountStateInit`.
+
+Key-value pairs in `data` must be at most `max_length_storage_key` and `max_length_storage_value` bytes long,
+respectively. These parameters are currently both set to 4Mib (4194304 bytes).
+
+```rust
+pub enum DeterministicAccountStateInit {
+    V1(DeterministicAccountStateInitV1),
+}
+
+pub struct DeterministicAccountStateInitV1 {
+    pub code: GlobalContractIdentifier,
+    pub data: BTreeMap<Vec<u8>, Vec<u8>>,
+}
+
+pub enum GlobalContractIdentifier {
+    CodeHash(CryptoHash) = 0,
+    AccountId(AccountId) = 1,
+}
+```
+
+### Deterministic account ID
+
+The account ID is derived from a `DeterministicAccountStateInit` instance.
+
+To derive the deterministic account id, borsh-encode the `DeterministicAccountStateInit` enum instance into raw
+bytes. Then use the following formula: `'0s' + keccak256(bytes)[12:32].hex()`.
+
+### Deterministic account creation
+
+Deterministic accounts cannot be created with a `CreateAccount` nor with a `Transfer` action.
+A special action, `DeterministicStateInitAction`, is required.
+This action validates that the account id matches its initial state.
+
+As with all account types, you have to attach a large enough deposit to cover for the account storage. If the code and
+initial state is small enough to fit below the zero-balance limit, no balance is required. The
+`DeterministicStateInitAction` has a field to include a balance specifically to cover storage. Anything above the
+required amount to cover storage requirements is refunded.
+
+A `Transfer` can also deposit a balance before the `DeterministicStateInitAction`. The account will not be usable,
+however, until the `DeterministicStateInitAction` is also executed.
+
+After successful initialization, the account will have all key-value pairs in `data: BTreeMap<Vec<u8>, Vec<u8>>` in its
+contract storage. The contract code will be set to that of the global contract defined with
+`code: GlobalContractIdentifier`.
 
 ## Account
 

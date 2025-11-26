@@ -17,8 +17,7 @@ pub use store::utils::{
     get_incoming_receipts_for_shard, retrieve_headers,
 };
 pub use store::{
-    ChainStore, ChainStoreAccess, ChainStoreUpdate, LatestWitnessesInfo, MerkleProofAccess,
-    ReceiptFilter,
+    ChainStore, ChainStoreAccess, ChainStoreUpdate, LatestWitnessesInfo, ReceiptFilter,
 };
 pub use store_validator::{ErrorMessage, StoreValidator};
 pub use types::{Block, BlockHeader, BlockStatus, ChainGenesis, LatestKnown, Provenance};
