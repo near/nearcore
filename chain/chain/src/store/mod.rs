@@ -2223,12 +2223,20 @@ impl<'a> ChainStoreUpdate<'a> {
 #[cfg(test)]
 mod tests {
     use near_async::time::Clock;
+    use near_primitives::types::BlockHeightDelta;
     use std::sync::Arc;
 
+    use crate::Chain;
     use crate::test_utils::get_chain;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::test_utils::TestBlockBuilder;
     use near_primitives::test_utils::create_test_signer;
+
+    impl Chain {
+        pub fn set_transaction_validity_period(&mut self, to: BlockHeightDelta) {
+            self.chain_store.transaction_validity_period = to;
+        }
+    }
 
     #[test]
     fn test_tx_validity_long_fork() {
