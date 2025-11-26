@@ -6,9 +6,10 @@ is identified by a unique (within the account) public key. Access keys are store
 ```rust
 pub struct AccessKey {
     /// The nonce for this access key.
-    /// NOTE: In some cases the access key needs to be recreated. If the new access key reuses the
-    /// same public key, the nonce of the new access key should be equal to the nonce of the old
-    /// access key. It's required to avoid replaying old transactions again.
+    /// When a key is created, its nonce is initialized to `(block_height - 1) * 1_000_000`.
+    /// Valid transaction nonces for a given block must be strictly less than `block_height * 1_000_000`.
+    /// See `runtime/runtime/src/actions.rs::initial_nonce_value()` and the constant
+    /// `core/primitives-core/src/account.rs::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER`.
     pub nonce: Nonce,
     /// Defines permissions for this access key.
     pub permission: AccessKeyPermission,
