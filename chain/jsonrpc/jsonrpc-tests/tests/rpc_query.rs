@@ -1152,8 +1152,9 @@ async fn test_experimental_call_function_nonexisting_method() {
     let err = result.expect_err("expected method not found error");
     let (name, info) = error_name_and_info(&err);
     assert_eq!(name, "CONTRACT_EXECUTION_ERROR");
+    println!("Error info: {:?}", info);
     let method_error = info
-        .get("error")
+        .get("vm_error")
         .and_then(|error| error.get("MethodResolveError"))
         .expect("expected MethodResolveError for missing method");
     assert_eq!(
