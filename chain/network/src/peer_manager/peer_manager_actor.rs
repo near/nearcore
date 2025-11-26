@@ -15,6 +15,7 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
+use crate::snapshot_hosts::STATE_SNAPSHOT_INFO_RETENTION_WINDOW;
 use crate::spice_data_distribution::SpiceDataDistributorSenderForNetwork;
 use crate::state_witness::PartialWitnessSenderForNetwork;
 use crate::stats::metrics;
@@ -949,7 +950,9 @@ impl PeerManagerActor {
             NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::ChainProgressed {
                 epoch_height,
             }) => {
-                self.state.snapshot_hosts.set_discard_epoch_threshold(epoch_height);
+                self.state.snapshot_hosts.set_discard_epoch_threshold(
+                    epoch_height.saturating_sub(STATE_SNAPSHOT_INFO_RETENTION_WINDOW),
+                );
                 NetworkResponses::NoResponse
             }
             NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::SnapshotCreated {

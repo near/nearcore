@@ -25,6 +25,9 @@ use std::sync::Arc;
 #[cfg(test)]
 mod tests;
 
+/// The number of older epochs to retain snapshot host infos for.
+pub const STATE_SNAPSHOT_INFO_RETENTION_WINDOW: EpochHeight = 1;
+
 #[derive(thiserror::Error, Debug, PartialEq, Eq, Clone)]
 pub(crate) enum SnapshotHostInfoError {
     #[error("found multiple entries for the same peer_id")]
