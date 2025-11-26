@@ -813,7 +813,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
     }
 
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
-        self.read().get_epoch_start_from_epoch_id(epoch_id)
+        self.read().store.get_epoch_start(epoch_id)
     }
 
     fn get_shard_layout_from_protocol_version(

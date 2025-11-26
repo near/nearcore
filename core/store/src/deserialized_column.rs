@@ -82,6 +82,10 @@ impl Cache {
                 | DBCol::StateShardUIdMapping => ColumnCache::with_none_values(
                     ColumnCache::new(32),
                 ),
+                // Caching for epoch related columns
+                | DBCol::EpochInfo | DBCol::EpochStart => ColumnCache::new(32),
+                | DBCol::BlockInfo => ColumnCache::new(1024),
+                // Other columns are not cached for now.
                 _ => ColumnCache::disabled(),
             },
         }

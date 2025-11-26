@@ -120,19 +120,16 @@ pub struct EpochManager {
     config: AllEpochConfig,
     reward_calculator: RewardCalculator,
 
-    /// Cache of epoch information.
-    epochs_info: SyncLruCache<EpochId, Arc<EpochInfo>>,
-    /// Cache of block information.
-    blocks_info: SyncLruCache<CryptoHash, Arc<BlockInfo>>,
-    /// Cache of epoch id to epoch start height
-    epoch_id_to_start: SyncLruCache<EpochId, BlockHeight>,
     /// Epoch validators ordered by `block_producer_settlement`.
     epoch_validators_ordered: SyncLruCache<EpochId, Arc<[ValidatorStake]>>,
     /// Unique validators ordered by `block_producer_settlement`.
     epoch_validators_ordered_unique: SyncLruCache<EpochId, Arc<[ValidatorStake]>>,
-
     /// Unique chunk producers.
     epoch_chunk_producers_unique: SyncLruCache<EpochId, Arc<[ValidatorStake]>>,
+    /// Cache for chunk_validators
+    chunk_validators_cache:
+        SyncLruCache<(EpochId, ShardId, BlockHeight), Arc<ChunkValidatorAssignments>>,
+
     /// Aggregator that keeps statistics about the current epoch.  It’s data are
     /// synced up to the last final block.  The information are updated by
     /// [`Self::update_epoch_info_aggregator_upto_final`] method.  To get
@@ -141,9 +138,6 @@ pub struct EpochManager {
     epoch_info_aggregator: EpochInfoAggregator,
     /// Largest final height. Monotonically increasing.
     largest_final_height: BlockHeight,
-    /// Cache for chunk_validators
-    chunk_validators_cache:
-        SyncLruCache<(EpochId, ShardId, BlockHeight), Arc<ChunkValidatorAssignments>>,
 
     /// Counts loop iterations inside of aggregate_epoch_info_upto method.
     /// Used for tests as a bit of white-box testing.
@@ -228,9 +222,6 @@ impl EpochManager {
             store,
             config,
             reward_calculator,
-            epochs_info: SyncLruCache::new(EPOCH_CACHE_SIZE),
-            blocks_info: SyncLruCache::new(BLOCK_CACHE_SIZE),
-            epoch_id_to_start: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_validators_ordered: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_validators_ordered_unique: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_chunk_producers_unique: SyncLruCache::new(EPOCH_CACHE_SIZE),
@@ -271,12 +262,12 @@ impl EpochManager {
             EpochInfoAggregator::new(*prev_epoch_id, *prev_epoch_prev_last_block_info.prev_hash());
         store_update.set_epoch_info_aggregator(&self.epoch_info_aggregator);
 
-        self.save_block_info(store_update, Arc::new(prev_epoch_first_block_info))?;
-        self.save_block_info(store_update, Arc::new(prev_epoch_prev_last_block_info))?;
-        self.save_block_info(store_update, Arc::new(prev_epoch_last_block_info))?;
-        self.save_epoch_info(store_update, prev_epoch_id, Arc::new(prev_epoch_info))?;
-        self.save_epoch_info(store_update, epoch_id, Arc::new(epoch_info))?;
-        self.save_epoch_info(store_update, next_epoch_id, Arc::new(next_epoch_info))?;
+        store_update.set_block_info(&Arc::new(prev_epoch_first_block_info));
+        store_update.set_block_info(&Arc::new(prev_epoch_prev_last_block_info));
+        store_update.set_block_info(&Arc::new(prev_epoch_last_block_info));
+        store_update.set_epoch_info(prev_epoch_id, &Arc::new(prev_epoch_info));
+        store_update.set_epoch_info(epoch_id, &Arc::new(epoch_info));
+        store_update.set_epoch_info(next_epoch_id, &Arc::new(next_epoch_info));
         Ok(())
     }
 
@@ -735,7 +726,7 @@ impl EpochManager {
         );
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
-        self.save_epoch_info(store_update, &next_next_epoch_id, Arc::new(next_next_epoch_info))?;
+        store_update.set_epoch_info(&next_next_epoch_id, &Arc::new(next_next_epoch_info));
         Ok(())
     }
 
@@ -753,12 +744,8 @@ impl EpochManager {
                 assert_eq!(block_info.proposals_iter().len(), 0);
                 let pre_genesis_epoch_id = EpochId::default();
                 let genesis_epoch_info = self.get_epoch_info(&pre_genesis_epoch_id)?;
-                self.save_block_info(&mut store_update, Arc::new(block_info))?;
-                self.save_epoch_info(
-                    &mut store_update,
-                    &EpochId(current_hash),
-                    genesis_epoch_info,
-                )?;
+                store_update.set_block_info(&Arc::new(block_info));
+                store_update.set_epoch_info(&EpochId(current_hash), &genesis_epoch_info);
             } else {
                 let prev_block_info = self.get_block_info(block_info.prev_hash())?;
 
@@ -781,16 +768,12 @@ impl EpochManager {
                 }
 
                 if is_epoch_start {
-                    self.save_epoch_start(
-                        &mut store_update,
-                        block_info.epoch_id(),
-                        block_info.height(),
-                    )?;
+                    store_update.set_epoch_start(block_info.epoch_id(), block_info.height());
                 }
 
                 let block_info = Arc::new(block_info);
                 // Save current block info.
-                self.save_block_info(&mut store_update, Arc::clone(&block_info))?;
+                store_update.set_block_info(&block_info);
                 if block_info.last_finalized_height() > self.largest_final_height {
                     self.largest_final_height = block_info.last_finalized_height();
 
@@ -1059,7 +1042,7 @@ impl EpochManager {
         };
         let cur_epoch_info = self.get_epoch_info(&epoch_id)?;
         let epoch_height = cur_epoch_info.epoch_height();
-        let epoch_start_height = self.get_epoch_start_from_epoch_id(&epoch_id)?;
+        let epoch_start_height = self.store.get_epoch_start(&epoch_id)?;
 
         // This ugly code arises because of the incompatible types between `block_tracker` in `EpochInfoAggregator`
         // and `validator_block_chunk_stats` in `EpochSummary`. Rust currently has no support for Either type
@@ -1387,8 +1370,7 @@ impl EpochManager {
     }
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
-        self.epochs_info
-            .get_or_try_put(*epoch_id, |epoch_id| self.store.get_epoch_info(epoch_id).map(Arc::new))
+        self.store.get_epoch_info(epoch_id).map(Arc::new)
     }
 
     fn has_epoch_info(&self, epoch_id: &EpochId) -> Result<bool, EpochError> {
@@ -1397,17 +1379,6 @@ impl EpochManager {
             Err(EpochError::EpochOutOfBounds(_)) => Ok(false),
             Err(err) => Err(err),
         }
-    }
-
-    fn save_epoch_info(
-        &self,
-        store_update: &mut EpochStoreUpdateAdapter,
-        epoch_id: &EpochId,
-        epoch_info: Arc<EpochInfo>,
-    ) -> Result<(), EpochError> {
-        store_update.set_epoch_info(epoch_id, &epoch_info);
-        self.epochs_info.put(*epoch_id, epoch_info);
-        Ok(())
     }
 
     fn has_block_info(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
@@ -1419,33 +1390,7 @@ impl EpochManager {
     }
 
     pub fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
-        self.blocks_info.get_or_try_put(*hash, |hash| self.store.get_block_info(hash).map(Arc::new))
-    }
-
-    fn save_block_info(
-        &self,
-        store_update: &mut EpochStoreUpdateAdapter,
-        block_info: Arc<BlockInfo>,
-    ) -> Result<(), EpochError> {
-        store_update.set_block_info(&block_info);
-        self.blocks_info.put(*block_info.hash(), block_info);
-        Ok(())
-    }
-
-    fn save_epoch_start(
-        &self,
-        store_update: &mut EpochStoreUpdateAdapter,
-        epoch_id: &EpochId,
-        epoch_start: BlockHeight,
-    ) -> Result<(), EpochError> {
-        store_update.set_epoch_start(epoch_id, epoch_start);
-        self.epoch_id_to_start.put(*epoch_id, epoch_start);
-        Ok(())
-    }
-
-    fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
-        self.epoch_id_to_start
-            .get_or_try_put(*epoch_id, |epoch_id| self.store.get_epoch_start(epoch_id))
+        self.store.get_block_info(hash).map(Arc::new)
     }
 
     /// Updates epoch info aggregator to state as of `last_final_block_hash`

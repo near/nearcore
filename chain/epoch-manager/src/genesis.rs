@@ -31,8 +31,8 @@ impl EpochManager {
         // EpochId formula using T-2 for T=1, and height field is unused.
         let block_info = Arc::new(BlockInfo::default());
         let mut store_update = self.store.store_update();
-        self.save_epoch_info(&mut store_update, &EpochId::default(), Arc::new(genesis_epoch_info))?;
-        self.save_block_info(&mut store_update, block_info)?;
+        store_update.set_epoch_info(&EpochId::default(), &Arc::new(genesis_epoch_info));
+        store_update.set_block_info(&block_info);
         store_update.commit()?;
         Ok(())
     }
