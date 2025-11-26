@@ -3493,10 +3493,6 @@ impl Chain {
         self.chain_store.transaction_validity_period
     }
 
-    pub fn set_transaction_validity_period(&mut self, to: BlockHeightDelta) {
-        self.chain_store.transaction_validity_period = to;
-    }
-
     /// Check if block is known: head, orphan, in processing or in store.
     /// Returns Err(Error) if any error occurs when checking store
     ///         Ok(Err(BlockKnownError)) if the block is known
