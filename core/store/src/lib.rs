@@ -40,6 +40,7 @@ mod node_storage;
 mod store;
 pub mod trie;
 mod utils;
+pub mod merkle_proof;
 
 #[cfg(test)]
 mod tests {

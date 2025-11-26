@@ -2,7 +2,6 @@ use crate::types::{Block, BlockHeader, LatestKnown};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 pub use latest_witnesses::LatestWitnessesInfo;
-pub use merkle_proof::MerkleProofAccess;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
@@ -55,7 +54,6 @@ use std::sync::Arc;
 use utils::{check_transaction_validity_period, early_prepare_txs_check_validity_period};
 
 pub mod latest_witnesses;
-mod merkle_proof;
 pub mod utils;
 
 /// Filter receipts mode for incoming receipts collection.

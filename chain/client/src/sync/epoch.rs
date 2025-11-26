@@ -4,7 +4,7 @@ use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
 use near_chain::types::Tip;
-use near_chain::{BlockHeader, Chain, ChainStoreAccess, Error, MerkleProofAccess};
+use near_chain::{BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::EpochSyncConfig;
 use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_crypto::Signature;
@@ -30,6 +30,7 @@ use near_primitives::types::{
 use near_primitives::utils::compression::CompressedData;
 use near_store::Store;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::merkle_proof::MerkleProofAccess;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
