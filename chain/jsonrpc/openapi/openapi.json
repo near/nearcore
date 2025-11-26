@@ -11317,6 +11317,12 @@
             "minItems": 2,
             "type": "array"
           },
+          "chunks_cache_height_horizon": {
+            "description": "Height horizon for the chunk cache. A chunk is removed from the cache\nif its height + chunks_cache_height_horizon < largest_seen_height.\nThe default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "client_background_migration_threads": {
             "description": "Number of threads to execute background migration work in client.",
             "format": "uint",
