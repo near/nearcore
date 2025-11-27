@@ -1,17 +1,22 @@
+# Cargo Manifest for the near-chunks crate. This crate is an internal component
+# of the NEAR Protocol responsible for chunk processing and management.
+
 [package]
 name = "near-chunks"
+# All package metadata is inherited from the workspace for consistency.
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
-publish = false
+publish = false # Prevent accidental publishing as this is an internal crate.
 
 [lints]
 workspace = true
 
 [dependencies]
+# Standard utility libraries, inherited from workspace versions.
 lru.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
@@ -19,9 +24,10 @@ reed-solomon-erasure.workspace = true
 strum.workspace = true
 time.workspace = true
 tracing.workspace = true
-# itertools has collect_vec which is useful in quick debugging prints
+# itertools is often used for convenient collection methods (e.g., collect_vec)
 itertools.workspace = true
 
+# Core NEAR framework dependencies, inherited from workspace versions.
 near-async.workspace = true
 near-chain-configs.workspace = true
 near-crypto.workspace = true
@@ -38,6 +44,7 @@ near-pool.workspace = true
 assert_matches.workspace = true
 
 [features]
+# Enables features related to nightly Rust toolchains across dependent crates.
 nightly = [
     "near-chain-configs/nightly",
     "near-chain/nightly",
@@ -48,5 +55,6 @@ nightly = [
     "near-primitives/nightly",
     "near-store/nightly",
 ]
+# Enables specialized asserts for detecting Byzantine behavior in the chain crate.
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 test_features = []
