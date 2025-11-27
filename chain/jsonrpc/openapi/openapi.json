@@ -10575,6 +10575,19 @@
                     },
                     "type": "array"
                   },
+                  "refund_to": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/AccountId"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
                   "signer_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
