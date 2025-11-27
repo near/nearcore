@@ -11,6 +11,8 @@ primary types of documentation to keep in mind:
   explain what is NEAR and how to participate in the network. In particular,
   they contain information pertinent to the users of NEAR: validators and
   smart contract developers.
+* [**Node Validator docs**](https://near-nodes.io) ([source code](https://github.com/near/node-docs))
+  explain how to set up your own Validator node, RPC node, or Archival node, and participate in the network.
 * [**Documentation for nearcore developers**](https://nomicon.io/)
   ([source code](https://github.com/near/nearcore/tree/master/docs)) is the
   book you are reading right now! The target audience here is the contributors
