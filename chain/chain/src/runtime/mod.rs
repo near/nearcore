@@ -683,6 +683,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
+        transaction_num_limit: Option<usize>,
     ) -> Result<PreparedTransactions, Error> {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &prev_block.next_epoch_id)?;
 
@@ -718,6 +719,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             chain_validate,
             HashSet::new(),
             time_limit,
+            transaction_num_limit,
             None,
         ) // skip_tx_hashes is empty, so there will be no skipped transactions
         .map(|(prepared, _skipped)| prepared)
@@ -748,6 +750,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
         time_limit: Option<Duration>,
+        transaction_num_limit: Option<usize>,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
         let span = tracing::Span::current();
@@ -794,6 +797,13 @@ impl RuntimeAdapter for NightshadeRuntime {
             if let Some(time_limit) = &time_limit {
                 if start_time.elapsed() >= *time_limit {
                     result.limited_by = Some(PrepareTransactionsLimit::Time);
+                    break;
+                }
+            }
+
+            if let Some(tx_num_limit) = &transaction_num_limit {
+                if result.transactions.len() >= *tx_num_limit {
+                    result.limited_by = Some(PrepareTransactionsLimit::NumTransactions);
                     break;
                 }
             }

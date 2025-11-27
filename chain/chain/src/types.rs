@@ -396,6 +396,7 @@ pub enum PrepareTransactionsLimit {
     ReceiptCount,
     StorageProofSize,
     Cancelled,
+    NumTransactions,
 }
 
 /// Information used to prepare transactions, based on the previous block.
@@ -490,6 +491,7 @@ pub trait RuntimeAdapter: Send + Sync {
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
+        transaction_num_limit: Option<usize>,
     ) -> Result<PreparedTransactions, Error>;
 
     /// `prepare_transactions` with extra options, used in early transaction preparation.
@@ -512,6 +514,7 @@ pub trait RuntimeAdapter: Send + Sync {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
         time_limit: Option<Duration>,
+        transaction_num_limit: Option<usize>,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error>;
 

@@ -41,6 +41,18 @@ use std::sync::Arc;
 use time::ext::InstantExt as _;
 use tracing::instrument;
 
+/// Target TPS and block time set by the transaction generator.
+/// Used during chunk production to limit the number of transactions included in a chunk.
+#[cfg(feature = "tx_generator")]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TxGeneratorTarget {
+    pub target_block_production_time_s: f64,
+    pub target_tps: f64,
+}
+
+#[cfg(feature = "tx_generator")]
+pub static TX_GENERATOR_TARGET: Mutex<Option<TxGeneratorTarget>> = Mutex::new(None);
+
 #[cfg(feature = "test_features")]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum AdvProduceChunksMode {
@@ -444,6 +456,7 @@ impl ChunkProducer {
             };
             let prev_block_context =
                 PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
+
             self.runtime_adapter.prepare_transactions(
                 storage_config,
                 shard_id,
@@ -451,6 +464,7 @@ impl ChunkProducer {
                 &mut iter,
                 chain_validate,
                 self.chunk_transactions_time_limit.get(),
+                self.get_chunk_txs_num_limit(),
             )?
         } else {
             PreparedTransactions { transactions: Vec::new(), limited_by: None }
@@ -598,6 +612,7 @@ impl ChunkProducer {
             tx_validity_period_check: Box::new(tx_validity_period_check),
             prev_chunk_tx_hashes,
             time_limit: self.chunk_transactions_time_limit.get(),
+            transaction_num_limit: self.get_chunk_txs_num_limit(),
         };
         let prepare_job = self.prepare_transactions_jobs.push(prepare_job_key, prepare_job_inputs);
 
@@ -685,6 +700,31 @@ impl ChunkProducer {
                     .with_label_values(&[&shard_id.to_string()])
                     .inc();
                 Ok(Some(txs))
+            }
+        }
+    }
+
+    /// Get the limit on the number of transactions in a chunk set by the transaction generator.
+    /// Disabled when transaction generator is not enabled.
+    #[cfg(not(feature = "tx_generator"))]
+    fn get_chunk_txs_num_limit(&self) -> Option<usize> {
+        None
+    }
+
+    /// Get the limit on the number of transactions in a chunk set by the transaction generator.
+    #[cfg(feature = "tx_generator")]
+    fn get_chunk_txs_num_limit(&self) -> Option<usize> {
+        use std::num::FpCategory;
+
+        let target_lock = TX_GENERATOR_TARGET.lock();
+        let t = target_lock.as_ref()?;
+        let limit = t.target_tps * t.target_block_production_time_s;
+        match limit.classify() {
+            FpCategory::Normal => Some(limit as usize),
+            FpCategory::Nan | FpCategory::Infinite | FpCategory::Zero | FpCategory::Subnormal => {
+                // In case of weird values like +-INF/NaN/etc, disable the limit.
+                tracing::warn!(target: "transaction-generator", limit, "get_chunk_txs_num_limit - invalid chunk limit");
+                None
             }
         }
     }
