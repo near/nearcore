@@ -19,7 +19,7 @@ mod v2;
 mod v3;
 
 use crate::hash::CryptoHash;
-use crate::types::{AccountId, EpochId, NumShards};
+use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives_core::types::{ShardId, ShardIndex};
@@ -75,9 +75,10 @@ pub fn shard_uids_to_ids(shard_uids: &[ShardUId]) -> Vec<ShardId> {
 
 #[derive(Debug)]
 pub enum ShardLayoutError {
-    InvalidShardIdError { shard_id: ShardId },
-    InvalidShardIndexError { shard_index: ShardIndex },
-    NoParentError { shard_id: ShardId },
+    InvalidShardId { shard_id: ShardId },
+    InvalidShardIndex { shard_index: ShardIndex },
+    NoParent { shard_id: ShardId },
+    Derive(&'static str),
 }
 
 impl fmt::Display for ShardLayoutError {
@@ -181,14 +182,8 @@ impl ShardLayout {
         boundary_accounts: Vec<AccountId>,
         shard_ids: Vec<ShardId>,
         shards_split_map: ShardsSplitMapV3,
-        valid_since_epoch: EpochId,
     ) -> Self {
-        Self::V3(ShardLayoutV3::new(
-            boundary_accounts,
-            shard_ids,
-            shards_split_map,
-            valid_since_epoch,
-        ))
+        Self::V3(ShardLayoutV3::new(boundary_accounts, shard_ids, shards_split_map))
     }
 
     /// Maps an account to the shard_id that it belongs to in this shard_layout
@@ -252,7 +247,7 @@ impl ShardLayout {
     /// layout or if the shard has no parent in this shard layout.
     pub fn get_parent_shard_id(&self, shard_id: ShardId) -> Result<ShardId, ShardLayoutError> {
         let parent_shard_id = self.try_get_parent_shard_id(shard_id)?;
-        parent_shard_id.ok_or(ShardLayoutError::NoParentError { shard_id })
+        parent_shard_id.ok_or(ShardLayoutError::NoParent { shard_id })
     }
 
     /// Derive new shard layout from an existing one
@@ -263,9 +258,9 @@ impl ShardLayout {
     pub fn derive_v3(
         base_shard_layout: &Self,
         new_boundary_account: AccountId,
-        valid_since_epoch: EpochId,
-    ) -> Self {
-        Self::V3(ShardLayoutV3::derive(base_shard_layout, new_boundary_account, valid_since_epoch))
+    ) -> Result<Self, ShardLayoutError> {
+        let v3 = ShardLayoutV3::derive(base_shard_layout, new_boundary_account)?;
+        Ok(Self::V3(v3))
     }
 
     #[inline]
@@ -274,7 +269,7 @@ impl ShardLayout {
             Self::V0(v0) => v0.version,
             Self::V1(v1) => v1.version,
             Self::V2(v2) => v2.version,
-            Self::V3(v3) => v3.version,
+            Self::V3(v3) => v3.version(),
         }
     }
 
@@ -392,15 +387,6 @@ impl ShardLayout {
             .into_iter()
             .map(|shard_id| ShardUId::new(self.version(), shard_id))
             .collect()
-    }
-
-    /// Returns ID of the last epoch of the previous layout (for V3 layout).
-    /// None for earlier versions.
-    pub fn valid_after_epoch(&self) -> Option<EpochId> {
-        match self {
-            Self::V0(_) | Self::V1(_) | Self::V2(_) => None,
-            ShardLayout::V3(v3) => Some(v3.valid_after_epoch),
-        }
     }
 }
 

@@ -16490,23 +16490,13 @@
               "type": "array"
             },
             "type": "object"
-          },
-          "valid_after_epoch": {
-            "$ref": "#/components/schemas/EpochId"
-          },
-          "version": {
-            "format": "uint32",
-            "minimum": 0,
-            "type": "integer"
           }
         },
         "required": [
           "boundary_accounts",
           "shard_ids",
           "id_to_index_map",
-          "shards_split_map",
-          "version",
-          "valid_after_epoch"
+          "shards_split_map"
         ],
         "type": "object"
       },

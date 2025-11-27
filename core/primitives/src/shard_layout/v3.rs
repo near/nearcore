@@ -1,29 +1,37 @@
 use crate::shard_layout::utils::{map_keys_to_shard_id, map_keys_to_string};
 use crate::shard_layout::{ShardLayout, ShardLayoutError, ShardVersion};
-use crate::types::{AccountId, EpochId};
+use crate::types::AccountId;
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 /// A mapping from the parent shard to child shards. It maps shards from the
 /// previous shard layout to shards that they split to in this shard layout.
-/// **Only includes shards that are actually split.**
+/// Unlike previous versions of `ShardsSplitMap`, this one:
+///   * Only includes shards that are actually split.
+///   * Includes the full history of shard splits, i.e. split map of the current
+///     layout is a superset of the split map of its parent layout.
 ///
-/// For example if a shard layout with shards [0, 2, 5] splits shard 2 into
-/// shards [6, 7] the ShardSplitMap will be just: 2 => [6, 7]
+/// For example if a shard layout with shards `[0, 2, 3, 4]` and split map `{1 => [3, 4]}`
+/// splits shard 2 into shards [5, 6] the ShardSplitMap in the resulting layout will be:
+/// `{1 => [3, 4], 2 => [5, 6]}`.
 pub type ShardsSplitMapV3 = BTreeMap<ShardId, Vec<ShardId>>;
 
-/// A mapping from the child shard to the parent shard.
-/// **Only includes shards that were actually split.**
-type ShardsParentMapV3 = BTreeMap<ShardId, ShardId>;
+/// A mapping from the child shard to all its ancestors. Parent shard is the first
+/// element of the ancestors vector, 'grandparent' shard is the second element, etc.
+/// IDs of shards which have no ancestors (i.e. were *not* created by a split) are
+/// not present in the mapping.
+type ShardsAncestorMapV3 = BTreeMap<ShardId, Vec<ShardId>>;
 
-fn validate_and_derive_shard_parent_map(
+const VERSION: ShardVersion = 3;
+
+fn validate_and_derive_shard_ancestor_map(
     shard_ids: &Vec<ShardId>,
     shards_split_map: &ShardsSplitMapV3,
-) -> ShardsParentMapV3 {
-    let mut shards_parent_map = ShardsParentMapV3::new();
+) -> ShardsAncestorMapV3 {
+    let mut shards_parent_map = BTreeMap::new();
     for (&parent_shard_id, child_shard_ids) in shards_split_map {
         assert!(
             !shard_ids.contains(&parent_shard_id),
@@ -35,7 +43,16 @@ fn validate_and_derive_shard_parent_map(
             assert!(prev.is_none(), "no shard should appear in the map twice");
         }
     }
-    shards_parent_map
+
+    let mut shards_ancestor_map = ShardsAncestorMapV3::new();
+    let mut shard_ids: VecDeque<_> = shard_ids.iter().cloned().collect();
+    while let Some(shard_id) = shard_ids.pop_front() {
+        let Some(parent_id) = shards_parent_map.remove(&shard_id) else { continue };
+        shard_ids.push_back(parent_id);
+        shards_ancestor_map.entry(shard_id).or_default().push(parent_id);
+    }
+    assert!(shards_parent_map.is_empty(), "unexpected shard in split map");
+    shards_ancestor_map
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
@@ -64,16 +81,7 @@ pub struct ShardLayoutV3 {
     pub(crate) shards_split_map: ShardsSplitMapV3,
 
     /// A mapping from the child shard to the parent shard.
-    pub(crate) shards_parent_map: ShardsParentMapV3,
-
-    /// The version of the shard layout. Starting from the `ShardLayoutV2` the
-    /// version is no longer updated with every shard layout change, and it does
-    /// not uniquely identify the shard layout.
-    pub(crate) version: ShardVersion,
-
-    /// ID of the last epoch of the previous layout. It is used to efficiently
-    /// retrieve the previous layout (without iterating through all epochs).
-    pub(crate) valid_after_epoch: EpochId,
+    pub(crate) shards_ancestor_map: ShardsAncestorMapV3,
 }
 
 /// Counterpart to `ShardLayoutV3` composed of maps with string keys to aid
@@ -85,8 +93,6 @@ struct SerdeShardLayoutV3 {
     shard_ids: Vec<ShardId>,
     id_to_index_map: BTreeMap<String, ShardIndex>,
     shards_split_map: BTreeMap<String, Vec<ShardId>>,
-    version: ShardVersion,
-    valid_after_epoch: EpochId,
 }
 
 impl From<&ShardLayoutV3> for SerdeShardLayoutV3 {
@@ -96,8 +102,6 @@ impl From<&ShardLayoutV3> for SerdeShardLayoutV3 {
             shard_ids: layout.shard_ids.clone(),
             id_to_index_map: map_keys_to_string(&layout.id_to_index_map),
             shards_split_map: map_keys_to_string(&layout.shards_split_map),
-            version: layout.version,
-            valid_after_epoch: layout.valid_after_epoch,
         }
     }
 }
@@ -106,27 +110,20 @@ impl TryFrom<SerdeShardLayoutV3> for ShardLayoutV3 {
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(layout: SerdeShardLayoutV3) -> Result<Self, Self::Error> {
-        let SerdeShardLayoutV3 {
-            boundary_accounts,
-            shard_ids,
-            id_to_index_map,
-            shards_split_map,
-            version,
-            valid_after_epoch: valid_since_epoch,
-        } = layout;
+        let SerdeShardLayoutV3 { boundary_accounts, shard_ids, id_to_index_map, shards_split_map } =
+            layout;
 
         let id_to_index_map = map_keys_to_shard_id(id_to_index_map)?;
         let shards_split_map = map_keys_to_shard_id(shards_split_map)?;
-        let shards_parent_map = validate_and_derive_shard_parent_map(&shard_ids, &shards_split_map);
+        let shards_parent_map =
+            validate_and_derive_shard_ancestor_map(&shard_ids, &shards_split_map);
 
         Ok(Self {
             boundary_accounts,
             shard_ids,
             id_to_index_map,
             shards_split_map,
-            shards_parent_map,
-            version,
-            valid_after_epoch: valid_since_epoch,
+            shards_ancestor_map: shards_parent_map,
         })
     }
 }
@@ -166,32 +163,38 @@ impl ShardLayoutV3 {
         boundary_accounts: Vec<AccountId>,
         shard_ids: Vec<ShardId>,
         shards_split_map: ShardsSplitMapV3,
-        valid_since_epoch: EpochId,
     ) -> Self {
-        const VERSION: ShardVersion = 3;
-
         assert_eq!(boundary_accounts.len() + 1, shard_ids.len());
         assert!(boundary_accounts.is_sorted());
 
         let id_to_index_map = shard_ids.iter().enumerate().map(|(idx, id)| (*id, idx)).collect();
-        let shards_parent_map = validate_and_derive_shard_parent_map(&shard_ids, &shards_split_map);
+        let shards_parent_map =
+            validate_and_derive_shard_ancestor_map(&shard_ids, &shards_split_map);
 
         Self {
             boundary_accounts,
             shard_ids,
             id_to_index_map,
             shards_split_map,
-            shards_parent_map,
-            version: VERSION,
-            valid_after_epoch: valid_since_epoch,
+            shards_ancestor_map: shards_parent_map,
         }
     }
 
     pub fn derive(
         base_shard_layout: &ShardLayout,
         new_boundary_account: AccountId,
-        valid_since_epoch: EpochId,
-    ) -> Self {
+    ) -> Result<Self, ShardLayoutError> {
+        // ShardLayoutV3 cannot be built from earlier versions, because they don't store
+        // the complete ancestor history.
+        let mut shards_split_map = match base_shard_layout {
+            ShardLayout::V0(_) | ShardLayout::V1(_) | ShardLayout::V2(_) => {
+                return Err(ShardLayoutError::Derive(
+                    "ShardLayoutV3 cannot be derived from earlier versions",
+                ));
+            }
+            ShardLayout::V3(v3) => v3.shards_split_map.clone(),
+        };
+
         let mut boundary_accounts = base_shard_layout.boundary_accounts().clone();
         let new_boundary_idx = match boundary_accounts.binary_search(&new_boundary_account) {
             Ok(_) => panic!("duplicated boundary account"),
@@ -208,9 +211,9 @@ impl ShardLayoutV3 {
             .splice(new_boundary_idx..new_boundary_idx + 1, new_shards.clone())
             .collect_array()
             .expect("should only splice one shard");
-        let shards_split_map = [(parent_shard_id, new_shards)].into_iter().collect();
+        shards_split_map.insert(parent_shard_id, new_shards);
 
-        Self::new(boundary_accounts, shard_ids, shards_split_map, valid_since_epoch)
+        Ok(Self::new(boundary_accounts, shard_ids, shards_split_map))
     }
 
     pub fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
@@ -243,15 +246,18 @@ impl ShardLayoutV3 {
         shard_id: ShardId,
     ) -> Result<Option<ShardId>, ShardLayoutError> {
         if !self.shard_ids.contains(&shard_id) {
-            return Err(ShardLayoutError::InvalidShardIdError { shard_id });
+            return Err(ShardLayoutError::InvalidShardId { shard_id });
         }
         // This method is supposed to return `None` only if the layout has no parent layout.
         // Otherwise, if shard has no parent shard, it's considered its own parent.
         if self.shards_split_map.is_empty() {
             return Ok(None);
         }
-        match self.shards_parent_map.get(&shard_id) {
-            Some(parent_shard_id) => Ok(Some(*parent_shard_id)),
+        match self.shards_ancestor_map.get(&shard_id) {
+            Some(ancestors) => {
+                let parent = ancestors.get(0).expect("ancestors vector should never be empty");
+                Ok(Some(*parent))
+            }
             None => Ok(Some(shard_id)),
         }
     }
@@ -260,13 +266,18 @@ impl ShardLayoutV3 {
         self.id_to_index_map
             .get(&shard_id)
             .copied()
-            .ok_or(ShardLayoutError::InvalidShardIdError { shard_id })
+            .ok_or(ShardLayoutError::InvalidShardId { shard_id })
     }
 
     pub fn get_shard_id(&self, shard_index: ShardIndex) -> Result<ShardId, ShardLayoutError> {
         self.shard_ids
             .get(shard_index)
             .copied()
-            .ok_or(ShardLayoutError::InvalidShardIndexError { shard_index })
+            .ok_or(ShardLayoutError::InvalidShardIndex { shard_index })
+    }
+
+    #[inline]
+    pub fn version(&self) -> ShardVersion {
+        VERSION
     }
 }
