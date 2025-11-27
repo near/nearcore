@@ -15,7 +15,7 @@ The guide is organized as a collection of loosely coupled chapters -- you don't
 need to read them in order, feel free to peruse the TOC, and focus on
 the interesting bits. The chapters are classified into four parts:
 
-* **Protocol Specification** includes the [chain](./ChainSpec/), [network](./NetworkSpec/NetworkSpec.md), and [runtime](./RuntimeSpec/) specifications that define the NEAR Protocol blockchain.
+* **Protocol Specification** includes the formal [chain](./ChainSpec/), [network](./NetworkSpec/NetworkSpec.md), and [runtime](./RuntimeSpec/) specifications that define the NEAR Protocol blockchain.
 * [**Architecture**](./architecture/) talks about how the code works.
   So, for example, if you are interested in how a transaction flows through the
   system, look there!

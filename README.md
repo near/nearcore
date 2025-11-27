@@ -49,6 +49,7 @@ Overall, *NEAR* provides a wide range of tools for developers to easily build ap
  - [Several essential repositories](https://github.com/near/dx) to guide you in building across Near's Open Web Platform.
  - [Numerous examples][examples-url] with links to hack on them right inside your browser.
  - [Lots of documentation][docs-url], with [Tutorials][tutorials-url] and [API docs][api-docs-url].
+ - [NEAR Protocol formal specification][nomicon-io], and [docs for nearcore developers][nomicon-io].
 
 [open-web-url]: https://techcrunch.com/2016/04/10/1301496/
 [js-api]: https://github.com/near/near-api-js
@@ -58,6 +59,7 @@ Overall, *NEAR* provides a wide range of tools for developers to easily build ap
 [docs-url]: https://docs.near.org
 [tutorials-url]: https://docs.near.org/tutorials/welcome
 [api-docs-url]: https://docs.near.org/api/rpc/introduction
+[nomicon-io]: https://nomicon.io
 
 ## Join the Network
 
