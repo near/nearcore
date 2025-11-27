@@ -6,6 +6,6 @@
     },
     "produce_chunk_add_transactions_time_limit": {
         "secs": 0,
-        "nanos": 300000000
+        "nanos": 280000000
     }
 }
