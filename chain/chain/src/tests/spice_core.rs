@@ -8,6 +8,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
+use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
@@ -36,7 +37,7 @@ fn test_get_execution_by_shard_id_with_no_execution_results() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
-    let execution_results = core_reader.get_execution_results_by_shard_id(&block).unwrap();
+    let execution_results = core_reader.get_execution_results_by_shard_id(block.header()).unwrap();
     assert_eq!(execution_results, HashMap::new());
 }
 
@@ -55,7 +56,7 @@ fn test_get_execution_by_shard_id_with_some_execution_results() {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
         core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
     }
-    let execution_results = core_reader.get_execution_results_by_shard_id(&block).unwrap();
+    let execution_results = core_reader.get_execution_results_by_shard_id(block.header()).unwrap();
     assert_eq!(execution_results.len(), 1);
     assert!(execution_results.contains_key(&chunk_header.shard_id()));
 }
@@ -76,7 +77,7 @@ fn test_get_execution_by_shard_id_with_all_execution_results() {
             core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
         }
     }
-    let execution_results = core_reader.get_execution_results_by_shard_id(&block).unwrap();
+    let execution_results = core_reader.get_execution_results_by_shard_id(block.header()).unwrap();
     for chunk_header in chunks.iter_raw() {
         assert!(execution_results.contains_key(&chunk_header.shard_id()));
     }
@@ -88,7 +89,7 @@ fn test_get_execution_by_shard_id_with_all_execution_results() {
 fn test_get_block_execution_results_for_genesis() {
     let (chain, core_reader) = setup();
     let genesis = chain.genesis_block();
-    let execution_results = core_reader.get_block_execution_results(&genesis).unwrap();
+    let execution_results = core_reader.get_block_execution_results(genesis.header()).unwrap();
     assert!(execution_results.is_some());
     assert_eq!(execution_results.unwrap().0.len(), genesis.chunks().len());
 }
@@ -100,7 +101,7 @@ fn test_get_block_execution_results_with_no_execution_results() {
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
-    let execution_results = core_reader.get_block_execution_results(&block).unwrap();
+    let execution_results = core_reader.get_block_execution_results(block.header()).unwrap();
     assert!(execution_results.is_none())
 }
 
@@ -119,7 +120,7 @@ fn test_get_block_execution_results_with_some_execution_results_missing() {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
         core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
     }
-    let execution_results = core_reader.get_block_execution_results(&block).unwrap();
+    let execution_results = core_reader.get_block_execution_results(block.header()).unwrap();
     assert!(execution_results.is_none())
 }
 
@@ -139,7 +140,7 @@ fn test_get_block_execution_results_with_all_execution_results_present() {
             core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
         }
     }
-    let execution_results = core_reader.get_block_execution_results(&block).unwrap();
+    let execution_results = core_reader.get_block_execution_results(block.header()).unwrap();
     assert!(execution_results.is_some());
     let execution_results = execution_results.unwrap();
     for chunk_header in chunks.iter_raw() {
@@ -164,7 +165,7 @@ fn test_all_execution_results_exist_when_all_exist() {
             core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
         }
     }
-    assert!(core_reader.all_execution_results_exist(&block).unwrap());
+    assert!(core_reader.all_execution_results_exist(block.header()).unwrap());
 }
 
 #[test]
@@ -182,7 +183,7 @@ fn test_all_execution_results_exist_when_some_are_missing() {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
         core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
     }
-    assert!(!core_reader.all_execution_results_exist(&block).unwrap());
+    assert!(!core_reader.all_execution_results_exist(block.header()).unwrap());
 }
 
 #[test]
@@ -1118,15 +1119,23 @@ fn setup() -> (Chain, SpiceCoreReader) {
         .build();
 
     let chain = get_chain_with_genesis(Clock::real(), genesis);
-    let core_reader =
-        SpiceCoreReader::new(chain.chain_store().chain_store(), chain.epoch_manager.clone());
+    let core_reader = core_reader(&chain);
     (chain, core_reader)
+}
+
+fn core_reader(chain: &Chain) -> SpiceCoreReader {
+    SpiceCoreReader::new(
+        chain.chain_store().chain_store(),
+        chain.epoch_manager.clone(),
+        Gas::from_teragas(100),
+    )
 }
 
 fn core_writer_actor(chain: &Chain) -> SpiceCoreWriterActor {
     SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
+        core_reader(&chain),
         noop().into_sender(),
         noop().into_sender(),
     )

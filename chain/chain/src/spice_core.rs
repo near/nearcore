@@ -4,6 +4,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
+use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::spice_chunk_endorsement::{
     SpiceEndorsementCoreStatement, SpiceStoredVerifiedEndorsement,
@@ -25,20 +26,22 @@ use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
 pub struct SpiceCoreReader {
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
+    genesis_gas_limit: Gas,
 }
 
 impl SpiceCoreReader {
     pub fn new(
         chain_store: ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
+        genesis_gas_limit: Gas,
     ) -> Self {
-        Self { chain_store, epoch_manager }
+        Self { chain_store, epoch_manager, genesis_gas_limit }
     }
 
-    pub fn all_execution_results_exist(&self, block: &Block) -> Result<bool, Error> {
-        let shard_layout = self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
+    pub fn all_execution_results_exist(&self, block_header: &BlockHeader) -> Result<bool, Error> {
+        let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
         for shard_id in shard_layout.shard_ids() {
-            if self.get_execution_result(block, shard_id)?.is_none() {
+            if self.get_execution_result(block_header, shard_id)?.is_none() {
                 return Ok(false);
             }
         }
@@ -70,23 +73,23 @@ impl SpiceCoreReader {
 
     fn get_execution_result(
         &self,
-        block: &Block,
+        block_header: &BlockHeader,
         shard_id: ShardId,
     ) -> Result<Option<Arc<ChunkExecutionResult>>, Error> {
-        if block.header().is_genesis() {
-            let shard_layout = self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
+        if block_header.is_genesis() {
+            let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
             let chunk_extra = Chain::build_genesis_chunk_extra(
                 self.chain_store.store_ref(),
                 &shard_layout,
                 shard_id,
-                &block,
+                self.genesis_gas_limit,
             )?;
             Ok(Some(Arc::new(ChunkExecutionResult {
                 chunk_extra,
                 outgoing_receipts_root: CryptoHash::default(),
             })))
         } else {
-            Ok(self.get_execution_result_from_store(block.hash(), shard_id)?)
+            Ok(self.get_execution_result_from_store(block_header.hash(), shard_id)?)
         }
     }
 
@@ -108,15 +111,15 @@ impl SpiceCoreReader {
 
     pub fn get_execution_results_by_shard_id(
         &self,
-        block: &Block,
+        block_header: &BlockHeader,
     ) -> Result<HashMap<ShardId, Arc<ChunkExecutionResult>>, Error> {
         assert!(cfg!(feature = "protocol_feature_spice"));
 
         let mut results = HashMap::new();
 
-        let shard_layout = self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
+        let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
         for shard_id in shard_layout.shard_ids() {
-            let Some(result) = self.get_execution_result(block, shard_id)? else {
+            let Some(result) = self.get_execution_result(block_header, shard_id)? else {
                 continue;
             };
             results.insert(shard_id, result.clone());
@@ -128,15 +131,15 @@ impl SpiceCoreReader {
     /// missing;
     pub fn get_block_execution_results(
         &self,
-        block: &Block,
+        block_header: &BlockHeader,
     ) -> Result<Option<BlockExecutionResults>, Error> {
         assert!(cfg!(feature = "protocol_feature_spice"));
 
         let mut results = HashMap::new();
 
-        let shard_layout = self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
+        let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
         for shard_id in shard_layout.shard_ids() {
-            let Some(result) = self.get_execution_result(block, shard_id)? else {
+            let Some(result) = self.get_execution_result(block_header, shard_id)? else {
                 return Ok(None);
             };
             results.insert(shard_id, result.clone());
