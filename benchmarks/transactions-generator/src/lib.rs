@@ -703,7 +703,7 @@ impl TxGenerator {
         let controller = if let Some(controller_config) = &config.controller {
             *TX_GENERATOR_TARGET.lock() = Some(TxGeneratorTarget {
                 target_block_production_time_s: controller_config.target_block_production_time_s,
-                target_tps: schedule.first().map(|load| load.tps).unwrap_or(0) as f64,
+                target_tps: config.schedule.first().map(|load| load.tps).unwrap_or(0) as f64,
             });
 
             Some(FilteredRateController {
