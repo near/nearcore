@@ -1,23 +1,41 @@
+# ==============================================================================
+# Cargo.toml for near-async-derive
+# This crate provides procedural macros for the near-async ecosystem.
+# It leverages a Cargo Workspace for dependency and version management.
+# ==============================================================================
+
 [package]
+# Inherit common fields (like version, authors, edition, license, and repository) 
+# from the root workspace definition for centralized management.
 name = "near-async-derive"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "This crate contains derive macros for near-async"
+description = "This crate contains derive macros for near-async (primarily internal usage)."
 repository.workspace = true
 license.workspace = true
-publish = true
-
-[lints]
-workspace = true
-
-[dependencies]
-proc-macro2.workspace = true
-quote.workspace = true
-syn.workspace = true
-
-[dev-dependencies]
-pretty_assertions.workspace = true
+publish = true # Allows publishing this crate to crates.io
 
 [lib]
+# MANDATORY: This configuration marks the crate as a procedural macro library.
+# The crate must only export proc-macros and cannot export any other items.
 proc-macro = true
+
+# ==============================================================================
+# Dependencies (Inherited from Workspace)
+# ==============================================================================
+
+[dependencies]
+# Dependencies required for writing procedural macros.
+# All versions are centralized in the workspace's root Cargo.toml.
+proc-macro2.workspace = true # Core library for manipulating token streams
+quote.workspace = true        # Used for generating Rust code (quoting tokens)
+syn.workspace = true          # Parser for Rust source code (parsing input to macros)
+
+[dev-dependencies]
+# Dependencies used only during testing or development.
+pretty_assertions.workspace = true
+
+[lints]
+# Inherit linting policy (e.g., rustc and clippy lints) from the root workspace configuration.
+workspace = true
