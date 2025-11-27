@@ -9,12 +9,13 @@ please refer to the user docs at <https://docs.near.org>.
 This guide is built with [mdBook](https://rust-lang.github.io/mdBook/)
 from sources in the [nearcore repository](https://github.com/near/nearcore/).
 You can edit it by pressing the "edit" icon in the top right corner, we welcome
-all contributions. The guide is hosted at <https://near.github.io/nearcore/>.
+all contributions. The guide is hosted at <https://nomicon.io/>.
 
 The guide is organized as a collection of loosely coupled chapters -- you don't
 need to read them in order, feel free to peruse the TOC, and focus on
-the interesting bits. The chapters are classified into three parts:
+the interesting bits. The chapters are classified into four parts:
 
+* **Protocol Specification** includes the [chain](./ChainSpec/), [network](./NetworkSpec/NetworkSpec.md), and [runtime](./RuntimeSpec/) specifications that define the NEAR Protocol blockchain.
 * [**Architecture**](./architecture/) talks about how the code works.
   So, for example, if you are interested in how a transaction flows through the
   system, look there!
