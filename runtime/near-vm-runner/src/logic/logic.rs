@@ -3552,16 +3552,10 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.result_state.gas_counter.pay_base(utf8_decoding_base)?;
         self.result_state.gas_counter.pay_per(utf8_decoding_byte, buf.len() as u64)?;
 
-        // We return an illegally constructed AccountId here for the sake of ensuring
-        // backwards compatibility. For paths previously involving validation, like receipts
-        // we retain validation further down the line in node-runtime/verifier.rs#fn(validate_receipt)
-        // mimicking previous behaviour.
         let account_id = String::from_utf8(buf.into_owned())
-            .map(
-                #[allow(deprecated)]
-                AccountId::new_unvalidated,
-            )
-            .map_err(|_| HostError::BadUTF8)?;
+            .map_err(|_| HostError::BadUTF8)?
+            .parse()
+            .map_err(|_| HostError::InvalidAccountId)?;
         Ok(account_id)
     }
 

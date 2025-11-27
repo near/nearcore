@@ -295,17 +295,7 @@ pub(crate) fn validate_receipt(
         }
     }
 
-    // We retain these checks here as to maintain backwards compatibility
-    // with AccountId validation since we illegally parse an AccountId
-    // in near-vm-logic/logic.rs#fn(VMLogic::read_and_parse_account_id)
-    AccountId::validate(receipt.predecessor_id().as_ref()).map_err(|_| {
-        ReceiptValidationError::InvalidPredecessorId {
-            account_id: receipt.predecessor_id().to_string(),
-        }
-    })?;
-    AccountId::validate(receipt.receiver_id().as_ref()).map_err(|_| {
-        ReceiptValidationError::InvalidReceiverId { account_id: receipt.receiver_id().to_string() }
-    })?;
+    // Account ID validation is now handled in read_and_parse_account_id
 
     match receipt.versioned_receipt() {
         VersionedReceiptEnum::Action(action_receipt)
@@ -351,11 +341,7 @@ fn validate_action_receipt(
         });
     }
 
-    if let Some(account_id) = receipt.refund_to() {
-        AccountId::validate(account_id.as_ref()).map_err(|_| {
-            ReceiptValidationError::InvalidRefundTo { account_id: account_id.to_string() }
-        })?;
-    }
+    // Account ID validation for refund_to is now handled in read_and_parse_account_id
 
     validate_actions(limit_config, receipt.actions(), receiver, current_protocol_version)
         .map_err(ReceiptValidationError::ActionsValidation)

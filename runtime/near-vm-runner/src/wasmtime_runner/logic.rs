@@ -3935,11 +3935,9 @@ fn read_and_parse_account_id(
     // we retain validation further down the line in node-runtime/verifier.rs#fn(validate_receipt)
     // mimicking previous behaviour.
     let account_id = String::from_utf8(buf.into())
-        .map(
-            #[allow(deprecated)]
-            AccountId::new_unvalidated,
-        )
-        .map_err(|_| HostError::BadUTF8)?;
+        .map_err(|_| HostError::BadUTF8)?
+        .parse()
+        .map_err(|_| HostError::InvalidAccountId)?;
     Ok(account_id)
 }
 
