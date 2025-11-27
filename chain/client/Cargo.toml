@@ -1,5 +1,11 @@
+# -----------------------------------------------------------------------------
+# near-client Cargo.toml Configuration
+# Optimized for readability within a workspace (monorepo) environment.
+# -----------------------------------------------------------------------------
+
 [package]
 name = "near-client"
+# Use workspace definitions for centralized version and metadata management (best practice)
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -12,32 +18,51 @@ publish = false
 workspace = true
 
 [dependencies]
+# ------------------------------------
+# 1. Standard Rust Ecosystem Dependencies
+# ------------------------------------
+# Error Handling and utilities
 anyhow.workspace = true
-borsh.workspace = true
-bytesize.workspace = true
-futures.workspace = true
+thiserror.workspace = true
 itertools.workspace = true
-lru.workspace = true
+bytesize.workspace = true
 num-rational.workspace = true
-parking_lot.workspace = true
-rand.workspace = true
-rayon.workspace = true
-reed-solomon-erasure.workspace = true
 regex.workspace = true
-reqwest.workspace = true
-rust-s3.workspace = true
+strum.workspace = true
+tempfile.workspace = true
+
+# Serde and JSON handling
 serde_json.workspace = true
 serde.workspace = true
-strum.workspace = true
-sysinfo.workspace = true
-tempfile.workspace = true
-thiserror.workspace = true
-time.workspace = true
+borsh.workspace = true
+
+# Async, Concurrency, and Networking
+futures.workspace = true
+parking_lot.workspace = true
+rayon.workspace = true
+reqwest.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tokio-util.workspace = true
+
+# Storage, Caching, and External Services
+lru.workspace = true
+rust-s3.workspace = true # S3 client, likely for backup/archival
+
+# System & Monitoring
+sysinfo.workspace = true
 tracing.workspace = true
 
+# Cryptography and Data Processing
+rand.workspace = true
+reed-solomon-erasure.workspace = true # Used for data redundancy/sharding
+
+# Time management
+time.workspace = true
+
+# ------------------------------------
+# 2. Internal NEAR Protocol Crates
+# ------------------------------------
 near-async.workspace = true
 near-cache.workspace = true
 near-chain-configs.workspace = true
@@ -61,23 +86,29 @@ node-runtime.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
-near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
 criterion.workspace = true
 testlib.workspace = true
+near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
+
 
 [[bench]]
 name = "generate_state_witness_parts"
 harness = false
 
 [features]
-# if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
+# If enabled, asserts in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = ["near-chain/byzantine_asserts"]
+# Enables shadow validation of chunks, typically used for testing/analysis.
 shadow_chunk_validation = ["near-chain/shadow_chunk_validation"]
+
+# Enables the 'spice' protocol feature flags across relevant internal crates.
 protocol_feature_spice = [
     "near-chain/protocol_feature_spice",
     "near-epoch-manager/protocol_feature_spice",
     "near-store/protocol_feature_spice",
 ]
+
+# Enables test-specific features across internal dependencies.
 test_features = [
     "near-network/test_features",
     "near-chain/test_features",
@@ -85,6 +116,8 @@ test_features = [
     "near-primitives/test_features",
     "near-vm-runner/test_features",
 ]
+
+# Enables features intended for nightly builds or development cycles.
 nightly = [
     "near-chain-configs/nightly",
     "near-chain/nightly",
@@ -101,6 +134,8 @@ nightly = [
     "near-telemetry/nightly",
     "near-vm-runner/nightly",
 ]
+
+# Enables sandbox mode features.
 sandbox = [
     "near-client-primitives/sandbox",
     "near-chain/sandbox",
@@ -108,4 +143,6 @@ sandbox = [
 ]
 
 [package.metadata.cargo-machete]
+# This ignores 'rust-s3' from unused dependency checks, likely because it is 
+# conditionally compiled or used only under specific feature flags/platforms.
 ignored = ["rust-s3"]
