@@ -344,6 +344,17 @@ fn validate_action_receipt(
     receiver: &AccountId,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ReceiptValidationError> {
+    if matches!(receipt, VersionedActionReceipt::V2(_))
+        && !ProtocolFeature::DeterministicAccountIds.enabled(current_protocol_version)
+    {
+        return Err(ReceiptValidationError::ActionsValidation(
+            ActionsValidationError::UnsupportedProtocolFeature {
+                protocol_feature: "DeterministicAccountIds".to_owned(),
+                version: current_protocol_version,
+            },
+        ));
+    }
+
     if receipt.input_data_ids().len() as u64 > limit_config.max_number_input_data_dependencies {
         return Err(ReceiptValidationError::NumberInputDataDependenciesExceeded {
             number_of_input_data_dependencies: receipt.input_data_ids().len() as u64,
