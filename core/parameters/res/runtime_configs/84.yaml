@@ -1,0 +1,2 @@
+# Enable strict AccountID validation
+forbid_unvalidated_account_id: { old: false, new: true }
