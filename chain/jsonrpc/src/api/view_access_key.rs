@@ -12,7 +12,7 @@ use super::{Params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcViewAccessKeyRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        Params::new(value).unwrap_or_parse()
+        Params::parse(value)
     }
 }
 
