@@ -32,8 +32,8 @@ use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{
-    ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandler,
-    RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActorInner,
+    ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandlerActor,
+    RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor,
     spawn_chunk_endorsement_handler_actor, spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
@@ -72,9 +72,9 @@ use near_async::ActorSystem;
 use near_async::futures::FutureSpawner;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
-use near_client::client_actor::{ClientActorInner, SpiceClientConfig};
+use near_client::client_actor::{ClientActor, SpiceClientConfig};
 #[cfg(feature = "tx_generator")]
-use near_transactions_generator::actor::GeneratorActorImpl;
+use near_transactions_generator::actor::GeneratorActor;
 
 pub fn get_default_home() -> PathBuf {
     if let Ok(near_home) = std::env::var("NEAR_HOME") {
@@ -324,14 +324,14 @@ fn spawn_spice_actors(
 }
 
 pub struct NearNode {
-    pub client: TokioRuntimeHandle<ClientActorInner>,
-    pub view_client: MultithreadRuntimeHandle<ViewClientActorInner>,
+    pub client: TokioRuntimeHandle<ClientActor>,
+    pub view_client: MultithreadRuntimeHandle<ViewClientActor>,
     // TODO(darioush): Remove once we migrate `slow_test_state_sync_headers` and
     // `slow_test_state_sync_headers_no_tracked_shards` to testloop.
     pub state_request_client: MultithreadRuntimeHandle<StateRequestActor>,
-    pub rpc_handler: MultithreadRuntimeHandle<RpcHandler>,
+    pub rpc_handler: MultithreadRuntimeHandle<RpcHandlerActor>,
     #[cfg(feature = "tx_generator")]
-    pub tx_generator: TokioRuntimeHandle<GeneratorActorImpl>,
+    pub tx_generator: TokioRuntimeHandle<GeneratorActor>,
     /// The cold_store_loop_handle will only be set if the cold store is configured.
     /// It's a handle to control the cold store actor that copies data from the hot store to the cold store.
     pub cold_store_loop_handle: Option<Arc<AtomicBool>>,
@@ -475,6 +475,8 @@ pub async fn start_with_config_and_synchronization_impl(
         runtime.clone(),
         storage.get_hot_store(),
         storage.get_cloud_storage(),
+        shard_tracker.clone(),
+        epoch_manager.clone(),
     )?;
 
     let telemetry =
@@ -500,7 +502,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
-    let view_client_addr = ViewClientActorInner::spawn_multithread_actor(
+    let view_client_addr = ViewClientActor::spawn_multithread_actor(
         Clock::real(),
         actor_system.clone(),
         chain_genesis.clone(),
@@ -653,12 +655,14 @@ pub async fn start_with_config_and_synchronization_impl(
         config.validator_signer.clone(),
         split_store.unwrap_or_else(|| storage.get_hot_store()),
         config.client_config.chunk_request_retry_period,
+        config.client_config.chunks_cache_height_horizon,
     );
     shards_manager_adapter.bind(shards_manager_actor);
 
     let rpc_handler_config = RpcHandlerConfig {
         handler_threads: config.client_config.transaction_request_handler_threads,
         tx_routing_height_horizon: config.client_config.tx_routing_height_horizon,
+        disable_tx_routing: config.client_config.disable_tx_routing,
         epoch_length: config.client_config.epoch_length,
         transaction_validity_period: config.genesis.config.transaction_validity_period,
     };

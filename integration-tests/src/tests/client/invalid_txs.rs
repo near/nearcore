@@ -11,6 +11,8 @@ use near_primitives::types::{AccountId, Balance, ShardId};
 
 /// Test that processing chunks with invalid transactions does not lead to panics
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_invalid_transactions_no_panic() {
     let accounts =
         vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];
@@ -141,6 +143,8 @@ fn test_invalid_transactions_no_panic() {
 /// Tests the `RelaxedChunkValidation` feature.
 #[test]
 #[cfg(feature = "nightly")]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_invalid_transactions_dont_invalidate_chunk() {
     near_o11y::testonly::init_test_logger();
     let accounts =

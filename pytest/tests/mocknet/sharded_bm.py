@@ -3,6 +3,7 @@ This script is used to run a sharded benchmark on a forknet.
 """
 
 from argparse import ArgumentParser
+from collections import defaultdict
 import os
 import sys
 import json
@@ -13,6 +14,7 @@ import subprocess
 import time
 import datetime
 from tqdm import tqdm
+from rc import pmap
 
 from types import SimpleNamespace
 from mirror import CommandContext, get_nodes_status, init_cmd, new_test_cmd, \
@@ -208,24 +210,74 @@ def handle_init(args):
 
     apply_json_patches(args)
 
+    # Force save_untracked_partial_chunks_parts=true for the initialization run.
+    # This ensures that chunks produced during init are persisted to disk and
+    # survive the node restart that happens when the benchmark actually starts.
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
+    run_cmd_args.cmd = f"jq '.save_untracked_partial_chunks_parts = true' {CONFIG_PATH} > tmp.json && mv tmp.json {CONFIG_PATH}"
+    run_remote_cmd(CommandContext(run_cmd_args))
+
     start_nodes(args)
 
     time.sleep(10)
 
-    run_cmd_args = copy.deepcopy(args)
-    run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
-    accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
-    run_cmd_args.cmd = f"\
-        shard=$(python3 {BENCHNET_DIR}/helpers/get_tracked_shard.py) && \
-        echo \"Tracked shard: $shard\" && \
-        rm -rf {BENCHNET_DIR}/user-data && \
-        mkdir -p {BENCHNET_DIR}/user-data && \
-        cp {NEAR_HOME}/user-data/shard_$shard.json {accounts_path} \
-    "
+    # Each CP gets its own account file with unique access keys
+    cp_names = sorted(args.forknet_details['cp_instance_names'])
 
-    run_remote_cmd(CommandContext(run_cmd_args))
+    cp_nodes = []
+    for cp_name in cp_names:
+        run_cmd_args = copy.deepcopy(args)
+        run_cmd_args.host_filter = cp_name
+        ctx = CommandContext(run_cmd_args)
+        cp_nodes.append(ctx.get_targeted()[0])
+
+    # Query all CPs in parallel to get their tracked shards
+    query_cmd = f"python3 {BENCHNET_DIR}/helpers/get_tracked_shard.py"
+    results = pmap(
+        lambda node: (node, node.run_cmd(query_cmd, return_on_fail=True)),
+        cp_nodes)
+
+    # Build mapping: shard_id -> list of CP names tracking that shard
+    shard_to_cps = defaultdict(list)
+    for node, result in results:
+        shard = result.stdout.strip()
+        if not shard.isdigit():
+            logger.error(
+                f"Failed to get shard for {node.name()}: {result.stdout}")
+            sys.exit(1)
+        shard_to_cps[shard].append(node.name())
+
+    # For each shard, copy account files to all CPs tracking that shard
+    logger.info(
+        f"Distributing account files across {len(shard_to_cps)} shards...")
+    for shard, cps_in_shard in shard_to_cps.items():
+        cp_names_csv = ','.join(sorted(cps_in_shard))
+
+        logger.info(f"Shard {shard}: assigning {len(cps_in_shard)} CPs")
+
+        run_cmd_args = copy.deepcopy(args)
+        run_cmd_args.host_filter = f"({'|'.join(cps_in_shard)})"
+        source_accounts_path = f"{BENCHNET_DIR}/user-data/accounts.json"
+        source_accounts_dir = os.path.dirname(source_accounts_path)
+        receiver_accounts_dir = f"{BENCHNET_DIR}/user-data/receiver-accounts/"
+        run_cmd_args.cmd = f"""
+            my_hostname=$(hostname)
+            slot=$(python3 -c "print('{cp_names_csv}'.split(',').index('$my_hostname'))")
+            rm -rf {BENCHNET_DIR}/user-data
+            mkdir -p {source_accounts_dir}
+            mkdir -p {receiver_accounts_dir}
+            cp {NEAR_HOME}/user-data/shard_{shard}_cp_${{slot}}.json {source_accounts_path}
+            cp {NEAR_HOME}/user-data/shard_*.json {receiver_accounts_dir}
+            echo "CP $my_hostname assigned shard {shard}, slot $slot"
+        """
+        run_remote_cmd(CommandContext(run_cmd_args))
 
     stop_nodes(args)
+
+    # Re-apply JSON patches to restore the original config
+    # so the benchmark runs with the intended settings.
+    apply_json_patches(args)
 
 
 def apply_json_patches(args):
@@ -313,43 +365,31 @@ def handle_reset(args):
     reset_cmd(CommandContext(reset_cmd_args))
 
 
-def start_nodes(args, enable_tx_generator=False):
-    """Start the benchmark nodes with the given parameters."""
-    if enable_tx_generator:
-        logger.info("Setting tx generator parameters")
+def enable_tx_generator(args, receivers_from_senders_ratio: float):
+    logger.info("Setting tx generator parameters")
 
-        accounts_path = f"{BENCHNET_DIR}/user-data/shard.json"
-        tx_generator_settings = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings.json"
+    # todo(slavas): these paths are implicitly assumed to correspond to similar from the handle_init() - terribly fragile.
+    accounts_path = f"{BENCHNET_DIR}/user-data/accounts.json"
+    receiver_accounts_dir = f"{BENCHNET_DIR}/user-data/receiver-accounts"
+    tx_generator_settings = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings.json"
+    tx_generator_settings_tmp = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings-tmp.json"
 
-        run_cmd_args = copy.deepcopy(args)
-        run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
-        run_cmd_args.cmd = f"\
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
+    run_cmd_args.cmd = f"\
             jq --arg accounts_path {accounts_path} \
-            '.tx_generator = {{ \"accounts_path\": $accounts_path }}' {CONFIG_PATH} > tmp.$$.json && \
-            mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
+               --arg receiver_accounts_dir {receiver_accounts_dir} \
+               --argjson same_shard_traffic {receivers_from_senders_ratio} \
+               '.tx_generator.accounts_path = $accounts_path | .tx_generator.receiver_accounts_path = $receiver_accounts_dir | .tx_generator.receivers_from_senders_ratio = $same_shard_traffic' \
+               {tx_generator_settings} > {tx_generator_settings_tmp} && \
+            jq -s '.[0] * .[1]' {CONFIG_PATH} {tx_generator_settings_tmp} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} \
         "
 
-        run_remote_cmd(CommandContext(run_cmd_args))
+    run_remote_cmd(CommandContext(run_cmd_args))
 
-        # TODO: This is pretty bad, every time we add a new field to the tx_generator config we have to add it here.
-        run_cmd_args = copy.deepcopy(args)
-        run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
-        run_cmd_args.cmd = f"\
-            jq --slurpfile patch {tx_generator_settings} \
-            '. as $orig \
-            | $patch[0].tx_generator.schedule as $sched   \
-            | .[\"tx_generator\"] += {{\"schedule\": $sched }} \
-            | $patch[0].tx_generator.controller as $ctrl   \
-            | .[\"tx_generator\"] += {{\"controller\": $ctrl }} \
-            | $patch[0].tx_generator.sender_accounts_zipf_skew as $sender_accounts_zipf_skew \
-            | .[\"tx_generator\"] += {{\"sender_accounts_zipf_skew\": $sender_accounts_zipf_skew }} \
-            | $patch[0].tx_generator.receiver_accounts_zipf_skew as $receiver_accounts_zipf_skew \
-            | .[\"tx_generator\"] += {{\"receiver_accounts_zipf_skew\": $receiver_accounts_zipf_skew }} \
-            ' {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
-        "
 
-        run_remote_cmd(CommandContext(run_cmd_args))
-
+def start_nodes(args):
+    """Start the benchmark nodes with the given parameters."""
     logger.info("Starting nodes")
     start_nodes_cmd_args = copy.deepcopy(args)
     start_nodes_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
@@ -466,7 +506,7 @@ def handle_get_profiles(args, extra):
     if args.host_filter is None:
         machines = sorted(args.forknet_details['cp_instance_names'])
         machine = machines[0]
-        logger.info(f"Targeting {machine}")
+        logger.info(f"Targeting {machine} for profile fetching")
         args.host_filter = machine
 
     extra_parameters = ' '.join(extra)
@@ -496,15 +536,52 @@ def handle_get_logs(args):
 
 def handle_start(args):
     """Handle the start command - start the benchmark."""
-    start_nodes(args, args.enable_tx_generator)
+    if args.enable_tx_generator:
+        enable_tx_generator(args, args.receivers_from_senders_ratio)
+    start_nodes(args)
 
 
 def main():
-    try:
-        unique_id = os.environ['FORKNET_NAME']
-        case = os.environ['CASE']
-    except KeyError as e:
-        logger.error(f"Error: Required environment variable {e} is not set")
+    parser = ArgumentParser(
+        description='Forknet cluster parameters to launch a sharded benchmark')
+    parser.add_argument(
+        '--unique-id',
+        help='Forknet unique ID (FORKNET_NAME)',
+        default=os.environ.get('FORKNET_NAME'),
+    )
+    parser.add_argument(
+        '--mocknet-id',
+        help='Mocknet ID (MOCKNET_ID)',
+        default=os.environ.get('MOCKNET_ID'),
+    )
+    parser.add_argument(
+        '--case',
+        help='Benchmark case name',
+        default=os.environ.get('CASE'),
+        required=os.environ.get('CASE') is None,
+    )
+    parser.add_argument("--start-height", default=START_HEIGHT)
+
+    # Parse early to get unique_id, mocknet_id, and case
+    if '--' in sys.argv:
+        idx = sys.argv.index('--')
+        my_args = sys.argv[1:idx]
+        extra_args = sys.argv[idx + 1:]
+    else:
+        my_args = sys.argv[1:]
+        extra_args = []
+    early_args, _ = parser.parse_known_args(my_args)
+
+    unique_id = early_args.unique_id
+    mocknet_id = early_args.mocknet_id
+    case = early_args.case
+
+    if unique_id is None and mocknet_id is None:
+        logger.error(
+            f"Error: Either --unique-id or --mocknet-id must be provided")
+        sys.exit(1)
+    if case is None:
+        logger.error(f"Error: --case must be provided")
         sys.exit(1)
 
     try:
@@ -515,11 +592,9 @@ def main():
         logger.error(f"Error reading binary_url from {bm_params_path}: {e}")
         sys.exit(1)
 
-    forknet_details = fetch_forknet_details(unique_id, bm_params)
+    forknet_details = fetch_forknet_details(unique_id or mocknet_id, bm_params)
     logger.info(forknet_details)
 
-    parser = ArgumentParser(
-        description='Forknet cluster parameters to launch a sharded benchmark')
     parser.set_defaults(
         chain_id=CHAIN_ID,
         start_height=START_HEIGHT,
@@ -531,8 +606,8 @@ def main():
         host_filter=None,
         host_type="nodes",
         select_partition=None,
+        mocknet_id=mocknet_id,
     )
-    parser.add_argument("--start_height")
 
     subparsers = parser.add_subparsers(
         dest='command',
@@ -555,6 +630,13 @@ def main():
         '--enable-tx-generator',
         action='store_true',
         help='Enable the tx generator',
+    )
+    start_parser.add_argument(
+        '--receivers-from-senders-ratio',
+        type=float,
+        default=1.0,
+        help=
+        'Ratio of receiver accounts selected from the sender accounts (default: 1.0 (all receivers are selected from senders list))',
     )
 
     stop_parser = subparsers.add_parser('stop', help='Stop the benchmark')
@@ -609,14 +691,6 @@ def main():
     get_logs_parser.add_argument('--host-filter',
                                  default=None,
                                  help='Filter to select specific hosts')
-
-    if '--' in sys.argv:
-        idx = sys.argv.index('--')
-        my_args = sys.argv[1:idx]
-        extra_args = sys.argv[idx + 1:]
-    else:
-        my_args = sys.argv[1:]
-        extra_args = []
 
     args = parser.parse_args(my_args)
 

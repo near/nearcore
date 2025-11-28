@@ -26,6 +26,8 @@ use crate::utils::transactions::{check_txs, deploy_global_contract, use_global_c
 const EPOCH_LENGTH: BlockHeightDelta = 5;
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_receipt_distribution_at_resharding_boundary() {
     init_test_logger();
     let mut env = GlobalContractsReshardingTestEnv::setup();

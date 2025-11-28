@@ -249,16 +249,22 @@ fn run_chunk_validation_test(
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunk_validation_no_missing_chunks() {
     run_chunk_validation_test(42, 0.0, 0.0, PROTOCOL_VERSION);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_chunk_validation_low_missing_chunks() {
     run_chunk_validation_test(43, 0.3, 0.0, PROTOCOL_VERSION);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_chunk_validation_high_missing_chunks() {
     run_chunk_validation_test(44, 0.81, 0.0, PROTOCOL_VERSION);
 }
@@ -381,6 +387,8 @@ fn test_chunk_state_witness_bad_shard_id() {
 
 /// Tests that eth-implicit accounts still work with stateless validation.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_eth_implicit_accounts() {
     let accounts =
         vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];

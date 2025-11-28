@@ -9,8 +9,8 @@ use nearcore::{load_test_config, start_with_config};
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, shutdown_all_actors};
-use near_client::ViewClientActorInner;
-use near_client::client_actor::ClientActorInner;
+use near_client::ViewClientActor;
+use near_client::client_actor::ClientActor;
 use near_store::db::RocksDB;
 
 async fn start_nodes(
@@ -25,7 +25,7 @@ async fn start_nodes(
 ) -> (
     Genesis,
     Vec<String>,
-    Vec<(TokioRuntimeHandle<ClientActorInner>, MultithreadRuntimeHandle<ViewClientActorInner>)>,
+    Vec<(TokioRuntimeHandle<ClientActor>, MultithreadRuntimeHandle<ViewClientActor>)>,
 ) {
     init_integration_logger();
 
@@ -130,10 +130,7 @@ impl NodeCluster {
         F: FnOnce(
                 near_chain_configs::Genesis,
                 Vec<String>,
-                Vec<(
-                    TokioRuntimeHandle<ClientActorInner>,
-                    MultithreadRuntimeHandle<ViewClientActorInner>,
-                )>,
+                Vec<(TokioRuntimeHandle<ClientActor>, MultithreadRuntimeHandle<ViewClientActor>)>,
             ) -> R
             + 'static,
     {

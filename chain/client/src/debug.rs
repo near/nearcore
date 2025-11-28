@@ -1,7 +1,7 @@
 //! Structs in this file are used for debug purposes, and might change at any time
 //! without backwards compatibility.
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
-use crate::client_actor::ClientActorInner;
+use crate::client_actor::ClientActor;
 use itertools::Itertools;
 use near_async::messaging::Handler;
 use near_async::time::{Clock, Instant};
@@ -19,7 +19,6 @@ use near_client_primitives::{
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::log_assert;
-use near_performance_metrics_macros::perf;
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::EpochError;
 use near_primitives::state_sync::get_num_state_parts;
@@ -171,8 +170,7 @@ impl BlockProductionTracker {
     }
 }
 
-impl Handler<DebugStatus, Result<DebugStatusResponse, StatusError>> for ClientActorInner {
-    #[perf]
+impl Handler<DebugStatus, Result<DebugStatusResponse, StatusError>> for ClientActor {
     fn handle(&mut self, msg: DebugStatus) -> Result<DebugStatusResponse, StatusError> {
         match msg {
             DebugStatus::SyncStatus => Ok(DebugStatusResponse::SyncStatus(
@@ -302,7 +300,7 @@ fn get_prev_epoch_identifier(
     Some(ValidatorInfoIdentifier::EpochId(*prev_epoch_last_block_header.epoch_id()))
 }
 
-impl ClientActorInner {
+impl ClientActor {
     // Gets a list of block producers, chunk producers and chunk validators for a given epoch.
     fn get_validators_for_epoch(
         &self,

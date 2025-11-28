@@ -85,6 +85,18 @@ pub enum Provenance {
     PRODUCED,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum StatePartValidationResult {
+    Valid,
+    Invalid,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum StateRootNodeValidationResult {
+    Valid,
+    Invalid,
+}
+
 /// Information about processed block.
 #[derive(Debug, Clone)]
 pub struct AcceptedBlock {
@@ -211,6 +223,8 @@ pub struct ChainConfig {
     pub save_trie_changes: bool,
     /// Whether to persist transaction outcomes on disk or not.
     pub save_tx_outcomes: bool,
+    /// Whether to persist state changes on disk or not.
+    pub save_state_changes: bool,
     /// Number of threads to execute background migration work.
     /// Currently used for flat storage background creation.
     pub background_migration_threads: usize,
@@ -225,6 +239,7 @@ impl ChainConfig {
         Self {
             save_trie_changes: true,
             save_tx_outcomes: true,
+            save_state_changes: true,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::test(),
@@ -553,7 +568,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
         part_id: PartId,
         part: &StatePart,
-    ) -> bool;
+    ) -> StatePartValidationResult;
 
     /// Should be executed after accepting all the parts to set up a new state.
     fn apply_state_part(
@@ -581,7 +596,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         state_root_node: &StateRootNode,
         state_root: &StateRoot,
-    ) -> bool;
+    ) -> StateRootNodeValidationResult;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 

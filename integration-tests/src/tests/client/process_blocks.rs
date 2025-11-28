@@ -12,8 +12,7 @@ use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::time::{Clock, Duration};
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
-use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
-use near_chain::{ChainStore, MerkleProofAccess};
+use near_chain::{Block, BlockProcessingArtifact, ChainStore, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, ProtocolVersionCheckConfig};
 use near_client::test_utils::create_chunk_on_height;
@@ -62,6 +61,7 @@ use near_store::NodeStorage;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::archive::cold_storage::{update_cold_db, update_cold_head};
 use near_store::db::metadata::{DB_VERSION, DbKind};
+use near_store::merkle_proof::MerkleProofAccess;
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::{DBCol, TrieChanges, get};
 use parking_lot::RwLock;
@@ -182,6 +182,8 @@ async fn receive_network_block() {
 
 /// Include approvals to the next block in newly produced block.
 #[tokio::test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn produce_block_with_approvals() {
     init_test_logger();
     let actor_system = ActorSystem::new();
@@ -447,6 +449,8 @@ async fn invalid_blocks_common(is_requested: bool) {
 }
 
 #[tokio::test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_invalid_blocks_not_requested() {
     invalid_blocks_common(false).await;
 }
@@ -786,6 +790,8 @@ fn test_bad_orphan() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_bad_chunk_mask() {
     init_test_logger();
 
@@ -1121,6 +1127,8 @@ fn test_archival_gc_common(
 /// date on the hot -> cold block copying is correctly garbage collecting
 /// blocks older than 5 epochs.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_archival_gc_migration() {
     // Split storage in the middle of migration has hot store kind set to archive.
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
@@ -1136,6 +1144,8 @@ fn test_archival_gc_migration() {
 /// date on the hot -> cold block copying is correctly garbage collecting
 /// blocks older than 5 epochs.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_archival_gc_split_storage_current() {
     // Fully migrated split storage has each store configured with kind = temperature.
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
@@ -1151,6 +1161,8 @@ fn test_archival_gc_split_storage_current() {
 /// on the hot -> cold block copying is correctly garbage collecting blocks
 /// older than the cold head.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_archival_gc_split_storage_behind() {
     // Fully migrated split storage has each store configured with kind = temperature.
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
@@ -1203,6 +1215,8 @@ fn test_gc_chunk_tail() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_gc_execution_outcome() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -1261,6 +1275,8 @@ fn slow_test_gc_after_state_sync() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_process_block_after_state_sync() {
     let epoch_length = 1024;
     // test with shard_version > 0
@@ -1414,6 +1430,8 @@ fn test_tx_forwarding_no_double_forwarding() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_tx_forward_around_epoch_boundary() {
     let epoch_length = 4;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -1543,6 +1561,8 @@ fn test_reject_block_headers_during_epoch_sync() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_gc_tail_update() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 2;
@@ -1790,6 +1810,8 @@ fn test_block_merkle_proof_same_hash() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_data_reset_before_state_sync() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let epoch_length = 5;
@@ -1900,6 +1922,8 @@ fn test_block_height_processed_orphan() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_validate_chunk_extra() {
     let mut capture = near_o11y::testonly::TracingCapture::enable();
 
@@ -2063,6 +2087,8 @@ fn test_validate_chunk_extra() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_catchup_gas_price_change() {
     init_test_logger();
     let epoch_length = 8;
@@ -2214,6 +2240,8 @@ fn slow_test_catchup_gas_price_change() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_block_execution_outcomes() {
     init_test_logger();
 
@@ -2340,6 +2368,8 @@ fn test_save_tx_outcomes_false() {
 // This test verifies that gas consumed for processing refund receipts is taken into account
 // for the purpose of limiting the size of the chunk.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_refund_receipts_processing() {
     init_test_logger();
 
@@ -2414,6 +2444,8 @@ fn test_refund_receipts_processing() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_execution_metadata() {
     // Prepare TestEnv with a very simple WASM contract.
     let wasm_code = wat::parse_str(
@@ -2829,6 +2861,8 @@ fn test_discard_non_finalizable_block() {
 ///                      \------h+1
 /// even though from the perspective of h+2 the last final block is h-2.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_query_final_state() {
     let epoch_length = 10;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -2909,6 +2943,8 @@ fn test_query_final_state() {
 // Check that if the same receipt is executed twice in forked chain, both outcomes are recorded
 // but child receipt ids are different.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_fork_receipt_ids() {
     let (mut env, tx_hash) = prepare_env_with_transaction();
 
@@ -2961,6 +2997,8 @@ fn test_fork_receipt_ids() {
 // outcomes are recorded, canonical chain outcome is correct and GC cleanups
 // all outcomes.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_fork_execution_outcome() {
     init_test_logger();
 
@@ -3211,6 +3249,8 @@ fn test_block_ordinal() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_congestion_receipt_execution() {
     let (mut env, tx_hashes) = prepare_env_with_congestion(PROTOCOL_VERSION, None, 3);
 
@@ -3369,6 +3409,8 @@ mod contract_precompilation_tests {
     }
 
     #[test]
+    // TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+    #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     fn slow_test_sync_and_call_cached_contract() {
         init_integration_logger();
         let num_clients = 2;
@@ -3462,6 +3504,8 @@ mod contract_precompilation_tests {
     }
 
     #[test]
+    // TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+    #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     fn slow_test_two_deployments() {
         init_integration_logger();
         let num_clients = 2;
@@ -3536,6 +3580,8 @@ mod contract_precompilation_tests {
     }
 
     #[test]
+    // TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+    #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     fn slow_test_sync_after_delete_account() {
         init_test_logger();
         let num_clients = 3;

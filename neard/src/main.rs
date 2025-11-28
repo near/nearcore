@@ -8,7 +8,6 @@ use nearcore::get_default_home;
 use std::env;
 use std::path::PathBuf;
 use std::sync::LazyLock;
-use std::time::Duration;
 
 static NEARD_VERSION: &str = env!("NEARD_VERSION");
 static NEARD_BUILD: &str = env!("NEARD_BUILD");
@@ -59,7 +58,6 @@ fn main() -> anyhow::Result<()> {
     // We use it to automatically search the for root certificates to perform HTTPS calls
     // (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();
-    near_performance_metrics::process::schedule_printing_performance_stats(Duration::from_secs(60));
 
     // The default FD soft limit in linux is 1024.
     // We use more than that, for example we support up to 1000 TCP

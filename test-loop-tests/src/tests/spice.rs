@@ -7,7 +7,7 @@ use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::{ProcessTxRequest, Query, ViewClientActorInner};
+use near_client::{ProcessTxRequest, Query, ViewClientActor};
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
@@ -730,10 +730,7 @@ fn schedule_send_money_txs(
     (sent_txs, balance_changes)
 }
 
-fn query_view_account(
-    view_client: &mut ViewClientActorInner,
-    account_id: AccountId,
-) -> AccountView {
+fn query_view_account(view_client: &mut ViewClientActor, account_id: AccountId) -> AccountView {
     // Note that TestLoopNode::view_account_query doesn't work with spice yet.
     let query_response = view_client
         .handle(Query::new(

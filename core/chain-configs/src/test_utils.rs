@@ -17,8 +17,9 @@ use crate::{
     GenesisConfig, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE, MIN_GAS_PRICE,
     MutableConfigValue, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE, PROTOCOL_TREASURY_ACCOUNT,
     ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
-    default_enable_early_prepare_transactions, default_orphan_state_witness_max_size,
-    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
+    default_chunks_cache_height_horizon, default_enable_early_prepare_transactions,
+    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
+    default_produce_chunk_add_transactions_time_limit,
 };
 
 /// Returns the default value for the thread count associated with rpc-handler actor (currently
@@ -308,6 +309,7 @@ impl ClientConfig {
             save_trie_changes: true,
             save_untracked_partial_chunks_parts: true,
             save_tx_outcomes: true,
+            save_state_changes: true,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
             chunk_validation_threads: 1,
@@ -340,7 +342,9 @@ impl ClientConfig {
             transaction_request_handler_threads: default_rpc_handler_thread_count(),
             protocol_version_check: Default::default(),
             enable_early_prepare_transactions: default_enable_early_prepare_transactions(),
+            chunks_cache_height_horizon: default_chunks_cache_height_horizon(),
             dynamic_resharding_dry_run: false,
+            disable_tx_routing: false,
         }
     }
 }

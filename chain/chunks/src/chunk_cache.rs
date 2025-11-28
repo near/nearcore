@@ -17,7 +17,7 @@ use time::ext::InstantExt;
 //    When a PartialEncodedChunk is received, the parts and receipts it contains are merged to the
 //    corresponding chunk entry in the map.
 //    Entries in the map are removed if the chunk is found to be invalid or the chunk goes out of
-//    horizon [chain_head_height - HEIGHT_HORIZON, chain_head_height + MAX_HEIGHTS_AHEAD]
+//    horizon [chain_head_height - height_horizon, chain_head_height + MAX_HEIGHTS_AHEAD]
 // 2) It stores the set of incomplete chunks, indexed by the block hash of the previous block.
 //    A chunk always starts incomplete. It can be marked as complete through
 //    `mark_entry_complete`. A complete entry means the chunk has all parts and receipts needed.
@@ -26,8 +26,10 @@ use time::ext::InstantExt;
 //    will only include chunks in the block for which it has received the part it owns.
 //    Users of the data structure are responsible for adding chunk to this map at the right time.
 
-/// A chunk is out of rear horizon if its height + HEIGHT_HORIZON < largest_seen_height
-const HEIGHT_HORIZON: BlockHeightDelta = 128;
+/// Default height horizon for chunk cache. A chunk is out of rear horizon if its
+/// height + DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON < largest_seen_height.
+pub const DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON: BlockHeightDelta = 128;
+
 /// A chunk is out of front horizon if its height > largest_seen_height + MAX_HEIGHTS_AHEAD
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 
@@ -62,10 +64,12 @@ pub struct EncodedChunksCacheEntry {
 pub struct EncodedChunksCache {
     /// Largest seen height from the head of the chain
     largest_seen_height: BlockHeight,
+    /// Height horizon for chunk cache.
+    height_horizon: BlockHeightDelta,
 
     /// A map from a chunk hash to the corresponding EncodedChunksCacheEntry of the chunk
     /// Entries in this map have height in
-    /// [chain_head_height - HEIGHT_HORIZON, chain_head_height + MAX_HEIGHTS_AHEAD]
+    /// [chain_head_height - height_horizon, chain_head_height + MAX_HEIGHTS_AHEAD]
     encoded_chunks: HashMap<ChunkHash, EncodedChunksCacheEntry>,
     /// A map from a block height to chunk hashes at this height for all chunk stored in the cache
     /// This is used to gc chunks that are out of horizon
@@ -119,9 +123,10 @@ impl EncodedChunksCacheEntry {
 }
 
 impl EncodedChunksCache {
-    pub fn new() -> Self {
+    pub fn new(height_horizon: BlockHeightDelta) -> Self {
         EncodedChunksCache {
             largest_seen_height: 0,
+            height_horizon,
             encoded_chunks: HashMap::new(),
             height_map: HashMap::new(),
             height_to_shard_to_chunk: HashMap::new(),
@@ -255,7 +260,8 @@ impl EncodedChunksCache {
     }
 
     pub fn height_within_rear_horizon(&self, height: BlockHeight) -> bool {
-        height + HEIGHT_HORIZON >= self.largest_seen_height && height <= self.largest_seen_height
+        height + self.height_horizon >= self.largest_seen_height
+            && height <= self.largest_seen_height
     }
 
     pub fn height_within_horizon(&self, height: BlockHeight) -> bool {
@@ -300,8 +306,8 @@ impl EncodedChunksCache {
     ) {
         let old_largest_seen_height = self.largest_seen_height;
         self.largest_seen_height = new_height;
-        for height in old_largest_seen_height.saturating_sub(HEIGHT_HORIZON)
-            ..self.largest_seen_height.saturating_sub(HEIGHT_HORIZON)
+        for height in old_largest_seen_height.saturating_sub(self.height_horizon)
+            ..self.largest_seen_height.saturating_sub(self.height_horizon)
         {
             if let Some(chunks_to_remove) = self.height_map.remove(&height) {
                 for chunk_hash in chunks_to_remove {
@@ -331,6 +337,7 @@ impl EncodedChunksCache {
 mod tests {
     use std::collections::{HashMap, HashSet};
 
+    use super::DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON;
     use near_crypto::KeyType;
     use near_primitives::hash::CryptoHash;
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV2};
@@ -364,7 +371,7 @@ mod tests {
 
     #[test]
     fn test_incomplete_chunks() {
-        let mut cache = EncodedChunksCache::new();
+        let mut cache = EncodedChunksCache::new(DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON);
         let header0 = create_chunk_header(1, ShardId::new(0));
         let header1 = create_chunk_header(1, ShardId::new(1));
         cache.get_or_insert_from_header(&header0);
@@ -388,7 +395,7 @@ mod tests {
 
     #[test]
     fn test_cache_removal() {
-        let mut cache = EncodedChunksCache::new();
+        let mut cache = EncodedChunksCache::new(DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON);
         let header = create_chunk_header(1, ShardId::new(0));
         cache.merge_in_partial_encoded_chunk(
             &header,

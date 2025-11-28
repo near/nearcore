@@ -67,7 +67,10 @@
         }
     },
     "save_tx_outcomes": false,
+    "save_state_changes": false,
     "gc_num_epochs_to_keep": 3,
     "save_untracked_partial_chunks_parts": false,
-    "enable_early_prepare_transactions": true
+    "enable_early_prepare_transactions": true,
+    "chunks_cache_height_horizon": 24,
+    "disable_tx_routing": true
 }

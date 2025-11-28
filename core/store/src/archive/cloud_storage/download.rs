@@ -1,10 +1,11 @@
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, ShardId};
 
 use borsh::BorshDeserialize;
 
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::block_data::BlockData;
 use crate::archive::cloud_storage::file_id::CloudStorageFileID;
+use crate::archive::cloud_storage::shard_data::ShardData;
 
 /// Errors surfaced while retrieving data from the cloud archive.
 #[derive(thiserror::Error, Debug)]
@@ -39,6 +40,15 @@ impl CloudStorage {
         block_height: BlockHeight,
     ) -> Result<BlockData, CloudRetrievalError> {
         let file_id = CloudStorageFileID::Block(block_height);
+        self.retrieve(&file_id).await
+    }
+
+    pub(super) async fn retrieve_shard_data(
+        &self,
+        block_height: BlockHeight,
+        shard_id: ShardId,
+    ) -> Result<ShardData, CloudRetrievalError> {
+        let file_id = CloudStorageFileID::Shard(block_height, shard_id);
         self.retrieve(&file_id).await
     }
 

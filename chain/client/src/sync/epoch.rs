@@ -1,10 +1,10 @@
-use crate::client_actor::ClientActorInner;
+use crate::client_actor::ClientActor;
 use crate::metrics;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
 use near_chain::types::Tip;
-use near_chain::{BlockHeader, Chain, ChainStoreAccess, Error, MerkleProofAccess};
+use near_chain::{BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::EpochSyncConfig;
 use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_crypto::Signature;
@@ -13,7 +13,6 @@ use near_network::client::{EpochSyncRequestMessage, EpochSyncResponseMessage};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_performance_metrics_macros::perf;
 use near_primitives::block::{Approval, ApprovalInner, compute_bp_hash_from_validator_stakes};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
@@ -31,6 +30,7 @@ use near_primitives::types::{
 use near_primitives::utils::compression::CompressedData;
 use near_store::Store;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::merkle_proof::MerkleProofAccess;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -875,8 +875,7 @@ impl EpochSync {
     }
 }
 
-impl Handler<EpochSyncRequestMessage> for ClientActorInner {
-    #[perf]
+impl Handler<EpochSyncRequestMessage> for ClientActor {
     fn handle(&mut self, msg: EpochSyncRequestMessage) {
         if self.client.sync_handler.epoch_sync.config.ignore_epoch_sync_network_requests {
             // Temporary kill switch for the rare case there were issues with this network request.
@@ -909,8 +908,7 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
     }
 }
 
-impl Handler<EpochSyncResponseMessage> for ClientActorInner {
-    #[perf]
+impl Handler<EpochSyncResponseMessage> for ClientActor {
     fn handle(&mut self, msg: EpochSyncResponseMessage) {
         let (proof, _) = match msg.proof.decode() {
             Ok(proof) => proof,

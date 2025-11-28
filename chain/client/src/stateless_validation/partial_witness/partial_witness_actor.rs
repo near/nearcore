@@ -16,7 +16,6 @@ use near_network::state_witness::{
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_parameters::RuntimeConfig;
-use near_performance_metrics_macros::perf;
 use near_primitives::reed_solomon::{
     REED_SOLOMON_MAX_PARTS, ReedSolomonEncoder, ReedSolomonEncoderCache,
 };
@@ -104,7 +103,6 @@ pub struct PartialWitnessSenderForClient {
 }
 
 impl Handler<DistributeStateWitnessRequest> for PartialWitnessActor {
-    #[perf]
     fn handle(&mut self, msg: DistributeStateWitnessRequest) {
         if let Err(err) = self.handle_distribute_state_witness_request(msg) {
             tracing::error!(target: "client", ?err, "failed to handle distribute chunk state witness request");

@@ -15,6 +15,7 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
+use crate::snapshot_hosts::STATE_SNAPSHOT_INFO_RETENTION_WINDOW;
 use crate::spice_data_distribution::SpiceDataDistributorSenderForNetwork;
 use crate::state_witness::PartialWitnessSenderForNetwork;
 use crate::stats::metrics;
@@ -23,9 +24,9 @@ use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostInfo, StateHeaderRequestBody,
-    StatePartRequestBody, StateRequestSenderForNetwork, StateSyncEvent, Tier3Request,
-    Tier3RequestBody,
+    PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostEvent, SnapshotHostInfo,
+    StateHeaderRequestBody, StatePartRequestBody, StateRequestSenderForNetwork, StateSyncEvent,
+    Tier3Request, Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use anyhow::Context as _;
@@ -34,7 +35,6 @@ use near_async::messaging::{self, CanSendAsync, Sender};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, time};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
-use near_performance_metrics_macros::perf;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_sync::{PartIdOrHeader, StateRequestAckBody};
@@ -787,8 +787,7 @@ impl PeerManagerActor {
         );
     }
 
-    #[perf]
-    fn handle_msg_network_requests(&mut self, msg: NetworkRequests) -> NetworkResponses {
+    fn handle_msg_network_requests(&self, msg: NetworkRequests) -> NetworkResponses {
         let msg_type: &str = msg.as_ref();
         let _span =
             tracing::trace_span!(target: "network", "handle_msg_network_requests", msg_type)
@@ -948,7 +947,19 @@ impl PeerManagerActor {
                 tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id_or_header, ?body, %peer_id, "ack state request from host");
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::SnapshotHostInfo { sync_hash, mut epoch_height, mut shards } => {
+            NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::ChainProgressed {
+                epoch_height,
+            }) => {
+                self.state.snapshot_hosts.set_discard_epoch_threshold(
+                    epoch_height.saturating_sub(STATE_SNAPSHOT_INFO_RETENTION_WINDOW),
+                );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::SnapshotCreated {
+                sync_hash,
+                mut epoch_height,
+                mut shards,
+            }) => {
                 if shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
                     tracing::warn!(
                         shards_len = shards.len(),
@@ -1294,7 +1305,7 @@ impl PeerManagerActor {
     }
 
     fn handle_peer_manager_message(
-        &mut self,
+        &self,
         msg: PeerManagerMessageRequest,
     ) -> PeerManagerMessageResponse {
         match msg {
@@ -1331,7 +1342,6 @@ impl PeerManagerActor {
 }
 
 impl messaging::Handler<SetChainInfo> for PeerManagerActor {
-    #[perf]
     fn handle(&mut self, SetChainInfo(info): SetChainInfo) {
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&["SetChainInfo"]).start_timer();
@@ -1367,7 +1377,6 @@ impl messaging::Handler<SetChainInfo> for PeerManagerActor {
 impl messaging::Handler<PeerManagerMessageRequest, PeerManagerMessageResponse>
     for PeerManagerActor
 {
-    #[perf]
     fn handle(&mut self, msg: PeerManagerMessageRequest) -> PeerManagerMessageResponse {
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
@@ -1376,7 +1385,6 @@ impl messaging::Handler<PeerManagerMessageRequest, PeerManagerMessageResponse>
 }
 
 impl messaging::Handler<PeerManagerMessageRequest> for PeerManagerActor {
-    #[perf]
     fn handle(&mut self, msg: PeerManagerMessageRequest) {
         messaging::Handler::<PeerManagerMessageRequest, PeerManagerMessageResponse>::handle(
             self, msg,
@@ -1385,7 +1393,6 @@ impl messaging::Handler<PeerManagerMessageRequest> for PeerManagerActor {
 }
 
 impl messaging::Handler<StateSyncEvent> for PeerManagerActor {
-    #[perf]
     fn handle(&mut self, msg: StateSyncEvent) {
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
@@ -1398,7 +1405,6 @@ impl messaging::Handler<StateSyncEvent> for PeerManagerActor {
 }
 
 impl messaging::Handler<Tier3Request> for PeerManagerActor {
-    #[perf]
     fn handle(&mut self, request: Tier3Request) {
         let _timer = metrics::PEER_MANAGER_TIER3_REQUEST_TIME
             .with_label_values(&[(&request.body).into()])
@@ -1508,7 +1514,6 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
 }
 
 impl messaging::Handler<GetDebugStatus, DebugStatus> for PeerManagerActor {
-    #[perf]
     fn handle(&mut self, msg: GetDebugStatus) -> DebugStatus {
         match msg {
             GetDebugStatus::PeerStore => {

@@ -5,7 +5,7 @@ use near_async::ActorSystem;
 use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_chain_configs::GenesisValidationMode;
-use near_client::ViewClientActorInner;
+use near_client::ViewClientActor;
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcome, GetReceipt, GetShardChunk, Query,
 };
@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub(crate) struct ChainAccess {
-    view_client: MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client: MultithreadRuntimeHandle<ViewClientActor>,
 }
 
 impl ChainAccess {

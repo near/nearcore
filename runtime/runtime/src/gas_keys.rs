@@ -124,15 +124,17 @@ fn gas_key_storage_cost(
     gas_key: &GasKey,
 ) -> StorageUsage {
     let storage_config = &fee_config.storage_usage_config;
-    let nonce_storage_usage = gas_key.num_nonces as u64
-        * (borsh::object_length(&(0 as NonceIndex)).unwrap() as u64 + // NonceIndex is part of the key
-            borsh::object_length(&(0 as Nonce)).unwrap() as u64 + // Value of nonce
-            storage_config.num_extra_bytes_record);
+    let value_size = borsh::object_length(gas_key).unwrap() as u64;
+    let key_size = borsh::object_length(public_key).unwrap() as u64
+        + borsh::object_length(&None::<NonceIndex>).unwrap() as u64; // NonceIndex (None) is part of the key
+    let per_nonce_value_size = borsh::object_length(&(0 as Nonce)).unwrap() as u64; // Value of nonce
+    let per_nonce_key_size = borsh::object_length(&Some(0 as NonceIndex)).unwrap() as u64; // NonceIndex is part of the nonce-specific key, the rest of the key is common.
+    let num_records = 1 + gas_key.num_nonces as u64; // 1 for GasKey + num_nonces for NonceIndex records
 
-    borsh::object_length(public_key).unwrap() as u64
-        + borsh::object_length(gas_key).unwrap() as u64
-        + storage_config.num_extra_bytes_record
-        + nonce_storage_usage
+    key_size
+        + value_size
+        + gas_key.num_nonces as u64 * (per_nonce_key_size + per_nonce_value_size)
+        + num_records * storage_config.num_extra_bytes_record
 }
 
 #[cfg(test)]
@@ -459,9 +461,9 @@ mod tests {
             add_gas_key_to_account(&mut state_update, &mut account, &account_id, &public_key2);
 
         let viewer = TrieViewer::default();
-        let gas_keys = viewer.view_gas_keys(&state_update, &account_id).unwrap();
+        let mut gas_keys = viewer.view_gas_keys(&state_update, &account_id).unwrap();
         let expected_nonce = initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT);
-        let expected = vec![
+        let mut expected = vec![
             GasKeyInfoView {
                 public_key: public_key1,
                 gas_key: GasKeyView::new(gas_key1, vec![expected_nonce; TEST_NUM_NONCES as usize]),
@@ -471,6 +473,10 @@ mod tests {
                 gas_key: GasKeyView::new(gas_key2, vec![expected_nonce; TEST_NUM_NONCES as usize]),
             },
         ];
+        // Sort both expected and actual gas keys by public_key to ensure consistent order for comparison
+        // as the API does not include an ordering guarantee.
+        expected.sort_by_key(|k| k.public_key.clone());
+        gas_keys.sort_by_key(|k| k.public_key.clone());
         assert_eq!(expected, gas_keys);
     }
 

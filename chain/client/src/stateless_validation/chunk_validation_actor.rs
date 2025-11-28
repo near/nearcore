@@ -24,7 +24,6 @@ use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
-use near_performance_metrics_macros::perf;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::state_witness::{
@@ -72,7 +71,7 @@ pub struct BlockNotificationMessage {
 
 /// An actor for validating chunk state witnesses and orphan witnesses.
 #[derive(Clone)]
-pub struct ChunkValidationActorInner {
+pub struct ChunkValidationActor {
     chain_store: ChainStore,
     genesis_block: Arc<Block>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -88,9 +87,9 @@ pub struct ChunkValidationActorInner {
     rs: Arc<ReedSolomon>,
 }
 
-impl Actor for ChunkValidationActorInner {}
+impl Actor for ChunkValidationActor {}
 
-impl ChunkValidationActorInner {
+impl ChunkValidationActor {
     pub fn new(
         chain_store: ChainStore,
         genesis_block: Arc<Block>,
@@ -175,13 +174,13 @@ impl ChunkValidationActorInner {
         orphan_witness_pool_size: usize,
         max_orphan_witness_size: u64,
         num_actors: usize,
-    ) -> MultithreadRuntimeHandle<ChunkValidationActorInner> {
+    ) -> MultithreadRuntimeHandle<ChunkValidationActor> {
         // Create shared orphan witness pool
         let shared_orphan_pool =
             Arc::new(Mutex::new(OrphanStateWitnessPool::new(orphan_witness_pool_size)));
 
         actor_system.spawn_multithread_actor(num_actors, move || {
-            ChunkValidationActorInner::new_with_shared_pool(
+            ChunkValidationActor::new_with_shared_pool(
                 chain_store.clone(),
                 genesis_block.clone(),
                 epoch_manager.clone(),
@@ -587,8 +586,7 @@ impl ChunkValidationActorInner {
     }
 }
 
-impl Handler<ChunkStateWitnessMessage> for ChunkValidationActorInner {
-    #[perf]
+impl Handler<ChunkStateWitnessMessage> for ChunkValidationActor {
     fn handle(&mut self, msg: ChunkStateWitnessMessage) {
         let _span = tracing::debug_span!(
             target: "chunk_validation",
@@ -605,8 +603,7 @@ impl Handler<ChunkStateWitnessMessage> for ChunkValidationActorInner {
     }
 }
 
-impl Handler<BlockNotificationMessage> for ChunkValidationActorInner {
-    #[perf]
+impl Handler<BlockNotificationMessage> for ChunkValidationActor {
     fn handle(&mut self, msg: BlockNotificationMessage) {
         let BlockNotificationMessage { block } = msg;
 

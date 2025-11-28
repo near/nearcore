@@ -111,7 +111,6 @@ use near_network::types::{
 };
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
-use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -302,14 +301,12 @@ impl messaging::Actor for ShardsManagerActor {
 }
 
 impl Handler<ShardsManagerRequestFromClient> for ShardsManagerActor {
-    #[perf]
     fn handle(&mut self, msg: ShardsManagerRequestFromClient) {
         self.handle_client_request(msg);
     }
 }
 
 impl HandlerWithContext<ShardsManagerRequestFromNetwork> for ShardsManagerActor {
-    #[perf]
     fn handle(
         &mut self,
         msg: ShardsManagerRequestFromNetwork,
@@ -340,6 +337,7 @@ pub fn start_shards_manager(
     validator_signer: MutableValidatorSigner,
     store: Store,
     chunk_request_retry_period: Duration,
+    chunks_cache_height_horizon: BlockHeightDelta,
 ) -> TokioRuntimeHandle<ShardsManagerActor> {
     // TODO: make some better API for accessing chain properties like head.
     let chain_head = store
@@ -362,6 +360,7 @@ pub fn start_shards_manager(
         chain_head,
         chain_header_head,
         chunk_request_retry_period,
+        chunks_cache_height_horizon,
     );
 
     actor_system.spawn_tokio_actor(shards_manager)
@@ -380,6 +379,7 @@ impl ShardsManagerActor {
         initial_chain_head: Tip,
         initial_chain_header_head: Tip,
         chunk_request_retry_period: Duration,
+        chunks_cache_height_horizon: BlockHeightDelta,
     ) -> Self {
         Self {
             clock,
@@ -395,7 +395,7 @@ impl ShardsManagerActor {
                 epoch_manager.num_total_parts() - epoch_manager.num_data_parts(),
             )
             .unwrap(),
-            encoded_chunks: EncodedChunksCache::new(),
+            encoded_chunks: EncodedChunksCache::new(chunks_cache_height_horizon),
             requested_partial_encoded_chunks: RequestPool::new(
                 CHUNK_REQUEST_RETRY,
                 CHUNK_REQUEST_SWITCH_TO_OTHERS,
@@ -2322,6 +2322,7 @@ mod test {
     use std::sync::Arc;
 
     use super::*;
+    use crate::DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON;
     use crate::logic::persist_chunk;
     use crate::test_utils::*;
 
@@ -2376,6 +2377,7 @@ mod test {
             mock_tip.clone(),
             mock_tip,
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
         let added = clock.now().into();
         shards_manager.requested_partial_encoded_chunks.insert(
@@ -2421,6 +2423,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
         // process chunk part 0
         let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&[0]);
@@ -2502,6 +2505,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
 
         // part id > num parts
@@ -2534,6 +2538,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
         let count_num_forward_msgs = |fixture: &ChunkTestFixture| {
             fixture
@@ -2616,6 +2621,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
         shards_manager.insert_header_if_not_exists_and_process_cached_chunk_forwards(
             &fixture.mock_chunk_header,
@@ -2707,6 +2713,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
         let (most_parts, other_parts) = {
             let mut most_parts = fixture.mock_chunk_parts.clone();
@@ -2787,6 +2794,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
         let forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
             &fixture.mock_chunk_header,
@@ -2859,6 +2867,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
 
         shards_manager
@@ -2896,6 +2905,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
 
         shards_manager
@@ -2930,6 +2940,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
 
         persist_chunk(
@@ -2964,6 +2975,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
 
         let mut update = fixture.chain_store.store_update();
@@ -2996,6 +3008,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
         // Split the part ords into two groups.
         assert!(fixture.all_part_ords.len() >= 2);
@@ -3040,6 +3053,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
         // Only add half of the parts to the cache.
         assert!(fixture.all_part_ords.len() >= 2);
@@ -3085,6 +3099,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
         // Split the part ords into three groups; put one in cache, the second in partial
         // and the third is missing. We should return the first two groups.
@@ -3131,6 +3146,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
@@ -3157,6 +3173,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
@@ -3183,6 +3200,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
         let mut update = fixture.chain_store.store_update();
         let shard_chunk = fixture.mock_encoded_chunk.decode_chunk().unwrap();
@@ -3216,6 +3234,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
         let mut update = fixture.chain_store.store_update();
         let shard_chunk = fixture.mock_encoded_chunk.decode_chunk().unwrap();
@@ -3247,6 +3266,7 @@ mod test {
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
             Duration::hours(1),
+            DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
         );
         let part = fixture.make_partial_encoded_chunk(&fixture.mock_part_ords);
         shards_manager
