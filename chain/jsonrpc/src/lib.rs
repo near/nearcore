@@ -1014,12 +1014,14 @@ impl JsonRpcHandler {
         &self,
         request_data: RpcViewAccountRequest,
     ) -> Result<RpcViewAccountResponse, RpcViewAccountError> {
-        let query_response: QueryResponse = self
+        let result = self
             .view_client_send(ClientQuery::new(
                 request_data.block_reference,
                 QueryRequest::ViewAccount { account_id: request_data.account_id },
             ))
-            .await?;
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewAccountError>>::into)?;
         match query_response.kind {
             near_primitives::views::QueryResponseKind::ViewAccount(account) => {
                 Ok(RpcViewAccountResponse {
@@ -1042,12 +1044,14 @@ impl JsonRpcHandler {
         &self,
         request_data: RpcViewCodeRequest,
     ) -> Result<RpcViewCodeResponse, RpcViewCodeError> {
-        let query_response: QueryResponse = self
+        let result = self
             .view_client_send(ClientQuery::new(
                 request_data.block_reference,
                 QueryRequest::ViewCode { account_id: request_data.account_id },
             ))
-            .await?;
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewCodeError>>::into)?;
         match query_response.kind {
             near_primitives::views::QueryResponseKind::ViewCode(code) => Ok(RpcViewCodeResponse {
                 code,
@@ -1068,7 +1072,7 @@ impl JsonRpcHandler {
         &self,
         request_data: RpcViewStateRequest,
     ) -> Result<RpcViewStateResponse, RpcViewStateError> {
-        let query_response: QueryResponse = self
+        let result = self
             .view_client_send(ClientQuery::new(
                 request_data.block_reference,
                 QueryRequest::ViewState {
@@ -1077,7 +1081,9 @@ impl JsonRpcHandler {
                     include_proof: request_data.include_proof,
                 },
             ))
-            .await?;
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewStateError>>::into)?;
         match query_response.kind {
             near_primitives::views::QueryResponseKind::ViewState(state) => {
                 Ok(RpcViewStateResponse {
@@ -1100,7 +1106,7 @@ impl JsonRpcHandler {
         &self,
         request_data: RpcViewAccessKeyRequest,
     ) -> Result<RpcViewAccessKeyResponse, RpcViewAccessKeyError> {
-        let query_response: QueryResponse = self
+        let result = self
             .view_client_send(ClientQuery::new(
                 request_data.block_reference,
                 QueryRequest::ViewAccessKey {
@@ -1108,7 +1114,9 @@ impl JsonRpcHandler {
                     public_key: request_data.public_key,
                 },
             ))
-            .await?;
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewAccessKeyError>>::into)?;
         match query_response.kind {
             near_primitives::views::QueryResponseKind::AccessKey(access_key) => {
                 Ok(RpcViewAccessKeyResponse {
@@ -1131,12 +1139,14 @@ impl JsonRpcHandler {
         &self,
         request_data: RpcViewAccessKeyListRequest,
     ) -> Result<RpcViewAccessKeyListResponse, RpcViewAccessKeyListError> {
-        let query_response: QueryResponse = self
+        let result = self
             .view_client_send(ClientQuery::new(
                 request_data.block_reference,
                 QueryRequest::ViewAccessKeyList { account_id: request_data.account_id },
             ))
-            .await?;
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewAccessKeyListError>>::into)?;
         match query_response.kind {
             near_primitives::views::QueryResponseKind::AccessKeyList(access_key_list) => {
                 Ok(RpcViewAccessKeyListResponse {
@@ -1156,7 +1166,7 @@ impl JsonRpcHandler {
         &self,
         request_data: RpcCallFunctionRequest,
     ) -> Result<RpcCallFunctionResponse, RpcCallFunctionError> {
-        let query_response: QueryResponse = self
+        let result = self
             .view_client_send(ClientQuery::new(
                 request_data.block_reference,
                 QueryRequest::CallFunction {
@@ -1165,7 +1175,8 @@ impl JsonRpcHandler {
                     args: request_data.args,
                 },
             ))
-            .await?;
+            .await;
+        let query_response = result.map_err(<RpcQueryError as Into<RpcCallFunctionError>>::into)?;
         match query_response.kind {
             near_primitives::views::QueryResponseKind::CallResult(result) => {
                 Ok(RpcCallFunctionResponse {
@@ -1188,7 +1199,7 @@ impl JsonRpcHandler {
         &self,
         request_data: RpcViewGasKeyRequest,
     ) -> Result<RpcViewGasKeyResponse, RpcViewGasKeyError> {
-        let query_response: QueryResponse = self
+        let result = self
             .view_client_send(ClientQuery::new(
                 request_data.block_reference,
                 QueryRequest::ViewGasKey {
@@ -1196,7 +1207,9 @@ impl JsonRpcHandler {
                     public_key: request_data.public_key,
                 },
             ))
-            .await?;
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewGasKeyError>>::into)?;
         match query_response.kind {
             near_primitives::views::QueryResponseKind::GasKey(gas_key) => {
                 Ok(RpcViewGasKeyResponse {
@@ -1219,12 +1232,14 @@ impl JsonRpcHandler {
         &self,
         request_data: RpcViewGasKeyListRequest,
     ) -> Result<RpcViewGasKeyListResponse, RpcViewGasKeyListError> {
-        let query_response: QueryResponse = self
+        let result = self
             .view_client_send(ClientQuery::new(
                 request_data.block_reference,
                 QueryRequest::ViewGasKeyList { account_id: request_data.account_id },
             ))
-            .await?;
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewGasKeyListError>>::into)?;
         match query_response.kind {
             near_primitives::views::QueryResponseKind::GasKeyList(gas_key_list) => {
                 Ok(RpcViewGasKeyListResponse {

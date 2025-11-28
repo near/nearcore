@@ -88,14 +88,13 @@ impl From<crate::types::query::RpcQueryError> for RpcViewGasKeyError {
                 block_height,
                 block_hash,
             } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
-            crate::types::query::RpcQueryError::GarbageCollectedBlock {
-                block_height,
-                block_hash,
-            } => Self::InternalError {
-                error_message: format!(
-                    "The data for block #{block_height} is garbage collected on this node, use an archival node to fetch historical data"
-                ),
-            },
+            crate::types::query::RpcQueryError::GarbageCollectedBlock { block_height, .. } => {
+                Self::InternalError {
+                    error_message: format!(
+                        "The data for block #{block_height} is garbage collected on this node, use an archival node to fetch historical data"
+                    ),
+                }
+            }
             crate::types::query::RpcQueryError::UnknownGasKey {
                 public_key,
                 block_height,
