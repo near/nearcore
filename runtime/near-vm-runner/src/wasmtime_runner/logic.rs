@@ -3947,7 +3947,10 @@ fn read_and_parse_account_id(
         account_id_str.parse().map_err(|_| VMLogicError::HostError(HostError::InvalidAccountId))
     } else {
         // Old behavior: use unvalidated
-        Ok(AccountId::new_unvalidated(account_id_str))
+        #[allow(deprecated)]
+        {
+            Ok(AccountId::new_unvalidated(account_id_str))
+        }
     }
 }
 

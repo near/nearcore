@@ -9791,6 +9791,11 @@
             "default": 0,
             "description": "Whether to enforce account_id well-formed-ness where it wasn't enforced\nhistorically."
           },
+          "forbid_unvalidated_account_id": {
+            "default": true,
+            "description": "If true, enforces AccountId validation when parsing from strings.\nWhen false, allows unvalidated AccountIds for backward compatibility.",
+            "type": "boolean"
+          },
           "initial_memory_pages": {
             "description": "The initial number of memory pages.\nNOTE: It's not a limiter itself, but it's a value we use for initial_memory_pages.",
             "format": "uint32",
