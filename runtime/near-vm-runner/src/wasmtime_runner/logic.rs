@@ -3939,13 +3939,12 @@ fn read_and_parse_account_id(
     gas_counter.pay_base(utf8_decoding_base)?;
     gas_counter.pay_per(utf8_decoding_byte, buf.len() as u64)?;
 
-    let account_id_str = String::from_utf8(buf.into())
-        .map_err(|_| VMLogicError::HostError(HostError::BadUTF8))?;
+    let account_id_str =
+        String::from_utf8(buf.into()).map_err(|_| VMLogicError::HostError(HostError::BadUTF8))?;
 
     if config.limit_config.forbid_unvalidated_account_id {
         // New behavior: validate during parsing
-        account_id_str.parse()
-            .map_err(|_| VMLogicError::HostError(HostError::InvalidAccountId))
+        account_id_str.parse().map_err(|_| VMLogicError::HostError(HostError::InvalidAccountId))
     } else {
         // Old behavior: use unvalidated
         Ok(AccountId::new_unvalidated(account_id_str))
