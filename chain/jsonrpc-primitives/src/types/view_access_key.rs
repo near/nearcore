@@ -20,17 +20,6 @@ pub struct RpcViewAccessKeyResponse {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcViewAccessKeyError {
-    #[error("There are no fully synchronized blocks on the node yet")]
-    NoSyncedBlocks,
-    #[error("The node does not track the shard ID {requested_shard_id}")]
-    UnavailableShard { requested_shard_id: near_primitives::types::ShardId },
-    #[error(
-        "The data for block #{block_height} is garbage collected on this node, use an archival node to fetch historical data"
-    )]
-    GarbageCollectedBlock {
-        block_height: near_primitives::types::BlockHeight,
-        block_hash: near_primitives::hash::CryptoHash,
-    },
     #[error(
         "Block either has never been observed on the node or has been garbage collected: {block_reference:?}"
     )]
@@ -76,14 +65,16 @@ impl From<RpcViewAccessKeyError> for crate::errors::RpcError {
 impl From<crate::types::query::RpcQueryError> for RpcViewAccessKeyError {
     fn from(error: crate::types::query::RpcQueryError) -> Self {
         match error {
-            crate::types::query::RpcQueryError::NoSyncedBlocks => Self::NoSyncedBlocks,
+            crate::types::query::RpcQueryError::NoSyncedBlocks => Self::InternalError {
+                error_message: "There are no fully synchronized blocks on the node yet".to_string(),
+            },
             crate::types::query::RpcQueryError::UnavailableShard { requested_shard_id } => {
-                Self::UnavailableShard { requested_shard_id }
+                Self::InternalError {
+                    error_message: format!(
+                        "The node does not track the shard ID {requested_shard_id}"
+                    ),
+                }
             }
-            crate::types::query::RpcQueryError::GarbageCollectedBlock {
-                block_height,
-                block_hash,
-            } => Self::GarbageCollectedBlock { block_height, block_hash },
             crate::types::query::RpcQueryError::UnknownBlock { block_reference } => {
                 Self::UnknownBlock { block_reference }
             }
@@ -97,6 +88,14 @@ impl From<crate::types::query::RpcQueryError> for RpcViewAccessKeyError {
                 block_height,
                 block_hash,
             } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
+            crate::types::query::RpcQueryError::GarbageCollectedBlock {
+                block_height,
+                block_hash,
+            } => Self::InternalError {
+                error_message: format!(
+                    "The data for block #{block_height} is garbage collected on this node, use an archival node to fetch historical data"
+                ),
+            },
             crate::types::query::RpcQueryError::UnknownAccessKey {
                 public_key,
                 block_height,
