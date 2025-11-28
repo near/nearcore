@@ -3925,20 +3925,21 @@ fn read_and_parse_account_id(
     registers: &Registers,
     ptr: u64,
     len: u64,
+    config: &crate::vm::Config,
 ) -> Result<AccountId> {
     let buf = get_memory_or_register(gas_counter, memory, registers, ptr, len)?;
     gas_counter.pay_base(utf8_decoding_base)?;
     gas_counter.pay_per(utf8_decoding_byte, buf.len() as u64)?;
 
-    // We return an illegally constructed AccountId here for the sake of ensuring
-    // backwards compatibility. For paths previously involving validation, like receipts
-    // we retain validation further down the line in node-runtime/verifier.rs#fn(validate_receipt)
-    // mimicking previous behaviour.
-    let account_id = String::from_utf8(buf.into())
-        .map_err(|_| HostError::BadUTF8)?
-        .parse()
-        .map_err(|_| HostError::InvalidAccountId)?;
-    Ok(account_id)
+    let account_id_str = String::from_utf8(buf.into()).map_err(|_| HostError::BadUTF8)?;
+    
+    if config.limit_config.forbid_unvalidated_account_id {
+        // New behavior: validate during parsing
+        account_id_str.parse().map_err(|_| HostError::InvalidAccountId)
+    } else {
+        // Old behavior: use unvalidated
+        Ok(AccountId::new_unvalidated(account_id_str))
+    }
 }
 
 /// Writes key-value into storage.
