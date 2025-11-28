@@ -16476,6 +16476,22 @@
             },
             "type": "object"
           },
+          "last_split": {
+            "items": [
+              {
+                "$ref": "#/components/schemas/ShardId"
+              },
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ShardId"
+                },
+                "type": "array"
+              }
+            ],
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
           "shard_ids": {
             "items": {
               "$ref": "#/components/schemas/ShardId"
@@ -16496,7 +16512,8 @@
           "boundary_accounts",
           "shard_ids",
           "id_to_index_map",
-          "shards_split_map"
+          "shards_split_map",
+          "last_split"
         ],
         "type": "object"
       },

@@ -172,43 +172,49 @@ fn v3() {
     let shard_layout = get_test_shard_layout_v3();
 
     // check accounts mapping in the middle of each range
-    assert_eq!(shard_layout.account_id_to_shard_id(&"aaa".parse().unwrap()), sid(3));
-    assert_eq!(shard_layout.account_id_to_shard_id(&"ddd".parse().unwrap()), sid(8));
-    assert_eq!(shard_layout.account_id_to_shard_id(&"mmm".parse().unwrap()), sid(4));
-    assert_eq!(shard_layout.account_id_to_shard_id(&"rrr".parse().unwrap()), sid(7));
+    assert_eq!(shard_layout.account_id_to_shard_id(&"aaa".parse().unwrap()), sid(4));
+    assert_eq!(shard_layout.account_id_to_shard_id(&"ddd".parse().unwrap()), sid(5));
+    assert_eq!(shard_layout.account_id_to_shard_id(&"mmm".parse().unwrap()), sid(2));
+    assert_eq!(shard_layout.account_id_to_shard_id(&"rrr".parse().unwrap()), sid(3));
 
     // check accounts mapping for the boundary accounts
-    assert_eq!(shard_layout.account_id_to_shard_id(&"ccc".parse().unwrap()), sid(8));
-    assert_eq!(shard_layout.account_id_to_shard_id(&"kkk".parse().unwrap()), sid(4));
-    assert_eq!(shard_layout.account_id_to_shard_id(&"ppp".parse().unwrap()), sid(7));
+    assert_eq!(shard_layout.account_id_to_shard_id(&"ccc".parse().unwrap()), sid(5));
+    assert_eq!(shard_layout.account_id_to_shard_id(&"kkk".parse().unwrap()), sid(2));
+    assert_eq!(shard_layout.account_id_to_shard_id(&"ppp".parse().unwrap()), sid(3));
 
     // check shard ids
-    assert_eq!(shard_layout.shard_ids().collect_vec(), new_shard_ids_vec(vec![3, 8, 4, 7]));
+    assert_eq!(shard_layout.shard_ids().collect_vec(), new_shard_ids_vec(vec![4, 5, 2, 3]));
 
     // check shard uids
     let version = 3;
     let u = |shard_id| ShardUId { shard_id, version };
-    assert_eq!(shard_layout.shard_uids().collect_vec(), vec![u(3), u(8), u(4), u(7)]);
+    assert_eq!(shard_layout.shard_uids().collect_vec(), vec![u(4), u(5), u(2), u(3)]);
 
     // check parent
+    assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(4)).unwrap(), sid(1));
+    assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(5)).unwrap(), sid(1));
+    assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(2)).unwrap(), sid(2));
     assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(3)).unwrap(), sid(3));
-    assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(8)).unwrap(), sid(1));
-    assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(4)).unwrap(), sid(4));
-    assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(7)).unwrap(), sid(1));
+    assert!(shard_layout.get_parent_shard_id(ShardId::new(1234)).is_err());
 
     // check child
     assert_eq!(
         shard_layout.get_children_shards_ids(ShardId::new(1)).unwrap(),
-        new_shard_ids_vec(vec![7, 8])
+        new_shard_ids_vec(vec![4, 5])
+    );
+    assert_eq!(
+        shard_layout.get_children_shards_ids(ShardId::new(2)).unwrap(),
+        new_shard_ids_vec(vec![2])
     );
     assert_eq!(
         shard_layout.get_children_shards_ids(ShardId::new(3)).unwrap(),
         new_shard_ids_vec(vec![3])
     );
-    assert_eq!(
-        shard_layout.get_children_shards_ids(ShardId::new(4)).unwrap(),
-        new_shard_ids_vec(vec![4])
-    );
+
+    // check (de)serialization
+    let json = serde_json::to_string(&shard_layout).unwrap();
+    let deserialized: ShardLayout = serde_json::from_str(&json).unwrap();
+    assert_eq!(shard_layout, deserialized);
 }
 
 fn get_test_shard_layout_v3() -> ShardLayout {
@@ -217,12 +223,12 @@ fn get_test_shard_layout_v3() -> ShardLayout {
     let b2 = "ppp".parse().unwrap();
 
     let boundary_accounts = vec![b0, b1, b2];
-    let shard_ids = new_shard_ids_vec(vec![3, 8, 4, 7]);
+    let shard_ids = new_shard_ids_vec(vec![4, 5, 2, 3]);
 
-    let shards_split_map = BTreeMap::from([(1, vec![7, 8])]);
-    let shards_split_map = new_shards_split_map_v2(shards_split_map);
+    let last_split = (1.into(), vec![4.into(), 5.into()]);
+    let shards_split_map = BTreeMap::from([last_split.clone()]);
 
-    ShardLayout::v3(boundary_accounts, shard_ids, shards_split_map)
+    ShardLayout::v3(boundary_accounts, shard_ids, shards_split_map, last_split)
 }
 
 #[test]

@@ -182,8 +182,9 @@ impl ShardLayout {
         boundary_accounts: Vec<AccountId>,
         shard_ids: Vec<ShardId>,
         shards_split_map: ShardsSplitMapV3,
+        last_split: (ShardId, Vec<ShardId>),
     ) -> Self {
-        Self::V3(ShardLayoutV3::new(boundary_accounts, shard_ids, shards_split_map))
+        Self::V3(ShardLayoutV3::new(boundary_accounts, shard_ids, shards_split_map, last_split))
     }
 
     /// Maps an account to the shard_id that it belongs to in this shard_layout
@@ -222,7 +223,7 @@ impl ShardLayout {
             Self::V0(_) => None,
             Self::V1(v1) => v1.get_children_shards_ids(parent_shard_id),
             Self::V2(v2) => v2.get_children_shards_ids(parent_shard_id),
-            Self::V3(v3) => v3.get_children_shards_ids(parent_shard_id),
+            Self::V3(v3) => Some(v3.get_children_shards_ids(parent_shard_id)),
         }
     }
 
@@ -237,7 +238,7 @@ impl ShardLayout {
             Self::V0(_) => Ok(None),
             Self::V1(v1) => v1.try_get_parent_shard_id(shard_id),
             Self::V2(v2) => v2.try_get_parent_shard_id(shard_id),
-            Self::V3(v3) => v3.try_get_parent_shard_id(shard_id),
+            Self::V3(v3) => Ok(Some(v3.try_get_parent_shard_id(shard_id)?)),
         }
     }
 
@@ -360,7 +361,7 @@ impl ShardLayout {
     pub fn get_split_parent_shard_ids(&self) -> BTreeSet<ShardId> {
         // V3 doesn't store shards which weren't split in the map
         if let ShardLayout::V3(v3) = self {
-            return v3.shards_split_map.keys().cloned().collect();
+            return BTreeSet::from([v3.last_split.0]);
         }
 
         let mut parent_shard_ids = BTreeSet::new();
