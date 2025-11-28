@@ -14,6 +14,7 @@ use crate::logic::{HostError, VMLogicError};
 use ExtCosts::*;
 use core::mem::size_of;
 use near_crypto::Secp256K1Signature;
+use near_parameters::vm::Config;
 use near_parameters::{
     ActionCosts, ExtCosts, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee,
 };
@@ -766,6 +767,7 @@ pub fn validator_stake(
         &ctx.registers,
         account_id_ptr,
         account_id_len,
+        &ctx.config,
     )?;
     ctx.result_state.gas_counter.pay_base(validator_stake_base)?;
     let balance = ctx.ext.validator_stake(&account_id)?.unwrap_or_default();
@@ -2153,6 +2155,7 @@ pub fn promise_batch_create(
         &ctx.registers,
         account_id_ptr,
         account_id_len,
+        &ctx.config,
     )?;
     let sir = account_id == ctx.context.current_account_id;
     pay_gas_for_new_receipt(&mut ctx.result_state.gas_counter, &ctx.fees_config, sir, &[])?;
@@ -2202,6 +2205,7 @@ pub fn promise_batch_then(
         &ctx.registers,
         account_id_ptr,
         account_id_len,
+        &ctx.config,
     )?;
     // Update the DAG and return new promise idx.
     let promise = ctx
@@ -2259,6 +2263,7 @@ pub fn promise_set_refund_to(
         &ctx.registers,
         account_id_ptr,
         account_id_len,
+        &ctx.config,
     )?;
     let promise = ctx
         .promises
@@ -2638,6 +2643,7 @@ fn read_contract_id(
                 &ctx.registers,
                 account_id_ptr,
                 account_id_len,
+                &ctx.config,
             )?;
             Ok(GlobalContractIdentifier::AccountId(account_id))
         }
@@ -3199,6 +3205,7 @@ pub fn promise_batch_action_add_key_with_function_call(
         &ctx.registers,
         receiver_id_ptr,
         receiver_id_len,
+        &ctx.config,
     )?;
     let raw_method_names = get_memory_or_register(
         &mut ctx.result_state.gas_counter,
@@ -3325,6 +3332,7 @@ pub fn promise_batch_action_delete_account(
         &ctx.registers,
         beneficiary_id_ptr,
         beneficiary_id_len,
+        &ctx.config,
     )?;
 
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
@@ -3925,17 +3933,19 @@ fn read_and_parse_account_id(
     registers: &Registers,
     ptr: u64,
     len: u64,
-    config: &crate::vm::Config,
-) -> Result<AccountId> {
+    config: &Config,
+) -> Result<AccountId, VMLogicError> {
     let buf = get_memory_or_register(gas_counter, memory, registers, ptr, len)?;
     gas_counter.pay_base(utf8_decoding_base)?;
     gas_counter.pay_per(utf8_decoding_byte, buf.len() as u64)?;
 
-    let account_id_str = String::from_utf8(buf.into()).map_err(|_| HostError::BadUTF8)?;
-    
+    let account_id_str = String::from_utf8(buf.into())
+        .map_err(|_| VMLogicError::HostError(HostError::BadUTF8))?;
+
     if config.limit_config.forbid_unvalidated_account_id {
         // New behavior: validate during parsing
-        account_id_str.parse().map_err(|_| HostError::InvalidAccountId)
+        account_id_str.parse()
+            .map_err(|_| VMLogicError::HostError(HostError::InvalidAccountId))
     } else {
         // Old behavior: use unvalidated
         Ok(AccountId::new_unvalidated(account_id_str))
