@@ -234,7 +234,8 @@ expression: config_view
       "account_id_validity_rules_version": 0,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
-      "per_receipt_storage_proof_size_limit": 4294967295
+      "per_receipt_storage_proof_size_limit": 4294967295,
+      "forbid_unvalidated_account_id": true
     }
   },
   "account_creation_config": {

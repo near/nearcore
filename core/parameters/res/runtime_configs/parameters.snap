@@ -212,6 +212,7 @@ yield_timeout_length_in_blocks                           200
 max_yield_payload_size                                 1_024
 max_tables_per_contract                                    1
 max_elements_per_contract_table                       10_000
+forbid_unvalidated_account_id           true
 flat_storage_reads                      true
 implicit_account_creation               true
 fix_contract_loading_cost               false
