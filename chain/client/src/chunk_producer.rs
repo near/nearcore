@@ -7,7 +7,8 @@ use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{
-    PrepareTransactionsBlockContext, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
+    RuntimeAdapter, RuntimeStorageConfig,
 };
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::MutableConfigValue;
@@ -286,9 +287,7 @@ impl ChunkProducer {
         let prepared_transactions = {
             #[cfg(feature = "test_features")]
             match self.adversarial.produce_mode {
-                Some(AdvProduceChunksMode::ProduceWithoutTx) => {
-                    PreparedTransactions { transactions: Vec::new(), limited_by: None }
-                }
+                Some(AdvProduceChunksMode::ProduceWithoutTx) => PreparedTransactions::new(),
                 _ => match cached_transactions {
                     Some(txs) => txs,
                     None => self.prepare_transactions(
@@ -390,12 +389,10 @@ impl ChunkProducer {
                 ),
             },
         );
-        if let Some(limit) = prepared_transactions.limited_by {
-            // When some transactions from the pool didn't fit into the chunk due to a limit, it's reported in a metric.
-            metrics::PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DID_NOT_FIT
-                .with_label_values(&[&shard_id.to_string(), limit.as_ref()])
-                .inc();
-        }
+        // When some transactions from the pool didn't fit into the chunk due to a limit, it's reported in a metric.
+        metrics::PRODUCE_CHUNK_TRANSACTIONS_LIMITED_BY
+            .with_label_values(&[&shard_id.to_string(), prepared_transactions.limited_by.as_ref()])
+            .inc();
 
         Ok(Some(ProduceChunkResult {
             chunk,
@@ -433,7 +430,10 @@ impl ChunkProducer {
                 while let Some(iter) = iter.next() {
                     res.push(iter.next().unwrap());
                 }
-                return Ok(PreparedTransactions { transactions: res, limited_by: None });
+                return Ok(PreparedTransactions {
+                    transactions: res,
+                    limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
+                });
             }
 
             let storage_config = RuntimeStorageConfig {
@@ -453,7 +453,7 @@ impl ChunkProducer {
                 self.chunk_transactions_time_limit.get(),
             )?
         } else {
-            PreparedTransactions { transactions: Vec::new(), limited_by: None }
+            PreparedTransactions::new()
         };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
