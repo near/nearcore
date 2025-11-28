@@ -26,9 +26,7 @@ use crate::stateless_validation::chunk_endorsement::{
 };
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for_shard};
-use crate::store::{
-    ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
-};
+use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter};
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, BlockType, ChainConfig,
     PrepareTransactionsBlockContext, RuntimeAdapter, StorageDataSource,
@@ -98,6 +96,7 @@ use near_primitives::views::{
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
+use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{DBCol, StateSnapshotConfig};
 use node_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -334,7 +333,7 @@ impl Drop for Chain {
 pub type UpdateShardJob = (
     ShardId,
     CachedShardUpdateKey,
-    Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send + Sync + 'static>,
+    Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send + 'static>,
 );
 
 /// PreprocessBlockResult is a tuple where the first element is a vector of jobs
@@ -3491,10 +3490,6 @@ impl Chain {
 
     pub fn transaction_validity_period(&self) -> BlockHeightDelta {
         self.chain_store.transaction_validity_period
-    }
-
-    pub fn set_transaction_validity_period(&mut self, to: BlockHeightDelta) {
-        self.chain_store.transaction_validity_period = to;
     }
 
     /// Check if block is known: head, orphan, in processing or in store.

@@ -24,7 +24,7 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::ShardUId;
 use num_rational::Ratio;
-use parking_lot::RwLock;
+use parking_lot::Mutex;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::mem::swap;
 use std::sync::Arc;
@@ -261,15 +261,15 @@ pub fn create_chunk(
 /// It's possible that some blocks that need to be caught up are still being processed
 /// and the catchup process can't catch up on these blocks yet.
 pub fn run_catchup(client: &mut Client) -> Result<(), Error> {
-    let block_messages = Arc::new(RwLock::new(vec![]));
+    let block_messages = Arc::new(Mutex::new(Vec::<BlockCatchUpRequest>::new()));
     let block_inside_messages = block_messages.clone();
     let block_catch_up = Sender::from_fn(move |msg: BlockCatchUpRequest| {
-        block_inside_messages.write().push(msg);
+        block_inside_messages.lock().push(msg);
     });
     loop {
         client.run_catchup(&block_catch_up, None)?;
         let mut catchup_done = true;
-        for msg in block_messages.write().drain(..) {
+        for msg in block_messages.lock().drain(..) {
             let results = do_apply_chunks(
                 ApplyChunksIterationMode::Sequential,
                 BlockToApply::Normal(msg.block_hash),
