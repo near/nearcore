@@ -319,9 +319,9 @@ impl Parameter {
             Parameter::AccountIdValidityRulesVersion,
             Parameter::YieldTimeoutLengthInBlocks,
             Parameter::MaxYieldPayloadSize,
+            Parameter::PerReceiptStorageProofSizeLimit,
             Parameter::MaxTablesPerContract,
             Parameter::MaxElementsPerContractTable,
-            Parameter::PerReceiptStorageProofSizeLimit,
             Parameter::ForbidUnvalidatedAccountId,
         ]
         .iter()

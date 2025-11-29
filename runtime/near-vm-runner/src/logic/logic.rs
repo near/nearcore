@@ -3553,9 +3553,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.result_state.gas_counter.pay_per(utf8_decoding_byte, buf.len() as u64)?;
 
         let account_id = String::from_utf8(buf.into_owned())
-            .map_err(|_| HostError::BadUTF8)?
-            .parse()
-            .map_err(|_| HostError::InvalidAccountId)?;
+            .map(|s| {
+                #[allow(deprecated)]
+                AccountId::new_unvalidated(s)
+            })
+            .map_err(|_| HostError::BadUTF8)?;
         Ok(account_id)
     }
 

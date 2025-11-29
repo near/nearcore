@@ -136,15 +136,10 @@ pub struct LimitConfig {
     pub max_yield_payload_size: u64,
     /// Hard limit on the size of storage proof generated while executing a single receipt.
     pub per_receipt_storage_proof_size_limit: usize,
-
     /// If true, enforces AccountId validation when parsing from strings.
     /// When false, allows unvalidated AccountIds for backward compatibility.
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub forbid_unvalidated_account_id: bool,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 /// Dynamic configuration parameters required for the WASM runtime to

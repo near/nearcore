@@ -765,9 +765,9 @@ pub fn validator_stake(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
+        &ctx.config,
         account_id_ptr,
         account_id_len,
-        &ctx.config,
     )?;
     ctx.result_state.gas_counter.pay_base(validator_stake_base)?;
     let balance = ctx.ext.validator_stake(&account_id)?.unwrap_or_default();
@@ -2153,9 +2153,9 @@ pub fn promise_batch_create(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
+        &ctx.config,
         account_id_ptr,
         account_id_len,
-        &ctx.config,
     )?;
     let sir = account_id == ctx.context.current_account_id;
     pay_gas_for_new_receipt(&mut ctx.result_state.gas_counter, &ctx.fees_config, sir, &[])?;
@@ -2641,9 +2641,9 @@ fn read_contract_id(
                 &mut ctx.result_state.gas_counter,
                 memory,
                 &ctx.registers,
+                &ctx.config,
                 account_id_ptr,
                 account_id_len,
-                &ctx.config,
             )?;
             Ok(GlobalContractIdentifier::AccountId(account_id))
         }
@@ -3203,9 +3203,9 @@ pub fn promise_batch_action_add_key_with_function_call(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
+        &ctx.config,
         receiver_id_ptr,
         receiver_id_len,
-        &ctx.config,
     )?;
     let raw_method_names = get_memory_or_register(
         &mut ctx.result_state.gas_counter,
@@ -3931,26 +3931,21 @@ fn read_and_parse_account_id(
     gas_counter: &mut GasCounter,
     memory: &[u8],
     registers: &Registers,
+    config: &Config,
     ptr: u64,
     len: u64,
-    config: &Config,
-) -> Result<AccountId, VMLogicError> {
+) -> Result<AccountId> {
     let buf = get_memory_or_register(gas_counter, memory, registers, ptr, len)?;
     gas_counter.pay_base(utf8_decoding_base)?;
     gas_counter.pay_per(utf8_decoding_byte, buf.len() as u64)?;
 
-    let account_id_str =
-        String::from_utf8(buf.into()).map_err(|_| VMLogicError::HostError(HostError::BadUTF8))?;
+    let account_id_str = String::from_utf8(buf.into()).map_err(|_| HostError::BadUTF8)?;
 
     if config.limit_config.forbid_unvalidated_account_id {
-        // New behavior: validate during parsing
         account_id_str.parse().map_err(|_| VMLogicError::HostError(HostError::InvalidAccountId))
     } else {
-        // Old behavior: use unvalidated
         #[allow(deprecated)]
-        {
-            Ok(AccountId::new_unvalidated(account_id_str))
-        }
+        Ok(AccountId::new_unvalidated(account_id_str))
     }
 }
 

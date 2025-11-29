@@ -295,8 +295,6 @@ pub(crate) fn validate_receipt(
         }
     }
 
-    // Account ID validation is now handled in read_and_parse_account_id
-
     match receipt.versioned_receipt() {
         VersionedReceiptEnum::Action(action_receipt)
         | VersionedReceiptEnum::PromiseYield(action_receipt) => validate_action_receipt(
