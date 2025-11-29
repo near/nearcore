@@ -812,8 +812,8 @@ fn error_name_and_info<'a>(err: &'a RpcError) -> (&'a str, &'a Value) {
     match err.error_struct.as_ref() {
         Some(RpcErrorKind::HandlerError(value)) | Some(RpcErrorKind::InternalError(value)) => {
             let name =
-                value.get("name").and_then(|n| n.as_str()).expect("error name must be present");
-            let info = value.get("info").unwrap_or(value.as_ref());
+                value.get("name").and_then(|n| n.as_str()).unwrap();
+            let info = value.get("info").unwrap();
             (name, info)
         }
         other => panic!("unexpected RPC error kind: {other:?}"),
