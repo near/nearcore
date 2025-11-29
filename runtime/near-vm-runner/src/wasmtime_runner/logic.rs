@@ -2203,9 +2203,9 @@ pub fn promise_batch_then(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
+        &ctx.config,
         account_id_ptr,
         account_id_len,
-        &ctx.config,
     )?;
     // Update the DAG and return new promise idx.
     let promise = ctx
@@ -2261,9 +2261,9 @@ pub fn promise_set_refund_to(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
+        &ctx.config,
         account_id_ptr,
         account_id_len,
-        &ctx.config,
     )?;
     let promise = ctx
         .promises
@@ -3330,9 +3330,9 @@ pub fn promise_batch_action_delete_account(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
+        &ctx.config,
         beneficiary_id_ptr,
         beneficiary_id_len,
-        &ctx.config,
     )?;
 
     let (receipt_idx, sir) = promise_idx_to_receipt_idx_with_sir(ctx, promise_idx)?;
