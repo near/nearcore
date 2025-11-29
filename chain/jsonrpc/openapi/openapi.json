@@ -14667,12 +14667,16 @@
                     "minimum": 0,
                     "type": "integer"
                   },
-                  "vm_error": {
+                  "error": {
                     "$ref": "#/components/schemas/FunctionCallError"
+                  },
+                  "vm_error": {
+                    "type": "string"
                   }
                 },
                 "required": [
                   "vm_error",
+                  "error",
                   "block_height",
                   "block_hash"
                 ],
