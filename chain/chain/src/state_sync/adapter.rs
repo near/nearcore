@@ -111,7 +111,7 @@ impl ChainStateSyncAdapter {
         assert_eq!(&chunk_headers_root, sync_prev_block.header().chunk_headers_root());
 
         // If the node was not tracking the shard it may not have the chunk in storage.
-        let chunk = get_chunk_clone_from_header(&self.chain_store, chunk_header)?;
+        let chunk = get_chunk_clone_from_header(&self.chain_store.chunk_store(), chunk_header)?;
         let chunk_proof =
             chunk_proofs.get(prev_shard_index).ok_or(Error::InvalidShardId(shard_id))?.clone();
         let block_header = get_block_header_on_chain_by_height(

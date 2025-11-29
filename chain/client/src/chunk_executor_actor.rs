@@ -501,7 +501,7 @@ impl ChunkExecutorActor {
                 chunk_headers.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
 
             let chunk = if chunk_header.is_new_chunk(block.header().height()) {
-                Some(get_chunk_clone_from_header(&self.chain_store, chunk_header)?)
+                Some(get_chunk_clone_from_header(&self.chain_store.chunk_store(), chunk_header)?)
             } else {
                 None
             };

@@ -4,6 +4,7 @@ use near_chain::stateless_validation::state_witness::CreateWitnessResult;
 use near_chain::{Block, BlockHeader};
 use near_chain_primitives::Error;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
+use near_store::adapter::StoreAdapter;
 
 impl Client {
     // Temporary feature to make node produce state witness for every chunk in every processed block
@@ -17,7 +18,7 @@ impl Client {
         let prev_block = self.chain.get_block(block.header().prev_hash())?;
         let prev_block_chunks = prev_block.chunks();
         for (shard_index, chunk) in block.chunks().iter_new().enumerate() {
-            let chunk = get_chunk_clone_from_header(&self.chain.chain_store, chunk)?;
+            let chunk = get_chunk_clone_from_header(&self.chain.chain_store.chunk_store(), chunk)?;
             // TODO(resharding) This doesn't work if shard layout changes.
             let prev_chunk_header = prev_block_chunks.get(shard_index).unwrap();
             if let Err(err) =

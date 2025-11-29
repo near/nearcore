@@ -1,6 +1,6 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
-use near_chain::Provenance;
+use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::create_chunk;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
