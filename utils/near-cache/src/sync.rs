@@ -47,7 +47,6 @@ where
     /// the LRU list.
     pub fn get_or_put<F>(&self, key: K, f: F) -> V
     where
-        V: Clone,
         F: FnOnce(&K) -> V,
     {
         Result::<_, Infallible>::unwrap(self.get_or_try_put(key, |k| Ok(f(k))))
@@ -63,7 +62,6 @@ where
     /// not updated.
     pub fn get_or_try_put<F, E>(&self, key: K, f: F) -> Result<V, E>
     where
-        V: Clone,
         F: FnOnce(&K) -> Result<V, E>,
     {
         if let Some(result) = self.get(&key) {
