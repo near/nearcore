@@ -223,10 +223,11 @@ fn process_query_response(
         Err(err) => match err {
             near_jsonrpc_primitives::types::query::RpcQueryError::ContractExecutionError {
                 vm_error,
+                error: _,
                 block_height,
                 block_hash,
             } => Ok(json!({
-                "error": format!("wasm execution failed with error: {:?}", vm_error),
+                "error": vm_error,
                 "logs": json!([]),
                 "block_height": block_height,
                 "block_hash": block_hash,

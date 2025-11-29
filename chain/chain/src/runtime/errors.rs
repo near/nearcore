@@ -17,9 +17,10 @@ impl QueryError {
             node_runtime::state_viewer::errors::CallFunctionError::InternalError {
                 error_message,
             } => Self::InternalError { error_message, block_height, block_hash },
-            node_runtime::state_viewer::errors::CallFunctionError::VMError { error } => {
-                Self::ContractExecutionError { error, block_height, block_hash }
-            }
+            node_runtime::state_viewer::errors::CallFunctionError::VMError {
+                error,
+                error_message,
+            } => Self::ContractExecutionError { error_message, error, block_height, block_hash },
         }
     }
 

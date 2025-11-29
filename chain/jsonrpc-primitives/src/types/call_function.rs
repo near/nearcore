@@ -111,10 +111,11 @@ impl From<crate::types::query::RpcQueryError> for RpcCallFunctionError {
                 block_hash,
             } => Self::NoContractCode { contract_account_id, block_height, block_hash },
             crate::types::query::RpcQueryError::ContractExecutionError {
-                vm_error,
+                vm_error: _,
+                error,
                 block_height,
                 block_hash,
-            } => Self::ContractExecutionError { vm_error, block_height, block_hash },
+            } => Self::ContractExecutionError { vm_error: error, block_height, block_hash },
             crate::types::query::RpcQueryError::InternalError { error_message } => {
                 Self::InternalError { error_message }
             }

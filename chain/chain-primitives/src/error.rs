@@ -49,8 +49,9 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Function call returned an error: {error:?}")]
+    #[error("Function call returned an error: {error_message}")]
     ContractExecutionError {
+        error_message: String,
         error: near_primitives::errors::FunctionCallError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,

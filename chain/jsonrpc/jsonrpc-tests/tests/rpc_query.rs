@@ -811,8 +811,7 @@ async fn deploy_global_contract(
 fn error_name_and_info<'a>(err: &'a RpcError) -> (&'a str, &'a Value) {
     match err.error_struct.as_ref() {
         Some(RpcErrorKind::HandlerError(value)) | Some(RpcErrorKind::InternalError(value)) => {
-            let name =
-                value.get("name").and_then(|n| n.as_str()).unwrap();
+            let name = value.get("name").and_then(|n| n.as_str()).unwrap();
             let info = value.get("info").unwrap();
             (name, info)
         }
