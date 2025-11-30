@@ -1,3 +1,4 @@
+pub mod block_store;
 pub mod chain_store;
 pub mod chunk_store;
 pub mod epoch_store;
@@ -99,6 +100,10 @@ pub trait StoreAdapter {
 
     fn chunk_store(&self) -> chunk_store::ChunkStoreAdapter {
         chunk_store::ChunkStoreAdapter::new(self.store())
+    }
+
+    fn block_store(&self) -> block_store::BlockStoreAdapter {
+        block_store::BlockStoreAdapter::new(self.store())
     }
 
     fn epoch_store(&self) -> epoch_store::EpochStoreAdapter {

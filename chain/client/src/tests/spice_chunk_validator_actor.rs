@@ -59,8 +59,8 @@ const GAS_LIMIT: Gas = Gas::from_teragas(300);
 fn test_valid_witness_adds_endorsement_to_core_state() {
     let mut actor = setup();
     let head = actor.chain_store.head().unwrap();
-    let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
-    let prev_block = actor.chain_store.get_block(&head.prev_block_hash).unwrap();
+    let block = actor.chain_store.block_store().get_block(&head.last_block_hash).unwrap();
+    let prev_block = actor.chain_store.block_store().get_block(&head.prev_block_hash).unwrap();
 
     let starting_state_root = test_starting_state_root(&actor);
     record_execution_results(&actor, &prev_block, starting_state_root);
@@ -94,8 +94,8 @@ fn test_valid_witness_sends_endorsements() {
         setup_with_genesis(genesis, Arc::new(create_test_signer("test-validator-1")))
     };
     let head = actor.chain_store.head().unwrap();
-    let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
-    let prev_block = actor.chain_store.get_block(&head.prev_block_hash).unwrap();
+    let block = actor.chain_store.block_store().get_block(&head.last_block_hash).unwrap();
+    let prev_block = actor.chain_store.block_store().get_block(&head.prev_block_hash).unwrap();
 
     let starting_state_root = test_starting_state_root(&actor);
     record_execution_results(&actor, &prev_block, starting_state_root);
@@ -136,8 +136,8 @@ fn test_invalid_witness_does_not_send_endorsements() {
         setup_with_genesis(genesis, Arc::new(create_test_signer("test-validator-1")))
     };
     let head = actor.chain_store.head().unwrap();
-    let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
-    let prev_block = actor.chain_store.get_block(&head.prev_block_hash).unwrap();
+    let block = actor.chain_store.block_store().get_block(&head.last_block_hash).unwrap();
+    let prev_block = actor.chain_store.block_store().get_block(&head.prev_block_hash).unwrap();
 
     let starting_state_root = test_starting_state_root(&actor);
     record_execution_results(&actor, &prev_block, starting_state_root);
@@ -154,8 +154,8 @@ fn test_invalid_witness_does_not_send_endorsements() {
 fn test_invalid_witness_does_not_record_endorsement_in_core() {
     let mut actor = setup();
     let head = actor.chain_store.head().unwrap();
-    let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
-    let prev_block = actor.chain_store.get_block(&head.prev_block_hash).unwrap();
+    let block = actor.chain_store.block_store().get_block(&head.last_block_hash).unwrap();
+    let prev_block = actor.chain_store.block_store().get_block(&head.prev_block_hash).unwrap();
 
     let starting_state_root = test_starting_state_root(&actor);
     record_execution_results(&actor, &prev_block, starting_state_root);
@@ -172,7 +172,7 @@ fn test_invalid_witness_does_not_record_endorsement_in_core() {
 fn test_witness_arriving_before_block() {
     let mut actor = setup();
     let head = actor.chain_store.head().unwrap();
-    let prev_block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
+    let prev_block = actor.chain_store.block_store().get_block(&head.last_block_hash).unwrap();
 
     let starting_state_root = test_starting_state_root(&actor);
     record_execution_results(&actor, &prev_block, starting_state_root);
@@ -199,8 +199,8 @@ fn test_witness_arriving_before_block() {
 fn test_witness_arriving_before_execution_results_for_parent() {
     let mut actor = setup();
     let head = actor.chain_store.head().unwrap();
-    let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
-    let prev_block = actor.chain_store.get_block(&head.prev_block_hash).unwrap();
+    let block = actor.chain_store.block_store().get_block(&head.last_block_hash).unwrap();
+    let prev_block = actor.chain_store.block_store().get_block(&head.prev_block_hash).unwrap();
 
     let starting_state_root = test_starting_state_root(&actor);
 
@@ -219,7 +219,7 @@ fn test_witness_arriving_before_execution_results_for_parent() {
 fn test_witness_arriving_before_block_and_execution_results() {
     let mut actor = setup();
     let head = actor.chain_store.head().unwrap();
-    let prev_block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
+    let prev_block = actor.chain_store.block_store().get_block(&head.last_block_hash).unwrap();
 
     let starting_state_root = test_starting_state_root(&actor);
 

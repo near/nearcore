@@ -279,7 +279,7 @@ impl FlatStorageCommand {
                 panic!("Flat storage is not ready for shard {:?}: {status:?}", cmd.shard_id);
             }
         };
-        let block_header = chain_store.get_block_header(&head_hash)?;
+        let block_header = chain_store.block_store().get_block_header(&head_hash)?;
         let shard_layout = epoch_manager.get_shard_layout(block_header.epoch_id())?;
 
         println!(
@@ -395,8 +395,8 @@ impl FlatStorageCommand {
         let shard_id = shard_uid.shard_id();
 
         for _ in 0..blocks {
-            let block_hash = chain_store.get_block_hash_by_height(height)?;
-            let block = chain_store.get_block(&block_hash)?;
+            let block_hash = chain_store.block_store().get_block_hash_by_height(height)?;
+            let block = chain_store.block_store().get_block(&block_hash)?;
             let header = block.header();
 
             let epoch_id = header.epoch_id();
@@ -407,7 +407,7 @@ impl FlatStorageCommand {
 
             let state_root = block.chunks().get(shard_index).unwrap().prev_state_root();
             let prev_hash = header.prev_hash();
-            let prev_header = chain_store.get_block_header(&prev_hash)?;
+            let prev_header = chain_store.block_store().get_block_header(&prev_hash)?;
             let prev_prev_hash = *prev_header.prev_hash();
             let prev_height = prev_header.height();
 
@@ -533,6 +533,7 @@ impl FlatStorageCommand {
                 s.spawn(move || match cmd.mode {
                     MoveFlatHeadMode::Forward { new_flat_head_height } => {
                         let header = chain_store
+                            .block_store()
                             .get_block_header_by_height(new_flat_head_height)
                             .expect("get block header by height");
                         println!(

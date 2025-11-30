@@ -69,7 +69,7 @@ pub fn migrate_46_to_47(
 
         let resharding_block_hash = CryptoHash::from_str(resharding_block_hash).unwrap();
         let shard_layout = &epoch_config_store.get_config(protocol_version).shard_layout;
-        let resharding_block = hot_store.chain_store().get_block_header(&resharding_block_hash)?;
+        let resharding_block = hot_store.block_store().get_block_header(&resharding_block_hash)?;
         let resharding_block_info = BlockInfo {
             hash: resharding_block_hash,
             height: resharding_block.height(),

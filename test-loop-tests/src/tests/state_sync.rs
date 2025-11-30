@@ -1,7 +1,6 @@
 use near_async::messaging::{CanSend, Handler};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
-use near_chain::ChainStoreAccess;
 use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::{
     TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
@@ -17,6 +16,7 @@ use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Nonce, NumSeats, ShardId,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
+use near_store::adapter::StoreAdapter;
 
 use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
 use crate::setup::drop_condition::DropCondition;
@@ -259,15 +259,16 @@ fn assert_fork_happened(env: &TestLoopEnv, skip_block_height: BlockHeight) {
 
     // Here we assume the one before the skipped block will exist, since it's easier that way and it should
     // be true in this test.
-    let prev_hash = clients[0].chain.get_block_hash_by_height(skip_block_height - 1).unwrap();
-    let next_hash = clients[0].chain.chain_store.get_next_block_hash(&prev_hash).unwrap();
-    let header = clients[0].chain.get_block_header(&next_hash).unwrap();
+    let block_store = clients[0].chain.chain_store().block_store();
+    let prev_hash = block_store.get_block_hash_by_height(skip_block_height - 1).unwrap();
+    let next_hash = block_store.get_next_block_hash(&prev_hash).unwrap();
+    let header = block_store.get_block_header(&next_hash).unwrap();
     assert!(header.height() > skip_block_height);
 
     // The way it's implemented currently, only one client will be aware of the fork
     for client in clients {
-        let hashes =
-            client.chain.chain_store.get_all_block_hashes_by_height(skip_block_height).unwrap();
+        let block_store = client.chain.chain_store().block_store();
+        let hashes = block_store.get_all_block_hashes_by_height(skip_block_height).unwrap();
         if !hashes.is_empty() {
             return;
         }
@@ -924,7 +925,12 @@ fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
             let handle = env.node_datas[0].client_sender.actor_handle();
             let client = &data.get(&handle).client;
             let tip = client.chain.head().unwrap();
-            let header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
+            let header = client
+                .chain
+                .chain_store()
+                .block_store()
+                .get_block_header(&tip.last_block_hash)
+                .unwrap();
             tracing::debug!(
                 height = %header.height(),
                 chunk_mask = ?header.chunk_mask(),

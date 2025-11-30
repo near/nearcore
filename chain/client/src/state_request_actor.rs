@@ -17,7 +17,8 @@ use near_primitives::state_sync::{
 };
 use near_primitives::types::ShardId;
 use near_primitives::version::ProtocolVersion;
-use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::Store;
+use near_store::adapter::StoreAdapter;
 use parking_lot::Mutex;
 
 use crate::metrics;
@@ -27,7 +28,7 @@ pub struct StateRequestActor {
     clock: Clock,
     state_sync_adapter: ChainStateSyncAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    chain_store: ChainStoreAdapter,
+    store: Store,
     genesis_hash: CryptoHash,
     throttle_period: Duration,
     num_state_requests_per_throttle_period: usize,
@@ -52,10 +53,10 @@ impl StateRequestActor {
         throttle_period: Duration,
         num_state_requests_per_throttle_period: usize,
     ) -> Self {
-        let chain_store = ChainStoreAdapter::new(runtime.store().clone());
+        let store = runtime.store().clone();
         let state_sync_adapter = ChainStateSyncAdapter::new(
             clock.clone(),
-            chain_store.clone(),
+            store.clone(),
             epoch_manager.clone(),
             runtime.clone(),
         );
@@ -63,7 +64,7 @@ impl StateRequestActor {
             clock,
             state_sync_adapter,
             epoch_manager,
-            chain_store,
+            store,
             genesis_hash,
             throttle_period,
             num_state_requests_per_throttle_period,
@@ -102,8 +103,8 @@ impl StateRequestActor {
             // We shouldn't be trying to sync state from before the genesis block
             return Ok(None);
         }
-        let header = self.chain_store.get_block_header(block_hash)?;
-        self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
+        let header = self.store.block_store().get_block_header(block_hash)?;
+        self.store.chain_store().get_current_epoch_sync_hash(header.epoch_id())
     }
 
     // TODO(darioush): Remove the code duplication with Chain.
@@ -113,7 +114,7 @@ impl StateRequestActor {
     ) -> Result<bool, near_chain::Error> {
         // It's important to check that Block exists because we will sync with it.
         // Do not replace with `get_block_header()`.
-        let _sync_block = self.chain_store.get_block(sync_hash)?;
+        let _sync_block = self.store.block_store().get_block(sync_hash)?;
 
         let good_sync_hash = self.get_sync_hash(sync_hash)?;
         Ok(good_sync_hash.as_ref() == Some(sync_hash))
@@ -122,8 +123,8 @@ impl StateRequestActor {
     /// Checks if the sync_hash belongs to an epoch that is too old.
     /// We allow sync_hash from the current epoch and the immediately previous epoch.
     fn is_sync_hash_from_old_epoch(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
-        let head = self.chain_store.head()?;
-        let sync_block_header = self.chain_store.get_block_header(sync_hash)?;
+        let head = self.store.chain_store().head()?;
+        let sync_block_header = self.store.block_store().get_block_header(sync_hash)?;
         let sync_epoch_id = sync_block_header.epoch_id();
 
         if sync_epoch_id == &head.epoch_id {

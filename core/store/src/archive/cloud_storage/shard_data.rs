@@ -57,8 +57,8 @@ pub fn build_shard_data(
 ) -> Result<ShardData, Error> {
     let chain_store = store.chain_store();
     let chunk_store = store.chunk_store();
-    let block_hash = chain_store.get_block_hash_by_height(block_height)?;
-    let block = chain_store.get_block(&block_hash)?;
+    let block_hash = store.block_store().get_block_hash_by_height(block_height)?;
+    let block = store.block_store().get_block(&block_hash)?;
     let shard_id = shard_uid.shard_id();
     let chunk_hash = block
         .chunks()

@@ -32,11 +32,11 @@ pub struct BlockDataV1 {
 
 /// Builds a `BlockData` object for the given block height by reading data from the store.
 pub fn build_block_data(store: &Store, block_height: BlockHeight) -> Result<BlockData, Error> {
-    let store = store.chain_store();
-    let block_hash = store.get_block_hash_by_height(block_height)?;
-    let block = (*store.get_block(&block_hash)?).clone();
+    let block_store = store.block_store();
+    let block_hash = block_store.get_block_hash_by_height(block_height)?;
+    let block = (*block_store.get_block(&block_hash)?).clone();
     let block_info = store.epoch_store().get_block_info(&block_hash)?;
-    let next_block_hash = store.get_next_block_hash(&block_hash)?;
+    let next_block_hash = block_store.get_next_block_hash(&block_hash)?;
     // TODO(cloud_archival) Read from `DBCol::TransactionResultForBlock`
     let transaction_result_for_block = HashMap::new();
     let block_data =

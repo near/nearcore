@@ -78,6 +78,7 @@ use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
+use near_store::adapter::StoreAdapter;
 use near_telemetry::TelemetryEvent;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
@@ -586,8 +587,12 @@ impl Handler<SpanWrapped<BlockResponse>> for ClientActor {
     fn handle(&mut self, msg: SpanWrapped<BlockResponse>) {
         let BlockResponse { block, peer_id, was_requested } = msg.span_unwrap();
         tracing::debug!(target: "client", block_height = block.header().height(), block_hash = ?block.header().hash(), "received block response");
-        let blocks_at_height =
-            self.client.chain.chain_store().get_all_block_hashes_by_height(block.header().height());
+        let blocks_at_height = self
+            .client
+            .chain
+            .chain_store()
+            .block_store()
+            .get_all_block_hashes_by_height(block.header().height());
         if was_requested
             || blocks_at_height.is_err()
             || blocks_at_height.as_ref().unwrap().is_empty()

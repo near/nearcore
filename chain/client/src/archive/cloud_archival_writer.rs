@@ -252,7 +252,7 @@ impl CloudArchivalWriter {
 
     /// Persist finalized data for `height` to cloud storage.
     async fn archive_data(&self, height: BlockHeight) -> Result<(), CloudArchivingError> {
-        let block_hash = self.hot_store.chain_store().get_block_hash_by_height(height)?;
+        let block_hash = self.hot_store.block_store().get_block_hash_by_height(height)?;
         let epoch_id = self.epoch_manager.get_epoch_id(&block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let tracked_shards =
@@ -375,7 +375,7 @@ impl CloudArchivalWriter {
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         cloud_head: BlockHeight,
     ) -> Result<(), CloudArchivalInitializationError> {
-        let block_hash = self.hot_store.chain_store().get_block_hash_by_height(cloud_head)?;
+        let block_hash = self.hot_store.block_store().get_block_hash_by_height(cloud_head)?;
         let gc_stop_height = runtime_adapter.get_gc_stop_height(&block_hash);
         let gc_tail = self.hot_store.chain_store().tail()?;
         if gc_tail > gc_stop_height {
@@ -408,7 +408,7 @@ impl CloudArchivalWriter {
         new_head: BlockHeight,
     ) -> Result<(), near_chain_primitives::Error> {
         let cloud_head_header =
-            self.hot_store.chain_store().get_block_header_by_height(new_head)?;
+            self.hot_store.block_store().get_block_header_by_height(new_head)?;
         let cloud_head_tip = Tip::from_header(&cloud_head_header);
         let mut transaction = DBTransaction::new();
         transaction.set(DBCol::BlockMisc, CLOUD_HEAD_KEY.to_vec(), borsh::to_vec(&cloud_head_tip)?);

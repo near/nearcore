@@ -264,7 +264,7 @@ impl TestLoopEnv {
     fn assert_header_existence(&self, node_index: usize, height: u64, exists: bool) {
         let client_handle = self.node_datas[node_index].client_sender.actor_handle();
         let store = self.test_loop.data.get(&client_handle).client.chain.chain_store.store();
-        let header = store.chain_store().get_block_hash_by_height(height);
+        let header = store.block_store().get_block_hash_by_height(height);
         assert_eq!(header.is_ok(), exists);
     }
 }

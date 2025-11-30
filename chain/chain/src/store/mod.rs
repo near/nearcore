@@ -396,7 +396,7 @@ impl ChainStore {
         let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&prev_block_hash)?;
         let mut receipts_block_hash = prev_block_hash;
         loop {
-            let block_header = chain_store.get_block_header(&receipts_block_hash)?;
+            let block_header = chain_store.block_store().get_block_header(&receipts_block_hash)?;
 
             if block_header.height() != last_included_height {
                 receipts_block_hash = *block_header.prev_hash();
@@ -482,7 +482,7 @@ impl ChainStore {
         base_block_hash: &CryptoHash,
     ) -> Result<(), InvalidTxError> {
         check_transaction_validity_period(
-            &self.store,
+            &self.store.block_store(),
             prev_block_header,
             base_block_hash,
             self.transaction_validity_period,
@@ -498,7 +498,7 @@ impl ChainStore {
         base_block_hash: &CryptoHash,
     ) -> Result<(), InvalidTxError> {
         early_prepare_txs_check_validity_period(
-            &self.store,
+            &self.store.block_store(),
             prev_block_height,
             prev_prev_block_header,
             base_block_hash,
@@ -915,7 +915,7 @@ impl ChainStoreAccess for ChainStore {
 
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error> {
-        ChainStoreAdapter::get_block(self, h)
+        self.block_store().get_block(h)
     }
 
     /// Get full chunk.
@@ -930,7 +930,7 @@ impl ChainStoreAccess for ChainStore {
 
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
-        ChainStoreAdapter::block_exists(self, h)
+        self.block_store().block_exists(h)
     }
 
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
@@ -943,7 +943,7 @@ impl ChainStoreAccess for ChainStore {
 
     /// Get previous header.
     fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error> {
-        ChainStoreAdapter::get_previous_header(self, header)
+        self.block_store().get_previous_header(header)
     }
 
     /// Information from applying chunk.
@@ -965,16 +965,16 @@ impl ChainStoreAccess for ChainStore {
 
     /// Get block header.
     fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
-        ChainStoreAdapter::get_block_header(self, h)
+        self.block_store().get_block_header(h)
     }
 
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error> {
-        ChainStoreAdapter::get_block_hash_by_height(self, height)
+        self.block_store().get_block_hash_by_height(height)
     }
 
     fn get_next_block_hash(&self, hash: &CryptoHash) -> Result<CryptoHash, Error> {
-        ChainStoreAdapter::get_next_block_hash(self, hash)
+        self.block_store().get_next_block_hash(hash)
     }
 
     fn get_epoch_light_client_block(
@@ -985,7 +985,7 @@ impl ChainStoreAccess for ChainStore {
     }
 
     fn get_block_refcount(&self, block_hash: &CryptoHash) -> Result<u64, Error> {
-        ChainStoreAdapter::get_block_refcount(self, block_hash)
+        self.block_store().get_block_refcount(block_hash)
     }
 
     /// Get outgoing receipts *generated* from shard `shard_id` in block `prev_hash`
@@ -1891,6 +1891,7 @@ impl<'a> ChainStoreUpdate<'a> {
             if let Some(block) = &self.chain_store_cache_update.block {
                 let mut map = HashMap::clone(
                     self.chain_store
+                        .block_store()
                         .get_all_block_hashes_by_height(block.header().height())?
                         .as_ref(),
                 );
@@ -1926,11 +1927,12 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.insert_ser(DBCol::BlockHeader, hash.as_ref(), header)?;
             }
             for (height, headers) in headers_by_height {
-                let mut hash_set = match self.chain_store.get_all_header_hashes_by_height(height) {
-                    Ok(hashes) => hashes,
-                    Err(Error::DBNotFoundErr(_)) => HashSet::with_capacity(headers.len()),
-                    Err(e) => return Err(e),
-                };
+                let mut hash_set =
+                    match self.chain_store.block_store().get_all_header_hashes_by_height(height) {
+                        Ok(hashes) => hashes,
+                        Err(Error::DBNotFoundErr(_)) => HashSet::with_capacity(headers.len()),
+                        Err(e) => return Err(e),
+                    };
                 hash_set.extend(headers.iter().map(|header| *header.hash()));
                 store_update.set_ser(
                     DBCol::HeaderHashesByHeight,

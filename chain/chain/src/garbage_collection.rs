@@ -259,7 +259,8 @@ impl ChainStore {
                 return Ok(());
             }
             let blocks_current_height = self
-                .chain_store()
+                .store()
+                .block_store()
                 .get_all_block_hashes_by_height(height)?
                 .values()
                 .flatten()
@@ -420,7 +421,8 @@ impl ChainStore {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Result<(), Error> {
         let blocks_current_height = self
-            .chain_store()
+            .store()
+            .block_store()
             .get_all_block_hashes_by_height(height)?
             .values()
             .flatten()
@@ -500,7 +502,8 @@ impl ChainStore {
         let mut tail_prev_block_cleaned = false;
         for height in tail..gc_height {
             let blocks_current_height = self
-                .chain_store()
+                .store()
+                .block_store()
                 .get_all_block_hashes_by_height(height)?
                 .values()
                 .flatten()
@@ -558,7 +561,8 @@ impl<'a> ChainStoreUpdate<'a> {
         end: BlockHeight,
     ) -> Result<(), Error> {
         for height in start..=end {
-            let header_hashes = self.chain_store().get_all_header_hashes_by_height(height)?;
+            let header_hashes =
+                self.store().block_store().get_all_header_hashes_by_height(height)?;
             for header_hash in header_hashes {
                 // Delete header_hash-indexed data: block header
                 let mut store_update = self.store().store_update();
@@ -600,7 +604,8 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.gc_col(DBCol::InvalidChunks, chunk_hash);
             }
 
-            let header_hashes = self.chain_store().get_all_header_hashes_by_height(height)?;
+            let header_hashes =
+                self.store().block_store().get_all_header_hashes_by_height(height)?;
             for _header_hash in header_hashes {
                 // 3. Delete header_hash-indexed data
                 // TODO #3488: enable
@@ -1002,8 +1007,9 @@ impl<'a> ChainStoreUpdate<'a> {
         epoch_id: &EpochId,
     ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
-        let mut epoch_to_hashes =
-            HashMap::clone(self.chain_store().get_all_block_hashes_by_height(height)?.as_ref());
+        let mut epoch_to_hashes = HashMap::clone(
+            self.store().block_store().get_all_block_hashes_by_height(height)?.as_ref(),
+        );
         let hashes = epoch_to_hashes.get_mut(epoch_id).ok_or_else(|| {
             near_chain_primitives::Error::Other("current epoch id should exist".into())
         })?;
@@ -1272,7 +1278,7 @@ fn gc_parent_shard_after_resharding(
     // We instead need to rely on chain_store to get the next block hash and use the block_info to get
     // the next epoch id and shard layout.
     let store = chain_store_update.store();
-    let next_block_hash = store.chain_store().get_next_block_hash(block_hash)?;
+    let next_block_hash = store.block_store().get_next_block_hash(block_hash)?;
     let next_epoch_id = epoch_manager.get_epoch_id(&next_block_hash)?;
     let shard_layout = epoch_manager.get_shard_layout(&next_epoch_id)?;
     let mut trie_store_update = store.trie_store().store_update();
@@ -1345,7 +1351,7 @@ fn gc_state(
         // Go to the previous epoch last_block_hash
         let epoch_block_info = epoch_manager.get_block_info(&current_block_hash)?;
         let epoch_first_block_hash = epoch_block_info.epoch_first_block();
-        let epoch_first_block = store.chain_store().get_block_header(epoch_first_block_hash)?;
+        let epoch_first_block = store.block_store().get_block_header(epoch_first_block_hash)?;
         current_block_hash = *epoch_first_block.prev_hash();
     }
 

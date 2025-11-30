@@ -94,11 +94,11 @@ impl EpochSync {
         let target_epoch_last_block_hash =
             Self::find_target_epoch_to_produce_proof_for(&store, transaction_validity_period)?;
 
-        let chain_store = store.chain_store();
+        let block_store = store.block_store();
         let target_epoch_last_block_header =
-            chain_store.get_block_header(&target_epoch_last_block_hash)?;
+            block_store.get_block_header(&target_epoch_last_block_hash)?;
         let target_epoch_second_last_block_header =
-            chain_store.get_block_header(target_epoch_last_block_header.prev_hash())?;
+            block_store.get_block_header(target_epoch_last_block_header.prev_hash())?;
 
         let mut guard = cache.lock();
         if let Some((epoch_id, proof)) = &*guard {
@@ -149,10 +149,8 @@ impl EpochSync {
         store: &Store,
         transaction_validity_period: BlockHeightDelta,
     ) -> Result<CryptoHash, Error> {
-        let chain_store = store.chain_store();
         let epoch_store = store.epoch_store();
-
-        let tip = chain_store.final_head()?;
+        let tip = store.chain_store().final_head()?;
         let current_epoch_start_height = epoch_store.get_epoch_start(&tip.epoch_id)?;
         let next_next_epoch_id = tip.next_epoch_id;
         // Last block hash of the target epoch is the same as the next next EpochId.
@@ -161,7 +159,7 @@ impl EpochSync {
         Ok(loop {
             let block_info = epoch_store.get_block_info(&target_epoch_last_block_hash)?;
             let target_epoch_first_block_header =
-                chain_store.get_block_header(block_info.epoch_first_block())?;
+                store.block_store().get_block_header(block_info.epoch_first_block())?;
             // Check that we have enough headers to check for transaction_validity_period.
             // We check this against the current epoch's start height, because when we state
             // sync, we will sync against the current epoch, and starting from the point we
@@ -326,7 +324,7 @@ impl EpochSync {
         // At least the third last block of last past epoch is final.
         // It means that store contains header of last final block of the first block of current epoch.
         let last_header_last_finalized_height =
-            store.chain_store().get_block_header(last_header.last_final_block())?.height();
+            store.block_store().get_block_header(last_header.last_final_block())?.height();
         let mut first_block_info_in_epoch =
             BlockInfo::from_header(&last_header, last_header_last_finalized_height);
         // We need to populate fields below manually, as they are set to defaults by `BlockInfo::from_header`.

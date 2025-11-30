@@ -72,6 +72,7 @@ use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
+use near_store::adapter::StoreAdapter;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
@@ -2024,7 +2025,12 @@ impl Client {
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
-                match self.chain.chain_store().get_all_block_hashes_by_height(*parent_height) {
+                match self
+                    .chain
+                    .chain_store()
+                    .block_store()
+                    .get_all_block_hashes_by_height(*parent_height)
+                {
                     Ok(hashes) => {
                         // If there is more than one block at the height, all of them will be
                         // eligible to build the next block on, so we just pick one.

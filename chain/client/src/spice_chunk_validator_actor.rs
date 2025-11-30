@@ -85,7 +85,7 @@ impl SpiceChunkValidatorActor {
 // chunk validator actor we don't need to handle possibility of missing blocks in this actor.
 impl Handler<ProcessedBlock> for SpiceChunkValidatorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
-        let block = match self.chain_store.get_block(&block_hash) {
+        let block = match self.chain_store.block_store().get_block(&block_hash) {
             Ok(block) => block,
             Err(err) => {
                 tracing::error!(target: "spice_chunk_validator", %block_hash, ?err, "failed to get block");
@@ -107,7 +107,7 @@ impl Handler<ExecutionResultEndorsed> for SpiceChunkValidatorActor {
             let next_block_hashes =
                 self.chain_store.get_all_next_block_hashes(&block_hash).unwrap();
             for next_block_hash in next_block_hashes {
-                let next_block = self.chain_store.get_block(&next_block_hash).expect(
+                let next_block = self.chain_store.block_store().get_block(&next_block_hash).expect(
                     "block added to next blocks only after it's processed so it should be in store",
                 );
                 if let Err(err) =
@@ -174,7 +174,7 @@ impl SpiceChunkValidatorActor {
     ) -> Result<WitnessProcessingReadiness, Error> {
         let chunk_id = witness.chunk_id();
         let block_hash = chunk_id.block_hash;
-        let block = match self.chain_store.get_block(&block_hash) {
+        let block = match self.chain_store.block_store().get_block(&block_hash) {
             Ok(block) => block,
             Err(Error::DBNotFoundErr(err)) => {
                 tracing::debug!(
@@ -186,7 +186,7 @@ impl SpiceChunkValidatorActor {
             }
             Err(err) => return Err(err),
         };
-        let prev_block = self.chain_store.get_block(block.header().prev_hash())?;
+        let prev_block = self.chain_store.block_store().get_block(block.header().prev_hash())?;
 
         let Some(prev_block_execution_results) =
             self.core_reader.get_block_execution_results(prev_block.header())?
@@ -212,7 +212,7 @@ impl SpiceChunkValidatorActor {
         signer: Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
         let prev_hash = *block.header().prev_hash();
-        let prev_block = self.chain_store.get_block(&prev_hash)?;
+        let prev_block = self.chain_store.block_store().get_block(&prev_hash)?;
         let Some(prev_block_execution_results) =
             self.core_reader.get_block_execution_results(prev_block.header())?
         else {

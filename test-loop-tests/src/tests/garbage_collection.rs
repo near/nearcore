@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use near_async::time::Duration;
+use near_chain::ChainStoreAccess;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -137,7 +138,7 @@ fn assert_state_transition_data_is_cleared(
     let store = chain_store.store().store();
     for res in store.iter(DBCol::StateTransitionData) {
         let (block_hash, shard_id) = get_block_shard_id_rev(&res.unwrap().0).unwrap();
-        let block_height = chain_store.get_block_height(&block_hash).unwrap();
+        let block_height = store.block_store().get_block_height(&block_hash).unwrap();
         assert!(
             expected_shard_ids.contains(&shard_id),
             "StateTransitionData gc didn't clear data for shard {shard_id}"
@@ -153,7 +154,7 @@ fn assert_state_transition_data_is_cleared(
 
     let head_height = chain_store.head().unwrap().height;
     for height in final_block_height..head_height {
-        let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
+        let block_hash = store.block_store().get_block_hash_by_height(height).unwrap();
         for shard_id in expected_shard_ids {
             assert!(
                 store

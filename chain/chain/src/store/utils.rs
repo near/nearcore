@@ -10,6 +10,8 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::state_sync::ReceiptProofResponse;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
+use near_store::adapter::StoreAdapter;
+use near_store::adapter::block_store::BlockStoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use std::sync::Arc;
@@ -34,33 +36,33 @@ pub fn get_chunk_clone_from_header(
 
 /// Returns block header from the current chain defined by `sync_hash` for given height if present.
 pub fn get_block_header_on_chain_by_height(
-    chain_store: &ChainStoreAdapter,
+    block_store: &BlockStoreAdapter,
     sync_hash: &CryptoHash,
     height: BlockHeight,
 ) -> Result<Arc<BlockHeader>, Error> {
-    let mut header = chain_store.get_block_header(sync_hash)?;
+    let mut header = block_store.get_block_header(sync_hash)?;
     let mut hash = *sync_hash;
     while header.height() > height {
         hash = *header.prev_hash();
-        header = chain_store.get_block_header(&hash)?;
+        header = block_store.get_block_header(&hash)?;
     }
     let header_height = header.height();
     if header_height < height {
         return Err(Error::InvalidBlockHeight(header_height));
     }
-    chain_store.get_block_header(&hash)
+    block_store.get_block_header(&hash)
 }
 
 /// For a given transaction, it expires if the block that the chunk points to is more than `validity_period`
 /// ahead of the block that has `base_block_hash`.
 pub fn check_transaction_validity_period(
-    chain_store: &ChainStoreAdapter,
+    block_store: &BlockStoreAdapter,
     prev_block_header: &BlockHeader,
     base_block_hash: &CryptoHash,
     transaction_validity_period: BlockHeightDelta,
 ) -> Result<(), InvalidTxError> {
     let base_header =
-        chain_store.get_block_header(base_block_hash).map_err(|_| InvalidTxError::Expired)?;
+        block_store.get_block_header(base_block_hash).map_err(|_| InvalidTxError::Expired)?;
 
     metrics::CHAIN_VALIDITY_PERIOD_CHECK_DELAY
         .observe(prev_block_header.height().saturating_sub(base_header.height()) as f64);
@@ -71,7 +73,7 @@ pub fn check_transaction_validity_period(
     }
 
     // Then check if there is a path between the blocks (`base` is an ancestor of `prev`)
-    validity_period_validate_is_ancestor(&base_header, prev_block_header, chain_store)
+    validity_period_validate_is_ancestor(&base_header, prev_block_header, block_store)
 }
 
 /// Transaction validity period check used in early prepare transactions. It's different from the
@@ -81,14 +83,14 @@ pub fn check_transaction_validity_period(
 /// transactions. This check uses `prev_prev_block_header`, which is the block before the previous
 /// block and the same height as the normal check.
 pub fn early_prepare_txs_check_validity_period(
-    chain_store: &ChainStoreAdapter,
+    block_store: &BlockStoreAdapter,
     prev_block_height: BlockHeight,
     prev_prev_block_header: &BlockHeader,
     base_block_hash: &CryptoHash,
     transaction_validity_period: BlockHeightDelta,
 ) -> Result<(), InvalidTxError> {
     let base_header =
-        chain_store.get_block_header(base_block_hash).map_err(|_| InvalidTxError::Expired)?;
+        block_store.get_block_header(base_block_hash).map_err(|_| InvalidTxError::Expired)?;
 
     metrics::CHAIN_VALIDITY_PERIOD_CHECK_DELAY
         .observe(prev_block_height.saturating_sub(base_header.height()) as f64);
@@ -99,7 +101,7 @@ pub fn early_prepare_txs_check_validity_period(
     }
 
     // Then check if there is a path between the blocks (`base` is ancestor of `prev_prev`)
-    validity_period_validate_is_ancestor(&base_header, prev_prev_block_header, chain_store)
+    validity_period_validate_is_ancestor(&base_header, prev_prev_block_header, block_store)
 }
 
 /// Check if base_header is an ancestor of prev_block_header.
@@ -107,7 +109,7 @@ pub fn early_prepare_txs_check_validity_period(
 fn validity_period_validate_is_ancestor(
     base_header: &BlockHeader,
     prev_block_header: &BlockHeader,
-    chain_store: &ChainStoreAdapter,
+    block_store: &BlockStoreAdapter,
 ) -> Result<(), InvalidTxError> {
     let base_height = base_header.height();
     let prev_height = prev_block_header.height();
@@ -120,9 +122,9 @@ fn validity_period_validate_is_ancestor(
 
     // if both are on the canonical chain, comparing height is sufficient
     // we special case this because it is expected that this scenario will happen in most cases.
-    if let Ok(base_block_hash_by_height) = chain_store.get_block_hash_by_height(base_height) {
+    if let Ok(base_block_hash_by_height) = block_store.get_block_hash_by_height(base_height) {
         if &base_block_hash_by_height == base_block_hash {
-            if let Ok(prev_hash) = chain_store.get_block_hash_by_height(prev_height) {
+            if let Ok(prev_hash) = block_store.get_block_hash_by_height(prev_height) {
                 if &prev_hash == prev_block_header.hash() {
                     return Ok(());
                 }
@@ -133,12 +135,12 @@ fn validity_period_validate_is_ancestor(
     // if the base block height is smaller than `last_final_height` we only need to check
     // whether the base block is the same as the one with that height on the canonical fork.
     // Otherwise we walk back the chain to check whether base block is on the same chain.
-    let last_final_height = chain_store
+    let last_final_height = block_store
         .get_block_height(prev_block_header.last_final_block())
         .map_err(|_| InvalidTxError::InvalidChain)?;
 
     if last_final_height >= base_height {
-        let base_block_hash_by_height = chain_store
+        let base_block_hash_by_height = block_store
             .get_block_hash_by_height(base_height)
             .map_err(|_| InvalidTxError::InvalidChain)?;
         if &base_block_hash_by_height == base_block_hash {
@@ -148,7 +150,7 @@ fn validity_period_validate_is_ancestor(
         }
     } else {
         let header =
-            get_block_header_on_chain_by_height(chain_store, prev_block_header.hash(), base_height)
+            get_block_header_on_chain_by_height(block_store, prev_block_header.hash(), base_height)
                 .map_err(|_| InvalidTxError::InvalidChain)?;
         if header.hash() == base_block_hash { Ok(()) } else { Err(InvalidTxError::InvalidChain) }
     }
@@ -179,7 +181,7 @@ pub fn get_incoming_receipts_for_shard(
     let mut current_shard_layout = target_shard_layout.clone();
 
     loop {
-        let header = chain_store.get_block_header(&current_block_hash)?;
+        let header = chain_store.block_store().get_block_header(&current_block_hash)?;
 
         if header.height() < last_chunk_height_included {
             panic!("get_incoming_receipts_for_shard failed");
@@ -250,12 +252,12 @@ pub fn get_incoming_receipts_for_shard(
 
 /// Finds first of the given hashes that is known on the main chain.
 fn find_common_header(
-    chain_store: &ChainStoreAdapter,
+    block_store: &BlockStoreAdapter,
     hashes: &[CryptoHash],
 ) -> Option<Arc<BlockHeader>> {
     for hash in hashes {
-        if let Ok(header) = chain_store.get_block_header(hash) {
-            if let Ok(header_at_height) = chain_store.get_block_header_by_height(header.height()) {
+        if let Ok(header) = block_store.get_block_header(hash) {
+            if let Ok(header_at_height) = block_store.get_block_header_by_height(header.height()) {
                 if header.hash() == header_at_height.hash() {
                     return Some(header);
                 }
@@ -275,7 +277,7 @@ pub fn retrieve_headers(
     hashes: Vec<CryptoHash>,
     max_headers_returned: u64,
 ) -> Result<Vec<Arc<BlockHeader>>, Error> {
-    let header = match find_common_header(chain_store, &hashes) {
+    let header = match find_common_header(&chain_store.block_store(), &hashes) {
         Some(header) => header,
         None => return Ok(vec![]),
     };
@@ -289,7 +291,7 @@ pub fn retrieve_headers(
     for i in 1..=max_headers_returned {
         match chain_store
             .get_block_hash_from_ordinal(block_ordinal.saturating_add(i))
-            .and_then(|block_hash| chain_store.get_block_header(&block_hash))
+            .and_then(|block_hash| chain_store.block_store().get_block_header(&block_hash))
         {
             Ok(h) => headers.push(h),
             Err(_) => break, // This is either the last block that we know of, or we don't have these block headers because of epoch sync.

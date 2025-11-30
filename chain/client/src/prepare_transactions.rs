@@ -115,7 +115,7 @@ impl PrepareTransactionsJob {
         if let Ok(_hash) = inputs
             .runtime_adapter
             .store()
-            .chain_store()
+            .block_store()
             .get_block_hash_by_height(inputs.prev_block_context.height)
         {
             *state = PrepareTransactionsJobState::NotStartedInTime;

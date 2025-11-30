@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use near_async::time::Duration;
+use near_chain::ChainStoreAccess;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_chain_configs::{MIN_GC_NUM_EPOCHS_TO_KEEP, TrackedShardsConfig};
 use near_o11y::testonly::init_test_logger;
@@ -186,7 +187,7 @@ fn assert_old_chunks_are_cleared(
     let mut stored_shards = HashSet::<ShardUId>::default();
     for res in store.iter(DBCol::ChunkExtra) {
         let (block_hash, shard_uid) = get_block_shard_uid_rev(&res.unwrap().0).unwrap();
-        let block_height = chain_store.get_block_height(&block_hash).unwrap();
+        let block_height = chain_store.block_store().get_block_height(&block_hash).unwrap();
         stored_shards.insert(shard_uid);
         assert!(
             block_height >= final_block_height.saturating_sub(EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP),
@@ -204,7 +205,7 @@ fn assert_new_chunks_exist(chain_store: &ChainStoreAdapter, tracked_shards: &Has
     let store = chain_store.store().store();
     let head_height = chain_store.head().unwrap().height;
     for height in final_block_height..head_height {
-        let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
+        let block_hash = chain_store.block_store().get_block_hash_by_height(height).unwrap();
         for shard_uid in tracked_shards {
             assert!(
                 store

@@ -40,7 +40,7 @@ impl CloudStorage {
             .map_err(|error| Error::new(ErrorKind::InvalidInput, error))?;
         let hot_store = Store::new(hot_db.clone());
         let block_height =
-            hot_store.chain_store().get_block_height(&block_hash).map_err(Error::other)?;
+            hot_store.block_store().get_block_height(&block_hash).map_err(Error::other)?;
         let block_data =
             block_on_future(self.retrieve_block_data(block_height)).map_err(Error::other)?;
         Ok(block_data)
@@ -57,7 +57,7 @@ impl CloudStorage {
             .map_err(|error| Error::new(ErrorKind::InvalidInput, error))?;
         let hot_store = Store::new(hot_db.clone());
         let block_height =
-            hot_store.chain_store().get_block_height(&block_hash).map_err(Error::other)?;
+            hot_store.block_store().get_block_height(&block_hash).map_err(Error::other)?;
         let shard_data = block_on_future(self.retrieve_shard_data(block_height, shard_id))
             .map_err(Error::other)?;
         Ok(shard_data)

@@ -34,6 +34,8 @@ use near_primitives::{
     views::ValidatorInfo,
 };
 use near_store::DBCol;
+use near_store::adapter::StoreAdapter;
+use near_store::adapter::block_store::BlockStoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
@@ -202,18 +204,18 @@ impl Handler<DebugStatus, Result<DebugStatusResponse, StatusError>> for ClientAc
 }
 
 fn get_block_hashes_to_fetch(
-    chain_store: &ChainStoreAdapter,
+    block_store: &BlockStoreAdapter,
     height_to_fetch: BlockHeight,
     final_height: BlockHeight,
 ) -> Vec<CryptoHash> {
     if height_to_fetch >= final_height {
-        chain_store
+        block_store
             .get_all_header_hashes_by_height(height_to_fetch)
             .unwrap_or_default()
             .into_iter()
             .collect()
     } else {
-        chain_store.get_block_hash_by_height(height_to_fetch).ok().into_iter().collect()
+        block_store.get_block_hash_by_height(height_to_fetch).ok().into_iter().collect()
     }
 }
 
@@ -232,7 +234,8 @@ fn find_first_height_to_fetch(
         chain_store.get_genesis_height() as i64,
     ) as u64;
     while height_to_fetch > min_height_to_search {
-        let block_hashes = get_block_hashes_to_fetch(chain_store, height_to_fetch, final_height);
+        let block_hashes =
+            get_block_hashes_to_fetch(&chain_store.block_store(), height_to_fetch, final_height);
         if block_hashes.is_empty() {
             if matches!(mode, DebugBlocksStartingMode::JumpToBlockMiss) {
                 break;
@@ -246,7 +249,7 @@ fn find_first_height_to_fetch(
 
         let mut found_block = false;
         for block_hash in block_hashes {
-            let block_header = chain_store.get_block_header(&block_hash)?;
+            let block_header = chain_store.block_store().get_block_header(&block_hash)?;
             let all_chunks_included = block_header.chunk_mask().iter().all(|&x| x);
             if all_chunks_included {
                 if matches!(mode, DebugBlocksStartingMode::JumpToAllChunksIncluded) {
@@ -555,8 +558,11 @@ impl ClientActor {
         let mut block_hashes_to_force_fetch = HashSet::new();
         while height_to_fetch > min_height_to_fetch || !block_hashes_to_force_fetch.is_empty() {
             let block_hashes = if height_to_fetch > min_height_to_fetch {
-                let block_hashes =
-                    get_block_hashes_to_fetch(chain_store, height_to_fetch, final_head.height);
+                let block_hashes = get_block_hashes_to_fetch(
+                    &chain_store.block_store(),
+                    height_to_fetch,
+                    final_head.height,
+                );
                 if block_hashes.is_empty() {
                     missed_heights.push(MissedHeightInfo {
                         block_height: height_to_fetch,

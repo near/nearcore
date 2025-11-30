@@ -414,7 +414,7 @@ impl ArchivalDataLossRecoveryCommand {
         loop {
             let epoch_start_height = epoch_manager.get_epoch_start_from_epoch_id(&epoch_id)?;
             let epoch_start_block_header =
-                store.chain_store().get_block_header_by_height(epoch_start_height)?;
+                store.block_store().get_block_header_by_height(epoch_start_height)?;
 
             let prev_block_hash = epoch_start_block_header.prev_hash();
             let prev_epoch_id = epoch_manager.get_epoch_id(prev_block_hash)?;
@@ -431,10 +431,10 @@ impl ArchivalDataLossRecoveryCommand {
         // Find the resharding block. It is the last block of the previous epoch.
         let epoch_start_height = epoch_manager.get_epoch_start_from_epoch_id(&epoch_id)?;
         let epoch_start_block_hash =
-            store.chain_store().get_block_hash_by_height(epoch_start_height)?;
-        let epoch_start_block = store.chain_store().get_block(&epoch_start_block_hash)?;
+            store.block_store().get_block_hash_by_height(epoch_start_height)?;
+        let epoch_start_block = store.block_store().get_block(&epoch_start_block_hash)?;
         let resharding_block_hash = epoch_start_block.header().prev_hash();
-        let resharding_block = store.chain_store().get_block(resharding_block_hash)?;
+        let resharding_block = store.block_store().get_block(resharding_block_hash)?;
         println!("Found resharding block {resharding_block_hash:?}");
 
         // Prepare the resharding split shard params.
