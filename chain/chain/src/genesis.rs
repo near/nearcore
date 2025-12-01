@@ -196,22 +196,7 @@ impl Chain {
         shard_layout: &ShardLayout,
         shard_id: ShardId,
     ) -> Result<ChunkExtra, Error> {
-        Self::build_genesis_chunk_extra(&chain_store.store(), shard_layout, shard_id, &genesis)
-    }
-
-    pub fn build_genesis_chunk_extra(
-        store: &Store,
-        shard_layout: &ShardLayout,
-        shard_id: ShardId,
-        genesis: &Block,
-    ) -> Result<ChunkExtra, Error> {
         let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let state_root = *get_genesis_state_roots(store)?
-            .ok_or_else(|| Error::Other("genesis state roots do not exist in the db".to_owned()))?
-            .get(shard_index)
-            .ok_or_else(|| {
-                Error::Other(format!("genesis state root does not exist for shard id {shard_id} shard index {shard_index}"))
-            })?;
         let gas_limit = genesis
             .chunks()
             .get(shard_index)
@@ -221,9 +206,29 @@ impl Chain {
                 ))
             })?
             .gas_limit();
-        let congestion_info =
-            genesis.block_congestion_info().get(&shard_id).map(|info| info.congestion_info);
-        Ok(Self::create_genesis_chunk_extra(&state_root, gas_limit, congestion_info))
+        Self::build_genesis_chunk_extra(&chain_store.store(), shard_layout, shard_id, gas_limit)
+    }
+
+    pub fn build_genesis_chunk_extra(
+        store: &Store,
+        shard_layout: &ShardLayout,
+        shard_id: ShardId,
+        gas_limit: Gas,
+    ) -> Result<ChunkExtra, Error> {
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
+        let state_root = *get_genesis_state_roots(store)?
+            .ok_or_else(|| Error::Other("genesis state roots do not exist in the db".to_owned()))?
+            .get(shard_index)
+            .ok_or_else(|| {
+                Error::Other(format!("genesis state root does not exist for shard id {shard_id} shard index {shard_index}"))
+            })?;
+        let congestion_info = *near_store::get_genesis_congestion_infos(store)?
+            .ok_or_else(|| Error::Other("genesis congestion infos do not exist in the db".to_owned()))?
+            .get(shard_index)
+            .ok_or_else(|| {
+                Error::Other(format!("genesis congestion infos do not exist for shard id {shard_id} shard index {shard_index}"))
+            })?;
+        Ok(Self::create_genesis_chunk_extra(&state_root, gas_limit, Some(congestion_info)))
     }
 
     /// Saves the `[ChunkExtra]`s for all shards in the genesis block.
