@@ -3018,13 +3018,11 @@ pub fn promise_batch_action_transfer(
     let send_fee = transfer_send_fee(
         &ctx.fees_config,
         sir,
-        ctx.config.implicit_account_creation,
         ctx.config.eth_implicit_accounts,
         receiver_id.get_account_type(),
     );
     let exec_fee = transfer_exec_fee(
         &ctx.fees_config,
-        ctx.config.implicit_account_creation,
         ctx.config.eth_implicit_accounts,
         receiver_id.get_account_type(),
     );

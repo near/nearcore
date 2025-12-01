@@ -2796,13 +2796,11 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         let send_fee = transfer_send_fee(
             &self.fees_config,
             sir,
-            self.config.implicit_account_creation,
             self.config.eth_implicit_accounts,
             receiver_id.get_account_type(),
         );
         let exec_fee = transfer_exec_fee(
             &self.fees_config,
-            self.config.implicit_account_creation,
             self.config.eth_implicit_accounts,
             receiver_id.get_account_type(),
         );
