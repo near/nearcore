@@ -823,13 +823,7 @@ impl TestBlockBuilder {
             approvals: vec![],
             block_merkle_root: tree.root(),
             chunks: prev.chunks().iter_raw().cloned().collect(),
-            spice_core_statements: if crate::version::ProtocolFeature::Spice
-                .enabled(crate::version::PROTOCOL_VERSION)
-            {
-                Some(vec![])
-            } else {
-                None
-            },
+            spice_core_statements: None,
         }
     }
     pub fn height(mut self, height: u64) -> Self {

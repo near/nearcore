@@ -1069,11 +1069,14 @@ fn test_validate_core_statements_in_block_valid_execution_result_with_ancestral_
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_get_last_certified_execution_results_for_next_block_with_genesis() {
-    let (chain, core_reader) = setup();
+fn test_get_last_certified_execution_results_for_next_block_with_no_certifications() {
+    let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block.clone());
+
     let execution_results = core_reader
-        .get_last_certified_execution_results_for_next_block(genesis.header(), &[])
+        .get_last_certified_execution_results_for_next_block(block.header(), &[])
         .unwrap();
     let genesis_execution_results =
         core_reader.get_block_execution_results(genesis.header()).unwrap();

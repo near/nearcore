@@ -352,7 +352,10 @@ fn produce_block(actors: &mut [TestActor], prev_block: &Block) -> Arc<Block> {
         .get_block_producer_info(prev_block.header().epoch_id(), prev_block.header().height() + 1)
         .unwrap();
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
-    let block = TestBlockBuilder::new(Clock::real(), prev_block, signer).chunks(chunks).build();
+    let block = TestBlockBuilder::new(Clock::real(), prev_block, signer)
+        .chunks(chunks)
+        .spice_core_statements(vec![])
+        .build();
     for actor in actors {
         process_block_sync(
             &mut actor.chain,
