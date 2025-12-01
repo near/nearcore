@@ -286,6 +286,7 @@ impl SpiceDataDistributorActor {
         chain_store: ChainStoreAdapter,
         validator_signer: MutableValidatorSigner,
         shard_tracker: ShardTracker,
+        core_reader: SpiceCoreReader,
         network_adapter: PeerManagerAdapter,
         executor_sender: Sender<ExecutorIncomingUnverifiedReceipts>,
         witness_validator_sender: Sender<SpanWrapped<SpiceChunkStateWitnessMessage>>,
@@ -293,7 +294,6 @@ impl SpiceDataDistributorActor {
         const RECENTLY_DECODED_DATA_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(100).unwrap();
         const DATA_PARTS_RATIO: f64 = 0.6;
         const PENDING_PARTIAL_DATA_CAP: NonZeroUsize = NonZeroUsize::new(10).unwrap();
-        let core_reader = SpiceCoreReader::new(chain_store.clone(), epoch_manager.clone());
         Self {
             // TODO(spice): Evaluate whether the same data parts ratio makes sense for all data
             // distributed.

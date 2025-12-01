@@ -393,7 +393,11 @@ impl Chain {
             noop().into_multi_sender(),
         );
         let num_shards = runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
-        let spice_core_reader = SpiceCoreReader::new(store.chain_store(), epoch_manager.clone());
+        let spice_core_reader = SpiceCoreReader::new(
+            store.chain_store(),
+            epoch_manager.clone(),
+            chain_genesis.gas_limit,
+        );
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -568,8 +572,11 @@ impl Chain {
         let max_num_shards =
             runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
         let apply_chunks_spawner = apply_chunks_spawner.into_spawner(max_num_shards);
-        let spice_core_reader =
-            SpiceCoreReader::new(chain_store.store().chain_store(), epoch_manager.clone());
+        let spice_core_reader = SpiceCoreReader::new(
+            chain_store.store().chain_store(),
+            epoch_manager.clone(),
+            chain_genesis.gas_limit,
+        );
         Ok(Chain {
             clock: clock.clone(),
             chain_store,

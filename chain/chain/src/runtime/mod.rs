@@ -770,7 +770,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let transactions_gas_limit = chunk_tx_gas_limit(runtime_config, &prev_block, shard_id);
 
-        let mut result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
+        let mut result = PreparedTransactions::new();
         let mut skipped_transactions = Vec::new();
         let mut num_checked_transactions = 0;
 
@@ -783,17 +783,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         // Add new transactions to the result until some limit is hit or the transactions run out.
         'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
             if total_gas_burnt >= transactions_gas_limit {
-                result.limited_by = Some(PrepareTransactionsLimit::Gas);
+                result.limited_by = PrepareTransactionsLimit::Gas;
                 break;
             }
             if total_size >= size_limit {
-                result.limited_by = Some(PrepareTransactionsLimit::Size);
+                result.limited_by = PrepareTransactionsLimit::Size;
                 break;
             }
 
             if let Some(time_limit) = &time_limit {
                 if start_time.elapsed() >= *time_limit {
-                    result.limited_by = Some(PrepareTransactionsLimit::Time);
+                    result.limited_by = PrepareTransactionsLimit::Time;
                     break;
                 }
             }
@@ -801,13 +801,13 @@ impl RuntimeAdapter for NightshadeRuntime {
             if state_update.recorded_storage_size() as u64
                 > runtime_config.witness_config.new_transactions_validation_state_size_soft_limit
             {
-                result.limited_by = Some(PrepareTransactionsLimit::StorageProofSize);
+                result.limited_by = PrepareTransactionsLimit::StorageProofSize;
                 break;
             }
 
             if let Some(cancel) = &cancel {
                 if cancel.load(Ordering::Relaxed) {
-                    result.limited_by = Some(PrepareTransactionsLimit::Cancelled);
+                    result.limited_by = PrepareTransactionsLimit::Cancelled;
                     break;
                 }
             }
@@ -818,7 +818,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
                 // Stop adding transactions if the size limit would be exceeded
                 if total_size.saturating_add(tx_peek.get_size()) > size_limit as u64 {
-                    result.limited_by = Some(PrepareTransactionsLimit::Size);
+                    result.limited_by = PrepareTransactionsLimit::Size;
                     break 'add_txs_loop;
                 }
 
