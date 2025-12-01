@@ -397,7 +397,7 @@ trybuild = "1.0.11"
 turn = "0.9"
 url = "2.5.0"
 utoipa = "5.4"
-utoipa-swagger-ui = "9"
+utoipa-swagger-ui = {version = "9", features = ["vendored"]}
 wasm-encoder = "0.236"
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmparser-236 = { package = "wasmparser", version = "0.236" }
