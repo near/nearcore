@@ -10,6 +10,7 @@
     },
     "store": {
         "load_mem_tries_for_tracked_shards": true,
+        "col_state_cache_size": 32000000,
         "col_flat_state_cache_size": 32000000,
         "state_snapshot_config": {
             "state_snapshot_type": "Disabled"
