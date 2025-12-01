@@ -9,6 +9,7 @@ use tempfile::TempDir;
 
 use near_async::test_loop::TestLoopV2;
 use near_async::time::{Clock, Duration};
+#[allow(unused_imports)]
 use near_chain_configs::{
     ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
     StateSyncConfig, SyncConfig, TrackedShardsConfig,
@@ -340,28 +341,28 @@ impl<'a> NodeStateBuilder<'a> {
         client_config.state_sync_p2p_timeout = Duration::milliseconds(100);
         client_config.state_sync_retry_backoff = Duration::milliseconds(100);
         client_config.state_sync_external_backoff = Duration::milliseconds(100);
-        let external_storage_location =
-            ExternalStorageLocation::Filesystem { root_dir: self.tempdir_path.join("state_sync") };
-        client_config.state_sync = StateSyncConfig {
-            dump: Some(DumpConfig {
-                iteration_delay: Some(Duration::seconds(1)),
-                location: external_storage_location.clone(),
-                credentials_file: None,
-                restart_dump_for_shards: None,
-            }),
-            sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
-                location: external_storage_location,
-                num_concurrent_requests: 1,
-                num_concurrent_requests_during_catchup: 1,
-                // We go straight to storage here because the network layer basically
-                // doesn't exist in testloop. We could mock a bunch of stuff to make
-                // the clients transfer state parts "peer to peer" but we wouldn't really
-                // gain anything over having them dump parts to a tempdir.
-                external_storage_fallback_threshold: 0,
-            }),
-            concurrency: Default::default(),
-            parts_compression_lvl: Default::default(),
-        };
+        // let external_storage_location =
+        //     ExternalStorageLocation::Filesystem { root_dir: self.tempdir_path.join("state_sync") };
+        // client_config.state_sync = StateSyncConfig {
+        //     dump: Some(DumpConfig {
+        //         iteration_delay: Some(Duration::seconds(1)),
+        //         location: external_storage_location.clone(),
+        //         credentials_file: None,
+        //         restart_dump_for_shards: None,
+        //     }),
+        //     sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
+        //         location: external_storage_location,
+        //         num_concurrent_requests: 1,
+        //         num_concurrent_requests_during_catchup: 1,
+        //         // We go straight to storage here because the network layer basically
+        //         // doesn't exist in testloop. We could mock a bunch of stuff to make
+        //         // the clients transfer state parts "peer to peer" but we wouldn't really
+        //         // gain anything over having them dump parts to a tempdir.
+        //         external_storage_fallback_threshold: 0,
+        //     }),
+        //     concurrency: Default::default(),
+        //     parts_compression_lvl: Default::default(),
+        // };
 
         if let Some(config_modifier) = self.config_modifier {
             config_modifier(&mut client_config);
