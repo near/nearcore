@@ -233,6 +233,11 @@ impl<'a> ConfigValidator<'a> {
             }
             return;
         };
+        if self.config.state_sync.is_some() {
+            let error_message =
+                "State sync/dump must not be set if `cloud_archival` is enabled.".to_string();
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
         if !CloudStorageOpener::is_storage_location_supported(
             &cloud_archival_config.cloud_storage.location,
         ) {

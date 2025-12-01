@@ -11,13 +11,13 @@ use near_chain_configs::test_utils::{
 use near_chain_configs::{
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
-    CloudArchivalWriterConfig, EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH,
-    FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis,
-    GenesisConfig, GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
-    MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
-    NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
-    PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
-    StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
+    CloudArchivalWriterConfig, DumpConfig, EXPECTED_EPOCH_LENGTH, EpochSyncConfig,
+    FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GCConfig,
+    GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig, GenesisValidationMode, INITIAL_GAS_LIMIT,
+    LogSummaryStyle, MAX_INFLATION_RATE, MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE,
+    MutableConfigValue, MutableValidatorSigner, NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR,
+    PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig,
+    ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
     default_chunk_validation_threads, default_chunk_wait_mult, default_chunks_cache_height_horizon,
     default_enable_early_prepare_transactions, default_enable_multiline_logging,
     default_epoch_sync, default_header_sync_expected_height_per_second,
@@ -650,6 +650,26 @@ impl Config {
             [store_path, "contract.cache".as_ref()].into_iter().collect()
         }
     }
+
+    fn state_sync_config(&self) -> StateSyncConfig {
+        if let Some(config) = &self.state_sync {
+            return config.clone();
+        }
+        let mut config = StateSyncConfig::default();
+        if self.cloud_archival_writer.is_some() {
+            let cloud_storage_config = self
+                .cloud_archival
+                .clone()
+                .expect("cloud storage must be configured on cloud archive writer");
+            config.dump = Some(DumpConfig {
+                location: cloud_storage_config.cloud_storage.location,
+                restart_dump_for_shards: None,
+                iteration_delay: None,
+                credentials_file: cloud_storage_config.cloud_storage.credentials_file,
+            });
+        }
+        config
+    }
 }
 
 #[derive(Clone)]
@@ -722,6 +742,7 @@ impl NearConfig {
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,
                 doomslug_step_period: config.consensus.doomslug_step_period,
                 tracked_shards_config: config.tracked_shards_config(),
+                state_sync: config.state_sync_config(),
                 archive: config.archive,
                 cloud_archival_writer: config.cloud_archival_writer,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
@@ -744,7 +765,6 @@ impl NearConfig {
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: 8,
                 state_sync_enabled: config.state_sync_enabled,
-                state_sync: config.state_sync.unwrap_or_default(),
                 epoch_sync: config.epoch_sync.unwrap_or_default(),
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
