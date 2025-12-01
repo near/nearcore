@@ -16,8 +16,12 @@ use crate::transaction::{
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
     TransactionV0, TransactionV1, TransferAction,
 };
+use crate::types::chunk_extra::ChunkExtra;
 use crate::types::validator_stake::ValidatorStake;
-use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
+use crate::types::{
+    AccountId, Balance, BlockExecutionResults, ChunkExecutionResult, EpochId, EpochInfoProvider,
+    Gas, Nonce, StateRoot,
+};
 use crate::validator_signer::ValidatorSigner;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_crypto::vrf::Value;
@@ -819,7 +823,13 @@ impl TestBlockBuilder {
             approvals: vec![],
             block_merkle_root: tree.root(),
             chunks: prev.chunks().iter_raw().cloned().collect(),
-            spice_core_statements: None,
+            spice_core_statements: if crate::version::ProtocolFeature::Spice
+                .enabled(crate::version::PROTOCOL_VERSION)
+            {
+                Some(vec![])
+            } else {
+                None
+            },
         }
     }
     pub fn height(mut self, height: u64) -> Self {
@@ -871,6 +881,20 @@ impl TestBlockBuilder {
 
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
         let chunks_len = self.chunks.len();
+        let last_certified_block_execution_results = BlockExecutionResults(
+            self.chunks
+                .iter()
+                .map(|chunk| {
+                    (
+                        chunk.shard_id(),
+                        Arc::new(ChunkExecutionResult {
+                            chunk_extra: ChunkExtra::new_with_only_state_root(&StateRoot::new()),
+                            outgoing_receipts_root: CryptoHash::default(),
+                        }),
+                    )
+                })
+                .collect(),
+        );
         Arc::new(Block::produce(
             PROTOCOL_VERSION,
             self.prev.header(),
@@ -892,7 +916,12 @@ impl TestBlockBuilder {
             self.clock,
             None,
             None,
-            self.spice_core_statements,
+            self.spice_core_statements.map(|core_statements| {
+                crate::block::SpiceNewBlockProductionInfo {
+                    core_statements,
+                    last_certified_block_execution_results,
+                }
+            }),
         ))
     }
 }

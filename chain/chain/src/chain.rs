@@ -2349,11 +2349,25 @@ impl Chain {
             return Err(e);
         }
 
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+        let last_certified_block_execution_results =
+            if ProtocolFeature::Spice.enabled(protocol_version) {
+                // We cannot get last certified block until block is fully processed.
+                Some(self.spice_core_reader.get_last_certified_execution_results_for_next_block(
+                    &prev,
+                    block.spice_core_statements(),
+                )?)
+            } else {
+                None
+            };
+
         if !block.verify_gas_price(
             gas_price,
             self.block_economics_config.min_gas_price(),
             self.block_economics_config.max_gas_price(),
             self.block_economics_config.gas_price_adjustment_rate(),
+            last_certified_block_execution_results.as_ref(),
         ) {
             byzantine_assert!(false);
             return Err(Error::InvalidGasPrice);

@@ -18,7 +18,9 @@ use near_primitives::stateless_validation::spice_chunk_endorsement::{
 };
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{ChunkExecutionResult, ChunkExecutionResultHash, SpiceChunkId};
+use near_primitives::types::{
+    BlockExecutionResults, ChunkExecutionResult, ChunkExecutionResultHash, SpiceChunkId,
+};
 use near_store::adapter::StoreAdapter as _;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -1063,6 +1065,140 @@ fn test_validate_core_statements_in_block_valid_execution_result_with_ancestral_
 
     let next_next_block = build_block(&mut chain, &next_block, next_next_block_core_statements);
     assert_matches!(core_reader.validate_core_statements_in_block(&next_next_block), Ok(()));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_get_last_certified_execution_results_for_next_block_with_genesis() {
+    let (chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let execution_results = core_reader
+        .get_last_certified_execution_results_for_next_block(genesis.header(), &[])
+        .unwrap();
+    let genesis_execution_results =
+        core_reader.get_block_execution_results(genesis.header()).unwrap();
+    assert!(!execution_results.0.is_empty());
+    assert_eq!(execution_results, genesis_execution_results.unwrap());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_get_last_certified_execution_results_for_next_block_with_execution_result_in_core() {
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block.clone());
+
+    let core_statements = block_certification_core_statements(&block);
+    let next_block = build_block(&mut chain, &block, core_statements);
+    process_block(&mut chain, next_block.clone());
+    core_writer_actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+
+    let execution_results = core_reader
+        .get_last_certified_execution_results_for_next_block(next_block.header(), &[])
+        .unwrap();
+    let block_execution_results = block_execution_results(&block);
+    assert_eq!(block_execution_results, execution_results);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_get_last_certified_execution_results_for_next_block_with_last_block_certified() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block.clone());
+
+    let core_statements = block_certification_core_statements(&block);
+    let execution_results = core_reader
+        .get_last_certified_execution_results_for_next_block(block.header(), &core_statements)
+        .unwrap();
+    let block_execution_results = block_execution_results(&block);
+    assert_eq!(block_execution_results, execution_results);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_get_last_certified_execution_results_for_next_block_with_old_block_certified() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block.clone());
+
+    let mut core_writer_actor = core_writer_actor(&chain);
+    let core_statements = block_certification_core_statements(&block);
+    let mut last_block = build_block(&mut chain, &block, core_statements);
+    process_block(&mut chain, last_block.clone());
+    core_writer_actor.handle(ProcessedBlock { block_hash: *last_block.hash() });
+
+    for _ in 0..3 {
+        let new_block = build_block(&chain, &last_block, vec![]);
+        process_block(&mut chain, new_block.clone());
+        last_block = new_block;
+    }
+
+    let execution_results = core_reader
+        .get_last_certified_execution_results_for_next_block(last_block.header(), &[])
+        .unwrap();
+    let block_execution_results = block_execution_results(&block);
+    assert_eq!(block_execution_results, execution_results);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_get_last_certified_execution_results_for_next_block_with_certification_split_between_core_and_core_statements()
+ {
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block.clone());
+
+    let last_shard_id = block.chunks().iter_raw().next().unwrap().shard_id();
+
+    let (last_shard_core_statements, next_block_core_statements) =
+        block_certification_core_statements(&block)
+            .into_iter()
+            .partition(|statement| statement.chunk_id().shard_id == last_shard_id);
+
+    let next_block = build_block(&mut chain, &block, next_block_core_statements);
+    process_block(&mut chain, next_block.clone());
+    core_writer_actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+
+    let execution_results = core_reader
+        .get_last_certified_execution_results_for_next_block(
+            next_block.header(),
+            &last_shard_core_statements,
+        )
+        .unwrap();
+    let block_execution_results = block_execution_results(&block);
+    assert_eq!(block_execution_results, execution_results);
+}
+
+fn block_execution_results(block: &Block) -> BlockExecutionResults {
+    let mut results = HashMap::new();
+    for chunk in block.chunks().iter_raw() {
+        results.insert(chunk.shard_id(), Arc::new(test_execution_result_for_chunk(&chunk)));
+    }
+    BlockExecutionResults(results)
+}
+
+fn block_certification_core_statements(block: &Block) -> Vec<SpiceCoreStatement> {
+    let validators = test_validators();
+    let mut core_statements = Vec::new();
+
+    for chunk in block.chunks().iter_raw() {
+        core_statements.extend(validators.iter().map(|validator| {
+            let endorsement = test_chunk_endorsement(&validator, &block, chunk);
+            endorsement_into_core_statement(endorsement)
+        }));
+        core_statements.push(SpiceCoreStatement::ChunkExecutionResult {
+            chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk.shard_id() },
+            execution_result: test_execution_result_for_chunk(&chunk),
+        });
+    }
+    core_statements
 }
 
 fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
