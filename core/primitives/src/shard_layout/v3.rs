@@ -5,7 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 
 /// A mapping from the parent shard to child shards. It maps shards from the
 /// previous shard layout to shards that they split to in this shard layout.
@@ -45,13 +45,15 @@ fn validate_and_derive_shard_ancestor_map(
     }
 
     let mut shards_ancestor_map = ShardsAncestorMapV3::new();
-    let mut shard_ids: VecDeque<_> = shard_ids.iter().cloned().collect();
-    while let Some(shard_id) = shard_ids.pop_front() {
-        let Some(parent_id) = shards_parent_map.remove(&shard_id) else { continue };
-        shard_ids.push_back(parent_id);
-        shards_ancestor_map.entry(shard_id).or_default().push(parent_id);
+    for shard_id in shard_ids {
+        let mut ancestors = vec![];
+        let mut current_id = *shard_id;
+        while let Some(parent_shard_id) = shards_parent_map.get(&current_id) {
+            ancestors.push(*parent_shard_id);
+            current_id = *parent_shard_id;
+        }
+        shards_ancestor_map.insert(*shard_id, ancestors);
     }
-    assert!(shards_parent_map.is_empty(), "unexpected shard in split map");
     shards_ancestor_map
 }
 
@@ -204,7 +206,7 @@ impl ShardLayoutV3 {
         // the complete ancestor history.
         let mut shards_split_map = match base_shard_layout {
             ShardLayout::V0(_) | ShardLayout::V1(_) | ShardLayout::V2(_) => {
-                return Err(ShardLayoutError::Derive(
+                return Err(ShardLayoutError::CannotDeriveLayout(
                     "ShardLayoutV3 cannot be derived from earlier versions",
                 ));
             }
@@ -251,9 +253,9 @@ impl ShardLayoutV3 {
     }
 
     /// Get UIDs of all the shard's ancestors (parents, grandparents, etc.)
-    pub fn ancestor_uids(&self, shard_id: &ShardId) -> Vec<ShardUId> {
+    pub fn ancestor_uids(&self, shard_id: ShardId) -> Vec<ShardUId> {
         self.shards_ancestor_map
-            .get(shard_id)
+            .get(&shard_id)
             .map(|ancestor_ids| ancestor_ids.iter().map(|id| ShardUId::new(VERSION, *id)).collect())
             .unwrap_or_default()
     }
@@ -263,10 +265,17 @@ impl ShardLayoutV3 {
     }
 
     /// Get children shard IDs if the given parent shard was split during the most recent resharding.
-    /// Otherwise, return `parent_shard_id`.
-    pub fn get_children_shards_ids(&self, parent_shard_id: ShardId) -> Vec<ShardId> {
+    /// Otherwise, return `parent_shard_id` if shard exists in the parent layout, or `None` if it doesn't.
+    pub fn get_children_shards_ids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardId>> {
         let (parent, children) = &self.last_split;
-        if parent_shard_id == *parent { children.clone() } else { vec![parent_shard_id] }
+        if parent_shard_id == *parent {
+            Some(children.clone())
+        } else if self.shard_ids.contains(&parent_shard_id) && !children.contains(&parent_shard_id)
+        {
+            Some(vec![parent_shard_id])
+        } else {
+            None
+        }
     }
 
     /// Get parent shard ID if the given shard was created in the most recent resharding.

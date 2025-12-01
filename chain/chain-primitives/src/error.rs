@@ -475,7 +475,7 @@ impl From<ShardLayoutError> for Error {
                 Error::InvalidShardIndex(shard_index)
             }
             ShardLayoutError::NoParent { shard_id } => Error::NoParentShardId(shard_id),
-            ShardLayoutError::Derive(msg) => Error::DeriveLayout(msg),
+            ShardLayoutError::CannotDeriveLayout(msg) => Error::DeriveLayout(msg),
         }
     }
 }

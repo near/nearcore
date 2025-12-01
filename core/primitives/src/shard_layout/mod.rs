@@ -78,7 +78,7 @@ pub enum ShardLayoutError {
     InvalidShardId { shard_id: ShardId },
     InvalidShardIndex { shard_index: ShardIndex },
     NoParent { shard_id: ShardId },
-    Derive(&'static str),
+    CannotDeriveLayout(&'static str),
 }
 
 impl fmt::Display for ShardLayoutError {
@@ -223,7 +223,7 @@ impl ShardLayout {
             Self::V0(_) => None,
             Self::V1(v1) => v1.get_children_shards_ids(parent_shard_id),
             Self::V2(v2) => v2.get_children_shards_ids(parent_shard_id),
-            Self::V3(v3) => Some(v3.get_children_shards_ids(parent_shard_id)),
+            Self::V3(v3) => v3.get_children_shards_ids(parent_shard_id),
         }
     }
 
@@ -388,6 +388,15 @@ impl ShardLayout {
             .into_iter()
             .map(|shard_id| ShardUId::new(self.version(), shard_id))
             .collect()
+    }
+
+    /// Get UIDs of all the shard's ancestors (parents, grandparents, etc.) for `ShardLayoutV3`.
+    /// `None` for earlier versions.
+    pub fn ancestor_uids(&self, shard_id: ShardId) -> Option<Vec<ShardUId>> {
+        match self {
+            Self::V0(_) | Self::V1(_) | Self::V2(_) => None,
+            ShardLayout::V3(v3) => Some(v3.ancestor_uids(shard_id)),
+        }
     }
 }
 

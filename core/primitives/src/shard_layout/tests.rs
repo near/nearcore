@@ -231,26 +231,26 @@ fn get_test_shard_layout_v3() -> ShardLayout {
     ShardLayout::v3(boundary_accounts, shard_ids, shards_split_map, last_split)
 }
 
+fn to_boundary_accounts<const N: usize>(accounts: [&str; N]) -> Vec<AccountId> {
+    accounts.into_iter().map(|a| a.parse().unwrap()).collect()
+}
+
+fn to_shard_ids<const N: usize>(ids: [u32; N]) -> Vec<ShardId> {
+    ids.into_iter().map(|id| ShardId::new(id as u64)).collect()
+}
+
+fn to_shard_split((parent, children): (u32, Vec<u32>)) -> (ShardId, Vec<ShardId>) {
+    (ShardId::new(parent as u64), children.into_iter().map(|id| ShardId::new(id as u64)).collect())
+}
+
+fn to_shards_split_map<const N: usize>(
+    xs: [(u32, Vec<u32>); N],
+) -> BTreeMap<ShardId, Vec<ShardId>> {
+    xs.into_iter().map(to_shard_split).collect()
+}
+
 #[test]
 fn derive_layout() {
-    fn to_boundary_accounts<const N: usize>(accounts: [&str; N]) -> Vec<AccountId> {
-        accounts.into_iter().map(|a| a.parse().unwrap()).collect()
-    }
-
-    fn to_shard_ids<const N: usize>(ids: [u32; N]) -> Vec<ShardId> {
-        ids.into_iter().map(|id| ShardId::new(id as u64)).collect()
-    }
-
-    fn to_shards_split_map<const N: usize>(
-        xs: [(u32, Vec<u32>); N],
-    ) -> BTreeMap<ShardId, Vec<ShardId>> {
-        xs.into_iter()
-            .map(|(k, xs)| {
-                (ShardId::new(k as u64), xs.into_iter().map(|x| ShardId::new(x as u64)).collect())
-            })
-            .collect()
-    }
-
     // [] -> ["test1"]
     // [(0, [1,2])]
     // [0] -> [1,2]
@@ -316,6 +316,101 @@ fn derive_layout() {
     // get_split_parent_shard_uids function.
     assert_eq!(base_layout.version(), 3);
     assert_eq!(base_layout.version(), derived_layout.version());
+}
+
+#[test]
+fn derive_v3() {
+    fn to_shard_uids<const N: usize>(ids: [u32; N]) -> Vec<ShardUId> {
+        ids.into_iter().map(|id| ShardUId::new(3, ShardId::new(id as u64))).collect()
+    }
+
+    // base layout: shards 1 & 2 split from 0 on account "test1"
+    let base_layout = ShardLayout::v3(
+        to_boundary_accounts(["test1.near"]),
+        to_shard_ids([1, 2]),
+        to_shards_split_map([(0, vec![1, 2])]),
+        to_shard_split((0, vec![1, 2])),
+    );
+
+    // derive layout: split shard 2 into 3 & 4 on account "test3"
+    let boundary: AccountId = "test3.near".parse().unwrap();
+    let derived_layout = ShardLayout::derive_v3(&base_layout, boundary).unwrap();
+
+    assert_eq!(derived_layout.shard_ids().collect_vec(), to_shard_ids([1, 3, 4]));
+    assert_eq!(
+        derived_layout.boundary_accounts(),
+        &to_boundary_accounts(["test1.near", "test3.near"])
+    );
+
+    assert_eq!(derived_layout.get_children_shards_ids(ShardId::new(0)), None);
+    assert_eq!(derived_layout.get_children_shards_ids(ShardId::new(1)), Some(to_shard_ids([1])));
+    assert_eq!(derived_layout.get_children_shards_ids(ShardId::new(2)), Some(to_shard_ids([3, 4])));
+
+    assert_eq!(
+        derived_layout.try_get_parent_shard_id(ShardId::new(1)).unwrap(),
+        Some(ShardId::new(1))
+    );
+    assert_eq!(
+        derived_layout.try_get_parent_shard_id(ShardId::new(3)).unwrap(),
+        Some(ShardId::new(2))
+    );
+    assert_eq!(
+        derived_layout.try_get_parent_shard_id(ShardId::new(4)).unwrap(),
+        Some(ShardId::new(2))
+    );
+
+    assert_eq!(
+        derived_layout.get_split_parent_shard_ids(),
+        to_shard_ids([2]).into_iter().collect()
+    );
+
+    assert_eq!(derived_layout.ancestor_uids(ShardId::new(1)), Some(to_shard_uids([0])));
+    assert_eq!(derived_layout.ancestor_uids(ShardId::new(3)), Some(to_shard_uids([2, 0])));
+    assert_eq!(derived_layout.ancestor_uids(ShardId::new(4)), Some(to_shard_uids([2, 0])));
+
+    // derive layout: split shard 3 into 5 & 6 on account  "test2"
+    let base_layout = derived_layout;
+    let boundary: AccountId = "test2.near".parse().unwrap();
+    let derived_layout = ShardLayout::derive_v3(&base_layout, boundary).unwrap();
+
+    assert_eq!(derived_layout.shard_ids().collect_vec(), to_shard_ids([1, 5, 6, 4]));
+    assert_eq!(
+        derived_layout.boundary_accounts(),
+        &to_boundary_accounts(["test1.near", "test2.near", "test3.near"])
+    );
+
+    assert_eq!(derived_layout.get_children_shards_ids(ShardId::new(0)), None);
+    assert_eq!(derived_layout.get_children_shards_ids(ShardId::new(1)), Some(to_shard_ids([1])));
+    assert_eq!(derived_layout.get_children_shards_ids(ShardId::new(2)), None);
+    assert_eq!(derived_layout.get_children_shards_ids(ShardId::new(3)), Some(to_shard_ids([5, 6])));
+    assert_eq!(derived_layout.get_children_shards_ids(ShardId::new(4)), Some(to_shard_ids([4])));
+
+    assert_eq!(
+        derived_layout.try_get_parent_shard_id(ShardId::new(1)).unwrap(),
+        Some(ShardId::new(1))
+    );
+    assert_eq!(
+        derived_layout.try_get_parent_shard_id(ShardId::new(4)).unwrap(),
+        Some(ShardId::new(4))
+    );
+    assert_eq!(
+        derived_layout.try_get_parent_shard_id(ShardId::new(5)).unwrap(),
+        Some(ShardId::new(3))
+    );
+    assert_eq!(
+        derived_layout.try_get_parent_shard_id(ShardId::new(6)).unwrap(),
+        Some(ShardId::new(3))
+    );
+
+    assert_eq!(
+        derived_layout.get_split_parent_shard_ids(),
+        to_shard_ids([3]).into_iter().collect()
+    );
+
+    assert_eq!(derived_layout.ancestor_uids(ShardId::new(1)), Some(to_shard_uids([0])));
+    assert_eq!(derived_layout.ancestor_uids(ShardId::new(4)), Some(to_shard_uids([2, 0])));
+    assert_eq!(derived_layout.ancestor_uids(ShardId::new(5)), Some(to_shard_uids([3, 2, 0])));
+    assert_eq!(derived_layout.ancestor_uids(ShardId::new(6)), Some(to_shard_uids([3, 2, 0])));
 }
 
 // Check that the ShardLayout::multi_shard method returns interesting shard
