@@ -307,6 +307,7 @@ impl Block {
         min_gas_price: Balance,
         max_gas_price: Balance,
         gas_price_adjustment_rate: Rational32,
+        // TODO(spice): Once spice v1 is released remove Option.
         last_certified_block_execution_results: Option<&BlockExecutionResults>,
     ) -> bool {
         let gas_used = self.chunks().compute_gas_used();
