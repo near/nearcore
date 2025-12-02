@@ -398,14 +398,12 @@ mod test {
     use near_network::types::{
         BlockInfo, FullPeerInfo, HighestHeightPeerInfo, NetworkRequests, PeerInfo,
     };
-    use near_primitives::block::{Approval, Block};
+    use near_primitives::block::Approval;
     use near_primitives::genesis::GenesisId;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::network::PeerId;
     use near_primitives::test_utils::TestBlockBuilder;
     use near_primitives::types::{Balance, EpochId};
-    use near_primitives::version::PROTOCOL_VERSION;
-    use num_rational::Ratio;
     use std::sync::Arc;
     use std::thread;
 
@@ -766,7 +764,6 @@ mod test {
         let (mut chain2, _, _, signer2) = setup_with_tx_validity_period(clock.clock(), 100, 10000);
         // Set up the second chain with 2000+ blocks.
         let mut block_merkle_tree = PartialMerkleTree::default();
-        block_merkle_tree.insert(*chain.genesis().hash()); // for genesis block
         for _ in 0..(4 * MAX_BLOCK_HEADERS + 10) {
             let last_block = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let this_height = last_block.header().height() + 1;
@@ -775,43 +772,28 @@ mod test {
             } else {
                 (*last_block.header().epoch_id(), *last_block.header().next_epoch_id())
             };
-            let block = Arc::new(Block::produce(
-                PROTOCOL_VERSION,
-                last_block.header(),
-                this_height,
-                last_block.header().block_ordinal() + 1,
-                last_block.chunks().iter_raw().cloned().collect(),
-                vec![vec![]; last_block.chunks().len()],
-                epoch_id,
-                next_epoch_id,
-                None,
-                [&signer2]
-                    .iter()
-                    .map(|signer| {
-                        Some(Box::new(
-                            Approval::new(
-                                *last_block.hash(),
-                                last_block.header().height(),
-                                this_height,
-                                signer.as_ref(),
-                            )
-                            .signature,
-                        ))
-                    })
-                    .collect(),
-                Ratio::new(0, 1),
-                Balance::ZERO,
-                Balance::from_yoctonear(100),
-                Some(Balance::ZERO),
-                signer2.as_ref(),
-                *last_block.header().next_bp_hash(),
-                block_merkle_tree.root(),
-                clock.clock(),
-                None,
-                None,
-                None,
-            ));
-            block_merkle_tree.insert(*block.hash());
+            let block = TestBlockBuilder::new(clock.clock(), &last_block, signer2.clone())
+                .epoch_id(epoch_id)
+                .next_epoch_id(next_epoch_id)
+                .approvals(
+                    [&signer2]
+                        .iter()
+                        .map(|signer| {
+                            Some(Box::new(
+                                Approval::new(
+                                    *last_block.hash(),
+                                    last_block.header().height(),
+                                    this_height,
+                                    signer.as_ref(),
+                                )
+                                .signature,
+                            ))
+                        })
+                        .collect(),
+                )
+                .max_gas_price(Balance::from_yoctonear(100))
+                .block_merkle_tree(&mut block_merkle_tree)
+                .build();
             chain2.process_block_header(block.header()).unwrap(); // just to validate
             process_block_sync(
                 &mut chain2,

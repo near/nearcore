@@ -679,7 +679,7 @@ fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
 }
 
 fn build_non_spice_block(chain: &Chain, prev_block: &Block) -> Arc<Block> {
-    block_builder(chain, prev_block).build()
+    block_builder(chain, prev_block).non_spice_block().build()
 }
 
 fn build_block(
