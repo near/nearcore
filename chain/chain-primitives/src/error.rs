@@ -211,8 +211,8 @@ pub enum Error {
     InvalidShardIndex(ShardIndex),
     #[error("Shard id {0} does not have a parent")]
     NoParentShardId(ShardId),
-    #[error("Cannot derive shard layout: {0}")]
-    DeriveLayout(&'static str),
+    #[error("Cannot derive shard layout")]
+    CannotDeriveLayout,
     /// Invalid shard id
     #[error("Invalid state request: {0}")]
     InvalidStateRequest(String),
@@ -347,7 +347,7 @@ impl Error {
             | Error::InvalidShardId(_)
             | Error::InvalidShardIndex(_)
             | Error::NoParentShardId(_)
-            | Error::DeriveLayout(_)
+            | Error::CannotDeriveLayout
             | Error::InvalidStateRequest(_)
             | Error::InvalidRandomnessBeaconOutput
             | Error::InvalidBlockMerkleRoot
@@ -430,7 +430,7 @@ impl Error {
             Error::InvalidShardId(_) => "invalid_shard_id",
             Error::InvalidShardIndex(_) => "invalid_shard_index",
             Error::NoParentShardId(_) => "no_parent_shard_id",
-            Error::DeriveLayout(_) => "derive_layout",
+            Error::CannotDeriveLayout => "derive_layout",
             Error::InvalidStateRequest(_) => "invalid_state_request",
             Error::InvalidRandomnessBeaconOutput => "invalid_randomness_beacon_output",
             Error::InvalidBlockMerkleRoot => "invalid_block_merkle_root",
@@ -475,7 +475,7 @@ impl From<ShardLayoutError> for Error {
                 Error::InvalidShardIndex(shard_index)
             }
             ShardLayoutError::NoParent { shard_id } => Error::NoParentShardId(shard_id),
-            ShardLayoutError::CannotDeriveLayout(msg) => Error::DeriveLayout(msg),
+            ShardLayoutError::CannotDeriveLayout => Error::CannotDeriveLayout,
         }
     }
 }

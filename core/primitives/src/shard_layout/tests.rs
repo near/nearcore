@@ -225,8 +225,8 @@ fn get_test_shard_layout_v3() -> ShardLayout {
     let boundary_accounts = vec![b0, b1, b2];
     let shard_ids = new_shard_ids_vec(vec![4, 5, 2, 3]);
 
-    let last_split = (1.into(), vec![4.into(), 5.into()]);
-    let shards_split_map = BTreeMap::from([last_split.clone()]);
+    let last_split = ShardId::new(1);
+    let shards_split_map = to_shards_split_map([(1, vec![4, 5])]);
 
     ShardLayout::v3(boundary_accounts, shard_ids, shards_split_map, last_split)
 }
@@ -329,7 +329,7 @@ fn derive_v3() {
         to_boundary_accounts(["test1.near"]),
         to_shard_ids([1, 2]),
         to_shards_split_map([(0, vec![1, 2])]),
-        to_shard_split((0, vec![1, 2])),
+        ShardId::new(0),
     );
 
     // derive layout: split shard 2 into 3 & 4 on account "test3"

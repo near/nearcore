@@ -78,7 +78,7 @@ pub enum ShardLayoutError {
     InvalidShardId { shard_id: ShardId },
     InvalidShardIndex { shard_index: ShardIndex },
     NoParent { shard_id: ShardId },
-    CannotDeriveLayout(&'static str),
+    CannotDeriveLayout,
 }
 
 impl fmt::Display for ShardLayoutError {
@@ -182,7 +182,7 @@ impl ShardLayout {
         boundary_accounts: Vec<AccountId>,
         shard_ids: Vec<ShardId>,
         shards_split_map: ShardsSplitMapV3,
-        last_split: (ShardId, Vec<ShardId>),
+        last_split: ShardId,
     ) -> Self {
         Self::V3(ShardLayoutV3::new(boundary_accounts, shard_ids, shards_split_map, last_split))
     }
@@ -361,7 +361,7 @@ impl ShardLayout {
     pub fn get_split_parent_shard_ids(&self) -> BTreeSet<ShardId> {
         // V3 doesn't store shards which weren't split in the map
         if let ShardLayout::V3(v3) = self {
-            return BTreeSet::from([v3.last_split.0]);
+            return BTreeSet::from([v3.last_split]);
         }
 
         let mut parent_shard_ids = BTreeSet::new();

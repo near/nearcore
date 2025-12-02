@@ -82,8 +82,8 @@ pub struct ShardLayoutV3 {
     /// previous shard layouts to shards that they were split into.
     pub(crate) shards_split_map: ShardsSplitMapV3,
 
-    /// The most recent shard split (parent, children).
-    pub(crate) last_split: (ShardId, Vec<ShardId>),
+    /// The most recent shard split (parent shard ID).
+    pub(crate) last_split: ShardId,
 
     /// A mapping from the child shard to ancestor shards.
     pub(crate) shards_ancestor_map: ShardsAncestorMapV3,
@@ -98,7 +98,7 @@ struct SerdeShardLayoutV3 {
     shard_ids: Vec<ShardId>,
     id_to_index_map: BTreeMap<String, ShardIndex>,
     shards_split_map: BTreeMap<String, Vec<ShardId>>,
-    last_split: (ShardId, Vec<ShardId>),
+    last_split: ShardId,
 }
 
 impl From<&ShardLayoutV3> for SerdeShardLayoutV3 {
@@ -108,7 +108,7 @@ impl From<&ShardLayoutV3> for SerdeShardLayoutV3 {
             shard_ids: layout.shard_ids.clone(),
             id_to_index_map: map_keys_to_string(&layout.id_to_index_map),
             shards_split_map: map_keys_to_string(&layout.shards_split_map),
-            last_split: layout.last_split.clone(),
+            last_split: layout.last_split,
         }
     }
 }
@@ -127,7 +127,7 @@ impl TryFrom<SerdeShardLayoutV3> for ShardLayoutV3 {
 
         let id_to_index_map = map_keys_to_shard_id(id_to_index_map)?;
         let shards_split_map = map_keys_to_shard_id(shards_split_map)?;
-        let shards_parent_map =
+        let shards_ancestor_map =
             validate_and_derive_shard_ancestor_map(&shard_ids, &shards_split_map);
 
         Ok(Self {
@@ -136,7 +136,7 @@ impl TryFrom<SerdeShardLayoutV3> for ShardLayoutV3 {
             id_to_index_map,
             shards_split_map,
             last_split,
-            shards_ancestor_map: shards_parent_map,
+            shards_ancestor_map,
         })
     }
 }
@@ -176,16 +176,14 @@ impl ShardLayoutV3 {
         boundary_accounts: Vec<AccountId>,
         shard_ids: Vec<ShardId>,
         shards_split_map: ShardsSplitMapV3,
-        last_split: (ShardId, Vec<ShardId>),
+        last_split: ShardId,
     ) -> Self {
         assert_eq!(boundary_accounts.len() + 1, shard_ids.len());
         assert!(boundary_accounts.is_sorted());
-
-        let (parent, children) = &last_split;
-        assert_eq!(shards_split_map.get(parent), Some(children));
+        assert!(shards_split_map.get(&last_split).is_some_and(|children| !children.is_empty()));
 
         let id_to_index_map = shard_ids.iter().enumerate().map(|(idx, id)| (*id, idx)).collect();
-        let shards_parent_map =
+        let shards_ancestor_map =
             validate_and_derive_shard_ancestor_map(&shard_ids, &shards_split_map);
 
         Self {
@@ -194,7 +192,7 @@ impl ShardLayoutV3 {
             id_to_index_map,
             shards_split_map,
             last_split,
-            shards_ancestor_map: shards_parent_map,
+            shards_ancestor_map,
         }
     }
 
@@ -206,9 +204,7 @@ impl ShardLayoutV3 {
         // the complete ancestor history.
         let mut shards_split_map = match base_shard_layout {
             ShardLayout::V0(_) | ShardLayout::V1(_) | ShardLayout::V2(_) => {
-                return Err(ShardLayoutError::CannotDeriveLayout(
-                    "ShardLayoutV3 cannot be derived from earlier versions",
-                ));
+                return Err(ShardLayoutError::CannotDeriveLayout);
             }
             ShardLayout::V3(v3) => v3.shards_split_map.clone(),
         };
@@ -225,12 +221,11 @@ impl ShardLayoutV3 {
             *shard_ids.iter().max().expect("there should always be at least one shard");
         let new_shards = vec![max_shard_id + 1, max_shard_id + 2];
 
-        let [parent_shard_id] = shard_ids
+        let [last_split] = shard_ids
             .splice(new_boundary_idx..new_boundary_idx + 1, new_shards.clone())
             .collect_array()
             .expect("should only splice one shard");
-        shards_split_map.insert(parent_shard_id, new_shards.clone());
-        let last_split = (parent_shard_id, new_shards);
+        shards_split_map.insert(last_split, new_shards);
 
         Ok(Self::new(boundary_accounts, shard_ids, shards_split_map, last_split))
     }
@@ -244,12 +239,14 @@ impl ShardLayoutV3 {
         &self.shards_split_map
     }
 
+    #[inline]
+    fn last_split_children(&self) -> &Vec<ShardId> {
+        self.shards_split_map.get(&self.last_split).expect("last split should have children")
+    }
+
     /// Get a map containing only the most recent shard split.
     pub fn recent_split(&self) -> BTreeMap<ShardId, Vec<ShardId>> {
-        let mut split_map = BTreeMap::new();
-        let (parent, children) = self.last_split.clone();
-        split_map.insert(parent, children);
-        split_map
+        [(self.last_split, self.last_split_children().clone())].into_iter().collect()
     }
 
     /// Get UIDs of all the shard's ancestors (parents, grandparents, etc.)
@@ -267,10 +264,10 @@ impl ShardLayoutV3 {
     /// Get children shard IDs if the given parent shard was split during the most recent resharding.
     /// Otherwise, return `parent_shard_id` if shard exists in the parent layout, or `None` if it doesn't.
     pub fn get_children_shards_ids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardId>> {
-        let (parent, children) = &self.last_split;
-        if parent_shard_id == *parent {
-            Some(children.clone())
-        } else if self.shard_ids.contains(&parent_shard_id) && !children.contains(&parent_shard_id)
+        if parent_shard_id == self.last_split {
+            Some(self.last_split_children().clone())
+        } else if self.shard_ids.contains(&parent_shard_id)
+            && !self.last_split_children().contains(&parent_shard_id)
         {
             Some(vec![parent_shard_id])
         } else {
@@ -285,8 +282,11 @@ impl ShardLayoutV3 {
             return Err(ShardLayoutError::InvalidShardId { shard_id });
         }
 
-        let (parent, children) = &self.last_split;
-        if children.contains(&shard_id) { Ok(*parent) } else { Ok(shard_id) }
+        if self.last_split_children().contains(&shard_id) {
+            Ok(self.last_split)
+        } else {
+            Ok(shard_id)
+        }
     }
 
     pub fn get_shard_index(&self, shard_id: ShardId) -> Result<ShardIndex, ShardLayoutError> {

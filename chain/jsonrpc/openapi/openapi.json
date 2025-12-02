@@ -16477,20 +16477,7 @@
             "type": "object"
           },
           "last_split": {
-            "items": [
-              {
-                "$ref": "#/components/schemas/ShardId"
-              },
-              {
-                "items": {
-                  "$ref": "#/components/schemas/ShardId"
-                },
-                "type": "array"
-              }
-            ],
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
+            "$ref": "#/components/schemas/ShardId"
           },
           "shard_ids": {
             "items": {
