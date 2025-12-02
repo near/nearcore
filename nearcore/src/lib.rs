@@ -11,6 +11,7 @@ use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
+use near_chain::spice_core::SpiceCoreReader;
 use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
 use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
@@ -268,9 +269,15 @@ fn spawn_spice_actors(
     >,
     spice_core_writer_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<SpiceCoreWriterActor>>>,
 ) {
+    let spice_core_reader = SpiceCoreReader::new(
+        runtime.store().chain_store(),
+        epoch_manager.clone(),
+        chain_genesis.gas_limit,
+    );
     let spice_core_writer_actor = SpiceCoreWriterActor::new(
         runtime.store().chain_store(),
         epoch_manager.clone(),
+        spice_core_reader.clone(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
     );
@@ -282,6 +289,7 @@ fn spawn_spice_actors(
         runtime.store().chain_store(),
         validator_signer.clone(),
         shard_tracker.clone(),
+        spice_core_reader,
         network_adapter.clone(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
@@ -478,6 +486,8 @@ pub async fn start_with_config_and_synchronization_impl(
         runtime.clone(),
         storage.get_hot_store(),
         storage.get_cloud_storage(),
+        shard_tracker.clone(),
+        epoch_manager.clone(),
     )?;
 
     let telemetry =
@@ -656,6 +666,7 @@ pub async fn start_with_config_and_synchronization_impl(
         config.validator_signer.clone(),
         split_store.unwrap_or_else(|| storage.get_hot_store()),
         config.client_config.chunk_request_retry_period,
+        config.client_config.chunks_cache_height_horizon,
     );
     shards_manager_adapter.bind(shards_manager_actor);
 

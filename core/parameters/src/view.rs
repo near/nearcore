@@ -10,7 +10,7 @@ use num_rational::Rational32;
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RuntimeConfigView {
     /// Amount of yN per byte required to have on the account.  See
-    /// <https://nomicon.io/Economics/Economic#state-stake> for details.
+    /// <https://nomicon.io/Economics/Economics.html#state-stake> for details.
     pub storage_amount_per_byte: Balance,
     /// Costs of different actions that need to be performed when sending and
     /// processing transaction and receipts.

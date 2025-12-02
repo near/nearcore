@@ -2,7 +2,8 @@ use crate::Error;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
     PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
-    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions, StorageDataSource, Tip,
+    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions, StatePartValidationResult,
+    StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
@@ -461,19 +462,19 @@ impl NightshadeRuntime {
         state_root: &StateRoot,
         part_id: PartId,
         part: &StatePart,
-    ) -> bool {
+    ) -> StatePartValidationResult {
         let partial_state = part.to_partial_state();
         let Ok(partial_state) = part.to_partial_state() else {
             // Deserialization error means we've got the data from malicious peer
             tracing::error!(target: "state-parts", ?partial_state, "state part deserialization error");
-            return false;
+            return StatePartValidationResult::Invalid;
         };
         match Trie::validate_state_part(state_root, part_id, partial_state) {
-            Ok(_) => true,
+            Ok(_) => StatePartValidationResult::Valid,
             // Storage error should not happen
             Err(err) => {
                 tracing::error!(target: "state-parts", ?err, "state part storage error");
-                false
+                StatePartValidationResult::Invalid
             }
         }
     }
@@ -731,6 +732,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         fields(
             height = prev_block.height + 1,
             shard_id = %shard_id,
+            prepared_transactions_num = tracing::field::Empty,
+            skipped_transactions_num = tracing::field::Empty,
+            total_gas_burnt = tracing::field::Empty,
+            total_size = tracing::field::Empty,
+            recorded_storage_size = tracing::field::Empty,
             tag_block_production = true
         )
     )]
@@ -745,6 +751,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
+        let span = tracing::Span::current();
         let start_time = std::time::Instant::now();
 
         let epoch_id = prev_block.next_epoch_id;
@@ -764,7 +771,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let transactions_gas_limit = chunk_tx_gas_limit(runtime_config, &prev_block, shard_id);
 
-        let mut result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
+        let mut result = PreparedTransactions::new();
         let mut skipped_transactions = Vec::new();
         let mut num_checked_transactions = 0;
 
@@ -777,17 +784,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         // Add new transactions to the result until some limit is hit or the transactions run out.
         'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
             if total_gas_burnt >= transactions_gas_limit {
-                result.limited_by = Some(PrepareTransactionsLimit::Gas);
+                result.limited_by = PrepareTransactionsLimit::Gas;
                 break;
             }
             if total_size >= size_limit {
-                result.limited_by = Some(PrepareTransactionsLimit::Size);
+                result.limited_by = PrepareTransactionsLimit::Size;
                 break;
             }
 
             if let Some(time_limit) = &time_limit {
                 if start_time.elapsed() >= *time_limit {
-                    result.limited_by = Some(PrepareTransactionsLimit::Time);
+                    result.limited_by = PrepareTransactionsLimit::Time;
                     break;
                 }
             }
@@ -795,13 +802,13 @@ impl RuntimeAdapter for NightshadeRuntime {
             if state_update.recorded_storage_size() as u64
                 > runtime_config.witness_config.new_transactions_validation_state_size_soft_limit
             {
-                result.limited_by = Some(PrepareTransactionsLimit::StorageProofSize);
+                result.limited_by = PrepareTransactionsLimit::StorageProofSize;
                 break;
             }
 
             if let Some(cancel) = &cancel {
                 if cancel.load(Ordering::Relaxed) {
-                    result.limited_by = Some(PrepareTransactionsLimit::Cancelled);
+                    result.limited_by = PrepareTransactionsLimit::Cancelled;
                     break;
                 }
             }
@@ -812,7 +819,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
                 // Stop adding transactions if the size limit would be exceeded
                 if total_size.saturating_add(tx_peek.get_size()) > size_limit as u64 {
-                    result.limited_by = Some(PrepareTransactionsLimit::Size);
+                    result.limited_by = PrepareTransactionsLimit::Size;
                     break 'add_txs_loop;
                 }
 
@@ -905,6 +912,22 @@ impl RuntimeAdapter for NightshadeRuntime {
                 set_account(&mut state_update.trie_update, signer_id, &account);
             }
         }
+
+        span.record(
+            "prepared_transactions_num",
+            tracing::field::display(result.transactions.len()),
+        );
+        span.record(
+            "skipped_transactions_num",
+            tracing::field::display(skipped_transactions.len()),
+        );
+        span.record("total_gas_burnt", tracing::field::display(total_gas_burnt));
+        span.record("total_size", tracing::field::display(total_size));
+        span.record(
+            "recorded_storage_size",
+            tracing::field::display(state_update.recorded_storage_size()),
+        );
+
         // NOTE: this state update must not be committed or finalized!
         drop(state_update);
         tracing::debug!(target: "runtime", limited_by = ?result.limited_by, valid_count = %result.transactions.len(), %num_checked_transactions, "transaction filtering results");
@@ -1260,11 +1283,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &StateRoot,
         part_id: PartId,
         part: &StatePart,
-    ) -> bool {
+    ) -> StatePartValidationResult {
         let instant = Instant::now();
         let res = self.validate_state_part_impl(state_root, part_id, part);
         let elapsed = instant.elapsed();
-        let is_ok = if res { "ok" } else { "error" };
+        let is_ok = match res {
+            StatePartValidationResult::Valid => "ok",
+            StatePartValidationResult::Invalid => "error",
+        };
         metrics::STATE_SYNC_VALIDATE_PART_DELAY
             .with_label_values(&[&shard_id.to_string(), is_ok])
             .observe(elapsed.as_secs_f64());
@@ -1319,16 +1345,26 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         state_root_node: &StateRootNode,
         state_root: &StateRoot,
-    ) -> bool {
+    ) -> StateRootNodeValidationResult {
         if state_root == &Trie::EMPTY_ROOT {
-            return state_root_node == &StateRootNode::empty();
+            return if state_root_node == &StateRootNode::empty() {
+                StateRootNodeValidationResult::Valid
+            } else {
+                StateRootNodeValidationResult::Invalid
+            };
         }
         if hash(&state_root_node.data) != *state_root {
-            return false;
+            return StateRootNodeValidationResult::Invalid;
         }
         match Trie::get_memory_usage_from_serialized(&state_root_node.data) {
-            Ok(memory_usage) => memory_usage == state_root_node.memory_usage,
-            Err(_) => false, // Invalid state_root_node
+            Ok(memory_usage) => {
+                if memory_usage == state_root_node.memory_usage {
+                    StateRootNodeValidationResult::Valid
+                } else {
+                    StateRootNodeValidationResult::Invalid
+                }
+            }
+            Err(_) => StateRootNodeValidationResult::Invalid, // Invalid state_root_node
         }
     }
 

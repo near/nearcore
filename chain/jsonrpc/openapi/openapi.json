@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.1"
+    "version": "1.2.2"
   },
   "paths": {
     "/EXPERIMENTAL_changes": {
@@ -10575,6 +10575,19 @@
                     },
                     "type": "array"
                   },
+                  "refund_to": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/AccountId"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
                   "signer_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
@@ -11316,6 +11329,12 @@
             "maxItems": 2,
             "minItems": 2,
             "type": "array"
+          },
+          "chunks_cache_height_horizon": {
+            "description": "Height horizon for the chunk cache. A chunk is removed from the cache\nif its height + chunks_cache_height_horizon < largest_seen_height.\nThe default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
           },
           "client_background_migration_threads": {
             "description": "Number of threads to execute background migration work in client.",
@@ -16170,7 +16189,7 @@
                 "$ref": "#/components/schemas/NearToken"
               }
             ],
-            "description": "Amount of yN per byte required to have on the account.  See\n<https://nomicon.io/Economics/Economic#state-stake> for details."
+            "description": "Amount of yN per byte required to have on the account.  See\n<https://nomicon.io/Economics/Economics.html#state-stake> for details."
           },
           "transaction_costs": {
             "allOf": [
@@ -16301,6 +16320,18 @@
               "V2"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "V3": {
+                "$ref": "#/components/schemas/ShardLayoutV3"
+              }
+            },
+            "required": [
+              "V3"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -16425,6 +16456,51 @@
           "id_to_index_map",
           "index_to_id_map",
           "version"
+        ],
+        "type": "object"
+      },
+      "ShardLayoutV3": {
+        "description": "Counterpart to `ShardLayoutV3` composed of maps with string keys to aid\nserde serialization.",
+        "properties": {
+          "boundary_accounts": {
+            "items": {
+              "$ref": "#/components/schemas/AccountId"
+            },
+            "type": "array"
+          },
+          "id_to_index_map": {
+            "additionalProperties": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "last_split": {
+            "$ref": "#/components/schemas/ShardId"
+          },
+          "shard_ids": {
+            "items": {
+              "$ref": "#/components/schemas/ShardId"
+            },
+            "type": "array"
+          },
+          "shards_split_map": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/ShardId"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "boundary_accounts",
+          "shard_ids",
+          "id_to_index_map",
+          "shards_split_map",
+          "last_split"
         ],
         "type": "object"
       },

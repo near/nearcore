@@ -6,8 +6,9 @@ use near_primitives::merkle::{
     Direction, MerklePath, MerklePathItem, PartialMerkleTree, combine_hash,
 };
 use near_primitives::types::NumBlocks;
-use near_store::Store;
-use near_store::adapter::StoreAdapter;
+
+use crate::Store;
+use crate::adapter::StoreAdapter;
 
 /// Implement block merkle proof retrieval.
 ///

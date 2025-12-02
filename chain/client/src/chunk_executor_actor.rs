@@ -109,7 +109,8 @@ impl ChunkExecutorActor {
         core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
     ) -> Self {
-        let core_reader = SpiceCoreReader::new(store.chain_store(), epoch_manager.clone());
+        let core_reader =
+            SpiceCoreReader::new(store.chain_store(), epoch_manager.clone(), genesis.gas_limit);
         Self {
             chain_store: ChainStore::new(store, true, genesis.transaction_validity_period),
             runtime_adapter,
@@ -299,7 +300,8 @@ impl TryApplyChunksOutcome {
         epoch_manager: &dyn EpochManagerAdapter,
         prev_block: &Block,
     ) -> Result<Self, Error> {
-        let execution_results = core_reader.get_execution_results_by_shard_id(&prev_block)?;
+        let execution_results =
+            core_reader.get_execution_results_by_shard_id(prev_block.header())?;
         let shard_layout = epoch_manager.get_shard_layout(prev_block.header().epoch_id())?;
         let missing_shard_ids = shard_layout
             .shard_ids()
@@ -365,7 +367,7 @@ impl ChunkExecutorActor {
         let store = self.chain_store.store();
 
         let Some(prev_block_execution_results) =
-            self.core_reader.get_block_execution_results(&prev_block)?
+            self.core_reader.get_block_execution_results(prev_block.header())?
         else {
             return TryApplyChunksOutcome::missing_execution_results(
                 &self.core_reader,
@@ -868,10 +870,11 @@ impl ChunkExecutorActor {
         block_hash: &CryptoHash,
     ) -> Result<ReceiptVerificationContext, Error> {
         let block = self.chain_store.get_block(block_hash)?;
-        if !self.core_reader.all_execution_results_exist(&block)? {
+        if !self.core_reader.all_execution_results_exist(block.header())? {
             return Ok(ReceiptVerificationContext::NotReady);
         }
-        let execution_results = self.core_reader.get_execution_results_by_shard_id(&block)?;
+        let execution_results =
+            self.core_reader.get_execution_results_by_shard_id(block.header())?;
         Ok(ReceiptVerificationContext::Ready { execution_results })
     }
 
@@ -1062,10 +1065,8 @@ pub fn receipt_proof_exists(
     store.exists(DBCol::receipt_proofs(), &key)
 }
 
-type UpdateShardJob = (
-    ShardId,
-    Box<dyn FnOnce(&tracing::Span) -> Result<ShardUpdateResult, Error> + Send + Sync + 'static>,
-);
+type UpdateShardJob =
+    (ShardId, Box<dyn FnOnce(&tracing::Span) -> Result<ShardUpdateResult, Error> + Send + 'static>);
 
 #[instrument(
     level = "debug",

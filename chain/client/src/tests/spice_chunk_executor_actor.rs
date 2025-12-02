@@ -7,6 +7,7 @@ use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
 use near_chain::ApplyChunksIterationMode;
 use near_chain::ChainStoreAccess;
+use near_chain::spice_core::SpiceCoreReader;
 use near_chain::spice_core_writer_actor::ExecutionResultEndorsed;
 use near_chain::spice_core_writer_actor::ProcessedBlock;
 use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
@@ -25,6 +26,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
+use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptPriority};
 use near_primitives::shard_layout::ShardLayout;
@@ -145,6 +147,7 @@ impl TestActor {
         let core_writer_actor = Arc::new(RwLock::new(SpiceCoreWriterActor::new(
             runtime.store().chain_store(),
             epoch_manager.clone(),
+            core_reader(&chain),
             noop().into_sender(),
             noop().into_sender(),
         )));
@@ -209,6 +212,14 @@ impl TestActor {
         self.actor.handle(msg);
         self.run_internal_events();
     }
+}
+
+fn core_reader(chain: &Chain) -> SpiceCoreReader {
+    SpiceCoreReader::new(
+        chain.chain_store.store().chain_store(),
+        chain.epoch_manager.clone(),
+        Gas::from_teragas(100),
+    )
 }
 
 fn setup_with_shards(
@@ -947,8 +958,12 @@ fn test_witness_is_valid() {
         else {
             continue;
         };
-        let prev_block_execution_results =
-            actor.actor.core_reader.get_block_execution_results(&prev_block).unwrap().unwrap();
+        let prev_block_execution_results = actor
+            .actor
+            .core_reader
+            .get_block_execution_results(prev_block.header())
+            .unwrap()
+            .unwrap();
         let pre_validation_result = spice_pre_validate_chunk_state_witness(
             &state_witness,
             &block,

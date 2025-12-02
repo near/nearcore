@@ -64,11 +64,11 @@ fn test_valid_witness_adds_endorsement_to_core_state() {
     let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
     let post_state_root = witness_message.witness.main_state_transition().post_state_root;
 
-    assert!(actor.core_reader.get_block_execution_results(&block).unwrap().is_none());
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
     actor.handle(witness_message.span_wrap());
 
     let block_execution_results =
-        actor.core_reader.get_block_execution_results(&block).unwrap().unwrap();
+        actor.core_reader.get_block_execution_results(block.header()).unwrap().unwrap();
     assert_eq!(block_execution_results.0.len(), 1);
     let shard_id = block.chunks()[0].shard_id();
     assert_eq!(
@@ -160,7 +160,7 @@ fn test_invalid_witness_does_not_record_endorsement_in_core() {
         invalid_witness_message(&actor, &block, &prev_block, &starting_state_root);
 
     actor.handle(witness_message.span_wrap());
-    assert!(actor.core_reader.get_block_execution_results(&block).unwrap().is_none());
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
 }
 
 #[test]
@@ -177,7 +177,7 @@ fn test_witness_arriving_before_block() {
     let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
 
     actor.handle(witness_message.span_wrap());
-    assert!(actor.core_reader.get_block_execution_results(&block).unwrap().is_none());
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
 
     process_block_sync(
         &mut actor.chain,
@@ -187,7 +187,7 @@ fn test_witness_arriving_before_block() {
     )
     .unwrap();
     actor.handle(ProcessedBlock { block_hash: *block.hash() });
-    assert!(actor.core_reader.get_block_execution_results(&block).unwrap().is_some());
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
 
 #[test]
@@ -203,11 +203,11 @@ fn test_witness_arriving_before_execution_results_for_parent() {
     let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
 
     actor.handle(witness_message.span_wrap());
-    assert!(actor.core_reader.get_block_execution_results(&block).unwrap().is_none());
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
 
     record_execution_results(&actor, &prev_block, starting_state_root);
     actor.handle(ExecutionResultEndorsed { block_hash: *prev_block.hash() });
-    assert!(actor.core_reader.get_block_execution_results(&block).unwrap().is_some());
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
 
 #[test]
@@ -223,7 +223,7 @@ fn test_witness_arriving_before_block_and_execution_results() {
     let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
 
     actor.handle(witness_message.span_wrap());
-    assert!(actor.core_reader.get_block_execution_results(&block).unwrap().is_none());
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
 
     process_block_sync(
         &mut actor.chain,
@@ -233,11 +233,11 @@ fn test_witness_arriving_before_block_and_execution_results() {
     )
     .unwrap();
     actor.handle(ProcessedBlock { block_hash: *block.hash() });
-    assert!(actor.core_reader.get_block_execution_results(&block).unwrap().is_none());
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
 
     record_execution_results(&actor, &prev_block, starting_state_root);
     actor.handle(ExecutionResultEndorsed { block_hash: *prev_block.hash() });
-    assert!(actor.core_reader.get_block_execution_results(&block).unwrap().is_some());
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
 
 struct FakeSpawner {
@@ -300,7 +300,11 @@ fn setup_with_genesis(genesis: Genesis, signer: Arc<ValidatorSigner>) -> TestAct
     let epoch_manager = chain.epoch_manager.clone();
     let runtime = chain.runtime_adapter.clone();
 
-    let core_reader = SpiceCoreReader::new(runtime.store().chain_store(), epoch_manager.clone());
+    let core_reader = SpiceCoreReader::new(
+        runtime.store().chain_store(),
+        epoch_manager.clone(),
+        genesis.config.gas_limit,
+    );
 
     let (network_sc, network_rc) = unbounded_channel();
     let network_adapter = PeerManagerAdapter {
@@ -319,6 +323,7 @@ fn setup_with_genesis(genesis: Genesis, signer: Arc<ValidatorSigner>) -> TestAct
     let core_writer_actor = Arc::new(RwLock::new(SpiceCoreWriterActor::new(
         runtime.store().chain_store(),
         epoch_manager.clone(),
+        core_reader.clone(),
         noop().into_sender(),
         noop().into_sender(),
     )));
@@ -436,7 +441,7 @@ fn record_execution_results(actor: &TestActor, block: &Block, state_root: Crypto
             test_chunk_endorsement(account.as_str(), &block, receipts_root, state_root);
         actor.core_writer_sender.send(SpiceChunkEndorsementMessage(endorsement));
     }
-    assert!(actor.core_reader.get_block_execution_results(&block).unwrap().is_some());
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_some());
 }
 
 fn test_starting_state_root(actor: &TestActor) -> CryptoHash {

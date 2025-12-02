@@ -672,7 +672,7 @@ fn network_message_to_partial_witness_handler(
 
 fn network_message_to_state_snapshot_handler() -> NetworkRequestHandler {
     Box::new(move |request| match request {
-        NetworkRequests::SnapshotHostInfo { .. } => None,
+        NetworkRequests::SnapshotHostEvent { .. } => None,
         _ => Some(request),
     })
 }
