@@ -797,6 +797,7 @@ pub struct TestBlockBuilder {
     next_epoch_id: EpochId,
     next_bp_hash: CryptoHash,
     approvals: Vec<Option<Box<near_crypto::Signature>>>,
+    max_gas_price: Balance,
     block_merkle_root: CryptoHash,
     chunks: Vec<ShardChunkHeader>,
     /// Iff `Some` spice block will be created.
@@ -822,6 +823,7 @@ impl TestBlockBuilder {
             next_epoch_id,
             next_bp_hash: *prev.header().next_bp_hash(),
             approvals: vec![],
+            max_gas_price: Balance::ZERO,
             block_merkle_root: tree.root(),
             chunks: prev.chunks().iter_raw().cloned().collect(),
             spice_core_statements: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
@@ -849,6 +851,11 @@ impl TestBlockBuilder {
     }
     pub fn approvals(mut self, approvals: Vec<Option<Box<near_crypto::Signature>>>) -> Self {
         self.approvals = approvals;
+        self
+    }
+
+    pub fn max_gas_price(mut self, max_gas_price: Balance) -> Self {
+        self.max_gas_price = max_gas_price;
         self
     }
 
@@ -912,7 +919,7 @@ impl TestBlockBuilder {
             self.approvals,
             num_rational::Ratio::new(0, 1),
             Balance::ZERO,
-            Balance::ZERO,
+            self.max_gas_price,
             Some(Balance::ZERO),
             self.signer.as_ref(),
             self.next_bp_hash,
