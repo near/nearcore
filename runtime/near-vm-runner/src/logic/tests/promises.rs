@@ -6,6 +6,7 @@ use crate::map;
 
 use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, ExtCosts};
+use near_primitives_core::config::AccountIdValidityRulesVersion;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Gas;
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -179,6 +180,8 @@ fn test_promise_batch_action_function_call() {
 #[test]
 fn test_promise_batch_action_use_global_contract_by_account_id_with_invalid_account() {
     let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.account_id_validity_rules_version =
+        AccountIdValidityRulesVersion::V2;
     let mut logic = logic_builder.build();
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
 
@@ -209,56 +212,7 @@ fn test_promise_batch_action_use_global_contract_by_account_id_with_invalid_acco
             invalid_account_id.len,
             invalid_account_id.ptr,
         )
-        .expect("should add an action to use global contract even with invalid account id");
-
-    expect_test::expect![[r#"
-        [
-          {
-            "CreateReceipt": {
-              "receipt_indices": [],
-              "receiver_id": "rick.test"
-            }
-          },
-          {
-            "FunctionCallWeight": {
-              "receipt_index": 0,
-              "method_name": [
-                112,
-                114,
-                111,
-                109,
-                105,
-                115,
-                101,
-                95,
-                99,
-                114,
-                101,
-                97,
-                116,
-                101
-              ],
-              "args": [
-                97,
-                114,
-                103,
-                115
-              ],
-              "attached_deposit": "0",
-              "prepaid_gas": 0,
-              "gas_weight": 0
-            }
-          },
-          {
-            "UseGlobalContract": {
-              "receipt_index": 0,
-              "contract_id": {
-                "AccountId": "not a valid account id"
-              }
-            }
-          }
-        ]"#]]
-    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+        .expect_err("should reject invalid account id when strict validation is enabled");
 }
 
 #[test]

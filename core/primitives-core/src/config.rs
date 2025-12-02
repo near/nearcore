@@ -29,6 +29,8 @@ pub enum AccountIdValidityRulesVersion {
     V0,
     /// Limit `receiver_id` in `FunctionCallPermission` to be a valid account ID.
     V1,
+    /// Enforce full AccountId validation in all places that parse from strings.
+    V2,
 }
 
 #[cfg(feature = "schemars")]
@@ -45,6 +47,10 @@ impl schemars::JsonSchema for AccountIdValidityRulesVersion {
 impl AccountIdValidityRulesVersion {
     pub fn v0() -> AccountIdValidityRulesVersion {
         AccountIdValidityRulesVersion::V0
+    }
+
+    pub fn v2() -> AccountIdValidityRulesVersion {
+        AccountIdValidityRulesVersion::V2
     }
 }
 

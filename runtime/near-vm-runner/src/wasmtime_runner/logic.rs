@@ -3941,11 +3941,16 @@ fn read_and_parse_account_id(
 
     let account_id_str = String::from_utf8(buf.into()).map_err(|_| HostError::BadUTF8)?;
 
-    if config.limit_config.forbid_unvalidated_account_id {
-        account_id_str.parse().map_err(|_| VMLogicError::HostError(HostError::InvalidAccountId))
-    } else {
-        #[allow(deprecated)]
-        Ok(AccountId::new_unvalidated(account_id_str))
+    match config.limit_config.account_id_validity_rules_version {
+        near_primitives_core::config::AccountIdValidityRulesVersion::V0
+        | near_primitives_core::config::AccountIdValidityRulesVersion::V1 =>
+        {
+            #[allow(deprecated)]
+            Ok(AccountId::new_unvalidated(account_id_str))
+        }
+        near_primitives_core::config::AccountIdValidityRulesVersion::V2 => {
+            account_id_str.parse().map_err(|_| VMLogicError::HostError(HostError::InvalidAccountId))
+        }
     }
 }
 
