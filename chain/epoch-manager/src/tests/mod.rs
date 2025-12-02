@@ -518,6 +518,8 @@ fn test_validator_reward_one_validator() {
             ),
             rng_seed,
         )
+        .unwrap()
+        .commit()
         .unwrap();
     epoch_manager
         .record_block_info(
@@ -1540,6 +1542,8 @@ fn test_chunk_producer_kickout() {
                 ),
                 rng_seed,
             )
+            .unwrap()
+            .commit()
             .unwrap();
     }
 
@@ -1613,6 +1617,8 @@ fn test_chunk_validator_kickout_using_production_stats() {
                 ),
                 rng_seed,
             )
+            .unwrap()
+            .commit()
             .unwrap();
     }
 
@@ -1723,6 +1729,8 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
                 }),
                 rng_seed,
             )
+            .unwrap()
+            .commit()
             .unwrap();
     }
 

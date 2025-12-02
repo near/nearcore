@@ -1083,6 +1083,8 @@ pub enum EpochError {
     ChunkValidatorSelectionError(String),
     /// Error selecting chunk producer for a shard.
     ChunkProducerSelectionError(String),
+    // Error related to epoch sync processing.
+    // EpochSyncError(String),
 }
 
 impl std::error::Error for EpochError {}

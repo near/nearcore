@@ -1,6 +1,7 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
 pub use crate::adapter::EpochManagerAdapter;
+use crate::epoch_sync::extend_epoch_sync_proof;
 use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::reward_calculator::RewardCalculator;
@@ -812,6 +813,17 @@ impl EpochManager {
                 // If this is the last block in the epoch, finalize this epoch.
                 if self.is_next_block_in_next_epoch(&block_info)? {
                     self.finalize_epoch(&mut store_update, &block_info, &current_hash, rng_seed)?;
+
+                    // // If we are at the end of an epoch, we generate the epoch sync proof for the previous epoch.
+                    // // This is to ensure there is a gap of 2 epochs
+                    // let epoch_first_block = block_info.epoch_first_block();
+                    // let epoch_first_block_header =
+                    //     self.store.chain_store().get_block_header(epoch_first_block).unwrap();
+                    // extend_epoch_sync_proof(
+                    //     &self.store.epoch_store(),
+                    //     epoch_first_block_header.prev_hash(),
+                    // )
+                    // .map_err(|e| EpochError::IOErr(e.to_string()))?;
                 }
             }
         }

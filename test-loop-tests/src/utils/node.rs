@@ -146,6 +146,18 @@ impl<'a> TestLoopNode<'a> {
         );
     }
 
+    pub fn run_until_new_epoch(&self, test_loop: &mut TestLoopV2) {
+        let curr_epoch_id = self.head(&test_loop.data).epoch_id;
+        let epoch_length = self.client(&test_loop.data).config.epoch_length as usize;
+        test_loop.run_until(
+            |test_loop_data| {
+                let head = self.head(test_loop_data);
+                head.epoch_id != curr_epoch_id
+            },
+            self.calculate_block_distance_timeout(&test_loop.data, epoch_length + 1),
+        );
+    }
+
     pub fn submit_tx(&self, tx: SignedTransaction) {
         let process_tx_request =
             ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };

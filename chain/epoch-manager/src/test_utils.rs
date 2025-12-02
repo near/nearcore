@@ -239,6 +239,7 @@ pub fn setup_default_epoch_manager(
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
 ) -> EpochManager {
+    assert!(epoch_length >= 3, "Need at least 3 blocks per epoch to test epoch sync");
     setup_epoch_manager(
         validators,
         epoch_length,

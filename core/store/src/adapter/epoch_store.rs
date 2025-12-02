@@ -1,7 +1,6 @@
 use std::io;
 
 use borsh::BorshDeserialize;
-use near_chain_primitives::Error;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
@@ -72,7 +71,7 @@ impl EpochStoreAdapter {
             })
     }
 
-    pub fn get_epoch_sync_proof(&self) -> Result<Option<EpochSyncProofV1>, Error> {
+    pub fn get_epoch_sync_proof(&self) -> Result<Option<EpochSyncProofV1>, EpochError> {
         Ok(self
             .store
             .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])?
