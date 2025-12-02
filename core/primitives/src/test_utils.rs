@@ -29,6 +29,7 @@ use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
+use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
 use std::sync::Arc;
@@ -823,7 +824,11 @@ impl TestBlockBuilder {
             approvals: vec![],
             block_merkle_root: tree.root(),
             chunks: prev.chunks().iter_raw().cloned().collect(),
-            spice_core_statements: None,
+            spice_core_statements: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+                Some(vec![])
+            } else {
+                None
+            },
         }
     }
     pub fn height(mut self, height: u64) -> Self {
@@ -859,6 +864,11 @@ impl TestBlockBuilder {
 
     pub fn chunks(mut self, chunks: Vec<ShardChunkHeader>) -> Self {
         self.chunks = chunks;
+        self
+    }
+
+    pub fn non_spice_block(mut self) -> Self {
+        self.spice_core_statements = None;
         self
     }
 
