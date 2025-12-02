@@ -1,6 +1,6 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
-use near_chain::{ChainStoreAccess, Provenance};
+use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::create_chunk;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
@@ -269,7 +269,7 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
         let head = client.chain.get_head_block().unwrap();
         let chunks = head.chunks();
         let chunk_hash = chunks[0].chunk_hash();
-        let Ok(chunk) = client.chain.mut_chain_store().get_chunk(chunk_hash) else {
+        let Ok(chunk) = client.chain.get_chunk(chunk_hash) else {
             continue;
         };
         receipts.extend(chunk.prev_outgoing_receipts().into_iter().map(|r| *r.receipt_id()));

@@ -7,8 +7,8 @@ use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_chain::Block;
 use near_chain::types::Tip;
-use near_chain::{Block, ChainStoreAccess};
 use near_client::{Client, ProcessTxRequest};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_primitives::errors::InvalidTxError;
@@ -92,11 +92,11 @@ impl<'a> TestLoopNode<'a> {
     }
 
     pub fn block_chunks(&self, test_loop_data: &TestLoopData, block: &Block) -> Vec<ShardChunk> {
-        let chain_store = self.client(test_loop_data).chain.chain_store();
+        let chain = &self.client(test_loop_data).chain;
         block
             .chunks()
             .iter_raw()
-            .map(|chunk_header| chain_store.get_chunk(chunk_header.chunk_hash()).unwrap())
+            .map(|chunk_header| chain.get_chunk(chunk_header.chunk_hash()).unwrap())
             .collect()
     }
 
