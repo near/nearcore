@@ -112,9 +112,12 @@ fn test_invalid_transactions_no_panic() {
                         .epoch_manager
                         .get_epoch_id_from_prev_block(shard_chunk.prev_block())
                         .unwrap(),
-                    prev_block.header(),
+                    &prev_block,
                     &prev_chunk_header,
                     &shard_chunk,
+                    |_, _| None,
+                    |_, _| None,
+                    |_, _| None,
                 )
                 .unwrap();
 
@@ -231,9 +234,12 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
     client
         .send_chunk_state_witness_to_chunk_validators(
             &client.epoch_manager.get_epoch_id_from_prev_block(shard_chunk.prev_block()).unwrap(),
-            prev_block.header(),
+            &prev_block,
             &prev_chunk_header,
             &shard_chunk,
+            |_, _| None,
+            |_, _| None,
+            |_, _| None,
         )
         .unwrap();
 
