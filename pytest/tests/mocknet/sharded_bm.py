@@ -44,7 +44,7 @@ def fetch_forknet_details(forknet_name, bm_params):
     """Fetch the forknet details from GCP."""
     find_instances_cmd = [
         "gcloud", "compute", "instances", "list", "--project=nearone-mocknet",
-        f"--filter=name~'-{forknet_name}-' AND -name~'traffic' AND -name~'tracing'",
+        f"--filter=name~'-{forknet_name}-' AND -name~'traffic' AND -name~'tracing' AND -name~'prometheus'",
         "--format=table(name,networkInterfaces[0].networkIP,zone)"
     ]
     find_instances_cmd_result = subprocess.run(

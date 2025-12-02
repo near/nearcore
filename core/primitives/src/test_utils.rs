@@ -16,8 +16,12 @@ use crate::transaction::{
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
     TransactionV0, TransactionV1, TransferAction,
 };
+use crate::types::chunk_extra::ChunkExtra;
 use crate::types::validator_stake::ValidatorStake;
-use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
+use crate::types::{
+    AccountId, Balance, BlockExecutionResults, ChunkExecutionResult, EpochId, EpochInfoProvider,
+    Gas, Nonce, StateRoot,
+};
 use crate::validator_signer::ValidatorSigner;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_crypto::vrf::Value;
@@ -25,6 +29,7 @@ use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
+use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
 use std::sync::Arc;
@@ -792,6 +797,7 @@ pub struct TestBlockBuilder {
     next_epoch_id: EpochId,
     next_bp_hash: CryptoHash,
     approvals: Vec<Option<Box<near_crypto::Signature>>>,
+    max_gas_price: Balance,
     block_merkle_root: CryptoHash,
     chunks: Vec<ShardChunkHeader>,
     /// Iff `Some` spice block will be created.
@@ -817,9 +823,14 @@ impl TestBlockBuilder {
             next_epoch_id,
             next_bp_hash: *prev.header().next_bp_hash(),
             approvals: vec![],
+            max_gas_price: Balance::ZERO,
             block_merkle_root: tree.root(),
             chunks: prev.chunks().iter_raw().cloned().collect(),
-            spice_core_statements: None,
+            spice_core_statements: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+                Some(vec![])
+            } else {
+                None
+            },
         }
     }
     pub fn height(mut self, height: u64) -> Self {
@@ -843,6 +854,11 @@ impl TestBlockBuilder {
         self
     }
 
+    pub fn max_gas_price(mut self, max_gas_price: Balance) -> Self {
+        self.max_gas_price = max_gas_price;
+        self
+    }
+
     /// Updates the merkle tree by adding the previous hash, and updates the new block's merkle_root.
     pub fn block_merkle_tree(
         mut self,
@@ -855,6 +871,11 @@ impl TestBlockBuilder {
 
     pub fn chunks(mut self, chunks: Vec<ShardChunkHeader>) -> Self {
         self.chunks = chunks;
+        self
+    }
+
+    pub fn non_spice_block(mut self) -> Self {
+        self.spice_core_statements = None;
         self
     }
 
@@ -871,6 +892,20 @@ impl TestBlockBuilder {
 
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
         let chunks_len = self.chunks.len();
+        let last_certified_block_execution_results = BlockExecutionResults(
+            self.chunks
+                .iter()
+                .map(|chunk| {
+                    (
+                        chunk.shard_id(),
+                        Arc::new(ChunkExecutionResult {
+                            chunk_extra: ChunkExtra::new_with_only_state_root(&StateRoot::new()),
+                            outgoing_receipts_root: CryptoHash::default(),
+                        }),
+                    )
+                })
+                .collect(),
+        );
         Arc::new(Block::produce(
             PROTOCOL_VERSION,
             self.prev.header(),
@@ -884,7 +919,7 @@ impl TestBlockBuilder {
             self.approvals,
             num_rational::Ratio::new(0, 1),
             Balance::ZERO,
-            Balance::ZERO,
+            self.max_gas_price,
             Some(Balance::ZERO),
             self.signer.as_ref(),
             self.next_bp_hash,
@@ -892,7 +927,12 @@ impl TestBlockBuilder {
             self.clock,
             None,
             None,
-            self.spice_core_statements,
+            self.spice_core_statements.map(|core_statements| {
+                crate::block::SpiceNewBlockProductionInfo {
+                    core_statements,
+                    last_certified_block_execution_results,
+                }
+            }),
         ))
     }
 }

@@ -1,4 +1,4 @@
-use near_chain::ChainStore;
+use near_chain::{ChainStore, ChainStoreAccess};
 use near_primitives::account::id::AccountId;
 use near_primitives::block::Block;
 use near_primitives::transaction::SignedTransaction;
