@@ -17778,10 +17778,6 @@
             "minimum": 0,
             "type": "integer"
           },
-          "implicit_account_creation": {
-            "description": "See [VMConfig::implicit_account_creation](crate::vm::Config::implicit_account_creation).",
-            "type": "boolean"
-          },
           "limit_config": {
             "allOf": [
               {
