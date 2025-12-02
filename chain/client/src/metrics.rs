@@ -32,6 +32,24 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| 
     .unwrap()
 });
 
+pub static EARLY_CHUNKS_PRODUCED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_early_chunks_produced_total",
+        "Number of chunks produced using early chunk preparation",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static LATE_CHUNKS_PRODUCED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_late_chunks_produced_total",
+        "Number of chunks produced using early chunk preparation",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
 pub static PREPARE_TRANSACTIONS_JOB_STARTED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_prepare_transactions_job_started_total",
