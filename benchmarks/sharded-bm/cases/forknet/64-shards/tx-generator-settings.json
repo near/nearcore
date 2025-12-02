@@ -6,20 +6,20 @@
 		"sender_accounts_zipf_skew": 1.0,
 		"receiver_accounts_zipf_skew": 1.0,
 		"schedule": [
-			{ "tps": 1, "duration_s": 60 },
-			{ "tps": 100, "duration_s": 60 },
+			{ "tps": 10, "duration_s": 60 },
 			{ "tps": 1000, "duration_s": 60 },
 			{ "tps": 2000, "duration_s": 60 },
 			{ "tps": 3000, "duration_s": 60 },
-			{ "tps": 6000, "duration_s": 60 }
+			{ "tps": 5000, "duration_s": 60 },
+			{ "tps": 7500, "duration_s": 60 }
 		],
 		"controller": {
-			"target_block_production_time_s": 2.0,
+			"target_block_production_time_s": 2.1,
 			"bps_filter_window_length": 6,
 			"gain_proportional": 130.0,
 			"gain_integral": 0.0,
 			"gain_derivative": 0.0,
-			"block_pause_threshold_ms": 3500
+			"block_pause_threshold_ms": 3000
 		}
 	}
 }
