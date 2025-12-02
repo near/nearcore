@@ -16320,6 +16320,18 @@
               "V2"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "V3": {
+                "$ref": "#/components/schemas/ShardLayoutV3"
+              }
+            },
+            "required": [
+              "V3"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -16444,6 +16456,51 @@
           "id_to_index_map",
           "index_to_id_map",
           "version"
+        ],
+        "type": "object"
+      },
+      "ShardLayoutV3": {
+        "description": "Counterpart to `ShardLayoutV3` composed of maps with string keys to aid\nserde serialization.",
+        "properties": {
+          "boundary_accounts": {
+            "items": {
+              "$ref": "#/components/schemas/AccountId"
+            },
+            "type": "array"
+          },
+          "id_to_index_map": {
+            "additionalProperties": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "last_split": {
+            "$ref": "#/components/schemas/ShardId"
+          },
+          "shard_ids": {
+            "items": {
+              "$ref": "#/components/schemas/ShardId"
+            },
+            "type": "array"
+          },
+          "shards_split_map": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/ShardId"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "boundary_accounts",
+          "shard_ids",
+          "id_to_index_map",
+          "shards_split_map",
+          "last_split"
         ],
         "type": "object"
       },
