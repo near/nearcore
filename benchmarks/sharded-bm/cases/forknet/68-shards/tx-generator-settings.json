@@ -11,7 +11,8 @@
 			{ "tps": 2000, "duration_s": 60 },
 			{ "tps": 3000, "duration_s": 60 },
 			{ "tps": 5000, "duration_s": 60 },
-			{ "tps": 7500, "duration_s": 60 }
+			{ "tps": 7500, "duration_s": 60 },
+			{ "tps": 10000, "duration_s": 60000 }
 		],
 		"controller": {
 			"target_block_production_time_s": 2.1,
