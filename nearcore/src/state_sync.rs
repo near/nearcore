@@ -951,7 +951,7 @@ async fn state_sync_dump(
     future_spawner: Arc<dyn FutureSpawner>,
 ) -> anyhow::Result<()> {
     tracing::info!(target: "state_sync_dump", "running state sync dump loop");
-
+    assert!(false);
     let mut dumper = StateDumper::new(
         clock.clone(),
         chain_id,
@@ -962,6 +962,7 @@ async fn state_sync_dump(
         external,
         future_spawner,
     );
+    
     dumper.init(iteration_delay).await?;
 
     let now = clock.now();

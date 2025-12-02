@@ -332,37 +332,20 @@ impl<'a> NodeStateBuilder<'a> {
             max_block_prod_time: 2000,
             num_block_producer_seats: 4,
             archive: self.enable_cold_storage || self.enable_cloud_storage,
-            state_sync_enabled: false,
+            state_sync_enabled: true,
         });
         client_config.epoch_length = self.genesis.config.epoch_length;
         client_config.max_block_wait_delay = Duration::seconds(6);
-        client_config.state_sync_enabled = true;
         client_config.state_sync_external_timeout = Duration::milliseconds(100);
         client_config.state_sync_p2p_timeout = Duration::milliseconds(100);
         client_config.state_sync_retry_backoff = Duration::milliseconds(100);
         client_config.state_sync_external_backoff = Duration::milliseconds(100);
-        // let external_storage_location =
-        //     ExternalStorageLocation::Filesystem { root_dir: self.tempdir_path.join("state_sync") };
-        // client_config.state_sync = StateSyncConfig {
-        //     dump: Some(DumpConfig {
-        //         iteration_delay: Some(Duration::seconds(1)),
-        //         location: external_storage_location.clone(),
-        //         credentials_file: None,
-        //         restart_dump_for_shards: None,
-        //     }),
-        //     sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
-        //         location: external_storage_location,
-        //         num_concurrent_requests: 1,
-        //         num_concurrent_requests_during_catchup: 1,
-        //         // We go straight to storage here because the network layer basically
-        //         // doesn't exist in testloop. We could mock a bunch of stuff to make
-        //         // the clients transfer state parts "peer to peer" but we wouldn't really
-        //         // gain anything over having them dump parts to a tempdir.
-        //         external_storage_fallback_threshold: 0,
-        //     }),
-        //     concurrency: Default::default(),
-        //     parts_compression_lvl: Default::default(),
-        // };
+
+        // The testloop default is to set dumper/state sync on every node.
+        // We don't do that if cloud storage is enabled since these are archival nodes (s)
+        if !self.enable_cloud_storage {
+            client_config.state_sync = default_testloop_state_sync_config(self.tempdir_path);
+        } 
 
         if let Some(config_modifier) = self.config_modifier {
             config_modifier(&mut client_config);
@@ -377,5 +360,32 @@ impl<'a> NodeStateBuilder<'a> {
             create_test_node_storage(self.enable_cold_storage, self.enable_cloud_storage, home_dir);
         initialize_genesis_state(storage.hot_store.clone(), &self.genesis, None);
         storage
+    }
+}
+
+// Decentralized state sync network messages are not handled in testloop.
+// Instead, parts are dumped to a tempdir that mocks centralized state sync bucket.
+fn default_testloop_state_sync_config(tempdir: PathBuf) -> StateSyncConfig {
+    let external_storage_location =
+        ExternalStorageLocation::Filesystem { root_dir: tempdir.join("state_sync") };
+    StateSyncConfig {
+        dump: Some(DumpConfig {
+            iteration_delay: Some(Duration::seconds(1)),
+            location: external_storage_location.clone(),
+            credentials_file: None,
+            restart_dump_for_shards: None,
+        }),
+        sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
+            location: external_storage_location,
+            num_concurrent_requests: 1,
+            num_concurrent_requests_during_catchup: 1,
+            // We go straight to storage here because the network layer basically
+            // doesn't exist in testloop. We could mock a bunch of stuff to make
+            // the clients transfer state parts "peer to peer" but we wouldn't really
+            // gain anything over having them dump parts to a tempdir.
+            external_storage_fallback_threshold: 0,
+        }),
+        concurrency: Default::default(),
+        parts_compression_lvl: Default::default(),
     }
 }
