@@ -1650,7 +1650,7 @@ impl messaging::Handler<stream::Error> for PeerActor {
             },
             };
             log_assert!(expected, "unexpected closing reason: {err}");
-            tracing::info!(target: "network", ?err, "Closing connection to {}", this.peer_info);
+            tracing::debug!(target: "network", ?err, "Closing connection to {}", this.peer_info);
             this.stop(ClosingReason::StreamError);
         });
     }
