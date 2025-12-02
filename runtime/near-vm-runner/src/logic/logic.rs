@@ -3552,12 +3552,12 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.result_state.gas_counter.pay_base(utf8_decoding_base)?;
         self.result_state.gas_counter.pay_per(utf8_decoding_byte, buf.len() as u64)?;
 
-        let account_id_str =
-            String::from_utf8(buf.into_owned()).map_err(|_| HostError::BadUTF8)?;
+        let account_id_str = String::from_utf8(buf.into_owned()).map_err(|_| HostError::BadUTF8)?;
 
         match self.config.limit_config.account_id_validity_rules_version {
             near_primitives_core::config::AccountIdValidityRulesVersion::V0
-            | near_primitives_core::config::AccountIdValidityRulesVersion::V1 => {
+            | near_primitives_core::config::AccountIdValidityRulesVersion::V1 =>
+            {
                 #[allow(deprecated)]
                 Ok(AccountId::new_unvalidated(account_id_str))
             }

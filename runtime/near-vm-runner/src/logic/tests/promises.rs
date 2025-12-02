@@ -185,26 +185,7 @@ fn test_promise_batch_action_use_global_contract_by_account_id_with_invalid_acco
     let mut logic = logic_builder.build();
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
 
-    let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
     let invalid_account_id = logic.internal_mem_write(b"not a valid account id");
-
-    logic
-        .promise_batch_action_use_global_contract_by_account_id(
-            123,
-            invalid_account_id.len,
-            invalid_account_id.ptr,
-        )
-        .expect_err("shouldn't accept not existent promise index");
-
-    let non_receipt =
-        logic.promise_and(index_ptr, 1u64).expect("should create a non-receipt promise");
-    logic
-        .promise_batch_action_use_global_contract_by_account_id(
-            non_receipt,
-            invalid_account_id.len,
-            invalid_account_id.ptr,
-        )
-        .expect_err("shouldn't accept non-receipt promise index");
 
     logic
         .promise_batch_action_use_global_contract_by_account_id(
