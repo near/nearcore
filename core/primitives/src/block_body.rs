@@ -69,6 +69,15 @@ pub enum SpiceCoreStatement {
     ChunkExecutionResult { chunk_id: SpiceChunkId, execution_result: ChunkExecutionResult },
 }
 
+impl SpiceCoreStatement {
+    pub fn chunk_id(&self) -> &SpiceChunkId {
+        match self {
+            SpiceCoreStatement::Endorsement(endorsement) => endorsement.chunk_id(),
+            SpiceCoreStatement::ChunkExecutionResult { chunk_id, .. } => &chunk_id,
+        }
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]

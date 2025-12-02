@@ -69,7 +69,8 @@ pub(crate) fn strip_refcount(mut bytes: Vec<u8>) -> Option<Vec<u8>> {
 /// This method assumes that the data already contains a reference count stored
 /// in the last 8 bytes. It overwrites this value with the new value.
 ///
-/// Returns None if the input bytes are too short to contain a refcount.
+/// Returns an error (`io::ErrorKind::InvalidData`) if the input bytes are too
+/// short to contain a refcount.
 pub(crate) fn set_refcount(data: &mut Vec<u8>, refcount: i64) -> io::Result<()> {
     const BYTE_COUNT: usize = std::mem::size_of::<i64>();
 

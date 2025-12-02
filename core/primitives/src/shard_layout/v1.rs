@@ -107,7 +107,7 @@ impl ShardLayoutV1 {
     ) -> Result<Option<ShardId>, ShardLayoutError> {
         let shard_index: usize = shard_id.into();
         if shard_index >= self.num_shards() {
-            return Err(ShardLayoutError::InvalidShardIdError { shard_id });
+            return Err(ShardLayoutError::InvalidShardId { shard_id });
         }
         match &self.to_parent_shard_map {
             // we can safely unwrap here because the construction of to_parent_shard_map guarantees
@@ -122,7 +122,7 @@ impl ShardLayoutV1 {
 
     pub fn get_shard_id(&self, shard_index: ShardIndex) -> Result<ShardId, ShardLayoutError> {
         if shard_index >= self.num_shards() {
-            Err(ShardLayoutError::InvalidShardIndexError { shard_index })
+            Err(ShardLayoutError::InvalidShardIndex { shard_index })
         } else {
             Ok(ShardId::new(shard_index as u64))
         }

@@ -75,12 +75,13 @@ impl SpiceCoreWriterActor {
     pub fn new(
         chain_store: ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
+        core_reader: SpiceCoreReader,
         chunk_executor_sender: Sender<ExecutionResultEndorsed>,
         spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
     ) -> Self {
         const PENDING_ENDORSEMENT_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(100).unwrap();
         Self {
-            core_reader: SpiceCoreReader::new(chain_store.clone(), epoch_manager.clone()),
+            core_reader,
             chain_store,
             epoch_manager,
             chunk_executor_sender,
@@ -125,15 +126,15 @@ impl SpiceCoreWriterActor {
     }
 
     fn try_sending_execution_result_endorsed(&self, block_hash: &CryptoHash) -> Result<(), Error> {
-        let block = match self.chain_store.get_block(block_hash) {
-            Ok(block) => block,
+        let block_header = match self.chain_store.get_block_header(block_hash) {
+            Ok(header) => header,
             Err(Error::DBNotFoundErr(_)) => return Ok(()),
             Err(err) => return Err(err),
         };
 
-        if self.core_reader.all_execution_results_exist(&block)? {
+        if self.core_reader.all_execution_results_exist(&block_header)? {
             let result_endorsed_message =
-                ExecutionResultEndorsed { block_hash: *block.header().hash() };
+                ExecutionResultEndorsed { block_hash: *block_header.hash() };
             self.chunk_executor_sender.send(result_endorsed_message.clone());
             self.spice_chunk_validator_sender.send(result_endorsed_message);
         }

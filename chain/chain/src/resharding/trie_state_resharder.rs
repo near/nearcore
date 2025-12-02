@@ -264,7 +264,7 @@ impl TrieStateResharder {
 
         // Get state root from the chunk extra of the child shard.
         let block_hash = event.resharding_block.hash;
-        let store = self.runtime.store().chain_store();
+        let store = self.runtime.store().chunk_store();
         let left_state_root =
             *store.get_chunk_extra(&block_hash, &event.left_child_shard)?.state_root();
         let right_state_root =

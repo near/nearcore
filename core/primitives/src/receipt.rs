@@ -678,6 +678,7 @@ pub enum ReceiptEnum {
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
+/// TODO(#14709): deprecate in favor of `ActionReceiptV2`.
 #[derive(
     BorshSerialize,
     BorshDeserialize,

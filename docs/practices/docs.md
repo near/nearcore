@@ -4,17 +4,19 @@ This chapter describes nearcore's approach to documentation. There are three
 primary types of documentation to keep in mind:
 
 * [**The NEAR Protocol Specification**](https://nomicon.io)
-  ([source code](https://github.com/near/NEPs)) is the formal description of
+  ([source code](https://github.com/near/nearcore/tree/master/docs)) is the formal description of
   the NEAR protocol. The reference nearcore implementation and any other NEAR
   client implementations must follow this specification.
 * [**User docs**](https://docs.near.org) ([source code](https://github.com/near/docs))
   explain what is NEAR and how to participate in the network. In particular,
   they contain information pertinent to the users of NEAR: validators and
   smart contract developers.
-* [**Documentation for nearcore developers**](https://near.github.io/nearcore/)
+* [**Node Validator docs**](https://near-nodes.io) ([source code](https://github.com/near/node-docs))
+  explain how to set up your own Validator node, RPC node, or Archival node, and participate in the network.
+* [**Documentation for nearcore developers**](https://nomicon.io/)
   ([source code](https://github.com/near/nearcore/tree/master/docs)) is the
   book you are reading right now! The target audience here is the contributors
-  to the main implementation of the NEAR protocol (nearcore).
+  to the main implementation of the NEAR protocol ([nearcore](https://github.com/near/nearcore)).
 
 ## Overview
 

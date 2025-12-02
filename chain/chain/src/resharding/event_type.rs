@@ -63,8 +63,9 @@ impl ReshardingEventType {
                 let Some(shards_split_map) = layout.shards_split_map() else {
                     return log_and_error("ShardLayoutV2 must have a shards_split_map!");
                 };
-                (shards_split_map, layout.boundary_accounts())
+                (shards_split_map.clone(), layout.boundary_accounts())
             }
+            ShardLayout::V3(layout) => (layout.recent_split(), layout.boundary_accounts()),
         };
 
         let mut event = None;
@@ -83,7 +84,7 @@ impl ReshardingEventType {
                     // Technically speaking the current shard layout version
                     // should be used for the parent. However since
                     // ShardLayoutV2 the version is frozen so it is ok.
-                    let parent_shard = ShardUId::new(next_shard_layout.version(), *parent_id);
+                    let parent_shard = ShardUId::new(next_shard_layout.version(), parent_id);
                     let left_child_shard =
                         ShardUId::from_shard_id_and_layout(children_ids[0], next_shard_layout);
                     let right_child_shard =

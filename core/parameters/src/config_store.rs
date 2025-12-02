@@ -190,6 +190,9 @@ impl RuntimeConfigStore {
                 config.congestion_control_config = CongestionControlConfig::test_disabled();
                 config.bandwidth_scheduler_config = BandwidthSchedulerConfig::test_disabled();
                 config.witness_config = WitnessConfig::test_disabled();
+                // Limit chunk size to 4MB (~30k transactions)
+                // TODO - make this configurable in the cases json.
+                config.witness_config.combined_transactions_size_limit = 4_000_000;
                 let mut wasm_config = vm::Config::clone(&config.wasm_config);
                 wasm_config.limit_config.per_receipt_storage_proof_size_limit = usize::max_value();
                 config.wasm_config = Arc::new(wasm_config);

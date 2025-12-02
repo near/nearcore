@@ -44,6 +44,7 @@ use validator_stats::get_sortable_validator_online_ratio;
 
 mod adapter;
 pub mod epoch_info_aggregator;
+pub mod epoch_sync;
 mod genesis;
 mod metrics;
 mod reward_calculator;
