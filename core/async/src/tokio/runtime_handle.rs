@@ -173,11 +173,11 @@ impl<A: Actor + Send + 'static> TokioRuntimeBuilder<A> {
             loop {
                 tokio::select! {
                     _ = self.system_cancellation_signal.cancelled() => {
-                        tracing::info!(target: "tokio_runtime", actor_name, "shutting down tokio runtime due to actor system shutdown");
+                        tracing::debug!(target: "tokio_runtime", actor_name, "shutting down tokio runtime due to actor system shutdown");
                         break;
                     }
                     _ = runtime_handle.cancel.cancelled() => {
-                        tracing::info!(target: "tokio_runtime", actor_name, "shutting down tokio runtime due to targeted cancellation");
+                        tracing::debug!(target: "tokio_runtime", actor_name, "shutting down tokio runtime due to targeted cancellation");
                         break;
                     }
                     _ = window_update_timer.tick() => {
