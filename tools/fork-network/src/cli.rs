@@ -714,13 +714,7 @@ impl ForkNetworkCommand {
         let genesis_protocol_version = genesis.config.protocol_version;
         genesis.config.epoch_length = epoch_length;
         genesis.config.chain_id.clone_from(chain_id);
-        initialize_sharded_genesis_state(
-            store.clone(),
-            &genesis,
-            &epoch_config,
-            &target_shard_layout,
-            Some(home_dir),
-        );
+        initialize_sharded_genesis_state(store.clone(), &genesis, &epoch_config, Some(home_dir));
         genesis.to_file(home_dir.join(&near_config.config.genesis_file));
         near_config.genesis = genesis.clone();
 

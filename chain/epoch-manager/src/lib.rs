@@ -725,8 +725,8 @@ impl EpochManager {
             next_next_epoch_height = %next_next_epoch_info.epoch_height(),
             ?next_next_epoch_id,
             next_next_protocol_version = %next_next_epoch_info.protocol_version(),
-            next_next_shard_layout = ?next_next_shard_layout,
-            next_next_epoch_config = ?next_next_epoch_config,
+            ?next_next_shard_layout,
+            ?next_next_epoch_config,
         );
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).

@@ -401,7 +401,6 @@ pub async fn start_with_config_and_synchronization_impl(
 
     let epoch_id = EpochId::default();
     let genesis_epoch_config = epoch_manager.get_epoch_config(&epoch_id)?;
-    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.
     // This sets up genesis_state_roots and genesis_hash in store.
@@ -409,7 +408,6 @@ pub async fn start_with_config_and_synchronization_impl(
         storage.get_hot_store(),
         &config.genesis,
         &genesis_epoch_config,
-        &shard_layout,
         Some(home_dir),
     );
 

@@ -16,7 +16,7 @@ use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
     ValidatorInfoIdentifier,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::EpochValidatorInfo;
 use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
@@ -823,6 +823,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         protocol_version: ProtocolVersion,
     ) -> ShardLayout {
+        debug_assert!(!ProtocolFeature::DynamicResharding.enabled(protocol_version));
         let epoch_manager = self.read();
         epoch_manager.get_epoch_config(protocol_version).legacy_shard_layout()
     }

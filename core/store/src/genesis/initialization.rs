@@ -32,9 +32,9 @@ pub fn initialize_sharded_genesis_state(
     store: Store,
     genesis: &Genesis,
     genesis_epoch_config: &EpochConfig,
-    shard_layout: &ShardLayout,
     home_dir: Option<&Path>,
 ) {
+    let shard_layout = genesis_epoch_config.legacy_shard_layout();
     let state_roots = if let Some(state_roots) =
         get_genesis_state_roots(&store).expect("Store failed on genesis initialization")
     {
@@ -59,7 +59,7 @@ pub fn initialize_sharded_genesis_state(
             }
             genesis_state_from_dump(store.clone(), home_dir.unwrap())
         } else {
-            genesis_state_from_genesis(store.clone(), genesis, shard_layout)
+            genesis_state_from_genesis(store.clone(), genesis, &shard_layout)
         };
         let mut store_update = store.store_update();
         set_genesis_state_roots(&mut store_update, &state_roots);
@@ -85,13 +85,7 @@ pub fn initialize_sharded_genesis_state(
 }
 
 pub fn initialize_genesis_state(store: Store, genesis: &Genesis, home_dir: Option<&Path>) {
-    initialize_sharded_genesis_state(
-        store,
-        genesis,
-        &EpochConfig::from(&genesis.config),
-        &genesis.config.shard_layout,
-        home_dir,
-    );
+    initialize_sharded_genesis_state(store, genesis, &EpochConfig::from(&genesis.config), home_dir);
 }
 
 fn genesis_state_from_dump(store: Store, home_dir: &Path) -> Vec<StateRoot> {
