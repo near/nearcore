@@ -128,13 +128,16 @@ impl ChunkProducer {
             clock,
             chunk_transactions_time_limit,
             chain: chain_store.clone(),
-            epoch_manager,
-            runtime_adapter,
+            epoch_manager: epoch_manager.clone(),
+            runtime_adapter: runtime_adapter.clone(),
             sharded_tx_pool: Arc::new(Mutex::new(ShardedTransactionPool::new(
                 rng_seed,
                 transaction_pool_size_limit,
             ))),
-            pending_txs: Arc::new(Mutex::new(ShardedPendingTransactionQueue::new())),
+            pending_txs: Arc::new(Mutex::new(ShardedPendingTransactionQueue::new(
+                runtime_adapter,
+                epoch_manager,
+            ))),
             reed_solomon_encoder: ReedSolomon::new(data_parts, parity_parts).unwrap(),
             chunk_production_info: lru::LruCache::new(
                 NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap(),

@@ -12,7 +12,7 @@ use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::RuntimeConfig;
 use near_primitives_core::serialize::{from_base64, to_base64};
-use near_primitives_core::types::Compute;
+use near_primitives_core::types::{Compute, NonceIndex};
 use near_schema_checker_lib::ProtocolSchema;
 #[cfg(feature = "schemars")]
 use schemars::json_schema;
@@ -45,6 +45,24 @@ pub struct TransactionV0 {
     pub actions: Vec<Action>,
 }
 
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Debug,
+    Clone,
+    Hash,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum TransactionKey {
+    AccessKey { public_key: PublicKey },
+    GasKey { public_key: PublicKey, nonce_index: NonceIndex },
+}
+
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, ProtocolSchema)]
 pub struct TransactionV1 {
     /// An account on which behalf transaction is signed
@@ -70,6 +88,14 @@ impl Transaction {
     pub fn get_hash_and_size(&self) -> (CryptoHash, u64) {
         let bytes = borsh::to_vec(&self).expect("Failed to deserialize");
         (hash(&bytes), bytes.len() as u64)
+    }
+
+    // XXX: This is just a placeholder.
+    pub fn key(&self) -> TransactionKey {
+        match self {
+            Transaction::V0(tx) => TransactionKey::AccessKey { public_key: tx.public_key.clone() },
+            Transaction::V1(tx) => TransactionKey::AccessKey { public_key: tx.public_key.clone() },
+        }
     }
 }
 

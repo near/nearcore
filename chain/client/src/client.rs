@@ -381,7 +381,6 @@ impl Client {
                 &chain.head()?.last_block_hash,
                 &chain.chain_store(),
                 &shard_tracker,
-                epoch_manager.as_ref(),
             )?;
         }
 
@@ -472,11 +471,13 @@ impl Client {
     }
 
     pub fn add_transactions_for_block_to_pending_queue(&self, block: &Block) -> Result<(), Error> {
-        let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
+        let epoch_id = block.header().epoch_id();
+        // TODO(spice): Gas price should be calculated properly.
+        let gas_price = block.header().next_gas_price();
         for chunk_header in block.chunks().iter_new() {
             // We can directly get the shard_id from the chunk_header as we are guaranteed new chunk via iter_new
             let shard_id = chunk_header.shard_id();
-            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
+            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
             if self
                 .shard_tracker
                 .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
@@ -484,9 +485,12 @@ impl Client {
                 // By now the chunk must be in store, otherwise the block would have been orphaned
                 let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
                 let mut guard = self.chunk_producer.pending_txs.lock();
-                guard
-                    .get_queue_mut(shard_uid)
-                    .add_transactions(*block.hash(), chunk.into_transactions());
+                guard.get_queue_mut(shard_uid).add_transactions(
+                    *block.hash(),
+                    epoch_id,
+                    gas_price,
+                    chunk.into_transactions(),
+                );
             }
         }
         Ok(())
@@ -1739,24 +1743,16 @@ impl Client {
             }
             BlockStatus::Reorg(_) => {
                 // If there is a re-org, just reset the pending tx queue based on uncertified chunks.
-                self.reset_pending_transaction_queue_from_uncertified_chunks(block.hash())
+                let mut guard = self.chunk_producer.pending_txs.lock();
+                guard
+                    .reset_from_uncertified_chunks(
+                        block.hash(),
+                        &self.chain.chain_store,
+                        &self.shard_tracker,
+                    )
+                    .map_err(|e| e.into())
             }
         }
-    }
-
-    fn reset_pending_transaction_queue_from_uncertified_chunks(
-        &self,
-        block_hash: &CryptoHash,
-    ) -> Result<(), Error> {
-        let mut guard = self.chunk_producer.pending_txs.lock();
-        guard
-            .reset_from_uncertified_chunks(
-                block_hash,
-                &self.chain.chain_store,
-                &self.shard_tracker,
-                &*self.epoch_manager,
-            )
-            .map_err(|e| e.into())
     }
 
     /// Reconcile the transaction pool after processing a block.
