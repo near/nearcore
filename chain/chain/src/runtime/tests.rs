@@ -1680,7 +1680,9 @@ fn test_prepare_transactions_duplicate_nonces() {
         source: StorageDataSource::Db,
         state_patch: Default::default(),
     };
-    transaction_pool.insert_transaction(ValidatedTransaction::new_for_test(duplicate_nonce_tx));
+    let insert_result =
+        transaction_pool.insert_transaction(ValidatedTransaction::new_for_test(duplicate_nonce_tx));
+    assert_eq!(insert_result, InsertTransactionResult::Success);
     let mut iter = transaction_pool.pool_iterator();
     let txs = prepare_transactions(&env, &chain, &mut iter, storage_config).unwrap();
 
