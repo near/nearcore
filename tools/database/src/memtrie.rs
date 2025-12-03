@@ -250,7 +250,8 @@ impl<'a, 'b> MemtrieSizeCalculator<'a, 'b> {
     /// Get RAM usage of a shard trie
     /// Does a BFS of the whole memtrie
     fn get_shard_trie_size(&self, shard_uid: ShardUId) -> anyhow::Result<ByteSize> {
-        let chunk_extra = self.chain_store.get_chunk_extra(self.block.hash(), &shard_uid)?;
+        let chunk_extra =
+            self.chain_store.chunk_store().get_chunk_extra(self.block.hash(), &shard_uid)?;
         let state_root = chunk_extra.state_root();
         println!("Shard {shard_uid}: state root: {state_root}");
 
@@ -330,7 +331,7 @@ impl FindBoundaryAccountCommand {
         tracing::info!("memtries loaded");
 
         runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid)?;
-        let chunk_extra = runtime.store().chain_store().get_chunk_extra(&block_hash, &shard_uid)?;
+        let chunk_extra = runtime.store().chunk_store().get_chunk_extra(&block_hash, &shard_uid)?;
         let state_root = chunk_extra.state_root();
         let trie = shard_tries.get_trie_for_shard(shard_uid, *state_root);
         tracing::info!("searching for boundary account");

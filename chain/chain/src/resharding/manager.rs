@@ -197,7 +197,7 @@ impl ReshardingManager {
         .entered();
 
         let parent_chunk_extra =
-            self.store.chain_store().get_chunk_extra(block_hash, parent_shard_uid)?;
+            self.store.chunk_store().get_chunk_extra(block_hash, parent_shard_uid)?;
         let mut store_update = self.store.trie_store().store_update();
 
         let mut split_shard_trie_changes = SplitShardTrieChanges::default();

@@ -16,6 +16,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::ProtocolVersion;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -539,7 +540,7 @@ fn retrieve_partial_encoded_chunk(
     request: &PartialEncodedChunkRequestMsg,
 ) -> Result<PartialEncodedChunkResponseMsg, Error> {
     let num_total_parts = epoch_manager.num_total_parts();
-    let partial_chunk = chain.get_partial_chunk(&request.chunk_hash)?;
+    let partial_chunk = chain.chunk_store().get_partial_chunk(&request.chunk_hash)?;
     let present_parts: HashMap<u64, _> =
         partial_chunk.parts().iter().map(|part| (part.part_ord, part)).collect();
     assert_eq!(
