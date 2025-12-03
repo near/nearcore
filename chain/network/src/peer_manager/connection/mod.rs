@@ -3,7 +3,7 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
     PeerInfo, PeerMessage, SignedAccountData, SignedOwnedAccount, SnapshotHostInfo,
-    SyncAccountsData, SyncSnapshotHosts, TieredMessageBody,
+    SyncAccountsData, SyncSnapshotHosts, T2MessageBody, TieredMessageBody,
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
@@ -34,7 +34,7 @@ impl tcp::Tier {
     /// TIER1 is reserved exclusively for BFT consensus messages.
     /// Each validator establishes a lot of TIER1 connections, so bandwidth shouldn't be
     /// wasted on broadcasting or periodic state syncs on TIER1 connections.
-    pub(crate) fn is_allowed(self, msg: &PeerMessage) -> bool {
+    pub(crate) fn is_allowed_receive(self, msg: &PeerMessage) -> bool {
         match msg {
             PeerMessage::Tier1Handshake(_) => self == tcp::Tier::T1,
             PeerMessage::Tier2Handshake(_) => self == tcp::Tier::T2,
@@ -45,7 +45,7 @@ impl tcp::Tier {
                 self == tcp::Tier::T2 || self == tcp::Tier::T3
             }
             PeerMessage::OptimisticBlock(..) => true,
-            PeerMessage::Routed(msg) => self.is_allowed_routed(msg.body()),
+            PeerMessage::Routed(msg) => self.is_allowed_receive_routed(msg.body()),
             PeerMessage::SyncRoutingTable(..)
             | PeerMessage::DistanceVector(..)
             | PeerMessage::RequestUpdateNonce(..)
@@ -67,7 +67,17 @@ impl tcp::Tier {
         }
     }
 
-    pub(crate) fn is_allowed_routed(self, body: &TieredMessageBody) -> bool {
+    pub(crate) fn is_allowed_receive_routed(self, body: &TieredMessageBody) -> bool {
+        match body {
+            TieredMessageBody::T1(_) => true,
+            TieredMessageBody::T2(body) => match body.as_ref() {
+                T2MessageBody::PartialEncodedChunkForward(_) => true,
+                _ => self == tcp::Tier::T2,
+            },
+        }
+    }
+
+    pub(crate) fn is_allowed_send_routed(self, body: &TieredMessageBody) -> bool {
         match body {
             TieredMessageBody::T1(_) => true,
             TieredMessageBody::T2(_) => self == tcp::Tier::T2,
