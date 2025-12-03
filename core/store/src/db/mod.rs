@@ -48,6 +48,9 @@ pub const TRIE_STATE_RESHARDING_STATUS_KEY: &[u8] = b"TRIE_STATE_RESHARDING_STAT
 pub const LATEST_WITNESSES_INFO: &[u8] = b"LATEST_WITNESSES_INFO";
 pub const INVALID_WITNESSES_INFO: &[u8] = b"INVALID_WITNESSES_INFO";
 
+// `DBCol::EpochSyncProof` keys
+pub const COMPRESSED_EPOCH_SYNC_PROOF_KEY: &[u8] = b"COMPRESSED_EPOCH_SYNC_PROOF";
+
 #[derive(Default, Debug)]
 pub struct DBTransaction {
     pub(crate) ops: Vec<DBOp>,

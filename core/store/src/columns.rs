@@ -677,7 +677,7 @@ impl DBCol {
             DBCol::LatestWitnessesByIndex => &[DBKeyType::LatestWitnessIndex],
             DBCol::InvalidChunkStateWitnesses => &[DBKeyType::InvalidWitnessesKey],
             DBCol::InvalidWitnessesByIndex => &[DBKeyType::InvalidWitnessIndex],
-            DBCol::EpochSyncProof => &[DBKeyType::Empty],
+            DBCol::EpochSyncProof => &[DBKeyType::StringLiteral],
             DBCol::StateShardUIdMapping => &[DBKeyType::ShardUId],
             DBCol::StateSyncHashes => &[DBKeyType::EpochId],
             DBCol::StateSyncNewChunks => &[DBKeyType::BlockHash],
