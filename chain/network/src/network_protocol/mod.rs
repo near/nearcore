@@ -949,7 +949,7 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                     RoutedMessageBody::VersionedPartialEncodedChunk(*partial_encoded_chunk)
                 }
                 T1MessageBody::_PartialEncodedChunkForward(partial_encoded_chunk_forward_msg) => {
-                     RoutedMessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg)
+                    RoutedMessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg)
                 }
                 T1MessageBody::PartialEncodedStateWitness(partial_encoded_state_witness) => {
                     RoutedMessageBody::PartialEncodedStateWitness(partial_encoded_state_witness)
