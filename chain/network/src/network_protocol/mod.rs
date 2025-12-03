@@ -664,7 +664,9 @@ impl From<T2MessageBody> for TieredMessageBody {
 pub enum T1MessageBody {
     BlockApproval(Approval),
     VersionedPartialEncodedChunk(Box<PartialEncodedChunk>),
-    // This is not enabled yet, to be migrated in the next release
+    // This is not enabled yet, to be migrated in the next release.
+    // TODO: make sure to deprecate the corresponding variant as part of
+    // T2MessageBody enum when this is enabled to be sent over T1.
     _PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
     PartialEncodedStateWitness(PartialEncodedStateWitness),
     PartialEncodedStateWitnessForward(PartialEncodedStateWitness),

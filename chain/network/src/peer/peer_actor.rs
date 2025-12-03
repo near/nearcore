@@ -1717,7 +1717,7 @@ impl messaging::Handler<stream::Frame> for PeerActor {
                     conn.last_time_received_message.store(now);
                     // Check if the message type is allowed given the TIER of the connection:
                     // TIER1 connections are reserved exclusively for BFT consensus messages.
-                    if !conn.tier.is_allowed(&peer_msg) {
+                    if !conn.tier.is_allowed_receive(&peer_msg) {
                         tracing::warn!(target: "network", msg_variant = %peer_msg.msg_variant(), tier = ?conn.tier, "received message on connection, disconnecting");
                         // TODO(gprusak): this is abusive behavior. Consider banning for it.
                         this.stop(ClosingReason::DisallowedMessage);
