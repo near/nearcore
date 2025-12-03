@@ -1247,6 +1247,8 @@ fn test_gc_execution_outcome() {
 }
 
 #[test]
+// TODO(spice): Enable after implementing state sync for spice.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_gc_after_state_sync() {
     let epoch_length = 1024;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);

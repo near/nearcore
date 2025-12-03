@@ -6,17 +6,12 @@ use crate::{
 };
 use near_chain_primitives::Error;
 use near_primitives::block::{Block, BlockHeader, Tip};
-use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
-use near_primitives::sharding::{
-    ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk,
-};
+use near_primitives::sharding::ReceiptProof;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
-use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::views::LightClientBlockView;
@@ -213,17 +208,6 @@ impl ChainStoreAdapter {
             .unwrap_or_default())
     }
 
-    /// Returns a HashSet of Chunk Hashes for current Height
-    pub fn get_all_chunk_hashes_by_height(
-        &self,
-        height: BlockHeight,
-    ) -> Result<HashSet<ChunkHash>, Error> {
-        Ok(self
-            .store
-            .get_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(height))?
-            .unwrap_or_default())
-    }
-
     /// Returns block header from the current chain for given height if present.
     pub fn get_block_header_by_height(
         &self,
@@ -238,66 +222,6 @@ impl ChainStoreAdapter {
             self.store.get_ser(DBCol::NextBlockHashes, hash.as_ref()),
             format_args!("NEXT BLOCK HASH: {}", hash),
         )
-    }
-
-    /// Get full chunk.
-    pub fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error> {
-        match self.store.get_ser(DBCol::Chunks, chunk_hash.as_ref()) {
-            Ok(Some(shard_chunk)) => Ok(shard_chunk),
-            _ => Err(Error::ChunkMissing(chunk_hash.clone())),
-        }
-    }
-
-    /// Get partial chunk.
-    pub fn get_partial_chunk(
-        &self,
-        chunk_hash: &ChunkHash,
-    ) -> Result<Arc<PartialEncodedChunk>, Error> {
-        match self.store.caching_get_ser(DBCol::PartialChunks, chunk_hash.as_ref()) {
-            Ok(Some(shard_chunk)) => Ok(shard_chunk),
-            _ => Err(Error::ChunkMissing(chunk_hash.clone())),
-        }
-    }
-
-    /// Does this chunk exist?
-    pub fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        self.store.exists(DBCol::Chunks, h.as_ref()).map_err(|e| e.into())
-    }
-
-    /// Does this partial chunk exist?
-    pub fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        self.store.exists(DBCol::PartialChunks, h.as_ref()).map_err(|e| e.into())
-    }
-
-    /// Returns encoded chunk if it's invalid otherwise None.
-    pub fn is_invalid_chunk(
-        &self,
-        chunk_hash: &ChunkHash,
-    ) -> Result<Option<Arc<EncodedShardChunk>>, Error> {
-        self.store.get_ser(DBCol::InvalidChunks, chunk_hash.as_ref()).map_err(|err| err.into())
-    }
-
-    /// Information from applying chunk.
-    pub fn get_chunk_extra(
-        &self,
-        block_hash: &CryptoHash,
-        shard_uid: &ShardUId,
-    ) -> Result<Arc<ChunkExtra>, Error> {
-        option_to_not_found(
-            self.store
-                .caching_get_ser(DBCol::ChunkExtra, &get_block_shard_uid(block_hash, shard_uid)),
-            format_args!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid),
-        )
-    }
-
-    pub fn get_chunk_apply_stats(
-        &self,
-        block_hash: &CryptoHash,
-        shard_id: &ShardId,
-    ) -> Result<Option<ChunkApplyStats>, Error> {
-        self.store
-            .get_ser(DBCol::ChunkApplyStats, &get_block_shard_id(block_hash, *shard_id))
-            .map_err(|e| e.into())
     }
 
     pub fn get_outgoing_receipts(

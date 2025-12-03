@@ -92,11 +92,11 @@ impl<'a> TestLoopNode<'a> {
     }
 
     pub fn block_chunks(&self, test_loop_data: &TestLoopData, block: &Block) -> Vec<ShardChunk> {
-        let chain_store = self.client(test_loop_data).chain.chain_store();
+        let chain = &self.client(test_loop_data).chain;
         block
             .chunks()
             .iter_raw()
-            .map(|chunk_header| chain_store.get_chunk(chunk_header.chunk_hash()).unwrap())
+            .map(|chunk_header| chain.get_chunk(chunk_header.chunk_hash()).unwrap())
             .collect()
     }
 

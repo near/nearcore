@@ -1296,7 +1296,16 @@ pub struct ChunkExecutionResult {
 }
 
 /// Execution results for all shards in the block.
+#[derive(Debug, Clone, PartialEq)]
 pub struct BlockExecutionResults(pub HashMap<ShardId, Arc<ChunkExecutionResult>>);
+
+impl BlockExecutionResults {
+    pub fn compute_gas_limit(&self) -> Gas {
+        self.0.iter().fold(Gas::ZERO, |acc, (_shard_id, execution_result)| {
+            acc.checked_add(execution_result.chunk_extra.gas_limit()).unwrap()
+        })
+    }
+}
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ChunkExecutionResultHash(pub CryptoHash);

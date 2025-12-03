@@ -373,6 +373,53 @@ impl SpiceCoreReader {
         }
         Ok(())
     }
+
+    pub fn get_last_certified_execution_results_for_next_block(
+        &self,
+        block_header: &BlockHeader,
+        core_statements_for_next_block: &[SpiceCoreStatement],
+    ) -> Result<BlockExecutionResults, Error> {
+        let new_execution_results: HashMap<_, _> = core_statements_for_next_block
+            .iter()
+            .filter_map(|core_statement| match core_statement {
+                SpiceCoreStatement::ChunkExecutionResult { execution_result, chunk_id } => {
+                    Some((chunk_id, execution_result))
+                }
+                _ => None,
+            })
+            .collect();
+
+        let mut uncertified_chunks =
+            get_uncertified_chunks(&self.chain_store, block_header.hash())?;
+        uncertified_chunks
+            .retain(|chunk_info| !new_execution_results.contains_key(&chunk_info.chunk_id));
+        let oldest_uncertified_block_header =
+            find_oldest_uncertified_block_header(&self.chain_store, uncertified_chunks)?;
+        let last_certified_block_header =
+            if let Some(oldest_uncertified_block_header) = oldest_uncertified_block_header {
+                &self.chain_store.get_block_header(oldest_uncertified_block_header.prev_hash())?
+            } else {
+                // If there are no uncertified blocks it means block with block_header is last certified.
+                block_header
+            };
+
+        let mut execution_results =
+            self.get_execution_results_by_shard_id(last_certified_block_header)?;
+
+        for shard_id in self.epoch_manager.shard_ids(block_header.epoch_id())? {
+            if execution_results.contains_key(&shard_id) {
+                continue;
+            }
+            let execution_result = new_execution_results
+            .get(&SpiceChunkId { block_hash: *last_certified_block_header.hash(), shard_id })
+            .expect(
+                "for certified block we should have execution either in store or core statements",
+            );
+            execution_results.insert(shard_id, Arc::new((*execution_result).clone()));
+        }
+
+        Ok(BlockExecutionResults(execution_results))
+    }
 }
 
 fn get_uncertified_chunks(
@@ -491,4 +538,18 @@ pub fn record_uncertified_chunks_for_block(
     )?;
     chain_store_update.merge(store_update);
     Ok(())
+}
+
+fn find_oldest_uncertified_block_header(
+    chain_store: &ChainStoreAdapter,
+    uncertified_chunks: Vec<SpiceUncertifiedChunkInfo>,
+) -> Result<Option<Arc<BlockHeader>>, Error> {
+    let uncertified_block_hashes: HashSet<_> =
+        uncertified_chunks.into_iter().map(|chunk_info| chunk_info.chunk_id.block_hash).collect();
+    let uncertified_block_headers: Vec<_> = uncertified_block_hashes
+        .iter()
+        // If this needs to be optimized SpiceUncertifiedChunkInfo can contain block height.
+        .map(|block_hash| chain_store.get_block_header(block_hash))
+        .collect::<Result<Vec<_>, Error>>()?;
+    Ok(uncertified_block_headers.into_iter().min_by_key(|header| header.height()))
 }
