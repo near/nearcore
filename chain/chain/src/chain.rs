@@ -3018,7 +3018,16 @@ impl Chain {
         let next_epoch_id =
             self.epoch_manager.get_next_epoch_id_from_prev_block(block_header.prev_hash())?;
         let validator_signer = self.validator_signer.get();
-        let Some(account_id) = validator_signer.as_ref().map(|v| v.validator_id()) else {
+
+        let validator_id = if let Some(validator_signer) = &validator_signer {
+            Some(validator_signer.validator_id())
+        } else {
+            // If the node shadows another validator, we want it to have all the transition
+            // data so it can seamlessly take over as the main validator if required.
+            self.shard_tracker.get_shadow_validator_id()
+        };
+
+        let Some(account_id) = validator_id else {
             return Ok(false);
         };
         Ok(self.epoch_manager.is_chunk_producer_for_epoch(epoch_id, account_id)?
