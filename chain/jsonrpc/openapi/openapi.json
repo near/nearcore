@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.3"
+    "version": "1.2.2"
   },
   "paths": {
     "/EXPERIMENTAL_changes": {
