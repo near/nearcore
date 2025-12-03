@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use near_chain::{Error, LatestKnown};
 use near_epoch_manager::epoch_sync::{
     derive_epoch_sync_proof_from_last_final_block, find_target_epoch_to_produce_proof_for,
@@ -7,11 +5,9 @@ use near_epoch_manager::epoch_sync::{
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::types::BlockHeightDelta;
 use near_store::adapter::StoreAdapter;
-use near_store::archive::cold_storage::rc_aware_set;
+use near_store::db::ColdDB;
 use near_store::db::metadata::{DB_VERSION, DbVersion, MIN_SUPPORTED_DB_VERSION};
-use near_store::db::{ColdDB, DBTransaction, Database};
-use near_store::{DBCol, LATEST_KNOWN_KEY, Store, get_genesis_height};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use near_store::{DBCol, LATEST_KNOWN_KEY, Store};
 
 use crate::NearConfig;
 
@@ -51,68 +47,24 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 &self.config.genesis.config,
                 &self.config.config.store,
             ),
-            47 => migrate_47_to_48(
-                hot_store,
-                cold_db,
-                self.config.genesis.config.transaction_validity_period,
-            ),
+            47 => {
+                migrate_47_to_48(hot_store, self.config.genesis.config.transaction_validity_period)
+            }
             DB_VERSION.. => unreachable!(),
         }
     }
 }
 
 /// This migration does two things:
-/// 1. Store block headers from genesis to tail in cold DB
-/// 2. Generate and save the compressed epoch sync proof
-/// 3. Clear the block headers from genesis to tail in hot_store
+/// 1. Generate and save the compressed epoch sync proof
+/// 2. Clear the block headers from genesis to tail in hot_store
 fn migrate_47_to_48(
     hot_store: &Store,
-    cold_db: Option<&ColdDB>,
     transaction_validity_period: BlockHeightDelta,
 ) -> anyhow::Result<()> {
     tracing::info!(target: "migrations", "starting migration from DB version 47 to 48");
-    if let Some(cold_db) = cold_db {
-        store_block_headers_in_cold_db(hot_store, cold_db)?;
-    }
     update_epoch_sync_proof(hot_store.clone(), transaction_validity_period)?;
     delete_old_block_headers(hot_store)?;
-    Ok(())
-}
-
-fn store_block_headers_in_cold_db(hot_store: &Store, cold_db: &ColdDB) -> anyhow::Result<()> {
-    let chain_store = hot_store.chain_store();
-    let cold_store = cold_db.as_store();
-
-    let genesis_height = get_genesis_height(hot_store)?.expect("genesis height must exist");
-    let head_height = chain_store.head().unwrap().height;
-    let total_blocks = head_height - genesis_height;
-    let num_chunks = (total_blocks + CHUNK_SIZE - 1) / CHUNK_SIZE;
-
-    tracing::info!(target: "migrations", ?genesis_height, ?head_height, ?total_blocks, ?num_chunks, "storing block headers in cold DB");
-
-    (0..num_chunks).into_par_iter().for_each(|chunk_idx| {
-        let start = genesis_height + chunk_idx * CHUNK_SIZE;
-        let end = (start + CHUNK_SIZE).min(head_height);
-
-        tracing::info!(target: "migrations", ?chunk_idx, ?start, ?end, "storing block headers in cold DB chunk");
-
-        let mut transaction = DBTransaction::new();
-        for height in start..end {
-            let Ok(block_hash) = chain_store.get_block_hash_by_height(height) else {
-                tracing::debug!(target: "migrations", ?height, "block hash not found, skipping deletion of block header");
-                continue;
-            };
-            let block = cold_store.chain_store().get_block(&block_hash).unwrap();
-            let header = borsh::to_vec(&block.header()).unwrap();
-            rc_aware_set(&mut transaction, DBCol::BlockHeader, block_hash.into(), header);
-        }
-
-        let start_time = Instant::now();
-        cold_db.write(transaction).unwrap();
-        let commit_time = start_time.elapsed();
-        tracing::info!(target: "migrations", ?commit_time, ?chunk_idx, ?start, ?end, "stored block headers in cold DB chunk");
-    });
-
     Ok(())
 }
 

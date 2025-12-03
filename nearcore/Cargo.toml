@@ -24,7 +24,6 @@ itertools.workspace = true
 num-rational.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
-rayon.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_ignored.workspace = true
