@@ -36,8 +36,8 @@
 ## [2.9.0]
 
 ### Protocol Changes
-Maximum inflation rate moved to epoch config
-Inflation rate reduction from 5% to 2.5%
+* Maximum inflation rate moved to epoch config
+* Inflation rate reduction from 5% to 2.5%
 
 ## [2.8.0]
 
