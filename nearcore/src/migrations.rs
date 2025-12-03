@@ -162,7 +162,7 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
 
     tracing::info!(target: "migrations", ?genesis_height, ?tail_height, ?total_blocks, ?num_chunks, "deleting old block headers from hot store");
 
-    (0..num_chunks).into_par_iter().for_each(|chunk_idx| {
+    (0..num_chunks).for_each(|chunk_idx| {
         let start = genesis_height + chunk_idx * CHUNK_SIZE;
         let end = (start + CHUNK_SIZE).min(tail_height);
 
