@@ -19,6 +19,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{Balance, Gas, ShardId};
 use near_primitives::utils::MaybeValidated;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::ShardUId;
 use std::sync::Arc;
 
@@ -260,7 +261,13 @@ impl BadCongestionInfoMode {
     }
 }
 
-fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
+fn test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
+    // Congestion info isn't part of chunks with spice so it doesn't make sense to test when
+    // congestion info is bad in chunks.
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
     let accounts = TestEnvBuilder::make_accounts(1);
     let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
@@ -321,38 +328,36 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_bad_congestion_info_receipt_bytes() {
-    test_bad_congestion_info_impl(BadCongestionInfoMode::CorruptReceiptBytes);
+fn test_validate_chunk_with_chunk_extra_bad_congestion_info_receipt_bytes() {
+    test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(
+        BadCongestionInfoMode::CorruptReceiptBytes,
+    );
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_bad_congestion_info_corrupt_delayed_receipts_bytes() {
-    test_bad_congestion_info_impl(BadCongestionInfoMode::CorruptDelayedReceiptsBytes);
+fn test_validate_chunk_with_chunk_extra_bad_congestion_info_corrupt_delayed_receipts_bytes() {
+    test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(
+        BadCongestionInfoMode::CorruptDelayedReceiptsBytes,
+    );
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_bad_congestion_info_corrupt_buffered_receipts_bytes() {
-    test_bad_congestion_info_impl(BadCongestionInfoMode::CorruptBufferedReceiptsBytes);
+fn test_validate_chunk_with_chunk_extra_bad_congestion_info_corrupt_buffered_receipts_bytes() {
+    test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(
+        BadCongestionInfoMode::CorruptBufferedReceiptsBytes,
+    );
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_bad_congestion_info_corrupt_allowed_shard() {
-    test_bad_congestion_info_impl(BadCongestionInfoMode::CorruptAllowedShard);
+fn test_validate_chunk_with_chunk_extra_bad_congestion_info_corrupt_allowed_shard() {
+    test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(
+        BadCongestionInfoMode::CorruptAllowedShard,
+    );
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_bad_congestion_info_none() {
-    test_bad_congestion_info_impl(BadCongestionInfoMode::None);
+fn test_validate_chunk_with_chunk_extra_bad_congestion_info_none() {
+    test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(BadCongestionInfoMode::None);
 }
 
 // Helper function to check that a block was produced from an optimistic block
