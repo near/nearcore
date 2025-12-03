@@ -593,6 +593,15 @@ pub static ROCKS_ITERATOR_TIME_HISTOGRAM: LazyLock<Histogram> = LazyLock::new(||
     .unwrap()
 });
 
+pub static EPOCH_SYNC_LAST_GENERATED_COMPRESSED_PROOF_SIZE: LazyLock<IntGauge> =
+    LazyLock::new(|| {
+        try_create_int_gauge(
+            "near_epoch_sync_last_generated_compressed_proof_size",
+            "Size of the last generated compressed epoch sync proof, in bytes",
+        )
+        .unwrap()
+    });
+
 pub static ROCKS_CURRENT_ITERATORS: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge("near_rocksdb_iterators", "Number of rocksdb iterators currently live")
         .unwrap()

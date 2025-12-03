@@ -337,6 +337,7 @@ pub enum ProtocolFeature {
     DynamicResharding,
     GasKeys,
     Spice,
+    ContinuousEpochSync,
 }
 
 impl ProtocolFeature {
@@ -452,10 +453,11 @@ impl ProtocolFeature {
 
             // Place features that are not yet in Nightly below this line.
             ProtocolFeature::DynamicResharding => 152,
+            ProtocolFeature::ContinuousEpochSync => 153,
         }
     }
 
-    pub fn enabled(&self, protocol_version: ProtocolVersion) -> bool {
+    pub const fn enabled(&self, protocol_version: ProtocolVersion) -> bool {
         protocol_version >= self.protocol_version()
     }
 }
