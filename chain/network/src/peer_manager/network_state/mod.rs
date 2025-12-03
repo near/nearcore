@@ -759,12 +759,6 @@ impl NetworkState {
                         .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk));
                     None
                 }
-                T1MessageBody::PartialEncodedChunkForward(msg) => {
-                    self.shards_manager_adapter.send(
-                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg),
-                    );
-                    None
-                }
                 T1MessageBody::PartialEncodedStateWitness(witness) => {
                     self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
                     None
@@ -844,6 +838,12 @@ impl NetworkState {
                             partial_encoded_chunk_response: response,
                             received_time: clock.now().into(),
                         },
+                    );
+                    None
+                }
+                T2MessageBody::PartialEncodedChunkForward(msg) => {
+                    self.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg),
                     );
                     None
                 }
