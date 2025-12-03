@@ -30,6 +30,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::ProtocolFeature;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{ShardUId, TrieUpdate};
 use parking_lot::Mutex;
@@ -343,25 +344,41 @@ impl ChunkProducer {
             bandwidth_requests.is_some(),
             "Expected bandwidth_request to be Some after BandwidthScheduler feature enabled"
         );
-        let (chunk, merkle_paths) = ShardChunkWithEncoding::new(
-            prev_block_hash,
-            *chunk_extra.state_root(),
-            *chunk_extra.outcome_root(),
-            next_height,
-            shard_id,
-            gas_used,
-            chunk_extra.gas_limit(),
-            chunk_extra.balance_burnt(),
-            chunk_extra.validator_proposals().collect(),
-            prepared_transactions.transactions,
-            outgoing_receipts.clone(),
-            outgoing_receipts_root,
-            tx_root,
-            congestion_info,
-            bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
-            &*validator_signer,
-            &mut self.reed_solomon_encoder,
-        );
+
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+        let (chunk, merkle_paths) = if ProtocolFeature::Spice.enabled(protocol_version) {
+            ShardChunkWithEncoding::new_for_spice(
+                prev_block_hash,
+                next_height,
+                shard_id,
+                prepared_transactions.transactions,
+                outgoing_receipts.clone(),
+                outgoing_receipts_root,
+                tx_root,
+                &*validator_signer,
+                &mut self.reed_solomon_encoder,
+            )
+        } else {
+            ShardChunkWithEncoding::new(
+                prev_block_hash,
+                *chunk_extra.state_root(),
+                *chunk_extra.outcome_root(),
+                next_height,
+                shard_id,
+                gas_used,
+                chunk_extra.gas_limit(),
+                chunk_extra.balance_burnt(),
+                chunk_extra.validator_proposals().collect(),
+                prepared_transactions.transactions,
+                outgoing_receipts.clone(),
+                outgoing_receipts_root,
+                tx_root,
+                congestion_info,
+                bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
+                &*validator_signer,
+                &mut self.reed_solomon_encoder,
+            )
+        };
 
         let encoded_chunk = chunk.to_encoded_shard_chunk();
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
