@@ -337,8 +337,10 @@ fn block_executed(actor: &TestActor, block: &Block) -> bool {
 }
 
 fn produce_block(actors: &mut [TestActor], prev_block: &Block) -> Arc<Block> {
-    let chunks =
-        get_fake_next_block_spice_chunk_headers(&prev_block, actors[0].actor.epoch_manager.as_ref());
+    let chunks = get_fake_next_block_spice_chunk_headers(
+        &prev_block,
+        actors[0].actor.epoch_manager.as_ref(),
+    );
     for actor in actors.iter_mut() {
         let mut store_update = actor.actor.chain_store.store_update();
         for chunk_header in &chunks {
