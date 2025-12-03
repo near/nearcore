@@ -45,6 +45,7 @@ use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::{Balance, EpochHeight};
+use near_primitives_core::version::ProtocolFeature;
 use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
@@ -1034,6 +1035,14 @@ pub(crate) fn print_epoch_analysis(
     let mut has_same_shard_layout;
     let mut next_next_protocol_version;
 
+    let num_shards = if ProtocolFeature::DynamicResharding.enabled(PROTOCOL_VERSION) {
+        // TODO(dynamic_resharding): adjust number of shards if a shard was marked for splitting
+        let next_epoch_id = epoch_heights_to_ids.get(&next_epoch_info.epoch_height()).unwrap();
+        epoch_manager.get_shard_layout(&next_epoch_id).unwrap().num_shards() as usize
+    } else {
+        next_next_epoch_config.legacy_shard_layout().num_shards() as usize
+    };
+
     // Print data header.
     match mode {
         EpochAnalysisMode::CheckConsistency => {
@@ -1044,8 +1053,7 @@ pub(crate) fn print_epoch_analysis(
                 "epoch_height,original_protocol_version,state_syncs,min_validator_num,diff_validator_num,min_stake,diff_stake,rel_diff_stake"
             );
             // Start from empty assignment for correct number of shards.
-            *next_epoch_info.chunk_producers_settlement_mut() =
-                vec![vec![]; next_next_epoch_config.shard_layout.shard_ids().collect_vec().len()];
+            *next_epoch_info.chunk_producers_settlement_mut() = vec![vec![]; num_shards];
             // This in fact sets maximal number of all validators to 100 for
             // `StatelessValidationV0`.
             // Needed because otherwise generation fails at epoch 1327 with
@@ -1068,10 +1076,15 @@ pub(crate) fn print_epoch_analysis(
         let next_epoch_id = epoch_heights_to_ids.get(&next_epoch_height).unwrap();
         let next_next_epoch_id = epoch_heights_to_ids.get(&next_next_epoch_height).unwrap();
         let epoch_summary = epoch_heights_to_validator_infos.get(epoch_height).unwrap();
-        let next_epoch_config = epoch_manager.get_epoch_config(
-            epoch_manager.get_epoch_info(next_epoch_id).unwrap().protocol_version(),
-        );
         let original_next_next_protocol_version = epoch_summary.next_next_epoch_version;
+        let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
+        let next_next_shard_layout =
+            if ProtocolFeature::DynamicResharding.enabled(original_next_next_protocol_version) {
+                // TODO(dynamic_resharding): adjust layout if a shard was marked for splitting
+                next_shard_layout.clone()
+            } else {
+                next_next_epoch_config.legacy_shard_layout()
+            };
 
         match mode {
             EpochAnalysisMode::CheckConsistency => {
@@ -1082,8 +1095,7 @@ pub(crate) fn print_epoch_analysis(
                 next_next_epoch_config = epoch_manager.get_epoch_config(
                     epoch_manager.get_epoch_info(next_next_epoch_id).unwrap().protocol_version(),
                 );
-                has_same_shard_layout =
-                    next_epoch_config.shard_layout == next_next_epoch_config.shard_layout;
+                has_same_shard_layout = next_shard_layout == next_next_shard_layout;
                 next_next_protocol_version = original_next_next_protocol_version;
             }
             EpochAnalysisMode::Backtest => {
@@ -1107,7 +1119,7 @@ pub(crate) fn print_epoch_analysis(
             stored_next_next_epoch_info.validator_reward().clone(),
             stored_next_next_epoch_info.minted_amount(),
             next_next_protocol_version,
-            next_next_epoch_config.shard_layout.clone(),
+            next_next_shard_layout,
             has_same_shard_layout,
         )
         .unwrap();
@@ -1256,7 +1268,7 @@ pub(crate) fn contract_accounts(
 
     let tries = state_roots.iter().enumerate().map(|(shard_index, &state_root)| {
         let epoch_config_store = EpochConfigStore::for_chain_id(MAINNET, None).unwrap();
-        let shard_layout = &epoch_config_store.get_config(PROTOCOL_VERSION).shard_layout;
+        let shard_layout = &epoch_config_store.get_config(PROTOCOL_VERSION).legacy_shard_layout();
         let shard_uid = shard_layout.get_shard_uid(shard_index).unwrap();
         // Use simple non-caching storage, we don't expect many duplicate lookups while iterating.
         let storage = TrieDBStorage::new(store.trie_store(), shard_uid);

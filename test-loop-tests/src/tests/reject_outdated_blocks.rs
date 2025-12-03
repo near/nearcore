@@ -57,7 +57,7 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
 
     let genesis = TestGenesisBuilder::new()
         .genesis_time_from_clock(&test_loop_builder.clock())
-        .shard_layout(epoch_config_store.get_config(PROTOCOL_VERSION).shard_layout.clone())
+        .shard_layout(epoch_config_store.get_config(PROTOCOL_VERSION).legacy_shard_layout())
         .epoch_length(epoch_length)
         .validators_spec(ValidatorsSpec::raw(validators, 3, 3, 3))
         .max_inflation_rate(Rational32::new(0, 1))

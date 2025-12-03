@@ -594,6 +594,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.tries.get_flat_storage_manager()
     }
 
+    // TODO(dynamic_resharding): remove this method
     fn get_shard_layout(&self, protocol_version: ProtocolVersion) -> ShardLayout {
         let epoch_manager = self.epoch_manager.read();
         epoch_manager.get_shard_layout_from_protocol_version(protocol_version)
@@ -1373,6 +1374,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
         let mut genesis_config = self.genesis_config.clone();
         genesis_config.protocol_version = protocol_version;
 
@@ -1398,7 +1400,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         genesis_config.minimum_stake_divisor = epoch_config.minimum_stake_divisor;
         genesis_config.protocol_upgrade_stake_threshold =
             epoch_config.protocol_upgrade_stake_threshold;
-        genesis_config.shard_layout = epoch_config.shard_layout;
+        genesis_config.shard_layout = shard_layout;
         genesis_config.num_chunk_only_producer_seats = epoch_config.num_chunk_only_producer_seats;
         genesis_config.minimum_validators_per_shard = epoch_config.minimum_validators_per_shard;
         genesis_config.minimum_stake_ratio = epoch_config.minimum_stake_ratio;
