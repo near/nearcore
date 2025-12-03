@@ -1656,6 +1656,47 @@ fn prepare_transactions_extra(
     )
 }
 
+#[test]
+fn test_prepare_transactions_duplicate_nonces() {
+    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
+
+    // Insert a transaction with a duplicate (public key, nonce) pair into the pool.
+    let mut iter = transaction_pool.pool_iterator();
+    let group = iter.next().unwrap();
+    let first_tx = group.peek_next().unwrap();
+    let duplicate_nonce_tx = SignedTransaction::send_money(
+        first_tx.nonce(),
+        first_tx.signer_id().clone(),
+        first_tx.receiver_id().clone(),
+        &InMemorySigner::test_signer(&first_tx.signer_id()),
+        Balance::from_yoctonear(9999),
+        *first_tx.to_tx().block_hash(),
+    );
+    drop(iter);
+
+    let storage_config = RuntimeStorageConfig {
+        state_root: env.state_roots[0],
+        use_flat_storage: true,
+        source: StorageDataSource::Db,
+        state_patch: Default::default(),
+    };
+    transaction_pool.insert_transaction(ValidatedTransaction::new_for_test(duplicate_nonce_tx));
+    let mut iter = transaction_pool.pool_iterator();
+    let txs = prepare_transactions(&env, &chain, &mut iter, storage_config).unwrap();
+
+    // Collect (public key, nonce) pairs to check for duplicates.
+    let mut pk_nonce_set = HashSet::new();
+    for tx in &txs.transactions {
+        let pk_nonce = (tx.public_key(), tx.nonce());
+        assert!(
+            pk_nonce_set.insert(pk_nonce),
+            "Duplicate transaction with public key {:?} and nonce {} found in prepared transactions",
+            tx.public_key(),
+            tx.nonce()
+        );
+    }
+}
+
 /// Check that transactions validation fails if provided empty storage proof.
 #[test]
 fn test_prepare_transactions_empty_storage_proof() {
