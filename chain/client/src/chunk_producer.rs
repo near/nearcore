@@ -31,6 +31,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{ShardUId, TrieUpdate};
 use parking_lot::Mutex;
@@ -280,6 +281,7 @@ impl ChunkProducer {
             Arc::new(ChunkExtra::new_with_only_state_root(&Default::default()))
         } else {
             self.chain
+                .chunk_store()
                 .get_chunk_extra(&prev_block_hash, &shard_uid)
                 .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
         };

@@ -16,6 +16,7 @@ mod utils;
 mod v0;
 mod v1;
 mod v2;
+mod v3;
 
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
@@ -29,6 +30,7 @@ use std::{fmt, str};
 pub use v0::ShardLayoutV0;
 pub use v1::{ShardLayoutV1, ShardsSplitMapV1};
 pub use v2::{ShardLayoutV2, ShardsSplitMapV2};
+pub use v3::{ShardLayoutV3, ShardsSplitMapV3};
 
 /// `ShardLayout` has a version number.
 ///
@@ -64,6 +66,7 @@ pub enum ShardLayout {
     V0(ShardLayoutV0) = 0,
     V1(ShardLayoutV1) = 1,
     V2(ShardLayoutV2) = 2,
+    V3(ShardLayoutV3) = 3,
 }
 
 pub fn shard_uids_to_ids(shard_uids: &[ShardUId]) -> Vec<ShardId> {
@@ -72,9 +75,10 @@ pub fn shard_uids_to_ids(shard_uids: &[ShardUId]) -> Vec<ShardId> {
 
 #[derive(Debug)]
 pub enum ShardLayoutError {
-    InvalidShardIdError { shard_id: ShardId },
-    InvalidShardIndexError { shard_index: ShardIndex },
-    NoParentError { shard_id: ShardId },
+    InvalidShardId { shard_id: ShardId },
+    InvalidShardIndex { shard_index: ShardIndex },
+    NoParent { shard_id: ShardId },
+    CannotDeriveLayout,
 }
 
 impl fmt::Display for ShardLayoutError {
@@ -173,6 +177,16 @@ impl ShardLayout {
         Self::V2(ShardLayoutV2::new(boundary_accounts, shard_ids, shards_split_map))
     }
 
+    /// Return a V3 layout
+    pub fn v3(
+        boundary_accounts: Vec<AccountId>,
+        shard_ids: Vec<ShardId>,
+        shards_split_map: ShardsSplitMapV3,
+        last_split: ShardId,
+    ) -> Self {
+        Self::V3(ShardLayoutV3::new(boundary_accounts, shard_ids, shards_split_map, last_split))
+    }
+
     /// Maps an account to the shard_id that it belongs to in this shard_layout
     /// For V0, maps according to hash of account id
     /// For V1 and V2, accounts are divided to ranges, each range of account is mapped to a shard.
@@ -183,6 +197,7 @@ impl ShardLayout {
             ShardLayout::V0(v0) => v0.account_id_to_shard_id(account_id),
             ShardLayout::V1(v1) => v1.account_id_to_shard_id(account_id),
             ShardLayout::V2(v2) => v2.account_id_to_shard_id(account_id),
+            ShardLayout::V3(v3) => v3.account_id_to_shard_id(account_id),
         }
     }
 
@@ -208,6 +223,7 @@ impl ShardLayout {
             Self::V0(_) => None,
             Self::V1(v1) => v1.get_children_shards_ids(parent_shard_id),
             Self::V2(v2) => v2.get_children_shards_ids(parent_shard_id),
+            Self::V3(v3) => v3.get_children_shards_ids(parent_shard_id),
         }
     }
 
@@ -222,6 +238,7 @@ impl ShardLayout {
             Self::V0(_) => Ok(None),
             Self::V1(v1) => v1.try_get_parent_shard_id(shard_id),
             Self::V2(v2) => v2.try_get_parent_shard_id(shard_id),
+            Self::V3(v3) => Ok(Some(v3.try_get_parent_shard_id(shard_id)?)),
         }
     }
 
@@ -231,12 +248,20 @@ impl ShardLayout {
     /// layout or if the shard has no parent in this shard layout.
     pub fn get_parent_shard_id(&self, shard_id: ShardId) -> Result<ShardId, ShardLayoutError> {
         let parent_shard_id = self.try_get_parent_shard_id(shard_id)?;
-        parent_shard_id.ok_or(ShardLayoutError::NoParentError { shard_id })
+        parent_shard_id.ok_or(ShardLayoutError::NoParent { shard_id })
     }
 
     /// Derive new shard layout from an existing one
     pub fn derive_shard_layout(base_shard_layout: &Self, new_boundary_account: AccountId) -> Self {
         Self::V2(ShardLayoutV2::derive(base_shard_layout, new_boundary_account))
+    }
+
+    pub fn derive_v3(
+        base_shard_layout: &Self,
+        new_boundary_account: AccountId,
+    ) -> Result<Self, ShardLayoutError> {
+        let v3 = ShardLayoutV3::derive(base_shard_layout, new_boundary_account)?;
+        Ok(Self::V3(v3))
     }
 
     #[inline]
@@ -245,6 +270,7 @@ impl ShardLayout {
             Self::V0(v0) => v0.version,
             Self::V1(v1) => v1.version,
             Self::V2(v2) => v2.version,
+            Self::V3(v3) => v3.version(),
         }
     }
 
@@ -253,6 +279,7 @@ impl ShardLayout {
             Self::V0(_) => panic!("ShardLayout::V0 doesn't have boundary accounts"),
             Self::V1(v1) => &v1.boundary_accounts,
             Self::V2(v2) => &v2.boundary_accounts,
+            Self::V3(v3) => &v3.boundary_accounts,
         }
     }
 
@@ -261,6 +288,7 @@ impl ShardLayout {
             Self::V0(v0) => v0.num_shards,
             Self::V1(v1) => v1.num_shards() as NumShards,
             Self::V2(v2) => v2.shard_ids.len() as NumShards,
+            Self::V3(v3) => v3.shard_ids.len() as NumShards,
         }
     }
 
@@ -272,6 +300,7 @@ impl ShardLayout {
             Self::V0(_) => (0..self.num_shards()).map(Into::into).collect_vec().into_iter(),
             Self::V1(_) => (0..self.num_shards()).map(Into::into).collect_vec().into_iter(),
             Self::V2(v2) => v2.shard_ids.clone().into_iter(),
+            Self::V3(v3) => v3.shard_ids.clone().into_iter(),
         }
     }
 
@@ -285,7 +314,7 @@ impl ShardLayout {
         let num_shards: usize =
             self.num_shards().try_into().expect("Number of shards doesn't fit in usize");
         match self {
-            Self::V0(_) | Self::V1(_) | Self::V2(_) => (0..num_shards).into_iter(),
+            Self::V0(_) | Self::V1(_) | Self::V2(_) | Self::V3(_) => (0..num_shards).into_iter(),
         }
     }
 
@@ -307,6 +336,7 @@ impl ShardLayout {
             Self::V0(_) | Self::V1(_) => Ok(shard_id.into()),
             // In V2 & V3 the shard id and shard index are **not** the same.
             Self::V2(v2) => v2.get_shard_index(shard_id),
+            Self::V3(v3) => v3.get_shard_index(shard_id),
         }
     }
 
@@ -317,6 +347,7 @@ impl ShardLayout {
             Self::V0(v0) => v0.get_shard_id(shard_index),
             Self::V1(v1) => v1.get_shard_id(shard_index),
             Self::V2(v2) => v2.get_shard_id(shard_index),
+            Self::V3(v3) => v3.get_shard_id(shard_index),
         }
     }
 
@@ -328,6 +359,11 @@ impl ShardLayout {
     /// Returns all the shards from the previous shard layout that were
     /// split into multiple shards in this shard layout.
     pub fn get_split_parent_shard_ids(&self) -> BTreeSet<ShardId> {
+        // V3 doesn't store shards which weren't split in the map
+        if let ShardLayout::V3(v3) = self {
+            return BTreeSet::from([v3.last_split]);
+        }
+
         let mut parent_shard_ids = BTreeSet::new();
         for shard_id in self.shard_ids() {
             let parent_shard_id = self
@@ -352,6 +388,15 @@ impl ShardLayout {
             .into_iter()
             .map(|shard_id| ShardUId::new(self.version(), shard_id))
             .collect()
+    }
+
+    /// Get UIDs of all the shard's ancestors (parents, grandparents, etc.) for `ShardLayoutV3`.
+    /// `None` for earlier versions.
+    pub fn ancestor_uids(&self, shard_id: ShardId) -> Option<Vec<ShardUId>> {
+        match self {
+            Self::V0(_) | Self::V1(_) | Self::V2(_) => None,
+            ShardLayout::V3(v3) => Some(v3.ancestor_uids(shard_id)),
+        }
     }
 }
 
