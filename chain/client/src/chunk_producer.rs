@@ -258,7 +258,8 @@ impl ChunkProducer {
             metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         let prev_block_hash = *prev_block.hash();
         if self.epoch_manager.is_next_block_epoch_start(&prev_block_hash)? {
-            let prev_prev_hash = *self.chain.get_block_header(&prev_block_hash)?.prev_hash();
+            let prev_prev_hash =
+                *self.chain.block_store().get_block_header(&prev_block_hash)?.prev_hash();
             // If we are to start new epoch, check if the previous block is
             // caught up. If it is not the case, we wouldn't be able to
             // apply block with the new chunk, so we also skip chunk production.

@@ -112,9 +112,10 @@ fn retrieve_starting_chunk_hash(
 ) -> anyhow::Result<ChunkHash> {
     let mut last_err = None;
     for height in (chain.tail().context("failed fetching chain tail")? + 1..=head_height).rev() {
-        match chain
+        let block_store = chain.block_store();
+        match block_store
             .get_block_hash_by_height(height)
-            .and_then(|hash| chain.get_block(&hash))
+            .and_then(|hash| block_store.get_block(&hash))
             .map(|block| block.chunks()[0].chunk_hash().clone())
         {
             Ok(hash) => return Ok(hash),
@@ -140,8 +141,9 @@ fn get_head_block(
     max_height: BlockHeight,
 ) -> anyhow::Result<Arc<Block>> {
     let tail = chain.tail().context("failed fetching chain tail")?;
+    let block_store = chain.block_store();
     for height in (tail + 1..=max_height).rev() {
-        let hash = match chain.get_block_hash_by_height(height) {
+        let hash = match block_store.get_block_hash_by_height(height) {
             Ok(h) => h,
             Err(Error::DBNotFoundErr(_)) => continue,
             Err(e) => {
@@ -149,7 +151,7 @@ fn get_head_block(
                     .with_context(|| format!("get_block_hash_by_height #{} failed", height));
             }
         };
-        return chain.get_block(&hash).with_context(|| format!("get_block {} failed", &hash));
+        return block_store.get_block(&hash).with_context(|| format!("get_block {} failed", &hash));
     }
     anyhow::bail!("No blocks between tail #{} and head #{}", tail, max_height);
 }
@@ -350,6 +352,7 @@ impl MockPeer {
                     DirectMessage::BlockRequest(hash) => {
                         let block = self
                             .chain
+                            .block_store()
                             .get_block(&hash)
                             .with_context(|| format!("failed getting block {}", &hash))?;
                         outbound.queue_message(Message::Direct(DirectMessage::Block(block)));
@@ -387,9 +390,10 @@ impl MockPeer {
     // simulate the normal block production of the network by sending out a
     // "new" block at an interval set by the config's block_production_delay field
     fn produce_block(&mut self) -> anyhow::Result<Option<Arc<Block>>> {
+        let block_store = self.chain.block_store();
         let height = self.current_height;
         self.current_height += 1;
-        let hash = match self.chain.get_block_hash_by_height(height) {
+        let hash = match block_store.get_block_hash_by_height(height) {
             Ok(h) => h,
             Err(Error::DBNotFoundErr(_)) => return Ok(None),
             Err(e) => {
@@ -397,7 +401,10 @@ impl MockPeer {
                     .with_context(|| format!("get_block_hash_by_height #{} failed", height));
             }
         };
-        self.chain.get_block(&hash).with_context(|| format!("get_block {} failed", &hash)).map(Some)
+        block_store
+            .get_block(&hash)
+            .with_context(|| format!("get_block {} failed", &hash))
+            .map(Some)
     }
 
     // returns a message produced by this mock peer. Right now this includes a new block

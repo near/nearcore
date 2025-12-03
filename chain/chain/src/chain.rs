@@ -94,7 +94,6 @@ use near_primitives::views::{
     LightClientBlockView, SignedTransactionView,
 };
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
 use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{DBCol, StateSnapshotConfig};
@@ -373,7 +372,7 @@ impl Chain {
             ChainStore::new(store.clone(), save_trie_changes, transaction_validity_period);
         let state_sync_adapter = ChainStateSyncAdapter::new(
             clock.clone(),
-            ChainStoreAdapter::new(chain_store.store()),
+            store.clone(),
             epoch_manager.clone(),
             runtime_adapter.clone(),
         );
@@ -448,8 +447,8 @@ impl Chain {
         resharding_sender: ReshardingSender,
         on_post_state_ready_sender: Option<PostStateReadySender>,
     ) -> Result<Chain, Error> {
-        let state_roots = get_genesis_state_roots(runtime_adapter.store())?
-            .expect("genesis should be initialized.");
+        let store = runtime_adapter.store().clone();
+        let state_roots = get_genesis_state_roots(&store)?.expect("genesis should be initialized.");
         let (genesis, genesis_chunks) = Self::make_genesis_block(
             epoch_manager.as_ref(),
             runtime_adapter.as_ref(),
@@ -460,7 +459,7 @@ impl Chain {
 
         // Check if we have a head in the store, otherwise pick genesis block.
         let mut chain_store = ChainStore::new(
-            runtime_adapter.store().clone(),
+            store.clone(),
             chain_config.save_trie_changes,
             transaction_validity_period,
         )
@@ -468,7 +467,7 @@ impl Chain {
         .with_save_state_changes(chain_config.save_state_changes);
         let state_sync_adapter = ChainStateSyncAdapter::new(
             clock.clone(),
-            ChainStoreAdapter::new(chain_store.store()),
+            store,
             epoch_manager.clone(),
             runtime_adapter.clone(),
         );

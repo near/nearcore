@@ -126,8 +126,8 @@ impl SpiceCoreWriterActor {
     }
 
     fn try_sending_execution_result_endorsed(&self, block_hash: &CryptoHash) -> Result<(), Error> {
-        let block_header = match self.chain_store.get_block_header(block_hash) {
-            Ok(header) => header,
+        let block_header = match self.chain_store.block_store().get_block_header(block_hash) {
+            Ok(block) => block,
             Err(Error::DBNotFoundErr(_)) => return Ok(()),
             Err(err) => return Err(err),
         };
@@ -387,7 +387,7 @@ impl SpiceCoreWriterActor {
     ) -> Result<(), ProcessChunkError> {
         assert!(cfg!(feature = "protocol_feature_spice"));
 
-        let block = match self.chain_store.get_block(endorsement.block_hash()) {
+        let block = match self.chain_store.block_store().get_block(endorsement.block_hash()) {
             Ok(block) => block,
             Err(Error::DBNotFoundErr(_)) => {
                 tracing::debug!(
@@ -489,7 +489,8 @@ impl SpiceCoreWriterActor {
                 continue;
             }
 
-            let endorsement_block = self.chain_store.get_block(&chunk_id.block_hash)?;
+            let endorsement_block =
+                self.chain_store.block_store().get_block(&chunk_id.block_hash)?;
             let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
                 &endorsement_block.header().epoch_id(),
                 chunk_id.shard_id,
@@ -528,7 +529,7 @@ impl SpiceCoreWriterActor {
     }
 
     pub(crate) fn handle_processed_block(&self, block_hash: CryptoHash) -> Result<(), Error> {
-        let block = self.chain_store.get_block(&block_hash).unwrap();
+        let block = self.chain_store.block_store().get_block(&block_hash).unwrap();
         // Since block was already processed we know it's valid so can record it in core state.
         let store_update = self.record_block_core_statements(&block)?;
         store_update.commit()?;

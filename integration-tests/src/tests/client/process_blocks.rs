@@ -58,6 +58,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_primitives_core::num_rational::Ratio;
 use near_store::NodeStorage;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::archive::cold_storage::{update_cold_db, update_cold_head};
 use near_store::db::metadata::{DB_VERSION, DbKind};
@@ -936,6 +937,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                 env.clients[0]
                     .chain
                     .mut_chain_store()
+                    .block_store()
                     .get_all_block_hashes_by_height(i as BlockHeight)
                     .unwrap()
                     .is_empty()
@@ -947,6 +949,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                 !env.clients[0]
                     .chain
                     .mut_chain_store()
+                    .block_store()
                     .get_all_block_hashes_by_height(i as BlockHeight)
                     .unwrap()
                     .is_empty()
@@ -1009,6 +1012,7 @@ fn test_archival_save_trie_changes() {
         assert!(
             !chain
                 .chain_store()
+                .block_store()
                 .get_all_block_hashes_by_height(i as BlockHeight)
                 .unwrap()
                 .is_empty()
@@ -1115,6 +1119,7 @@ fn test_archival_gc_common(
             assert!(
                 !chain
                     .chain_store()
+                    .block_store()
                     .get_all_block_hashes_by_height(i as BlockHeight)
                     .unwrap()
                     .is_empty()

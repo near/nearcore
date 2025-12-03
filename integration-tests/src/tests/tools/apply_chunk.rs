@@ -243,7 +243,7 @@ fn test_apply_tx_apply_receipt() {
     // there was no corresponding env.clients[0].produce_block() after
 
     let chunks = store.chunk_store().get_all_chunk_hashes_by_height(5).unwrap();
-    let blocks = chain_store.get_all_header_hashes_by_height(5).unwrap();
+    let blocks = store.block_store().get_all_header_hashes_by_height(5).unwrap();
     assert_ne!(chunks.len(), 0);
     assert_eq!(blocks.len(), 0);
 

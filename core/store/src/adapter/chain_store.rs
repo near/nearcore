@@ -5,7 +5,7 @@ use crate::{
     LARGEST_TARGET_HEIGHT_KEY, Store, StoreUpdate, TAIL_KEY, get_genesis_height,
 };
 use near_chain_primitives::Error;
-use near_primitives::block::{Block, BlockHeader, Tip};
+use near_primitives::block::{BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::Receipt;
@@ -15,7 +15,7 @@ use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction}
 use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::views::LightClientBlockView;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io;
 use std::sync::{Arc, OnceLock};
 
@@ -135,93 +135,6 @@ impl ChainStoreAdapter {
             Ok(None) => Ok(self.get_or_init_genesis_height()),
             Err(e) => Err(e.into()),
         }
-    }
-
-    /// Get full block.
-    pub fn get_block(&self, block_hash: &CryptoHash) -> Result<Arc<Block>, Error> {
-        option_to_not_found(
-            self.store.caching_get_ser(DBCol::Block, block_hash.as_ref()),
-            format_args!("BLOCK: {}", block_hash),
-        )
-    }
-
-    /// Returns a number of references for Block with `block_hash`
-    pub fn get_block_refcount(&self, block_hash: &CryptoHash) -> Result<u64, Error> {
-        option_to_not_found(
-            self.store.get_ser(DBCol::BlockRefCount, block_hash.as_ref()),
-            format_args!("BLOCK REFCOUNT: {}", block_hash),
-        )
-    }
-
-    /// Does this full block exist?
-    pub fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
-        self.store.exists(DBCol::Block, h.as_ref()).map_err(|e| e.into())
-    }
-
-    /// Get block header.
-    pub fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
-        option_to_not_found(
-            self.store.caching_get_ser(DBCol::BlockHeader, h.as_ref()),
-            format_args!("BLOCK HEADER: {}", h),
-        )
-    }
-
-    /// Get block height.
-    pub fn get_block_height(&self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        if hash == &CryptoHash::default() {
-            Ok(self.get_or_init_genesis_height())
-        } else {
-            Ok(self.get_block_header(hash)?.height())
-        }
-    }
-
-    /// Get previous header.
-    pub fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error> {
-        self.get_block_header(header.prev_hash())
-    }
-
-    /// Returns hash of the block on the main chain for given height.
-    pub fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error> {
-        option_to_not_found(
-            self.store.caching_get_ser(DBCol::BlockHeight, &index_to_bytes(height)),
-            format_args!("BLOCK HEIGHT: {}", height),
-        )
-        .map(|v| *v)
-    }
-
-    /// Returns a hashmap of epoch id -> set of all blocks got for current (height, epoch_id)
-    pub fn get_all_block_hashes_by_height(
-        &self,
-        height: BlockHeight,
-    ) -> Result<Arc<HashMap<EpochId, HashSet<CryptoHash>>>, Error> {
-        Ok(self.store.get_ser(DBCol::BlockPerHeight, &index_to_bytes(height))?.unwrap_or_default())
-    }
-
-    /// Returns a HashSet of Header Hashes for current Height
-    pub fn get_all_header_hashes_by_height(
-        &self,
-        height: BlockHeight,
-    ) -> Result<HashSet<CryptoHash>, Error> {
-        Ok(self
-            .store
-            .get_ser(DBCol::HeaderHashesByHeight, &index_to_bytes(height))?
-            .unwrap_or_default())
-    }
-
-    /// Returns block header from the current chain for given height if present.
-    pub fn get_block_header_by_height(
-        &self,
-        height: BlockHeight,
-    ) -> Result<Arc<BlockHeader>, Error> {
-        let hash = self.get_block_hash_by_height(height)?;
-        self.get_block_header(&hash)
-    }
-
-    pub fn get_next_block_hash(&self, hash: &CryptoHash) -> Result<CryptoHash, Error> {
-        option_to_not_found(
-            self.store.get_ser(DBCol::NextBlockHashes, hash.as_ref()),
-            format_args!("NEXT BLOCK HASH: {}", hash),
-        )
     }
 
     pub fn get_outgoing_receipts(
@@ -456,7 +369,7 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
     pub fn update_block_header_hashes_by_height(&mut self, header: &BlockHeader) {
         let height = header.height();
         let mut hash_set =
-            self.store_update.store.chain_store().get_all_header_hashes_by_height(height).unwrap();
+            self.store_update.store.block_store().get_all_header_hashes_by_height(height).unwrap();
         hash_set.insert(*header.hash());
         self.set_block_header_hashes_by_height(height, &hash_set);
     }

@@ -30,7 +30,7 @@ pub fn gc_and_heads_sanity_checks(
     let epoch_store = chain_store.epoch_store();
 
     // Check if the first block of the epoch containing `cloud_head` is not gc-ed.
-    let cloud_head_hash = chain_store.get_block_hash_by_height(cloud_head).unwrap();
+    let cloud_head_hash = chain_store.block_store().get_block_hash_by_height(cloud_head).unwrap();
     let cloud_head_block_info = epoch_store.get_block_info(&cloud_head_hash).unwrap();
     epoch_store.get_block_info(cloud_head_block_info.epoch_first_block()).unwrap();
 

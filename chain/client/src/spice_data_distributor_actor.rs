@@ -323,7 +323,7 @@ impl SpiceDataDistributorActor {
             return Err(Error::Other("trying to distribute data without validator_signer"));
         };
         let me = signer.validator_id();
-        let block = self.chain_store.get_block(data_id.block_hash())?;
+        let block = self.chain_store.block_store().get_block(data_id.block_hash())?;
         let (recipients, producers) = self.recipients_and_producers(&data_id, &block)?;
         if !producers.contains(me) {
             // TODO(spice): In chunk executor make sure we don't try to send out receipts and witnesses
@@ -435,7 +435,7 @@ impl SpiceDataDistributorActor {
 
     pub(crate) fn receive_data(&mut self, data: SpicePartialData) -> Result<(), ReceiveDataError> {
         let block_hash = data.block_hash();
-        let block = match self.chain_store.get_block(block_hash) {
+        let block = match self.chain_store.block_store().get_block(block_hash) {
             Ok(block) => block,
             Err(near_chain::Error::DBNotFoundErr(_)) => {
                 return self
@@ -688,7 +688,7 @@ impl SpiceDataDistributorActor {
     }
 
     fn possible_epoch_ids(&self, block_hash: &CryptoHash) -> Result<Vec<EpochId>, Error> {
-        let possible_epoch_ids = if self.chain_store.block_exists(block_hash)? {
+        let possible_epoch_ids = if self.chain_store.block_store().block_exists(block_hash)? {
             let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
             vec![epoch_id]
         } else {
@@ -764,7 +764,7 @@ impl SpiceDataDistributorActor {
         if ready_data.is_empty() {
             return Ok(());
         }
-        let block = self.chain_store.get_block(&block_hash)?;
+        let block = self.chain_store.block_store().get_block(&block_hash)?;
         for data in ready_data {
             let data_id = data.id.clone();
             let commitment = data.commitment.clone();
@@ -796,7 +796,7 @@ impl SpiceDataDistributorActor {
             return Ok(());
         };
 
-        let block = self.chain_store.get_block(block_hash)?;
+        let block = self.chain_store.block_store().get_block(block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
 
         let shards_we_apply: HashSet<ShardId> = shard_layout
@@ -901,6 +901,7 @@ impl SpiceDataDistributorActor {
         for (id, _data_parts) in &self.waiting_on_data {
             let block = self
                 .chain_store
+                .block_store()
                 .get_block(id.block_hash())
                 .expect("block for which we wait on data should always be available");
             let (_recipients, mut producers) = self.recipients_and_producers(&id, &block).expect(
@@ -959,7 +960,7 @@ impl SpiceDataDistributorActor {
             ));
         };
 
-        let block = self.chain_store.get_block(data_id.block_hash())?;
+        let block = self.chain_store.block_store().get_block(data_id.block_hash())?;
         let (_recipients, producers) = self.recipients_and_producers(&data_id, &block)?;
         if !producers.contains(signer.validator_id()) {
             return Err(Error::Other("we do not produce requested data"));
@@ -990,10 +991,11 @@ impl SpiceDataDistributorActor {
             Ok(final_execution_head) => final_execution_head.last_block_hash,
             Err(near_chain::Error::DBNotFoundErr(_)) => {
                 let final_head_hash = self.chain_store.final_head()?.last_block_hash;
-                let mut header = self.chain_store.get_block_header(&final_head_hash)?;
+                let mut header =
+                    self.chain_store.block_store().get_block_header(&final_head_hash)?;
                 // TODO(spice): Stop searching on the first non-spice block.
                 while !header.is_genesis() {
-                    header = self.chain_store.get_block_header(header.prev_hash())?;
+                    header = self.chain_store.block_store().get_block_header(header.prev_hash())?;
                 }
                 *header.hash()
             }

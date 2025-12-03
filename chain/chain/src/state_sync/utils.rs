@@ -222,7 +222,7 @@ pub(crate) fn is_sync_prev_hash(chain_store: &ChainStoreAdapter, tip: &Tip) -> R
     // during header sync, in which case the contents of the StateSyncNewChunks column will have been cleared,
     // and the conditions below can't be checked.
     if let Some(sync_hash) = chain_store.get_current_epoch_sync_hash(&tip.epoch_id)? {
-        let sync_header = chain_store.get_block_header(&sync_hash)?;
+        let sync_header = chain_store.block_store().get_block_header(&sync_hash)?;
         return Ok(sync_header.prev_hash() == &tip.last_block_hash);
     }
     let store = chain_store.store_ref();

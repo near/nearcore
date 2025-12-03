@@ -610,8 +610,8 @@ impl FlatStorageResharder {
             }
             ShardCatchupPhase::Finalizing => {
                 let flat_head = state.flat_head.as_ref().unwrap();
-                let chain_store = self.runtime.store().chain_store();
-                let header = chain_store.get_block_header(&flat_head.hash)?;
+                let block_store = self.runtime.store().block_store();
+                let header = block_store.get_block_header(&flat_head.hash)?;
                 let tip = Tip::from_header(&header);
                 self.shard_catchup_finalize_storage(state.shard_uid, &tip, metrics)?;
                 state.phase = ShardCatchupPhase::Completed;
@@ -654,8 +654,8 @@ impl FlatStorageResharder {
             )));
         };
 
-        let chain_store = self.runtime.store().chain_store();
-        let chain_final_head = chain_store.final_head()?;
+        let block_store = self.runtime.store().block_store();
+        let chain_final_head = block_store.chain_store().final_head()?;
 
         // If we reached the desired new flat head, we're done with deltas.
         if is_flat_head_on_par_with_chain(&flat_head.hash, &chain_final_head) {
@@ -690,8 +690,8 @@ impl FlatStorageResharder {
                 break;
             }
 
-            let next_hash = chain_store.get_next_block_hash(&flat_head.hash)?;
-            let next_header = chain_store.get_block_header(&next_hash)?;
+            let next_hash = block_store.get_next_block_hash(&flat_head.hash)?;
+            let next_header = block_store.get_block_header(&next_hash)?;
             flat_head = BlockInfo {
                 hash: *next_header.hash(),
                 height: next_header.height(),

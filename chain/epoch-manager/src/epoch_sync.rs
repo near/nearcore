@@ -23,10 +23,10 @@ pub fn derive_epoch_sync_proof_from_last_final_block(
     store: Store,
     next_block_header_after_last_final_block_of_current_epoch: &BlockHeader,
 ) -> Result<EpochSyncProof, Error> {
-    let chain_store = store.chain_store();
+    let block_store = store.block_store();
     let epoch_store = store.epoch_store();
 
-    let last_final_block_header_in_current_epoch = chain_store
+    let last_final_block_header_in_current_epoch = block_store
         .get_block_header(next_block_header_after_last_final_block_of_current_epoch.prev_hash())?;
     let current_epoch = *last_final_block_header_in_current_epoch.epoch_id();
     let current_epoch_info = epoch_store.get_epoch_info(&current_epoch)?;
@@ -77,18 +77,18 @@ pub fn derive_epoch_sync_proof_from_last_final_block(
         .last_final_block_header
         .epoch_id();
     let prev_epoch_info = epoch_store.get_epoch_info(&prev_epoch)?;
-    let last_block_of_prev_epoch = chain_store.get_block_header(&next_epoch.0)?;
+    let last_block_of_prev_epoch = block_store.get_block_header(&next_epoch.0)?;
     let last_block_info_of_prev_epoch =
         epoch_store.get_block_info(last_block_of_prev_epoch.hash())?;
     let second_last_block_of_prev_epoch =
-        chain_store.get_block_header(last_block_of_prev_epoch.prev_hash())?;
+        block_store.get_block_header(last_block_of_prev_epoch.prev_hash())?;
     let second_last_block_info_of_prev_epoch =
         epoch_store.get_block_info(last_block_of_prev_epoch.prev_hash())?;
     let first_block_info_of_prev_epoch =
         epoch_store.get_block_info(last_block_info_of_prev_epoch.epoch_first_block())?;
     let block_info_for_final_block_of_current_epoch =
         epoch_store.get_block_info(last_final_block_header_in_current_epoch.hash())?;
-    let first_block_of_current_epoch = chain_store
+    let first_block_of_current_epoch = block_store
         .get_block_header(block_info_for_final_block_of_current_epoch.epoch_first_block())?;
 
     let merkle_proof_for_first_block_of_current_epoch = store
@@ -97,7 +97,7 @@ pub fn derive_epoch_sync_proof_from_last_final_block(
             last_final_block_header_in_current_epoch.hash(),
         )?;
     let partial_merkle_tree_for_first_block_of_current_epoch =
-        chain_store.get_block_merkle_tree(first_block_of_current_epoch.hash())?;
+        store.chain_store().get_block_merkle_tree(first_block_of_current_epoch.hash())?;
 
     let all_epochs_including_old_proof = existing_epoch_sync_proof
         .map(|proof| proof.all_epochs)
@@ -143,7 +143,7 @@ fn get_all_epoch_proofs_in_range(
     current_epoch_last_final_block_header: &BlockHeader,
     current_epoch_second_last_block_approvals: Vec<Option<Box<Signature>>>,
 ) -> Result<Vec<EpochSyncProofEpochData>, Error> {
-    let chain_store = store.chain_store();
+    let block_store = store.block_store();
     let epoch_store = store.epoch_store();
 
     // We're going to get all the epochs and then figure out the correct chain of
@@ -165,7 +165,7 @@ fn get_all_epoch_proofs_in_range(
         *current_epoch_last_final_block_header.epoch_id(),
     );
     for (epoch_id, _) in &all_epoch_infos {
-        if let Ok(block) = chain_store.get_block_header(&epoch_id.0) {
+        if let Ok(block) = block_store.get_block_header(&epoch_id.0) {
             epoch_to_prev_epoch.insert(*block.next_epoch_id(), *block.epoch_id());
         }
     }
@@ -194,11 +194,11 @@ fn get_all_epoch_proofs_in_range(
             let (last_final_block_header, approvals_for_last_final_block) =
                 if index + 2 < epoch_ids.len() {
                     let next_next_epoch_id = epoch_ids[index + 2];
-                    let last_block_header = chain_store.get_block_header(&next_next_epoch_id.0)?;
+                    let last_block_header = block_store.get_block_header(&next_next_epoch_id.0)?;
                     let second_last_block_header =
-                        chain_store.get_block_header(last_block_header.prev_hash())?;
+                        block_store.get_block_header(last_block_header.prev_hash())?;
                     let third_last_block_header =
-                        chain_store.get_block_header(second_last_block_header.prev_hash())?;
+                        block_store.get_block_header(second_last_block_header.prev_hash())?;
                     (
                         Arc::clone(&third_last_block_header),
                         second_last_block_header.approvals().to_vec(),

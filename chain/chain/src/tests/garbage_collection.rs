@@ -1,4 +1,5 @@
 use near_async::time::Clock;
+use near_store::adapter::StoreAdapter;
 use near_store::trie::AccessOptions;
 use rand::Rng;
 use std::sync::Arc;
@@ -711,8 +712,11 @@ fn test_clear_old_data() {
         println!("height = {} hash = {}", i, blocks[i].hash());
         let expected_removed = i < max_height - DEFAULT_GC_NUM_EPOCHS_TO_KEEP as usize;
         let get_block_result = chain.get_block(blocks[i].hash());
-        let blocks_by_heigh =
-            chain.mut_chain_store().get_all_block_hashes_by_height(i as BlockHeight).unwrap();
+        let blocks_by_heigh = chain
+            .chain_store()
+            .block_store()
+            .get_all_block_hashes_by_height(i as BlockHeight)
+            .unwrap();
         assert_eq!(get_block_result.is_err(), expected_removed);
         assert_eq!(blocks_by_heigh.is_empty(), expected_removed);
     }
@@ -791,6 +795,7 @@ fn test_clear_old_data_fixed_height() {
     assert_eq!(
         chain
             .mut_chain_store()
+            .block_store()
             .get_all_block_hashes_by_height(5)
             .unwrap()
             .values()
@@ -816,9 +821,15 @@ fn test_clear_old_data_fixed_height() {
     assert!(chain.get_block_header(blocks[4].hash()).is_ok());
     assert!(chain.get_block_header(blocks[5].hash()).is_ok());
     assert!(chain.get_block_header(blocks[6].hash()).is_ok());
-    assert!(chain.mut_chain_store().get_all_block_hashes_by_height(4).unwrap().is_empty());
-    assert!(!chain.mut_chain_store().get_all_block_hashes_by_height(5).unwrap().is_empty());
-    assert!(!chain.mut_chain_store().get_all_block_hashes_by_height(6).unwrap().is_empty());
+    assert!(
+        chain.chain_store().block_store().get_all_block_hashes_by_height(4).unwrap().is_empty()
+    );
+    assert!(
+        !chain.chain_store().block_store().get_all_block_hashes_by_height(5).unwrap().is_empty()
+    );
+    assert!(
+        !chain.chain_store().block_store().get_all_block_hashes_by_height(6).unwrap().is_empty()
+    );
     assert!(chain.mut_chain_store().get_next_block_hash(blocks[4].hash()).is_err());
     assert!(chain.mut_chain_store().get_next_block_hash(blocks[5].hash()).is_ok());
     assert!(chain.mut_chain_store().get_next_block_hash(blocks[6].hash()).is_ok());

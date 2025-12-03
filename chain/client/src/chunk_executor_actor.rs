@@ -1112,7 +1112,7 @@ pub(crate) fn is_descendant_of_final_execution_head(
     }
     let mut prev_hash = *header.prev_hash();
     while height > final_execution_head.height {
-        let header = chain_store.get_block_header(&prev_hash).unwrap();
+        let header = chain_store.block_store().get_block_header(&prev_hash).unwrap();
         prev_hash = *header.prev_hash();
         height = header.height();
     }

@@ -28,6 +28,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::LightClientBlockView;
+use near_store::adapter::StoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
 
@@ -463,7 +464,7 @@ impl<'a> ChainUpdate<'a> {
         // Note that block headers are already synced and can be taken
         // from store on disk.
         let block_header = get_block_header_on_chain_by_height(
-            &self.chain_store_update.chain_store(),
+            &self.chain_store_update.store().block_store(),
             &sync_hash,
             chunk.height_included(),
         )?;
@@ -600,7 +601,7 @@ impl<'a> ChainUpdate<'a> {
         // Note that block headers are already synced and can be taken
         // from store on disk.
         let block_header_result = get_block_header_on_chain_by_height(
-            &self.chain_store_update.chain_store(),
+            &self.chain_store_update.store().block_store(),
             &sync_hash,
             height,
         );

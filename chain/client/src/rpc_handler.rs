@@ -146,13 +146,13 @@ impl RpcHandlerActor {
         let head = self.chain_store.head()?;
         let signer = self.validator_signer.get();
         let me = signer.as_ref().map(|vs| vs.validator_id());
-        let cur_block = self.chain_store.get_block(&head.last_block_hash)?;
+        let cur_block = self.chain_store.block_store().get_block(&head.last_block_hash)?;
         let cur_block_header = cur_block.header();
         // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
         // were to be included, the block that the chunk points to will have height >= height of
         // `cur_block_header`.
         if let Err(e) = check_transaction_validity_period(
-            &self.chain_store,
+            &self.chain_store.block_store(),
             &cur_block_header,
             signed_tx.transaction.block_hash(),
             self.config.transaction_validity_period,

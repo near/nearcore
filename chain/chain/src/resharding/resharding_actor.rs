@@ -14,13 +14,13 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::shard_layout::ShardUId;
 #[cfg(feature = "test_features")]
 use near_primitives::types::BlockHeightDelta;
+use near_store::Store;
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::chain_store::ChainStoreAdapter;
 use time::Duration;
 
 /// Dedicated actor for resharding V3.
 pub struct ReshardingActor {
-    chain_store: ChainStoreAdapter,
+    store: Store,
     /// HashMap storing all scheduled resharding events. Typically there will be only
     /// one event per parent shard, but we keep it as a HashMap to allow for
     /// handling forks in the chain.
@@ -60,7 +60,7 @@ impl ReshardingActor {
         resharding_handle: ReshardingHandle,
         resharding_config: MutableConfigValue<ReshardingConfig>,
     ) -> Self {
-        let chain_store = runtime_adapter.store().chain_store();
+        let store = runtime_adapter.store().clone();
         let flat_storage_resharder = FlatStorageResharder::new(
             epoch_manager,
             runtime_adapter.clone(),
@@ -74,7 +74,7 @@ impl ReshardingActor {
             ResumeAllowed::No,
         );
         Self {
-            chain_store,
+            store,
             resharding_events: HashMap::new(),
             resharding_started: HashSet::new(),
             flat_storage_resharder,
@@ -155,7 +155,7 @@ impl ReshardingActor {
 
         let events = self.resharding_events.get(&parent_shard_uid).unwrap();
 
-        let chain_final_height = self.chain_store.final_head().unwrap().height;
+        let chain_final_height = self.store.chain_store().final_head().unwrap().height;
         for event in events {
             tracing::info!(
                 %chain_final_height,
@@ -171,7 +171,7 @@ impl ReshardingActor {
 
             // Get canonical block hash for the resharding block height.
             let Ok(resharding_hash) =
-                self.chain_store.get_block_hash_by_height(event.resharding_block.height)
+                self.store.block_store().get_block_hash_by_height(event.resharding_block.height)
             else {
                 continue;
             };

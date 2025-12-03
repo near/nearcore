@@ -345,7 +345,7 @@ impl ColdStoreActor {
             // Here it should be sufficient to just read from hot storage.
             // Because BlockHeight is never garbage collectable and is not even copied to cold.
             if let Ok(next_height_block_hash) =
-                self.hot_store.chain_store().get_block_hash_by_height(next_height)
+                self.hot_store.block_store().get_block_hash_by_height(next_height)
             {
                 break next_height_block_hash;
             }

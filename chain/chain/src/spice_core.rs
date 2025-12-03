@@ -15,6 +15,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::{get_endorsements_key, get_execution_results_key};
 use near_store::adapter::StoreAdapter as _;
+use near_store::adapter::block_store::BlockStoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, Store};
 use std::collections::{HashMap, HashSet};
@@ -393,11 +394,16 @@ impl SpiceCoreReader {
             get_uncertified_chunks(&self.chain_store, block_header.hash())?;
         uncertified_chunks
             .retain(|chunk_info| !new_execution_results.contains_key(&chunk_info.chunk_id));
-        let oldest_uncertified_block_header =
-            find_oldest_uncertified_block_header(&self.chain_store, uncertified_chunks)?;
+        let oldest_uncertified_block_header = find_oldest_uncertified_block_header(
+            &self.chain_store.block_store(),
+            uncertified_chunks,
+        )?;
         let last_certified_block_header =
             if let Some(oldest_uncertified_block_header) = oldest_uncertified_block_header {
-                &self.chain_store.get_block_header(oldest_uncertified_block_header.prev_hash())?
+                &self
+                    .chain_store
+                    .block_store()
+                    .get_block_header(oldest_uncertified_block_header.prev_hash())?
             } else {
                 // If there are no uncertified blocks it means block with block_header is last certified.
                 block_header
@@ -426,7 +432,7 @@ fn get_uncertified_chunks(
     chain_store: &ChainStoreAdapter,
     block_hash: &CryptoHash,
 ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
-    let block = chain_store.get_block(block_hash)?;
+    let block = chain_store.block_store().get_block(block_hash)?;
 
     if block.header().is_genesis() || !block.is_spice_block() {
         Ok(vec![])
@@ -541,7 +547,7 @@ pub fn record_uncertified_chunks_for_block(
 }
 
 fn find_oldest_uncertified_block_header(
-    chain_store: &ChainStoreAdapter,
+    block_store: &BlockStoreAdapter,
     uncertified_chunks: Vec<SpiceUncertifiedChunkInfo>,
 ) -> Result<Option<Arc<BlockHeader>>, Error> {
     let uncertified_block_hashes: HashSet<_> =
@@ -549,7 +555,7 @@ fn find_oldest_uncertified_block_header(
     let uncertified_block_headers: Vec<_> = uncertified_block_hashes
         .iter()
         // If this needs to be optimized SpiceUncertifiedChunkInfo can contain block height.
-        .map(|block_hash| chain_store.get_block_header(block_hash))
+        .map(|block_hash| block_store.get_block_header(block_hash))
         .collect::<Result<Vec<_>, Error>>()?;
     Ok(uncertified_block_headers.into_iter().min_by_key(|header| header.height()))
 }
