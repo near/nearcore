@@ -73,6 +73,14 @@ impl ShardTracker {
         Self::new(TrackedShardsConfig::NoShards, epoch_manager, empty_validator_signer)
     }
 
+    /// Returns the shadow-tracked validator ID if the node is a shadow validator; otherwise, returns None.
+    pub fn get_shadow_validator_id(&self) -> Option<&AccountId> {
+        match &self.tracked_shards_config {
+            TrackedShardsConfig::ShadowValidator(validator_id) => Some(validator_id),
+            _ => None,
+        }
+    }
+
     fn tracks_shard_at_epoch(
         &self,
         shard_id: ShardId,
