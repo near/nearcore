@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use near_epoch_manager::epoch_sync::{
     derive_epoch_sync_proof_from_last_final_block, find_target_epoch_to_produce_proof_for,
 };
@@ -12,7 +14,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::NearConfig;
 
-const CHUNK_SIZE: u64 = 5000;
+const CHUNK_SIZE: u64 = 500;
 
 pub(super) struct Migrator<'a> {
     config: &'a NearConfig,
@@ -91,6 +93,8 @@ fn store_block_headers_in_cold_db(hot_store: &Store, cold_db: &ColdDB) -> anyhow
         let start = genesis_height + chunk_idx * CHUNK_SIZE;
         let end = (start + CHUNK_SIZE).min(head_height);
 
+        tracing::info!(target: "migrations", ?chunk_idx, ?start, ?end, "storing block headers in cold DB chunk");
+
         let mut transaction = DBTransaction::new();
         for height in start..end {
             let Ok(block_hash) = chain_store.get_block_hash_by_height(height) else {
@@ -101,8 +105,11 @@ fn store_block_headers_in_cold_db(hot_store: &Store, cold_db: &ColdDB) -> anyhow
             let header = borsh::to_vec(&block.header()).unwrap();
             rc_aware_set(&mut transaction, DBCol::BlockHeader, block_hash.into(), header);
         }
+        
+        let start_time = Instant::now();
         cold_db.write(transaction).unwrap();
-        tracing::info!(target: "migrations", ?chunk_idx, ?start, ?end, "stored block headers in cold DB chunk");
+        let commit_time = start_time.elapsed();
+        tracing::info!(target: "migrations", ?commit_time, ?chunk_idx, ?start, ?end, "stored block headers in cold DB chunk");
     });
 
     Ok(())
@@ -159,6 +166,8 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
         let start = genesis_height + chunk_idx * CHUNK_SIZE;
         let end = (start + CHUNK_SIZE).min(tail_height);
 
+        tracing::info!(target: "migrations", ?chunk_idx, ?start, ?end, "deleting block headers in chunk");
+
         let mut store_update = store.store_update();
         for height in start..end {
             let Ok(block_hash) = chain_store.get_block_hash_by_height(height) else {
@@ -167,8 +176,12 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
             };
             store_update.delete(DBCol::BlockHeader, block_hash.as_bytes());
         }
+
+        tracing::info!(target: "migrations", ?chunk_idx, ?start, ?end, "committing deletion of block headers in chunk");
+        let start_time = Instant::now();
         store_update.commit().unwrap();
-        tracing::info!(target: "migrations", ?chunk_idx, ?start, ?end, "deleted block headers in chunk");
+        let commit_time = start_time.elapsed();
+        tracing::info!(target: "migrations", ?commit_time, ?chunk_idx, ?start, ?end, "deleted block headers in chunk");
     });
 
     Ok(())
