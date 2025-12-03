@@ -27,9 +27,6 @@ from pydantic import BaseModel, ConfigDict
 
 # cspell:ignore dotenv CREAT RDWR gethostname levelname
 
-MOCKNET_STORE_PATH = "gs://near-mocknet-artefact-store"
-
-
 def get_lock(home):
     lock_file = os.path.join(home, 'LOCK')
 
@@ -1282,8 +1279,9 @@ class NeardRunner:
 
     def _remote_setup_path(self):
         mocknet_id = self.config['mocknet_id']
+        mocknet_store_path = self.config['mocknet_store_path']
         run_id = self.run_id()
-        return f"{MOCKNET_STORE_PATH}/{mocknet_id}/{run_id}"
+        return f"{mocknet_store_path}/{mocknet_id}/{run_id}"
 
     def check_remote_setup_path(self):
         """Check if remote setup path exists and download the contents into the
