@@ -201,7 +201,6 @@ pub enum Parameter {
     MaxYieldPayloadSize,
     MaxTablesPerContract,
     MaxElementsPerContractTable,
-    ForbidUnvalidatedAccountId,
 
     // Contract runtime features
     FlatStorageReads,
@@ -322,7 +321,6 @@ impl Parameter {
             Parameter::PerReceiptStorageProofSizeLimit,
             Parameter::MaxTablesPerContract,
             Parameter::MaxElementsPerContractTable,
-            Parameter::ForbidUnvalidatedAccountId,
         ]
         .iter()
     }

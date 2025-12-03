@@ -48,10 +48,6 @@ impl AccountIdValidityRulesVersion {
     pub fn v0() -> AccountIdValidityRulesVersion {
         AccountIdValidityRulesVersion::V0
     }
-
-    pub fn v2() -> AccountIdValidityRulesVersion {
-        AccountIdValidityRulesVersion::V2
-    }
 }
 
 /// Configuration of view methods execution, during which no costs should be charged.

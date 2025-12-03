@@ -187,13 +187,18 @@ fn test_promise_batch_action_use_global_contract_by_account_id_with_invalid_acco
 
     let invalid_account_id = logic.internal_mem_write(b"not a valid account id");
 
-    logic
+    let err = logic
         .promise_batch_action_use_global_contract_by_account_id(
             index,
             invalid_account_id.len,
             invalid_account_id.ptr,
         )
         .expect_err("should reject invalid account id when strict validation is enabled");
+
+    assert!(matches!(
+        err,
+        crate::logic::VMLogicError::HostError(crate::logic::HostError::InvalidAccountId)
+    ));
 }
 
 #[test]
