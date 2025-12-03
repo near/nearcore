@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use near_chain::{Error, LatestKnown};
 use near_epoch_manager::epoch_sync::{
     derive_epoch_sync_proof_from_last_final_block, find_target_epoch_to_produce_proof_for,
 };
@@ -9,12 +10,12 @@ use near_store::adapter::StoreAdapter;
 use near_store::archive::cold_storage::rc_aware_set;
 use near_store::db::metadata::{DB_VERSION, DbVersion, MIN_SUPPORTED_DB_VERSION};
 use near_store::db::{ColdDB, DBTransaction, Database};
-use near_store::{DBCol, Store, get_genesis_height};
+use near_store::{DBCol, LATEST_KNOWN_KEY, Store, get_genesis_height};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::NearConfig;
 
-const CHUNK_SIZE: u64 = 500;
+const CHUNK_SIZE: u64 = 5000;
 
 pub(super) struct Migrator<'a> {
     config: &'a NearConfig,
@@ -105,7 +106,7 @@ fn store_block_headers_in_cold_db(hot_store: &Store, cold_db: &ColdDB) -> anyhow
             let header = borsh::to_vec(&block.header()).unwrap();
             rc_aware_set(&mut transaction, DBCol::BlockHeader, block_hash.into(), header);
         }
-        
+
         let start_time = Instant::now();
         cold_db.write(transaction).unwrap();
         let commit_time = start_time.elapsed();
@@ -153,36 +154,38 @@ fn update_epoch_sync_proof(
 }
 
 fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
+    tracing::info!(target: "migrations", "deleting all block headers from hot store");
+
+    let mut store_update = store.store_update();
+    store_update.delete_all(DBCol::BlockHeader);
+    store_update.commit()?;
+
     let chain_store = store.chain_store();
-
-    let genesis_height = get_genesis_height(store)?.expect("genesis height must exist");
     let tail_height = chain_store.tail().unwrap();
-    let total_blocks = tail_height - genesis_height;
-    let num_chunks = (total_blocks + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    let latest_known_height =
+        store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY)?.unwrap().height;
 
-    tracing::info!(target: "migrations", ?genesis_height, ?tail_height, ?total_blocks, ?num_chunks, "deleting old block headers from hot store");
+    tracing::info!(target: "migrations", ?tail_height, ?latest_known_height, "adding required block headers to hot store");
 
-    (0..num_chunks).for_each(|chunk_idx| {
-        let start = genesis_height + chunk_idx * CHUNK_SIZE;
-        let end = (start + CHUNK_SIZE).min(tail_height);
-
-        tracing::info!(target: "migrations", ?chunk_idx, ?start, ?end, "deleting block headers in chunk");
-
-        let mut store_update = store.store_update();
-        for height in start..end {
-            let Ok(block_hash) = chain_store.get_block_hash_by_height(height) else {
-                tracing::debug!(target: "migrations", ?height, "block hash not found, skipping deletion of block header");
-                continue;
-            };
-            store_update.delete(DBCol::BlockHeader, block_hash.as_bytes());
+    let mut store_update = chain_store.store_update();
+    for height in tail_height..(latest_known_height + 1) {
+        for block_hash in chain_store.get_all_header_hashes_by_height(height)? {
+            match chain_store.get_block(&block_hash) {
+                Ok(block) => store_update.set_block_header_only(block.header()),
+                Err(Error::DBNotFoundErr(_)) => {
+                    tracing::debug!(target: "migrations", ?height, ?block_hash, "skipping block not found")
+                }
+                Err(err) => return Err(err.into()),
+            }
         }
-
-        tracing::info!(target: "migrations", ?chunk_idx, ?start, ?end, "committing deletion of block headers in chunk");
-        let start_time = Instant::now();
-        store_update.commit().unwrap();
-        let commit_time = start_time.elapsed();
-        tracing::info!(target: "migrations", ?commit_time, ?chunk_idx, ?start, ?end, "deleted block headers in chunk");
-    });
+        if height % CHUNK_SIZE == 0 {
+            tracing::info!(target: "migrations", ?height, ?latest_known_height, "committing addition of required block headers to hot store");
+            store_update.commit()?;
+            store_update = chain_store.store_update();
+        }
+    }
+    store_update.commit()?;
+    tracing::info!(target: "migrations", ?latest_known_height, "completed deletion of old block headers from hot store");
 
     Ok(())
 }
