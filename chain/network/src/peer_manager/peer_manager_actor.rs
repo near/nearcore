@@ -1120,7 +1120,7 @@ impl PeerManagerActor {
                 if self.state.send_message_to_account(
                     &self.clock,
                     &account_id,
-                    T2MessageBody::PartialEncodedChunkForward(forward).into(),
+                    T1MessageBody::PartialEncodedChunkForward(forward).into(),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
