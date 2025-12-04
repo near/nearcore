@@ -509,7 +509,7 @@ jobs:
           flags: pytests-nightly
 
   publishable_packages_check:
-    name: "Cargo check publishable packages separately (${{ matric.name }})"
+    name: "Cargo check publishable packages separately (${{ matrix.name }})"
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
