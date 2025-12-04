@@ -17778,6 +17778,10 @@
             "minimum": 0,
             "type": "integer"
           },
+          "implicit_account_creation": {
+            "description": "Deprecated",
+            "type": "boolean"
+          },
           "limit_config": {
             "allOf": [
               {
