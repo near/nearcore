@@ -16,12 +16,12 @@ use crate::transaction::{
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
     TransactionV0, TransactionV1, TransferAction,
 };
+#[cfg(feature = "clock")]
 use crate::types::chunk_extra::ChunkExtra;
 use crate::types::validator_stake::ValidatorStake;
-use crate::types::{
-    AccountId, Balance, BlockExecutionResults, ChunkExecutionResult, EpochId, EpochInfoProvider,
-    Gas, Nonce, StateRoot,
-};
+use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
+#[cfg(feature = "clock")]
+use crate::types::{BlockExecutionResults, ChunkExecutionResult, StateRoot};
 use crate::validator_signer::ValidatorSigner;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_crypto::vrf::Value;
@@ -29,6 +29,7 @@ use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
+#[cfg(feature = "clock")]
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
