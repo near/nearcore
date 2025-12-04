@@ -2488,8 +2488,6 @@ fn action_transfer_or_implicit_account_creation(
             )?;
         }
     } else {
-        // Implicit account creation
-        debug_assert!(apply_state.config.wasm_config.implicit_account_creation);
         debug_assert!(!is_refund);
         action_implicit_account_creation_transfer(
             state_update,
