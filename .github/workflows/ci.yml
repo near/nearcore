@@ -530,6 +530,7 @@ jobs:
       # We don't use job-level condition so that matrix.name in the name is pretty-expended even when the job is skipped.
       - id: run-job
         if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
+        name: Checking if job should be skipped
         run: true
       - uses: actions/checkout@v4
         if: steps.run-job.outcome == 'success'
