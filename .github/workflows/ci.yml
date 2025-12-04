@@ -509,7 +509,8 @@ jobs:
           flags: pytests-nightly
 
   publishable_packages_check:
-    name: Cargo check publishable packages separately (${{ matrix.name || 'skipped' }})
+    # if and condition in name should be the same to make sure that that it's expanded appropriately.
+    name: "Cargo check publishable packages separately (${{ (github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch') && matrix.name || 'skipped' }})"
     runs-on: ${{ matrix.os }}
     if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     strategy:
