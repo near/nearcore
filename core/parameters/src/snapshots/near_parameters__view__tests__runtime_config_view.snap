@@ -235,7 +235,7 @@ expression: "&view"
       "max_locals_per_contract": 1000000,
       "max_tables_per_contract": 1,
       "max_elements_per_contract_table": 10000,
-      "account_id_validity_rules_version": 1,
+      "account_id_validity_rules_version": 2,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
       "per_receipt_storage_proof_size_limit": 4000000
