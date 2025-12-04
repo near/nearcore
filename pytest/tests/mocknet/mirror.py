@@ -25,7 +25,9 @@ import remote_node
 from node_handle import NodeHandle
 from utils import ScheduleContext, ScheduleMode, build_stake_distribution, PartitionSelector
 
-MOCKNET_STORE_PATH = os.getenv("MOCKNET_STORE_PATH", "gs://near-mocknet-artefact-store")
+MOCKNET_STORE_PATH = os.getenv("MOCKNET_STORE_PATH",
+                               "gs://near-mocknet-artefact-store")
+
 
 def to_list(item):
     return [item] if item is not None else []

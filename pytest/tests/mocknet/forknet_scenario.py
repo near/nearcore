@@ -15,7 +15,8 @@ from configured_logger import logger
 from forknet_scenarios import get_test_case, get_available_test_cases
 
 CHAIN_ID = "mainnet"
-MOCKNET_STORE_PATH = os.getenv("MOCKNET_STORE_PATH", "gs://near-mocknet-artefact-store")
+MOCKNET_STORE_PATH = os.getenv("MOCKNET_STORE_PATH",
+                               "gs://near-mocknet-artefact-store")
 
 
 class Action(Enum):
