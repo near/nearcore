@@ -1,6 +1,6 @@
 use crate::client::{
-    ClientSenderForNetwork, SetNetworkInfo, SpiceChunkEndorsementMessage, StateRequestHeader,
-    StateRequestPart,
+    ClientSenderForNetwork, GetCurrentEpochHeight, SetNetworkInfo, SpiceChunkEndorsementMessage,
+    StateRequestHeader, StateRequestPart,
 };
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
@@ -268,6 +268,9 @@ impl PeerManagerActor {
             let clock = clock.clone();
             let actor_system = actor_system.clone();
             async move {
+                if let Ok(Some(epoch_height)) = state.client.current_epoch_height_request.send_async(GetCurrentEpochHeight).await {
+                    state.snapshot_hosts.set_discard_epoch_threshold(epoch_height);
+                }
                 // Start server if address provided.
                 if let Some(server_addr) = &state.config.node_addr {
                     tracing::debug!(target: "network", at = ?server_addr, "starting public server");
