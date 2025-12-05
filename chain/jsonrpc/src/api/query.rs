@@ -121,8 +121,8 @@ impl RpcFrom<QueryError> for RpcQueryError {
             QueryError::UnknownGasKey { public_key, block_height, block_hash } => {
                 Self::UnknownGasKey { public_key, block_height, block_hash }
             }
-            QueryError::ContractExecutionError { vm_error, block_height, block_hash } => {
-                Self::ContractExecutionError { vm_error, block_height, block_hash }
+            QueryError::ContractExecutionError { vm_error, error, block_height, block_hash } => {
+                Self::ContractExecutionError { vm_error, error, block_height, block_hash }
             }
             QueryError::Unreachable { ref error_message } => {
                 tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
