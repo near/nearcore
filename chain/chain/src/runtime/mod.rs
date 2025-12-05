@@ -908,9 +908,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
 
             if let Some((signer_id, account, access_key, public_key)) = signer_access_key {
-                // NOTE: we need to remember the intermediate state of the access key between
-                // groups, because while pool guarantees that iteration is grouped by account_id
-                // and its public keys, it does not protect against equal nonces.
                 set_account(&mut state_update.trie_update, signer_id.clone(), &account);
                 set_access_key(&mut state_update.trie_update, signer_id, public_key, &access_key);
             }
