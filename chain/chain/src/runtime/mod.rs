@@ -42,8 +42,7 @@ use near_store::flat::FlatStorageManager;
 use near_store::trie::{FindSplitError, find_trie_split, total_mem_usage};
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, set_access_key,
-    set_account,
+    TrieAccess, TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -764,7 +763,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         // invalid transactions to be included.
         let next_block_height = prev_block.height + 1;
 
-        let mut state_update = TrieUpdateWitnessSizeWrapper::new(storage);
+        let state_update = TrieUpdateWitnessSizeWrapper::new(storage);
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = Gas::ZERO;
@@ -782,8 +781,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut rejected_invalid_tx = 0;
         let mut rejected_invalid_for_chain = 0;
 
+        let mut signers: HashMap<AccountId, Account> = HashMap::new();
+        let mut access_keys: HashMap<(AccountId, PublicKey), AccessKey> = HashMap::new();
+
         // Add new transactions to the result until some limit is hit or the transactions run out.
         'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
+            let mut signer_access_key = LookupOptions::ShouldLookup(&mut signers, &mut access_keys);
+
             if total_gas_burnt >= transactions_gas_limit {
                 result.limited_by = PrepareTransactionsLimit::Gas;
                 break;
@@ -814,7 +818,52 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            let mut signer_access_key = None;
+            enum LookupOptions<'a> {
+                ShouldLookup(
+                    &'a mut HashMap<AccountId, Account>,
+                    &'a mut HashMap<(AccountId, PublicKey), AccessKey>,
+                ),
+                LookedUp(&'a mut Account, &'a mut AccessKey),
+            }
+
+            impl<'a> LookupOptions<'a> {
+                fn lookup(
+                    self,
+                    state_update: &dyn TrieAccess,
+                    signer_id: &AccountId,
+                    public_key: &PublicKey,
+                ) -> Result<Self, Error> {
+                    let LookupOptions::ShouldLookup(signers, access_keys) = self else {
+                        return Ok(self);
+                    };
+
+                    let signer = match signers.entry(signer_id.clone()) {
+                        std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                        std::collections::hash_map::Entry::Vacant(entry) => {
+                            let signer = get_account(state_update, signer_id);
+                            let signer = signer.transpose().and_then(|v| v.ok());
+                            let signer = signer.ok_or(Error::InvalidTransactions)?;
+
+                            entry.insert(signer)
+                        }
+                    };
+
+                    let access_key = match access_keys
+                        .entry((signer_id.clone(), public_key.clone()))
+                    {
+                        std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                        std::collections::hash_map::Entry::Vacant(entry) => {
+                            let access_key = get_access_key(state_update, signer_id, public_key);
+                            let access_key = access_key.transpose().and_then(|v| v.ok());
+                            let access_key = access_key.ok_or(Error::InvalidTransactions)?;
+
+                            entry.insert(access_key)
+                        }
+                    };
+
+                    Ok(LookupOptions::LookedUp(signer, access_key))
+                }
+            }
 
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
@@ -858,24 +907,17 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
 
                 let signer_id = validated_tx.signer_id();
-                let (signer, access_key) =
-                    if let Some((id, signer, key, _)) = &mut signer_access_key {
-                        debug_assert_eq!(signer_id, id);
-                        (signer, key)
-                    } else {
-                        let signer = get_account(&state_update, signer_id);
-                        let signer = signer.transpose().and_then(|v| v.ok());
-                        let access_key =
-                            get_access_key(&state_update, signer_id, validated_tx.public_key());
-                        let access_key = access_key.transpose().and_then(|v| v.ok());
-                        let inserted = signer_access_key.insert((
-                            signer_id.clone(),
-                            signer.ok_or(Error::InvalidTransactions)?,
-                            access_key.ok_or(Error::InvalidTransactions)?,
-                            validated_tx.public_key().clone(),
-                        ));
-                        (&mut inserted.1, &mut inserted.2)
-                    };
+                signer_access_key = signer_access_key.lookup(
+                    &state_update,
+                    &signer_id,
+                    validated_tx.public_key(),
+                )?;
+                let (signer, access_key) = match signer_access_key {
+                    LookupOptions::LookedUp(signer, access_key) => (signer, access_key),
+                    LookupOptions::ShouldLookup(_, _) => {
+                        unreachable!("should have been looked up")
+                    }
+                };
 
                 let verify_result =
                     tx_cost(runtime_config, &validated_tx.to_tx(), prev_block.next_gas_price)
@@ -890,6 +932,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                                 Some(next_block_height),
                             )
                         });
+                signer_access_key = LookupOptions::LookedUp(signer, access_key);
 
                 match verify_result {
                     Ok(cost) => {
@@ -905,14 +948,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                         rejected_invalid_tx += 1;
                     }
                 }
-            }
-
-            if let Some((signer_id, account, access_key, public_key)) = signer_access_key {
-                // NOTE: we need to remember the intermediate state of the access key between
-                // groups, because while pool guarantees that iteration is grouped by account_id
-                // and its public keys, it does not protect against equal nonces.
-                set_account(&mut state_update.trie_update, signer_id.clone(), &account);
-                set_access_key(&mut state_update.trie_update, signer_id, public_key, &access_key);
             }
         }
 
