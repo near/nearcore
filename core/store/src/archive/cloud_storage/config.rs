@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use near_chain_configs::ExternalStorageLocation;
+use near_chain_configs::{DumpConfig, ExternalStorageLocation};
 
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::opener::CloudStorageOpener;
@@ -15,6 +15,17 @@ pub struct CloudStorageConfig {
     /// Location of a json file with credentials allowing access to the bucket.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credentials_file: Option<PathBuf>,
+}
+
+impl Into<DumpConfig> for CloudStorageConfig {
+    fn into(self) -> DumpConfig {
+        DumpConfig {
+            location: self.location,
+            restart_dump_for_shards: None,
+            iteration_delay: None,
+            credentials_file: self.credentials_file,
+        }
+    }
 }
 
 /// Configuration for a cloud-based archival node.
