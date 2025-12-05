@@ -26,7 +26,7 @@ use near_primitives::sharding::{ReceiptProof, ShardChunk};
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::LightClientBlockView;
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
@@ -301,7 +301,9 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_block(Arc::clone(&block));
         self.chain_store_update.inc_block_refcount(prev_hash)?;
 
-        if cfg!(feature = "protocol_feature_spice") {
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+        if ProtocolFeature::Spice.enabled(protocol_version) {
             record_uncertified_chunks_for_block(
                 &mut self.chain_store_update,
                 self.epoch_manager.as_ref(),

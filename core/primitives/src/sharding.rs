@@ -589,7 +589,7 @@ impl ShardChunkHeader {
                 ShardChunkHeaderInner::V2(_) => false,
                 ShardChunkHeaderInner::V3(_) => false,
                 ShardChunkHeaderInner::V4(_) => true,
-                ShardChunkHeaderInner::V5(_) => cfg!(feature = "protocol_feature_spice"),
+                ShardChunkHeaderInner::V5(_) => ProtocolFeature::Spice.enabled(version),
             },
         };
 
@@ -632,6 +632,14 @@ impl ShardChunkHeader {
                 let inner_enum: &ShardChunkHeaderInner = &v3.inner;
                 inner_enum.version_number()
             }
+        }
+    }
+
+    #[inline]
+    pub fn is_spice_chunk(&self) -> bool {
+        match self {
+            ShardChunkHeader::V1(_) | ShardChunkHeader::V2(_) => false,
+            ShardChunkHeader::V3(header) => header.inner.is_spice_chunk(),
         }
     }
 

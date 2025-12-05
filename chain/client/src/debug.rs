@@ -361,7 +361,7 @@ impl ClientActor {
                     .enumerate()
                     .map(|(shard_index, chunk)| {
                         // TODO(spice): chunks in spice no longer contain prev state root.
-                        if cfg!(feature = "protocol_feature_spice") {
+                        if chunk.is_spice_chunk() {
                             return (0, 0);
                         }
                         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();

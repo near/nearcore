@@ -71,6 +71,7 @@ use near_primitives::unwrap_or_return;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::max;
@@ -1769,6 +1770,7 @@ impl Client {
         let validator_id = signer.validator_id().clone();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         for shard_id in self.epoch_manager.shard_ids(&epoch_id).unwrap() {
             let next_height = block.header().height() + 1;
             let epoch_manager = self.epoch_manager.as_ref();
@@ -1811,7 +1813,7 @@ impl Client {
                     continue;
                 }
             };
-            if !cfg!(feature = "protocol_feature_spice") {
+            if !ProtocolFeature::Spice.enabled(protocol_version) {
                 if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
                     &epoch_id,
                     block.header(),
