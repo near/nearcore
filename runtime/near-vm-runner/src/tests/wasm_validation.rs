@@ -90,6 +90,15 @@ static EXCEPTIONS: &str = r#"
 )
 "#;
 
+static COMPONENT_MODEL: &str = r#"
+(component
+  (core module
+    (func $entry (result i32) i32.const 0)
+  )
+  (core instance (instantiate 0))
+)
+"#;
+
 static EXPECTED_UNSUPPORTED: &[(&str, &str)] = &[
     ("exceptions", EXCEPTIONS),
     ("memory64", MEMORY64),
@@ -101,6 +110,7 @@ static EXPECTED_UNSUPPORTED: &[(&str, &str)] = &[
     ("reference_types", REFERENCE_TYPES),
     ("threads", THREADS),
     ("simd", SIMD),
+    ("component_model", COMPONENT_MODEL),
 ];
 
 fn componentize(wat: &str) -> String {
@@ -127,7 +137,7 @@ fn ensure_fails_verification() {
                 panic!("wasm containing use of {} feature did not fail to prepare", feature_name);
             }
 
-            if kind == VMKind::Wasmtime {
+            if *feature_name != "component_model" && kind == VMKind::Wasmtime {
                 let wasm = wat::parse_str(componentize(wat))
                     .expect("parsing test component wat should succeed");
                 config.component_model = true;
@@ -137,6 +147,7 @@ fn ensure_fails_verification() {
                         feature_name
                     );
                 }
+                config.component_model = false;
             }
         }
     });
@@ -144,18 +155,15 @@ fn ensure_fails_verification() {
 
 #[test]
 fn ensure_fails_execution() {
-    for (_feature_name, wat) in EXPECTED_UNSUPPORTED {
-        test_builder()
-            .wat(wat)
-            .component_wat(&componentize(wat))
-            .opaque_error()
-            .opaque_outcome()
-            .expect(&expect![[r#"
-            Err: ...
-        "#]])
-            .component_expect(&expect![[r#"
+    for (feature_name, wat) in EXPECTED_UNSUPPORTED {
+        let test = test_builder().wat(wat).opaque_error().opaque_outcome().expect(&expect![[r#"
             Err: ...
         "#]]);
+        if *feature_name != "component_model" {
+            test.component_wat(&componentize(wat)).component_expect(&expect![[r#"
+            Err: ...
+        "#]]);
+        }
     }
 }
 
