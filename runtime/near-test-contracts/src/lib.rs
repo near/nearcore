@@ -86,6 +86,11 @@ pub fn nightly_rs_contract() -> &'static [u8] {
     include_bytes!(env!("CONTRACT_nightly_test_contract_rs"))
 }
 
+/// Component test contract which can call various host functions.
+pub fn component_rs_contract() -> &'static [u8] {
+    include_bytes!(env!("CONTRACT_component_contract_rs"))
+}
+
 pub fn ts_contract() -> &'static [u8] {
     include_bytes!(env!("CONTRACT_test_contract_ts"))
 }
@@ -156,6 +161,7 @@ fn smoke_test() {
     assert!(!ft_contract().is_empty());
     assert!(!congestion_control_test_contract().is_empty());
     assert!(!sharded_contract_test_contract().is_empty());
+    assert!(!component_rs_contract().is_empty());
 }
 
 pub struct LargeContract {

@@ -7,7 +7,9 @@ use crate::logic::errors::{
 use crate::logic::logic::Promise;
 use crate::logic::recorded_storage_counter::RecordedStorageCounter;
 use crate::logic::vmstate::Registers;
-use crate::logic::{Config, ExecutionResultState, External, GasCounter, VMContext, VMOutcome};
+use crate::logic::{
+    Config, ExecutionResultState, External, GasCounter, HostError, VMContext, VMOutcome,
+};
 use crate::runner::VMResult;
 use crate::{
     CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
@@ -17,20 +19,23 @@ use crate::{
 use core::mem::transmute;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicU64, Ordering};
-use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::{LimitConfig, VMKind};
+use near_parameters::{ExtCosts, RuntimeFeesConfig};
 use near_primitives_core::gas::Gas;
 use near_primitives_core::types::Balance;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock};
 use tracing::warn;
+use wasmtime::component::ResourceTableError;
+use wasmtime::component::types::ComponentItem;
 use wasmtime::{
-    CallHook, Engine, Extern, ExternType, Instance, InstanceAllocationStrategy, InstancePre,
-    Linker, Memory, Module, ModuleExport, PoolingAllocationConfig, ResourcesRequired, Store,
-    StoreLimits, StoreLimitsBuilder, Strategy, Val, WasmBacktraceDetails,
+    CallHook, CodeBuilder, Engine, Extern, ExternType, Instance, InstanceAllocationStrategy,
+    InstancePre, Linker, Memory, Module, ModuleExport, PoolingAllocationConfig, ResourcesRequired,
+    Store, StoreLimits, StoreLimitsBuilder, Strategy, Val, WasmBacktraceDetails,
 };
 
+mod component;
 mod logic;
 
 /// The maximum amount of concurrent calls this engine can handle.
@@ -329,6 +334,9 @@ impl IntoVMError for anyhow::Error {
             };
             return Err(VMRunnerError::Nondeterministic(nondeterministic_message.into()));
         }
+        if cause.is::<ResourceTableError>() {
+            return Ok(FunctionCallError::HostError(HostError::MemoryAccessViolation));
+        }
         // FIXME: this can blow up in size and would get stored in the storage in case this was a
         // production runtime. Something more proper should be done here.
         Ok(FunctionCallError::LinkError { msg: format!("{:?}", cause) })
@@ -349,6 +357,12 @@ struct PreparedModule {
     remaining_gas: Option<ModuleExport>,
     start: Option<ModuleExport>,
     num_tables: u32,
+}
+
+#[derive(Clone)]
+enum PreparedExecutable {
+    Module(PreparedModule),
+    Component(component::Prepared),
 }
 
 impl WasmtimeVM {
@@ -398,7 +412,7 @@ impl WasmtimeVM {
                 .decommit_batch_size(DECOMMIT_BATCH_SIZE)
                 .max_memory_size(max_memory_size)
                 .table_elements(max_elements_per_contract_table)
-                .total_component_instances(0)
+                .total_component_instances(if config.component_model { MAX_CONCURRENCY } else { 0 })
                 .total_core_instances(MAX_CONCURRENCY)
                 .total_memories(MAX_CONCURRENCY)
                 .total_tables(max_tables)
@@ -448,7 +462,7 @@ impl WasmtimeVM {
     pub(crate) fn vm_hash(&self) -> u64 {
         let mut hasher = std::hash::DefaultHasher::new();
         self.engine.precompile_compatibility_hash().hash(&mut hasher);
-        hasher.write_u16(65); // increment the 65 or something when making modifications that affect
+        hasher.write_u16(66); // increment the 66 or something when making modifications that affect
         // the artifact compatibility.
         hasher.finish()
     }
@@ -457,12 +471,26 @@ impl WasmtimeVM {
     pub(crate) fn compile_uncached(
         &self,
         code: &ContractCode,
-    ) -> Result<Vec<u8>, CompilationError> {
+    ) -> Result<(Vec<u8>, u64, bool), CompilationError> {
         let start = std::time::Instant::now();
-        let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime)
-            .map_err(CompilationError::PrepareError)?;
-        let serialized = self.engine.precompile_module(&prepared_code).map_err(|err| {
-            tracing::error!(?err, "wasmtime failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to the developers)");
+        let (prepared_code, instantiation_bytes) =
+            prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime)
+                .map_err(CompilationError::PrepareError)?;
+        let is_component = wasmparser_236::Parser::is_component(&prepared_code);
+        let serialized = if is_component && self.config.component_model {
+            let mut builder = CodeBuilder::new(&self.engine);
+            let builder = builder.wasm_binary(&prepared_code, None).unwrap();
+            unsafe { builder.expose_unsafe_intrinsics("unsafe-intrinsics") }.compile_component_serialized()
+        } else {
+            debug_assert_eq!(instantiation_bytes, 0);
+            self.engine.precompile_module(&prepared_code)
+        }
+        .map(|code| (code, instantiation_bytes, is_component))
+        .map_err(|err| {
+            tracing::error!(
+                ?err,
+                "wasmtime failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to the developers)",
+            );
             CompilationError::WasmtimeCompileError { msg: err.to_string() }
         });
         crate::metrics::compilation_duration(VMKind::Wasmtime, start.elapsed());
@@ -473,14 +501,22 @@ impl WasmtimeVM {
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
-    ) -> Result<Result<Vec<u8>, CompilationError>, CacheError> {
+    ) -> Result<Result<(Vec<u8>, u64, bool), CompilationError>, CacheError> {
         let serialized_or_error = self.compile_uncached(code);
         let key = get_contract_cache_key(*code.hash(), &self.config, self.vm_hash());
-        let record = CompiledContractInfo {
-            wasm_bytes: code.code().len() as u64,
-            compiled: match &serialized_or_error {
-                Ok(serialized) => CompiledContract::Code(serialized.clone()),
-                Err(err) => CompiledContract::CompileModuleError(err.clone()),
+        let wasm_bytes = code.code().len() as u64;
+        let record = match serialized_or_error {
+            Ok((ref serialized, instantiation_bytes, is_component)) => CompiledContractInfo {
+                wasm_bytes,
+                compiled: CompiledContract::Code(serialized.clone()),
+                is_component,
+                instantiation_bytes,
+            },
+            Err(ref err) => CompiledContractInfo {
+                wasm_bytes,
+                compiled: CompiledContract::CompileError(err.clone()),
+                is_component: wasmparser_236::Parser::is_component(code.code()),
+                instantiation_bytes: 0,
             },
         };
         cache.put(&key, record).map_err(CacheError::WriteError)?;
@@ -495,24 +531,32 @@ impl WasmtimeVM {
         method: &str,
         closure: impl FnOnce(
             GasCounter,
-            Result<PreparedModule, FunctionCallError>,
+            Result<PreparedExecutable, FunctionCallError>,
         ) -> VMResult<PreparedContract>,
     ) -> VMResult<PreparedContract> {
         type MemoryCacheType =
-            (u64, Result<Result<PreparedModule, FunctionCallError>, CompilationError>);
+            (u64, u64, Result<Result<PreparedExecutable, FunctionCallError>, CompilationError>);
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
         let key = get_contract_cache_key(contract.hash(), &self.config, self.vm_hash());
-        let (wasm_bytes, pre_result) = cache.memory_cache().try_lookup(
+        let (wasm_bytes, instantiation_bytes, pre_result) = cache.memory_cache().try_lookup(
             key,
             || {
                 let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
-                let (wasm_bytes, module) =
-                    if let Some(CompiledContractInfo { wasm_bytes, compiled }) = cache_record {
+                let (wasm_bytes, instantiation_bytes, code, is_component) =
+                    if let Some(CompiledContractInfo {
+                        wasm_bytes,
+                        compiled,
+                        is_component,
+                        instantiation_bytes,
+                    }) = cache_record
+                    {
                         match compiled {
-                            CompiledContract::CompileModuleError(err) => {
-                                return Ok(to_any((wasm_bytes, Err(err))));
+                            CompiledContract::CompileError(err) => {
+                                return Ok(to_any((wasm_bytes, instantiation_bytes, Err(err))));
                             }
-                            CompiledContract::Code(module) => (wasm_bytes, module),
+                            CompiledContract::Code(code) => {
+                                (wasm_bytes, instantiation_bytes, code, is_component)
+                            }
                         }
                     } else {
                         let Some(code) = contract.get_code() else {
@@ -520,12 +564,17 @@ impl WasmtimeVM {
                         };
                         let wasm_bytes = code.code().len() as u64;
                         match self.compile_and_cache(&code, cache)? {
-                            Err(err) => return Ok(to_any((wasm_bytes, Err(err)))),
-                            Ok(module) => (wasm_bytes, module),
+                            Err(err) => {
+                                return Ok(to_any((wasm_bytes, 0, Err(err))));
+                            }
+                            Ok((code, instantiation_bytes, is_component)) => {
+                                (wasm_bytes, instantiation_bytes, code, is_component)
+                            }
                         }
                     };
-                // (UN-)SAFETY: the `module` must have been produced by
-                // a prior call to `serialize`.
+                // (UN-)SAFETY: the `code` must have been produced by
+                // a prior call to [`Engine::precompile_component`] or
+                // [`Engine::precompile_module`].
                 //
                 // In practice this is not necessarily true. One could have
                 // forgotten to change the cache key when upgrading the version of
@@ -534,46 +583,59 @@ impl WasmtimeVM {
                 //
                 // There should definitely be some validation in near_vm to ensure
                 // we load what we think we load.
-                let module = unsafe { Module::deserialize(&self.engine, &module) }
-                    .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
-                let Some(memory) = module.get_export_index(MEMORY_EXPORT) else {
-                    return Ok(to_any((
+                if is_component {
+                    let pre =
+                        unsafe { component::Prepared::load(&self.engine, &self.config, &code) }?;
+                    Ok(to_any((
                         wasm_bytes,
-                        Ok(Err(FunctionCallError::LinkError {
-                            msg: "memory export missing".into(),
-                        })),
-                    )));
-                };
-                let remaining_gas = module.get_export_index(REMAINING_GAS_EXPORT);
-                let start = module.get_export_index(START_EXPORT);
-                let mut linker = Linker::new(&self.engine);
-                link(&mut linker, &self.config);
-                match linker.instantiate_pre(&module) {
-                    Err(err) => {
-                        let err = err.into_vm_error()?;
-                        Ok(to_any((wasm_bytes, Ok(Err(err)))))
-                    }
-                    Ok(pre) => {
-                        let ResourcesRequired { num_tables, .. } = module.resources_required();
-                        Ok(to_any((
+                        instantiation_bytes,
+                        Ok(pre.map(PreparedExecutable::Component)),
+                    )))
+                } else {
+                    debug_assert_eq!(instantiation_bytes, 0);
+                    let module = unsafe { Module::deserialize(&self.engine, &code) }
+                        .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
+                    let Some(memory) = module.get_export_index(MEMORY_EXPORT) else {
+                        return Ok(to_any((
                             wasm_bytes,
-                            Ok(Ok(PreparedModule {
-                                pre,
-                                memory,
-                                remaining_gas,
-                                start,
-                                num_tables,
+                            0,
+                            Ok(Err(FunctionCallError::LinkError {
+                                msg: "memory export missing".into(),
                             })),
-                        )))
+                        )));
+                    };
+                    let remaining_gas = module.get_export_index(REMAINING_GAS_EXPORT);
+                    let start = module.get_export_index(START_EXPORT);
+                    let mut linker = Linker::new(&self.engine);
+                    link(&mut linker, &self.config);
+                    match linker.instantiate_pre(&module) {
+                        Err(err) => {
+                            let err = err.into_vm_error()?;
+                            Ok(to_any((wasm_bytes, 0, Ok(Err(err)))))
+                        }
+                        Ok(pre) => {
+                            let ResourcesRequired { num_tables, .. } = module.resources_required();
+                            Ok(to_any((
+                                wasm_bytes,
+                                0,
+                                Ok(Ok(PreparedExecutable::Module(PreparedModule {
+                                    pre,
+                                    memory,
+                                    remaining_gas,
+                                    start,
+                                    num_tables,
+                                }))),
+                            )))
+                        }
                     }
                 }
             },
             move |value| {
-                let &(wasm_bytes, ref downcast) = value
+                let &(wasm_bytes, instantiation_bytes, ref downcast) = value
                     .downcast_ref::<MemoryCacheType>()
                     .expect("downcast should always succeed");
 
-                (wasm_bytes, downcast.clone())
+                (wasm_bytes, instantiation_bytes, downcast.clone())
             },
         )?;
 
@@ -589,6 +651,16 @@ impl WasmtimeVM {
                 if let Err(e) = result {
                     let result = PreparationResult::OutcomeAbort(e);
                     return Ok(PreparedContract { config, gas_counter, result });
+                }
+                if instantiation_bytes > 0 {
+                    if let Err(_e) =
+                        gas_counter.pay_per(ExtCosts::contract_loading_bytes, instantiation_bytes)
+                    {
+                        let result = PreparationResult::OutcomeAbort(FunctionCallError::HostError(
+                            HostError::GasExceeded,
+                        ));
+                        return Ok(PreparedContract { config, gas_counter, result });
+                    }
                 }
                 closure(gas_counter, res)
             }
@@ -639,10 +711,10 @@ impl crate::runner::VM for WasmtimeVM {
         let prepd =
             self.with_compiled_and_loaded(cache, code, gas_counter, method, |gas_counter, pre| {
                 let config = Arc::clone(&self.config);
-                match pre {
-                    Ok(PreparedModule { pre, memory, remaining_gas, start, num_tables }) => {
-                        let method = format!("{EXPORT_PREFIX}{method}");
-                        let Some(ExternType::Func(func_type)) = pre.module().get_export(&method)
+                let (exec, num_tables) = match pre {
+                    Ok(PreparedExecutable::Component(component::Prepared { pre, num_tables })) => {
+                        let Some((ComponentItem::ComponentFunc(ty), method)) =
+                            pre.component().get_export(None, method)
                         else {
                             let e = FunctionCallError::MethodResolveError(
                                 MethodResolveError::MethodNotFound,
@@ -650,43 +722,81 @@ impl crate::runner::VM for WasmtimeVM {
                             let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
                             return Ok(PreparedContract { config, gas_counter, result });
                         };
-                        if func_type.params().len() != 0 || func_type.results().len() != 0 {
+                        if ty.params().len() != 0 || ty.results().len() != 0 {
                             let e = FunctionCallError::MethodResolveError(
                                 MethodResolveError::MethodInvalidSignature,
                             );
                             let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
                             return Ok(PreparedContract { config, gas_counter, result });
                         }
-
-                        let result = PreparationResult::Ready(ReadyContract {
-                            pre,
-                            memory,
-                            remaining_gas,
-                            start,
+                        (Executable::Component(component::Executable { pre, method }), num_tables)
+                    }
+                    Ok(PreparedExecutable::Module(PreparedModule {
+                        pre,
+                        memory,
+                        remaining_gas,
+                        start,
+                        num_tables,
+                    })) => {
+                        let method = format!("{EXPORT_PREFIX}{method}");
+                        let Some(ExternType::Func(ty)) = pre.module().get_export(&method) else {
+                            let e = FunctionCallError::MethodResolveError(
+                                MethodResolveError::MethodNotFound,
+                            );
+                            let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
+                            return Ok(PreparedContract { config, gas_counter, result });
+                        };
+                        if ty.params().len() != 0 || ty.results().len() != 0 {
+                            let e = FunctionCallError::MethodResolveError(
+                                MethodResolveError::MethodInvalidSignature,
+                            );
+                            let result = PreparationResult::OutcomeAbortButNopInOldProtocol(e);
+                            return Ok(PreparedContract { config, gas_counter, result });
+                        }
+                        (
+                            Executable::Module(ExecutableModule {
+                                pre,
+                                memory,
+                                remaining_gas,
+                                start,
+                                method: method.into(),
+                            }),
                             num_tables,
-                            method: method.into(),
-                            concurrency: self.concurrency.clone(),
-                        });
-                        Ok(PreparedContract { config, gas_counter, result })
+                        )
                     }
                     Err(err) => {
                         let result = PreparationResult::OutcomeAbort(err);
-                        Ok(PreparedContract { config, gas_counter, result })
+                        return Ok(PreparedContract { config, gas_counter, result });
                     }
-                }
+                };
+                let result = PreparationResult::Ready(ReadyContract {
+                    exec,
+                    num_tables,
+                    concurrency: self.concurrency.clone(),
+                });
+                Ok(PreparedContract { config, gas_counter, result })
             });
         Box::new(prepd)
     }
 }
 
-struct ReadyContract {
+struct ExecutableModule {
     pre: InstancePre<Ctx>,
     memory: ModuleExport,
     remaining_gas: Option<ModuleExport>,
     start: Option<ModuleExport>,
     method: Box<str>,
+}
+
+struct ReadyContract {
+    exec: Executable,
     num_tables: u32,
     concurrency: ConcurrencySemaphore,
+}
+
+enum Executable {
+    Module(ExecutableModule),
+    Component(component::Executable),
 }
 
 struct PreparedContract {
@@ -745,16 +855,15 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
     ) -> VMResult {
         let PreparedContract { config, gas_counter, result } = (*self)?;
         let result_state = ExecutionResultState::new(&context, gas_counter, config);
-        let ReadyContract { pre, memory, remaining_gas, start, method, num_tables, concurrency } =
-            match result {
-                PreparationResult::Ready(r) => r,
-                PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
-                    return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
-                }
-                PreparationResult::OutcomeAbort(e) => {
-                    return Ok(VMOutcome::abort(result_state, e));
-                }
-            };
+        let ReadyContract { exec, num_tables, concurrency } = match result {
+            PreparationResult::Ready(r) => r,
+            PreparationResult::OutcomeAbortButNopInOldProtocol(e) => {
+                return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, e));
+            }
+            PreparationResult::OutcomeAbort(e) => {
+                return Ok(VMOutcome::abort(result_state, e));
+            }
+        };
 
         // SAFETY:
         // Although the 'static here is a lie, we are pretty confident that the `External` and
@@ -762,75 +871,87 @@ impl crate::PreparedContract for VMResult<PreparedContract> {
         // (which is covered by the original lifetime).
         let ext = unsafe { transmute::<&mut dyn External, &'static mut dyn External>(ext) };
         let context = unsafe { transmute::<&VMContext, &'static VMContext>(context) };
-        let ctx = Ctx::new(ext, context, fees_config, result_state, memory);
-
-        let mut store = Store::<Ctx>::new(pre.module().engine(), ctx);
-        store.limiter(|ctx| &mut ctx.limits);
-        let Some(_permit) = concurrency.try_acquire(num_tables) else {
-            let Ctx { result_state, .. } = store.into_data();
+        let Some(permit) = concurrency.try_acquire(num_tables) else {
             return Ok(VMOutcome::abort(
                 result_state,
                 FunctionCallError::LinkError { msg: "failed to acquire execution slot".into() },
             ));
         };
-        let instance = match pre.instantiate(&mut store) {
-            Ok(instance) => instance,
-            Err(err) => {
-                let err = err.into_vm_error()?;
-                let Ctx { result_state, .. } = store.into_data();
-                return Ok(VMOutcome::abort(result_state, err));
-            }
-        };
-        if let Some(global) = remaining_gas {
-            let Some(Extern::Global(global)) = instance.get_module_export(&mut store, &global)
-            else {
-                panic!("gas global export was present on the module, but not on the instance");
-            };
-            store.call_hook(move |mut store, hook| {
-                match hook {
-                    CallHook::CallingHost | CallHook::ReturningFromWasm => {
-                        let Val::I64(remaining_gas) = global.get(&mut store) else {
-                            panic!("gas global export is not i64");
-                        };
-                        let ctx = store.data_mut();
-                        let burned = ctx
-                            .result_state
-                            .gas_counter
-                            .remaining_gas()
-                            .saturating_sub(Gas::from_gas(remaining_gas as _));
-                        if burned.as_gas() > 0 {
-                            ctx.result_state.gas_counter.burn_gas(burned)?;
-                        }
+        match exec {
+            Executable::Module(ExecutableModule { pre, memory, remaining_gas, start, method }) => {
+                let ctx = Ctx::new(ext, context, fees_config, result_state, memory);
+                let mut store = Store::<Ctx>::new(pre.module().engine(), ctx);
+                store.limiter(|ctx| &mut ctx.limits);
+                let instance = match pre.instantiate(&mut store) {
+                    Ok(instance) => instance,
+                    Err(err) => {
+                        let err = err.into_vm_error()?;
+                        let Ctx { result_state, .. } = store.into_data();
+                        return Ok(VMOutcome::abort(result_state, err));
                     }
-                    CallHook::ReturningFromHost | CallHook::CallingWasm => {
-                        let remaining_gas = store.data().result_state.gas_counter.remaining_gas();
-                        global
-                            .set(&mut store, Val::I64(remaining_gas.as_gas() as _))
-                            .expect("failed to set gas global export")
+                };
+                if let Some(global) = remaining_gas {
+                    let Some(Extern::Global(global)) =
+                        instance.get_module_export(&mut store, &global)
+                    else {
+                        panic!(
+                            "gas global export was present on the module, but not on the instance"
+                        );
+                    };
+                    store.call_hook(move |mut store, hook| {
+                        match hook {
+                            CallHook::CallingHost | CallHook::ReturningFromWasm => {
+                                let Val::I64(remaining_gas) = global.get(&mut store) else {
+                                    panic!("gas global export is not i64");
+                                };
+                                let ctx = store.data_mut();
+                                let burned = ctx
+                                    .result_state
+                                    .gas_counter
+                                    .remaining_gas()
+                                    .saturating_sub(Gas::from_gas(remaining_gas as _));
+                                if burned.as_gas() > 0 {
+                                    ctx.result_state.gas_counter.burn_gas(burned)?;
+                                }
+                            }
+                            CallHook::ReturningFromHost | CallHook::CallingWasm => {
+                                let remaining_gas =
+                                    store.data().result_state.gas_counter.remaining_gas();
+                                global
+                                    .set(&mut store, Val::I64(remaining_gas.as_gas() as _))
+                                    .expect("failed to set gas global export")
+                            }
+                        }
+                        Ok(())
+                    });
+                }
+                if let Some(start) = start {
+                    let Some(Extern::Func(start)) = instance.get_module_export(&mut store, &start)
+                    else {
+                        panic!(
+                            "start function export was present on the module, but not on the instance"
+                        );
+                    };
+                    if let Err(err) = start.call(&mut store, &[], &mut []) {
+                        let err = err.into_vm_error()?;
+                        let Ctx { result_state, .. } = store.into_data();
+                        return Ok(VMOutcome::abort(result_state, err));
                     }
                 }
-                Ok(())
-            });
-        }
-        if let Some(start) = start {
-            let Some(Extern::Func(start)) = instance.get_module_export(&mut store, &start) else {
-                panic!("start function export was present on the module, but not on the instance");
-            };
-            if let Err(err) = start.call(&mut store, &[], &mut []) {
-                let err = err.into_vm_error()?;
-                let Ctx { result_state, .. } = store.into_data();
-                return Ok(VMOutcome::abort(result_state, err));
-            }
-        }
 
-        let res = call(&mut store, instance, &method);
-        let Ctx { result_state, .. } = store.into_data();
-        match res? {
-            RunOutcome::Ok => Ok(VMOutcome::ok(result_state)),
-            RunOutcome::AbortNop(error) => {
-                Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, error))
+                let res = call(&mut store, instance, &method);
+                let Ctx { result_state, .. } = store.into_data();
+                match res? {
+                    RunOutcome::Ok => Ok(VMOutcome::ok(result_state)),
+                    RunOutcome::AbortNop(error) => {
+                        Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(result_state, error))
+                    }
+                    RunOutcome::Abort(error) => Ok(VMOutcome::abort(result_state, error)),
+                }
             }
-            RunOutcome::Abort(error) => Ok(VMOutcome::abort(result_state, error)),
+            Executable::Component(exec) => {
+                exec.run(result_state, ext, context, fees_config, permit)
+            }
         }
     }
 }
@@ -843,6 +964,10 @@ pub(crate) struct ErrorContainer(parking_lot::Mutex<Option<VMLogicError>>);
 impl ErrorContainer {
     pub(crate) fn take(&self) -> Option<VMLogicError> {
         self.0.lock().take()
+    }
+
+    fn new(err: impl Into<VMLogicError>) -> Self {
+        Self(parking_lot::Mutex::new(Some(err.into())))
     }
 }
 impl std::error::Error for ErrorContainer {}

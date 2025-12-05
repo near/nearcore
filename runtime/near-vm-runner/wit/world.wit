@@ -1,0 +1,323 @@
+package near:nearcore@0.1.0;
+
+interface finite-wasm {
+   gas-exhausted: func();
+   stack-exhausted: func();
+   burn-gas: func(gas: u64);
+}
+
+interface runtime {
+   // Unsigned 128-bit integer
+   record u128 {
+     // Low 64 bits
+     lo: u64,
+
+     // High 64 bits
+     hi: u64,
+   }
+
+   // Unsigned 160-bit integer
+   record u160 {
+     // Low 128 bits
+     lo: u128,
+
+     // High 32 bits
+     hi: u32,
+   }
+
+   // Unsigned 256-bit integer
+   record u256 {
+     // Low 128 bits
+     lo: u128,
+
+     // High 128 bits
+     hi: u128,
+   }
+
+   // Unsigned 512-bit integer
+   record u512 {
+     // Low 256 bits
+     lo: u256,
+
+     // High 256 bits
+     hi: u256,
+   }
+
+   // A handle to a validated account ID
+   resource account-id {
+      // Attempts to parse an account ID from input string, returns an error if it is not valid
+      from-string: static func(account-id: string) -> result<account-id>;
+
+      // Returns string representation of this account ID
+      to-string: func() -> string;
+   }
+
+   // A public key
+   variant public-key {
+      // ED25519 public key
+      ed25519(u256),
+
+      // SECP256K1 public key
+      secp256k1(u512),
+   }
+
+   // Reads the entire content from the register `register-id`
+   read-register: func(register-id: u64) -> list<u8>;
+
+   // Returns the size of the blob stored in the given register.
+   // If register is not used, returns `none`.
+   register-len: func(register-id: u64) -> option<u64>;
+
+   // Copies `data` into the register. If register is unused will initialize
+   // it. If register has larger capacity than needed for `data` will not re-allocate it. The
+   // register will lose the pre-existing data if any.
+   write-register: func(register-id: u64, data: list<u8>);
+
+   // The id of the account that owns the current contract.
+   current-account-id: func() -> account-id;
+
+   // The id of the account that either signed the original transaction or issued the initial
+   // cross-contract call.
+   signer-account-id: func() -> account-id;
+
+   // The public key of the account that did the signing.
+   signer-account-pk: func() -> public-key;
+
+   // The id of the account that was the previous contract in the chain of cross-contract calls.
+   // If this is the first contract, it is equal to `signer_account_id`.
+   predecessor-account-id: func() -> account-id;
+
+   // The input to the contract call serialized as bytes.
+   input: func() -> list<u8>;
+
+   // Returns the current block height.
+   block-height: func() -> u64;
+
+   // Returns the current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
+   block-timestamp: func() -> u64;
+
+   // Returns the current epoch height.
+   epoch-height: func() -> u64;
+
+   // Returns the number of bytes used by the contract if it was saved to the trie as of the
+   // invocation. This includes:
+   // * The data written with storage_* functions during current and previous execution;
+   // * The bytes needed to store the access keys of the given account.
+   // * The contract code size
+   // * A small fixed overhead for account metadata.
+   storage-usage: func() -> u64;
+
+   // The current balance of the given account. This includes the attached_deposit that was
+   // attached to the transaction.
+   account-balance: func() -> u128;
+
+   // The current amount of tokens locked due to staking.
+   account-locked-balance: func() -> u128;
+
+   // The balance that was attached to the call that will be immediately deposited before the
+   // contract execution starts.
+   attached-deposit: func() -> u128;
+
+   // The amount of gas attached to the call that can be used to pay for the gas fees.
+   prepaid-gas: func() -> u64;
+
+   // The gas that was already burnt during the contract execution (cannot exceed `prepaid_gas`)
+   used-gas: func() -> u64;
+
+   // Returns the random seed from the current block. This 32 byte hash is based on the VRF value from
+   // the block. This value is not modified in any way each time this function is called within the
+   // same method/block.
+   random-seed: func() -> list<u8>;
+
+   // Hashes the random sequence of bytes using sha256.
+   sha256: func(value: list<u8>) -> u256;
+
+   // Hashes the random sequence of bytes using keccak256.
+   keccak256: func(value: list<u8>) -> u256;
+
+   // Hashes the random sequence of bytes using keccak512.
+   keccak512: func(value: list<u8>) -> u512;
+
+   // Verifies signature of message using provided ED25519 Public Key
+   ed25519-verify: func(signature: u512, message: list<u8>, public-key: u256) -> bool;
+
+   // Hashes the bytes using the RIPEMD-160 hash function.
+   ripemd160: func(value: list<u8>) -> u160;
+
+   // Recovers an ECDSA signer address from a 32-byte message `hash` and a corresponding `signature`
+   // along with `v` recovery byte.
+   //
+   // Takes in an additional flag to check for malleability of the signature
+   // which is generally only ideal for transactions.
+   //
+   // Returns 64 bytes representing the public key if the recovery was successful.
+   ecrecover: func(hash: u256, signature: u512, v: u8, malleability-flag: bool) -> option<u512>;
+
+   // Sets the blob of data as the return value of the contract.
+   value-return: func(value: list<u8>);
+
+   // Panics with the string.
+   panic: func(s: option<string>);
+
+   // Logs the string.
+   log: func(s: string);
+
+   // A NEAR promise action
+   resource promise-action {}
+
+   // A NEAR promise
+   resource promise {
+      // Create a NEAR promise
+      constructor(account-id: borrow<account-id>);
+
+      // Returns the internal index of this promise
+      to-index: func() -> u64;
+
+      // Constructs a promise from an internal index
+      from-index: static func(promise-index: u64) -> promise;
+
+      // Attaches the callback that is executed after this promise is complete.
+      then: func(account-id: borrow<account-id>) -> promise;
+
+      // Creates a new promise which completes when all promises passed as arguments complete.
+      and: static func(promises: list<borrow<promise>>) -> promise;
+
+      // TODO: Document API
+
+      set-refund-to: func(account-id: borrow<account-id>);
+      state-init: func(code-hash: u256, amount: u128) -> promise-action;
+      state-init-by-account-id: func(account-id: borrow<account-id>, amount: u128) -> promise-action;
+      set-state-init-data-entry: func(action: promise-action, key: list<u8>, value: list<u8>);
+
+
+      create-account: func();
+      deploy-contract: func(code: list<u8>);
+      deploy-global-contract: func(code: list<u8>);
+      deploy-global-contract-by-account-id: func(code: list<u8>);
+      use-global-contract: func(code-hash: u256);
+      use-global-contract-by-account-id: func(account-id: borrow<account-id>);
+      function-call: func(method: list<u8>, arguments: list<u8>, amount: u128, gas: u64, gas-weight: u64);
+      transfer: func(amount: u128);
+      stake: func(amount: u128, public-key: public-key);
+      add-key-with-full-access: func(public-key: public-key, nonce: u64);
+      add-key-with-function-call: func(public-key: public-key, nonce: u64, allowance: u128, receiver-id: borrow<account-id>, method-names: list<list<u8>>);
+      delete-key: func(public-key: public-key);
+      delete-account: func(beneficiary-id: borrow<account-id>);
+
+      yield-create: static func(method: list<u8>, arguments: list<u8>, gas: u64, gas-weight: u64, register-id: u64) -> promise;
+      yield-resume: static func(data-id: u256, payload: list<u8>) -> bool;
+
+
+      // If the current function is invoked by a callback we can access the execution results of the
+      // promises that caused the callback. This function returns the number of complete and
+      // incomplete callbacks.
+      //
+      // Note, we are only going to have incomplete callbacks once we have promise_or combinator.
+      //
+      // * If there is only one callback returns `1`;
+      // * If there are multiple callbacks (e.g. created through `promise_and`) returns their number;
+      // * If the function was called not through the callback returns `0`.
+      get-results-count: static func() -> u64;
+
+      // If the current function is invoked by a callback we can access the execution results of the
+      // promises that caused the callback. This function returns the result in blob format and
+      // places it into the register.
+      //
+      // * If promise result is complete and successful copies its blob into the register;
+      // * If promise result is complete and failed or incomplete keeps register unused;
+      //
+      // # Returns
+      //
+      // * If promise result is not complete returns `none`;
+      // * If promise result is complete and successful returns `some(ok)`;
+      // * If promise result is complete and failed returns `some(err)`.
+      get-result: static func(idx: u64, register-id: u64) -> option<result>;
+
+      // When this promise finishes executing its result is considered to be the result of
+      // the current function.
+      return: func();
+   }
+
+   // Type of contract code that is stored on the account
+   variant contract-code-kind {
+      local(u256),
+      global(u256),
+      global-by-account(account-id),
+   }
+
+   // Returns the type of code deployed on current contract
+   current-contract-code: func() -> option<contract-code-kind>;
+
+   // Returns the ID of an account which would receive a refund.
+   refund-to-account-id: func() -> account-id;
+
+   // Writes key-value into storage.
+   // If another key-value existed in the storage with the same key it returns `true`, otherwise `false`.
+   storage-write: func(key: list<u8>, value: list<u8>, register-id: u64) -> bool;
+
+   // Reads the value stored under the given key.
+   storage-read: func(key: list<u8>) -> option<list<u8>>;
+
+   // Removes the value stored under the given key.
+   // If key-value existed returns `true`, otherwise `false`.
+   storage-remove: func(key: list<u8>, register-id: u64) -> bool;
+
+   // Checks if there is a key-value in the storage.
+   storage-has-key: func(key: list<u8>) -> bool;
+
+   // Get the stake of an account, if the account is currently a validator.
+   validator-stake: func(account-id: borrow<account-id>) -> u128;
+
+   // Get the total validator stake of the current epoch.
+   validator-total-stake: func() -> u128;
+
+   // Compute alt_bn128 g1 multiexp.
+   //
+   // `alt_bn128` is a specific curve from the Barreto-Naehrig(BN) family. It is particularly
+   // well-suited for ZK proofs.
+   //
+   // See also: [EIP-196](https://eips.ethereum.org/EIPS/eip-196)
+   alt-bn128-g1-multiexp: func(value: list<u8>) -> u512;
+
+   // Compute alt_bn128 g1 sum.
+   //
+   // `alt_bn128` is a specific curve from the Barreto-Naehrig(BN) family. It is particularly
+   // well-suited for ZK proofs.
+   //
+   // See also: [EIP-196](https://eips.ethereum.org/EIPS/eip-196)
+   alt-bn128-g1-sum: func(value: list<u8>) -> u512;
+
+   // Compute pairing check
+   //
+   // `alt_bn128` is a specific curve from the Barreto-Naehrig(BN) family. It is particularly
+   // well-suited for ZK proofs.
+   //
+   // See also: [EIP-197](https://eips.ethereum.org/EIPS/eip-197)
+   alt-bn128-pairing-check: func(value: list<u8>) -> bool;
+
+   // TODO: Document bls12381
+
+   bls12381-p1-sum: func(value: list<u8>) -> result<list<u8>>;
+
+   bls12381-p2-sum: func(value: list<u8>) -> result<list<u8>>;
+
+   bls12381-g1-multiexp: func(value: list<u8>) -> result<list<u8>>;
+
+   bls12381-g2-multiexp: func(value: list<u8>) -> result<list<u8>>;
+
+   bls12381-map-fp-to-g1: func(value: list<u8>) -> result<list<u8>>;
+
+   bls12381-map-fp2-to-g2: func(value: list<u8>) -> result<list<u8>>;
+
+   bls12381-pairing-check: func(value: list<u8>) -> result<bool>;
+
+   bls12381-p1-decompress: func(value: list<u8>) -> result<list<u8>>;
+
+   bls12381-p2-decompress: func(value: list<u8>) -> result<list<u8>>;
+}
+
+world imports {
+    import finite-wasm;
+
+    import runtime;
+}

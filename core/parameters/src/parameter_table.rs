@@ -350,6 +350,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 discard_custom_sections: params.get(Parameter::DiscardCustomSections)?,
                 saturating_float_to_int: params.get(Parameter::SaturatingFloatToInt)?,
                 reftypes_bulk_memory: params.get(Parameter::ReftypesBulkMemory)?,
+                component_model: params.get(Parameter::ComponentModel)?,
                 limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits()))
                     .map_err(InvalidConfigError::InvalidYaml)?,
                 fix_contract_loading_cost: params.get(Parameter::FixContractLoadingCost)?,

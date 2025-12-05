@@ -6,6 +6,7 @@
 /// build logs.
 // cspell:ignore Ctarget, Dwarnings, Zbuild
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -26,7 +27,18 @@ fn try_main() -> Result<(), Error> {
     let is_nightly = std::env::var_os("CARGO_FEATURE_nightly").is_some();
     let test_features = &env::var(TEST_FEATURES_ENV);
     println!("cargo:rerun-if-env-changed={TEST_FEATURES_ENV}");
+    println!("cargo:rerun-if-changed=wit");
     println!("debug: test_features = {test_features:?}");
+
+    let path = build_contract(
+        "./test-contract-component-rs",
+        &test_contract_features,
+        "component_contract_rs",
+    )?;
+    let wasm = fs::read(&path)?;
+    let wasm = wit_component::ComponentEncoder::default().module(&wasm)?.encode()?;
+    fs::write(path, wasm)?;
+
     if test_features.is_ok() {
         test_contract_features.push("test_features");
     }
@@ -73,7 +85,7 @@ fn res_contract(name: &str) {
 }
 
 /// build the contract and copy the wasm file to the `res` directory
-fn build_contract(dir: &str, features: &[&str], output: &str) -> Result<(), Error> {
+fn build_contract(dir: &str, features: &[&str], output: &str) -> Result<PathBuf, Error> {
     let target_dir = out_dir();
 
     // build the contract
@@ -94,7 +106,7 @@ fn build_contract(dir: &str, features: &[&str], output: &str) -> Result<(), Erro
     println!("cargo:rerun-if-changed=./{}/src/lib.rs", dir);
     println!("cargo:rerun-if-changed=./{}/Cargo.toml", dir);
     println!("debug: from = {from:?}, to = {to:?}");
-    Ok(())
+    Ok(to)
 }
 
 fn cargo_build_cmd(target_dir: &Path) -> Command {

@@ -56,7 +56,7 @@ pub(crate) fn get_contract_cache_key(
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum CompiledContract {
-    CompileModuleError(crate::logic::errors::CompilationError) = 0,
+    CompileError(crate::logic::errors::CompilationError) = 0,
     Code(Vec<u8>) = 1,
 }
 
@@ -66,7 +66,7 @@ impl CompiledContract {
     /// If the `CompiledContract` represents a compilation failure, returns `0`.
     pub fn debug_len(&self) -> usize {
         match self {
-            CompiledContract::CompileModuleError(_) => 0,
+            CompiledContract::CompileError(_) => 0,
             CompiledContract::Code(c) => c.len(),
         }
     }
@@ -75,6 +75,8 @@ impl CompiledContract {
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
 pub struct CompiledContractInfo {
     pub wasm_bytes: u64,
+    pub is_component: bool,
+    pub instantiation_bytes: u64,
     pub compiled: CompiledContract,
 }
 
@@ -353,7 +355,7 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         // unnecessary overheads and in order to enable things like mmap-based file access, we want
         // to have full control of what has been written.
         match value.compiled {
-            CompiledContract::CompileModuleError(e) => {
+            CompiledContract::CompileError(e) => {
                 borsh::to_writer(&mut file, &e)?;
                 file.write_all(&[ERROR_TAG])?;
             }
@@ -404,20 +406,36 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         let mut buffer = Vec::with_capacity(stat.st_size.try_into().unwrap());
         let mut file = std::fs::File::from(file);
         file.read_to_end(&mut buffer)?;
-        if buffer.len() < 9 {
+        if buffer.len() < 10 {
             // The file turns out to be empty/truncated? Treat as if there's no cached file.
             return Ok(None);
         }
         let wasm_bytes = u64::from_le_bytes(buffer[buffer.len() - 8..].try_into().unwrap());
-        let tag = buffer[buffer.len() - 9];
-        buffer.truncate(buffer.len() - 9);
-        Ok(match tag {
-            CODE_TAG => {
-                Some(CompiledContractInfo { wasm_bytes, compiled: CompiledContract::Code(buffer) })
+        buffer.truncate(buffer.len() - 8);
+        let is_component = buffer.pop().unwrap();
+        let instantiation_bytes = if is_component == 1 {
+            if buffer.len() < 9 {
+                // The file turns out to be empty/truncated? Treat as if there's no cached file.
+                return Ok(None);
             }
-            ERROR_TAG => Some(CompiledContractInfo {
+            let n = u64::from_le_bytes(buffer[buffer.len() - 8..].try_into().unwrap());
+            buffer.truncate(buffer.len() - 8);
+            n
+        } else {
+            0
+        };
+        Ok(match (buffer.pop().unwrap(), is_component) {
+            (CODE_TAG, 0 | 1) => Some(CompiledContractInfo {
                 wasm_bytes,
-                compiled: CompiledContract::CompileModuleError(borsh::from_slice(&buffer)?),
+                instantiation_bytes,
+                is_component: is_component == 1,
+                compiled: CompiledContract::Code(buffer),
+            }),
+            (ERROR_TAG, 0 | 1) => Some(CompiledContractInfo {
+                wasm_bytes,
+                instantiation_bytes,
+                is_component: is_component == 1,
+                compiled: CompiledContract::CompileError(borsh::from_slice(&buffer)?),
             }),
             // File is malformed? For this code, since we're talking about a cache lets just treat
             // it as if there is no cached file as well. The cached file may eventually be
@@ -693,11 +711,15 @@ mod tests {
 
         let compiled_contract1 = CompiledContractInfo {
             wasm_bytes: 100,
+            is_component: false,
+            instantiation_bytes: 0,
             compiled: CompiledContract::Code(contract1.code().to_vec()),
         };
 
         let compiled_contract2 = CompiledContractInfo {
             wasm_bytes: 200,
+            is_component: false,
+            instantiation_bytes: 0,
             compiled: CompiledContract::Code(contract2.code().to_vec()),
         };
 

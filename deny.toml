@@ -37,8 +37,6 @@ skip = [
     # wasmer and wasmtime
     { name = "memoffset", version = "=0.6.5" },
     { name = "memoffset", version = "=0.8.0" },
-    { name = "rustix", version = "^0.38" },
-    { name = "linux-raw-sys", version = "^0.4" },
     { name = "finite-wasm", version = "^0.5" },
 
     # wasm-tools
@@ -46,8 +44,13 @@ skip = [
     { name = "wasmparser", version = "=0.99.0" },
     { name = "wasmparser", version = "=0.105.0" },
     { name = "wasmparser", version = "=0.228.0" },
+    { name = "wasmparser", version = "=0.236.1" },
+    { name = "wit-parser", version = "=0.236.1" },
     { name = "wasm-encoder", version = "=0.27.0" },
+    { name = "wasm-encoder", version = "=0.236.0" },
+    { name = "wasm-encoder", version = "=0.240.0" },
     { name = "wasmprinter", version = "=0.2.57" },
+    { name = "wasmprinter", version = "=0.236.1" },
 
     # wasmer 0.17.x
     { name = "target-lexicon", version = "^0.12.0" },
@@ -75,6 +78,7 @@ skip = [
     { name = "hashbrown", version = "0.12.0" },
     { name = "hashbrown", version = "0.13.2" },
     { name = "hashbrown", version = "0.14.5" },
+    { name = "hashbrown", version = "0.15.2" },
     { name = "zerocopy", version = "^0.7" },
 
     # Bolero requires a newer version and the rest of the ecosystem hasn't caught up yet.
@@ -128,6 +132,6 @@ skip = [
     { name = "num-rational", version = "=0.3.2" },
     { name = "regex-syntax", version = "=0.6.28" },
 
-    # ark-ff uses outdated version of itertools
-    { name = "itertools", version = "=0.10.5" },
+    # near-vm-wast uses outdated version of wast
+    { name = "wast", version = "=40.0.0" },
 ]

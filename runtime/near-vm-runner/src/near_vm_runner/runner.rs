@@ -159,8 +159,9 @@ impl NearVM {
     ) -> Result<UniversalExecutable, CompilationError> {
         let _span = tracing::debug_span!(target: "vm", "NearVM::compile_uncached").entered();
         let start = std::time::Instant::now();
-        let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::NearVm)
-            .map_err(CompilationError::PrepareError)?;
+        let (prepared_code, _) =
+            prepare::prepare_contract(code.code(), &self.config, VMKind::NearVm)
+                .map_err(CompilationError::PrepareError)?;
 
         debug_assert!(
             matches!(self.engine.validate(&prepared_code), Ok(_)),
@@ -186,6 +187,8 @@ impl NearVM {
         let key = get_contract_cache_key(*code.hash(), &self.config, near_vm_vm_hash());
         let record = CompiledContractInfo {
             wasm_bytes: code.code().len() as u64,
+            is_component: false,
+            instantiation_bytes: 0,
             compiled: match &executable_or_error {
                 Ok(executable) => {
                     let code = executable
@@ -193,7 +196,7 @@ impl NearVM {
                         .map_err(|_e| CacheError::SerializationError { hash: key.0 })?;
                     CompiledContract::Code(code)
                 }
-                Err(err) => CompiledContract::CompileModuleError(err.clone()),
+                Err(err) => CompiledContract::CompileError(err.clone()),
             },
         };
         cache.put(&key, record).map_err(CacheError::WriteError)?;
@@ -253,7 +256,7 @@ impl NearVM {
                 };
 
                 match &compiled_contract_info.compiled {
-                    CompiledContract::CompileModuleError(err) => Ok::<_, VMRunnerError>(to_any((
+                    CompiledContract::CompileError(err) => Ok::<_, VMRunnerError>(to_any((
                         compiled_contract_info.wasm_bytes,
                         Err(err.clone()),
                     ))),
