@@ -468,3 +468,62 @@ async fn too_many_shards_truncate() {
     // MAX_SHARDS_PER_SNAPSHOT_HOST_INFO is at least 128, so the chance of this check failing due to randomness is extremely low.
     assert_ne!(&info.shards, &too_many_shards[..MAX_SHARDS_PER_SNAPSHOT_HOST_INFO]);
 }
+
+/// Test that a SnapshotHostInfo message with no shards isn't broadcast by PeerManager.
+#[tokio::test]
+async fn no_shards_not_broadcast() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+    let clock = &clock;
+
+    let pm = peer_manager::testonly::start(
+        clock.clone(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+
+    tracing::info!(target:"test", "connect peers, expect initial sync to be empty");
+    let peer1_config = chain.make_config(rng);
+    let mut peer1 =
+        pm.start_inbound(chain.clone(), peer1_config.clone()).await.handshake(clock).await;
+    let empty_sync_msg = peer1.events.recv_until(take_sync_snapshot_msg).await;
+    assert_eq!(empty_sync_msg.hosts, vec![]);
+
+    let peer2_config = chain.make_config(rng);
+    let mut peer2 =
+        pm.start_inbound(chain.clone(), peer2_config.clone()).await.handshake(clock).await;
+    let empty_sync_msg = peer2.events.recv_until(take_sync_snapshot_msg).await;
+    assert_eq!(empty_sync_msg.hosts, vec![]);
+
+    tracing::info!(target:"test", "send an empty sync snapshot host message from peer1, the host info has no shards");
+    let no_shards_info = Arc::new(SnapshotHostInfo::new(
+        peer1_config.node_id(),
+        CryptoHash::hash_borsh(rng.r#gen::<u64>()),
+        rng.r#gen(),
+        vec![],
+        &peer1_config.node_key,
+    ));
+
+    let no_shards_message =
+        PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts: vec![no_shards_info.clone()] });
+    peer1.send(no_shards_message).await;
+
+    tracing::info!(target:"test", "send a valid message from peer2");
+
+    let info2 = make_snapshot_host_info(&peer2_config.node_id(), &peer2_config.node_key, rng);
+
+    peer2
+        .send(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts: vec![info2.clone()] }))
+        .await;
+
+    tracing::info!(target:"test", "make sure that only valid messages are broadcast");
+
+    // Wait until peer2 receives info2. No other messages should be broadcast.
+    wait_for_host_info(&mut peer2, &info2, &[]).await;
+}
