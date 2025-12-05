@@ -312,6 +312,7 @@ impl ChunkProducer {
                     prev_block,
                     chunk_extra.as_ref(),
                     chain_validate,
+                    protocol_version,
                 )?,
             }
         };
