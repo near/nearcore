@@ -25,6 +25,9 @@ import remote_node
 from node_handle import NodeHandle
 from utils import ScheduleContext, ScheduleMode, build_stake_distribution, PartitionSelector
 
+MOCKNET_STORE_PATH = os.getenv("MOCKNET_STORE_PATH",
+                               "gs://near-mocknet-artefact-store")
+
 
 def to_list(item):
     return [item] if item is not None else []
@@ -244,6 +247,7 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
             "run_id": run_id,
             "is_traffic_generator": False,
             "binaries": node_binaries,
+            "mocknet_store_path": MOCKNET_STORE_PATH
         }
         all_nodes.append(node)
         all_configs.append(node_config)
