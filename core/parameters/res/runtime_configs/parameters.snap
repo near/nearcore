@@ -253,3 +253,7 @@ action_use_global_contract_per_identifier_byte
 - execution:              64_572_944
 global_contract_host_fns                true
 deterministic_account_ids               true
+memory_usage_threshold                        40_000_000_000
+min_child_memory_usage                        10_000_000_000
+max_number_of_shards                                      16
+min_epochs_between_resharding                              2
