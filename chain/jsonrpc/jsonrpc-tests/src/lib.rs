@@ -148,6 +148,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         actor_system.new_future_spawner("state sync").into(),
         noop().into_multi_sender(),
         noop().into_sender(),
+        noop().into_sender(),
         signer.clone(),
         noop().into_sender(),
         None,

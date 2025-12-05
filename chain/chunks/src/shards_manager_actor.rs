@@ -80,6 +80,7 @@
 
 use crate::adapter::ShardsManagerRequestFromClient;
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
+use crate::chunk_distributor_actor::ChunkDistributorActor;
 use crate::client::{ShardsManagerResponse, ShardsManagerResponseSender};
 use crate::logic::{
     chunk_needs_to_be_fetched_from_archival, create_partial_chunk, make_outgoing_receipts_proofs,
@@ -364,6 +365,25 @@ pub fn start_shards_manager(
     );
 
     actor_system.spawn_tokio_actor(shards_manager)
+}
+
+pub fn start_chunk_distributor_actor(
+    actor_system: ActorSystem,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    shard_tracker: ShardTracker,
+    network_adapter: Sender<PeerManagerMessageRequest>,
+    validator_signer: MutableValidatorSigner,
+    shards_manager_sender: Sender<ShardsManagerRequestFromClient>,
+) -> TokioRuntimeHandle<ChunkDistributorActor> {
+    let chunk_distributor = ChunkDistributorActor::new(
+        validator_signer,
+        epoch_manager,
+        shard_tracker,
+        network_adapter,
+        shards_manager_sender,
+    );
+
+    actor_system.spawn_tokio_actor(chunk_distributor)
 }
 
 impl ShardsManagerActor {
@@ -2048,81 +2068,12 @@ impl ShardsManagerActor {
         &mut self,
         partial_chunk: PartialEncodedChunk,
         encoded_chunk: &EncodedShardChunk,
-        merkle_paths: &[MerklePath],
-        outgoing_receipts: Vec<Receipt>,
-        me: Option<&AccountId>,
+        _merkle_paths: &[MerklePath],
+        _outgoing_receipts: Vec<Receipt>,
+        _me: Option<&AccountId>,
     ) -> Result<(), Error> {
-        let shard_id = encoded_chunk.shard_id();
-        let _timer = metrics::DISTRIBUTE_ENCODED_CHUNK_TIME
-            .with_label_values(&[&shard_id.to_string()])
-            .start_timer();
-        // TODO: if the number of validators exceeds the number of parts, this logic must be changed
-        let chunk_header = encoded_chunk.cloned_header();
-        #[cfg(not(feature = "test_features"))]
-        debug_assert_eq!(chunk_header, partial_chunk.cloned_header());
-        let prev_block_hash = chunk_header.prev_block_hash();
-
-        let mut block_producer_mapping = HashMap::new();
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
-        for part_ord in 0..self.epoch_manager.num_total_parts() {
-            let part_ord = part_ord as u64;
-            let to_whom = self.epoch_manager.get_part_owner(&epoch_id, part_ord).unwrap();
-
-            let entry = block_producer_mapping.entry(to_whom).or_insert_with(Vec::new);
-            entry.push(part_ord);
-        }
-
-        // Receipt proofs need to be distributed to the block producers of the next epoch
-        // because they already start tracking the shard in the current epoch.
-        let next_epoch_id = self.epoch_manager.get_next_epoch_id(prev_block_hash)?;
-        let next_epoch_block_producers =
-            self.epoch_manager.get_epoch_block_producers_ordered(&next_epoch_id)?;
-        for bp in next_epoch_block_producers {
-            if !block_producer_mapping.contains_key(bp.account_id()) {
-                block_producer_mapping.insert(bp.account_id().clone(), vec![]);
-            }
-        }
-
-        let receipt_proofs = make_outgoing_receipts_proofs(
-            &chunk_header,
-            outgoing_receipts,
-            self.epoch_manager.as_ref(),
-        )?
-        .into_iter()
-        .map(Arc::new)
-        .collect::<Vec<_>>();
-        for (to_whom, part_ords) in block_producer_mapping {
-            let part_receipt_proofs = receipt_proofs
-                .iter()
-                .filter(|proof| {
-                    let proof_shard_id = proof.1.to_shard_id;
-                    self.shard_tracker.cares_about_shard_this_or_next_epoch_for_account_id(
-                        &to_whom,
-                        &prev_block_hash,
-                        proof_shard_id,
-                    )
-                })
-                .cloned()
-                .collect();
-
-            let partial_encoded_chunk = encoded_chunk
-                .create_partial_encoded_chunk_with_arc_receipts(
-                    part_ords,
-                    part_receipt_proofs,
-                    &merkle_paths,
-                );
-
-            if Some(&to_whom) != me {
-                self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::PartialEncodedChunkMessage {
-                        account_id: to_whom.clone(),
-                        partial_encoded_chunk,
-                    },
-                ));
-            }
-        }
-
         // Add it to the set of chunks to be included in the next block
+        let chunk_header = encoded_chunk.cloned_header();
         let (parts, receipts) = partial_chunk.into_parts_and_receipt_proofs();
         self.encoded_chunks.merge_in_partial_encoded_chunk(&chunk_header, parts, receipts);
         self.encoded_chunks.mark_chunk_for_inclusion(&chunk_header.chunk_hash());

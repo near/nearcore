@@ -24,7 +24,9 @@ use near_chain_configs::{
 use near_chunks::DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
-use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager};
+use near_chunks::shards_manager_actor::{
+    ShardsManagerActor, start_chunk_distributor_actor, start_shards_manager,
+};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
 use near_client::client_actor::{ClientActor, SpiceClientConfig};
@@ -196,6 +198,7 @@ fn setup(
     ));
 
     let shards_manager_adapter_for_client = LateBoundSender::new();
+    let chunk_distribution_adapter_for_client = LateBoundSender::new();
     let StartClientResult {
         client_actor,
         tx_pool,
@@ -214,6 +217,7 @@ fn setup(
         actor_system.new_future_spawner("state sync").into(),
         network_adapter.clone(),
         shards_manager_adapter_for_client.as_sender(),
+        chunk_distribution_adapter_for_client.as_sender(),
         signer.clone(),
         telemetry.into_sender(),
         None,
@@ -254,19 +258,29 @@ fn setup(
         spawn_chunk_endorsement_handler_actor(actor_system.clone(), chunk_endorsement_tracker);
 
     let validator_signer = Some(Arc::new(EmptyValidatorSigner::new(account_id)));
+    let validator_signer = MutableConfigValue::new(validator_signer, "validator_signer");
     let shards_manager_adapter = start_shards_manager(
-        actor_system,
+        actor_system.clone(),
         epoch_manager.clone(),
-        epoch_manager,
-        shard_tracker,
-        network_adapter.into_sender(),
+        epoch_manager.clone(),
+        shard_tracker.clone(),
+        network_adapter.clone().into_sender(),
         client_actor.clone().into_sender(),
-        MutableConfigValue::new(validator_signer, "validator_signer"),
+        validator_signer.clone(),
         store,
         config.chunk_request_retry_period,
         config.chunks_cache_height_horizon,
     );
     shards_manager_adapter_for_client.bind(shards_manager_adapter.clone());
+    let chunk_distributor_adapter = start_chunk_distributor_actor(
+        actor_system,
+        epoch_manager,
+        shard_tracker,
+        network_adapter.into_sender(),
+        validator_signer.clone(),
+        shards_manager_adapter_for_client.as_sender(),
+    );
+    chunk_distribution_adapter_for_client.bind(chunk_distributor_adapter);
 
     client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {
         chunk_state_witness: chunk_validation_actor.into_sender(),
@@ -448,6 +462,7 @@ pub fn setup_client_with_runtime(
     enable_doomslug: bool,
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: SynchronousShardsManagerAdapter,
+    chunk_distributor_sender: Sender<ShardsManagerRequestFromClient>,
     chain_genesis: ChainGenesis,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
@@ -492,6 +507,7 @@ pub fn setup_client_with_runtime(
         runtime.clone(),
         network_adapter.clone(),
         shards_manager_adapter.into_sender(),
+        chunk_distributor_sender,
         validator_signer.clone(),
         enable_doomslug,
         rng_seed,

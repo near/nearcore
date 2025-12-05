@@ -7,6 +7,7 @@ use near_chain::{Block, ChainGenesis};
 use near_chain_configs::{
     Genesis, GenesisConfig, MutableConfigValue, ProtocolVersionCheckConfig, TrackedShardsConfig,
 };
+use near_chunks::shards_manager_actor::start_chunk_distributor_actor;
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_client::{ChunkValidationActor, Client};
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -518,7 +519,25 @@ impl TestEnvBuilder {
                 )
             })
             .collect_vec();
+
         let actor_system = ActorSystem::new();
+        let chunk_distributor_actors = (0..num_clients)
+            .map(|i| {
+                let epoch_manager = epoch_managers[i].clone();
+                let shard_tracker = shard_trackers[i].clone();
+                let network_adapter = network_adapters[i].clone();
+                let validator_signer = MutableConfigValue::new(None, "validator_signer");
+
+                start_chunk_distributor_actor(
+                    actor_system.clone(),
+                    epoch_manager,
+                    shard_tracker,
+                    network_adapter.as_sender(),
+                    validator_signer,
+                    shards_manager_adapters[i].clone().into_sender(),
+                )
+            })
+            .collect_vec();
         let (clients, chunk_validation_actors): (Vec<Client>, Vec<ChunkValidationActor>) =
             (0..num_clients)
                 .map(|i| {
@@ -526,6 +545,7 @@ impl TestEnvBuilder {
                     let network_adapter = network_adapters[i].clone();
                     let partial_witness_adapter = partial_witness_adapters[i].clone();
                     let shards_manager_adapter = shards_manager_adapters[i].clone();
+                    let chunk_distributor_actor = chunk_distributor_actors[i].clone();
                     let epoch_manager = epoch_managers[i].clone();
                     let shard_tracker = shard_trackers[i].clone();
                     let runtime = runtimes[i].clone();
@@ -561,6 +581,7 @@ impl TestEnvBuilder {
                         false,
                         network_adapter.as_multi_sender(),
                         shards_manager_adapter,
+                        chunk_distributor_actor.into_sender(),
                         chain_genesis.clone(),
                         epoch_manager,
                         shard_tracker,
@@ -599,6 +620,7 @@ impl TestEnvBuilder {
             client_adapters,
             partial_witness_adapters,
             shards_manager_adapters,
+            chunk_distributor_actors,
             clients,
             chunk_validation_actors,
             rpc_handlers: tx_request_handlers,
