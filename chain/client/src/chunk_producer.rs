@@ -30,9 +30,11 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{ShardUId, TrieUpdate};
+use near_vm_runner::logic::ProtocolVersion;
 use parking_lot::Mutex;
 #[cfg(feature = "test_features")]
 use rand::{Rng, SeedableRng};
@@ -275,7 +277,8 @@ impl ChunkProducer {
         tracing::debug!(target: "client", "start producing the chunk");
 
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
-        let chunk_extra = if cfg!(feature = "protocol_feature_spice") {
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+        let chunk_extra = if ProtocolFeature::Spice.enabled(protocol_version) {
             // TODO(spice): using default values as a placeholder is a temporary hack
             Arc::new(ChunkExtra::new_with_only_state_root(&Default::default()))
         } else {
@@ -297,6 +300,7 @@ impl ChunkProducer {
                         prev_block,
                         chunk_extra.as_ref(),
                         chain_validate,
+                        protocol_version,
                     )?,
                 },
             }
@@ -421,12 +425,13 @@ impl ChunkProducer {
         prev_block: &Block,
         chunk_extra: &ChunkExtra,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        protocol_version: ProtocolVersion,
     ) -> Result<PreparedTransactions, Error> {
         let shard_id = shard_uid.shard_id();
         let mut pool_guard = self.sharded_tx_pool.lock();
         let prepared_transactions = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid)
         {
-            if cfg!(feature = "protocol_feature_spice") {
+            if ProtocolFeature::Spice.enabled(protocol_version) {
                 // TODO(spice): properly implement transaction preparation to respect limits
                 let mut res = vec![];
                 while let Some(iter) = iter.next() {
