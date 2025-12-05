@@ -11,13 +11,13 @@ use near_chain_configs::test_utils::{
 use near_chain_configs::{
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
-    CloudArchivalWriterConfig, DumpConfig, EXPECTED_EPOCH_LENGTH, EpochSyncConfig,
-    FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GCConfig,
-    GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig, GenesisValidationMode, INITIAL_GAS_LIMIT,
-    LogSummaryStyle, MAX_INFLATION_RATE, MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE,
-    MutableConfigValue, MutableValidatorSigner, NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR,
-    PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig,
-    ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
+    CloudArchivalWriterConfig, EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH,
+    FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis,
+    GenesisConfig, GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
+    MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
+    NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
+    PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
+    StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
     default_chunk_validation_threads, default_chunk_wait_mult, default_chunks_cache_height_horizon,
     default_enable_early_prepare_transactions, default_enable_multiline_logging,
     default_epoch_sync, default_header_sync_expected_height_per_second,
@@ -657,16 +657,11 @@ impl Config {
         }
         let mut config = StateSyncConfig::default();
         if self.cloud_archival_writer.is_some() {
-            let cloud_storage_config = self
+            let cloud_archival_config = self
                 .cloud_archival
                 .clone()
                 .expect("cloud storage must be configured on cloud archive writer");
-            config.dump = Some(DumpConfig {
-                location: cloud_storage_config.cloud_storage.location,
-                restart_dump_for_shards: None,
-                iteration_delay: None,
-                credentials_file: cloud_storage_config.cloud_storage.credentials_file,
-            });
+            config.dump = Some(cloud_archival_config.cloud_storage.into());
         }
         config
     }

@@ -1,6 +1,7 @@
 use itertools::Itertools;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, TestGenesisBuilder};
 use near_chain_configs::test_utils::TestClientConfigParams;
+use near_store::archive::cloud_storage::config::test_cloud_archival_config;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -9,7 +10,6 @@ use tempfile::TempDir;
 
 use near_async::test_loop::TestLoopV2;
 use near_async::time::{Clock, Duration};
-#[allow(unused_imports)]
 use near_chain_configs::{
     ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
     StateSyncConfig, SyncConfig, TrackedShardsConfig,
@@ -325,14 +325,15 @@ impl<'a> NodeStateBuilder<'a> {
     pub fn build(self) -> NodeSetupState {
         let storage = self.setup_storage();
         let account_id = self.account_id.unwrap();
+        let archive = self.enable_cold_storage || self.enable_cloud_storage;
 
         let mut client_config = ClientConfig::test(TestClientConfigParams {
             skip_sync_wait: true,
             min_block_prod_time: MIN_BLOCK_PROD_TIME,
             max_block_prod_time: 2000,
             num_block_producer_seats: 4,
-            archive: self.enable_cold_storage || self.enable_cloud_storage,
-            state_sync_enabled: true,
+            archive,
+            state_sync_enabled: false,
         });
         client_config.epoch_length = self.genesis.config.epoch_length;
         client_config.max_block_wait_delay = Duration::seconds(6);
@@ -341,14 +342,21 @@ impl<'a> NodeStateBuilder<'a> {
         client_config.state_sync_retry_backoff = Duration::milliseconds(100);
         client_config.state_sync_external_backoff = Duration::milliseconds(100);
 
-        // The testloop default is to set dumper/state sync on every node.
-        // We don't do that if cloud storage is enabled since these are archival nodes (s)
-        if !self.enable_cloud_storage {
-            client_config.state_sync = default_testloop_state_sync_config(self.tempdir_path);
-        } 
+        if !archive {
+            client_config.state_sync_enabled = true;
+            // Decentralized state sync network messages are not handled in testloop.
+            // Instead, parts are dumped to a tempdir that mocks centralized state sync bucket.
+            client_config.state_sync = default_testloop_state_sync_config(&self.tempdir_path);
+        }
 
         if let Some(config_modifier) = self.config_modifier {
             config_modifier(&mut client_config);
+        }
+
+        if client_config.cloud_archival_writer.is_some() {
+            client_config.state_sync_enabled = true;
+            let cloud_archival_config = test_cloud_archival_config(self.tempdir_path);
+            client_config.state_sync.dump = Some(cloud_archival_config.cloud_storage.into())
         }
 
         NodeSetupState { account_id, client_config, storage }
@@ -363,9 +371,7 @@ impl<'a> NodeStateBuilder<'a> {
     }
 }
 
-// Decentralized state sync network messages are not handled in testloop.
-// Instead, parts are dumped to a tempdir that mocks centralized state sync bucket.
-fn default_testloop_state_sync_config(tempdir: PathBuf) -> StateSyncConfig {
+fn default_testloop_state_sync_config(tempdir: &PathBuf) -> StateSyncConfig {
     let external_storage_location =
         ExternalStorageLocation::Filesystem { root_dir: tempdir.join("state_sync") };
     StateSyncConfig {
