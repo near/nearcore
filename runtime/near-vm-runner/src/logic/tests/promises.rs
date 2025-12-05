@@ -6,6 +6,7 @@ use crate::map;
 
 use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, ExtCosts};
+use near_primitives_core::config::AccountIdValidityRulesVersion;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Gas;
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -174,6 +175,30 @@ fn test_promise_batch_action_function_call() {
           }
         ]"#]]
     .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+}
+
+#[test]
+fn test_promise_batch_action_use_global_contract_by_account_id_with_invalid_account() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.account_id_validity_rules_version =
+        AccountIdValidityRulesVersion::V2;
+    let mut logic = logic_builder.build();
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+
+    let invalid_account_id = logic.internal_mem_write(b"not a valid account id");
+
+    let err = logic
+        .promise_batch_action_use_global_contract_by_account_id(
+            index,
+            invalid_account_id.len,
+            invalid_account_id.ptr,
+        )
+        .expect_err("should reject invalid account id when strict validation is enabled");
+
+    assert!(matches!(
+        err,
+        crate::logic::VMLogicError::HostError(crate::logic::HostError::InvalidAccountId)
+    ));
 }
 
 #[test]

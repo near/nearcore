@@ -242,7 +242,7 @@ pub struct VMConfigView {
     pub storage_get_mode: crate::vm::StorageGetMode,
     /// See [VMConfig::fix_contract_loading_cost](crate::vm::Config::fix_contract_loading_cost).
     pub fix_contract_loading_cost: bool,
-    /// See [VMConfig::implicit_account_creation](crate::vm::Config::implicit_account_creation).
+    /// Deprecated
     pub implicit_account_creation: bool,
     /// See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).
     pub eth_implicit_accounts: bool,
@@ -266,7 +266,7 @@ impl From<crate::vm::Config> for VMConfigView {
             limit_config: config.limit_config,
             storage_get_mode: config.storage_get_mode,
             fix_contract_loading_cost: config.fix_contract_loading_cost,
-            implicit_account_creation: config.implicit_account_creation,
+            implicit_account_creation: true,
             vm_kind: config.vm_kind,
             eth_implicit_accounts: config.eth_implicit_accounts,
             saturating_float_to_int: config.saturating_float_to_int,
@@ -289,7 +289,6 @@ impl From<VMConfigView> for crate::vm::Config {
             limit_config: view.limit_config,
             storage_get_mode: view.storage_get_mode,
             fix_contract_loading_cost: view.fix_contract_loading_cost,
-            implicit_account_creation: view.implicit_account_creation,
             vm_kind: view.vm_kind,
             eth_implicit_accounts: view.eth_implicit_accounts,
             saturating_float_to_int: view.saturating_float_to_int,

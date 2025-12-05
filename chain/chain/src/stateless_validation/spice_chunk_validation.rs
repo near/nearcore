@@ -335,8 +335,6 @@ mod tests {
     use near_async::time::Clock;
     use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::ReceiptPriority;
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
@@ -783,22 +781,14 @@ mod tests {
         signer: &ValidatorSigner,
         tx_root: CryptoHash,
     ) -> ShardChunkHeader {
-        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
             prev_block_hash,
-            Default::default(),
-            Default::default(),
             Default::default(),
             Default::default(),
             height,
             shard_id,
             Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
             tx_root,
-            Default::default(),
-            CongestionInfo::default(),
-            BandwidthRequests::empty(),
             signer,
         ))
     }

@@ -451,7 +451,9 @@ impl ProtocolFeature {
             ProtocolFeature::Spice => 151,
 
             // Place features that are not yet in Nightly below this line.
-            ProtocolFeature::DynamicResharding => 152,
+            // TODO(dynamic_resharding): This should be 152, but some resharding tests bump
+            //     protocol version to trigger resharding and accidentally turn on this feature
+            ProtocolFeature::DynamicResharding => 252,
         }
     }
 

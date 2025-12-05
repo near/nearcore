@@ -4796,6 +4796,7 @@ dependencies = [
  "bytesize 1.1.0",
  "chrono",
  "criterion",
+ "derive_builder",
  "derive_more 2.0.1",
  "easy-ext",
  "enum-map",

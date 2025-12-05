@@ -14,7 +14,7 @@ use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
 use near_chain::stateless_validation::spice_chunk_validation::spice_pre_validate_chunk_state_witness;
 use near_chain::stateless_validation::spice_chunk_validation::spice_validate_chunk_state_witness;
 use near_chain::test_utils::{
-    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
+    get_chain_with_genesis, get_fake_next_block_spice_chunk_headers, process_block_sync,
 };
 use near_chain::types::Tip;
 use near_chain::{Block, Chain, ChainGenesis};
@@ -337,8 +337,10 @@ fn block_executed(actor: &TestActor, block: &Block) -> bool {
 }
 
 fn produce_block(actors: &mut [TestActor], prev_block: &Block) -> Arc<Block> {
-    let chunks =
-        get_fake_next_block_chunk_headers(&prev_block, actors[0].actor.epoch_manager.as_ref());
+    let chunks = get_fake_next_block_spice_chunk_headers(
+        &prev_block,
+        actors[0].actor.epoch_manager.as_ref(),
+    );
     for actor in actors.iter_mut() {
         let mut store_update = actor.actor.chain_store.store_update();
         for chunk_header in &chunks {
