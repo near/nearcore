@@ -1,11 +1,13 @@
 use near_async::messaging::Actor;
 use near_async::test_utils::FakeDelayedActionRunner;
 use near_chain::ChainStoreAccess;
+use near_chain::spice_core::SpiceCoreReader;
 use near_chain::spice_core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use near_chain::types::Tip;
 use near_crypto::Signature;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
+use near_primitives::gas::Gas;
 use near_primitives::spice_partial_data::{
     SpiceDataCommitment, SpiceDataIdentifier, SpiceDataPart, SpicePartialData,
     SpiceVerifiedPartialData, testonly_create_spice_partial_data,
@@ -25,7 +27,7 @@ use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::time::Clock;
 use near_chain::Block;
 use near_chain::test_utils::{
-    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
+    get_chain_with_genesis, get_fake_next_block_spice_chunk_headers, process_block_sync,
 };
 use near_chain::{BlockProcessingArtifact, Chain, Provenance};
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
@@ -67,7 +69,7 @@ fn build_block(epoch_manager: &dyn EpochManagerAdapter, prev_block: &Block) -> A
         .unwrap();
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
     TestBlockBuilder::new(Clock::real(), prev_block, signer)
-        .chunks(get_fake_next_block_chunk_headers(&prev_block, epoch_manager))
+        .chunks(get_fake_next_block_spice_chunk_headers(&prev_block, epoch_manager))
         .spice_core_statements(vec![])
         .build()
 }
@@ -244,10 +246,11 @@ impl ActorBuilder {
             }),
         };
         SpiceDataDistributorActor::new(
-            epoch_manager,
+            epoch_manager.clone(),
             chain.chain_store.store().chain_store(),
             validator_signer,
             shard_tracker,
+            core_reader(chain),
             network_adapter,
             Sender::from_fn({
                 let outgoing_sc = outgoing_sc.clone();
@@ -266,6 +269,14 @@ impl ActorBuilder {
             }),
         )
     }
+}
+
+fn core_reader(chain: &Chain) -> SpiceCoreReader {
+    SpiceCoreReader::new(
+        chain.chain_store.store().chain_store(),
+        chain.epoch_manager.clone(),
+        Gas::from_teragas(100),
+    )
 }
 
 fn new_actor_for_account(
@@ -934,6 +945,7 @@ fn record_endorsement(chain: &Chain, chunk_id: SpiceChunkId, validator: &Account
     let mut core_writer_actor = SpiceCoreWriterActor::new(
         chain.runtime_adapter.store().chain_store(),
         chain.epoch_manager.clone(),
+        core_reader(chain),
         noop().into_sender(),
         noop().into_sender(),
     );

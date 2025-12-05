@@ -26,9 +26,7 @@ use crate::stateless_validation::chunk_endorsement::{
 };
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for_shard};
-use crate::store::{
-    ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
-};
+use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter};
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, BlockType, ChainConfig,
     PrepareTransactionsBlockContext, RuntimeAdapter, StorageDataSource,
@@ -89,7 +87,7 @@ use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, ShardIndex,
 };
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
@@ -98,6 +96,7 @@ use near_primitives::views::{
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::get_genesis_state_roots;
+use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{DBCol, StateSnapshotConfig};
 use node_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -334,7 +333,7 @@ impl Drop for Chain {
 pub type UpdateShardJob = (
     ShardId,
     CachedShardUpdateKey,
-    Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send + Sync + 'static>,
+    Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send + 'static>,
 );
 
 /// PreprocessBlockResult is a tuple where the first element is a vector of jobs
@@ -394,7 +393,11 @@ impl Chain {
             noop().into_multi_sender(),
         );
         let num_shards = runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
-        let spice_core_reader = SpiceCoreReader::new(store.chain_store(), epoch_manager.clone());
+        let spice_core_reader = SpiceCoreReader::new(
+            store.chain_store(),
+            epoch_manager.clone(),
+            chain_genesis.gas_limit,
+        );
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -569,8 +572,11 @@ impl Chain {
         let max_num_shards =
             runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
         let apply_chunks_spawner = apply_chunks_spawner.into_spawner(max_num_shards);
-        let spice_core_reader =
-            SpiceCoreReader::new(chain_store.store().chain_store(), epoch_manager.clone());
+        let spice_core_reader = SpiceCoreReader::new(
+            chain_store.store().chain_store(),
+            epoch_manager.clone(),
+            chain_genesis.gas_limit,
+        );
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -1300,16 +1306,16 @@ impl Chain {
         chunk_headers: Vec<ShardChunkHeader>,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), Error> {
-        if cfg!(feature = "protocol_feature_spice") {
-            return Ok(());
-        }
-
         let block_height = block.height();
         let prev_block_hash = *block.prev_block_hash();
         let prev_block = self.get_block(&prev_block_hash)?;
         let prev_prev_hash = prev_block.header().prev_hash();
         let prev_chunk_headers = self.epoch_manager.get_prev_chunk_headers(&prev_block)?;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        if ProtocolFeature::Spice.enabled(protocol_version) {
+            return Ok(());
+        }
 
         let (is_caught_up, _) =
             self.get_catchup_and_state_sync_infos(None, &prev_block_hash, prev_prev_hash)?;
@@ -2343,11 +2349,25 @@ impl Chain {
             return Err(e);
         }
 
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+        let last_certified_block_execution_results =
+            if ProtocolFeature::Spice.enabled(protocol_version) {
+                // We cannot get last certified block until block is fully processed.
+                Some(self.spice_core_reader.get_last_certified_execution_results_for_next_block(
+                    &prev,
+                    block.spice_core_statements(),
+                )?)
+            } else {
+                None
+            };
+
         if !block.verify_gas_price(
             gas_price,
             self.block_economics_config.min_gas_price(),
             self.block_economics_config.max_gas_price(),
             self.block_economics_config.gas_price_adjustment_rate(),
+            last_certified_block_execution_results.as_ref(),
         ) {
             byzantine_assert!(false);
             return Err(Error::InvalidGasPrice);
@@ -2998,7 +3018,16 @@ impl Chain {
         let next_epoch_id =
             self.epoch_manager.get_next_epoch_id_from_prev_block(block_header.prev_hash())?;
         let validator_signer = self.validator_signer.get();
-        let Some(account_id) = validator_signer.as_ref().map(|v| v.validator_id()) else {
+
+        let validator_id = if let Some(validator_signer) = &validator_signer {
+            Some(validator_signer.validator_id())
+        } else {
+            // If the node shadows another validator, we want it to have all the transition
+            // data so it can seamlessly take over as the main validator if required.
+            self.shard_tracker.get_shadow_validator_id()
+        };
+
+        let Some(account_id) = validator_id else {
             return Ok(false);
         };
         Ok(self.epoch_manager.is_chunk_producer_for_epoch(epoch_id, account_id)?
@@ -3244,7 +3273,7 @@ impl Chain {
         let shard_update_reason = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
             let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?;
-            let chunk = get_chunk_clone_from_header(&self.chain_store, chunk_header)?;
+            let chunk = get_chunk_clone_from_header(&self.chain_store.chunk_store(), chunk_header)?;
             let prev_chunk_height_included = prev_chunk_header.height_included();
 
             // Validate that all next chunk information matches previous chunk extra.
@@ -3491,10 +3520,6 @@ impl Chain {
 
     pub fn transaction_validity_period(&self) -> BlockHeightDelta {
         self.chain_store.transaction_validity_period
-    }
-
-    pub fn set_transaction_validity_period(&mut self, to: BlockHeightDelta) {
-        self.chain_store.transaction_validity_period = to;
     }
 
     /// Check if block is known: head, orphan, in processing or in store.

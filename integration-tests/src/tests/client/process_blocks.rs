@@ -12,8 +12,7 @@ use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::time::{Clock, Duration};
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
-use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
-use near_chain::{ChainStore, MerkleProofAccess};
+use near_chain::{Block, BlockProcessingArtifact, ChainStore, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, ProtocolVersionCheckConfig};
 use near_client::test_utils::create_chunk_on_height;
@@ -62,6 +61,7 @@ use near_store::NodeStorage;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::archive::cold_storage::{update_cold_db, update_cold_head};
 use near_store::db::metadata::{DB_VERSION, DbKind};
+use near_store::merkle_proof::MerkleProofAccess;
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::{DBCol, TrieChanges, get};
 use parking_lot::RwLock;
@@ -1247,6 +1247,8 @@ fn test_gc_execution_outcome() {
 }
 
 #[test]
+// TODO(spice): Enable after implementing state sync for spice.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_gc_after_state_sync() {
     let epoch_length = 1024;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);

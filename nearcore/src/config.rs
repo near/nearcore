@@ -18,7 +18,7 @@ use near_chain_configs::{
     NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
     StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
-    default_chunk_validation_threads, default_chunk_wait_mult,
+    default_chunk_validation_threads, default_chunk_wait_mult, default_chunks_cache_height_horizon,
     default_enable_early_prepare_transactions, default_enable_multiline_logging,
     default_epoch_sync, default_header_sync_expected_height_per_second,
     default_header_sync_initial_timeout, default_header_sync_progress_timeout,
@@ -424,6 +424,11 @@ pub struct Config {
     /// The current implementation increases latency on low-load chains, which will be fixed in the future.
     /// The default is disabled.
     pub enable_early_prepare_transactions: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Height horizon for the chunk cache. A chunk is removed from the cache
+    /// if its height + chunks_cache_height_horizon < largest_seen_height.
+    /// The default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.
+    pub chunks_cache_height_horizon: Option<BlockHeightDelta>,
     /// If true, the runtime will do a dynamic resharding 'dry run' at the last block of each epoch.
     /// This means calculating tentative boundary accounts for splitting the tracked shards.
     /// The default is disabled.
@@ -497,6 +502,7 @@ impl Default for Config {
             transaction_request_handler_threads: 4,
             protocol_version_check_config_override: None,
             enable_early_prepare_transactions: None,
+            chunks_cache_height_horizon: None,
             dynamic_resharding_dry_run: false,
         }
     }
@@ -764,6 +770,9 @@ impl NearConfig {
                 enable_early_prepare_transactions: config
                     .enable_early_prepare_transactions
                     .unwrap_or_else(default_enable_early_prepare_transactions),
+                chunks_cache_height_horizon: config
+                    .chunks_cache_height_horizon
+                    .unwrap_or_else(default_chunks_cache_height_horizon),
                 dynamic_resharding_dry_run: config.dynamic_resharding_dry_run,
             },
             #[cfg(feature = "tx_generator")]

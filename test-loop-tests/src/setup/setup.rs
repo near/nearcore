@@ -5,6 +5,7 @@ use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 use near_chain::runtime::NightshadeRuntime;
+use near_chain::spice_core::SpiceCoreReader;
 use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
 use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
@@ -239,6 +240,7 @@ pub fn setup_client(
         <_>::clone(&head),
         <_>::clone(&header_head),
         Duration::milliseconds(100),
+        client_config.chunks_cache_height_horizon,
     );
 
     let genesis_block = client.chain.genesis_block();
@@ -379,6 +381,8 @@ pub fn setup_client(
         runtime_adapter.clone(),
         storage.hot_store,
         storage.cloud_storage.as_ref(),
+        shard_tracker.clone(),
+        epoch_manager.clone(),
     )
     .unwrap();
     let cloud_archival_writer_handle = test_loop.data.register_data(cloud_archival_writer_handle);
@@ -390,9 +394,16 @@ pub fn setup_client(
         client_config.resharding_config.clone(),
     );
 
+    let spice_core_reader = SpiceCoreReader::new(
+        runtime_adapter.store().chain_store(),
+        epoch_manager.clone(),
+        chain_genesis.gas_limit,
+    );
+
     let spice_core_writer_actor = SpiceCoreWriterActor::new(
         runtime_adapter.store().chain_store(),
         epoch_manager.clone(),
+        spice_core_reader.clone(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
     );
@@ -402,6 +413,7 @@ pub fn setup_client(
         runtime_adapter.store().chain_store(),
         validator_signer.clone(),
         shard_tracker.clone(),
+        spice_core_reader,
         network_adapter.as_multi_sender(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),

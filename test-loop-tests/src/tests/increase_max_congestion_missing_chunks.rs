@@ -90,22 +90,22 @@ fn slow_test_tx_inclusion() {
         .build();
 
     let mainnet_epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let mut old_epoch_config = mainnet_epoch_config_store.get_config(old_protocol).deref().clone();
-    let mut new_epoch_config = mainnet_epoch_config_store.get_config(new_protocol).deref().clone();
+    let old_epoch_config = mainnet_epoch_config_store.get_config(old_protocol).deref().clone();
+    let new_epoch_config = mainnet_epoch_config_store.get_config(new_protocol).deref().clone();
 
     // Adjust the epoch configs for the test
-    let adjust_epoch_config = |config: &mut EpochConfig| {
+    let adjust_epoch_config = |mut config: EpochConfig| {
         config.epoch_length = epoch_length;
-        config.shard_layout = shard_layout.clone();
         config.num_block_producer_seats = genesis_epoch_info.num_block_producer_seats;
         config.num_chunk_producer_seats = genesis_epoch_info.num_chunk_producer_seats;
         config.num_chunk_validator_seats = genesis_epoch_info.num_chunk_validator_seats;
         config.block_producer_kickout_threshold = 0;
         config.chunk_producer_kickout_threshold = 0;
         config.chunk_validator_only_kickout_threshold = 0;
+        config.with_shard_layout(shard_layout.clone())
     };
-    adjust_epoch_config(&mut old_epoch_config);
-    adjust_epoch_config(&mut new_epoch_config);
+    let old_epoch_config = adjust_epoch_config(old_epoch_config);
+    let new_epoch_config = adjust_epoch_config(new_epoch_config);
 
     let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (old_protocol, Arc::new(old_epoch_config)),

@@ -21,6 +21,7 @@ use near_chain_configs::{
     MutableValidatorSigner, ProtocolVersionCheckConfig, ReshardingConfig, ReshardingHandle,
     TrackedShardsConfig,
 };
+use near_chunks::DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager};
@@ -263,6 +264,7 @@ fn setup(
         MutableConfigValue::new(validator_signer, "validator_signer"),
         store,
         config.chunk_request_retry_period,
+        config.chunks_cache_height_horizon,
     );
     shards_manager_adapter_for_client.bind(shards_manager_adapter.clone());
 
@@ -584,6 +586,7 @@ pub fn setup_synchronous_shards_manager(
         <_>::clone(&chain_head),
         <_>::clone(&chain_header_head),
         Duration::hours(1),
+        DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
     );
     SynchronousShardsManagerAdapter::new(shards_manager)
 }

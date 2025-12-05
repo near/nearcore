@@ -596,7 +596,8 @@ fn validate_access_key_permission(
         // allowed arbitrary strings there!
         match limit_config.account_id_validity_rules_version {
             near_primitives_core::config::AccountIdValidityRulesVersion::V0 => (),
-            near_primitives_core::config::AccountIdValidityRulesVersion::V1 => {
+            near_primitives_core::config::AccountIdValidityRulesVersion::V1
+            | near_primitives_core::config::AccountIdValidityRulesVersion::V2 => {
                 if let Err(_) = fc.receiver_id.parse::<AccountId>() {
                     return Err(ActionsValidationError::InvalidAccountId {
                         account_id: truncate_string(&fc.receiver_id, AccountId::MAX_LEN * 2),

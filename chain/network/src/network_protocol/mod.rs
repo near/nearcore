@@ -575,7 +575,7 @@ impl TieredMessageBody {
                 T1MessageBody::VersionedPartialEncodedChunk(Box::new(partial_encoded_chunk)).into()
             }
             RoutedMessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg) => {
-                T1MessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg).into()
+                T2MessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg).into()
             }
             RoutedMessageBody::ChunkStateWitnessAck(chunk_state_witness_ack) => {
                 T2MessageBody::ChunkStateWitnessAck(chunk_state_witness_ack).into()
@@ -664,7 +664,10 @@ impl From<T2MessageBody> for TieredMessageBody {
 pub enum T1MessageBody {
     BlockApproval(Approval),
     VersionedPartialEncodedChunk(Box<PartialEncodedChunk>),
-    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+    // This is not enabled yet, to be migrated in the next release.
+    // TODO: make sure to deprecate the corresponding variant as part of
+    // T2MessageBody enum when this is enabled to be sent over T1.
+    _PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
     PartialEncodedStateWitness(PartialEncodedStateWitness),
     PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
     VersionedChunkEndorsement(ChunkEndorsement),
@@ -722,6 +725,7 @@ pub enum T2MessageBody {
     PartialEncodedContractDeploys(PartialEncodedContractDeploys),
     StateHeaderRequest(StateHeaderRequest),
     StateRequestAck(StateRequestAck),
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 }
 
 impl T2MessageBody {
@@ -946,7 +950,7 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                 T1MessageBody::VersionedPartialEncodedChunk(partial_encoded_chunk) => {
                     RoutedMessageBody::VersionedPartialEncodedChunk(*partial_encoded_chunk)
                 }
-                T1MessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg) => {
+                T1MessageBody::_PartialEncodedChunkForward(partial_encoded_chunk_forward_msg) => {
                     RoutedMessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg)
                 }
                 T1MessageBody::PartialEncodedStateWitness(partial_encoded_state_witness) => {
@@ -996,6 +1000,9 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                     RoutedMessageBody::PartialEncodedChunkResponse(
                         partial_encoded_chunk_response_msg,
                     )
+                }
+                T2MessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg) => {
+                    RoutedMessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg)
                 }
                 T2MessageBody::Ping(ping) => RoutedMessageBody::Ping(ping),
                 T2MessageBody::Pong(pong) => RoutedMessageBody::Pong(pong),

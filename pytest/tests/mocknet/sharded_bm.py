@@ -31,6 +31,8 @@ CHAIN_ID = "mainnet"
 # It corresponds to the existing setup with minimal disk usage.
 START_HEIGHT = 138038232
 
+PROJECT = os.getenv('MOCKNET_PROJECT', 'nearone-mocknet')
+
 # TODO: consider moving source directory to pytest.
 SOURCE_BENCHNET_DIR = "../benchmarks/sharded-bm"
 
@@ -43,8 +45,8 @@ CONFIG_PATH = f"{NEAR_HOME}/config.json"
 def fetch_forknet_details(forknet_name, bm_params):
     """Fetch the forknet details from GCP."""
     find_instances_cmd = [
-        "gcloud", "compute", "instances", "list", "--project=nearone-mocknet",
-        f"--filter=name~'-{forknet_name}-' AND -name~'traffic' AND -name~'tracing'",
+        "gcloud", "compute", "instances", "list", f"--project={PROJECT}",
+        f"--filter=name~'-{forknet_name}-' AND -name~'traffic' AND -name~'tracing' AND -name~'prometheus'",
         "--format=table(name,networkInterfaces[0].networkIP,zone)"
     ]
     find_instances_cmd_result = subprocess.run(
@@ -68,7 +70,7 @@ def fetch_forknet_details(forknet_name, bm_params):
     cp_instance_zones = [instance[2] for instance in cp_instances]
 
     find_tracing_server_cmd = [
-        "gcloud", "compute", "instances", "list", "--project=nearone-mocknet",
+        "gcloud", "compute", "instances", "list", f"--project={PROJECT}",
         f"--filter=name~'-{forknet_name}-' AND name~'tracing'",
         "--format=get(networkInterfaces[0].networkIP,networkInterfaces[0].accessConfigs[0].natIP)"
     ]
@@ -252,22 +254,23 @@ def handle_init(args):
     logger.info(
         f"Distributing account files across {len(shard_to_cps)} shards...")
     for shard, cps_in_shard in shard_to_cps.items():
-        cp_slot_map = {
-            cp_name: slot for slot, cp_name in enumerate(cps_in_shard)
-        }
         cp_names_csv = ','.join(sorted(cps_in_shard))
 
         logger.info(f"Shard {shard}: assigning {len(cps_in_shard)} CPs")
 
         run_cmd_args = copy.deepcopy(args)
         run_cmd_args.host_filter = f"({'|'.join(cps_in_shard)})"
-        accounts_path = f"{BENCHNET_DIR}/user-data/accounts.json"
+        source_accounts_path = f"{BENCHNET_DIR}/user-data/accounts.json"
+        source_accounts_dir = os.path.dirname(source_accounts_path)
+        receiver_accounts_dir = f"{BENCHNET_DIR}/user-data/receiver-accounts/"
         run_cmd_args.cmd = f"""
             my_hostname=$(hostname)
             slot=$(python3 -c "print('{cp_names_csv}'.split(',').index('$my_hostname'))")
             rm -rf {BENCHNET_DIR}/user-data
-            mkdir -p {BENCHNET_DIR}/user-data
-            cp {NEAR_HOME}/user-data/shard_{shard}_cp_${{slot}}.json {accounts_path}
+            mkdir -p {source_accounts_dir}
+            mkdir -p {receiver_accounts_dir}
+            cp {NEAR_HOME}/user-data/shard_{shard}_cp_${{slot}}.json {source_accounts_path}
+            cp {NEAR_HOME}/user-data/shard_*.json {receiver_accounts_dir}
             echo "CP $my_hostname assigned shard {shard}, slot $slot"
         """
         run_remote_cmd(CommandContext(run_cmd_args))
@@ -364,43 +367,31 @@ def handle_reset(args):
     reset_cmd(CommandContext(reset_cmd_args))
 
 
-def start_nodes(args, enable_tx_generator=False):
-    """Start the benchmark nodes with the given parameters."""
-    if enable_tx_generator:
-        logger.info("Setting tx generator parameters")
+def enable_tx_generator(args, receivers_from_senders_ratio: float):
+    logger.info("Setting tx generator parameters")
 
-        accounts_path = f"{BENCHNET_DIR}/user-data/accounts.json"
-        tx_generator_settings = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings.json"
+    # todo(slavas): these paths are implicitly assumed to correspond to similar from the handle_init() - terribly fragile.
+    accounts_path = f"{BENCHNET_DIR}/user-data/accounts.json"
+    receiver_accounts_dir = f"{BENCHNET_DIR}/user-data/receiver-accounts"
+    tx_generator_settings = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings.json"
+    tx_generator_settings_tmp = f"{BENCHNET_DIR}/{args.case}/tx-generator-settings-tmp.json"
 
-        run_cmd_args = copy.deepcopy(args)
-        run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
-        run_cmd_args.cmd = f"\
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
+    run_cmd_args.cmd = f"\
             jq --arg accounts_path {accounts_path} \
-            '.tx_generator = {{ \"accounts_path\": $accounts_path }}' {CONFIG_PATH} > tmp.$$.json && \
-            mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
+               --arg receiver_accounts_dir {receiver_accounts_dir} \
+               --argjson same_shard_traffic {receivers_from_senders_ratio} \
+               '.tx_generator.accounts_path = $accounts_path | .tx_generator.receiver_accounts_path = $receiver_accounts_dir | .tx_generator.receivers_from_senders_ratio = $same_shard_traffic' \
+               {tx_generator_settings} > {tx_generator_settings_tmp} && \
+            jq -s '.[0] * .[1]' {CONFIG_PATH} {tx_generator_settings_tmp} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} \
         "
 
-        run_remote_cmd(CommandContext(run_cmd_args))
+    run_remote_cmd(CommandContext(run_cmd_args))
 
-        # TODO: This is pretty bad, every time we add a new field to the tx_generator config we have to add it here.
-        run_cmd_args = copy.deepcopy(args)
-        run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
-        run_cmd_args.cmd = f"\
-            jq --slurpfile patch {tx_generator_settings} \
-            '. as $orig \
-            | $patch[0].tx_generator.schedule as $sched   \
-            | .[\"tx_generator\"] += {{\"schedule\": $sched }} \
-            | $patch[0].tx_generator.controller as $ctrl   \
-            | .[\"tx_generator\"] += {{\"controller\": $ctrl }} \
-            | $patch[0].tx_generator.sender_accounts_zipf_skew as $sender_accounts_zipf_skew \
-            | .[\"tx_generator\"] += {{\"sender_accounts_zipf_skew\": $sender_accounts_zipf_skew }} \
-            | $patch[0].tx_generator.receiver_accounts_zipf_skew as $receiver_accounts_zipf_skew \
-            | .[\"tx_generator\"] += {{\"receiver_accounts_zipf_skew\": $receiver_accounts_zipf_skew }} \
-            ' {CONFIG_PATH} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} || rm tmp.$$.json \
-        "
 
-        run_remote_cmd(CommandContext(run_cmd_args))
-
+def start_nodes(args):
+    """Start the benchmark nodes with the given parameters."""
     logger.info("Starting nodes")
     start_nodes_cmd_args = copy.deepcopy(args)
     start_nodes_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
@@ -517,7 +508,7 @@ def handle_get_profiles(args, extra):
     if args.host_filter is None:
         machines = sorted(args.forknet_details['cp_instance_names'])
         machine = machines[0]
-        logger.info(f"Targeting {machine}")
+        logger.info(f"Targeting {machine} for profile fetching")
         args.host_filter = machine
 
     extra_parameters = ' '.join(extra)
@@ -547,7 +538,9 @@ def handle_get_logs(args):
 
 def handle_start(args):
     """Handle the start command - start the benchmark."""
-    start_nodes(args, args.enable_tx_generator)
+    if args.enable_tx_generator:
+        enable_tx_generator(args, args.receivers_from_senders_ratio)
+    start_nodes(args)
 
 
 def main():
@@ -639,6 +632,13 @@ def main():
         '--enable-tx-generator',
         action='store_true',
         help='Enable the tx generator',
+    )
+    start_parser.add_argument(
+        '--receivers-from-senders-ratio',
+        type=float,
+        default=1.0,
+        help=
+        'Ratio of receiver accounts selected from the sender accounts (default: 1.0 (all receivers are selected from senders list))',
     )
 
     stop_parser = subparsers.add_parser('stop', help='Stop the benchmark')

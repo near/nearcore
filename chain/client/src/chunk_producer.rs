@@ -7,7 +7,8 @@ use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{
-    PrepareTransactionsBlockContext, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
+    RuntimeAdapter, RuntimeStorageConfig,
 };
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::MutableConfigValue;
@@ -29,6 +30,8 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::ProtocolFeature;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{ShardUId, TrieUpdate};
 use parking_lot::Mutex;
@@ -277,6 +280,7 @@ impl ChunkProducer {
             Arc::new(ChunkExtra::new_with_only_state_root(&Default::default()))
         } else {
             self.chain
+                .chunk_store()
                 .get_chunk_extra(&prev_block_hash, &shard_uid)
                 .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
         };
@@ -285,9 +289,7 @@ impl ChunkProducer {
         let prepared_transactions = {
             #[cfg(feature = "test_features")]
             match self.adversarial.produce_mode {
-                Some(AdvProduceChunksMode::ProduceWithoutTx) => {
-                    PreparedTransactions { transactions: Vec::new(), limited_by: None }
-                }
+                Some(AdvProduceChunksMode::ProduceWithoutTx) => PreparedTransactions::new(),
                 _ => match cached_transactions {
                     Some(txs) => txs,
                     None => self.prepare_transactions(
@@ -343,25 +345,41 @@ impl ChunkProducer {
             bandwidth_requests.is_some(),
             "Expected bandwidth_request to be Some after BandwidthScheduler feature enabled"
         );
-        let (chunk, merkle_paths) = ShardChunkWithEncoding::new(
-            prev_block_hash,
-            *chunk_extra.state_root(),
-            *chunk_extra.outcome_root(),
-            next_height,
-            shard_id,
-            gas_used,
-            chunk_extra.gas_limit(),
-            chunk_extra.balance_burnt(),
-            chunk_extra.validator_proposals().collect(),
-            prepared_transactions.transactions,
-            outgoing_receipts.clone(),
-            outgoing_receipts_root,
-            tx_root,
-            congestion_info,
-            bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
-            &*validator_signer,
-            &mut self.reed_solomon_encoder,
-        );
+
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+        let (chunk, merkle_paths) = if ProtocolFeature::Spice.enabled(protocol_version) {
+            ShardChunkWithEncoding::new_for_spice(
+                prev_block_hash,
+                next_height,
+                shard_id,
+                prepared_transactions.transactions,
+                outgoing_receipts.clone(),
+                outgoing_receipts_root,
+                tx_root,
+                &*validator_signer,
+                &mut self.reed_solomon_encoder,
+            )
+        } else {
+            ShardChunkWithEncoding::new(
+                prev_block_hash,
+                *chunk_extra.state_root(),
+                *chunk_extra.outcome_root(),
+                next_height,
+                shard_id,
+                gas_used,
+                chunk_extra.gas_limit(),
+                chunk_extra.balance_burnt(),
+                chunk_extra.validator_proposals().collect(),
+                prepared_transactions.transactions,
+                outgoing_receipts.clone(),
+                outgoing_receipts_root,
+                tx_root,
+                congestion_info,
+                bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
+                &*validator_signer,
+                &mut self.reed_solomon_encoder,
+            )
+        };
 
         let encoded_chunk = chunk.to_encoded_shard_chunk();
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
@@ -389,12 +407,10 @@ impl ChunkProducer {
                 ),
             },
         );
-        if let Some(limit) = prepared_transactions.limited_by {
-            // When some transactions from the pool didn't fit into the chunk due to a limit, it's reported in a metric.
-            metrics::PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DID_NOT_FIT
-                .with_label_values(&[&shard_id.to_string(), limit.as_ref()])
-                .inc();
-        }
+        // When some transactions from the pool didn't fit into the chunk due to a limit, it's reported in a metric.
+        metrics::PRODUCE_CHUNK_TRANSACTIONS_LIMITED_BY
+            .with_label_values(&[&shard_id.to_string(), prepared_transactions.limited_by.as_ref()])
+            .inc();
 
         Ok(Some(ProduceChunkResult {
             chunk,
@@ -432,7 +448,10 @@ impl ChunkProducer {
                 while let Some(iter) = iter.next() {
                     res.push(iter.next().unwrap());
                 }
-                return Ok(PreparedTransactions { transactions: res, limited_by: None });
+                return Ok(PreparedTransactions {
+                    transactions: res,
+                    limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
+                });
             }
 
             let storage_config = RuntimeStorageConfig {
@@ -452,7 +471,7 @@ impl ChunkProducer {
                 self.chunk_transactions_time_limit.get(),
             )?
         } else {
-            PreparedTransactions { transactions: Vec::new(), limited_by: None }
+            PreparedTransactions::new()
         };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.

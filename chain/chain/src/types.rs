@@ -85,6 +85,18 @@ pub enum Provenance {
     PRODUCED,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum StatePartValidationResult {
+    Valid,
+    Invalid,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum StateRootNodeValidationResult {
+    Valid,
+    Invalid,
+}
+
 /// Information about processed block.
 #[derive(Debug, Clone)]
 pub struct AcceptedBlock {
@@ -364,8 +376,17 @@ pub struct ApplyChunkShardContext<'a> {
 pub struct PreparedTransactions {
     /// Prepared transactions
     pub transactions: Vec<ValidatedTransaction>,
-    /// Describes which limit was hit when preparing the transactions.
-    pub limited_by: Option<PrepareTransactionsLimit>,
+    /// Describes what limited the number of prepared transactions.
+    pub limited_by: PrepareTransactionsLimit,
+}
+
+impl PreparedTransactions {
+    pub fn new() -> PreparedTransactions {
+        PreparedTransactions {
+            transactions: Vec::new(),
+            limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
+        }
+    }
 }
 
 /// Transactions that were taken out of the pool in prepare_transactions,
@@ -378,11 +399,17 @@ pub struct SkippedTransactions(pub Vec<ValidatedTransaction>);
 /// This enum describes which limit was hit when preparing transactions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::AsRefStr)]
 pub enum PrepareTransactionsLimit {
+    /// No more transactions to pick from the transaction pool.
+    NoMoreTxsInPool,
+    /// Gas limit hit.
     Gas,
+    /// Total transactions size limit hit.
     Size,
+    /// Time limit hit.
     Time,
-    ReceiptCount,
+    /// Recorded storage size limit hit.
     StorageProofSize,
+    /// Transaction preparation was cancelled.
     Cancelled,
 }
 
@@ -556,7 +583,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
         part_id: PartId,
         part: &StatePart,
-    ) -> bool;
+    ) -> StatePartValidationResult;
 
     /// Should be executed after accepting all the parts to set up a new state.
     fn apply_state_part(
@@ -584,7 +611,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         state_root_node: &StateRootNode,
         state_root: &StateRoot,
-    ) -> bool;
+    ) -> StateRootNodeValidationResult;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 

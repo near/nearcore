@@ -67,12 +67,14 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
                 ]
             ],
             config_map)
+        # Shadow validators should not have their own validator key.
+        new_validator.remove_validator_key()
+        new_validator.reload_updatable_config()
         wait_for_blocks(other_validator, count=5)
 
         new_validator.reset_validator_key(old_validator.validator_key)
         old_validator.kill()
         new_validator.reload_updatable_config()
-        new_validator.stop_checking_store()
         wait_for_blocks(other_validator, count=2)
 
         block = other_validator.get_latest_block()

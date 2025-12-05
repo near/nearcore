@@ -44,6 +44,7 @@ use validator_stats::get_sortable_validator_online_ratio;
 
 mod adapter;
 pub mod epoch_info_aggregator;
+pub mod epoch_sync;
 mod genesis;
 mod metrics;
 mod reward_calculator;
@@ -680,26 +681,17 @@ impl EpochManager {
             )
         };
         let next_next_epoch_config = self.config.for_protocol_version(next_next_epoch_version);
-        let next_shard_layout = match next_epoch_info.shard_layout() {
-            // With dynamic resharding enabled, shard layout is stored in EpochInfo
-            Some(layout) => layout.clone(),
-            // Otherwise, fall back to the layout defined in config (this is needed both for
-            // compatibility and bootstrapping)
-            None => {
-                let next_protocol_version = next_epoch_info.protocol_version();
-                self.config.for_protocol_version(next_protocol_version).shard_layout
-            }
-        };
+        let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
 
-        let next_next_shard_layout =
+        let (next_next_shard_layout, has_same_shard_layout) =
             if ProtocolFeature::DynamicResharding.enabled(next_next_epoch_version) {
-                // TODO(dynamic resharding): adjust layout if a shard was marked for splitting
-                next_shard_layout.clone()
+                // TODO(dynamic_resharding): adjust layout if a shard was marked for splitting
+                (next_shard_layout, true)
             } else {
-                next_next_epoch_config.shard_layout.clone()
+                let layout = next_next_epoch_config.legacy_shard_layout();
+                let has_same_layout = layout == next_shard_layout;
+                (layout, has_same_layout)
             };
-
-        let has_same_shard_layout = next_next_shard_layout == next_shard_layout;
 
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
@@ -710,7 +702,7 @@ impl EpochManager {
             validator_reward,
             minted_amount,
             next_next_epoch_version,
-            next_next_shard_layout,
+            next_next_shard_layout.clone(),
             has_same_shard_layout,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
@@ -734,8 +726,8 @@ impl EpochManager {
             next_next_epoch_height = %next_next_epoch_info.epoch_height(),
             ?next_next_epoch_id,
             next_next_protocol_version = %next_next_epoch_info.protocol_version(),
-            next_next_shard_layout = ?self.config.for_protocol_version(next_next_epoch_info.protocol_version()).shard_layout,
-            next_next_epoch_config = ?self.config.for_protocol_version(next_next_epoch_info.protocol_version()),
+            ?next_next_shard_layout,
+            ?next_next_epoch_config,
         );
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
@@ -1379,15 +1371,21 @@ impl EpochManager {
     }
 
     pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
-        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        Ok(self.get_shard_layout_from_protocol_version(protocol_version))
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        if let Some(shard_layout) = epoch_info.shard_layout() {
+            Ok(shard_layout.clone())
+        } else {
+            let protocol_version = epoch_info.protocol_version();
+            Ok(self.config.for_protocol_version(protocol_version).legacy_shard_layout())
+        }
     }
 
+    // TODO(dynamic_resharding): remove this method
     pub fn get_shard_layout_from_protocol_version(
         &self,
         protocol_version: ProtocolVersion,
     ) -> ShardLayout {
-        self.config.for_protocol_version(protocol_version).shard_layout
+        self.config.for_protocol_version(protocol_version).legacy_shard_layout()
     }
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {

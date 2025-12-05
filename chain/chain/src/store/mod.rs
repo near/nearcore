@@ -2,7 +2,6 @@ use crate::types::{Block, BlockHeader, LatestKnown};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 pub use latest_witnesses::LatestWitnessesInfo;
-pub use merkle_proof::MerkleProofAccess;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
@@ -55,7 +54,6 @@ use std::sync::Arc;
 use utils::{check_transaction_validity_period, early_prepare_txs_check_validity_period};
 
 pub mod latest_witnesses;
-mod merkle_proof;
 pub mod utils;
 
 /// Filter receipts mode for incoming receipts collection.
@@ -100,6 +98,8 @@ pub trait ChainStoreAccess {
     fn gc_stop_height(&self) -> Result<BlockHeight, Error>;
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error>;
+    /// Get full chunk.
+    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error>;
     /// Get partial chunk.
     fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error>;
     /// Does this full block exist?
@@ -918,9 +918,14 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_block(self, h)
     }
 
+    /// Get full chunk.
+    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error> {
+        self.chunk_store().get_chunk(chunk_hash).map_err(Into::into)
+    }
+
     /// Get partial chunk.
     fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error> {
-        ChainStoreAdapter::get_partial_chunk(self, chunk_hash)
+        self.chunk_store().get_partial_chunk(chunk_hash).map_err(Into::into)
     }
 
     /// Does this full block exist?
@@ -929,11 +934,11 @@ impl ChainStoreAccess for ChainStore {
     }
 
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        ChainStoreAdapter::chunk_exists(self, h)
+        self.chunk_store().chunk_exists(h)
     }
 
     fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        ChainStoreAdapter::partial_chunk_exists(self, h)
+        self.chunk_store().partial_chunk_exists(h)
     }
 
     /// Get previous header.
@@ -947,7 +952,7 @@ impl ChainStoreAccess for ChainStore {
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
     ) -> Result<Arc<ChunkExtra>, Error> {
-        ChainStoreAdapter::get_chunk_extra(self, block_hash, shard_uid)
+        self.chunk_store().get_chunk_extra(block_hash, shard_uid)
     }
 
     fn get_chunk_apply_stats(
@@ -955,7 +960,7 @@ impl ChainStoreAccess for ChainStore {
         block_hash: &CryptoHash,
         shard_id: &ShardId,
     ) -> Result<Option<ChunkApplyStats>, Error> {
-        ChainStoreAdapter::get_chunk_apply_stats(&self, block_hash, shard_id)
+        self.chunk_store().get_chunk_apply_stats(block_hash, shard_id)
     }
 
     /// Get block header.
@@ -1009,7 +1014,7 @@ impl ChainStoreAccess for ChainStore {
         &self,
         chunk_hash: &ChunkHash,
     ) -> Result<Option<Arc<EncodedShardChunk>>, Error> {
-        ChainStoreAdapter::is_invalid_chunk(self, chunk_hash)
+        self.chunk_store().is_invalid_chunk(chunk_hash)
     }
 
     fn get_transaction(
@@ -1238,6 +1243,15 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             }
         }
         self.chain_store.get_block(h)
+    }
+
+    /// Get full chunk.
+    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error> {
+        if let Some(arced_chunk) = self.chain_store_cache_update.chunks.get(chunk_hash) {
+            Ok(ShardChunk::from(arced_chunk.as_ref()))
+        } else {
+            self.chain_store.get_chunk(chunk_hash)
+        }
     }
 
     /// Does this full block exist?
@@ -1955,8 +1969,9 @@ impl<'a> ChainStoreUpdate<'a> {
                         entry.get_mut().insert(chunk_hash.clone());
                     }
                     Entry::Vacant(entry) => {
+                        let chunk_store = self.chain_store.chunk_store();
                         let mut hash_set =
-                            match self.chain_store.get_all_chunk_hashes_by_height(height_created) {
+                            match chunk_store.get_all_chunk_hashes_by_height(height_created) {
                                 Ok(hash_set) => hash_set.clone(),
                                 Err(_) => HashSet::new(),
                             };
@@ -2225,12 +2240,20 @@ impl<'a> ChainStoreUpdate<'a> {
 #[cfg(test)]
 mod tests {
     use near_async::time::Clock;
+    use near_primitives::types::BlockHeightDelta;
     use std::sync::Arc;
 
+    use crate::Chain;
     use crate::test_utils::get_chain;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::test_utils::TestBlockBuilder;
     use near_primitives::test_utils::create_test_signer;
+
+    impl Chain {
+        pub fn set_transaction_validity_period(&mut self, to: BlockHeightDelta) {
+            self.chain_store.transaction_validity_period = to;
+        }
+    }
 
     #[test]
     fn test_tx_validity_long_fork() {

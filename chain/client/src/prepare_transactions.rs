@@ -125,7 +125,7 @@ impl PrepareTransactionsJob {
         // Run the job. The state is locked so no other methods will read or modify it
         // until the preparation finishes.
         let Some(mut iter) = tx_pool_guard.get_pool_iterator(inputs.shard_uid) else {
-            let result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
+            let result = PreparedTransactions::new();
             *state = PrepareTransactionsJobState::Finished(Ok(result));
             return;
         };
@@ -142,7 +142,7 @@ impl PrepareTransactionsJob {
         drop(iter);
         match result {
             Ok((prepared, skipped)) => {
-                *state = if prepared.limited_by == Some(PrepareTransactionsLimit::Cancelled) {
+                *state = if prepared.limited_by == PrepareTransactionsLimit::Cancelled {
                     // In case of cancelled preparation discard the result
                     PrepareTransactionsJobState::Cancelled
                 } else {
@@ -252,7 +252,7 @@ mod tests {
     use std::sync::Arc;
 
     use near_chain::runtime::NightshadeRuntime;
-    use near_chain::types::PrepareTransactionsBlockContext;
+    use near_chain::types::{PrepareTransactionsBlockContext, PrepareTransactionsLimit};
     use near_chain_configs::test_genesis::TestGenesisBuilder;
     use near_chunks::client::ShardedTransactionPool;
     use near_epoch_manager::EpochManager;
@@ -360,7 +360,7 @@ mod tests {
             .take_result()
             .expect("result must be available after running the job")
             .expect("job must succeed");
-        assert_eq!(None, result.limited_by);
+        assert_eq!(PrepareTransactionsLimit::NoMoreTxsInPool, result.limited_by);
         assert_eq!(1, result.transactions.len());
 
         // Taking again returns None

@@ -21,10 +21,10 @@ use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::types::{Balance, BlockHeight, EpochId, ShardId};
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::ShardUId;
 use num_rational::Ratio;
-use parking_lot::RwLock;
+use parking_lot::Mutex;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::mem::swap;
 use std::sync::Arc;
@@ -190,25 +190,40 @@ pub fn create_chunk(
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
         let header = encoded_chunk.cloned_header();
-        let (new_chunk, mut new_merkle_paths) = ShardChunkWithEncoding::new(
-            *header.prev_block_hash(),
-            header.prev_state_root(),
-            *header.prev_outcome_root(),
-            header.height_created(),
-            header.shard_id(),
-            header.prev_gas_used(),
-            header.gas_limit(),
-            header.prev_balance_burnt(),
-            header.prev_validator_proposals().collect(),
-            validated_txs,
-            decoded_chunk.prev_outgoing_receipts().to_vec(),
-            *header.prev_outgoing_receipts_root(),
-            tx_root,
-            header.congestion_info(),
-            header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
-            &*signer,
-            &rs,
-        );
+        let (new_chunk, mut new_merkle_paths) = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+        {
+            ShardChunkWithEncoding::new_for_spice(
+                *header.prev_block_hash(),
+                header.height_created(),
+                header.shard_id(),
+                validated_txs,
+                decoded_chunk.prev_outgoing_receipts().to_vec(),
+                *header.prev_outgoing_receipts_root(),
+                tx_root,
+                &*signer,
+                &rs,
+            )
+        } else {
+            ShardChunkWithEncoding::new(
+                *header.prev_block_hash(),
+                header.prev_state_root(),
+                *header.prev_outcome_root(),
+                header.height_created(),
+                header.shard_id(),
+                header.prev_gas_used(),
+                header.gas_limit(),
+                header.prev_balance_burnt(),
+                header.prev_validator_proposals().collect(),
+                validated_txs,
+                decoded_chunk.prev_outgoing_receipts().to_vec(),
+                *header.prev_outgoing_receipts_root(),
+                tx_root,
+                header.congestion_info(),
+                header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
+                &*signer,
+                &rs,
+            )
+        };
         let mut new_encoded_chunk = new_chunk.into_parts().1;
         swap(&mut encoded_chunk, &mut new_encoded_chunk);
         swap(&mut merkle_paths, &mut new_merkle_paths);
@@ -261,15 +276,15 @@ pub fn create_chunk(
 /// It's possible that some blocks that need to be caught up are still being processed
 /// and the catchup process can't catch up on these blocks yet.
 pub fn run_catchup(client: &mut Client) -> Result<(), Error> {
-    let block_messages = Arc::new(RwLock::new(vec![]));
+    let block_messages = Arc::new(Mutex::new(Vec::<BlockCatchUpRequest>::new()));
     let block_inside_messages = block_messages.clone();
     let block_catch_up = Sender::from_fn(move |msg: BlockCatchUpRequest| {
-        block_inside_messages.write().push(msg);
+        block_inside_messages.lock().push(msg);
     });
     loop {
         client.run_catchup(&block_catch_up, None)?;
         let mut catchup_done = true;
-        for msg in block_messages.write().drain(..) {
+        for msg in block_messages.lock().drain(..) {
             let results = do_apply_chunks(
                 ApplyChunksIterationMode::Sequential,
                 BlockToApply::Normal(msg.block_hash),

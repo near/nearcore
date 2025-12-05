@@ -63,7 +63,7 @@ pub enum TransactionKey {
     GasKey { public_key: PublicKey, nonce_index: NonceIndex },
 }
 
-#[derive(BorshSerialize, PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(BorshSerialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum TransactionKeyRef<'a> {
     AccessKey { key: &'a PublicKey },
     GasKey { key: &'a PublicKey, nonce_index: NonceIndex },

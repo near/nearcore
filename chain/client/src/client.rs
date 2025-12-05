@@ -49,7 +49,9 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, ReasonForBan};
-use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
+use near_primitives::block::{
+    Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, SpiceNewBlockProductionInfo, Tip,
+};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::EpochError;
@@ -924,8 +926,19 @@ impl Client {
         let next_epoch_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let core_statements = if cfg!(feature = "protocol_feature_spice") {
-            Some(self.chain.spice_core_reader.core_statement_for_next_block(&prev_header)?)
+        let spice_info = if cfg!(feature = "protocol_feature_spice") {
+            let core_statements =
+                self.chain.spice_core_reader.core_statement_for_next_block(&prev_header)?;
+            let last_certified_block_execution_results =
+                self.chain.spice_core_reader.get_last_certified_execution_results_for_next_block(
+                    prev_header,
+                    &core_statements,
+                )?;
+
+            Some(SpiceNewBlockProductionInfo {
+                core_statements,
+                last_certified_block_execution_results,
+            })
         } else {
             None
         };
@@ -952,7 +965,7 @@ impl Client {
             self.clock.clone(),
             sandbox_delta_time,
             optimistic_block,
-            core_statements,
+            spice_info,
         ));
 
         // Update latest known even before returning block out, to prevent race conditions.

@@ -61,7 +61,8 @@ impl SpiceChunkValidatorActor {
         core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         validation_spawner: ApplyChunksSpawner,
     ) -> Self {
-        let core_reader = SpiceCoreReader::new(store.chain_store(), epoch_manager.clone());
+        let core_reader =
+            SpiceCoreReader::new(store.chain_store(), epoch_manager.clone(), genesis.gas_limit);
         // TODO(spice): Assess if this limit still makes sense for spice.
         // See ChunkValidator::new in c/c/s/s/chunk_validator/mod.rs for rationale used currently.
         let validation_thread_limit =
@@ -188,7 +189,7 @@ impl SpiceChunkValidatorActor {
         let prev_block = self.chain_store.get_block(block.header().prev_hash())?;
 
         let Some(prev_block_execution_results) =
-            self.core_reader.get_block_execution_results(&prev_block)?
+            self.core_reader.get_block_execution_results(prev_block.header())?
         else {
             tracing::debug!(
                 target: "spice_chunk_validator",
@@ -213,7 +214,7 @@ impl SpiceChunkValidatorActor {
         let prev_hash = *block.header().prev_hash();
         let prev_block = self.chain_store.get_block(&prev_hash)?;
         let Some(prev_block_execution_results) =
-            self.core_reader.get_block_execution_results(&prev_block)?
+            self.core_reader.get_block_execution_results(prev_block.header())?
         else {
             tracing::debug!(
                 target: "spice_chunk_validator",

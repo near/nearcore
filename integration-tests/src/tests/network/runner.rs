@@ -185,6 +185,7 @@ fn setup_network_node(
         validator_signer.clone(),
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
+        client_config.chunks_cache_height_horizon,
     );
     let chain_store =
         ChainStore::new(runtime.store().clone(), false, genesis.config.genesis_height);

@@ -47,7 +47,7 @@ in epoch lasting a little bit longer (if we cannot get enough signatures on the
 last blocks of the previous epoch).
 
 You can read specific details on our
-[nomicon page](https://nomicon.io/BlockchainLayer/EpochAndStaking/Epoch).
+[nomicon page](https://nomicon.io/ChainSpec/EpochAndStaking/Epoch.html).
 
 ## How do we pick the next validators?
 
@@ -59,7 +59,7 @@ validators have enough time to prepare for block production and validation (they
 have to download the state of shards etc).
 
 For more info on how we pick validators please look at
-[nomicon](https://nomicon.io/Economics/Economic#validator-selection).
+[nomicon](https://nomicon.io/Economics/Economics.html#validator-selection).
 
 ## Epoch and Sharding
 
