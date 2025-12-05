@@ -897,7 +897,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         break;
                     }
                     Err(err) => {
-                        tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), ?err, "discarding transaction that failed verification or verification");
+                        tracing::error!(target: "runtime", tx=?validated_tx.get_hash(), ?err, "discarding transaction that failed verification");
                         rejected_invalid_tx += 1;
                     }
                 }
