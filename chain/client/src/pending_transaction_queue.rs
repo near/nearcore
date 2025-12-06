@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use near_chain::spice_core::get_uncertified_chunks;
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{PendingTxQueueValidationResult, RuntimeAdapter};
 use near_chain_primitives::Error;
 use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
@@ -95,49 +95,65 @@ pub enum PayerKey {
     GasKey { account_id: AccountId, public_key: PublicKey },
 }
 
-/// Information about pending transactions for a given account or (account, gas key) pair.
-/// Summarized at the chunk and overall level.
-#[derive(Default)]
-pub struct PendingTransactionInfo {
-    count: usize,
-    cost: Balance,
-    num_contract_deploys: usize,
+impl PayerKey {
+    pub fn account_id(&self) -> &AccountId {
+        match self {
+            PayerKey::Account { account_id } => account_id,
+            PayerKey::GasKey { account_id, .. } => account_id,
+        }
+    }
 }
 
-struct PendingTransactionSummary(HashMap<PayerKey, PendingTransactionInfo>);
+struct PendingTransactionSummary {
+    count_and_cost: HashMap<PayerKey, (usize, Balance)>,
+    num_contract_deploys: HashMap<AccountId, usize>,
+}
 
 impl PendingTransactionSummary {
     fn new() -> Self {
-        Self(HashMap::new())
+        Self { count_and_cost: HashMap::new(), num_contract_deploys: HashMap::new() }
     }
 
-    fn add(&mut self, key: PayerKey, info: &PendingTransactionInfo) {
-        let entry = self.0.entry(key).or_default();
-        entry.count += info.count;
-        entry.cost = entry.cost.checked_add(info.cost).unwrap();
-        entry.num_contract_deploys += info.num_contract_deploys;
-    }
+    fn add(&mut self, key: PayerKey, cost: Balance, num_contract_deploys: usize) {
+        let account_id = key.account_id().clone();
+        let entry_deploys = self.num_contract_deploys.entry(account_id).or_default();
+        *entry_deploys += num_contract_deploys;
 
-    fn subtract(&mut self, key: &PayerKey, info: &PendingTransactionInfo) {
-        if let Some(entry) = self.0.get_mut(key) {
-            entry.count -= info.count;
-            entry.cost = entry.cost.checked_sub(info.cost).unwrap();
-            entry.num_contract_deploys -= info.num_contract_deploys;
-            if entry.count == 0 {
-                self.0.remove(key);
-            }
-        }
+        let (entry_count, entry_cost) = self.count_and_cost.entry(key).or_default();
+        *entry_count += 1;
+        *entry_cost = entry_cost.checked_add(cost).unwrap();
     }
 
     fn add_summary(&mut self, other: &PendingTransactionSummary) {
-        for (key, info) in &other.0 {
-            self.add(key.clone(), info);
+        for (key, (count, cost)) in &other.count_and_cost {
+            let (entry_count, entry_cost) = self.count_and_cost.entry(key.clone()).or_default();
+            *entry_count += count;
+            *entry_cost = entry_cost.checked_add(*cost).unwrap();
+        }
+        for (account_id, num_contract_deploys) in &other.num_contract_deploys {
+            let entry_deploys = self.num_contract_deploys.entry(account_id.clone()).or_default();
+            *entry_deploys += num_contract_deploys;
         }
     }
 
     fn subtract_summary(&mut self, other: &PendingTransactionSummary) {
-        for (key, info) in &other.0 {
-            self.subtract(key, info);
+        for (key, (count, cost)) in &other.count_and_cost {
+            if let Some((entry_count, entry_cost)) = self.count_and_cost.get_mut(key) {
+                *entry_count -= count;
+                *entry_cost = entry_cost.checked_sub(*cost).unwrap();
+                if *entry_count == 0 {
+                    self.count_and_cost.remove(key);
+                }
+            }
+        }
+
+        for (account_id, num_contract_deploys) in &other.num_contract_deploys {
+            if let Some(entry_deploys) = self.num_contract_deploys.get_mut(account_id) {
+                *entry_deploys -= num_contract_deploys;
+                if *entry_deploys == 0 {
+                    self.num_contract_deploys.remove(account_id);
+                }
+            }
         }
     }
 }
@@ -196,8 +212,7 @@ impl PendingTransactionQueue {
             };
             let cost = self.calculate_total_cost(&tx, gas_price, epoch_id);
             let num_contract_deploys = self.num_contract_deploys(&tx);
-            chunk_summary
-                .add(key, &PendingTransactionInfo { count: 1, cost, num_contract_deploys });
+            chunk_summary.add(key, cost, num_contract_deploys);
         }
         self.summary.add_summary(&chunk_summary);
         self.pending_txs.push_back((block_hash, chunk_summary));
@@ -211,7 +226,26 @@ impl PendingTransactionQueue {
         }
     }
 
-    pub fn get(&self, key: &PayerKey) -> Option<&PendingTransactionInfo> {
-        self.summary.0.get(key)
+    pub fn get_count(&self, key: &PayerKey) -> Option<&usize> {
+        self.summary.count_and_cost.get(key).map(|(count, _)| count)
+    }
+
+    pub fn get_cost(&self, key: &PayerKey) -> Option<&Balance> {
+        self.summary.count_and_cost.get(key).map(|(_, cost)| cost)
+    }
+
+    pub fn get_num_contract_deploys(&self, account_id: &AccountId) -> usize {
+        *self.summary.num_contract_deploys.get(account_id).unwrap_or(&0)
+    }
+
+    pub fn validate(&self, _tx: &SignedTransaction) -> PendingTxQueueValidationResult {
+        // Here, some additional restrictions apply because of the pending transaction queue:
+        // 1. If there is a contract deployed to the account:
+        //    - We need to get the number of pending transactions for this account from the pending queue.
+        //      if it is more than 4, the transaction is skipped. (i.e., it will be put back to the pool and retried later).
+        // (If there is no contract deployed to the account, we allow unlimited number of pending transactions)
+        // 2. If there is a contract being deployed to the account, and the tx is issued
+        //    from an access key, we skip the transaction (it will be put back to the pool and retried later).
+        todo!("implement validation logic")
     }
 }

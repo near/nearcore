@@ -1,9 +1,9 @@
 use crate::Error;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
-    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
-    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions, StatePartValidationResult,
-    StateRootNodeValidationResult, StorageDataSource, Tip,
+    PendingTxQueueValidationResult, PrepareTransactionsBlockContext, PrepareTransactionsLimit,
+    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions,
+    StatePartValidationResult, StateRootNodeValidationResult, StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
@@ -52,6 +52,7 @@ use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
     get_signer_and_access_key, validate_transaction, verify_and_charge_tx_ephemeral,
+    verify_and_charge_tx_ephemeral_with_min_required_balance,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -716,6 +717,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             prev_block,
             transaction_groups,
             chain_validate,
+            None,
             HashSet::new(),
             time_limit,
             None,
@@ -746,6 +748,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        pending_tx_queue_validate: Option<
+            &dyn Fn(&SignedTransaction) -> PendingTxQueueValidationResult,
+        >,
         skip_tx_hashes: HashSet<CryptoHash>,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
@@ -873,17 +878,40 @@ impl RuntimeAdapter for NightshadeRuntime {
                     (&mut inserted.1, &mut inserted.2)
                 };
 
+                // Pending transaction queue has two functions here:
+                // 1. It can request a transaction to be skipped (i.e., not included now, but retried later).
+                //    This is for cases like too many pending transactions for an account, or contract deployment in progress.
+                // 2. It specifies a minimum balance requirement for the payer's balance, representing the in-flight transactions.
+                let min_required_balance = if let Some(pending_tx_queue_validate) =
+                    pending_tx_queue_validate
+                {
+                    match pending_tx_queue_validate(&validated_tx.to_signed_tx()) {
+                        PendingTxQueueValidationResult::Skip => {
+                            tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "skipping transaction due to pending tx queue request");
+                            skipped_transactions.push(validated_tx);
+                            continue;
+                        }
+                        PendingTxQueueValidationResult::Valid { min_required_balance } => {
+                            min_required_balance
+                        }
+                    }
+                } else {
+                    // No pending tx queue, so no minimum balance requirement.
+                    Balance::ZERO
+                };
+
                 let verify_result =
                     tx_cost(runtime_config, &validated_tx.to_tx(), prev_block.next_gas_price)
                         .map_err(InvalidTxError::from)
                         .and_then(|cost| {
-                            verify_and_charge_tx_ephemeral(
+                            verify_and_charge_tx_ephemeral_with_min_required_balance(
                                 runtime_config,
                                 signer,
                                 access_key,
                                 validated_tx.to_tx(),
                                 &cost,
                                 Some(next_block_height),
+                                min_required_balance,
                             )
                         });
 

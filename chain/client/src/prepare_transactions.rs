@@ -135,6 +135,7 @@ impl PrepareTransactionsJob {
             inputs.prev_block_context,
             &mut iter,
             &inputs.tx_validity_period_check,
+            None,
             inputs.prev_chunk_tx_hashes,
             inputs.time_limit,
             Some((&self).cancel.clone()),
