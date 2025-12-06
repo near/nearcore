@@ -439,6 +439,17 @@ impl PrepareTransactionsBlockContext {
     }
 }
 
+/// Result of validating a transaction against the pending transaction queue.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PendingTxQueueValidationResult {
+    /// Transaction is valid and can be included, if the account can additionally
+    /// cover the required minimum balance, which is the sum of cost of pending transactions.
+    Valid { min_required_balance: Balance },
+    /// Transaction conflicts with other pending transactions,
+    /// re-introduce to mempool to try again later.
+    Skip,
+}
+
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
@@ -525,6 +536,9 @@ pub trait RuntimeAdapter: Send + Sync {
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        pending_tx_queue_validate: Option<
+            &dyn Fn(&SignedTransaction) -> PendingTxQueueValidationResult,
+        >,
         skip_tx_hashes: HashSet<CryptoHash>,
         time_limit: Option<Duration>,
         cancel: Option<Arc<AtomicBool>>,
