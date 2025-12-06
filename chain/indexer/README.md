@@ -120,5 +120,4 @@ Indexer Framework also exposes access to the internal APIs (see `Indexer::client
 
 *This list is not exhaustive, feel free to submit your project by sending a pull request.*
 
-* [Indexer for NEAR Wallet](https://github.com/near/near-indexer-for-wallet)
-* [Indexer for NEAR Explorer](https://github.com/near/near-indexer-for-explorer)
+* [Near Lake](https://github.com/aurora-is-near/near-lake-indexer)
