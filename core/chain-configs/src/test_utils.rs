@@ -296,7 +296,6 @@ impl ClientConfig {
             produce_empty_blocks: true,
             epoch_length: 10,
             num_block_producer_seats,
-            ttl_account_id_router: Duration::seconds(60 * 60),
             block_fetch_horizon: 50,
             catchup_step_period: Duration::milliseconds(100),
             chunk_request_retry_period: min(

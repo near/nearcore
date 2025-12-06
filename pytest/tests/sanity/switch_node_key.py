@@ -15,7 +15,7 @@ EPOCH_LENGTH = 40
 STOP_HEIGHT1 = 35
 TIMEOUT = 50
 
-config1 = {"network": {"ttl_account_id_router": {"secs": 1, "nanos": 0},}}
+config1 = {}
 nodes = start_cluster(
     2, 0, 1, None,
     [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 30],

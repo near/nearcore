@@ -11732,17 +11732,6 @@
             "nullable": true,
             "type": "integer"
           },
-          "ttl_account_id_router": {
-            "description": "Time to persist Accounts Id in the router without removing them.",
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "maxItems": 2,
-            "minItems": 2,
-            "type": "array"
-          },
           "tx_routing_height_horizon": {
             "description": "If the node is not a chunk producer within that many blocks, then route\nto upcoming chunk producers.",
             "format": "uint64",

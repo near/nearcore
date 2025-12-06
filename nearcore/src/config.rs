@@ -714,7 +714,6 @@ impl NearConfig {
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis.config.epoch_length,
                 num_block_producer_seats: genesis.config.num_block_producer_seats,
-                ttl_account_id_router: config.network.ttl_account_id_router,
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: config.consensus.block_fetch_horizon,
                 block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,

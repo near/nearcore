@@ -2,8 +2,6 @@
 /// All transactions should be implemented within this module,
 /// in particular schema::StoreUpdate is not exported.
 use crate::types::ConnectionInfo;
-use near_primitives::network::AnnounceAccount;
-use near_primitives::types::AccountId;
 use std::sync::Arc;
 
 mod schema;
@@ -24,34 +22,6 @@ pub(crate) struct Error(schema::Error);
 /// methods writing to the DB.
 #[derive(Clone)]
 pub(crate) struct Store(schema::Store);
-
-impl Store {
-    /// Inserts (account_id,aa) to the AccountAnnouncements column.
-    #[tracing::instrument(
-        target = "network::store",
-        level = "trace",
-        "Store::set_account_announcement",
-        skip_all,
-        fields(%account_id)
-    )]
-    pub fn set_account_announcement(
-        &self,
-        account_id: &AccountId,
-        aa: &AnnounceAccount,
-    ) -> Result<(), Error> {
-        let mut update = self.0.new_update();
-        update.set::<schema::AccountAnnouncements>(account_id, aa);
-        self.0.commit(update).map_err(Error)
-    }
-
-    /// Fetches row with key account_id from the AccountAnnouncements column.
-    pub fn get_account_announcement(
-        &self,
-        account_id: &AccountId,
-    ) -> Result<Option<AnnounceAccount>, Error> {
-        self.0.get::<schema::AccountAnnouncements>(account_id).map_err(Error)
-    }
-}
 
 // ConnectionStore storage.
 impl Store {
