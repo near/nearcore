@@ -125,14 +125,16 @@ impl Chain {
         for chunk in genesis_chunks {
             store_update.save_chunk(chunk.clone());
         }
-        store_update.merge(epoch_manager.add_validator_proposals(
-            BlockInfo::from_header(
-                genesis.header(),
-                // genesis height is considered final
-                genesis.header().height(),
-            ),
-            *genesis.header().random_value(),
-        )?);
+        let block_info = BlockInfo::from_header(
+            genesis.header(),
+            // genesis height is considered final
+            genesis.header().height(),
+        );
+        store_update.merge(
+            epoch_manager
+                .add_validator_proposals(block_info, *genesis.header().random_value())?
+                .into(),
+        );
         store_update.save_block_header(genesis.header().clone())?;
         store_update.save_block(genesis.clone().into());
         Self::save_genesis_chunk_extras(&genesis, &state_roots, epoch_manager, &mut store_update)?;

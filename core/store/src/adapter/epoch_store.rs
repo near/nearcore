@@ -1,10 +1,10 @@
 use std::io;
 
-use borsh::BorshDeserialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::Error;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::AGGREGATOR_KEY;
+use near_primitives::epoch_manager::{AGGREGATOR_KEY, EpochSummary};
 use near_primitives::epoch_sync::{EpochSyncProof, EpochSyncProofV1};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -72,6 +72,18 @@ impl EpochStoreAdapter {
             })
     }
 
+    pub fn get_epoch_info_aggregator<T: BorshDeserialize>(&self) -> Result<T, EpochError> {
+        self.store
+            .get_ser::<T>(DBCol::EpochInfo, AGGREGATOR_KEY)?
+            .ok_or_else(|| EpochError::IOErr("Missing epoch info aggregator".to_string()))
+    }
+
+    pub fn get_epoch_validator_info(&self, epoch_id: &EpochId) -> Result<EpochSummary, EpochError> {
+        self.store
+            .get_ser::<EpochSummary>(DBCol::EpochValidatorInfo, epoch_id.as_ref())?
+            .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
+    }
+
     pub fn get_epoch_sync_proof(&self) -> Result<Option<EpochSyncProofV1>, Error> {
         Ok(self
             .store
@@ -120,6 +132,19 @@ impl<'a> EpochStoreUpdateAdapter<'a> {
 
     pub fn set_epoch_info(&mut self, epoch_id: &EpochId, epoch_info: &EpochInfo) {
         self.store_update.set_ser(DBCol::EpochInfo, epoch_id.as_ref(), epoch_info).unwrap();
+    }
+
+    pub fn set_epoch_info_aggregator<T: BorshSerialize + ?Sized>(
+        &mut self,
+        epoch_info_aggregator: &T,
+    ) {
+        self.store_update.set_ser(DBCol::EpochInfo, AGGREGATOR_KEY, epoch_info_aggregator).unwrap();
+    }
+
+    pub fn set_epoch_validator_info(&mut self, epoch_id: &EpochId, epoch_summary: &EpochSummary) {
+        self.store_update
+            .set_ser(DBCol::EpochValidatorInfo, epoch_id.as_ref(), epoch_summary)
+            .unwrap();
     }
 
     pub fn set_epoch_sync_proof(&mut self, proof: &EpochSyncProof) {

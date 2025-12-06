@@ -285,7 +285,8 @@ impl GenesisBuilder {
                     BlockInfo::from_header(genesis.header(), 0),
                     *genesis.header().random_value(),
                 )
-                .unwrap(),
+                .unwrap()
+                .into(),
         );
         store_update
             .save_block_header(genesis.header().clone())

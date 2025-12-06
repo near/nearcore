@@ -104,7 +104,7 @@ fn do_fork(
                 *block.header().random_value(),
             )
             .unwrap();
-        store_update.merge(epoch_manager_update);
+        store_update.merge(epoch_manager_update.into());
 
         let mut trie_changes_shards = Vec::new();
         for shard_id in 0..num_shards {
@@ -760,7 +760,7 @@ fn add_block(
             *block.header().random_value(),
         )
         .unwrap();
-    store_update.merge(epoch_manager_update);
+    store_update.merge(epoch_manager_update.into());
     store_update.commit().unwrap();
     *prev_block = block.clone();
 }

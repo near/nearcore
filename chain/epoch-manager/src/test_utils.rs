@@ -22,6 +22,7 @@ use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
+use near_store::adapter::StoreAdapter;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
 use num_rational::Rational32;
@@ -221,7 +222,7 @@ pub fn setup_epoch_manager(
         max_inflation_rate,
     );
     EpochManager::new(
-        store,
+        store.epoch_store(),
         config,
         reward_calculator,
         validators
@@ -292,7 +293,7 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
     let config =
         epoch_config(epoch_length, num_shards, num_block_producers, 100, 0, 0, 0, Ratio::new(0, 1));
     let epoch_manager = EpochManager::new(
-        store,
+        store.epoch_store(),
         config,
         default_reward_calculator(),
         validators
