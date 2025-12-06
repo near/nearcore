@@ -106,6 +106,7 @@ sandbox = [
     "near-chain/sandbox",
     "near-o11y/sandbox",
 ]
+tx_generator = []
 
 [package.metadata.cargo-machete]
 ignored = ["rust-s3"]
