@@ -166,7 +166,7 @@ pub fn external_storage_location(
 ) -> String {
     format!(
         "{}/{}",
-        location_prefix(chain_id, epoch_height, epoch_id, shard_id, file_type),
+        external_storage_location_directory(chain_id, epoch_id, epoch_height, shard_id, file_type),
         file_type.filename()
     )
 }
@@ -175,16 +175,6 @@ pub fn external_storage_location_directory(
     chain_id: &str,
     epoch_id: &EpochId,
     epoch_height: u64,
-    shard_id: ShardId,
-    obj_type: &StateFileType,
-) -> String {
-    location_prefix(chain_id, epoch_height, epoch_id, shard_id, obj_type)
-}
-
-pub fn location_prefix(
-    chain_id: &str,
-    epoch_height: u64,
-    epoch_id: &EpochId,
     shard_id: ShardId,
     obj_type: &StateFileType,
 ) -> String {

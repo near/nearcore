@@ -356,7 +356,7 @@ impl<'a> NodeStateBuilder<'a> {
         if client_config.cloud_archival_writer.is_some() {
             client_config.state_sync_enabled = true;
             let cloud_archival_config = test_cloud_archival_config(self.tempdir_path);
-            client_config.state_sync.dump = Some(cloud_archival_config.cloud_storage.into())
+            client_config.state_sync.dump = Some(cloud_archival_config.into())
         }
 
         NodeSetupState { account_id, client_config, storage }
