@@ -73,7 +73,7 @@ impl SpiceCoreStatement {
     pub fn chunk_id(&self) -> &SpiceChunkId {
         match self {
             SpiceCoreStatement::Endorsement(endorsement) => endorsement.chunk_id(),
-            SpiceCoreStatement::ChunkExecutionResult { chunk_id, .. } => &chunk_id,
+            SpiceCoreStatement::ChunkExecutionResult { chunk_id, .. } => chunk_id,
         }
     }
 }
