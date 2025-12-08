@@ -312,9 +312,11 @@ impl SnapshotHostsCache {
     }
 
     /// Updates the minimum epoch height to keep based on chain progression.
-    /// Snapshot infos below this epoch height will be discarded.
-    pub fn set_discard_epoch_threshold(&self, epoch_height: EpochHeight) {
-        self.0.lock().update_discard_epoch_threshold(epoch_height);
+    /// Snapshot infos older than STATE_SNAPSHOT_INFO_RETENTION_WINDOW epochs from the given epoch height will be discarded.
+    pub fn set_current_epoch_height(&self, epoch_height: EpochHeight) {
+        self.0.lock().update_discard_epoch_threshold(
+            epoch_height.saturating_sub(STATE_SNAPSHOT_INFO_RETENTION_WINDOW),
+        );
     }
 
     /// Selects new data and verifies the signatures.

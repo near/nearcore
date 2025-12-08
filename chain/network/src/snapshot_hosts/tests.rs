@@ -424,7 +424,7 @@ async fn run_select_peer_test(
                 assert!(requested_insert_count == *expected_insert_count || err.is_none());
             }
             SelectPeerAction::CallSetEpoch(epoch_height) => {
-                cache.set_discard_epoch_threshold(*epoch_height);
+                cache.set_current_epoch_height(*epoch_height);
             }
             SelectPeerAction::CallSelect(epoch_height, wanted) => {
                 let sync_hash = CryptoHash::hash_borsh(epoch_height);
