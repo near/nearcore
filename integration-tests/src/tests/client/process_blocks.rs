@@ -12,7 +12,7 @@ use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::time::{Clock, Duration};
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
-use near_chain::{Block, BlockProcessingArtifact, ChainStore, ChainStoreAccess, Error, Provenance};
+use near_chain::{BlockProcessingArtifact, ChainStore, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, ProtocolVersionCheckConfig};
 use near_client::test_utils::create_chunk_on_height;
@@ -140,39 +140,12 @@ async fn receive_network_block() {
     let res = actor_handles.view_client_actor.send_async(GetBlockWithMerkleTree::latest()).await;
     let (last_block, block_merkle_tree) = res.unwrap().unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
-    block_merkle_tree.insert(last_block.header.hash);
     let signer = create_test_signer("test1");
-    let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
-    let block = Block::produce(
-        PROTOCOL_VERSION,
-        &last_block.header.clone().into(),
-        last_block.header.height + 1,
-        next_block_ordinal,
-        last_block.chunks.iter().cloned().map(Into::into).collect(),
-        vec![vec![]; last_block.chunks.len()],
-        EpochId::default(),
-        if last_block.header.prev_hash == CryptoHash::default() {
-            EpochId(last_block.header.hash)
-        } else {
-            EpochId(last_block.header.next_epoch_id)
-        },
-        None,
-        vec![],
-        Ratio::from_integer(0),
-        Balance::ZERO,
-        Balance::from_yoctonear(100),
-        None,
-        &signer,
-        last_block.header.next_bp_hash,
-        block_merkle_tree.root(),
-        Clock::real(),
-        None,
-        None,
-        None,
-    );
+    let block = TestBlockBuilder::new(Clock::real(), &last_block, Arc::new(signer))
+        .block_merkle_tree(&mut block_merkle_tree)
+        .build();
     actor_handles.client_actor.send(
-        BlockResponse { block: block.into(), peer_id: PeerInfo::random().id, was_requested: false }
-            .span_wrap(),
+        BlockResponse { block, peer_id: PeerInfo::random().id, was_requested: false }.span_wrap(),
     );
     tokio::select! {
         _ = done.cancelled() => {},
@@ -228,42 +201,13 @@ async fn produce_block_with_approvals() {
     let res = actor_handles.view_client_actor.send_async(GetBlockWithMerkleTree::latest()).await;
     let (last_block, block_merkle_tree) = res.unwrap().unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
-    block_merkle_tree.insert(last_block.header.hash);
     let signer1 = create_test_signer(&block_producer);
-    let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
-
-    let chunks = last_block.chunks.into_iter().map(Into::into).collect_vec();
-    let chunk_endorsements = vec![vec![]; chunks.len()];
-    let block = Block::produce(
-        PROTOCOL_VERSION,
-        &last_block.header.clone().into(),
-        last_block.header.height + 1,
-        next_block_ordinal,
-        chunks,
-        chunk_endorsements,
-        EpochId::default(),
-        if last_block.header.prev_hash == CryptoHash::default() {
-            EpochId(last_block.header.hash)
-        } else {
-            EpochId(last_block.header.next_epoch_id)
-        },
-        None,
-        vec![],
-        Ratio::from_integer(0),
-        Balance::ZERO,
-        Balance::from_yoctonear(100),
-        Some(Balance::ZERO),
-        &signer1,
-        last_block.header.next_bp_hash,
-        block_merkle_tree.root(),
-        Clock::real(),
-        None,
-        None,
-        None,
-    );
+    let block = TestBlockBuilder::new(Clock::real(), &last_block, Arc::new(signer1))
+        .block_merkle_tree(&mut block_merkle_tree)
+        .build();
     actor_handles.client_actor.send(
         BlockResponse {
-            block: block.clone().into(),
+            block: block.clone(),
             peer_id: PeerInfo::random().id,
             was_requested: false,
         }
@@ -337,36 +281,13 @@ async fn invalid_blocks_common(is_requested: bool) {
     let res = actor_handles.view_client_actor.send_async(GetBlockWithMerkleTree::latest()).await;
     let (last_block, block_merkle_tree) = res.unwrap().unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
-    block_merkle_tree.insert(last_block.header.hash);
     let signer = create_test_signer("test");
-    let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
-    let valid_block = Block::produce(
-        PROTOCOL_VERSION,
-        &last_block.header.clone().into(),
-        last_block.header.height + 1,
-        next_block_ordinal,
-        last_block.chunks.iter().cloned().map(Into::into).collect(),
-        vec![vec![]; last_block.chunks.len()],
-        EpochId::default(),
-        if last_block.header.prev_hash == CryptoHash::default() {
-            EpochId(last_block.header.hash)
-        } else {
-            EpochId(last_block.header.next_epoch_id)
-        },
-        None,
-        vec![],
-        Ratio::from_integer(0),
-        Balance::ZERO,
-        Balance::from_yoctonear(100),
-        Some(Balance::ZERO),
-        &signer,
-        last_block.header.next_bp_hash,
-        block_merkle_tree.root(),
-        Clock::real(),
-        None,
-        None,
-        None,
+    let valid_block = Arc::unwrap_or_clone(
+        TestBlockBuilder::new(Clock::real(), &last_block, Arc::new(signer))
+            .block_merkle_tree(&mut block_merkle_tree)
+            .build(),
     );
+
     // Send block with invalid chunk mask
     let mut block = valid_block.clone();
     block.mut_header().set_chunk_mask(vec![]);

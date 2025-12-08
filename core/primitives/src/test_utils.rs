@@ -23,7 +23,9 @@ use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
 #[cfg(feature = "clock")]
 use crate::types::{BlockExecutionResults, ChunkExecutionResult, StateRoot};
 use crate::validator_signer::ValidatorSigner;
-use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
+use crate::views::{
+    BlockView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
+};
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
@@ -782,6 +784,43 @@ impl BlockBody {
     }
 }
 
+// We TestBlockParent to allow creating test block with same api both from parent blocks and parent
+// block views.
+pub trait TestBlockParent {
+    fn cloned_header(&self) -> BlockHeader;
+    fn cloned_chunks(&self) -> Vec<ShardChunkHeader>;
+}
+
+impl TestBlockParent for Block {
+    fn cloned_header(&self) -> BlockHeader {
+        self.header().clone()
+    }
+
+    fn cloned_chunks(&self) -> Vec<ShardChunkHeader> {
+        self.chunks().iter_raw().cloned().collect()
+    }
+}
+
+impl TestBlockParent for BlockView {
+    fn cloned_header(&self) -> BlockHeader {
+        self.header.clone().into()
+    }
+
+    fn cloned_chunks(&self) -> Vec<ShardChunkHeader> {
+        self.chunks.iter().cloned().map(ShardChunkHeader::from).collect()
+    }
+}
+
+impl<T: TestBlockParent> TestBlockParent for Arc<T> {
+    fn cloned_header(&self) -> BlockHeader {
+        self.as_ref().cloned_header()
+    }
+
+    fn cloned_chunks(&self) -> Vec<ShardChunkHeader> {
+        self.as_ref().cloned_chunks()
+    }
+}
+
 /// Builder class for blocks to make testing easier.
 /// # Examples
 ///
@@ -791,7 +830,7 @@ impl BlockBody {
 #[cfg(feature = "clock")]
 pub struct TestBlockBuilder {
     clock: near_time::Clock,
-    prev: Block,
+    prev_header: BlockHeader,
     signer: Arc<ValidatorSigner>,
     height: u64,
     epoch_id: EpochId,
@@ -807,26 +846,33 @@ pub struct TestBlockBuilder {
 
 #[cfg(feature = "clock")]
 impl TestBlockBuilder {
-    pub fn new(clock: near_time::Clock, prev: &Block, signer: Arc<ValidatorSigner>) -> Self {
+    pub fn new(
+        clock: near_time::Clock,
+        prev: &impl TestBlockParent,
+        signer: Arc<ValidatorSigner>,
+    ) -> Self {
+        let prev_header = prev.cloned_header();
+        let prev_chunks = prev.cloned_chunks();
+
         let mut tree = crate::merkle::PartialMerkleTree::default();
-        tree.insert(*prev.hash());
-        let next_epoch_id = if prev.header().is_genesis() {
-            EpochId(*prev.hash())
+        tree.insert(*prev_header.hash());
+        let next_epoch_id = if prev_header.is_genesis() {
+            EpochId(*prev_header.hash())
         } else {
-            *prev.header().next_epoch_id()
+            *prev_header.next_epoch_id()
         };
         Self {
             clock,
-            prev: Block::clone(prev),
             signer,
-            height: prev.header().height() + 1,
-            epoch_id: *prev.header().epoch_id(),
+            height: prev_header.height() + 1,
+            epoch_id: *prev_header.epoch_id(),
             next_epoch_id,
-            next_bp_hash: *prev.header().next_bp_hash(),
+            next_bp_hash: *prev_header.next_bp_hash(),
             approvals: vec![],
             max_gas_price: Balance::ZERO,
             block_merkle_root: tree.root(),
-            chunks: prev.chunks().iter_raw().cloned().collect(),
+            chunks: prev_chunks,
+            prev_header,
             spice_core_statements: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
                 Some(vec![])
             } else {
@@ -865,7 +911,7 @@ impl TestBlockBuilder {
         mut self,
         block_merkle_tree: &mut crate::merkle::PartialMerkleTree,
     ) -> Self {
-        block_merkle_tree.insert(*self.prev.hash());
+        block_merkle_tree.insert(*self.prev_header.hash());
         self.block_merkle_root = block_merkle_tree.root();
         self
     }
@@ -909,9 +955,9 @@ impl TestBlockBuilder {
         );
         Arc::new(Block::produce(
             PROTOCOL_VERSION,
-            self.prev.header(),
+            &self.prev_header,
             self.height,
-            self.prev.header().block_ordinal() + 1,
+            self.prev_header.block_ordinal() + 1,
             self.chunks,
             vec![vec![]; chunks_len],
             self.epoch_id,
