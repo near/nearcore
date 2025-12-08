@@ -1,5 +1,0 @@
-# Dynamic resharding
-memory_usage_threshold: { new: 40_000_000_000 }
-min_child_memory_usage: { new: 10_000_000_000 }
-max_number_of_shards: { new: 16 }
-min_epochs_between_resharding: { new: 2 }
