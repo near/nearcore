@@ -9,6 +9,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::stateless_validation::validator_assignment::ChunkEndorsementsState;
 use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::version::ProtocolFeature;
+use near_vm_runner::logic::ProtocolVersion;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 
@@ -161,6 +163,7 @@ impl ChunkInclusionTracker {
         &self,
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
+        protocol_version: ProtocolVersion,
     ) -> HashMap<ShardId, ChunkHash> {
         let Some(entry) = self.prev_block_to_chunk_hash_ready.peek(prev_block_hash) else {
             return HashMap::new();
@@ -179,7 +182,7 @@ impl ChunkInclusionTracker {
                     "not including chunk because of insufficient chunk endorsements"
                 );
             }
-            if !banned && (is_endorsed || cfg!(feature = "protocol_feature_spice")) {
+            if !banned && (is_endorsed || ProtocolFeature::Spice.enabled(protocol_version)) {
                 // only add to chunk_headers_ready_for_inclusion if chunk is not from a banned chunk producer
                 // and chunk has sufficient chunk endorsements.
                 // Chunk endorsements are got as part of call to prepare_chunk_headers_ready_for_inclusion
@@ -196,12 +199,14 @@ impl ChunkInclusionTracker {
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
         num_shards: usize,
+        protocol_version: ProtocolVersion,
     ) -> ChunksReadiness {
         if let Some(timestamp) = self.prev_block_chunks_ready_timestamp.get(prev_block_hash) {
             return ChunksReadiness::Ready(*timestamp);
         }
-        let num_chunk_headers =
-            self.get_chunk_headers_ready_for_inclusion(epoch_id, prev_block_hash).len();
+        let num_chunk_headers = self
+            .get_chunk_headers_ready_for_inclusion(epoch_id, prev_block_hash, protocol_version)
+            .len();
         if num_chunk_headers == num_shards {
             self.prev_block_chunks_ready_timestamp.push(*prev_block_hash, now);
             ChunksReadiness::Ready(now)
