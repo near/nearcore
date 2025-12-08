@@ -56,8 +56,7 @@ impl ShardChunkHeaderInner {
             Self::V3(inner) => inner.gas_limit,
             Self::V4(inner) => inner.gas_limit,
             Self::V5(_) => {
-                // TODO(spice): debug_assert this is unreachable after verifying that nothing depend on this
-                // anymore.
+                debug_assert!(false, "Transaction only header doesn't include gas_limit");
                 Gas::ZERO
             }
         }
