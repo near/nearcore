@@ -733,11 +733,11 @@ fn add_block(
     let mut store_update = chain.mut_chain_store().store_update();
 
     let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
-        TestBlockBuilder::new(Clock::real(), &prev_block, signer).height(height).build()
+        TestBlockBuilder::new(Clock::real(), prev_block, signer).height(height).build()
     } else {
         let epoch_id = *prev_block.header().next_epoch_id();
         let next_bp_hash = Chain::compute_bp_hash(epoch_manager, next_epoch_id).unwrap();
-        TestBlockBuilder::new(Clock::real(), &prev_block, signer)
+        TestBlockBuilder::new(Clock::real(), prev_block, signer)
             .height(height)
             .epoch_id(epoch_id)
             .next_epoch_id(next_epoch_id)

@@ -2368,7 +2368,7 @@ mod tests {
                 )
                 .is_ok()
         );
-        let new_block = TestBlockBuilder::new(Clock::real(), &blocks.last().unwrap(), signer)
+        let new_block = TestBlockBuilder::new(Clock::real(), blocks.last().unwrap(), signer)
             .height(chain.transaction_validity_period() + 3)
             .build();
 
