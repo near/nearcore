@@ -72,7 +72,9 @@ fn build_chain_with_orphans() {
     let (mut chain, _, _, signer) = setup(clock.clone());
     let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
     for i in 1..4 {
-        let block = TestBlockBuilder::from_prev_block(clock.clone(), &blocks[i - 1], signer.clone()).build();
+        let block =
+            TestBlockBuilder::from_prev_block(clock.clone(), &blocks[i - 1], signer.clone())
+                .build();
         blocks.push(block);
     }
     let last_block = &blocks[blocks.len() - 1];
@@ -121,9 +123,13 @@ fn build_chain_with_skips_and_forks() {
     let (mut chain, _, _, signer) = setup(Clock::real());
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
     let b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build();
-    let b2 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).height(2).build();
-    let b3 = TestBlockBuilder::from_prev_block(Clock::real(), &b1, signer.clone()).height(3).build();
-    let b4 = TestBlockBuilder::from_prev_block(Clock::real(), &b2, signer.clone()).height(4).build();
+    let b2 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone())
+        .height(2)
+        .build();
+    let b3 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &b1, signer.clone()).height(3).build();
+    let b4 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &b2, signer.clone()).height(4).build();
     let b5 = TestBlockBuilder::from_prev_block(Clock::real(), &b4, signer.clone()).build();
     let b6 = TestBlockBuilder::from_prev_block(Clock::real(), &b5, signer.clone()).build();
     assert!(chain.process_block_test(b1).is_ok());
@@ -160,18 +166,28 @@ fn blocks_at_height() {
     init_test_logger();
     let (mut chain, _, _, signer) = setup(Clock::real());
     let genesis = chain.get_block_by_height(0).unwrap();
-    let b_1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).height(1).build();
+    let b_1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone())
+        .height(1)
+        .build();
 
-    let b_2 = TestBlockBuilder::from_prev_block(Clock::real(), &b_1, signer.clone()).height(2).build();
+    let b_2 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &b_1, signer.clone()).height(2).build();
 
-    let c_1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).height(1).build();
-    let c_3 = TestBlockBuilder::from_prev_block(Clock::real(), &c_1, signer.clone()).height(3).build();
-    let c_4 = TestBlockBuilder::from_prev_block(Clock::real(), &c_3, signer.clone()).height(4).build();
+    let c_1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone())
+        .height(1)
+        .build();
+    let c_3 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &c_1, signer.clone()).height(3).build();
+    let c_4 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &c_3, signer.clone()).height(4).build();
 
-    let d_3 = TestBlockBuilder::from_prev_block(Clock::real(), &b_2, signer.clone()).height(3).build();
+    let d_3 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &b_2, signer.clone()).height(3).build();
 
-    let d_5 = TestBlockBuilder::from_prev_block(Clock::real(), &d_3, signer.clone()).height(5).build();
-    let d_6 = TestBlockBuilder::from_prev_block(Clock::real(), &d_5, signer.clone()).height(6).build();
+    let d_5 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &d_3, signer.clone()).height(5).build();
+    let d_6 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &d_5, signer.clone()).height(6).build();
 
     let e_7 = TestBlockBuilder::from_prev_block(Clock::real(), &b_1, signer).height(7).build();
 
@@ -234,8 +250,10 @@ fn next_blocks() {
     let (mut chain, _, _, signer) = setup(Clock::real());
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
     let b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build();
-    let b2 = TestBlockBuilder::from_prev_block(Clock::real(), &b1, signer.clone()).height(2).build();
-    let b3 = TestBlockBuilder::from_prev_block(Clock::real(), &b1, signer.clone()).height(3).build();
+    let b2 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &b1, signer.clone()).height(2).build();
+    let b3 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &b1, signer.clone()).height(3).build();
     let b4 = TestBlockBuilder::from_prev_block(Clock::real(), &b3, signer).height(4).build();
     let b1_hash = *b1.hash();
     let b2_hash = *b2.hash();
