@@ -2261,7 +2261,8 @@ mod tests {
         chain.set_transaction_validity_period(5);
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
-        let short_fork = [TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build()];
+        let short_fork =
+            [TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build()];
         let mut store_update = chain.mut_chain_store().store_update();
         store_update.save_block_header(short_fork[0].header().clone()).unwrap();
         store_update.commit().unwrap();
@@ -2289,7 +2290,9 @@ mod tests {
         for i in 1..(chain.transaction_validity_period() + 3) {
             let mut store_update = chain.mut_chain_store().store_update();
             let block =
-                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
+                TestBlockBuilder::from_prev_block(Clock::real(), &prev_block, signer.clone())
+                    .height(i)
+                    .build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             store_update.update_height(block.header().height(), *block.hash()).unwrap();
@@ -2343,7 +2346,9 @@ mod tests {
         for i in 1..(chain.transaction_validity_period() + 2) {
             let mut store_update = chain.mut_chain_store().store_update();
             let block =
-                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
+                TestBlockBuilder::from_prev_block(Clock::real(), &prev_block, signer.clone())
+                    .height(i)
+                    .build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             store_update.update_height(block.header().height(), *block.hash()).unwrap();
@@ -2368,9 +2373,10 @@ mod tests {
                 )
                 .is_ok()
         );
-        let new_block = TestBlockBuilder::new(Clock::real(), blocks.last().unwrap(), signer)
-            .height(chain.transaction_validity_period() + 3)
-            .build();
+        let new_block =
+            TestBlockBuilder::from_prev_block(Clock::real(), &blocks.last().unwrap(), signer)
+                .height(chain.transaction_validity_period() + 3)
+                .build();
 
         let mut store_update = chain.mut_chain_store().store_update();
         store_update.save_block_header(new_block.header().clone()).unwrap();
@@ -2404,7 +2410,9 @@ mod tests {
         for i in 1..(chain.transaction_validity_period() + 2) {
             let mut store_update = chain.mut_chain_store().store_update();
             let block =
-                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
+                TestBlockBuilder::from_prev_block(Clock::real(), &prev_block, signer.clone())
+                    .height(i)
+                    .build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             short_fork.push(block);
@@ -2432,7 +2440,9 @@ mod tests {
         for i in 1..(chain.transaction_validity_period() * 5) {
             let mut store_update = chain.mut_chain_store().store_update();
             let block =
-                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
+                TestBlockBuilder::from_prev_block(Clock::real(), &prev_block, signer.clone())
+                    .height(i)
+                    .build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             long_fork.push(block);

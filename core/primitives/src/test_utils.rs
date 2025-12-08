@@ -784,43 +784,6 @@ impl BlockBody {
     }
 }
 
-// We TestBlockParent to allow creating test block with same api both from parent blocks and parent
-// block views.
-pub trait TestBlockParent {
-    fn cloned_header(&self) -> BlockHeader;
-    fn cloned_chunks(&self) -> Vec<ShardChunkHeader>;
-}
-
-impl TestBlockParent for Block {
-    fn cloned_header(&self) -> BlockHeader {
-        self.header().clone()
-    }
-
-    fn cloned_chunks(&self) -> Vec<ShardChunkHeader> {
-        self.chunks().iter_raw().cloned().collect()
-    }
-}
-
-impl TestBlockParent for BlockView {
-    fn cloned_header(&self) -> BlockHeader {
-        self.header.clone().into()
-    }
-
-    fn cloned_chunks(&self) -> Vec<ShardChunkHeader> {
-        self.chunks.iter().cloned().map(ShardChunkHeader::from).collect()
-    }
-}
-
-impl<T: TestBlockParent> TestBlockParent for Arc<T> {
-    fn cloned_header(&self) -> BlockHeader {
-        self.as_ref().cloned_header()
-    }
-
-    fn cloned_chunks(&self) -> Vec<ShardChunkHeader> {
-        self.as_ref().cloned_chunks()
-    }
-}
-
 /// Builder class for blocks to make testing easier.
 /// # Examples
 ///
@@ -846,14 +809,12 @@ pub struct TestBlockBuilder {
 
 #[cfg(feature = "clock")]
 impl TestBlockBuilder {
-    pub fn new(
+    fn new(
         clock: near_time::Clock,
-        prev: &impl TestBlockParent,
         signer: Arc<ValidatorSigner>,
+        prev_header: BlockHeader,
+        prev_chunks: Vec<ShardChunkHeader>,
     ) -> Self {
-        let prev_header = prev.cloned_header();
-        let prev_chunks = prev.cloned_chunks();
-
         let mut tree = crate::merkle::PartialMerkleTree::default();
         tree.insert(*prev_header.hash());
         let next_epoch_id = if prev_header.is_genesis() {
@@ -880,6 +841,33 @@ impl TestBlockBuilder {
             },
         }
     }
+
+    pub fn from_prev_block_view(
+        clock: near_time::Clock,
+        prev_block_view: &BlockView,
+        signer: Arc<ValidatorSigner>,
+    ) -> Self {
+        Self::new(
+            clock,
+            signer,
+            prev_block_view.header.clone().into(),
+            prev_block_view.chunks.iter().cloned().map(Into::into).collect(),
+        )
+    }
+
+    pub fn from_prev_block(
+        clock: near_time::Clock,
+        prev_block: &Block,
+        signer: Arc<ValidatorSigner>,
+    ) -> Self {
+        Self::new(
+            clock,
+            signer,
+            prev_block.header().clone(),
+            prev_block.chunks().iter_raw().cloned().collect(),
+        )
+    }
+
     pub fn height(mut self, height: u64) -> Self {
         self.height = height;
         self

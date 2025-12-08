@@ -141,9 +141,10 @@ async fn receive_network_block() {
     let (last_block, block_merkle_tree) = res.unwrap().unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     let signer = create_test_signer("test1");
-    let block = TestBlockBuilder::new(Clock::real(), &last_block, Arc::new(signer))
-        .block_merkle_tree(&mut block_merkle_tree)
-        .build();
+    let block =
+        TestBlockBuilder::from_prev_block_view(Clock::real(), &last_block, Arc::new(signer))
+            .block_merkle_tree(&mut block_merkle_tree)
+            .build();
     actor_handles.client_actor.send(
         BlockResponse { block, peer_id: PeerInfo::random().id, was_requested: false }.span_wrap(),
     );
@@ -202,9 +203,10 @@ async fn produce_block_with_approvals() {
     let (last_block, block_merkle_tree) = res.unwrap().unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     let signer1 = create_test_signer(&block_producer);
-    let block = TestBlockBuilder::new(Clock::real(), &last_block, Arc::new(signer1))
-        .block_merkle_tree(&mut block_merkle_tree)
-        .build();
+    let block =
+        TestBlockBuilder::from_prev_block_view(Clock::real(), &last_block, Arc::new(signer1))
+            .block_merkle_tree(&mut block_merkle_tree)
+            .build();
     actor_handles.client_actor.send(
         BlockResponse {
             block: block.clone(),
@@ -283,7 +285,7 @@ async fn invalid_blocks_common(is_requested: bool) {
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     let signer = create_test_signer("test");
     let valid_block = Arc::unwrap_or_clone(
-        TestBlockBuilder::new(Clock::real(), &last_block, Arc::new(signer))
+        TestBlockBuilder::from_prev_block_view(Clock::real(), &last_block, Arc::new(signer))
             .block_merkle_tree(&mut block_merkle_tree)
             .build(),
     );
@@ -543,7 +545,7 @@ fn test_time_attack() {
     let client = &mut env.clients[0];
     let signer = client.validator_signer.get().unwrap();
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
+    let mut b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build();
     let timestamp = b1.header().timestamp();
     Arc::make_mut(&mut b1)
         .mut_header()
@@ -574,7 +576,7 @@ fn test_invalid_gas_price() {
     let signer = client.validator_signer.get().unwrap();
 
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
+    let mut b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build();
     Arc::make_mut(&mut b1).mut_header().set_next_gas_price(Balance::ZERO);
     Arc::make_mut(&mut b1).mut_header().resign(signer.as_ref());
 
@@ -588,7 +590,7 @@ fn test_invalid_height_too_large() {
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let _ = env.clients[0].process_block_test(b1.clone().into(), Provenance::PRODUCED).unwrap();
     let signer = Arc::new(create_test_signer("test0"));
-    let b2 = TestBlockBuilder::new(Clock::real(), &b1, signer).height(u64::MAX).build();
+    let b2 = TestBlockBuilder::from_prev_block(Clock::real(), &b1, signer).height(u64::MAX).build();
     let res = env.clients[0].process_block_test(b2.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
 }

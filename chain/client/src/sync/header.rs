@@ -466,7 +466,7 @@ mod test {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             // Have gaps in the chain, so we don't have final blocks (i.e. last final block is
             // genesis). Otherwise we violate consensus invariants.
-            let block = TestBlockBuilder::new(Clock::real(), &prev, signer.clone())
+            let block = TestBlockBuilder::from_prev_block(Clock::real(), &prev, signer.clone())
                 .height(prev.header().height() + 2)
                 .build();
             process_block_sync(
@@ -482,7 +482,7 @@ mod test {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             // Have gaps in the chain, so we don't have final blocks (i.e. last final block is
             // genesis). Otherwise we violate consensus invariants.
-            let block = TestBlockBuilder::new(Clock::real(), &prev, signer2.clone())
+            let block = TestBlockBuilder::from_prev_block(Clock::real(), &prev, signer2.clone())
                 .height(prev.header().height() + 2)
                 .build();
             process_block_sync(
@@ -555,7 +555,7 @@ mod test {
             // Both chains share a common final block at height 3.
             for _ in 0..5 {
                 let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
-                let block = TestBlockBuilder::new(Clock::real(), &prev, signer.clone()).build();
+                let block = TestBlockBuilder::from_prev_block(Clock::real(), &prev, signer.clone()).build();
                 process_block_sync(
                     chain,
                     block.into(),
@@ -568,7 +568,7 @@ mod test {
         for _ in 0..7 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             // Test with huge gaps to make sure we are still able to find locators.
-            let block = TestBlockBuilder::new(Clock::real(), &prev, signer.clone())
+            let block = TestBlockBuilder::from_prev_block(Clock::real(), &prev, signer.clone())
                 .height(prev.header().height() + 1000)
                 .build();
             process_block_sync(
@@ -583,7 +583,7 @@ mod test {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             // Test with huge gaps, but 3 blocks here produce a higher height than the 7 blocks
             // above.
-            let block = TestBlockBuilder::new(Clock::real(), &prev, signer2.clone())
+            let block = TestBlockBuilder::from_prev_block(Clock::real(), &prev, signer2.clone())
                 .height(prev.header().height() + 3100)
                 .build();
             process_block_sync(
@@ -685,7 +685,7 @@ mod test {
         let mut all_blocks = vec![];
         for i in 0..61 {
             let current_height = 3 + i * 5;
-            let block = TestBlockBuilder::new(Clock::real(), last_block, signer.clone())
+            let block = TestBlockBuilder::from_prev_block(Clock::real(), last_block, signer.clone())
                 .height(current_height)
                 .build();
             all_blocks.push(block);
@@ -772,7 +772,7 @@ mod test {
             } else {
                 (*last_block.header().epoch_id(), *last_block.header().next_epoch_id())
             };
-            let block = TestBlockBuilder::new(clock.clock(), &last_block, signer2.clone())
+            let block = TestBlockBuilder::from_prev_block(clock.clock(), &last_block, signer2.clone())
                 .epoch_id(epoch_id)
                 .next_epoch_id(next_epoch_id)
                 .approvals(
