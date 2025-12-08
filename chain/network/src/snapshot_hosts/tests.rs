@@ -347,15 +347,15 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
             SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
-            SelectPeerAction::InsertHosts(&[1, 4], FIRST_EPOCH_HEIGHT + 1, 2),
+            SelectPeerAction::InsertHosts(&[1, 4], FIRST_EPOCH_HEIGHT + 2, 2),
             SelectPeerAction::CheckNumberOfHosts(4),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
-            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT + 1),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT + 2),
             SelectPeerAction::CheckNumberOfHosts(2),
-            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 1, Some(1)),
-            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 1, Some(4)),
-            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 1, Some(1)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 2, Some(1)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 2, Some(4)),
+            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT + 2, Some(1)),
         ],
     },
     SelectPeerTest {
@@ -369,7 +369,7 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
             SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
-            SelectPeerAction::InsertHosts(&[3, 1, 4], FIRST_EPOCH_HEIGHT - 1, 0),
+            SelectPeerAction::InsertHosts(&[3, 1, 4], FIRST_EPOCH_HEIGHT - 2, 0),
             SelectPeerAction::CheckNumberOfHosts(2),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(3)),
@@ -387,10 +387,12 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
             SelectPeerAction::InsertHosts(&[5, 6], FIRST_EPOCH_HEIGHT + 2, 2),
             SelectPeerAction::CheckNumberOfHosts(7),
             SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
-            SelectPeerAction::CheckNumberOfHosts(5),
+            SelectPeerAction::CheckNumberOfHosts(7),
             SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT + 1),
-            SelectPeerAction::CheckNumberOfHosts(3),
+            SelectPeerAction::CheckNumberOfHosts(5),
             SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT + 2),
+            SelectPeerAction::CheckNumberOfHosts(3),
+            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT + 3),
             SelectPeerAction::CheckNumberOfHosts(2),
         ],
     },
@@ -405,7 +407,7 @@ async fn run_select_peer_test(
 ) {
     let config =
         Config { snapshot_hosts_cache_size: keys.len() as u32, part_selection_cache_batch_size };
-    let cache = SnapshotHostsCache::new(config);
+    let cache = SnapshotHostsCache::new_with_epoch_retention_window(config, 1);
 
     tracing::debug!(test_name, "start");
 
