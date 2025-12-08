@@ -148,6 +148,8 @@ struct Inner {
     peer_selector: HashMap<(ShardId, u64), PartPeerSelector>,
     /// Batch size for populating the peer_selector from the hosts
     part_selection_cache_batch_size: usize,
+    /// Epoch retention window
+    epoch_retention_window: EpochHeight,
 }
 
 impl Inner {
@@ -219,14 +221,14 @@ impl Inner {
     /// Updates the minimum epoch height to keep in the cache. This is called based on chain progression.
     /// Discards snapshot infos that are too old.
     fn update_discard_epoch_threshold(&mut self, epoch_height: EpochHeight) {
-        if self.discard_snapshot_infos_below_epoch_height == Some(epoch_height) {
+        let min_epoch_to_keep = epoch_height.saturating_sub(self.epoch_retention_window);
+        if self.discard_snapshot_infos_below_epoch_height == Some(min_epoch_to_keep) {
             return;
         }
 
-        self.discard_snapshot_infos_below_epoch_height = Some(epoch_height);
+        self.discard_snapshot_infos_below_epoch_height = Some(min_epoch_to_keep);
 
         // Remove snapshot infos that are now below the retention window
-        let min_epoch_to_keep = epoch_height;
         let mut new_hosts = LruCache::new(NonZeroUsize::new(self.hosts.cap().get()).unwrap());
 
         loop {
@@ -299,6 +301,13 @@ pub(crate) struct SnapshotHostsCache(Mutex<Inner>);
 
 impl SnapshotHostsCache {
     pub fn new(config: Config) -> Self {
+        Self::new_with_epoch_retention_window(config, STATE_SNAPSHOT_INFO_RETENTION_WINDOW)
+    }
+
+    pub fn new_with_epoch_retention_window(
+        config: Config,
+        epoch_retention_window: EpochHeight,
+    ) -> Self {
         Self(Mutex::new(Inner {
             hosts: LruCache::new(
                 NonZeroUsize::new(config.snapshot_hosts_cache_size as usize).unwrap(),
@@ -308,12 +317,13 @@ impl SnapshotHostsCache {
             hosts_for_shard: HashMap::new(),
             peer_selector: HashMap::new(),
             part_selection_cache_batch_size: config.part_selection_cache_batch_size as usize,
+            epoch_retention_window,
         }))
     }
 
     /// Updates the minimum epoch height to keep based on chain progression.
-    /// Snapshot infos below this epoch height will be discarded.
-    pub fn set_discard_epoch_threshold(&self, epoch_height: EpochHeight) {
+    /// Snapshot infos older than STATE_SNAPSHOT_INFO_RETENTION_WINDOW epochs from the given epoch height will be discarded.
+    pub fn set_current_epoch_height(&self, epoch_height: EpochHeight) {
         self.0.lock().update_discard_epoch_threshold(epoch_height);
     }
 
