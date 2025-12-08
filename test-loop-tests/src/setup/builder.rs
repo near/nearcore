@@ -323,8 +323,25 @@ impl<'a> NodeStateBuilder<'a> {
     }
 
     pub fn build(self) -> NodeSetupState {
-        let storage = self.setup_storage();
+        let client_config = self.create_client_config();
+        let storage = self.setup_storage(client_config.chain_id.clone());
         let account_id = self.account_id.unwrap();
+        NodeSetupState { account_id, client_config, storage }
+    }
+
+    fn setup_storage(&self, chain_id: String) -> TestNodeStorage {
+        let home_dir = Some(self.tempdir_path.clone());
+        let storage = create_test_node_storage(
+            self.enable_cold_storage,
+            self.enable_cloud_storage,
+            home_dir,
+            Some(chain_id),
+        );
+        initialize_genesis_state(storage.hot_store.clone(), &self.genesis, None);
+        storage
+    }
+
+    fn create_client_config(&self) -> ClientConfig {
         let archive = self.enable_cold_storage || self.enable_cloud_storage;
 
         let mut client_config = ClientConfig::test(TestClientConfigParams {
@@ -349,25 +366,16 @@ impl<'a> NodeStateBuilder<'a> {
             client_config.state_sync = default_testloop_state_sync_config(&self.tempdir_path);
         }
 
-        if let Some(config_modifier) = self.config_modifier {
+        if let Some(config_modifier) = &self.config_modifier {
             config_modifier(&mut client_config);
         }
 
         if client_config.cloud_archival_writer.is_some() {
             client_config.state_sync_enabled = true;
-            let cloud_archival_config = test_cloud_archival_config(self.tempdir_path);
+            let cloud_archival_config = test_cloud_archival_config(&self.tempdir_path);
             client_config.state_sync.dump = Some(cloud_archival_config.into())
         }
-
-        NodeSetupState { account_id, client_config, storage }
-    }
-
-    fn setup_storage(&self) -> TestNodeStorage {
-        let home_dir = Some(self.tempdir_path.clone());
-        let storage =
-            create_test_node_storage(self.enable_cold_storage, self.enable_cloud_storage, home_dir);
-        initialize_genesis_state(storage.hot_store.clone(), &self.genesis, None);
-        storage
+        client_config
     }
 }
 

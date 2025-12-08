@@ -1,4 +1,5 @@
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::state_sync::ShardStateSyncResponseHeader;
+use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 
 use borsh::BorshDeserialize;
 
@@ -35,6 +36,17 @@ impl CloudStorage {
         self.retrieve(&CloudStorageFileID::Head).await
     }
 
+    /// Returns the cloud head from external storage.
+    pub async fn retrieve_state_header(
+        &self,
+        epoch_height: EpochHeight,
+        epoch_id: EpochId,
+        shard_id: ShardId,
+    ) -> Result<ShardStateSyncResponseHeader, CloudRetrievalError> {
+        let file_id = CloudStorageFileID::StateHeader(epoch_height, epoch_id, shard_id);
+        self.retrieve(&file_id).await
+    }
+
     pub(super) async fn retrieve_block_data(
         &self,
         block_height: BlockHeight,
@@ -66,7 +78,7 @@ impl CloudStorage {
 
     /// Downloads the raw bytes for a given file in the cloud archive.
     async fn download(&self, file_id: &CloudStorageFileID) -> Result<Vec<u8>, CloudRetrievalError> {
-        let path = file_id.path();
+        let path = self.file_path(file_id);
         self.external
             .get(&path)
             .await
@@ -78,12 +90,12 @@ impl CloudStorage {
     /// Note: Internally this may trigger a recursive directory listing — avoid calling it
     /// on directories containing many files.
     async fn exists(&self, file_id: &CloudStorageFileID) -> Result<bool, CloudRetrievalError> {
-        let (dir, name) = file_id.dir_and_file_name();
+        let (dir, filename) = self.location_dir_and_file(file_id);
         let files = self
             .external
             .list(&dir)
             .await
             .map_err(|error| CloudRetrievalError::ListError { dir, error })?;
-        Ok(files.contains(&name))
+        Ok(files.contains(&filename))
     }
 }

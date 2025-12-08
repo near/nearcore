@@ -56,12 +56,16 @@ fn create_test_node_storage_archive(
     version: DbVersion,
     hot_kind: DbKind,
     home_dir: Option<PathBuf>,
+    chain_id: Option<String>,
 ) -> (NodeStorage, Arc<TestDB>, Option<Arc<TestDB>>) {
     let hot = TestDB::new();
     let cold = if cold_enabled { Some(TestDB::new()) } else { None };
     let cold_db = cold.as_ref().map(|cold| cold.clone() as Arc<dyn Database>);
-    let cloud =
-        if cloud_enabled { Some(create_test_cloud_storage(home_dir.unwrap())) } else { None };
+    let cloud = if cloud_enabled {
+        Some(create_test_cloud_storage(home_dir.unwrap(), chain_id.unwrap()))
+    } else {
+        None
+    };
     let storage = NodeStorage::new_archive(hot.clone(), cold_db, cloud);
 
     let hot_store = storage.get_hot_store();
@@ -80,7 +84,7 @@ pub fn create_test_node_storage_with_cold(
     hot_kind: DbKind,
 ) -> (NodeStorage, Arc<TestDB>, Arc<TestDB>) {
     let (storage, hot, cold) =
-        create_test_node_storage_archive(true, false, version, hot_kind, None);
+        create_test_node_storage_archive(true, false, version, hot_kind, None, None);
     (storage, hot, cold.unwrap())
 }
 
@@ -97,6 +101,7 @@ pub fn create_test_node_storage(
     cold_enabled: bool,
     cloud_enabled: bool,
     home_dir: Option<PathBuf>,
+    chain_id: Option<String>,
 ) -> TestNodeStorage {
     if !cold_enabled && !cloud_enabled {
         return TestNodeStorage {
@@ -113,6 +118,7 @@ pub fn create_test_node_storage(
         DB_VERSION,
         hot_kind,
         home_dir,
+        chain_id,
     );
     TestNodeStorage {
         hot_store: storage.get_hot_store(),

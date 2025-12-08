@@ -80,7 +80,7 @@ impl CloudStorage {
         file_id: CloudStorageFileID,
         value: Vec<u8>,
     ) -> Result<(), CloudArchivingError> {
-        let path = file_id.path();
+        let path = self.file_path(&file_id);
         self.external
             .put(&path, &value)
             .await

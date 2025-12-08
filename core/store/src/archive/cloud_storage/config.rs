@@ -43,12 +43,15 @@ pub fn test_cloud_archival_config(root_dir: impl Into<PathBuf>) -> CloudArchival
 }
 
 /// Creates a test cloud storage configuration.
-pub fn test_cloud_storage_config(root_dir: impl Into<PathBuf>) -> CloudStorageConfig {
-    CloudStorageConfig { cloud_archive: test_cloud_archival_config(root_dir), chain_id: "".into() }
+pub fn test_cloud_storage_config(
+    root_dir: impl Into<PathBuf>,
+    chain_id: String,
+) -> CloudStorageConfig {
+    CloudStorageConfig { cloud_archive: test_cloud_archival_config(root_dir), chain_id }
 }
 
 /// Initializes a test cloud storage instance based on the test configuration.
-pub fn create_test_cloud_storage(root_dir: PathBuf) -> Arc<CloudStorage> {
-    let config = test_cloud_storage_config(root_dir);
+pub fn create_test_cloud_storage(root_dir: PathBuf, chain_id: String) -> Arc<CloudStorage> {
+    let config = test_cloud_storage_config(root_dir, chain_id);
     CloudStorageOpener::new(config).open().unwrap()
 }
