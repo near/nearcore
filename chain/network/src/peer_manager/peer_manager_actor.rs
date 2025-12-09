@@ -960,6 +960,15 @@ impl PeerManagerActor {
                 mut epoch_height,
                 mut shards,
             }) => {
+                // Don't send out snapshot host info with empty shards - there's nothing useful to advertise.
+                if shards.is_empty() {
+                    tracing::trace!(
+                        target: "network",
+                        "skipping snapshot host info broadcast: no shards available"
+                    );
+                    return NetworkResponses::NoResponse;
+                }
+
                 if shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
                     tracing::warn!(
                         shards_len = shards.len(),

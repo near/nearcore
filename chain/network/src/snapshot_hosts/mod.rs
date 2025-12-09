@@ -340,7 +340,7 @@ impl SnapshotHostsCache {
         }
         let new_data = {
             let inner = self.0.lock();
-            data.into_iter().filter(|d| inner.is_new(d)).collect_vec()
+            data.into_iter().filter(|d| !d.shards.is_empty() && inner.is_new(d)).collect_vec()
         };
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
