@@ -7,14 +7,13 @@ use crate::block_service::BlockService;
 use crate::metrics::TransactionStatisticsService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
-use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
+use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::views::TxExecutionStatus;
 use rand::distributions::{Distribution, Uniform};
 use tokio::sync::mpsc;
 use tokio::time;
-use tracing::{error, info};
 
 #[derive(Args, Debug)]
 pub struct BenchmarkArgs {
@@ -65,6 +64,7 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
             accounts,
             args.requests_per_second,
             Some(&args.user_data_dir),
+            false,
         )
         .await?;
     }
@@ -138,14 +138,14 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
             permit.send(res);
         });
         if i > 0 && i % 10000 == 0 {
-            info!("num txs sent: {}", i);
+            tracing::info!(transactions_sent = %i);
         }
 
         let sender = accounts.get_mut(idx_sender).unwrap();
         sender.nonce += 1;
     }
 
-    info!("Sent {} txs in {:.2} seconds", args.num_transfers, timer.elapsed().as_secs_f64());
+    tracing::info!(num_transfers = %args.num_transfers, elapsed_secs = %timer.elapsed().as_secs_f64(), "sent txs");
 
     for account in accounts.iter() {
         account.write_to_dir(&args.user_data_dir)?;
@@ -157,7 +157,7 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
     if let Some(handle) = transaction_stat_handle {
         // Ensure transaction stats are collected until all transactions are processed.
         if let Err(err) = handle.await {
-            error!("Transaction statistics service failed with: {err}");
+            tracing::error!(?err, "transaction statistics service failed");
         }
     }
 

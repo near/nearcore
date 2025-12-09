@@ -2,23 +2,22 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::account::{accounts_from_dir, update_account_nonces, Account};
+use crate::account::{Account, accounts_from_dir, update_account_nonces};
 use crate::block_service::BlockService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
-use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
+use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::TxExecutionStatus;
 use rand::distributions::{Alphanumeric, DistString};
 use rand::rngs::ThreadRng;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use serde::Serialize;
 use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::time;
-use tracing::info;
 
 #[derive(Args, Debug)]
 pub struct BenchmarkMpcSignArgs {
@@ -59,7 +58,7 @@ pub struct BenchmarkMpcSignArgs {
 pub async fn benchmark_mpc_sign_impl(
     args: &BenchmarkMpcSignArgs,
     client: JsonRpcClient,
-    accounts: &mut Vec<Account>,
+    accounts: &mut [Account],
 ) -> anyhow::Result<()> {
     // Pick interval to achieve desired TPS.
     let mut interval = time::interval(Duration::from_micros(1_000_000 / args.requests_per_second));
@@ -88,7 +87,7 @@ pub async fn benchmark_mpc_sign_impl(
         rpc_response_handler.handle_all_responses().await;
     });
 
-    info!("Setup complete, starting to send transactions");
+    tracing::info!("setup complete, starting to send transactions");
     let timer = Instant::now();
     for i in 0..args.num_transactions {
         let sender_idx = usize::try_from(i).unwrap() % accounts.len();
@@ -123,22 +122,22 @@ pub async fn benchmark_mpc_sign_impl(
         });
 
         if i > 0 && i % 200 == 0 {
-            info!("sent {i} transactions in {:.2} seconds", timer.elapsed().as_secs_f64());
+            tracing::info!(%i, elapsed_secs = %timer.elapsed().as_secs_f64(), "sent transactions");
         }
 
         let sender = accounts.get_mut(sender_idx).unwrap();
         sender.nonce += 1;
     }
 
-    info!(
-        "Done sending {} transactions in {:.2} seconds",
-        args.num_transactions,
-        timer.elapsed().as_secs_f64()
+    tracing::info!(
+        num_transactions = %args.num_transactions,
+        elapsed_secs = %timer.elapsed().as_secs_f64(),
+        "done sending transactions"
     );
 
-    info!("Awaiting RPC responses");
+    tracing::info!("awaiting RPC responses");
     response_handler_task.await.expect("response handler tasks should succeed");
-    info!("Received all RPC responses after {:.2} seconds", timer.elapsed().as_secs_f64());
+    tracing::info!(elapsed_secs = %timer.elapsed().as_secs_f64(), "received all RPC responses");
 
     Ok(())
 }
@@ -146,7 +145,7 @@ pub async fn benchmark_mpc_sign_impl(
 pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<()> {
     let mut accounts = accounts_from_dir(&args.user_data_dir)?;
     assert!(
-        accounts.len() > 0,
+        !accounts.is_empty(),
         "at least one account required in {:?} to send transactions",
         args.user_data_dir
     );
@@ -158,13 +157,14 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
             accounts.to_vec(),
             args.requests_per_second,
             Some(&args.user_data_dir),
+            false,
         )
         .await?;
     }
 
     let result = benchmark_mpc_sign_impl(args, client, &mut accounts).await;
 
-    info!("Writing updated nonces to {:?}", args.user_data_dir);
+    tracing::info!(user_data_dir = ?args.user_data_dir, "writing updated nonces");
     for account in accounts.iter() {
         account.write_to_dir(&args.user_data_dir)?;
     }

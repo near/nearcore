@@ -3136,7 +3136,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.4.9",
+ "socket2 0.5.8",
  "tokio",
  "tower-service",
  "tracing",
@@ -5376,9 +5376,11 @@ dependencies = [
  "near-network",
  "near-primitives",
  "node-runtime",
+ "pid-lite",
  "rand 0.8.5",
  "serde",
  "serde_json",
+ "serde_with",
  "tokio",
  "tracing",
 ]
@@ -6454,6 +6456,12 @@ dependencies = [
  "pest",
  "sha1",
 ]
+
+[[package]]
+name = "pid-lite"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "525af580ce1fff6a619c17736c1d91dcab5d5abff5df3937136f499922dfa73f"
 
 [[package]]
 name = "pin-project"

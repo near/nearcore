@@ -1,12 +1,12 @@
 use std::time::Instant;
 
 use near_crypto::{InMemorySigner, PublicKey, Signer};
+use near_jsonrpc_client::JsonRpcClient;
 use near_jsonrpc_client::errors::JsonRpcError;
 use near_jsonrpc_client::methods::block::RpcBlockRequest;
 use near_jsonrpc_client::methods::query::RpcQueryRequest;
 use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::methods::tx::{RpcTransactionError, RpcTransactionResponse};
-use near_jsonrpc_client::JsonRpcClient;
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use near_primitives::{
     transaction::Transaction,
@@ -17,7 +17,6 @@ use near_primitives::{
     },
 };
 use tokio::sync::mpsc::Receiver;
-use tracing::{info, warn, debug};
 
 pub fn new_request(
     transaction: Transaction,
@@ -98,9 +97,10 @@ impl RpcResponseHandler {
             let response = match self.receiver.recv().await {
                 Some(res) => res,
                 None => {
-                    warn!(
-                        "Expected {} responses but channel closed after {num_received}",
-                        self.num_expected_responses
+                    tracing::warn!(
+                        num_expected = %self.num_expected_responses,
+                        %num_received,
+                        "expected responses but channel closed"
                     );
                     break;
                 }
@@ -113,27 +113,33 @@ impl RpcResponseHandler {
 
             match response {
                 Ok(rpc_response) => {
-                    if check_tx_response(rpc_response, self.wait_until.clone(), self.response_check_severity) {
+                    if check_tx_response(
+                        rpc_response,
+                        self.wait_until.clone(),
+                        self.response_check_severity,
+                    ) {
                         num_succeeded += 1;
                     }
                 }
                 Err(err) => {
-                    warn!("Got error response from rpc: {err}");
+                    tracing::warn!(?err, "got error response from rpc");
                     num_rpc_error += 1;
                 }
             };
 
-            debug!("Received {} responses; num_success={} num_rpc_error={}",
-                num_received,
-                num_succeeded,
-                num_rpc_error
+            tracing::debug!(
+                %num_received,
+                %num_succeeded,
+                %num_rpc_error,
+                "received responses"
             );
         }
 
         if let Some(timer) = timer {
-            info!(
-                "Received {num_received} tx responses in {:.2} seconds",
-                timer.elapsed().as_secs_f64()
+            tracing::info!(
+                %num_received,
+                elapsed_secs = %timer.elapsed().as_secs_f64(),
+                "received tx responses"
             );
         }
     }
@@ -160,8 +166,10 @@ fn check_outcome(
         response.final_execution_outcome.expect("response should have an outcome").into_outcome();
 
     if !matches!(outcome.status, FinalExecutionStatus::SuccessValue(_)) {
-        let msg =
-            format!("got outcome.status {:#?}, expected FinalExecutionStatus::SuccessValue", outcome.status);
+        let msg = format!(
+            "got outcome.status {:#?}, expected FinalExecutionStatus::SuccessValue",
+            outcome.status
+        );
         warn_or_panic(&msg, response_check_severity);
         return false;
     }
@@ -221,17 +229,14 @@ pub fn check_tx_response(
         | TxExecutionStatus::Executed
         | TxExecutionStatus::Final => {
             // For now, only sending transactions that expect an empty success value.
-            check_outcome(
-                response,
-                response_check_severity,
-            )
+            check_outcome(response, response_check_severity)
         }
     }
 }
 
 fn warn_or_panic(msg: &str, response_check_severity: ResponseCheckSeverity) {
     match response_check_severity {
-        ResponseCheckSeverity::Log => warn!("{msg}"),
+        ResponseCheckSeverity::Log => tracing::warn!("{msg}"),
         ResponseCheckSeverity::Assert => panic!("{msg}"),
     }
 }

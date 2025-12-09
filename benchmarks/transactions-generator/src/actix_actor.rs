@@ -1,4 +1,4 @@
-use crate::{ClientSender, TxGenerator, TxGeneratorConfig, ViewClientSender};
+use crate::{ClientSender, Config, TxGenerator, ViewClientSender};
 use actix::Actor;
 use near_async::actix_wrapper::ActixWrapper;
 use near_async::futures::DelayedActionRunner;
@@ -20,18 +20,18 @@ impl GeneratorActorImpl {
     pub fn start(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {
         match self.tx_generator.start() {
             Err(err) => {
-                tracing::error!(target: "transaction-generator", "Error: {err}");
+                tracing::error!(target: "transaction-generator", ?err);
             }
             Ok(_) => {
                 tracing::info!(target: "transaction-generator",
-                    tps=self.tx_generator.params.tps, "Started");
+                    schedule=?self.tx_generator.params.schedule, "started");
             }
         };
     }
 }
 
 pub fn start_tx_generator(
-    config: TxGeneratorConfig,
+    config: Config,
     client_sender: ClientSender,
     view_client_sender: ViewClientSender,
 ) -> actix::Addr<TxGeneratorActor> {

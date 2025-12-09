@@ -10,30 +10,29 @@ publish = false
 
 [features]
 nightly = [
-  "near-async/nightly",
-  "near-client-primitives/nightly",
-  "near-client/nightly",
-  "near-network/nightly",
-  "near-primitives/nightly",
-  "node-runtime/nightly",
+    "near-client-primitives/nightly",
+    "near-client/nightly",
+    "near-network/nightly",
+    "near-primitives/nightly",
+    "node-runtime/nightly",
 ]
-default = ["with_actix"]
-with_actix = ["near-async", "near-network", "actix"]
 
 [dependencies]
-actix = { workspace = true, optional = true }
+actix = { workspace = true }
 anyhow.workspace = true
-near-async = {workspace = true, optional = true }
+near-async = { workspace = true }
 near-crypto = { workspace = true }
-near-network = { workspace = true, optional = true }
+near-network = { workspace = true }
 near-primitives = { workspace = true, features = ["clock", "test_utils"] }
 near-client.workspace = true
 near-client-primitives.workspace = true
-node-runtime.workspace=true
+node-runtime.workspace = true
 
+pid-lite.workspace = true
 rand.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+serde_with.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true, features = ["std"] }
 

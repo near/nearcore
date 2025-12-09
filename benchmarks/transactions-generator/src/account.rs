@@ -46,10 +46,19 @@ impl Account {
     }
 }
 
-/// Tries to deserialize all json files in `dir` as [`Account`].
-pub fn accounts_from_dir(dir: &Path) -> anyhow::Result<Vec<Account>> {
+/// Tries to deserialize all json files in `path` as [`Account`].
+/// If `path` is a file, tries to deserialize it as a list of [`Account`].
+pub fn accounts_from_path(path: &Path) -> anyhow::Result<Vec<Account>> {
+    if path.is_file() {
+        let content = fs::read_to_string(path)?;
+        let accounts: Vec<Account> = serde_json::from_str(&content)
+            .with_context(|| format!("failed reading file {path:?} as a list of 'Account'"))?;
+        return Ok(accounts);
+    }
+
+    // Otherwise, proceed with the original directory reading logic
     let mut accounts = vec![];
-    for entry in fs::read_dir(dir)? {
+    for entry in fs::read_dir(path).context(format!("read {path:?} dir"))? {
         let entry = entry?;
         let file_type = entry.file_type()?;
         if !file_type.is_file() {
@@ -67,4 +76,20 @@ pub fn accounts_from_dir(dir: &Path) -> anyhow::Result<Vec<Account>> {
     }
 
     Ok(accounts)
+}
+
+/// Reads a directory and attempts to deserialize account ids from all json files in it.
+/// Calls itself recursively for subdirectories. In case of closed loop of symlinks will blow up.
+pub fn account_ids_from_path(path: &Path) -> anyhow::Result<Vec<AccountId>> {
+    if !path.is_dir() {
+        let account_ids = accounts_from_path(path)?.into_iter().map(|account| account.id).collect();
+        return Ok(account_ids);
+    }
+
+    let mut account_ids = vec![];
+    for entry in fs::read_dir(path).context(format!("reading account ids from {path:?}"))? {
+        account_ids.extend(account_ids_from_path(&entry?.path())?);
+    }
+
+    Ok(account_ids)
 }
