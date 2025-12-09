@@ -4088,6 +4088,42 @@
         ],
         "type": "object"
       },
+      "DynamicReshardingConfigView": {
+        "description": "Configuration for dynamic resharding feature",
+        "properties": {
+          "max_number_of_shards": {
+            "description": "Maximum number of shards in the network. When this number is reached, no further\nresharding will be scheduled.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "memory_usage_threshold": {
+            "description": "Memory threshold over which a shard is marked for a split. This is an artificial value,\ncalculated using `TRIE_COSTS`. It is roughly equal to *double* of the actual RAM usage\nby the shard's memtrie (in bytes).",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "min_child_memory_usage": {
+            "description": "Minimum memory usage of a child shard. If any of the potential children shards has memory\nusage below this ratio, parent shard will *not* be marked for split.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "min_epochs_between_resharding": {
+            "description": "Minimum number of epochs until next resharding can be scheduled.\nThe value of `0` means that resharding can happen every epoch.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "memory_usage_threshold",
+          "min_child_memory_usage",
+          "max_number_of_shards",
+          "min_epochs_between_resharding"
+        ],
+        "type": "object"
+      },
       "EpochId": {
         "allOf": [
           {
@@ -16182,6 +16218,14 @@
               }
             ],
             "description": "The configuration for congestion control."
+          },
+          "dynamic_resharding_config": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DynamicReshardingConfigView"
+              }
+            ],
+            "description": "Configuration for dynamic resharding feature."
           },
           "storage_amount_per_byte": {
             "allOf": [
