@@ -23,9 +23,7 @@ use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
 #[cfg(feature = "clock")]
 use crate::types::{BlockExecutionResults, ChunkExecutionResult, StateRoot};
 use crate::validator_signer::ValidatorSigner;
-use crate::views::{
-    BlockView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
-};
+use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
@@ -844,7 +842,7 @@ impl TestBlockBuilder {
 
     pub fn from_prev_block_view(
         clock: near_time::Clock,
-        prev_block_view: &BlockView,
+        prev_block_view: &crate::views::BlockView,
         signer: Arc<ValidatorSigner>,
     ) -> Self {
         Self::new(
