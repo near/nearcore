@@ -21,10 +21,7 @@ logging.basicConfig(level=logging.INFO)
 NUM_SHARDS = 4
 EPOCH_LENGTH = 5
 
-# Config to track all shards.
-node_config = {
-    "tracked_shards": list(range(NUM_SHARDS)),
-}
+node_config = {"tracked_shards_config": "AllShards"}
 
 
 def deploy_contract(node, config):

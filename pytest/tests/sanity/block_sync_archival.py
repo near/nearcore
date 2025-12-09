@@ -53,7 +53,7 @@ class Cluster:
     def __init__(self):
         node_config = {
             'archive': True,
-            'tracked_shards': [0],
+            'tracked_shards_config': 'AllShards',
         }
 
         self._config = cluster.load_config()

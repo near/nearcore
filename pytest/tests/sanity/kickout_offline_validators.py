@@ -24,9 +24,7 @@ KICKOUT_THRESHOLD = 10
 BLOCK_PRODUCER_BALANCE = str(10**30)
 CHUNK_VALIDATOR_BALANCE = str(10**28)
 
-node_config = {
-    "tracked_shards": [0],  # Track all shards.
-}
+node_config = {"tracked_shards_config": "AllShards"}
 
 
 def find_account(validators, account_id):

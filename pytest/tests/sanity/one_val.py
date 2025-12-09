@@ -18,7 +18,7 @@ EPOCH_LENGTH = 10
 TIMEOUT = 180
 
 genesis_change = [
-    ["minimum_validators_per_shard", 1], ["min_gas_price", 0],
+    ["minimum_validators_per_shard", 1], ["min_gas_price", "0"],
     ["max_inflation_rate", [0, 1]], ["epoch_length", EPOCH_LENGTH],
     ["block_producer_kickout_threshold", 60],
     ["chunk_producer_kickout_threshold", 60],
@@ -30,14 +30,15 @@ genesis_change = [
 ]
 
 # give more stake to the boot node so that it can produce the blocks alone
-nodes = start_cluster(2, 1, 8, None, genesis_change, {
-    0: {
-        "tracked_shards": [0]
-    },
-    1: {
-        "tracked_shards": [0]
-    }
-})
+nodes = start_cluster(
+    2, 1, 8, None, genesis_change, {
+        0: {
+            "tracked_shards_config": "AllShards"
+        },
+        1: {
+            "tracked_shards_config": "AllShards"
+        }
+    })
 utils.wait_for_blocks(nodes[0], target=3)
 nodes[1].kill()
 

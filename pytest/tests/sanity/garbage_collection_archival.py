@@ -49,7 +49,7 @@ client_config = {
             }
         }
     },
-    "tracked_shards": [0]
+    "tracked_shards_config": "AllShards"
 }
 
 archival_config = {
@@ -85,7 +85,7 @@ archival_config = {
     "cold_store": {
         "path": "cold-data",
     },
-    "tracked_shards": [0]
+    "tracked_shards_config": "AllShards"
 }
 
 nodes = start_cluster(

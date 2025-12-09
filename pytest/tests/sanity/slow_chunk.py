@@ -15,7 +15,7 @@ from configured_logger import logger
 from cluster import start_cluster
 from utils import load_test_contract, poll_blocks
 
-GGAS = 10**9
+TGAS = 10**12
 
 
 class SlowChunkTest(unittest.TestCase):
@@ -29,9 +29,13 @@ class SlowChunkTest(unittest.TestCase):
 
         # The validator nodes should used single shard tracking. The nodes with
         # indices in range [0, n) are validators.
-        val_client_config_changes = {i: {"tracked_shards": []} for i in range(n)}
+        val_client_config_changes = {
+            i: {
+                "tracked_shards_config": "NoShards"
+            } for i in range(n)
+        }
         # The rpc node should track all shards. The node with index n is the rpc node.
-        rpc_client_config_changes = {n: {"tracked_shards": [0]}}
+        rpc_client_config_changes = {n: {"tracked_shards_config": "AllShards"}}
 
         # Combine the configs changes for validators and rpc.
         client_config_changes = {
@@ -56,7 +60,20 @@ class SlowChunkTest(unittest.TestCase):
 
         self.__deploy_contract(rpc)
 
-        self.__call_contract(rpc)
+        tx_hash = self.__call_contract(rpc)
+
+        # Wait for a missing chunk.
+        missingChunk = False
+        for height, hash in poll_blocks(rpc, __target=50):
+            chunk_mask = self.__get_chunk_mask(rpc, hash)
+            logger.info(f"#{height} chunk mask: {chunk_mask}")
+
+            if not all(chunk_mask):
+                logger.info("Successfully caused missing chunks.")
+                missingChunk = True
+                break
+
+        self.assertTrue(missingChunk)
 
         # Wait until the chain recovers and all chunks are present.
         recovered = False
@@ -70,6 +87,9 @@ class SlowChunkTest(unittest.TestCase):
                 break
 
         self.assertTrue(recovered)
+
+        # Check that the function call did succeed
+        self.__check_call_result(rpc, tx_hash)
 
     def __deploy_contract(self, node):
         logger.info("Deploying contract.")
@@ -95,15 +115,21 @@ class SlowChunkTest(unittest.TestCase):
             node.signer_key.account_id,
             'sleep',
             duration_bytes,
-            150 * GGAS,
+            150 * TGAS,
             1,
             20,
             block_hash,
         )
-        result = node.send_tx_and_wait(tx, 20)
+        # asynchronously send the transaction, since we expect delays which
+        # might be more than the pooling timeout on the RPC
+        result = node.send_tx(tx)
 
+        self.assertIn('result', result, result)
         logger.debug(json.dumps(result, indent=2))
+        return result['result']
 
+    def __check_call_result(self, node, tx_hash):
+        result = node.get_tx(tx_hash, node.signer_key.account_id)
         self.assertIn('result', result, result)
         self.assertIn('status', result['result'])
         self.assertIn('SuccessValue', result['result']['status'])

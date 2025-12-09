@@ -55,11 +55,11 @@ class ReplayChainFromArchiveTest(unittest.TestCase):
         )
 
         # Validator node configs: Enable single-shard tracking with memtries enabled.
-        node_config_sync["tracked_shards"] = []
+        node_config_sync["tracked_shards_config"] = "NoShards"
         configs = {x: node_config_sync for x in range(NUM_VALIDATORS)}
 
         # Dump+RPC node config: Enable tracking all shards with memtries enabled.
-        node_config_dump["tracked_shards"] = [0]
+        node_config_dump["tracked_shards_config"] = "AllShards"
         configs[NUM_VALIDATORS] = node_config_dump
 
         # Archival node config: Enable tracking all shards with memtries enabled.

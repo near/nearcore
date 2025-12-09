@@ -39,13 +39,12 @@ def main():
     )
     # The schedule means that the node tracks all shards all the time except for epoch heights 2 and 3.
     # Those epochs correspond to block heights [EPOCH_LENGTH * 2 + 1, EPOCH_LENGTH * 4].
-    node_config_sync["tracked_shard_schedule"] = [
+    node_config_sync["tracked_shards_config.Schedule"] = [
         [0],  # epoch_height = 0 and 4
         [0],  # epoch_height = 1* and 1 and 5
         [],  # epoch_height = 2
         [],  # epoch_height = 3
     ]
-    node_config_sync["tracked_shards"] = []
 
     config = load_config()
     nodes = start_cluster(1, 1, 1, config, [["epoch_length", EPOCH_LENGTH]], {

@@ -29,7 +29,7 @@ node1_config.update({
         "block_fetch_horizon": 10,
         "block_header_fetch_horizon": 10,
     },
-    "tracked_shards": [0],
+    "tracked_shards_config": "AllShards",
     "gc_blocks_limit": 10,
     "gc_step_period": {
         "secs": 0,

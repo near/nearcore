@@ -72,6 +72,9 @@ class LocalTestNeardRunner:
     def name(self):
         return self._name
 
+    def get_label(self, label_name: str) -> str:
+        return 'local-test-node'
+
     def ip_addr(self):
         return '0.0.0.0'
 
@@ -92,13 +95,20 @@ class LocalTestNeardRunner:
         # handled by local_test_setup_cmd()
         return
 
-    def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
+    def run_cmd(self,
+                _schedule_ctx,
+                cmd,
+                raise_on_fail=False,
+                return_on_fail=False):
         logger.error(
             "Does not make sense to run command on local host. The behavior may not be the desired one."
         )
 
     def upload_file(self, src, dst):
         logger.error("Does not make sense to upload a file on local host.")
+
+    def download_file(self, src, dst):
+        logger.error("Does not make sense to download a file on local host.")
 
     def init_python(self):
         return
@@ -136,7 +146,9 @@ class LocalTestNeardRunner:
             f'started neard runner process with pid {process.pid} listening on port {self.port}'
         )
 
-    def neard_runner_post(self, body):
+    def neard_runner_post(self, _schedule_ctx, body):
+        if _schedule_ctx is not None:
+            raise ValueError('Scheduling is not supported for local test node')
         return http_post(self.ip_addr(), self.port, body)
 
     def new_test_params(self):
@@ -221,6 +233,26 @@ def run_cmd(cmd):
         sys.exit(
             f'running `{" ".join([str(a) for a in cmd])}` returned {e.returncode}. output:\n{e.output.decode("utf-8")}'
         )
+
+
+def make_snapshot(self, snapshot_id):
+    raise NotImplementedError(
+        'make_snapshot is not implemented for local test node')
+
+
+def restore_snapshot(self, snapshot_id):
+    raise NotImplementedError(
+        'restore_snapshot is not implemented for local test node')
+
+
+def list_snapshots(self):
+    raise NotImplementedError(
+        'list_snapshots is not implemented for local test node')
+
+
+def delete_snapshot(self, snapshot_id):
+    raise NotImplementedError(
+        'delete_snapshot is not implemented for local test node')
 
 
 # dumps records from `traffic_home_dir` and prepares records with keys changed

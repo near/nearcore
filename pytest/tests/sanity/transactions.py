@@ -23,8 +23,8 @@ nodes = start_cluster(
     num_shards=4,
     config=None,
     extra_state_dumper=True,
-    genesis_config_changes=[["min_gas_price",
-                             0], ["max_inflation_rate", [0, 1]],
+    genesis_config_changes=[["min_gas_price", "0"],
+                            ["max_inflation_rate", [0, 1]],
                             ["epoch_length", 10],
                             ["block_producer_kickout_threshold", 70]],
     client_config_changes={
@@ -107,7 +107,7 @@ nodes = start_cluster(
                     "nanos": 0
                 },
             },
-            "tracked_shards": [0, 1, 2, 3]
+            "tracked_shards_config": "AllShards"
         }
     })
 

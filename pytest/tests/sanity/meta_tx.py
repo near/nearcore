@@ -86,6 +86,13 @@ class TestMetaTransactions(unittest.TestCase):
 
         nodes[0].send_tx_and_wait(meta_tx, 100)
 
+        # send_tx_and_wait does not guarantee that all receipts changes are
+        # observable on RPC queries, yet.
+        # For meta transactions without refund, the access key is added in the
+        # last receipt of the transaction, which is not observable at this point.
+        # Waiting for one more block fixes that.
+        nodes[0].wait_at_least_one_block()
+
         self.assertEqual(check_account_status(nodes[0], CANDIDATE_ACCOUNT),
                          (2, CANDIDATE_STARTING_AMOUNT))
 

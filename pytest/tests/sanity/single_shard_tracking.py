@@ -89,7 +89,7 @@ def call_function(op, key, nonce, signer_key, last_block_hash, node):
 def main():
     node_config_dump, node_config_sync = state_sync_lib.get_state_sync_configs_pair(
     )
-    node_config_sync["tracked_shards"] = []
+    node_config_sync["tracked_shards_config"] = "NoShards"
     node_config_sync["store.load_mem_tries_for_tracked_shards"] = True
     node_config_dump["store.load_mem_tries_for_tracked_shards"] = True
     configs = {x: node_config_sync for x in range(4)}

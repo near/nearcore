@@ -93,9 +93,8 @@ def call_function(op, key, nonce, signer_key, last_block_hash, node):
 def main():
     node_config_dump, node_config_sync = state_sync_lib.get_state_sync_configs_pair(
     )
-    node_config_sync["tracked_shard_schedule"] = [[0], [0], [1], [2], [3], [1],
-                                                  [2], [3]]
-    node_config_sync["tracked_shards"] = []
+    node_config_sync["tracked_shards_config.Schedule"] = [[0], [0], [1], [2],
+                                                          [3], [1], [2], [3]]
 
     config = load_config()
     near_root, node_dirs = init_cluster(1, 1, 4, config,

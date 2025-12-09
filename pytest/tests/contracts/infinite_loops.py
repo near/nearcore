@@ -17,16 +17,16 @@ nodes = start_cluster(
     [["epoch_length", 40], ["block_producer_kickout_threshold", 80],
      ["transaction_validity_period", 10000]], {
          0: {
-             "tracked_shards": [0]
+             "tracked_shards_config": "AllShards"
          },
          1: {
-             "tracked_shards": [0]
+             "tracked_shards_config": "AllShards"
          },
          2: {
-             "tracked_shards": [0]
+             "tracked_shards_config": "AllShards"
          },
          3: {
-             "tracked_shards": [0]
+             "tracked_shards_config": "AllShards"
          },
      })
 

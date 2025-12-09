@@ -228,7 +228,7 @@ class MirrorProcess:
 
     def start(self):
         env = os.environ.copy()
-        env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,indexer=info," + env.get(
+        env["RUST_LOG"] = "mio=warn,tokio_util=warn,indexer=info," + env.get(
             "RUST_LOG", "debug")
         config_path = dot_near() / f'{MIRROR_DIR}/config.json'
         with open(dot_near() / f'{MIRROR_DIR}/stdout', 'ab') as stdout, \
@@ -598,7 +598,10 @@ def start_source_chain(config, num_source_validators=3):
 
     config_changes = {}
     for i in range(num_source_validators + 1):
-        config_changes[i] = {"tracked_shards": [0, 1, 2, 3], "archive": True}
+        config_changes[i] = {
+            "tracked_shards_config": "AllShards",
+            "archive": True
+        }
 
     config = load_config()
     near_root, source_node_dirs = init_cluster(

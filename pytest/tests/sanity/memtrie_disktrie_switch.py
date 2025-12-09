@@ -55,12 +55,12 @@ class MemtrieDiskTrieSwitchTest(unittest.TestCase):
         )
 
         # Validator node configs: Enable single-shard tracking with memtries enabled.
-        node_config_sync["tracked_shards"] = []
+        node_config_sync["tracked_shards_config"] = "NoShards"
         node_config_sync["store.load_mem_tries_for_tracked_shards"] = True
         configs = {x: node_config_sync for x in range(NUM_VALIDATORS)}
 
         # Dumper node config: Enable tracking all shards with memtries enabled.
-        node_config_dump["tracked_shards"] = [0]
+        node_config_dump["tracked_shards_config"] = "AllShards"
         node_config_dump["store.load_mem_tries_for_tracked_shards"] = True
         configs[NUM_VALIDATORS] = node_config_dump
 

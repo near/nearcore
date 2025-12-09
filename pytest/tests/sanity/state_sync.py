@@ -37,9 +37,9 @@ config = load_config()
 node_config = state_sync_lib.get_state_sync_config_combined()
 
 near_root, node_dirs = init_cluster(
-    2, 1, 1, config,
-    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
-     ["block_producer_kickout_threshold", 80]],
+    2, 1, 1,
+    config, [["min_gas_price", "0"], ["max_inflation_rate", [0, 1]],
+             ["epoch_length", 10], ["block_producer_kickout_threshold", 80]],
     {x: node_config for x in range(3)})
 
 started = time.time()
@@ -94,9 +94,9 @@ assert catch_up_height in boot_heights, "%s not in %s" % (catch_up_height,
 tracker.reset(
 )  # the transition might have happened before we initialized the tracker
 if catch_up_height >= 100:
-    assert tracker.check("transition to State Sync")
+    assert tracker.check("transition to state sync")
 elif catch_up_height <= 30:
-    assert not tracker.check("transition to State Sync")
+    assert not tracker.check("transition to state sync")
 
 if mode == 'manytx':
     while ctx.get_balances() != ctx.expected_balances:

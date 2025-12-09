@@ -193,7 +193,7 @@ def get_epoch_offset(binary_protocol_version):
 
 def get_client_config_changes(num_nodes, initial_delay=None):
     single = {
-        "tracked_shards": [0],
+        "tracked_shards_config": "AllShards",
         "resharding_config": {
             "batch_size": 1000000,
             # don't throttle resharding

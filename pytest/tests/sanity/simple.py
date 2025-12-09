@@ -55,7 +55,7 @@ class SimpleTest(unittest.TestCase):
         client_config_changes = {
             0: {
                 'archive': True,
-                'tracked_shards': [0],
+                'tracked_shards_config': 'AllShards',
             },
         }
 

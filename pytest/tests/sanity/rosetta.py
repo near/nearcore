@@ -861,7 +861,10 @@ class RosettaTestCase(unittest.TestCase):
 
         # Fetch the receipt through Rosetta RPC.
         result = RosettaExecResult(self.rosetta, block, receipt_id)
+        # Expect no gas refund
         related = result.related(0)
+        self.assertTrue(related is None)
+
         self.assertEqual(
             {
                 'transaction_identifier': result.identifier,
@@ -887,46 +890,10 @@ class RosettaTestCase(unittest.TestCase):
                         }
                     }
                 }],
-                'related_transactions': [{
-                    'direction': 'forward',
-                    'transaction_identifier': related and related.identifier
-                }],
                 'metadata': {
                     'type': 'TRANSACTION'
                 }
             }, result.transaction())
-
-        # Fetch the next receipt through Rosetta RPC.
-        self.assertEqual(
-            {
-                'metadata': {
-                    'type': 'TRANSACTION'
-                },
-                'operations': [{
-                    'account': {
-                        'address': 'test0'
-                    },
-                    'amount': {
-                        'currency': {
-                            'decimals': 24,
-                            'symbol': 'NEAR'
-                        },
-                        'value': '12524843062500000000'
-                    },
-                    'operation_identifier': {
-                        'index': 0
-                    },
-                    'status': 'SUCCESS',
-                    'type': 'TRANSFER',
-                    'metadata': {
-                        'predecessor_id': {
-                            'address': 'system'
-                        },
-                        'transfer_fee_type': 'GAS_REFUND'
-                    }
-                }],
-                'transaction_identifier': related.identifier
-            }, related.transaction())
 
         # 2. Delete the account.
         logger.info(f'Deleting implicit account: {implicit.account_id}')

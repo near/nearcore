@@ -41,7 +41,7 @@ def json_rpc(method, params, url):
 
 def get_genesis_height(url):
     try:
-        genesis_config = json_rpc('EXPERIMENTAL_genesis_config', None, url)
+        genesis_config = json_rpc('genesis_config', None, url)
         genesis_height = genesis_config['result']['genesis_height']
         logger.debug(f'Got genesis_height {genesis_height}')
         return genesis_height
