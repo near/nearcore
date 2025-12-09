@@ -1,4 +1,4 @@
-use crate::config::{CongestionControlConfig, WitnessConfig};
+use crate::config::{CongestionControlConfig, DynamicReshardingConfig, WitnessConfig};
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost};
 use near_account_id::AccountId;
 use near_primitives_core::types::Balance;
@@ -23,6 +23,8 @@ pub struct RuntimeConfigView {
     pub congestion_control_config: CongestionControlConfigView,
     /// Configuration specific to ChunkStateWitness.
     pub witness_config: WitnessConfigView,
+    /// Configuration for dynamic resharding feature.
+    pub dynamic_resharding_config: DynamicReshardingConfigView,
 }
 
 /// Describes different fees for the runtime
@@ -206,6 +208,9 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                 config.congestion_control_config,
             ),
             witness_config: WitnessConfigView::from(config.witness_config),
+            dynamic_resharding_config: DynamicReshardingConfigView::from(
+                config.dynamic_resharding_config,
+            ),
         }
     }
 }
@@ -827,6 +832,47 @@ impl From<CongestionControlConfigView> for CongestionControlConfig {
             reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
             outgoing_receipts_usual_size_limit: other.outgoing_receipts_usual_size_limit,
             outgoing_receipts_big_size_limit: other.outgoing_receipts_big_size_limit,
+        }
+    }
+}
+
+/// Configuration for dynamic resharding feature
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct DynamicReshardingConfigView {
+    /// Memory threshold over which a shard is marked for a split. This is an artificial value,
+    /// calculated using `TRIE_COSTS`. It is roughly equal to *double* of the actual RAM usage
+    /// by the shard's memtrie (in bytes).
+    pub memory_usage_threshold: u64,
+    /// Minimum memory usage of a child shard. If any of the potential children shards has memory
+    /// usage below this ratio, parent shard will *not* be marked for split.
+    pub min_child_memory_usage: u64,
+    /// Maximum number of shards in the network. When this number is reached, no further
+    /// resharding will be scheduled.
+    pub max_number_of_shards: u64,
+    /// Minimum number of epochs until next resharding can be scheduled.
+    /// The value of `0` means that resharding can happen every epoch.
+    pub min_epochs_between_resharding: u64,
+}
+
+impl From<DynamicReshardingConfig> for DynamicReshardingConfigView {
+    fn from(config: DynamicReshardingConfig) -> Self {
+        Self {
+            memory_usage_threshold: config.memory_usage_threshold,
+            min_child_memory_usage: config.min_child_memory_usage,
+            max_number_of_shards: config.max_number_of_shards,
+            min_epochs_between_resharding: config.min_epochs_between_resharding,
+        }
+    }
+}
+
+impl From<DynamicReshardingConfigView> for DynamicReshardingConfig {
+    fn from(view: DynamicReshardingConfigView) -> Self {
+        Self {
+            memory_usage_threshold: view.memory_usage_threshold,
+            min_child_memory_usage: view.min_child_memory_usage,
+            max_number_of_shards: view.max_number_of_shards,
+            min_epochs_between_resharding: view.min_epochs_between_resharding,
         }
     }
 }

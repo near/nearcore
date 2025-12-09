@@ -312,7 +312,7 @@ action_use_global_contract_per_identifier_byte: {
 
 # Dynamic resharding
 
-memory_usage_threshold: 40_000_000_000 # ~ 20 GB of actual RAM
-min_child_memory_usage: 10_000_000_000 # ~ 5 GB of actual RAM
-max_number_of_shards: 16
-min_epochs_between_resharding: 2
+memory_usage_threshold: 999_999_999_999_999
+min_child_memory_usage: 999_999_999_999_999
+max_number_of_shards: 999_999_999_999_999
+min_epochs_between_resharding: 999_999_999_999_999
