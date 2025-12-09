@@ -6,22 +6,23 @@ use near_external_storage::ExternalConnection;
 use near_chain_configs::ExternalStorageLocation;
 
 use crate::archive::cloud_storage::CloudStorage;
-use crate::archive::cloud_storage::config::CloudArchivalConfig;
+use crate::archive::cloud_storage::config::CloudStorageConfig;
 
 /// Opener for the external archival storage, which results in an `CloudStorage` instance.
 pub struct CloudStorageOpener {
     /// Configuration for the cloud archival storage.
-    config: CloudArchivalConfig,
+    config: CloudStorageConfig,
 }
 
 impl CloudStorageOpener {
-    pub fn new(config: CloudArchivalConfig) -> Self {
+    pub fn new(config: CloudStorageConfig) -> Self {
         Self { config }
     }
 
     pub fn open(&self) -> Result<Arc<CloudStorage>> {
         let external = self.create_external_connection();
-        let cloud_storage = CloudStorage { external };
+        let chain_id = self.config.chain_id.clone();
+        let cloud_storage = CloudStorage { external, chain_id };
         Ok(Arc::new(cloud_storage))
     }
 
@@ -40,10 +41,10 @@ impl CloudStorageOpener {
     ///
     /// Panics if the configured storage location is not supported.
     fn create_external_connection(&self) -> ExternalConnection {
-        let location = &self.config.cloud_storage.location;
+        let location = &self.config.cloud_archive.location;
         if !Self::is_storage_location_supported(location) {
             panic!("{} is not supported cloud storage location", location.name())
         }
-        ExternalConnection::new(location, self.config.cloud_storage.credentials_file.clone(), None)
+        ExternalConnection::new(location, self.config.cloud_archive.credentials_file.clone(), None)
     }
 }

@@ -322,9 +322,6 @@ impl<'a> NodeStateBuilder<'a> {
     }
 
     pub fn build(self) -> NodeSetupState {
-        let storage = self.setup_storage();
-        let account_id = self.account_id.unwrap();
-
         let mut client_config = ClientConfig::test(TestClientConfigParams {
             skip_sync_wait: true,
             min_block_prod_time: MIN_BLOCK_PROD_TIME,
@@ -363,17 +360,23 @@ impl<'a> NodeStateBuilder<'a> {
             parts_compression_lvl: Default::default(),
         };
 
-        if let Some(config_modifier) = self.config_modifier {
+        if let Some(config_modifier) = &self.config_modifier {
             config_modifier(&mut client_config);
         }
+        let storage = self.setup_storage(client_config.chain_id.clone());
+        let account_id = self.account_id.unwrap();
 
         NodeSetupState { account_id, client_config, storage }
     }
 
-    fn setup_storage(&self) -> TestNodeStorage {
+    fn setup_storage(&self, chain_id: String) -> TestNodeStorage {
         let home_dir = Some(self.tempdir_path.clone());
-        let storage =
-            create_test_node_storage(self.enable_cold_storage, self.enable_cloud_storage, home_dir);
+        let storage = create_test_node_storage(
+            self.enable_cold_storage,
+            self.enable_cloud_storage,
+            home_dir,
+            Some(chain_id),
+        );
         initialize_genesis_state(storage.hot_store.clone(), &self.genesis, None);
         storage
     }
