@@ -1155,9 +1155,6 @@ class NeardRunner:
         self.set_state(TestState.MAKING_BACKUP, data=backup_data)
 
     def set_state_sync_config(self, config, location):
-        config['store']['state_snapshot_config'] = {
-            'state_snapshot_type': "Enabled"
-        }
         if location is None:
             return config
 

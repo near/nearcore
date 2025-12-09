@@ -7,8 +7,7 @@
 		"receiver_accounts_zipf_skew": 1.0,
 		"schedule": [
 			{ "tps": 1000, "duration_s": 180 },
-			{ "tps": 2000, "duration_s": 180 },
-			{ "tps": 7500, "duration_s": 60 }
+			{ "tps": 2000, "duration_s": 180 }
 		],
 		"controller": {
 			"target_block_production_time_s": 1.5,
