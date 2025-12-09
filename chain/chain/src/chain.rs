@@ -842,19 +842,6 @@ impl Chain {
             return Err(Error::InvalidSignature);
         }
 
-        if let Ok(epoch_protocol_version) =
-            self.epoch_manager.get_epoch_protocol_version(header.epoch_id())
-        {
-            if header.latest_protocol_version() < epoch_protocol_version {
-                tracing::error!(
-                    header_version = %header.latest_protocol_version(),
-                    %epoch_protocol_version,
-                    "header protocol version smaller than epoch protocol version"
-                );
-                return Err(Error::InvalidProtocolVersion);
-            }
-        }
-
         let prev_header = self.get_previous_header(header)?;
 
         // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
@@ -870,6 +857,17 @@ impl Chain {
             != header.next_epoch_id()
         {
             return Err(Error::InvalidEpochHash);
+        }
+
+        let epoch_protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
+        if header.latest_protocol_version() < epoch_protocol_version {
+            tracing::error!(
+                header_version = %header.latest_protocol_version(),
+                %epoch_protocol_version,
+                "header protocol version smaller than epoch protocol version"
+            );
+            return Err(Error::InvalidProtocolVersion);
         }
 
         if header.epoch_id() == prev_header.epoch_id() {
@@ -959,7 +957,7 @@ impl Chain {
                 return Err(Error::InvalidBlockMerkleRoot);
             }
 
-            if !cfg!(feature = "protocol_feature_spice") {
+            if !ProtocolFeature::Spice.enabled(epoch_protocol_version) {
                 validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
             }
         }

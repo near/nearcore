@@ -703,11 +703,13 @@ impl Client {
             &self.chunk_endorsement_tracker,
         )?;
         let shard_ids = self.epoch_manager.shard_ids(&epoch_id)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         Ok(self.chunk_inclusion_tracker.get_chunks_readiness(
             self.clock.now(),
             &epoch_id,
             prev_block_hash,
             shard_ids.len(),
+            protocol_version,
         ))
     }
 
@@ -789,9 +791,12 @@ impl Client {
         // doomslug witness. Have to do it before checking the ability to produce a block.
         let _ = self.check_and_update_doomslug_tip()?;
 
-        let new_chunks = self
-            .chunk_inclusion_tracker
-            .get_chunk_headers_ready_for_inclusion(&epoch_id, &prev_hash);
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let new_chunks = self.chunk_inclusion_tracker.get_chunk_headers_ready_for_inclusion(
+            &epoch_id,
+            &prev_hash,
+            protocol_version,
+        );
         tracing::debug!(
             target: "client",
             validator=?validator_signer.validator_id(),
