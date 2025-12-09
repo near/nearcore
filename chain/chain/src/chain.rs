@@ -957,7 +957,7 @@ impl Chain {
                 return Err(Error::InvalidBlockMerkleRoot);
             }
 
-            if !cfg!(feature = "protocol_feature_spice") {
+            if !ProtocolFeature::Spice.enabled(epoch_protocol_version) {
                 validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
             }
         }

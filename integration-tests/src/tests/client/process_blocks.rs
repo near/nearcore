@@ -1990,9 +1990,11 @@ fn test_validate_chunk_extra() {
     let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
     let shard_uid = shard_layout.shard_uids().next().unwrap();
     let shard_id = shard_uid.shard_id();
-    let chunks = client
-        .chunk_inclusion_tracker
-        .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
+    let chunks = client.chunk_inclusion_tracker.get_chunk_headers_ready_for_inclusion(
+        block1.header().epoch_id(),
+        &block1.hash(),
+        PROTOCOL_VERSION,
+    );
     let (chunk_header, _) = client
         .chunk_inclusion_tracker
         .get_chunk_header_and_endorsements(chunks.get(&shard_id).unwrap())
