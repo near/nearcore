@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use borsh::BorshDeserialize;
@@ -11,7 +12,7 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, BlockId, BlockReference, EpochId,
+    AccountId, BlockHeight, BlockHeightDelta, BlockId, BlockReference, EpochHeight, EpochId,
 };
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
@@ -24,6 +25,11 @@ use crate::utils::node::TestLoopNode;
 pub fn run_node_until(env: &mut TestLoopEnv, account_id: &AccountId, target_height: BlockHeight) {
     let node = TestLoopNode::for_account(&env.node_datas, account_id);
     node.run_until_head_height(&mut env.test_loop, target_height);
+}
+
+// If that's causing a problem, use future spawner and wait for 0 blocks (so that the event loop executes it).
+fn execute_future<F: Future>(fut: F) -> F::Output {
+    futures::executor::block_on(fut)
 }
 
 /// Sanity checks: heads alignment, GC tail bounds, and optional minimum GC progress.
@@ -139,29 +145,44 @@ pub fn test_view_client(env: &mut TestLoopEnv, archival_id: &AccountId, height: 
     }
 }
 
-pub fn snapshots_sanity_check(env: &TestLoopEnv, archival_id: &AccountId) {
+pub fn snapshots_sanity_check(
+    env: &TestLoopEnv,
+    archival_id: &AccountId,
+    final_epoch_height: EpochHeight,
+) {
     let store = get_hot_store(env, archival_id);
     let cloud_storage = get_cloud_storage(env, archival_id);
     let client = get_client(env, archival_id);
-    let mut any_uploaded = false;
+    let mut epoch_heights_with_snapshot = HashSet::<EpochHeight>::new();
     for entry in store.iter(DBCol::EpochInfo) {
         let (epoch_id, epoch_info) = entry.unwrap();
         if epoch_id.as_ref() == AGGREGATOR_KEY {
             continue;
         }
         let epoch_id = EpochId::try_from_slice(epoch_id.as_ref()).unwrap();
-        if &epoch_id == client.chain.genesis_block().header().epoch_id() {
-            continue;
-        }
         let epoch_info = EpochInfo::try_from_slice(epoch_info.as_ref()).unwrap();
         let epoch_height = epoch_info.epoch_height();
         let shards =
             client.epoch_manager.get_shard_layout(&epoch_id).unwrap().shard_ids().collect_vec();
-        for shard_id in shards {
-            let fut = cloud_storage.retrieve_state_header(epoch_height, epoch_id, shard_id);
-            let state_header = futures::executor::block_on(fut);
-            any_uploaded |= state_header.is_ok();
+        let mut num_shards_with_snapshot = 0;
+        for shard_id in &shards {
+            let fut = cloud_storage.retrieve_state_header(epoch_height, epoch_id, *shard_id);
+            let state_header = execute_future(fut);
+            if state_header.is_ok() {
+                num_shards_with_snapshot += 1;
+            }
+        }
+        if num_shards_with_snapshot == shards.len() {
+            epoch_heights_with_snapshot.insert(epoch_height);
+        } else if num_shards_with_snapshot > 0 {
+            panic!(
+                "Missing snapshots (uploaded {} / {}) for some shards at epoch height {}",
+                num_shards_with_snapshot,
+                shards.len(),
+                epoch_height
+            )
         }
     }
-    assert!(any_uploaded)
+    // Snapshots for the epoch that just passed were not yet uploaded.
+    assert_eq!(epoch_heights_with_snapshot, HashSet::from_iter(1..final_epoch_height));
 }

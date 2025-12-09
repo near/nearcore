@@ -373,7 +373,9 @@ impl<'a> NodeStateBuilder<'a> {
         if client_config.cloud_archival_writer.is_some() {
             client_config.state_sync_enabled = true;
             let cloud_archival_config = test_cloud_archival_config(&self.tempdir_path);
-            client_config.state_sync.dump = Some(cloud_archival_config.into())
+            let mut dump_config: DumpConfig = cloud_archival_config.into();
+            dump_config.iteration_delay = Some(Duration::seconds(1));
+            client_config.state_sync.dump = Some(dump_config);
         }
         client_config
     }
