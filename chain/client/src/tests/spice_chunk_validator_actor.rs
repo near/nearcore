@@ -292,7 +292,7 @@ fn build_block(chain: &Chain, prev_block: &Block) -> Arc<Block> {
         .get_block_producer_info(prev_block.header().epoch_id(), prev_block.header().height() + 1)
         .unwrap();
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
-    TestBlockBuilder::new(Clock::real(), prev_block, signer)
+    TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
         .chunks(get_fake_next_block_spice_chunk_headers(&prev_block, chain.epoch_manager.as_ref()))
         .spice_core_statements(vec![])
         .build()

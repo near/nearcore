@@ -957,7 +957,7 @@ impl Chain {
                 return Err(Error::InvalidBlockMerkleRoot);
             }
 
-            if !cfg!(feature = "protocol_feature_spice") {
+            if !ProtocolFeature::Spice.enabled(epoch_protocol_version) {
                 validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
             }
         }
@@ -2135,8 +2135,10 @@ impl Chain {
         block: &Block,
         shard_id: ShardId,
     ) -> Result<(), Error> {
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
         // In spice we need to keep flat head and memtries until execution.
-        if cfg!(feature = "protocol_feature_spice") {
+        if ProtocolFeature::Spice.enabled(protocol_version) {
             return Ok(());
         }
 
@@ -2385,13 +2387,13 @@ impl Chain {
 
         self.validate_chunk_headers(&block, &prev_block)?;
 
-        if !cfg!(feature = "protocol_feature_spice") {
+        if !ProtocolFeature::Spice.enabled(protocol_version) {
             validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
         }
 
         self.ping_missing_chunks(prev_hash, block)?;
 
-        let incoming_receipts = if cfg!(feature = "protocol_feature_spice") {
+        let incoming_receipts = if ProtocolFeature::Spice.enabled(protocol_version) {
             // TODO(spice): move incoming receipts collection inside apply_chunks_preprocessing
             HashMap::default()
         } else {
@@ -2405,7 +2407,7 @@ impl Chain {
         // Check if block can be finalized and drop it otherwise.
         self.check_if_finalizable(header)?;
 
-        if cfg!(feature = "protocol_feature_spice") {
+        if ProtocolFeature::Spice.enabled(protocol_version) {
             self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
         } else {
             if block.is_spice_block() {
@@ -3078,7 +3080,9 @@ impl Chain {
         mut state_patch: SandboxStatePatch,
         invalid_chunks: &mut Vec<ShardChunkHeader>,
     ) -> Result<Vec<UpdateShardJob>, Error> {
-        if cfg!(feature = "protocol_feature_spice") {
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+        if ProtocolFeature::Spice.enabled(protocol_version) {
             return Ok(vec![]);
         }
 
