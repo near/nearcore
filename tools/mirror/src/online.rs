@@ -10,18 +10,171 @@ use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcome, GetReceipt, GetShardChunk, Query,
 };
 use near_crypto::PublicKey;
+use near_primitives::action::{
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
+    FunctionCallAction, StakeAction, TransferAction,
+};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{
+    ActionReceipt, ActionReceiptV2, DataReceipt, GlobalContractDistributionReceipt, Receipt,
+    ReceiptEnum, ReceiptV1,
+};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, Finality, TransactionOrReceiptId,
 };
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
+    ReceiptEnumView, ReceiptView,
 };
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
+
+/// Attempts to convert a ReceiptView to a Receipt.
+/// This is fundamentally limited because ReceiptView doesn't contain the actual contract code
+/// for DeployContract actions, only the hash. This function will fail for receipts containing
+/// DeployContract, DeployGlobalContract, or DeployGlobalContractByAccountId actions.
+fn try_receipt_view_to_receipt(receipt_view: ReceiptView) -> Result<Receipt, String> {
+    Ok(Receipt::V1(ReceiptV1 {
+        predecessor_id: receipt_view.predecessor_id,
+        receiver_id: receipt_view.receiver_id,
+        receipt_id: receipt_view.receipt_id,
+        receipt: match receipt_view.receipt {
+            ReceiptEnumView::Action {
+                signer_id,
+                signer_public_key,
+                gas_price,
+                output_data_receivers,
+                input_data_ids,
+                actions,
+                is_promise_yield,
+                refund_to,
+            } => {
+                let output_data_receivers: Vec<_> = output_data_receivers
+                    .into_iter()
+                    .map(|data_receiver_view| near_primitives::receipt::DataReceiver {
+                        data_id: data_receiver_view.data_id,
+                        receiver_id: data_receiver_view.receiver_id,
+                    })
+                    .collect();
+                let input_data_ids: Vec<CryptoHash> =
+                    input_data_ids.into_iter().map(Into::into).collect();
+
+                // Convert actions, but fail if we encounter DeployContract
+                let mut converted_actions = Vec::with_capacity(actions.len());
+                for action in actions {
+                    let converted = match action {
+                        near_primitives::views::ActionView::CreateAccount => {
+                            Action::CreateAccount(CreateAccountAction {})
+                        }
+                        near_primitives::views::ActionView::DeployContract { .. }
+                        | near_primitives::views::ActionView::DeployGlobalContract { .. }
+                        | near_primitives::views::ActionView::DeployGlobalContractByAccountId {
+                            ..
+                        } => {
+                            return Err(format!(
+                                "Cannot convert ReceiptView to Receipt for DeployContract actions. \
+                                 ReceiptView only contains the code hash, not the actual contract code."
+                            ));
+                        }
+                        near_primitives::views::ActionView::FunctionCall {
+                            method_name,
+                            args,
+                            gas,
+                            deposit,
+                        } => Action::FunctionCall(Box::new(FunctionCallAction {
+                            method_name,
+                            args: args.into(),
+                            gas,
+                            deposit,
+                        })),
+                        near_primitives::views::ActionView::Transfer { deposit } => {
+                            Action::Transfer(TransferAction { deposit })
+                        }
+                        near_primitives::views::ActionView::Stake { stake, public_key } => {
+                            Action::Stake(Box::new(StakeAction { stake, public_key }))
+                        }
+                        near_primitives::views::ActionView::AddKey {
+                            public_key,
+                            access_key,
+                        } => Action::AddKey(Box::new(AddKeyAction {
+                            public_key,
+                            access_key: access_key.into(),
+                        })),
+                        near_primitives::views::ActionView::DeleteKey { public_key } => {
+                            Action::DeleteKey(Box::new(DeleteKeyAction { public_key }))
+                        }
+                        near_primitives::views::ActionView::DeleteAccount { beneficiary_id } => {
+                            Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
+                        }
+                        action => {
+                            return Err(format!(
+                                "Cannot convert ReceiptView action {:?} to Action",
+                                action
+                            ));
+                        }
+                    };
+                    converted_actions.push(converted);
+                }
+
+                if refund_to.is_some() {
+                    let action_receipt = ActionReceiptV2 {
+                        signer_id,
+                        signer_public_key,
+                        gas_price,
+                        output_data_receivers,
+                        input_data_ids,
+                        actions: converted_actions,
+                        refund_to,
+                    };
+                    if is_promise_yield {
+                        ReceiptEnum::PromiseYieldV2(action_receipt)
+                    } else {
+                        ReceiptEnum::ActionV2(action_receipt)
+                    }
+                } else {
+                    let action_receipt = ActionReceipt {
+                        signer_id,
+                        signer_public_key,
+                        gas_price,
+                        output_data_receivers,
+                        input_data_ids,
+                        actions: converted_actions,
+                    };
+                    if is_promise_yield {
+                        ReceiptEnum::PromiseYield(action_receipt)
+                    } else {
+                        ReceiptEnum::Action(action_receipt)
+                    }
+                }
+            }
+            ReceiptEnumView::Data { data_id, data, is_promise_resume } => {
+                let data_receipt = DataReceipt { data_id, data };
+
+                if is_promise_resume {
+                    ReceiptEnum::PromiseResume(data_receipt)
+                } else {
+                    ReceiptEnum::Data(data_receipt)
+                }
+            }
+            ReceiptEnumView::GlobalContractDistribution {
+                id,
+                target_shard,
+                already_delivered_shards,
+                code,
+            } => ReceiptEnum::GlobalContractDistribution(
+                GlobalContractDistributionReceipt::new(
+                    id,
+                    target_shard,
+                    already_delivered_shards,
+                    code.into(),
+                ),
+            ),
+        },
+        priority: receipt_view.priority,
+    }))
+}
 
 pub(crate) struct ChainAccess {
     view_client: MultithreadRuntimeHandle<ViewClientActor>,
@@ -193,12 +346,16 @@ impl crate::ChainAccess for ChainAccess {
     }
 
     async fn get_receipt(&self, id: &CryptoHash) -> Result<Arc<Receipt>, ChainError> {
-        self.view_client
+        let receipt_view = self
+            .view_client
             .send_async(GetReceipt { receipt_id: *id })
             .await
             .unwrap()?
-            .map(|r| Arc::new(r.try_into().unwrap()))
-            .ok_or(ChainError::Unknown)
+            .ok_or(ChainError::Unknown)?;
+
+        try_receipt_view_to_receipt(receipt_view)
+            .map(Arc::new)
+            .map_err(|e| ChainError::Other(anyhow::anyhow!(e)))
     }
 
     async fn get_full_access_keys(
