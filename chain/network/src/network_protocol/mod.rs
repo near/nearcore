@@ -833,6 +833,48 @@ impl RoutedMessageBody {
             _ => false,
         }
     }
+
+    pub fn is_used(&self) -> bool {
+        match self {
+            RoutedMessageBody::_UnusedQueryRequest
+            | RoutedMessageBody::_UnusedQueryResponse
+            | RoutedMessageBody::_UnusedReceiptOutcomeRequest(_)
+            | RoutedMessageBody::_UnusedReceiptOutcomeResponse
+            | RoutedMessageBody::_UnusedStateRequestHeader
+            | RoutedMessageBody::_UnusedStateRequestPart
+            | RoutedMessageBody::_UnusedStateResponse
+            | RoutedMessageBody::_UnusedPartialEncodedChunk
+            | RoutedMessageBody::_UnusedVersionedStateResponse
+            | RoutedMessageBody::_UnusedChunkStateWitness
+            | RoutedMessageBody::_UnusedChunkEndorsement
+            | RoutedMessageBody::_UnusedEpochSyncRequest
+            | RoutedMessageBody::_UnusedEpochSyncResponse(_) => false,
+            RoutedMessageBody::BlockApproval(_)
+            | RoutedMessageBody::ForwardTx(_)
+            | RoutedMessageBody::TxStatusRequest(_, _)
+            | RoutedMessageBody::TxStatusResponse(_)
+            | RoutedMessageBody::PartialEncodedChunkRequest(_)
+            | RoutedMessageBody::PartialEncodedChunkResponse(_)
+            | RoutedMessageBody::Ping(_)
+            | RoutedMessageBody::Pong(_)
+            | RoutedMessageBody::VersionedPartialEncodedChunk(_)
+            | RoutedMessageBody::PartialEncodedChunkForward(_)
+            | RoutedMessageBody::ChunkStateWitnessAck(_)
+            | RoutedMessageBody::PartialEncodedStateWitness(_)
+            | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
+            | RoutedMessageBody::VersionedChunkEndorsement(_)
+            | RoutedMessageBody::StatePartRequest(_)
+            | RoutedMessageBody::ChunkContractAccesses(_)
+            | RoutedMessageBody::ContractCodeRequest(_)
+            | RoutedMessageBody::ContractCodeResponse(_)
+            | RoutedMessageBody::PartialEncodedContractDeploys(_)
+            | RoutedMessageBody::StateHeaderRequest(_)
+            | RoutedMessageBody::SpicePartialData(_)
+            | RoutedMessageBody::StateRequestAck(_)
+            | RoutedMessageBody::SpiceChunkEndorsement(_)
+            | RoutedMessageBody::SpicePartialDataRequest(_) => true,
+        }
+    }
 }
 
 impl fmt::Debug for RoutedMessageBody {
@@ -1137,20 +1179,6 @@ impl RoutedMessageV3 {
     pub fn decrease_ttl(&mut self) -> bool {
         self.ttl = self.ttl.saturating_sub(1);
         self.ttl > 0
-    }
-}
-
-impl From<RoutedMessageV1> for RoutedMessageV3 {
-    fn from(msg: RoutedMessageV1) -> Self {
-        Self {
-            target: msg.target,
-            author: msg.author,
-            ttl: msg.ttl,
-            body: TieredMessageBody::from_routed(msg.body),
-            signature: Some(msg.signature),
-            created_at: None,
-            num_hops: 0,
-        }
     }
 }
 
