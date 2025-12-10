@@ -250,6 +250,134 @@ impl std::ops::Sub for StatsLocal {
     }
 }
 
+enum TransactionSender {
+    Native(NativeTokenTxSender),
+    Fungible(FungibleTokenTxSender),
+}
+
+impl TransactionSender {
+    /// Generates a transaction between two random (but different) accounts and pushes it to the `client_sender`
+    pub async fn generate_send_transaction(
+        &self,
+        rnd: &mut StdRng,    
+        block_hash: &CryptoHash
+    ) -> bool {
+        match self {
+            TransactionSender::Native(native_load) => {
+                native_load.generate_send_transaction(rnd, block_hash).await
+            }
+            TransactionSender::Fungible(ft_load) => {
+                ft_load.generate_ft_transfer_transaction(rnd, block_hash).await
+            }
+        }
+    }
+}
+
+struct NativeTokenTxSender {
+    client_sender: ClientSender,
+    sender_accounts: Arc<Vec<Account>>,
+    receiver_ids: Arc<Vec<AccountId>>,
+    choice: TxAccountsSelector,
+}
+
+impl NativeTokenTxSender {
+    pub fn new(
+        client_sender: ClientSender,
+        sender_accounts: Arc<Vec<Account>>,
+        receiver_ids: Arc<Vec<AccountId>>,
+        choice: TxAccountsSelector,
+    ) -> Self {
+        Self {
+            client_sender,
+            sender_accounts,
+            receiver_ids,
+            choice,
+        }
+    }
+
+    /// Generates a transaction between two random (but different) accounts and pushes it to the `client_sender`
+    pub async fn generate_send_transaction(
+        &self,
+        rnd: &mut StdRng,    
+        block_hash: &CryptoHash
+    ) -> bool {
+        // each transaction will transfer this amount
+        const AMOUNT: Balance = Balance::from_yoctonear(1);
+
+        let Choice { sender_idx, receiver_idx } = self.choice.sample(rnd);
+
+        let sender = &self.sender_accounts[sender_idx];
+        let nonce = sender.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
+        let sender_id = sender.id.clone();
+        let signer = sender.as_signer();
+
+        let receiver_id = match receiver_idx {
+            choice::FromSendersOrReceivers::FromSenders(idx) => &self.sender_accounts[idx].id,
+            choice::FromSendersOrReceivers::FromReceivers(idx) => &self.receiver_ids[idx],
+        };
+
+        let transaction = SignedTransaction::send_money(
+            nonce,
+            sender_id,
+            receiver_id.clone(),
+            &signer,
+            AMOUNT,
+            *block_hash,
+        );
+
+        match self.client_sender
+            .tx_request_sender
+            .send_async(ProcessTxRequest { transaction, is_forwarded: false, check_only: false })
+        .await
+        {
+            Ok(res) => match res {
+                ProcessTxResponse::ValidTx => true,
+                _ => {
+                    tracing::debug!(target: "transaction-generator",
+                        request_rsp=?res);
+                    false
+                }
+            },
+            Err(err) => {
+                tracing::debug!(target: "transaction-generator",
+                    request_err=format!("{err}"), "error");
+                false
+            }
+        }
+    }
+}
+
+struct FungibleTokenTxSender {
+    client_sender: ClientSender,
+    sender_accounts: Arc<Vec<Account>>,
+    receiver_ids: Arc<Vec<AccountId>>,
+    choice: TxAccountsSelector,
+}
+
+impl FungibleTokenTxSender {
+    /// Generates a transaction between two random (but different) accounts and pushes it to the `client_sender`
+    pub async fn generate_ft_transfer_transaction(
+        &self,
+        rnd: &mut StdRng,    
+        block_hash: &CryptoHash
+    ) -> bool {
+        let Choice { sender_idx, receiver_idx } = self.choice.sample(rnd);
+
+        let sender = &self.sender_accounts[sender_idx];
+        let nonce = sender.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
+        let sender_id = sender.id.clone();
+        let signer = sender.as_signer();
+
+        let receiver_id = match receiver_idx {
+            choice::FromSendersOrReceivers::FromSenders(idx) => &self.sender_accounts[idx].id,
+            choice::FromSendersOrReceivers::FromReceivers(idx) => &self.receiver_ids[idx],
+        };
+
+        // todo: construct fungible token transfer transaction
+        return false;
+    }
+}
+
 impl TxGenerator {
     pub fn new(
         params: Config,
@@ -283,60 +411,6 @@ impl TxGenerator {
         Self::start_report_updates(Arc::clone(&stats));
 
         Ok(())
-    }
-
-    /// Generates a transaction between two random (but different) accounts and pushes it to the `client_sender`
-    async fn generate_send_transaction(
-        rnd: &mut StdRng,
-        sender_accounts: &[account::Account],
-        receiver_ids: &[AccountId],
-        block_hash: &CryptoHash,
-        client_sender: &ClientSender,
-        choice: &TxAccountsSelector,
-    ) -> bool {
-        // each transaction will transfer this amount
-        const AMOUNT: Balance = Balance::from_yoctonear(1);
-
-        let Choice { sender_idx, receiver_idx } = choice.sample(rnd);
-
-        let sender = &sender_accounts[sender_idx];
-        let nonce = sender.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
-        let sender_id = sender.id.clone();
-        let signer = sender.as_signer();
-
-        let receiver_id = match receiver_idx {
-            choice::FromSendersOrReceivers::FromSenders(idx) => &sender_accounts[idx].id,
-            choice::FromSendersOrReceivers::FromReceivers(idx) => &receiver_ids[idx],
-        };
-
-        let transaction = SignedTransaction::send_money(
-            nonce,
-            sender_id,
-            receiver_id.clone(),
-            &signer,
-            AMOUNT,
-            *block_hash,
-        );
-
-        match client_sender
-            .tx_request_sender
-            .send_async(ProcessTxRequest { transaction, is_forwarded: false, check_only: false })
-            .await
-        {
-            Ok(res) => match res {
-                ProcessTxResponse::ValidTx => true,
-                _ => {
-                    tracing::debug!(target: "transaction-generator",
-                        request_rsp=?res);
-                    false
-                }
-            },
-            Err(err) => {
-                tracing::debug!(target: "transaction-generator",
-                    request_err=format!("{err}"), "error");
-                false
-            }
-        }
     }
 
     async fn get_latest_block(
@@ -444,14 +518,11 @@ impl TxGenerator {
     }
 
     async fn run_load_task(
-        client_sender: ClientSender,
-        accounts: Arc<Vec<Account>>,
-        receiver_ids: Arc<Vec<AccountId>>,
         mut tx_interval: tokio::time::Interval,
         duration: tokio::time::Duration,
         mut rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
         stats: Arc<Stats>,
-        choice: Arc<TxAccountsSelector>,
+        token_load: Arc<TransactionSender>,
     ) {
         let mut rnd: StdRng = SeedableRng::from_entropy();
 
@@ -468,15 +539,11 @@ impl TxGenerator {
                         BlockHeaderView{hash: latest_block_hash, .. } = *rx_block.borrow();
                     }
                     _ = tx_interval.tick() => {
-                        let ok = Self::generate_send_transaction(
+
+                        let ok = token_load.generate_send_transaction(
                             &mut rnd,
-                            &accounts,
-                            &receiver_ids,
                             &latest_block_hash,
-                            &client_sender,
-                            &choice,
-                        )
-                        .await;
+                        ).await;
 
                         if ok {
                             stats.pool_accepted.fetch_add(1, atomic::Ordering::Relaxed);
@@ -492,13 +559,10 @@ impl TxGenerator {
     }
 
     async fn run_load(
-        client_sender: ClientSender,
-        accounts: Arc<Vec<Account>>,
-        receiver_ids: Arc<Vec<AccountId>>,
         load: Load,
         rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
         stats: Arc<Stats>,
-        choice: Arc<TxAccountsSelector>,
+        tx_generator: Arc<TransactionSender>,
     ) {
         tracing::info!(target: "transaction-generator", ?load, "starting the load");
 
@@ -506,9 +570,6 @@ impl TxGenerator {
 
         for _ in 0..TX_GENERATOR_TASK_COUNT {
             tasks.spawn(Self::run_load_task(
-                client_sender.clone(),
-                Arc::clone(&accounts),
-                Arc::clone(&receiver_ids),
                 tokio::time::interval(Duration::from_micros({
                     let load_tps = std::cmp::max(load.tps, 1);
                     1_000_000 * TX_GENERATOR_TASK_COUNT / load_tps
@@ -516,7 +577,7 @@ impl TxGenerator {
                 load.duration,
                 rx_block.clone(),
                 Arc::clone(&stats),
-                Arc::clone(&choice),
+                Arc::clone(&tx_generator),
             ));
         }
         tasks.join_all().await;
@@ -601,12 +662,9 @@ impl TxGenerator {
     async fn run_controlled_loop(
         controller: FilteredRateController,
         initial_rate: u64,
-        client_sender: ClientSender,
-        accounts: Arc<Vec<Account>>,
-        receiver_ids: Arc<Vec<AccountId>>,
         rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
         stats: Arc<Stats>,
-        choice: Arc<TxAccountsSelector>,
+        token_load: Arc<TransactionSender>,
     ) {
         tracing::info!(target: "transaction-generator", "starting the controlled loop");
 
@@ -615,25 +673,19 @@ impl TxGenerator {
 
         for _ in 0..TX_GENERATOR_TASK_COUNT {
             tokio::spawn(Self::controlled_loop_task(
-                client_sender.clone(),
-                Arc::clone(&accounts),
-                Arc::clone(&receiver_ids),
                 rx_block.clone(),
                 rx_intervals.clone(),
                 Arc::clone(&stats),
-                Arc::clone(&choice),
+                Arc::clone(&token_load),
             ));
         }
     }
 
     async fn controlled_loop_task(
-        client_sender: ClientSender,
-        accounts: Arc<Vec<Account>>,
-        receiver_ids: Arc<Vec<AccountId>>,
         mut rx_block: tokio::sync::watch::Receiver<BlockHeaderView>,
         mut tx_rates: tokio::sync::watch::Receiver<tokio::time::Duration>,
         stats: Arc<Stats>,
-        choice: Arc<TxAccountsSelector>,
+        token_load: Arc<TransactionSender>,
     ) {
         let mut rnd: StdRng = SeedableRng::from_entropy();
 
@@ -654,15 +706,10 @@ impl TxGenerator {
                             tx_interval = tokio::time::interval(*tx_rates.borrow());
                         }
                     _ = tx_interval.tick() => {
-                        let ok = Self::generate_send_transaction(
+                        let ok = token_load.generate_send_transaction(
                             &mut rnd,
-                            &accounts,
-                            &receiver_ids,
                             &latest_block_hash,
-                            &client_sender,
-                            &choice,
-                        )
-                        .await;
+                        ).await;
 
                         if ok {
                             stats.pool_accepted.fetch_add(1, atomic::Ordering::Relaxed);
@@ -676,6 +723,7 @@ impl TxGenerator {
         .await;
     }
 
+    /// Starts the native token transactions loop
     fn start_transactions_loop(
         config: &Config,
         client_sender: ClientSender,
@@ -712,23 +760,28 @@ impl TxGenerator {
         tokio::spawn(async move {
             let (source_accounts, receiver_ids) = rx_accounts.await.unwrap();
 
-            let choice = Arc::new(TxAccountsSelector::new(
+            let account_selector = TxAccountsSelector::new(
                 source_accounts.len(),
                 receiver_ids.len(),
                 sender_accounts_zipf_skew,
                 receiver_accounts_zipf_skew,
                 receivers_from_senders_ratio,
-            ));
+            );
 
+            let tx_generator = Arc::new(TransactionSender::Native(NativeTokenTxSender::new(
+                client_sender.clone(),
+                Arc::clone(&source_accounts),
+                Arc::clone(&receiver_ids),
+                account_selector,
+            )));
+
+            // execute the sheduled loads
             for load in &schedule {
                 Self::run_load(
-                    client_sender.clone(),
-                    Arc::clone(&source_accounts),
-                    Arc::clone(&receiver_ids),
                     load.clone(),
                     rx_block.clone(),
                     Arc::clone(&stats),
-                    Arc::clone(&choice),
+                    Arc::clone(&tx_generator),
                 )
                 .await;
             }
@@ -737,16 +790,14 @@ impl TxGenerator {
                 "completed running the schedule"
             );
 
+            // if controller is configured, start the controlled loop
             if let Some(controller) = controller {
                 Self::run_controlled_loop(
                     controller,
                     schedule.last().unwrap().tps,
-                    client_sender,
-                    Arc::clone(&source_accounts),
-                    Arc::clone(&receiver_ids),
                     rx_block.clone(),
                     Arc::clone(&stats),
-                    Arc::clone(&choice),
+                    Arc::clone(&tx_generator),
                 )
                 .await;
             } else {
