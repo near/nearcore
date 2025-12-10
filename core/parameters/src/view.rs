@@ -24,6 +24,7 @@ pub struct RuntimeConfigView {
     /// Configuration specific to ChunkStateWitness.
     pub witness_config: WitnessConfigView,
     /// Configuration for dynamic resharding feature.
+    #[serde(default)]
     pub dynamic_resharding_config: DynamicReshardingConfigView,
 }
 
@@ -840,19 +841,34 @@ impl From<CongestionControlConfigView> for CongestionControlConfig {
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct DynamicReshardingConfigView {
-    /// Memory threshold over which a shard is marked for a split. This is an artificial value,
-    /// calculated using `TRIE_COSTS`. It is roughly equal to *double* of the actual RAM usage
-    /// by the shard's memtrie (in bytes).
+    /// Memory threshold over which a shard is marked for a split.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
     pub memory_usage_threshold: u64,
-    /// Minimum memory usage of a child shard. If any of the potential children shards has memory
-    /// usage below this ratio, parent shard will *not* be marked for split.
+    /// Minimum memory usage of a child shard.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
     pub min_child_memory_usage: u64,
-    /// Maximum number of shards in the network. When this number is reached, no further
-    /// resharding will be scheduled.
+    /// Maximum number of shards in the network.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
     pub max_number_of_shards: u64,
     /// Minimum number of epochs until next resharding can be scheduled.
-    /// The value of `0` means that resharding can happen every epoch.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
     pub min_epochs_between_resharding: u64,
+}
+
+// For backwards compatibility
+impl Default for DynamicReshardingConfigView {
+    fn default() -> Self {
+        Self {
+            memory_usage_threshold: 999_999_999_999_999,
+            min_child_memory_usage: 999_999_999_999_999,
+            max_number_of_shards: 999_999_999_999_999,
+            min_epochs_between_resharding: 999_999_999_999_999,
+        }
+    }
 }
 
 impl From<DynamicReshardingConfig> for DynamicReshardingConfigView {
