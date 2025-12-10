@@ -16,12 +16,12 @@ use crate::transaction::{
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
     TransactionV0, TransactionV1, TransferAction,
 };
+#[cfg(feature = "clock")]
 use crate::types::chunk_extra::ChunkExtra;
 use crate::types::validator_stake::ValidatorStake;
-use crate::types::{
-    AccountId, Balance, BlockExecutionResults, ChunkExecutionResult, EpochId, EpochInfoProvider,
-    Gas, Nonce, StateRoot,
-};
+use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
+#[cfg(feature = "clock")]
+use crate::types::{BlockExecutionResults, ChunkExecutionResult, StateRoot};
 use crate::validator_signer::ValidatorSigner;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_crypto::vrf::Value;
@@ -29,6 +29,7 @@ use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
+#[cfg(feature = "clock")]
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
@@ -790,7 +791,7 @@ impl BlockBody {
 #[cfg(feature = "clock")]
 pub struct TestBlockBuilder {
     clock: near_time::Clock,
-    prev: Block,
+    prev_header: BlockHeader,
     signer: Arc<ValidatorSigner>,
     height: u64,
     epoch_id: EpochId,
@@ -806,26 +807,31 @@ pub struct TestBlockBuilder {
 
 #[cfg(feature = "clock")]
 impl TestBlockBuilder {
-    pub fn new(clock: near_time::Clock, prev: &Block, signer: Arc<ValidatorSigner>) -> Self {
+    fn new(
+        clock: near_time::Clock,
+        signer: Arc<ValidatorSigner>,
+        prev_header: BlockHeader,
+        prev_chunks: Vec<ShardChunkHeader>,
+    ) -> Self {
         let mut tree = crate::merkle::PartialMerkleTree::default();
-        tree.insert(*prev.hash());
-        let next_epoch_id = if prev.header().is_genesis() {
-            EpochId(*prev.hash())
+        tree.insert(*prev_header.hash());
+        let next_epoch_id = if prev_header.is_genesis() {
+            EpochId(*prev_header.hash())
         } else {
-            *prev.header().next_epoch_id()
+            *prev_header.next_epoch_id()
         };
         Self {
             clock,
-            prev: Block::clone(prev),
             signer,
-            height: prev.header().height() + 1,
-            epoch_id: *prev.header().epoch_id(),
+            height: prev_header.height() + 1,
+            epoch_id: *prev_header.epoch_id(),
             next_epoch_id,
-            next_bp_hash: *prev.header().next_bp_hash(),
+            next_bp_hash: *prev_header.next_bp_hash(),
             approvals: vec![],
             max_gas_price: Balance::ZERO,
             block_merkle_root: tree.root(),
-            chunks: prev.chunks().iter_raw().cloned().collect(),
+            chunks: prev_chunks,
+            prev_header,
             spice_core_statements: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
                 Some(vec![])
             } else {
@@ -833,6 +839,33 @@ impl TestBlockBuilder {
             },
         }
     }
+
+    pub fn from_prev_block_view(
+        clock: near_time::Clock,
+        prev_block_view: &crate::views::BlockView,
+        signer: Arc<ValidatorSigner>,
+    ) -> Self {
+        Self::new(
+            clock,
+            signer,
+            prev_block_view.header.clone().into(),
+            prev_block_view.chunks.iter().cloned().map(Into::into).collect(),
+        )
+    }
+
+    pub fn from_prev_block(
+        clock: near_time::Clock,
+        prev_block: &Block,
+        signer: Arc<ValidatorSigner>,
+    ) -> Self {
+        Self::new(
+            clock,
+            signer,
+            prev_block.header().clone(),
+            prev_block.chunks().iter_raw().cloned().collect(),
+        )
+    }
+
     pub fn height(mut self, height: u64) -> Self {
         self.height = height;
         self
@@ -864,7 +897,7 @@ impl TestBlockBuilder {
         mut self,
         block_merkle_tree: &mut crate::merkle::PartialMerkleTree,
     ) -> Self {
-        block_merkle_tree.insert(*self.prev.hash());
+        block_merkle_tree.insert(*self.prev_header.hash());
         self.block_merkle_root = block_merkle_tree.root();
         self
     }
@@ -908,9 +941,9 @@ impl TestBlockBuilder {
         );
         Arc::new(Block::produce(
             PROTOCOL_VERSION,
-            self.prev.header(),
+            &self.prev_header,
             self.height,
-            self.prev.header().block_ordinal() + 1,
+            self.prev_header.block_ordinal() + 1,
             self.chunks,
             vec![vec![]; chunks_len],
             self.epoch_id,

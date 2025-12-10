@@ -7,8 +7,8 @@ use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
-use near_chain::Block;
 use near_chain::types::Tip;
+use near_chain::{Block, BlockHeader};
 use near_client::{Client, ProcessTxRequest};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_primitives::errors::InvalidTxError;
@@ -16,6 +16,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponse,
     QueryResponseKind,
@@ -82,8 +83,21 @@ impl<'a> TestLoopNode<'a> {
         self.client(test_loop_data).chain.head().unwrap()
     }
 
+    pub fn last_executed(&self, test_loop_data: &TestLoopData) -> Arc<Tip> {
+        if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            self.client(test_loop_data).chain.chain_store().spice_execution_head().unwrap()
+        } else {
+            self.client(test_loop_data).chain.head().unwrap()
+        }
+    }
+
     pub fn head_block(&self, test_loop_data: &TestLoopData) -> Arc<Block> {
         let block_hash = self.client(test_loop_data).chain.head().unwrap().last_block_hash;
+        self.block(test_loop_data, block_hash)
+    }
+
+    pub fn last_executed_block(&self, test_loop_data: &TestLoopData) -> Arc<Block> {
+        let block_hash = self.last_executed(test_loop_data).last_block_hash;
         self.block(test_loop_data, block_hash)
     }
 
@@ -174,6 +188,28 @@ impl<'a> TestLoopNode<'a> {
             maximum_duration,
         );
         ret.unwrap()
+    }
+
+    /// With spice blocks are executed separately from production so this runs until block with passed in
+    /// header is executed.
+    /// Without spice returns immediately.
+    pub fn run_until_block_executed(
+        &self,
+        test_loop: &mut TestLoopV2,
+        block_header: &BlockHeader,
+        maximum_duration: Duration,
+    ) {
+        let protocol_version = self
+            .client(&test_loop.data)
+            .epoch_manager
+            .get_epoch_protocol_version(block_header.epoch_id())
+            .unwrap();
+        if ProtocolFeature::Spice.enabled(protocol_version) {
+            test_loop.run_until(
+                |test_loop_data| self.last_executed(test_loop_data).height >= block_header.height(),
+                maximum_duration,
+            );
+        }
     }
 
     #[track_caller]

@@ -6,7 +6,6 @@ use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
 #[cfg(feature = "solomon")]
 use crate::transaction::ValidatedTransaction;
-use crate::types::chunk_extra::ChunkExtra;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
@@ -14,6 +13,7 @@ use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_fmt::AbbrBytes;
+use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_schema_checker_lib::ProtocolSchema;
 use shard_chunk_header_inner::ShardChunkHeaderInnerV4;
 use std::cmp::Ordering;
@@ -248,24 +248,37 @@ pub struct ShardChunkHeaderV3 {
 
 impl ShardChunkHeaderV3 {
     pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
-        Self::new(
-            prev_block_hash,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            height,
-            shard_id,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            CongestionInfo::default(),
-            BandwidthRequests::empty(),
-            &EmptyValidatorSigner::default().into(),
-        )
+        if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            Self::new_for_spice(
+                prev_block_hash,
+                Default::default(),
+                Default::default(),
+                height,
+                shard_id,
+                Default::default(),
+                Default::default(),
+                &EmptyValidatorSigner::default().into(),
+            )
+        } else {
+            Self::new(
+                prev_block_hash,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                height,
+                shard_id,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                CongestionInfo::default(),
+                BandwidthRequests::empty(),
+                &EmptyValidatorSigner::default().into(),
+            )
+        }
     }
 
     pub fn init(&mut self) {
@@ -297,37 +310,45 @@ impl ShardChunkHeaderV3 {
         bandwidth_requests: BandwidthRequests,
         signer: &ValidatorSigner,
     ) -> Self {
-        // TODO(spice): Allow callers to decide whether tx-only chunk is needed by introducing a
-        // separate constructor to avoid passing defaults in here.
-        let inner = if cfg!(feature = "protocol_feature_spice") {
-            ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5SpiceTxOnly {
-                prev_block_hash,
-                encoded_merkle_root,
-                encoded_length,
-                height_created: height,
-                shard_id,
-                tx_root,
-                prev_outgoing_receipts_root,
-            })
-        } else {
-            ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
-                prev_block_hash,
-                prev_state_root,
-                prev_outcome_root,
-                encoded_merkle_root,
-                encoded_length,
-                height_created: height,
-                shard_id,
-                prev_gas_used,
-                gas_limit,
-                prev_balance_burnt,
-                prev_outgoing_receipts_root,
-                tx_root,
-                prev_validator_proposals,
-                congestion_info,
-                bandwidth_requests,
-            })
-        };
+        let inner = ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
+            prev_block_hash,
+            prev_state_root,
+            prev_outcome_root,
+            encoded_merkle_root,
+            encoded_length,
+            height_created: height,
+            shard_id,
+            prev_gas_used,
+            gas_limit,
+            prev_balance_burnt,
+            prev_outgoing_receipts_root,
+            tx_root,
+            prev_validator_proposals,
+            congestion_info,
+            bandwidth_requests,
+        });
+        Self::from_inner(inner, signer)
+    }
+
+    pub fn new_for_spice(
+        prev_block_hash: CryptoHash,
+        encoded_merkle_root: CryptoHash,
+        encoded_length: u64,
+        height_created: BlockHeight,
+        shard_id: ShardId,
+        prev_outgoing_receipts_root: CryptoHash,
+        tx_root: CryptoHash,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        let inner = ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5SpiceTxOnly {
+            prev_block_hash,
+            encoded_merkle_root,
+            encoded_length,
+            height_created,
+            shard_id,
+            tx_root,
+            prev_outgoing_receipts_root,
+        });
         Self::from_inner(inner, signer)
     }
 
@@ -430,52 +451,6 @@ impl ShardChunkHeader {
             Self::V2(header) => header.inner.prev_state_root,
             Self::V3(header) => *header.inner.prev_state_root(),
         }
-    }
-
-    // TODO(spice): Create a separate data structure that will be used for chunk application
-    // and equivalent to current chunk version that includes chunk extra information.
-    #[inline]
-    pub fn into_spice_chunk_execution_header(self, prev_chunk_extra: &ChunkExtra) -> Self {
-        let Self::V3(mut header) = self else {
-            return self;
-        };
-
-        header.inner = match header.inner {
-            ShardChunkHeaderInner::V1(_)
-            | ShardChunkHeaderInner::V2(_)
-            | ShardChunkHeaderInner::V3(_)
-            | ShardChunkHeaderInner::V4(_) => header.inner,
-            ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5SpiceTxOnly {
-                prev_block_hash,
-                encoded_merkle_root,
-                encoded_length,
-                height_created,
-                shard_id,
-                prev_outgoing_receipts_root,
-                tx_root,
-            }) => {
-                let chunk_extra = prev_chunk_extra;
-                ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
-                    prev_state_root: *chunk_extra.state_root(),
-                    prev_outcome_root: *chunk_extra.outcome_root(),
-                    prev_gas_used: chunk_extra.gas_used(),
-                    gas_limit: chunk_extra.gas_limit(),
-                    prev_balance_burnt: chunk_extra.balance_burnt(),
-                    prev_validator_proposals: chunk_extra.validator_proposals().collect(),
-                    bandwidth_requests: chunk_extra.bandwidth_requests().cloned().unwrap(),
-                    congestion_info: chunk_extra.congestion_info(),
-                    prev_block_hash,
-                    encoded_merkle_root,
-                    encoded_length,
-                    height_created,
-                    shard_id,
-                    tx_root,
-                    prev_outgoing_receipts_root,
-                })
-            }
-        };
-        header.hash = ShardChunkHeaderV3::compute_hash(&header.inner);
-        Self::V3(header)
     }
 
     #[inline]
@@ -614,7 +589,7 @@ impl ShardChunkHeader {
                 ShardChunkHeaderInner::V2(_) => false,
                 ShardChunkHeaderInner::V3(_) => false,
                 ShardChunkHeaderInner::V4(_) => true,
-                ShardChunkHeaderInner::V5(_) => cfg!(feature = "protocol_feature_spice"),
+                ShardChunkHeaderInner::V5(_) => ProtocolFeature::Spice.enabled(version),
             },
         };
 
@@ -657,6 +632,14 @@ impl ShardChunkHeader {
                 let inner_enum: &ShardChunkHeaderInner = &v3.inner;
                 inner_enum.version_number()
             }
+        }
+    }
+
+    #[inline]
+    pub fn is_spice_chunk(&self) -> bool {
+        match self {
+            ShardChunkHeader::V1(_) | ShardChunkHeader::V2(_) => false,
+            ShardChunkHeader::V3(header) => header.inner.is_spice_chunk(),
         }
     }
 
@@ -1175,21 +1158,6 @@ impl ShardChunk {
             Self::V2(chunk) => chunk.header.compute_hash(),
         }
     }
-
-    // TODO(spice): Use a separate data structure for chunk application. Having two sorts of the
-    // chunks with different meaning within the same data structure is confusing.
-    /// For spice converts chunk containing only transactions into an equivalent chunk that can be used
-    /// for chunk application.
-    pub fn into_spice_chunk_with_execution(self, chunk_extra: &ChunkExtra) -> Self {
-        match self {
-            Self::V1(_) => self,
-            Self::V2(mut chunk) => {
-                chunk.header = chunk.header.into_spice_chunk_execution_header(chunk_extra);
-                chunk.chunk_hash = chunk.header.chunk_hash().clone();
-                Self::V2(chunk)
-            }
-        }
-    }
 }
 
 #[derive(
@@ -1465,6 +1433,46 @@ impl ShardChunkWithEncoding {
             prev_validator_proposals,
             congestion_info,
             bandwidth_requests,
+            signer,
+        ));
+        let encoded_shard_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 { header, content });
+        let shard_chunk = ShardChunk::new(
+            encoded_shard_chunk.cloned_header(),
+            signed_txs,
+            prev_outgoing_receipts,
+        );
+        (Self { shard_chunk, bytes: encoded_shard_chunk }, merkle_paths)
+    }
+
+    #[cfg(feature = "solomon")]
+    pub fn new_for_spice(
+        prev_block_hash: CryptoHash,
+        height: u64,
+        shard_id: ShardId,
+        validated_txs: Vec<ValidatedTransaction>,
+        prev_outgoing_receipts: Vec<Receipt>,
+        prev_outgoing_receipts_root: CryptoHash,
+        tx_root: CryptoHash,
+        signer: &ValidatorSigner,
+        rs: &reed_solomon_erasure::galois_8::ReedSolomon,
+    ) -> (ShardChunkWithEncoding, Vec<MerklePath>) {
+        let signed_txs =
+            validated_txs.into_iter().map(|validated_tx| validated_tx.into_signed_tx()).collect();
+        let transaction_receipt = TransactionReceipt(signed_txs, prev_outgoing_receipts);
+        let (parts, encoded_length) =
+            crate::reed_solomon::reed_solomon_encode(rs, &transaction_receipt);
+        let TransactionReceipt(signed_txs, prev_outgoing_receipts) = transaction_receipt;
+        let content = EncodedShardChunkBody { parts };
+        let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
+
+        let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
+            prev_block_hash,
+            encoded_merkle_root,
+            encoded_length as u64,
+            height,
+            shard_id,
+            prev_outgoing_receipts_root,
+            tx_root,
             signer,
         ));
         let encoded_shard_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 { header, content });

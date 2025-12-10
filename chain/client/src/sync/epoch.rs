@@ -308,7 +308,7 @@ impl EpochSync {
 
         // Initialize the epoch manager with the last epoch.
         epoch_manager.init_after_epoch_sync(
-            &mut store_update,
+            &mut store_update.epoch_store_update(),
             proof.last_epoch.first_block_in_epoch,
             proof.last_epoch.second_last_block_in_epoch,
             proof.last_epoch.last_block_in_epoch.clone(),

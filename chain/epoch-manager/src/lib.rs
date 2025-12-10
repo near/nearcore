@@ -8,30 +8,26 @@ use epoch_info_aggregator::EpochInfoAggregator;
 use itertools::Itertools;
 use near_cache::SyncLruCache;
 use near_chain_configs::{Genesis, GenesisConfig};
-use near_primitives::block::{BlockHeader, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::{EpochInfo, RngSeed};
-use near_primitives::epoch_manager::{
-    AGGREGATOR_KEY, AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary,
-};
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-pub use near_primitives::shard_layout::ShardInfo;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
-use near_primitives::types::ProtocolVersion;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, ChunkStats, EpochId,
-    EpochInfoProvider, ShardId, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
-    ValidatorStats,
+    EpochInfoProvider, ProtocolVersion, ShardId, ValidatorId, ValidatorInfoIdentifier,
+    ValidatorKickoutReason, ValidatorStats,
 };
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
+use near_store::Store;
 use near_store::adapter::StoreAdapter;
-use near_store::{DBCol, HEADER_HEAD_KEY, Store, StoreUpdate};
+use near_store::adapter::epoch_store::{EpochStoreAdapter, EpochStoreUpdateAdapter};
 use num_rational::BigRational;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use primitive_types::U256;
@@ -120,7 +116,7 @@ impl EpochInfoProvider for EpochManagerHandle {
 /// Tracks epoch information across different forks, such as validators.
 /// Note: that even after garbage collection, the data about genesis epoch should be in the store.
 pub struct EpochManager {
-    store: Store,
+    store: EpochStoreAdapter,
     /// Current epoch config.
     config: AllEpochConfig,
     reward_calculator: RewardCalculator,
@@ -206,6 +202,7 @@ impl EpochManager {
         genesis_config: &GenesisConfig,
         epoch_config_store: EpochConfigStore,
     ) -> Arc<EpochManagerHandle> {
+        let store = store.epoch_store();
         let epoch_length = genesis_config.epoch_length;
         let reward_calculator = RewardCalculator::new(genesis_config, epoch_length);
         let all_epoch_config = AllEpochConfig::from_epoch_config_store(
@@ -222,13 +219,12 @@ impl EpochManager {
     }
 
     pub fn new(
-        store: Store,
+        store: EpochStoreAdapter,
         config: AllEpochConfig,
         reward_calculator: RewardCalculator,
         validators: Vec<ValidatorStake>,
     ) -> Result<Self, EpochError> {
-        let epoch_info_aggregator =
-            store.get_ser(DBCol::EpochInfo, AGGREGATOR_KEY)?.unwrap_or_default();
+        let epoch_info_aggregator = store.get_epoch_info_aggregator().unwrap_or_default();
         let mut epoch_manager = EpochManager {
             store,
             config,
@@ -258,7 +254,7 @@ impl EpochManager {
 
     pub fn init_after_epoch_sync(
         &mut self,
-        store_update: &mut StoreUpdate,
+        store_update: &mut EpochStoreUpdateAdapter,
         prev_epoch_first_block_info: BlockInfo,
         prev_epoch_prev_last_block_info: BlockInfo,
         prev_epoch_last_block_info: BlockInfo,
@@ -274,7 +270,7 @@ impl EpochManager {
         // blocks to compute the aggregator data. See issue for details. Consider a cleaner way.
         self.epoch_info_aggregator =
             EpochInfoAggregator::new(*prev_epoch_id, *prev_epoch_prev_last_block_info.prev_hash());
-        store_update.set_ser(DBCol::EpochInfo, AGGREGATOR_KEY, &self.epoch_info_aggregator)?;
+        store_update.set_epoch_info_aggregator(&self.epoch_info_aggregator);
 
         self.save_block_info(store_update, Arc::new(prev_epoch_first_block_info))?;
         self.save_block_info(store_update, Arc::new(prev_epoch_prev_last_block_info))?;
@@ -621,7 +617,7 @@ impl EpochManager {
     /// Store ID and `EpochInfo` for epoch (T + 2).
     fn finalize_epoch(
         &self,
-        store_update: &mut StoreUpdate,
+        store_update: &mut EpochStoreUpdateAdapter,
         block_info: &BlockInfo,
         last_block_hash: &CryptoHash,
         rng_seed: RngSeed,
@@ -633,7 +629,7 @@ impl EpochManager {
             epoch_info.validators_iter().map(|r| r.account_and_stake()).collect::<HashMap<_, _>>();
         let next_epoch_id = self.get_next_epoch_id_from_info(block_info)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
-        self.save_epoch_validator_info(store_update, block_info.epoch_id(), &epoch_summary)?;
+        store_update.set_epoch_validator_info(block_info.epoch_id(), &epoch_summary);
 
         let EpochSummary {
             all_proposals,
@@ -681,26 +677,17 @@ impl EpochManager {
             )
         };
         let next_next_epoch_config = self.config.for_protocol_version(next_next_epoch_version);
-        let next_shard_layout = match next_epoch_info.shard_layout() {
-            // With dynamic resharding enabled, shard layout is stored in EpochInfo
-            Some(layout) => layout.clone(),
-            // Otherwise, fall back to the layout defined in config (this is needed both for
-            // compatibility and bootstrapping)
-            None => {
-                let next_protocol_version = next_epoch_info.protocol_version();
-                self.config.for_protocol_version(next_protocol_version).shard_layout
-            }
-        };
+        let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
 
-        let next_next_shard_layout =
+        let (next_next_shard_layout, has_same_shard_layout) =
             if ProtocolFeature::DynamicResharding.enabled(next_next_epoch_version) {
-                // TODO(dynamic resharding): adjust layout if a shard was marked for splitting
-                next_shard_layout.clone()
+                // TODO(dynamic_resharding): adjust layout if a shard was marked for splitting
+                (next_shard_layout, true)
             } else {
-                next_next_epoch_config.shard_layout.clone()
+                let layout = next_next_epoch_config.legacy_shard_layout();
+                let has_same_layout = layout == next_shard_layout;
+                (layout, has_same_layout)
             };
-
-        let has_same_shard_layout = next_next_shard_layout == next_shard_layout;
 
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
@@ -711,7 +698,7 @@ impl EpochManager {
             validator_reward,
             minted_amount,
             next_next_epoch_version,
-            next_next_shard_layout,
+            next_next_shard_layout.clone(),
             has_same_shard_layout,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
@@ -735,8 +722,8 @@ impl EpochManager {
             next_next_epoch_height = %next_next_epoch_info.epoch_height(),
             ?next_next_epoch_id,
             next_next_protocol_version = %next_next_epoch_info.protocol_version(),
-            next_next_shard_layout = ?self.config.for_protocol_version(next_next_epoch_info.protocol_version()).shard_layout,
-            next_next_epoch_config = ?self.config.for_protocol_version(next_next_epoch_info.protocol_version()),
+            ?next_next_shard_layout,
+            ?next_next_epoch_config,
         );
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
@@ -748,7 +735,7 @@ impl EpochManager {
         &mut self,
         mut block_info: BlockInfo,
         rng_seed: RngSeed,
-    ) -> Result<StoreUpdate, EpochError> {
+    ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
         let current_hash = *block_info.hash();
         let mut store_update = self.store.store_update();
         // Check that we didn't record this block yet.
@@ -1083,7 +1070,7 @@ impl EpochManager {
                         validator_to_shard[*validator_id as usize].insert(shard_id);
                     }
                 }
-                let epoch_summary = self.get_epoch_validator_info(id)?;
+                let epoch_summary = self.store.get_epoch_validator_info(id)?;
                 let cur_validators = cur_epoch_info
                     .validators_iter()
                     .enumerate()
@@ -1300,7 +1287,7 @@ impl EpochManager {
         &mut self,
         block_info: BlockInfo,
         random_value: CryptoHash,
-    ) -> Result<StoreUpdate, EpochError> {
+    ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
         // Check that genesis block doesn't have any proposals.
         let prev_validator_proposals = block_info.proposals_iter().collect::<Vec<_>>();
         assert!(block_info.height() > 0 || prev_validator_proposals.is_empty());
@@ -1380,21 +1367,26 @@ impl EpochManager {
     }
 
     pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
-        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        Ok(self.get_shard_layout_from_protocol_version(protocol_version))
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        if let Some(shard_layout) = epoch_info.shard_layout() {
+            Ok(shard_layout.clone())
+        } else {
+            let protocol_version = epoch_info.protocol_version();
+            Ok(self.config.for_protocol_version(protocol_version).legacy_shard_layout())
+        }
     }
 
+    // TODO(dynamic_resharding): remove this method
     pub fn get_shard_layout_from_protocol_version(
         &self,
         protocol_version: ProtocolVersion,
     ) -> ShardLayout {
-        self.config.for_protocol_version(protocol_version).shard_layout
+        self.config.for_protocol_version(protocol_version).legacy_shard_layout()
     }
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
-        self.epochs_info.get_or_try_put(*epoch_id, |epoch_id| {
-            self.store.epoch_store().get_epoch_info(epoch_id).map(Arc::new)
-        })
+        self.epochs_info
+            .get_or_try_put(*epoch_id, |epoch_id| self.store.get_epoch_info(epoch_id).map(Arc::new))
     }
 
     fn has_epoch_info(&self, epoch_id: &EpochId) -> Result<bool, EpochError> {
@@ -1407,33 +1399,13 @@ impl EpochManager {
 
     fn save_epoch_info(
         &self,
-        store_update: &mut StoreUpdate,
+        store_update: &mut EpochStoreUpdateAdapter,
         epoch_id: &EpochId,
         epoch_info: Arc<EpochInfo>,
     ) -> Result<(), EpochError> {
-        store_update.set_ser(DBCol::EpochInfo, epoch_id.as_ref(), &epoch_info)?;
+        store_update.set_epoch_info(epoch_id, &epoch_info);
         self.epochs_info.put(*epoch_id, epoch_info);
         Ok(())
-    }
-
-    pub fn get_epoch_validator_info(&self, epoch_id: &EpochId) -> Result<EpochSummary, EpochError> {
-        // We don't use cache here since this query happens rarely and only for rpc.
-        self.store
-            .get_ser(DBCol::EpochValidatorInfo, epoch_id.as_ref())?
-            .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
-    }
-
-    // Note(#6572): beware, after calling `save_epoch_validator_info`,
-    // `get_epoch_validator_info` will return stale results.
-    fn save_epoch_validator_info(
-        &self,
-        store_update: &mut StoreUpdate,
-        epoch_id: &EpochId,
-        epoch_summary: &EpochSummary,
-    ) -> Result<(), EpochError> {
-        store_update
-            .set_ser(DBCol::EpochValidatorInfo, epoch_id.as_ref(), epoch_summary)
-            .map_err(EpochError::from)
     }
 
     fn has_block_info(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
@@ -1445,37 +1417,33 @@ impl EpochManager {
     }
 
     pub fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
-        self.blocks_info.get_or_try_put(*hash, |hash| {
-            self.store.epoch_store().get_block_info(hash).map(Arc::new)
-        })
+        self.blocks_info.get_or_try_put(*hash, |hash| self.store.get_block_info(hash).map(Arc::new))
     }
 
     fn save_block_info(
         &self,
-        store_update: &mut StoreUpdate,
+        store_update: &mut EpochStoreUpdateAdapter,
         block_info: Arc<BlockInfo>,
     ) -> Result<(), EpochError> {
-        let block_hash = block_info.hash();
-        store_update.insert_ser(DBCol::BlockInfo, block_hash.as_ref(), &block_info)?;
-        self.blocks_info.put(*block_hash, block_info);
+        store_update.set_block_info(&block_info);
+        self.blocks_info.put(*block_info.hash(), block_info);
         Ok(())
     }
 
     fn save_epoch_start(
         &self,
-        store_update: &mut StoreUpdate,
+        store_update: &mut EpochStoreUpdateAdapter,
         epoch_id: &EpochId,
         epoch_start: BlockHeight,
     ) -> Result<(), EpochError> {
-        store_update.set_ser(DBCol::EpochStart, epoch_id.as_ref(), &epoch_start)?;
+        store_update.set_epoch_start(epoch_id, epoch_start);
         self.epoch_id_to_start.put(*epoch_id, epoch_start);
         Ok(())
     }
 
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
-        self.epoch_id_to_start.get_or_try_put(*epoch_id, |epoch_id| {
-            self.store.epoch_store().get_epoch_start(epoch_id)
-        })
+        self.epoch_id_to_start
+            .get_or_try_put(*epoch_id, |epoch_id| self.store.get_epoch_start(epoch_id))
     }
 
     /// Updates epoch info aggregator to state as of `last_final_block_hash`
@@ -1494,7 +1462,7 @@ impl EpochManager {
     pub fn update_epoch_info_aggregator_upto_final(
         &mut self,
         last_final_block_hash: &CryptoHash,
-        store_update: &mut StoreUpdate,
+        store_update: &mut EpochStoreUpdateAdapter,
     ) -> Result<(), EpochError> {
         if let Some((aggregator, replace)) =
             self.aggregate_epoch_info_upto(last_final_block_hash)?
@@ -1508,11 +1476,7 @@ impl EpochManager {
                 block_info.height() % AGGREGATOR_SAVE_PERIOD == 0
             };
             if save {
-                store_update.set_ser(
-                    DBCol::EpochInfo,
-                    AGGREGATOR_KEY,
-                    &self.epoch_info_aggregator,
-                )?;
+                store_update.set_epoch_info_aggregator(&self.epoch_info_aggregator);
             }
         }
         Ok(())
@@ -1614,18 +1578,11 @@ impl EpochManager {
                     // In the case of epoch sync, we may not have the BlockInfo for the last final block
                     // of the epoch. In this case, check for this special case.
                     // TODO(11931): think of a better way to do this.
-                    let tip = self
-                        .store
-                        .get_ser::<Tip>(DBCol::BlockMisc, HEADER_HEAD_KEY)?
-                        .ok_or_else(|| EpochError::IOErr("Tip not found in store".to_string()))?;
-                    let block_header = self
-                        .store
-                        .get_ser::<BlockHeader>(DBCol::BlockHeader, tip.prev_block_hash.as_bytes())?
-                        .ok_or_else(|| {
-                            EpochError::IOErr(
-                                "BlockHeader for prev block of tip not found in store".to_string(),
-                            )
-                        })?;
+                    let chain_store = self.store.chain_store();
+                    let tip = chain_store.header_head().expect("Tip not found");
+                    let block_header = chain_store
+                        .get_block_header(&tip.prev_block_hash)
+                        .expect("BlockHeader for prev block of tip not found in store");
                     if block_header.prev_hash() == block_info.hash() {
                         (block_info.height() - 1, *block_info.epoch_id())
                     } else {

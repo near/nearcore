@@ -235,7 +235,7 @@ expression: "&view"
       "max_locals_per_contract": 1000000,
       "max_tables_per_contract": 1,
       "max_elements_per_contract_table": 10000,
-      "account_id_validity_rules_version": 1,
+      "account_id_validity_rules_version": 2,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
       "per_receipt_storage_proof_size_limit": 4000000
@@ -263,5 +263,11 @@ expression: "&view"
     "main_storage_proof_size_soft_limit": 4000000,
     "combined_transactions_size_limit": 4194304,
     "new_transactions_validation_state_size_soft_limit": 572864
+  },
+  "dynamic_resharding_config": {
+    "memory_usage_threshold": 999999999999999,
+    "min_child_memory_usage": 999999999999999,
+    "max_number_of_shards": 999999999999999,
+    "min_epochs_between_resharding": 999999999999999
   }
 }

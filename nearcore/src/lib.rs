@@ -399,7 +399,8 @@ pub async fn start_with_config_and_synchronization_impl(
         Some(home_dir),
     );
 
-    let genesis_epoch_config = epoch_manager.get_epoch_config(&EpochId::default())?;
+    let epoch_id = EpochId::default();
+    let genesis_epoch_config = epoch_manager.get_epoch_config(&epoch_id)?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.
     // This sets up genesis_state_roots and genesis_hash in store.
