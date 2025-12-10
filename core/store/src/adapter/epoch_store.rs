@@ -80,7 +80,8 @@ impl EpochStoreAdapter {
 
     pub fn get_epoch_validator_info(&self, epoch_id: &EpochId) -> Result<EpochSummary, EpochError> {
         self.store
-            .get_ser::<EpochSummary>(DBCol::EpochValidatorInfo, epoch_id.as_ref())?
+            .get_ser::<EpochSummary>(DBCol::EpochValidatorInfo, epoch_id.as_ref())
+            .expect("borsh deserialize should never fail")
             .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 
