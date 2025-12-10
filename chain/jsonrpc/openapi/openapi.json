@@ -4092,25 +4092,25 @@
         "description": "Configuration for dynamic resharding feature",
         "properties": {
           "max_number_of_shards": {
-            "description": "Maximum number of shards in the network. When this number is reached, no further\nresharding will be scheduled.",
+            "description": "Maximum number of shards in the network.\n\nSee [`CongestionControlConfig`] for more details.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "memory_usage_threshold": {
-            "description": "Memory threshold over which a shard is marked for a split. This is an artificial value,\ncalculated using `TRIE_COSTS`. It is roughly equal to *double* of the actual RAM usage\nby the shard's memtrie (in bytes).",
+            "description": "Memory threshold over which a shard is marked for a split.\n\nSee [`CongestionControlConfig`] for more details.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "min_child_memory_usage": {
-            "description": "Minimum memory usage of a child shard. If any of the potential children shards has memory\nusage below this ratio, parent shard will *not* be marked for split.",
+            "description": "Minimum memory usage of a child shard.\n\nSee [`CongestionControlConfig`] for more details.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
           },
           "min_epochs_between_resharding": {
-            "description": "Minimum number of epochs until next resharding can be scheduled.\nThe value of `0` means that resharding can happen every epoch.",
+            "description": "Minimum number of epochs until next resharding can be scheduled.\n\nSee [`CongestionControlConfig`] for more details.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -16225,6 +16225,12 @@
                 "$ref": "#/components/schemas/DynamicReshardingConfigView"
               }
             ],
+            "default": {
+              "max_number_of_shards": 999999999999999,
+              "memory_usage_threshold": 999999999999999,
+              "min_child_memory_usage": 999999999999999,
+              "min_epochs_between_resharding": 999999999999999
+            },
             "description": "Configuration for dynamic resharding feature."
           },
           "storage_amount_per_byte": {
