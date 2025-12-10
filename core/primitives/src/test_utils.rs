@@ -14,7 +14,7 @@ use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBit
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
-    TransactionV0, TransactionV1, TransferAction,
+    TransactionKey, TransactionV0, TransactionV1, TransferAction,
 };
 #[cfg(feature = "clock")]
 use crate::types::chunk_extra::ChunkExtra;
@@ -28,12 +28,18 @@ use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
-use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
+use near_primitives_core::types::{BlockHeight, MerkleHash, NonceIndex, ProtocolVersion};
 #[cfg(feature = "clock")]
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
 use std::sync::Arc;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignerKind {
+    AccessKey,
+    GasKey(NonceIndex),
+}
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account::new(
@@ -59,25 +65,6 @@ impl Transaction {
             receiver_id,
             block_hash,
             actions: vec![],
-        })
-    }
-
-    pub fn new_v1(
-        signer_id: AccountId,
-        public_key: PublicKey,
-        receiver_id: AccountId,
-        nonce: Nonce,
-        block_hash: CryptoHash,
-        priority_fee: u64,
-    ) -> Self {
-        Transaction::V1(TransactionV1 {
-            signer_id,
-            public_key,
-            nonce,
-            receiver_id,
-            block_hash,
-            actions: vec![],
-            priority_fee,
         })
     }
 
@@ -175,24 +162,30 @@ impl SignedTransaction {
         .sign(signer)
     }
 
-    /// Explicitly create v1 transaction to test in cases where errors are expected.
+    /// Creates a v1 transaction.
     pub fn from_actions_v1(
         nonce: Nonce,
         signer_id: AccountId,
         receiver_id: AccountId,
         signer: &Signer,
+        signer_kind: SignerKind,
         actions: Vec<Action>,
         block_hash: CryptoHash,
-        priority_fee: u64,
     ) -> Self {
         Transaction::V1(TransactionV1 {
             nonce,
             signer_id,
-            public_key: signer.public_key(),
+            key: match signer_kind {
+                SignerKind::GasKey(index) => {
+                    TransactionKey::GasKey { public_key: signer.public_key(), nonce_index: index }
+                }
+                SignerKind::AccessKey => {
+                    TransactionKey::AccessKey { public_key: signer.public_key() }
+                }
+            },
             receiver_id,
             block_hash,
             actions,
-            priority_fee,
         })
         .sign(signer)
     }
@@ -213,6 +206,26 @@ impl SignedTransaction {
             vec![Action::Transfer(TransferAction { deposit })],
             block_hash,
             0,
+        )
+    }
+
+    pub fn send_money_v1(
+        nonce: Nonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        signer: &Signer,
+        signer_kind: SignerKind,
+        deposit: Balance,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self::from_actions_v1(
+            nonce,
+            signer_id,
+            receiver_id,
+            signer,
+            signer_kind,
+            vec![Action::Transfer(TransferAction { deposit })],
+            block_hash,
         )
     }
 

@@ -25,7 +25,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::{PartId, StatePart};
-use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
+use near_primitives::transaction::{SignedTransaction, TransactionKeyRef, ValidatedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateRoot, StateRootNode,
@@ -42,8 +42,7 @@ use near_store::flat::FlatStorageManager;
 use near_store::trie::{FindSplitError, find_trie_split, total_mem_usage};
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, set_access_key,
-    set_account,
+    TrieConfig, TrieUpdate, WrappedTrieChanges, set_tx_nonce_changes,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -52,7 +51,8 @@ use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
-    get_signer_and_access_key, validate_transaction, verify_and_charge_tx_ephemeral,
+    get_payer_and_access_key, set_tx_balance_changes, validate_transaction,
+    verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -652,10 +652,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
-        let (mut signer, mut access_key) = get_signer_and_access_key(&trie, &validated_tx)?;
+        let (mut payer, mut access_key) = get_payer_and_access_key(&trie, &validated_tx)?;
         verify_and_charge_tx_ephemeral(
             runtime_config,
-            &mut signer,
+            &mut payer,
             &mut access_key,
             validated_tx.to_tx(),
             &cost,
@@ -814,7 +814,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            let mut signer_access_key = None;
+            let mut account_payer_access_key = None;
 
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
@@ -857,24 +857,20 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                let signer_id = validated_tx.signer_id();
-                let (signer, access_key) =
-                    if let Some((id, signer, key, _)) = &mut signer_access_key {
-                        debug_assert_eq!(signer_id, id);
-                        (signer, key)
+                let tx_key = validated_tx.key().to_owned();
+                let (payer, access_key) =
+                    if let Some((account_id, id, payer, key)) = &mut account_payer_access_key {
+                        debug_assert_eq!(tx_key, *id);
+                        debug_assert!(account_id == validated_tx.signer_id());
+                        (payer, key)
                     } else {
-                        let signer = get_account(&state_update, signer_id);
-                        let signer = signer.transpose().and_then(|v| v.ok());
-                        let access_key =
-                            get_access_key(&state_update, signer_id, validated_tx.public_key());
-                        let access_key = access_key.transpose().and_then(|v| v.ok());
-                        let inserted = signer_access_key.insert((
-                            signer_id.clone(),
-                            signer.ok_or(Error::InvalidTransactions)?,
-                            access_key.ok_or(Error::InvalidTransactions)?,
-                            validated_tx.public_key().clone(),
-                        ));
-                        (&mut inserted.1, &mut inserted.2)
+                        let account_id = validated_tx.signer_id().clone();
+                        let (payer, access_key) =
+                            get_payer_and_access_key(&state_update, &validated_tx)
+                                .map_err(|_| Error::InvalidTransactions)?;
+                        let inserted = account_payer_access_key
+                            .insert((account_id, tx_key, payer, access_key));
+                        (&mut inserted.2, &mut inserted.3)
                     };
 
                 let verify_result =
@@ -883,7 +879,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         .and_then(|cost| {
                             verify_and_charge_tx_ephemeral(
                                 runtime_config,
-                                signer,
+                                payer,
                                 access_key,
                                 validated_tx.to_tx(),
                                 &cost,
@@ -907,9 +903,19 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            if let Some((signer_id, account, access_key, public_key)) = signer_access_key {
-                set_account(&mut state_update.trie_update, signer_id.clone(), &account);
-                set_access_key(&mut state_update.trie_update, signer_id, public_key, &access_key);
+            if let Some((account_id, tx_key, payer, access_key)) = account_payer_access_key {
+                set_tx_balance_changes(
+                    &mut state_update.trie_update,
+                    account_id.clone(),
+                    TransactionKeyRef::from(&tx_key),
+                    &payer,
+                );
+                set_tx_nonce_changes(
+                    &mut state_update.trie_update,
+                    account_id,
+                    TransactionKeyRef::from(&tx_key),
+                    &access_key,
+                );
             }
         }
 

@@ -1689,11 +1689,11 @@ fn test_prepare_transactions_duplicate_nonces() {
     // Collect (public key, nonce) pairs to check for duplicates.
     let mut pk_nonce_set = HashSet::new();
     for tx in &txs.transactions {
-        let pk_nonce = (tx.public_key(), tx.nonce());
+        let pk_nonce = (tx.key(), tx.nonce());
         assert!(
             pk_nonce_set.insert(pk_nonce),
-            "Duplicate transaction with public key {:?} and nonce {} found in prepared transactions",
-            tx.public_key(),
+            "Duplicate transaction with key {:?} and nonce {} found in prepared transactions",
+            tx.key(),
             tx.nonce()
         );
     }
