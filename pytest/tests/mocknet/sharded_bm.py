@@ -31,6 +31,8 @@ CHAIN_ID = "mainnet"
 # It corresponds to the existing setup with minimal disk usage.
 START_HEIGHT = 138038232
 
+PROJECT = os.getenv('MOCKNET_PROJECT', 'nearone-mocknet')
+
 # TODO: consider moving source directory to pytest.
 SOURCE_BENCHNET_DIR = "../benchmarks/sharded-bm"
 
@@ -43,8 +45,8 @@ CONFIG_PATH = f"{NEAR_HOME}/config.json"
 def fetch_forknet_details(forknet_name, bm_params):
     """Fetch the forknet details from GCP."""
     find_instances_cmd = [
-        "gcloud", "compute", "instances", "list", "--project=nearone-mocknet",
-        f"--filter=name~'-{forknet_name}-' AND -name~'traffic' AND -name~'tracing'",
+        "gcloud", "compute", "instances", "list", f"--project={PROJECT}",
+        f"--filter=name~'-{forknet_name}-' AND -name~'traffic' AND -name~'tracing' AND -name~'prometheus'",
         "--format=table(name,networkInterfaces[0].networkIP,zone)"
     ]
     find_instances_cmd_result = subprocess.run(
@@ -68,7 +70,7 @@ def fetch_forknet_details(forknet_name, bm_params):
     cp_instance_zones = [instance[2] for instance in cp_instances]
 
     find_tracing_server_cmd = [
-        "gcloud", "compute", "instances", "list", "--project=nearone-mocknet",
+        "gcloud", "compute", "instances", "list", f"--project={PROJECT}",
         f"--filter=name~'-{forknet_name}-' AND name~'tracing'",
         "--format=get(networkInterfaces[0].networkIP,networkInterfaces[0].accessConfigs[0].natIP)"
     ]

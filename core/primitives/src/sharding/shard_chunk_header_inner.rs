@@ -227,6 +227,18 @@ impl ShardChunkHeaderInner {
             Self::V5(_) => 5,
         }
     }
+
+    /// Spice chunks contain transactions only and no execution results.
+    #[inline]
+    pub fn is_spice_chunk(&self) -> bool {
+        match self {
+            ShardChunkHeaderInner::V1(_)
+            | ShardChunkHeaderInner::V2(_)
+            | ShardChunkHeaderInner::V3(_)
+            | ShardChunkHeaderInner::V4(_) => false,
+            ShardChunkHeaderInner::V5(_) => true,
+        }
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]

@@ -2404,7 +2404,8 @@ fn test_chunk_producers() {
 
 #[test]
 fn test_validator_kickout_determinism() {
-    let mut epoch_config = epoch_config(5, 2, 4, 4, 90, 80, 90, Rational32::new(1, 40))
+    let num_shards = 2;
+    let mut epoch_config = epoch_config(5, num_shards, 4, 4, 90, 80, 90, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     epoch_config.validator_max_kickout_stake_perc = 99;
     let accounts = vec![
@@ -2421,7 +2422,7 @@ fn test_validator_kickout_determinism() {
         vec![0, 1, 2, 3],
         vec![vec![0, 1, 2], vec![0, 1, 3]],
         PROTOCOL_VERSION,
-        epoch_config.shard_layout.clone(),
+        ShardLayout::multi_shard(num_shards, 0),
     );
     let block_validator_tracker = HashMap::from([
         (0, ValidatorStats { produced: 100, expected: 100 }),
@@ -2487,7 +2488,8 @@ fn test_validator_kickout_determinism() {
 /// so the validator with the lower endorsement ratio is kicked out.
 #[test]
 fn test_chunk_validators_with_different_endorsement_ratio() {
-    let mut epoch_config = epoch_config(5, 2, 2, 2, 90, 90, 70, Rational32::new(1, 40))
+    let num_shards = 2;
+    let mut epoch_config = epoch_config(5, num_shards, 2, 2, 90, 90, 70, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
     // is kicked out, and the other chunk validator is exempted from kickout.
@@ -2506,7 +2508,7 @@ fn test_chunk_validators_with_different_endorsement_ratio() {
         vec![0, 1, 2, 3],
         vec![vec![0, 1, 2], vec![0, 1, 3]],
         PROTOCOL_VERSION,
-        epoch_config.shard_layout.clone(),
+        ShardLayout::multi_shard(num_shards, 0),
     );
     let block_validator_tracker = HashMap::from([
         (0, ValidatorStats { produced: 100, expected: 100 }),
@@ -2546,7 +2548,8 @@ fn test_chunk_validators_with_different_endorsement_ratio() {
 /// so the validator with the lower stake is kicked out.
 #[test]
 fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
-    let mut epoch_config = epoch_config(5, 2, 2, 2, 90, 90, 70, Rational32::new(1, 40))
+    let num_shards = 2;
+    let mut epoch_config = epoch_config(5, num_shards, 2, 2, 90, 90, 70, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
     // is kicked out, and the other chunk validator is exempted from kickout.
@@ -2565,7 +2568,7 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
         vec![0, 1, 2, 3],
         vec![vec![0, 1, 2], vec![0, 1, 3]],
         PROTOCOL_VERSION,
-        epoch_config.shard_layout.clone(),
+        ShardLayout::multi_shard(num_shards, 0),
     );
     let block_validator_tracker = HashMap::from([
         (0, ValidatorStats { produced: 100, expected: 100 }),
@@ -2605,7 +2608,8 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
 /// so we select the exempted validator based on the ordering of the account id.
 #[test]
 fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
-    let mut epoch_config = epoch_config(5, 2, 2, 2, 90, 90, 70, Rational32::new(1, 40))
+    let num_shards = 2;
+    let mut epoch_config = epoch_config(5, num_shards, 2, 2, 90, 90, 70, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     // Set the max kickout stake percentage so that only one of the chunk validators
     // is kicked out, and the other chunk validator is exempted from kickout.
@@ -2624,7 +2628,7 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
         vec![0, 1, 2, 3],
         vec![vec![0, 1, 2], vec![0, 1, 3]],
         PROTOCOL_VERSION,
-        epoch_config.shard_layout.clone(),
+        ShardLayout::multi_shard(num_shards, 0),
     );
     let block_validator_tracker = HashMap::from([
         (0, ValidatorStats { produced: 100, expected: 100 }),
@@ -2664,7 +2668,8 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
 /// checks that validators that don't meet their kickout thresholds are kicked out.
 #[test]
 fn test_validator_kickout_sanity() {
-    let epoch_config = epoch_config(5, 2, 4, 4, 90, 80, 90, Rational32::new(1, 40))
+    let num_shards = 2;
+    let epoch_config = epoch_config(5, num_shards, 4, 4, 90, 80, 90, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
         ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
@@ -2680,7 +2685,7 @@ fn test_validator_kickout_sanity() {
         vec![0, 1, 2, 3],
         vec![vec![0, 1, 2], vec![0, 1, 3]],
         PROTOCOL_VERSION,
-        epoch_config.shard_layout.clone(),
+        ShardLayout::multi_shard(num_shards, 0),
     );
     let block_validator_tracker = HashMap::from([
         (0, ValidatorStats { produced: 100, expected: 100 }),
@@ -2804,7 +2809,8 @@ fn test_validator_kickout_sanity() {
 /// This test does not test kickouts at all.
 #[test]
 fn test_chunk_endorsement_stats() {
-    let epoch_config = epoch_config(5, 2, 4, 100, 90, 80, 0, Rational32::new(1, 40))
+    let num_shards = 2;
+    let epoch_config = epoch_config(5, num_shards, 4, 100, 90, 80, 0, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
         ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
@@ -2818,7 +2824,7 @@ fn test_chunk_endorsement_stats() {
         vec![0, 1, 2, 3],
         vec![vec![0, 1, 2], vec![0, 1, 3]],
         PROTOCOL_VERSION,
-        epoch_config.shard_layout.clone(),
+        ShardLayout::multi_shard(num_shards, 0),
     );
     let (validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
         &epoch_config,
@@ -2888,7 +2894,8 @@ fn test_chunk_endorsement_stats() {
 #[test]
 /// Test that the stake of validators kicked out in an epoch doesn't exceed the max_kickout_stake_ratio
 fn test_max_kickout_stake_ratio() {
-    let mut epoch_config = epoch_config(5, 2, 4, 100, 90, 80, 0, Rational32::new(1, 40))
+    let num_shards = 2;
+    let mut epoch_config = epoch_config(5, num_shards, 4, 100, 90, 80, 0, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
         ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
@@ -2903,7 +2910,7 @@ fn test_max_kickout_stake_ratio() {
         vec![0, 1, 2, 3],
         vec![vec![0, 1], vec![2, 4]],
         PROTOCOL_VERSION,
-        epoch_config.shard_layout.clone(),
+        ShardLayout::multi_shard(num_shards, 0),
     );
     let block_stats = HashMap::from([
         (0, ValidatorStats { produced: 50, expected: 100 }),
@@ -3013,7 +3020,8 @@ fn test_max_kickout_stake_ratio() {
 
 /// Common test scenario for a couple of tests exercising chunk validator kickouts.
 fn test_chunk_validator_kickout(expected_kickouts: HashMap<AccountId, ValidatorKickoutReason>) {
-    let mut epoch_config = epoch_config(5, 2, 4, 100, 80, 80, 80, Rational32::new(1, 40))
+    let num_shards = 2;
+    let mut epoch_config = epoch_config(5, num_shards, 4, 100, 80, 80, 80, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
         ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
@@ -3029,7 +3037,7 @@ fn test_chunk_validator_kickout(expected_kickouts: HashMap<AccountId, ValidatorK
         vec![0, 1, 2, 3],
         vec![vec![0, 1], vec![0, 2]],
         PROTOCOL_VERSION,
-        epoch_config.shard_layout.clone(),
+        ShardLayout::multi_shard(num_shards, 0),
     );
     let block_stats = HashMap::from([
         (0, ValidatorStats { produced: 90, expected: 100 }),
@@ -3087,7 +3095,8 @@ fn test_chunk_validator_kicked_out_for_low_endorsement() {
 #[test]
 /// Tests that a validator is not kicked out due to low endorsement only (as long as it produces most of its blocks and chunks).
 fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
-    let mut epoch_config = epoch_config(5, 2, 4, 100, 80, 80, 80, Rational32::new(1, 40))
+    let num_shards = 2;
+    let mut epoch_config = epoch_config(5, num_shards, 4, 100, 80, 80, 80, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![
         ("test0".parse().unwrap(), Balance::from_yoctonear(1000)),
@@ -3100,7 +3109,7 @@ fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
         vec![0, 1, 2],
         vec![vec![0, 1, 2], vec![0, 1, 2]],
         PROTOCOL_VERSION,
-        epoch_config.shard_layout.clone(),
+        ShardLayout::multi_shard(num_shards, 0),
     );
     let block_stats = HashMap::from([
         (0, ValidatorStats { produced: 90, expected: 100 }),
@@ -3139,24 +3148,37 @@ fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
 }
 
 fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHeader {
-    ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-        h[0],
-        h[2],
-        h[2],
-        h[2],
-        0,
-        1,
-        ShardId::new(0),
-        Gas::ZERO,
-        Gas::ZERO,
-        Balance::ZERO,
-        h[2],
-        h[2],
-        vec![],
-        Default::default(),
-        BandwidthRequests::empty(),
-        signer,
-    ))
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
+            h[0],
+            h[2],
+            0,
+            1,
+            ShardId::new(0),
+            h[2],
+            h[2],
+            signer,
+        ))
+    } else {
+        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            h[0],
+            h[2],
+            h[2],
+            h[2],
+            0,
+            1,
+            ShardId::new(0),
+            Gas::ZERO,
+            Gas::ZERO,
+            Balance::ZERO,
+            h[2],
+            h[2],
+            vec![],
+            Default::default(),
+            BandwidthRequests::empty(),
+            signer,
+        ))
+    }
 }
 
 #[test]
@@ -3562,12 +3584,12 @@ fn test_get_shard_uids_pending_resharding_base(shard_layouts: &[ShardLayout]) ->
 
     // Create an epoch config store with a new protocol version for each
     // provided shard layout.
-    let mut epoch_config = EpochConfig::from(&genesis_config);
+    let genesis_epoch_config = EpochConfig::from(&genesis_config);
     let mut epoch_config_store = vec![];
     for (i, shard_layout) in shard_layouts.iter().enumerate() {
         let protocol_version = genesis_config.protocol_version + i as u32;
-        epoch_config.shard_layout = shard_layout.clone();
-        epoch_config_store.push((protocol_version, Arc::new(epoch_config.clone())));
+        let epoch_config = genesis_epoch_config.clone().with_shard_layout(shard_layout.clone());
+        epoch_config_store.push((protocol_version, Arc::new(epoch_config)));
     }
     let epoch_config_store = BTreeMap::from_iter(epoch_config_store.into_iter());
     let epoch_config_store = EpochConfigStore::test(epoch_config_store);
@@ -3617,7 +3639,7 @@ fn test_get_shard_uids_pending_resharding_none() {
 #[test]
 fn test_get_shard_uids_pending_resharding_simple_nightshade() {
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let shard_layout = epoch_config_store.get_config(PROTOCOL_VERSION).shard_layout.clone();
+    let shard_layout = epoch_config_store.get_config(PROTOCOL_VERSION).legacy_shard_layout();
     let shard_uids =
         test_get_shard_uids_pending_resharding_base(&[shard_layout.clone(), shard_layout]);
     assert_eq!(shard_uids.len(), 0);

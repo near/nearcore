@@ -14,7 +14,7 @@ use crate::num_rational::Rational32;
 #[cfg(feature = "clock")]
 use crate::optimistic_block::OptimisticBlock;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
-use crate::types::{Balance, BlockHeight, EpochId, Gas};
+use crate::types::{Balance, BlockExecutionResults, BlockHeight, EpochId, Gas};
 #[cfg(feature = "clock")]
 use crate::{
     stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
@@ -123,10 +123,10 @@ impl Block {
         clock: near_time::Clock,
         sandbox_delta_time: Option<near_time::Duration>,
         optimistic_block: Option<OptimisticBlock>,
-        // TODO(spice): Change type to Vec<SpiceCoreStatement> once spice feature is tied to
-        // protocol version. We use option for now to indicate whether spice feature is enabled to
-        // allow creating non-spice blocks for tests.
-        core_statements: Option<Vec<SpiceCoreStatement>>,
+        // TODO(spice): Remove option once spice feature is tied to protocol version. We use option
+        // for now to indicate whether spice feature is enabled to allow creating non-spice blocks
+        // for tests.
+        spice_info: Option<SpiceNewBlockProductionInfo>,
     ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
 
@@ -140,13 +140,26 @@ impl Block {
             if chunk.height_included() == height {
                 prev_validator_proposals.extend(chunk.prev_validator_proposals());
                 gas_used = gas_used.checked_add(chunk.prev_gas_used()).unwrap();
-                gas_limit = gas_limit.checked_add(chunk.gas_limit()).unwrap();
+                if spice_info.is_none() {
+                    gas_limit = gas_limit.checked_add(chunk.gas_limit()).unwrap();
+                }
                 balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
                 chunk_mask.push(true);
             } else {
                 chunk_mask.push(false);
             }
         }
+        // TODO(spice): Use gas_used and other relevant fields from spice_info last
+        // certified block execution results.
+        if let Some(ref spice_info) = spice_info {
+            for (_shard_id, execution_result) in
+                &spice_info.last_certified_block_execution_results.0
+            {
+                gas_limit =
+                    gas_limit.checked_add(execution_result.chunk_extra.gas_limit()).unwrap();
+            }
+        }
+
         let next_gas_price = Self::compute_next_gas_price(
             prev.next_gas_price(),
             gas_used,
@@ -230,8 +243,8 @@ impl Block {
         let chunk_tx_root = chunks_wrapper.compute_chunk_tx_root();
         let outcome_root = chunks_wrapper.compute_outcome_root();
 
-        let body = if let Some(core_statements) = core_statements {
-            BlockBody::new_for_spice(chunks, vrf_value, vrf_proof, core_statements)
+        let body = if let Some(spice_info) = spice_info {
+            BlockBody::new_for_spice(chunks, vrf_value, vrf_proof, spice_info.core_statements)
         } else {
             BlockBody::new(chunks, vrf_value, vrf_proof, chunk_endorsements)
         };
@@ -294,9 +307,17 @@ impl Block {
         min_gas_price: Balance,
         max_gas_price: Balance,
         gas_price_adjustment_rate: Rational32,
+        // TODO(spice): Once spice v1 is released remove Option.
+        last_certified_block_execution_results: Option<&BlockExecutionResults>,
     ) -> bool {
         let gas_used = self.chunks().compute_gas_used();
-        let gas_limit = self.chunks().compute_gas_limit();
+        let gas_limit = if let Some(last_certified_block_execution_results) =
+            last_certified_block_execution_results
+        {
+            last_certified_block_execution_results.compute_gas_limit()
+        } else {
+            self.chunks().compute_gas_limit()
+        };
         let expected_price = Self::compute_next_gas_price(
             gas_price,
             gas_used,
@@ -484,6 +505,11 @@ impl Block {
 
         Ok(())
     }
+}
+
+pub struct SpiceNewBlockProductionInfo {
+    pub core_statements: Vec<SpiceCoreStatement>,
+    pub last_certified_block_execution_results: BlockExecutionResults,
 }
 
 /// Distinguishes between new and old chunks.

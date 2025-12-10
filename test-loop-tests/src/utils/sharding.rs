@@ -26,8 +26,8 @@ pub fn get_client_tracking_shard<'a>(
 
 /// Prints the accounts inside all shards and asserts that no shard is empty.
 pub fn print_and_assert_shard_accounts(clients: &[&Client], tip: &Tip) {
-    let epoch_config = clients[0].epoch_manager.get_epoch_config(&tip.epoch_id).unwrap();
-    for shard_uid in epoch_config.shard_layout.shard_uids() {
+    let shard_layout = clients[0].epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+    for shard_uid in shard_layout.shard_uids() {
         let client = get_client_tracking_shard(clients, tip, shard_uid.shard_id());
         let chunk_extra = client.chain.get_chunk_extra(&tip.prev_block_hash, &shard_uid).unwrap();
         let trie = client

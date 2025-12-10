@@ -38,7 +38,7 @@ impl ShardLayoutV0 {
     }
     pub fn get_shard_id(&self, shard_index: ShardIndex) -> Result<ShardId, ShardLayoutError> {
         if shard_index >= self.num_shards as usize {
-            Err(ShardLayoutError::InvalidShardIndexError { shard_index })
+            Err(ShardLayoutError::InvalidShardIndex { shard_index })
         } else {
             Ok(ShardId::new(shard_index as u64))
         }

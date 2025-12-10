@@ -376,8 +376,17 @@ pub struct ApplyChunkShardContext<'a> {
 pub struct PreparedTransactions {
     /// Prepared transactions
     pub transactions: Vec<ValidatedTransaction>,
-    /// Describes which limit was hit when preparing the transactions.
-    pub limited_by: Option<PrepareTransactionsLimit>,
+    /// Describes what limited the number of prepared transactions.
+    pub limited_by: PrepareTransactionsLimit,
+}
+
+impl PreparedTransactions {
+    pub fn new() -> PreparedTransactions {
+        PreparedTransactions {
+            transactions: Vec::new(),
+            limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
+        }
+    }
 }
 
 /// Transactions that were taken out of the pool in prepare_transactions,
@@ -390,11 +399,17 @@ pub struct SkippedTransactions(pub Vec<ValidatedTransaction>);
 /// This enum describes which limit was hit when preparing transactions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::AsRefStr)]
 pub enum PrepareTransactionsLimit {
+    /// No more transactions to pick from the transaction pool.
+    NoMoreTxsInPool,
+    /// Gas limit hit.
     Gas,
+    /// Total transactions size limit hit.
     Size,
+    /// Time limit hit.
     Time,
-    ReceiptCount,
+    /// Recorded storage size limit hit.
     StorageProofSize,
+    /// Transaction preparation was cancelled.
     Cancelled,
 }
 
@@ -658,13 +673,14 @@ mod tests {
             &genesis_bps,
         );
         let signer = Arc::new(create_test_signer("other"));
-        let b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
+        let b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build();
         assert!(b1.header().verify_block_producer(&signer.public_key()));
         let other_signer = create_test_signer("other2");
         let approvals =
             vec![Some(Box::new(Approval::new(*b1.hash(), 1, 2, &other_signer).signature))];
-        let b2 =
-            TestBlockBuilder::new(Clock::real(), &b1, signer.clone()).approvals(approvals).build();
+        let b2 = TestBlockBuilder::from_prev_block(Clock::real(), &b1, signer.clone())
+            .approvals(approvals)
+            .build();
         b2.header().verify_block_producer(&signer.public_key());
     }
 

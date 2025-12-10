@@ -11,6 +11,7 @@ use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
+use near_chain::spice_core::SpiceCoreReader;
 use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
 use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
@@ -268,9 +269,15 @@ fn spawn_spice_actors(
     >,
     spice_core_writer_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<SpiceCoreWriterActor>>>,
 ) {
+    let spice_core_reader = SpiceCoreReader::new(
+        runtime.store().chain_store(),
+        epoch_manager.clone(),
+        chain_genesis.gas_limit,
+    );
     let spice_core_writer_actor = SpiceCoreWriterActor::new(
         runtime.store().chain_store(),
         epoch_manager.clone(),
+        spice_core_reader.clone(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
     );
@@ -282,6 +289,7 @@ fn spawn_spice_actors(
         runtime.store().chain_store(),
         validator_signer.clone(),
         shard_tracker.clone(),
+        spice_core_reader,
         network_adapter.clone(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
@@ -391,7 +399,8 @@ pub async fn start_with_config_and_synchronization_impl(
         Some(home_dir),
     );
 
-    let genesis_epoch_config = epoch_manager.get_epoch_config(&EpochId::default())?;
+    let epoch_id = EpochId::default();
+    let genesis_epoch_config = epoch_manager.get_epoch_config(&epoch_id)?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.
     // This sets up genesis_state_roots and genesis_hash in store.

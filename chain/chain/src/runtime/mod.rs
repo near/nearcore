@@ -42,7 +42,8 @@ use near_store::flat::FlatStorageManager;
 use near_store::trie::{FindSplitError, find_trie_split, total_mem_usage};
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, set_account,
+    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, set_access_key,
+    set_account,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -594,6 +595,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.tries.get_flat_storage_manager()
     }
 
+    // TODO(dynamic_resharding): remove this method
     fn get_shard_layout(&self, protocol_version: ProtocolVersion) -> ShardLayout {
         let epoch_manager = self.epoch_manager.read();
         epoch_manager.get_shard_layout_from_protocol_version(protocol_version)
@@ -770,7 +772,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let transactions_gas_limit = chunk_tx_gas_limit(runtime_config, &prev_block, shard_id);
 
-        let mut result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
+        let mut result = PreparedTransactions::new();
         let mut skipped_transactions = Vec::new();
         let mut num_checked_transactions = 0;
 
@@ -783,17 +785,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         // Add new transactions to the result until some limit is hit or the transactions run out.
         'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
             if total_gas_burnt >= transactions_gas_limit {
-                result.limited_by = Some(PrepareTransactionsLimit::Gas);
+                result.limited_by = PrepareTransactionsLimit::Gas;
                 break;
             }
             if total_size >= size_limit {
-                result.limited_by = Some(PrepareTransactionsLimit::Size);
+                result.limited_by = PrepareTransactionsLimit::Size;
                 break;
             }
 
             if let Some(time_limit) = &time_limit {
                 if start_time.elapsed() >= *time_limit {
-                    result.limited_by = Some(PrepareTransactionsLimit::Time);
+                    result.limited_by = PrepareTransactionsLimit::Time;
                     break;
                 }
             }
@@ -801,13 +803,13 @@ impl RuntimeAdapter for NightshadeRuntime {
             if state_update.recorded_storage_size() as u64
                 > runtime_config.witness_config.new_transactions_validation_state_size_soft_limit
             {
-                result.limited_by = Some(PrepareTransactionsLimit::StorageProofSize);
+                result.limited_by = PrepareTransactionsLimit::StorageProofSize;
                 break;
             }
 
             if let Some(cancel) = &cancel {
                 if cancel.load(Ordering::Relaxed) {
-                    result.limited_by = Some(PrepareTransactionsLimit::Cancelled);
+                    result.limited_by = PrepareTransactionsLimit::Cancelled;
                     break;
                 }
             }
@@ -818,7 +820,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
                 // Stop adding transactions if the size limit would be exceeded
                 if total_size.saturating_add(tx_peek.get_size()) > size_limit as u64 {
-                    result.limited_by = Some(PrepareTransactionsLimit::Size);
+                    result.limited_by = PrepareTransactionsLimit::Size;
                     break 'add_txs_loop;
                 }
 
@@ -856,22 +858,24 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
 
                 let signer_id = validated_tx.signer_id();
-                let (signer, access_key) = if let Some((id, signer, key)) = &mut signer_access_key {
-                    debug_assert_eq!(signer_id, id);
-                    (signer, key)
-                } else {
-                    let signer = get_account(&state_update, signer_id);
-                    let signer = signer.transpose().and_then(|v| v.ok());
-                    let access_key =
-                        get_access_key(&state_update, signer_id, validated_tx.public_key());
-                    let access_key = access_key.transpose().and_then(|v| v.ok());
-                    let inserted = signer_access_key.insert((
-                        signer_id.clone(),
-                        signer.ok_or(Error::InvalidTransactions)?,
-                        access_key.ok_or(Error::InvalidTransactions)?,
-                    ));
-                    (&mut inserted.1, &mut inserted.2)
-                };
+                let (signer, access_key) =
+                    if let Some((id, signer, key, _)) = &mut signer_access_key {
+                        debug_assert_eq!(signer_id, id);
+                        (signer, key)
+                    } else {
+                        let signer = get_account(&state_update, signer_id);
+                        let signer = signer.transpose().and_then(|v| v.ok());
+                        let access_key =
+                            get_access_key(&state_update, signer_id, validated_tx.public_key());
+                        let access_key = access_key.transpose().and_then(|v| v.ok());
+                        let inserted = signer_access_key.insert((
+                            signer_id.clone(),
+                            signer.ok_or(Error::InvalidTransactions)?,
+                            access_key.ok_or(Error::InvalidTransactions)?,
+                            validated_tx.public_key().clone(),
+                        ));
+                        (&mut inserted.1, &mut inserted.2)
+                    };
 
                 let verify_result =
                     tx_cost(runtime_config, &validated_tx.to_tx(), prev_block.next_gas_price)
@@ -903,12 +907,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            if let Some((signer_id, account, _)) = signer_access_key {
-                // NOTE: we don't need to remember the intermediate state of the access key between
-                // groups, but only because pool guarantees that iteration is grouped by account_id
-                // and its public keys. It does however also mean that we must remember the account
-                // state as this code might operate over multiple access keys for the account.
-                set_account(&mut state_update.trie_update, signer_id, &account);
+            if let Some((signer_id, account, access_key, public_key)) = signer_access_key {
+                set_account(&mut state_update.trie_update, signer_id.clone(), &account);
+                set_access_key(&mut state_update.trie_update, signer_id, public_key, &access_key);
             }
         }
 
@@ -1373,6 +1374,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
         let mut genesis_config = self.genesis_config.clone();
         genesis_config.protocol_version = protocol_version;
 
@@ -1398,7 +1400,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         genesis_config.minimum_stake_divisor = epoch_config.minimum_stake_divisor;
         genesis_config.protocol_upgrade_stake_threshold =
             epoch_config.protocol_upgrade_stake_threshold;
-        genesis_config.shard_layout = epoch_config.shard_layout;
+        genesis_config.shard_layout = shard_layout;
         genesis_config.num_chunk_only_producer_seats = epoch_config.num_chunk_only_producer_seats;
         genesis_config.minimum_validators_per_shard = epoch_config.minimum_validators_per_shard;
         genesis_config.minimum_stake_ratio = epoch_config.minimum_stake_ratio;

@@ -4377,6 +4377,7 @@ dependencies = [
  "primitive-types 0.10.1",
  "rand 0.8.5",
  "rand_hc 0.3.1",
+ "rayon",
  "serde",
  "tracing",
 ]
@@ -4795,6 +4796,7 @@ dependencies = [
  "bytesize 1.1.0",
  "chrono",
  "criterion",
+ "derive_builder",
  "derive_more 2.0.1",
  "easy-ext",
  "enum-map",
@@ -8804,8 +8806,15 @@ dependencies = [
  "serde_json",
  "url",
  "utoipa",
+ "utoipa-swagger-ui-vendored",
  "zip",
 ]
+
+[[package]]
+name = "utoipa-swagger-ui-vendored"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2eebbbfe4093922c2b6734d7c679ebfebd704a0d7e56dfcb0d05818ce28977d"
 
 [[package]]
 name = "uuid"

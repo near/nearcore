@@ -20,8 +20,8 @@ use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::receipt::{
-    ActionReceipt, DataReceipt, DataReceiver, GlobalContractDistributionReceipt, Receipt,
-    ReceiptEnum, ReceiptV1, VersionedActionReceipt, VersionedReceiptEnum,
+    ActionReceipt, ActionReceiptV2, DataReceipt, DataReceiver, GlobalContractDistributionReceipt,
+    Receipt, ReceiptEnum, ReceiptV1, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
@@ -1080,6 +1080,7 @@ impl From<BlockHeaderInnerLiteView> for BlockHeaderInnerLite {
 /// Contains main info about the chunk.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+// TODO(spice): Once spice is released deprecate fields that wouldn't be part of spice chunks.
 pub struct ChunkHeaderView {
     pub chunk_hash: CryptoHash,
     pub prev_block_hash: CryptoHash,
@@ -1123,7 +1124,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             chunk_hash: hash,
             prev_block_hash: *inner.prev_block_hash(),
             outcome_root: *inner.prev_outcome_root(),
-            prev_state_root: if cfg!(feature = "protocol_feature_spice") {
+            prev_state_root: if inner.is_spice_chunk() {
                 CryptoHash::default()
             } else {
                 *inner.prev_state_root()
@@ -2265,6 +2266,8 @@ pub enum ReceiptEnumView {
         actions: Vec<ActionView>,
         #[serde(default = "default_is_promise")]
         is_promise_yield: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        refund_to: Option<AccountId>,
     } = 0,
     Data {
         data_id: CryptoHash,
@@ -2357,6 +2360,7 @@ impl ReceiptEnumView {
                 .collect(),
             actions: action_receipt.actions().iter().cloned().map(Into::into).collect(),
             is_promise_yield,
+            refund_to: action_receipt.refund_to().clone(),
         }
     }
 }
@@ -2378,29 +2382,54 @@ impl TryFrom<ReceiptView> for Receipt {
                     input_data_ids,
                     actions,
                     is_promise_yield,
+                    refund_to,
                 } => {
-                    let action_receipt = ActionReceipt {
-                        signer_id,
-                        signer_public_key,
-                        gas_price,
-                        output_data_receivers: output_data_receivers
-                            .into_iter()
-                            .map(|data_receiver_view| DataReceiver {
-                                data_id: data_receiver_view.data_id,
-                                receiver_id: data_receiver_view.receiver_id,
-                            })
-                            .collect(),
-                        input_data_ids: input_data_ids.into_iter().map(Into::into).collect(),
-                        actions: actions
-                            .into_iter()
-                            .map(TryInto::try_into)
-                            .collect::<Result<Vec<_>, _>>()?,
-                    };
-
-                    if is_promise_yield {
-                        ReceiptEnum::PromiseYield(action_receipt)
+                    let output_data_receivers: Vec<_> = output_data_receivers
+                        .into_iter()
+                        .map(|data_receiver_view| DataReceiver {
+                            data_id: data_receiver_view.data_id,
+                            receiver_id: data_receiver_view.receiver_id,
+                        })
+                        .collect();
+                    let input_data_ids: Vec<CryptoHash> =
+                        input_data_ids.into_iter().map(Into::into).collect();
+                    let actions = actions
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<_>, _>>()?;
+                    // Note that this is not consistent with how `new_receipts` are
+                    // created by the runtime - there we always create ActionReceiptV2.
+                    // ActionReceiptV2 without refund_to becomes V1 after a roundtrip
+                    // through views. This will be fixed with #14709.
+                    if refund_to.is_some() {
+                        let action_receipt = ActionReceiptV2 {
+                            signer_id,
+                            signer_public_key,
+                            gas_price,
+                            output_data_receivers,
+                            input_data_ids,
+                            actions,
+                            refund_to,
+                        };
+                        if is_promise_yield {
+                            ReceiptEnum::PromiseYieldV2(action_receipt)
+                        } else {
+                            ReceiptEnum::ActionV2(action_receipt)
+                        }
                     } else {
-                        ReceiptEnum::Action(action_receipt)
+                        let action_receipt = ActionReceipt {
+                            signer_id,
+                            signer_public_key,
+                            gas_price,
+                            output_data_receivers,
+                            input_data_ids,
+                            actions,
+                        };
+                        if is_promise_yield {
+                            ReceiptEnum::PromiseYield(action_receipt)
+                        } else {
+                            ReceiptEnum::Action(action_receipt)
+                        }
                     }
                 }
                 ReceiptEnumView::Data { data_id, data, is_promise_resume } => {
