@@ -32,9 +32,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// Attempts to convert a ReceiptView to a Receipt.
-/// This is fundamentally limited because ReceiptView doesn't contain the actual contract code
-/// for DeployContract actions, only the hash. This function will fail for receipts containing
-/// DeployContract, DeployGlobalContract, or DeployGlobalContractByAccountId actions.
+/// This is fundamentally limited because ActionView (within ReceiptView) doesn't contain 
+/// the actual contract code for DeployContract actions, only the hash. This function will 
+/// fail for receipts containing DeployContract, DeployGlobalContract, or 
+/// DeployGlobalContractByAccountId actions.
 fn try_receipt_view_to_receipt(receipt_view: ReceiptView) -> Result<Receipt, String> {
     Ok(Receipt::V1(ReceiptV1 {
         predecessor_id: receipt_view.predecessor_id,
@@ -75,7 +76,7 @@ fn try_receipt_view_to_receipt(receipt_view: ReceiptView) -> Result<Receipt, Str
                         } => {
                             return Err(format!(
                                 "Cannot convert ReceiptView to Receipt for DeployContract actions. \
-                                 ReceiptView only contains the code hash, not the actual contract code."
+                                 The ActionView only contains the code hash, not the actual contract code."
                             ));
                         }
                         near_primitives::views::ActionView::FunctionCall {

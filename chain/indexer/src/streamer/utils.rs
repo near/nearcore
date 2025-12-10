@@ -32,6 +32,8 @@ pub(crate) fn convert_transactions_sir_into_local_receipts<'a>(
         // Note: We cannot convert ActionView back to Action for DeployContract actions
         // because the view only contains the code hash, not the actual code.
         // Skip transactions with DeployContract actions.
+        // TODO: In the future, consider accessing the actual contract code from storage
+        // to support these transactions.
         let has_deploy_contract = tx.actions.iter().any(|action| {
             matches!(
                 action,
@@ -51,8 +53,8 @@ pub(crate) fn convert_transactions_sir_into_local_receipts<'a>(
             continue;
         }
         
-        // For other actions, we can still create a receipt (though this is not ideal)
-        // Note: This conversion is deprecated and will be removed in the future
+        // For other action types, we can convert ActionView to Action
+        // Note: This conversion pattern is deprecated and should be refactored in the future
         let actions: Vec<_> = tx
             .actions
             .iter()

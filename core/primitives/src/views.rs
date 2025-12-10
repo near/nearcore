@@ -1360,6 +1360,7 @@ pub enum ActionView {
         )]
         code: Vec<u8>,
         /// The hash of the deployed contract code.
+        /// Available starting from version 2.4.0.
         code_hash: CryptoHash,
     } = 1,
     FunctionCall {
