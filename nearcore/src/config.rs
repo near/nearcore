@@ -646,22 +646,19 @@ impl Config {
         }
     }
 
-    /// Returns the state sync configuration. If one is provided in the config, it is used
-    /// as-is. Otherwise the default config is used, with dump settings injected when
-    /// cloud archival writer is enabled.
+    /// Returns the state sync configuration, deriving it from cloud archival settings
+    /// when archival is enabled, or using the configured/default value otherwise.
     fn state_sync_config(&self) -> StateSyncConfig {
-        if let Some(config) = &self.state_sync {
-            return config.clone();
-        }
-        let mut config = StateSyncConfig::default();
         if self.cloud_archival_writer.is_some() {
             let cloud_archival_config = self
                 .cloud_archival
                 .clone()
                 .expect("cloud storage must be configured on cloud archive writer");
+            let mut config = StateSyncConfig::default();
             config.dump = Some(cloud_archival_config.into());
+            return config;
         }
-        config
+        self.state_sync.clone().unwrap_or_default()
     }
 }
 
