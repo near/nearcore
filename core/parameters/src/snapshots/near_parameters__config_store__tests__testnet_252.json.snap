@@ -1,6 +1,6 @@
 ---
-source: core/primitives/src/views.rs
-expression: "&view"
+source: core/parameters/src/config_store.rs
+expression: config_view
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -205,7 +205,7 @@ expression: "&view"
     "reftypes_bulk_memory": true,
     "deterministic_account_ids": true,
     "storage_get_mode": "FlatStorage",
-    "fix_contract_loading_cost": false,
+    "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
     "eth_implicit_accounts": true,
     "limit_config": {
@@ -265,9 +265,9 @@ expression: "&view"
     "new_transactions_validation_state_size_soft_limit": 572864
   },
   "dynamic_resharding_config": {
-    "memory_usage_threshold": 999999999999999,
-    "min_child_memory_usage": 999999999999999,
-    "max_number_of_shards": 999999999999999,
-    "min_epochs_between_resharding": 999999999999999
+    "memory_usage_threshold": 40000000000,
+    "min_child_memory_usage": 10000000000,
+    "max_number_of_shards": 16,
+    "min_epochs_between_resharding": 2
   }
 }
