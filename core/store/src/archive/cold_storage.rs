@@ -325,6 +325,7 @@ fn copy_state_changes_from_store(
     block_hash_key: &[u8],
 ) -> io::Result<()> {
     let col = DBCol::StateChanges;
+    debug_assert!(col.is_cold() && !col.is_rc());
     let _span = tracing::debug_span!(target: "cold_store", "copy_state_changes_from_store", %col);
     let instant = std::time::Instant::now();
 
@@ -528,11 +529,15 @@ fn get_keys_from_store(
             // The TrieNodeOrValueHash is only used in the State column, which is handled separately.
             continue;
         }
+        if key_type == DBKeyType::TrieKey {
+            // The TrieKey is only used in the StateChanges column, which is handled separately.
+            continue;
+        }
 
         key_type_to_keys.insert(
             key_type,
             match key_type {
-                DBKeyType::TrieNodeOrValueHash => {
+                DBKeyType::TrieNodeOrValueHash | DBKeyType::TrieKey => {
                     unreachable!();
                 }
                 DBKeyType::BlockHeight => vec![height_key.to_vec()],
@@ -548,9 +553,6 @@ fn get_keys_from_store(
                     .shard_uids()
                     .map(|shard_uid| shard_uid.to_bytes().to_vec())
                     .collect(),
-                // StateChanges (which uses TrieKey) is now handled separately in
-                // copy_state_changes_from_store using iter_prefix for efficiency.
-                DBKeyType::TrieKey => vec![],
                 DBKeyType::TransactionHash => chunks
                     .iter()
                     .flat_map(|c| {
