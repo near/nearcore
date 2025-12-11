@@ -580,7 +580,13 @@ impl ChunkProducer {
         prev_chunk_tx_hashes: HashSet<CryptoHash>,
         tx_validity_period_check: impl Fn(&SignedTransaction) -> bool + Send + 'static,
     ) {
-        if cfg!(feature = "protocol_feature_spice") {
+        // next_epoch_id is epoch_id of the current block (block for which height we are preparing
+        // transactions).
+        let protocol_version = self
+            .epoch_manager
+            .get_epoch_protocol_version(&prev_block_context.next_epoch_id)
+            .unwrap();
+        if ProtocolFeature::Spice.enabled(protocol_version) {
             return;
         }
 
