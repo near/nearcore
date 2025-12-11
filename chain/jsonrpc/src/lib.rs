@@ -81,7 +81,7 @@ pub struct RpcPollingConfig {
 impl Default for RpcPollingConfig {
     fn default() -> Self {
         Self {
-            polling_interval: Duration::from_millis(200),
+            polling_interval: Duration::from_millis(100),
             polling_timeout: Duration::from_secs(10),
         }
     }
