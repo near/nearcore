@@ -645,6 +645,21 @@ impl Config {
             [store_path, "contract.cache".as_ref()].into_iter().collect()
         }
     }
+
+    /// Returns the state sync configuration, deriving it from cloud archival settings
+    /// when archival is enabled, or using the configured/default value otherwise.
+    fn state_sync_config(&self) -> StateSyncConfig {
+        if self.cloud_archival_writer.is_some() {
+            let cloud_archival_config = self
+                .cloud_archival
+                .clone()
+                .expect("cloud storage must be configured on cloud archive writer");
+            let mut config = StateSyncConfig::default();
+            config.dump = Some(cloud_archival_config.into_default_dump_config());
+            return config;
+        }
+        self.state_sync.clone().unwrap_or_default()
+    }
 }
 
 #[derive(Clone)]
@@ -717,6 +732,7 @@ impl NearConfig {
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,
                 doomslug_step_period: config.consensus.doomslug_step_period,
                 tracked_shards_config: config.tracked_shards_config(),
+                state_sync: config.state_sync_config(),
                 archive: config.archive,
                 cloud_archival_writer: config.cloud_archival_writer,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
@@ -739,7 +755,6 @@ impl NearConfig {
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: 8,
                 state_sync_enabled: config.state_sync_enabled,
-                state_sync: config.state_sync.unwrap_or_default(),
                 epoch_sync: config.epoch_sync.unwrap_or_default(),
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),

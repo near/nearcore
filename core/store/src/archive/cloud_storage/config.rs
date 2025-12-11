@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use near_chain_configs::ExternalStorageLocation;
+use near_chain_configs::{DumpConfig, ExternalStorageLocation};
 
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::opener::CloudStorageOpener;
@@ -15,6 +15,18 @@ pub struct CloudArchivalConfig {
     /// Location of a json file with credentials allowing access to the bucket.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credentials_file: Option<PathBuf>,
+}
+
+/// Default dumper config used by cloud archive writers to upload state snapshots.
+impl CloudArchivalConfig {
+    pub fn into_default_dump_config(self) -> DumpConfig {
+        DumpConfig {
+            location: self.location,
+            restart_dump_for_shards: None,
+            iteration_delay: None,
+            credentials_file: self.credentials_file,
+        }
+    }
 }
 
 /// Configures the external storage used by the archival node.
