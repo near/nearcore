@@ -655,7 +655,7 @@ impl Config {
                 .clone()
                 .expect("cloud storage must be configured on cloud archive writer");
             let mut config = StateSyncConfig::default();
-            config.dump = Some(cloud_archival_config.into());
+            config.dump = Some(cloud_archival_config.into_default_dump_config());
             return config;
         }
         self.state_sync.clone().unwrap_or_default()

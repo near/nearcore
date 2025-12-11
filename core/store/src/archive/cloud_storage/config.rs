@@ -18,8 +18,8 @@ pub struct CloudArchivalConfig {
 }
 
 /// Default dumper config used by cloud archive writers to upload state snapshots.
-impl Into<DumpConfig> for CloudArchivalConfig {
-    fn into(self) -> DumpConfig {
+impl CloudArchivalConfig {
+    pub fn into_default_dump_config(self) -> DumpConfig {
         DumpConfig {
             location: self.location,
             restart_dump_for_shards: None,
