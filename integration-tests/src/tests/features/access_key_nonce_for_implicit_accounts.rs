@@ -213,8 +213,6 @@ fn test_transaction_hash_collision_for_near_implicit_account_fail() {
 
 /// Test that chunks with transactions that have expired are considered invalid.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_chunk_transaction_validity() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
