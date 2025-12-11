@@ -7,7 +7,7 @@ use crate::receipt_manager::ReceiptManager;
 use crate::{ActionResult, ApplyState, metrics};
 use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
-use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
+use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
@@ -415,8 +415,10 @@ pub(crate) fn action_stake(
     Ok(())
 }
 
-/// Tries to refunds the allowance of the access key for a gas refund action.
-pub(crate) fn try_refund_allowance(
+// Refunds deposit to access key allowance and gas balance if applicable.
+// If the deposit cannot be refunded to the access key, it is refunded to the account balance.
+pub(crate) fn handle_gas_refund(
+    account: &mut Account,
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
     public_key: &PublicKey,
@@ -424,8 +426,8 @@ pub(crate) fn try_refund_allowance(
 ) -> Result<(), StorageError> {
     if let Some(mut access_key) = get_access_key(state_update, account_id, public_key)? {
         let mut updated = false;
-        if let AccessKeyPermission::FunctionCall(function_call_permission) =
-            &mut access_key.permission
+        if let Some(function_call_permission) =
+            &mut access_key.permission.function_call_permission_mut()
         {
             if let Some(allowance) = function_call_permission.allowance.as_mut() {
                 let new_allowance = allowance.saturating_add(deposit);
@@ -435,6 +437,18 @@ pub(crate) fn try_refund_allowance(
                 }
             }
         }
+
+        if let Some(gas_key_balance) = access_key.permission.gas_balance_mut() {
+            *gas_key_balance = gas_key_balance.checked_add(deposit).ok_or_else(|| {
+                StorageError::StorageInconsistentState(
+                    "gas key balance integer overflow".to_string(),
+                )
+            })?;
+            updated = true;
+        } else {
+            action_transfer(account, deposit)?;
+        }
+
         if updated {
             set_access_key(state_update, account_id.clone(), public_key.clone(), &access_key);
         }
@@ -942,7 +956,7 @@ fn validate_delegate_action_key(
 
     // The restriction of "function call" access keys:
     // the transaction must contain the only `FunctionCall` if "function call" access key is used
-    if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
+    if let Some(function_call_permission) = access_key.permission.function_call_permission() {
         if actions.len() != 1 {
             result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
                 InvalidAccessKeyError::RequiresFullAccess,
@@ -1166,7 +1180,7 @@ mod tests {
     use super::*;
     use crate::actions_test_utils::{setup_account, test_delete_large_account};
     use crate::near_primitives::shard_layout::ShardUId;
-    use near_primitives::account::FunctionCallPermission;
+    use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
     use near_primitives::action::delegate::NonDelegateAction;
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;

@@ -22,7 +22,11 @@ pub struct TransactionCost {
     pub gas_remaining: Gas,
     /// The gas price at which the gas was purchased in the receipt.
     pub receipt_gas_price: Balance,
-    /// Total costs in tokens for this transaction (including all deposits).
+    /// Total costs for actions of this transaction (deposit).
+    pub total_deposit_cost: Balance,
+    /// Total gas this transaction has paid for (burnt + remaining).
+    pub total_gas_cost: Balance,
+    /// Total cost of this transaction (total gas cost + total deposit cost).
     pub total_cost: Balance,
     /// The amount of tokens burnt by converting this transaction to a receipt.
     pub burnt_amount: Balance,
@@ -186,6 +190,9 @@ fn permission_send_fees(
         AccessKeyPermission::FullAccess => {
             fees.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
         }
+        // TODO(gas-keys): properly handle GasKey fees
+        AccessKeyPermission::GasKeyFullAccess(_) => Gas::ZERO,
+        AccessKeyPermission::GasKeyFunctionCall(_, _) => Gas::ZERO,
     }
 }
 
@@ -315,6 +322,9 @@ fn permission_exec_fees(permission: &AccessKeyPermission, fees: &RuntimeFeesConf
             base_fee.checked_add(all_bytes_fee).unwrap()
         }
         AccessKeyPermission::FullAccess => fees.fee(ActionCosts::add_full_access_key).exec_fee(),
+        // TODO(gas-keys): properly handle GasKey fees
+        AccessKeyPermission::GasKeyFullAccess(_) => Gas::ZERO,
+        AccessKeyPermission::GasKeyFunctionCall(_, _) => Gas::ZERO,
     }
 }
 
@@ -351,9 +361,18 @@ pub fn calculate_tx_cost(
         gas_remaining.checked_add_result(total_prepaid_exec_fees(config, actions, receiver_id)?)?;
     let burnt_amount = safe_gas_to_balance(receipt_gas_price, gas_burnt)?;
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
-    let mut total_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
-    total_cost = safe_add_balance(total_cost, total_deposit(actions)?)?;
-    Ok(TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount })
+    let total_gas_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
+    let total_deposit_cost = total_deposit(actions)?;
+    let total_cost = safe_add_balance(total_gas_cost, total_deposit_cost)?;
+    Ok(TransactionCost {
+        gas_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        total_deposit_cost,
+        total_gas_cost,
+        total_cost,
+        burnt_amount,
+    })
 }
 
 /// Total sum of gas that would need to be burnt before we start executing the given actions.

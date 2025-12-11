@@ -529,6 +529,43 @@ pub enum AccessKeyPermission {
     /// Grants full access to the account.
     /// NOTE: It's used to replace account-level public keys.
     FullAccess,
+
+    GasKeyFullAccess(Balance),
+    GasKeyFunctionCall(Balance, FunctionCallPermission),
+}
+
+impl AccessKeyPermission {
+    pub fn function_call_permission(&self) -> Option<&FunctionCallPermission> {
+        match self {
+            AccessKeyPermission::FullAccess | AccessKeyPermission::GasKeyFullAccess(_) => None,
+            AccessKeyPermission::FunctionCall(permission)
+            | AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
+        }
+    }
+
+    pub fn function_call_permission_mut(&mut self) -> Option<&mut FunctionCallPermission> {
+        match self {
+            AccessKeyPermission::FullAccess | AccessKeyPermission::GasKeyFullAccess(_) => None,
+            AccessKeyPermission::FunctionCall(permission)
+            | AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
+        }
+    }
+
+    pub fn gas_balance(&self) -> Option<&Balance> {
+        match self {
+            AccessKeyPermission::GasKeyFullAccess(balance)
+            | AccessKeyPermission::GasKeyFunctionCall(balance, _) => Some(balance),
+            AccessKeyPermission::FullAccess | AccessKeyPermission::FunctionCall(_) => None,
+        }
+    }
+
+    pub fn gas_balance_mut(&mut self) -> Option<&mut Balance> {
+        match self {
+            AccessKeyPermission::GasKeyFullAccess(balance)
+            | AccessKeyPermission::GasKeyFunctionCall(balance, _) => Some(balance),
+            AccessKeyPermission::FullAccess | AccessKeyPermission::FunctionCall(_) => None,
+        }
+    }
 }
 
 /// Grants limited permission to make transactions with FunctionCallActions

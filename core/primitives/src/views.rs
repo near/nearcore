@@ -154,8 +154,21 @@ impl From<AccountView> for Account {
 #[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AccessKeyPermissionView {
-    FunctionCall { allowance: Option<Balance>, receiver_id: String, method_names: Vec<String> } = 0,
+    FunctionCall {
+        allowance: Option<Balance>,
+        receiver_id: String,
+        method_names: Vec<String>,
+    } = 0,
     FullAccess = 1,
+    GasKeyFunctionCall {
+        balance: Balance,
+        allowance: Option<Balance>,
+        receiver_id: String,
+        method_names: Vec<String>,
+    } = 2,
+    GasKeyFullAccess {
+        balance: Balance,
+    } = 3,
 }
 
 impl From<AccessKeyPermission> for AccessKeyPermissionView {
@@ -167,6 +180,17 @@ impl From<AccessKeyPermission> for AccessKeyPermissionView {
                 method_names: func_call.method_names,
             },
             AccessKeyPermission::FullAccess => AccessKeyPermissionView::FullAccess,
+            AccessKeyPermission::GasKeyFunctionCall(balance, func_call) => {
+                AccessKeyPermissionView::GasKeyFunctionCall {
+                    balance,
+                    allowance: func_call.allowance,
+                    receiver_id: func_call.receiver_id,
+                    method_names: func_call.method_names,
+                }
+            }
+            AccessKeyPermission::GasKeyFullAccess(balance) => {
+                AccessKeyPermissionView::GasKeyFullAccess { balance }
+            }
         }
     }
 }
@@ -182,6 +206,18 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
                 })
             }
             AccessKeyPermissionView::FullAccess => AccessKeyPermission::FullAccess,
+            AccessKeyPermissionView::GasKeyFunctionCall {
+                balance,
+                allowance,
+                receiver_id,
+                method_names,
+            } => AccessKeyPermission::GasKeyFunctionCall(
+                balance,
+                FunctionCallPermission { allowance, receiver_id, method_names },
+            ),
+            AccessKeyPermissionView::GasKeyFullAccess { balance } => {
+                AccessKeyPermission::GasKeyFullAccess(balance)
+            }
         }
     }
 }

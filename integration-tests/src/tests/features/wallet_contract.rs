@@ -436,17 +436,17 @@ fn abi_encode(target: String, action: Action) -> Vec<u8> {
             };
             let nonce = add_key.access_key.nonce;
             let (is_full_access, is_limited_allowance, allowance, receiver_id, method_names) =
-                match add_key.access_key.permission {
-                    AccessKeyPermission::FullAccess => {
-                        (true, false, Balance::ZERO, String::new(), Vec::new())
-                    }
-                    AccessKeyPermission::FunctionCall(permission) => (
+                // TOO(gas-keys): anything GasKey specific here?
+                if let Some(permission) = add_key.access_key.permission.function_call_permission() {
+                    (
                         false,
                         permission.allowance.is_some(),
                         permission.allowance.unwrap_or_default(),
-                        permission.receiver_id,
-                        permission.method_names,
-                    ),
+                        permission.receiver_id.clone(),
+                        permission.method_names.clone(),
+                    )
+                } else {
+                    (true, false, Balance::ZERO, String::new(), Vec::new())
                 };
             // cspell:ignore ethabi
             let tokens = &[

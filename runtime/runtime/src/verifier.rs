@@ -190,8 +190,15 @@ pub fn verify_and_charge_tx_ephemeral(
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
 ) -> Result<VerificationResult, InvalidTxError> {
-    let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
-        *transaction_cost;
+    let TransactionCost {
+        gas_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        total_deposit_cost,
+        total_gas_cost,
+        total_cost,
+        burnt_amount,
+    } = *transaction_cost;
     let signer_id = tx.signer_id();
     if tx.nonce() <= access_key.nonce {
         let err = InvalidTxError::InvalidNonce { tx_nonce: tx.nonce(), ak_nonce: access_key.nonce };
@@ -206,13 +213,39 @@ pub fn verify_and_charge_tx_ephemeral(
     }
 
     let balance = signer.amount();
-    let Some(new_amount) = balance.checked_sub(total_cost) else {
-        let signer_id = signer_id.clone();
-        let err = InvalidTxError::NotEnoughBalance { signer_id, balance, cost: total_cost };
-        return Err(err.into());
+    let (new_account_balance, new_gas_balance) = {
+        if let Some(gas_balance) = access_key.permission.gas_balance() {
+            // Gas balance should pay for gas, account balance will pay for deposits.
+            let new_gas_balance = gas_balance.checked_sub(total_gas_cost).ok_or_else(|| {
+                // TODO(gas-keys): Maybe NotEnoughGasBalance ?
+                InvalidTxError::NotEnoughBalance {
+                    signer_id: signer_id.clone(),
+                    balance: *gas_balance,
+                    cost: total_gas_cost,
+                }
+            })?;
+            let new_account_balance = balance.checked_sub(total_deposit_cost).ok_or_else(|| {
+                InvalidTxError::NotEnoughBalance {
+                    signer_id: signer_id.clone(),
+                    balance,
+                    cost: total_deposit_cost,
+                }
+            })?;
+            (new_account_balance, Some(new_gas_balance))
+        } else {
+            // If not a gas key, account balance will pay for gas and deposits.
+            let new_account_balance = balance.checked_sub(total_cost).ok_or_else(|| {
+                InvalidTxError::NotEnoughBalance {
+                    signer_id: signer_id.clone(),
+                    balance,
+                    cost: total_cost,
+                }
+            })?;
+            (new_account_balance, None)
+        }
     };
 
-    if let AccessKeyPermission::FunctionCall(ref mut perms) = access_key.permission {
+    if let Some(perms) = access_key.permission.function_call_permission_mut() {
         if let Some(ref mut allowance) = perms.allowance {
             *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
                 InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
@@ -225,7 +258,7 @@ pub fn verify_and_charge_tx_ephemeral(
         }
     }
 
-    match check_storage_stake(&signer, new_amount, config) {
+    match check_storage_stake(&signer, new_account_balance, config) {
         Ok(()) => {}
         Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
             let err = InvalidTxError::LackBalanceForState { signer_id: signer_id.clone(), amount };
@@ -236,7 +269,7 @@ pub fn verify_and_charge_tx_ephemeral(
         }
     };
 
-    if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
+    if let Some(function_call_permission) = access_key.permission.function_call_permission() {
         if tx.actions().len() != 1 {
             let err = InvalidAccessKeyError::RequiresFullAccess;
             return Err(InvalidTxError::InvalidAccessKeyError(err).into());
@@ -273,7 +306,10 @@ pub fn verify_and_charge_tx_ephemeral(
     };
 
     access_key.nonce = tx.nonce();
-    signer.set_amount(new_amount);
+    signer.set_amount(new_account_balance);
+    if let Some(new_gas_balance) = new_gas_balance {
+        *access_key.permission.gas_balance_mut().unwrap() = new_gas_balance;
+    }
     Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
 }
 
