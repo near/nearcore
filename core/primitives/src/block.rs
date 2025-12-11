@@ -123,6 +123,7 @@ impl Block {
         clock: near_time::Clock,
         sandbox_delta_time: Option<near_time::Duration>,
         optimistic_block: Option<OptimisticBlock>,
+        // TODO(spice): Once spice is released remove Option.
         // Spice block is created IFF this is Some.
         spice_info: Option<SpiceNewBlockProductionInfo>,
     ) -> Self {
