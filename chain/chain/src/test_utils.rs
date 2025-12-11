@@ -14,9 +14,7 @@ use near_chain_configs::{Genesis, MutableConfigValue};
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
-use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
@@ -276,7 +274,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
     }
 }
 
-pub fn get_fake_next_block_chunk_headers(
+pub fn get_fake_next_block_spice_chunk_headers(
     block: &Block,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Vec<ShardChunkHeader> {
@@ -286,22 +284,14 @@ pub fn get_fake_next_block_chunk_headers(
         prev_block_hash: CryptoHash,
         signer: &ValidatorSigner,
     ) -> ShardChunkHeader {
-        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
             prev_block_hash,
-            Default::default(),
-            Default::default(),
             Default::default(),
             Default::default(),
             height,
             shard_id,
             Default::default(),
             Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            CongestionInfo::default(),
-            BandwidthRequests::empty(),
             signer,
         ))
     }

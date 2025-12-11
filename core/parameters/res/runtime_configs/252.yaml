@@ -1,0 +1,5 @@
+# Dynamic resharding
+memory_usage_threshold: { old: 999_999_999_999_999, new: 40_000_000_000 } # ~ 20 GB of actual RAM
+min_child_memory_usage: { old: 999_999_999_999_999, new: 10_000_000_000 } # ~ 5 GB of actual RAM
+max_number_of_shards: { old: 999_999_999_999_999, new: 16 }
+min_epochs_between_resharding: { old: 999_999_999_999_999, new: 2 }

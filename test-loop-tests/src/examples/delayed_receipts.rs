@@ -20,8 +20,6 @@ use crate::utils::node::TestLoopNode;
 /// Requires "test_features" feature to be enabled in order to use `burn_gas_raw`
 /// function from the test contract.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn delayed_receipt_example_test() {
     init_test_logger();
 
@@ -87,8 +85,13 @@ fn delayed_receipt_example_test() {
         },
         Duration::seconds(2),
     );
+    let block_with_txs = rpc_node.head_block(env.test_loop_data());
 
-    let tx_included_height = rpc_node.head(env.test_loop_data()).height;
+    rpc_node.run_until_block_executed(
+        &mut env.test_loop,
+        block_with_txs.header(),
+        Duration::seconds(2),
+    );
     let chain = &rpc_node.client(env.test_loop_data()).chain;
     let tx_receipt_ids = txs
         .iter()
@@ -114,8 +117,12 @@ fn delayed_receipt_example_test() {
         tx_receipt_ids[2],
         Duration::seconds(1),
     );
-    let last_receipts_executed_height = rpc_node.head(env.test_loop_data()).height;
-    assert_eq!(last_receipts_executed_height, tx_included_height + 1);
+
+    let last_receipts_executed_block = rpc_node.last_executed_block(env.test_loop_data());
+    assert_eq!(
+        block_with_txs.header().height(),
+        last_receipts_executed_block.header().prev_height().unwrap()
+    );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

@@ -367,7 +367,7 @@ fn test_validator_kickout() {
 
 #[test]
 fn test_validator_unstake() {
-    let store = create_test_store();
+    let store = create_test_store().epoch_store();
     let config = epoch_config(2, 1, 2, 100, 90, 60, 0, Rational32::new(0, 1));
     let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators = vec![
@@ -870,7 +870,7 @@ fn test_expected_chunks() {
     let epoch_config =
         epoch_config(epoch_length, num_shards, 3, 3, 90, 60, 60, Rational32::new(1, 40));
     let epoch_manager = EpochManager::new(
-        create_test_store(),
+        create_test_store().epoch_store(),
         epoch_config,
         default_reward_calculator(),
         validators
@@ -1578,7 +1578,7 @@ fn test_chunk_validator_kickout_using_production_stats() {
     let epoch_config =
         epoch_config(epoch_length, num_shards, 2, 2, 90, 40, 75, Rational32::new(1, 40));
     let em = EpochManager::new(
-        create_test_store(),
+        create_test_store().epoch_store(),
         epoch_config,
         default_reward_calculator(),
         validators
@@ -1664,7 +1664,7 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
     let epoch_config =
         epoch_config(epoch_length, num_shards, 2, 2, 90, 40, 75, Rational32::new(1, 40));
     let em = EpochManager::new(
-        create_test_store(),
+        create_test_store().epoch_store(),
         epoch_config,
         default_reward_calculator(),
         validators
@@ -2104,7 +2104,7 @@ fn check_kickout(epoch_info: &EpochInfo, reasons: &[(&str, ValidatorKickoutReaso
 
 #[test]
 fn test_protocol_version_switch() {
-    let store = create_test_store();
+    let store = create_test_store().epoch_store();
 
     let epoch_config = epoch_config(2, 1, 2, 100, 90, 60, 0, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
@@ -2144,7 +2144,7 @@ fn test_protocol_version_switch() {
 
 #[test]
 fn test_protocol_version_switch_with_shard_layout_change() {
-    let store = create_test_store();
+    let store = create_test_store().epoch_store();
 
     let old_epoch_config = epoch_config(2, 1, 2, 100, 90, 60, 0, Rational32::new(1, 40))
         .for_protocol_version(PROTOCOL_VERSION);
@@ -2201,7 +2201,7 @@ fn test_protocol_version_switch_with_shard_layout_change() {
 
 #[test]
 fn test_protocol_version_switch_with_many_seats() {
-    let store = create_test_store();
+    let store = create_test_store().epoch_store();
     let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
@@ -2235,7 +2235,7 @@ fn test_protocol_version_switch_with_many_seats() {
 
 #[test]
 fn test_version_switch_kickout_old_version() {
-    let store = create_test_store();
+    let store = create_test_store().epoch_store();
     let (version, new_version) = (PROTOCOL_VERSION, PROTOCOL_VERSION + 1);
 
     let epoch_length = 2;
@@ -3148,24 +3148,37 @@ fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
 }
 
 fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHeader {
-    ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-        h[0],
-        h[2],
-        h[2],
-        h[2],
-        0,
-        1,
-        ShardId::new(0),
-        Gas::ZERO,
-        Gas::ZERO,
-        Balance::ZERO,
-        h[2],
-        h[2],
-        vec![],
-        Default::default(),
-        BandwidthRequests::empty(),
-        signer,
-    ))
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
+            h[0],
+            h[2],
+            0,
+            1,
+            ShardId::new(0),
+            h[2],
+            h[2],
+            signer,
+        ))
+    } else {
+        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            h[0],
+            h[2],
+            h[2],
+            h[2],
+            0,
+            1,
+            ShardId::new(0),
+            Gas::ZERO,
+            Gas::ZERO,
+            Balance::ZERO,
+            h[2],
+            h[2],
+            vec![],
+            Default::default(),
+            BandwidthRequests::empty(),
+            signer,
+        ))
+    }
 }
 
 #[test]

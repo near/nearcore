@@ -43,6 +43,10 @@ ignore = [
     # burntsushi says the crate is feature complete and needs no maintenance, nagisa also doesn't
     # see any security risk whatsoever to keeping this crate, so we'll be letting it to upgrade out
     # of existence naturally.
-    "RUSTSEC-2024-0436"
+    "RUSTSEC-2024-0436",
 
+    # rustls-pemfile is no longer maintained, but it's indirectly required by rust-s3,
+    # which cannot be updated without moving to Rust 1.88
+    # TODO(#14768): Remove this and updated necessary crates to get rid of rustls-pemfile
+    "RUSTSEC-2025-0134",
 ]
