@@ -752,10 +752,10 @@ mod tests {
         }
     }
 
-    // In split storage archival nodes the State column and the
-    // TrieNodeOrValueHash db key type and handled separately.
-    // This implementation asserts that the TrieNodeOrValueHash key type is
-    // only use in the State column and in no other columns.
+    // In split storage archival nodes some columns are handled separately:
+    // - State column uses TrieNodeOrValueHash key type
+    // - StateChanges is the only cold column using TrieKey key type
+    // This test asserts these key types are only used in their respective columns.
     #[test]
     fn key_type_split_storage_sanity() {
         for col in DBCol::iter() {
@@ -765,6 +765,15 @@ mod tests {
             let key_types = col.key_type();
             for key_type in key_types {
                 assert_ne!(key_type, &DBKeyType::TrieNodeOrValueHash);
+            }
+        }
+        for col in DBCol::iter() {
+            if col == DBCol::StateChanges || !col.is_cold() {
+                continue;
+            }
+            let key_types = col.key_type();
+            for key_type in key_types {
+                assert_ne!(key_type, &DBKeyType::TrieKey);
             }
         }
     }
