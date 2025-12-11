@@ -272,6 +272,31 @@ pub enum InvalidTxError {
         /// The number of blocks since the last included chunk of the shard.
         missed_chunks: u64,
     } = 17,
+    /// Account does not have enough balance to cover TX deposit, but gas
+    /// will be charged from pre-paid gas.
+    NotEnoughBalanceForDeposit {
+        signer_id: AccountId,
+        balance: Balance,
+        deposit: Balance,
+        gas_burnt: Gas,
+        burnt_amount: Balance,
+    } = 18,
+}
+
+impl InvalidTxError {
+    pub fn gas_burnt(&self) -> Gas {
+        match self {
+            InvalidTxError::NotEnoughBalanceForDeposit { gas_burnt, .. } => *gas_burnt,
+            _ => Gas::ZERO,
+        }
+    }
+
+    pub fn burnt_amount(&self) -> Balance {
+        match self {
+            InvalidTxError::NotEnoughBalanceForDeposit { burnt_amount, .. } => *burnt_amount,
+            _ => Balance::ZERO,
+        }
+    }
 }
 
 impl From<StorageError> for InvalidTxError {
@@ -796,6 +821,17 @@ impl Display for InvalidTxError {
                 f,
                 "Sender {:?} does not have enough balance {} for operation costing {}",
                 signer_id, balance, cost
+            ),
+            InvalidTxError::NotEnoughBalanceForDeposit {
+                signer_id,
+                balance,
+                deposit,
+                gas_burnt: gas_burned,
+                burnt_amount,
+            } => write!(
+                f,
+                "Sender {:?} does not have enough balance {} for deposit {}, burning {} pre-paid gas costing {}",
+                signer_id, balance, deposit, gas_burned, burnt_amount
             ),
             InvalidTxError::LackBalanceForState { signer_id, amount } => {
                 write!(

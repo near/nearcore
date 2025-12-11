@@ -1776,6 +1776,35 @@ impl Runtime {
                         tracing::debug!(%tx_hash, error=&error as &dyn std::error::Error, "transaction failed verify/charge");
                         let outcome = ExecutionOutcomeWithId::failed(tx, error);
 
+                        // TODO: Refactor to function?
+                        // TODO: Is this all the stats we need to update?
+                        match safe_add_balance(
+                            processing_state.stats.balance.tx_burnt_amount,
+                            outcome.outcome.tokens_burnt,
+                        ) {
+                            Ok(new_balance) => {
+                                processing_state.stats.balance.tx_burnt_amount = new_balance;
+                            }
+                            Err(err) => {
+                                // We just drop the transaction here and do not produce any outcome for it.
+                                // This should never happen unless there is a bug in the code.
+                                metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                                tracing::error!(
+                                    target: "runtime",
+                                    tx_hash=?tx.hash(),
+                                    tx_burnt_amount=?outcome.outcome.tokens_burnt,
+                                    ?err,
+                                    "chunk total burnt gas overflow",
+                                );
+                                continue;
+                            }
+                        }
+                        processing_state.total.add(
+                            outcome.outcome.gas_burnt.as_gas(),
+                            // TODO: Should we match compute usage to gas burnt or 0 here?
+                            outcome.outcome.compute_usage.unwrap_or_default(),
+                        )?;
+
                         Self::register_outcome(
                             processing_state.protocol_version,
                             &mut processing_state.outcomes,

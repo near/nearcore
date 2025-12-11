@@ -573,6 +573,8 @@ impl ExecutionOutcomeWithId {
             id: transaction.get_hash(),
             outcome: ExecutionOutcome {
                 executor_id: transaction.transaction.signer_id().clone(),
+                gas_burnt: error.gas_burnt(),
+                tokens_burnt: error.burnt_amount(),
                 status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error)),
                 ..Default::default()
             },

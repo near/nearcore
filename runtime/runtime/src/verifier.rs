@@ -225,10 +225,13 @@ pub fn verify_and_charge_tx_ephemeral(
                 }
             })?;
             let new_account_balance = balance.checked_sub(total_deposit_cost).ok_or_else(|| {
-                InvalidTxError::NotEnoughBalance {
+                InvalidTxError::NotEnoughBalanceForDeposit {
                     signer_id: signer_id.clone(),
                     balance,
-                    cost: total_deposit_cost,
+                    deposit: total_deposit_cost,
+                    // TODO(gas-keys): Maybe just take total_gas too and not unwrap
+                    gas_burnt: gas_burnt.checked_add(gas_remaining).unwrap(),
+                    burnt_amount: total_gas_cost,
                 }
             })?;
             (new_account_balance, Some(new_gas_balance))
