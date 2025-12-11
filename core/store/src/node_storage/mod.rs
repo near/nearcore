@@ -1,7 +1,7 @@
 pub(super) mod opener;
 
 use crate::archive::cloud_storage::CloudStorage;
-use crate::archive::cloud_storage::config::CloudStorageConfig;
+use crate::archive::cloud_storage::config::CloudStorageContext;
 use crate::db::{Database, SplitDB, metadata};
 use crate::{Store, StoreConfig};
 use opener::StoreOpener;
@@ -51,9 +51,9 @@ impl NodeStorage {
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
         cold_store_config: Option<&'a StoreConfig>,
-        cloud_storage_config: Option<CloudStorageConfig>,
+        cloud_storage_context: Option<CloudStorageContext>,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, store_config, cold_store_config, cloud_storage_config)
+        StoreOpener::new(home_dir, store_config, cold_store_config, cloud_storage_context)
     }
 
     /// Initializes an opener for a new temporary test store.

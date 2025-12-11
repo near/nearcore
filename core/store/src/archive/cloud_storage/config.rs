@@ -19,7 +19,7 @@ pub struct CloudArchivalConfig {
 
 /// Configures the external storage used by the archival node.
 #[derive(Clone)]
-pub struct CloudStorageConfig {
+pub struct CloudStorageContext {
     pub cloud_archive: CloudArchivalConfig,
     pub chain_id: String,
 }
@@ -31,16 +31,16 @@ pub fn test_cloud_archival_config(root_dir: impl Into<PathBuf>) -> CloudArchival
     CloudArchivalConfig { location, credentials_file: None }
 }
 
-/// Creates a test cloud storage configuration.
-pub fn test_cloud_storage_config(
+/// Creates a test cloud storage context.
+pub fn test_cloud_storage_context(
     root_dir: impl Into<PathBuf>,
     chain_id: String,
-) -> CloudStorageConfig {
-    CloudStorageConfig { cloud_archive: test_cloud_archival_config(root_dir), chain_id }
+) -> CloudStorageContext {
+    CloudStorageContext { cloud_archive: test_cloud_archival_config(root_dir), chain_id }
 }
 
 /// Initializes a test cloud storage instance based on the test configuration.
 pub fn create_test_cloud_storage(root_dir: PathBuf, chain_id: String) -> Arc<CloudStorage> {
-    let config = test_cloud_storage_config(root_dir, chain_id);
-    CloudStorageOpener::new(config).open().unwrap()
+    let context = test_cloud_storage_context(root_dir, chain_id);
+    CloudStorageOpener::new(context).open().unwrap()
 }
