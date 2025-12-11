@@ -258,8 +258,12 @@ impl ShardChunkHeaderInner {
     #[inline]
     pub fn proposed_split(&self) -> Option<&TrieSplit> {
         match self {
-            Self::V1(_) | Self::V2(_) | Self::V3(_) | Self::V4(_) | Self::V6(_) => None,
+            Self::V1(_) | Self::V2(_) | Self::V3(_) | Self::V4(_) => None,
             Self::V5(inner) => inner.proposed_split.as_ref(),
+            Self::V6(_) => {
+                debug_assert!(false, "calling proposed_split on spice header");
+                None
+            }
         }
     }
 }
