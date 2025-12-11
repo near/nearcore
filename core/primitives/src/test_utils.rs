@@ -801,6 +801,7 @@ pub struct TestBlockBuilder {
     max_gas_price: Balance,
     block_merkle_root: CryptoHash,
     chunks: Vec<ShardChunkHeader>,
+    // TODO(spice): Once spice is released remove Option.
     /// Iff `Some` spice block will be created.
     spice_core_statements: Option<Vec<crate::block_body::SpiceCoreStatement>>,
 }
