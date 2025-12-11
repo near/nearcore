@@ -7,7 +7,7 @@ use near_chain::spice_core_writer_actor::{
     ExecutionResultEndorsed, ProcessedBlock, SpiceCoreWriterActor,
 };
 use near_chain::test_utils::{
-    get_chain_with_genesis, get_fake_next_block_spice_chunk_headers, process_block_sync,
+    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
 use near_chain::types::{
     ApplyChunkResult, ApplyChunkShardContext, RuntimeStorageConfig, StorageDataSource,
@@ -293,7 +293,7 @@ fn build_block(chain: &Chain, prev_block: &Block) -> Arc<Block> {
         .unwrap();
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
     TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
-        .chunks(get_fake_next_block_spice_chunk_headers(&prev_block, chain.epoch_manager.as_ref()))
+        .chunks(get_fake_next_block_chunk_headers(&prev_block, chain.epoch_manager.as_ref()))
         .spice_core_statements(vec![])
         .build()
 }
