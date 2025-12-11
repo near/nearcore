@@ -93,8 +93,12 @@ async fn test_send_tx_commit() {
         FinalExecutionStatus::SuccessValue(Vec::new())
     );
     assert!(
-        [TxExecutionStatus::ExecutedOptimistic, TxExecutionStatus::Executed, TxExecutionStatus::Final]
-            .contains(&result.final_execution_status),
+        [
+            TxExecutionStatus::ExecutedOptimistic,
+            TxExecutionStatus::Executed,
+            TxExecutionStatus::Final
+        ]
+        .contains(&result.final_execution_status),
         "All the receipts should be already executed"
     );
 }
