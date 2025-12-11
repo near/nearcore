@@ -5,13 +5,13 @@ use near_epoch_manager::epoch_sync::{
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::types::BlockHeightDelta;
 use near_store::adapter::StoreAdapter;
-use near_store::db::ColdDB;
 use near_store::db::metadata::{DB_VERSION, DbVersion, MIN_SUPPORTED_DB_VERSION};
-use near_store::{DBCol, LATEST_KNOWN_KEY, Store};
+use near_store::db::{ColdDB, DBTransaction, Database};
+use near_store::{DBCol, LATEST_KNOWN_KEY, Store, get_genesis_height};
 
 use crate::NearConfig;
 
-const CHUNK_SIZE: u64 = 5000;
+const CHUNK_SIZE: u64 = 10000;
 
 pub(super) struct Migrator<'a> {
     config: &'a NearConfig,
@@ -47,7 +47,11 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 &self.config.genesis.config,
                 &self.config.config.store,
             ),
-            47 => Ok(()), // TODO(continuous_epoch_sync): Implement the migration
+            47 => migrate_47_to_48(
+                hot_store,
+                cold_db,
+                self.config.genesis.config.transaction_validity_period,
+            ),
             DB_VERSION.. => unreachable!(),
         }
     }
@@ -59,13 +63,43 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
 #[allow(dead_code)]
 fn migrate_47_to_48(
     hot_store: &Store,
+    cold_db: Option<&ColdDB>,
     transaction_validity_period: BlockHeightDelta,
 ) -> anyhow::Result<()> {
     tracing::info!(target: "migrations", "starting migration from DB version 47 to 48");
-    // TODO(continuous-epoch-sync): Add migration for cold storage where we copy the headers from hot store to cold store
+
+    if let Some(cold_db) = cold_db {
+        copy_block_headers_to_cold_db(hot_store, cold_db)?;
+    }
+
     update_epoch_sync_proof(hot_store.clone(), transaction_validity_period)?;
     verify_block_headers(hot_store)?;
     delete_old_block_headers(hot_store)?;
+    Ok(())
+}
+
+fn copy_block_headers_to_cold_db(hot_store: &Store, cold_db: &ColdDB) -> anyhow::Result<()> {
+    let genesis_height = get_genesis_height(hot_store)?.unwrap();
+    let head_height = hot_store.chain_store().head().unwrap().height;
+    let approx_num_blocks = head_height - genesis_height;
+
+    tracing::info!(target: "migrations", ?approx_num_blocks, "copying block headers to cold db");
+
+    let mut count = 0;
+    let mut transaction = DBTransaction::new();
+    for t in hot_store.iter_raw_bytes(DBCol::BlockHeader) {
+        let (key, value) = t?;
+        transaction.set(DBCol::BlockHeader, key.into_vec(), value.into_vec());
+        count += 1;
+        if count % CHUNK_SIZE == 0 {
+            cold_db.write(transaction)?;
+            transaction = DBTransaction::new();
+            tracing::info!(target: "migrations", ?count, ?approx_num_blocks, "copied block headers to cold db");
+        }
+    }
+    cold_db.write(transaction)?;
+    tracing::info!(target: "migrations", ?count, ?approx_num_blocks, "completed copying block headers to cold db");
+
     Ok(())
 }
 
