@@ -14,4 +14,6 @@ pub(super) mod shard_data;
 pub struct CloudStorage {
     /// Connection to the external storage backend (e.g. S3, GCS, filesystem).
     external: ExternalConnection,
+    #[allow(unused)]
+    chain_id: String,
 }
