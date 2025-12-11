@@ -233,6 +233,13 @@ impl<'a> ConfigValidator<'a> {
             }
             return;
         };
+        if self.config.state_sync.is_some() {
+            let error_message =
+                "State sync/dump cannot be configured when cloud archive is enabled; \
+                dump settings are derived from the cloud archival config."
+                    .to_string();
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
         if !CloudStorageOpener::is_storage_location_supported(&cloud_archival_config.location) {
             let error_message = format!(
                 "{} is not supported cloud storage location.",
