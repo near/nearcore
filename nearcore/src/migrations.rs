@@ -63,7 +63,9 @@ fn migrate_47_to_48(
     transaction_validity_period: BlockHeightDelta,
 ) -> anyhow::Result<()> {
     tracing::info!(target: "migrations", "starting migration from DB version 47 to 48");
+    // TODO(continuous-epoch-sync): Add migration for cold storage where we copy the headers from hot store to cold store
     update_epoch_sync_proof(hot_store.clone(), transaction_validity_period)?;
+    verify_block_headers(hot_store)?;
     delete_old_block_headers(hot_store)?;
     Ok(())
 }
@@ -78,7 +80,7 @@ fn update_epoch_sync_proof(
     tracing::info!(target: "migrations", "updating existing epoch sync proof to compressed format");
 
     // First we move any existing epoch sync proof to the compressed format
-    // Note that while accessing the proof, we need to read directory from DBCol::EpochSyncProof
+    // Note that while accessing the proof, we need to read directly from DBCol::EpochSyncProof
     // as we can't use the epoch_store.get_epoch_sync_proof() method due to
     // ProtocolFeature::ContinuousEpochSync being enabled
     if let Some(proof) = store.get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[]).unwrap() {
@@ -105,6 +107,36 @@ fn update_epoch_sync_proof(
     Ok(())
 }
 
+// function to verify that the block headers that are generated from DBCol::Block are the same
+// as the headers that are stored in DBCol::BlockHeader
+fn verify_block_headers(store: &Store) -> anyhow::Result<()> {
+    let chain_store = store.chain_store();
+    let tail_height = chain_store.tail().unwrap();
+    let latest_known_height =
+        store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY)?.unwrap().height;
+
+    tracing::info!(target: "migrations", ?tail_height, ?latest_known_height, "verifying block headers before deletion");
+
+    for height in tail_height..(latest_known_height + 1) {
+        for block_hash in chain_store.get_all_header_hashes_by_height(height)? {
+            let block = match chain_store.get_block(&block_hash) {
+                Ok(block) => block,
+                Err(Error::DBNotFoundErr(_)) => {
+                    // It's possible that some blocks are missing in the DB when we have forks etc.
+                    tracing::debug!(target: "migrations", ?height, ?block_hash, "skipping block not found");
+                    continue;
+                }
+                Err(err) => return Err(err.into()),
+            };
+
+            let header_from_block = block.header();
+            let header_from_store = chain_store.get_block_header(&block_hash)?;
+            assert_eq!(header_from_block, header_from_store.as_ref(), "block header mismatch");
+        }
+    }
+    Ok(())
+}
+
 fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
     tracing::info!(target: "migrations", "deleting all block headers from hot store");
 
@@ -122,12 +154,9 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
     let mut store_update = chain_store.store_update();
     for height in tail_height..(latest_known_height + 1) {
         for block_hash in chain_store.get_all_header_hashes_by_height(height)? {
-            match chain_store.get_block(&block_hash) {
-                Ok(block) => store_update.set_block_header_only(block.header()),
-                Err(Error::DBNotFoundErr(_)) => {
-                    tracing::debug!(target: "migrations", ?height, ?block_hash, "skipping block not found")
-                }
-                Err(err) => return Err(err.into()),
+            // We've already checked for errors and missing blocks in the verify_block_headers function
+            if let Ok(block) = chain_store.get_block(&block_hash) {
+                store_update.set_block_header_only(block.header());
             }
         }
         if height % CHUNK_SIZE == 0 {
