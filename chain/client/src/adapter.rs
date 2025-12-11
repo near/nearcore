@@ -21,10 +21,11 @@ pub fn client_sender_for_network(
         tx_status_request: view_client_addr.clone().into_async_sender(),
         tx_status_response: view_client_addr.clone().into_async_sender(),
         transaction: rpc_handler.clone().into_async_sender(),
-        announce_account: view_client_addr.into_async_sender(),
+        announce_account: view_client_addr.clone().into_async_sender(),
         chunk_endorsement: rpc_handler.into_async_sender(),
         epoch_sync_request: client_addr.clone().into_sender(),
         epoch_sync_response: client_addr.clone().into_sender(),
         optimistic_block_receiver: client_addr.into_sender(),
+        current_epoch_height_request: view_client_addr.into_async_sender(),
     }
 }
