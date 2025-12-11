@@ -354,7 +354,7 @@ fn produce_block(actors: &mut [TestActor], prev_block: &Block) -> Arc<Block> {
         .get_block_producer_info(prev_block.header().epoch_id(), prev_block.header().height() + 1)
         .unwrap();
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
-    let block = TestBlockBuilder::new(Clock::real(), prev_block, signer)
+    let block = TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
         .chunks(chunks)
         .spice_core_statements(vec![])
         .build();
@@ -1068,7 +1068,7 @@ fn test_is_descendant_of_final_execution_head_with_long_forks() {
     let mut block_height = genesis.header().height();
     let mut new_block = |chain: &mut Chain, prev_block: &Block| {
         block_height += 1;
-        let block = TestBlockBuilder::new(Clock::real(), prev_block, signer.clone())
+        let block = TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer.clone())
             .height(block_height)
             .build();
         let mut store_update = chain.chain_store.store_update();
@@ -1111,7 +1111,7 @@ fn test_is_descendant_of_final_execution_head_returns_false_for_final_execution_
     };
     let genesis = chain.genesis_block();
 
-    let block = TestBlockBuilder::new(Clock::real(), &genesis, signer).build();
+    let block = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer).build();
     let mut store_update = chain.chain_store.store_update();
     store_update.save_block(block.clone());
     store_update.save_block_header(block.header().clone()).unwrap();

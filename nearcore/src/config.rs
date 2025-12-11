@@ -54,7 +54,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::archive::cloud_storage::config::CloudArchivalConfig;
+use near_store::archive::cloud_storage::config::{CloudArchivalConfig, CloudStorageContext};
 use near_store::config::{SplitStorageConfig, StateSnapshotType};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
@@ -637,11 +637,6 @@ impl Config {
         )
     }
 
-    /// Returns the cloud archival storage config.
-    pub fn cloud_storage_config(&self) -> Option<&CloudArchivalConfig> {
-        self.cloud_archival.as_ref()
-    }
-
     pub fn contract_cache_path(&self) -> PathBuf {
         if let Some(explicit) = &self.contract_cache_path {
             explicit.clone()
@@ -799,6 +794,18 @@ impl NearConfig {
             return Some(rpc.addr.to_string());
         }
         None
+    }
+
+    /// Returns the cloud archival storage config.
+    pub fn cloud_storage_context(&self) -> Option<CloudStorageContext> {
+        let Some(cloud_archive_config) = &self.config.cloud_archival else {
+            return None;
+        };
+        let cloud_storage_context = CloudStorageContext {
+            cloud_archive: cloud_archive_config.clone(),
+            chain_id: self.client_config.chain_id.clone(),
+        };
+        Some(cloud_storage_context)
     }
 }
 

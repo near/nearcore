@@ -10,6 +10,7 @@ use near_primitives::account::id::ParseAccountError;
 use near_primitives::errors::StorageError;
 use near_primitives::trie_key::col::{ACCESS_KEY, ACCOUNT, CONTRACT_CODE, CONTRACT_DATA};
 use near_primitives::trie_key::{ACCESS_KEY_SEPARATOR, ACCOUNT_DATA_SEPARATOR};
+use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::AccountId;
 use smallvec::SmallVec;
 use std::fmt::Debug;
@@ -555,52 +556,6 @@ fn find_middle_child(
     }
 
     None
-}
-
-/// The result of splitting a memtrie into two possibly even parts, according to `memory_usage`
-/// stored in the trie nodes.
-///
-/// **NOTE: This is an artificial value calculated according to `TRIE_COST`. Hence, it does not
-/// represent actual memory allocation, but the split ratio should be roughly consistent with that.**
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct TrieSplit {
-    /// Account ID representing the split path
-    pub boundary_account: AccountId,
-    /// Total `memory_usage` of the left part (excluding the split path)
-    pub left_memory: u64,
-    /// Total `memory_usage` of the right part (including the split path)
-    pub right_memory: u64,
-}
-
-impl TrieSplit {
-    pub fn new(boundary_account: AccountId, left_memory: u64, right_memory: u64) -> Self {
-        Self { boundary_account, left_memory, right_memory }
-    }
-
-    /// Dummy split that will be worse than any actual trie split
-    pub fn dummy() -> Self {
-        let account_id = "dummy".parse().unwrap();
-        Self::new(account_id, 0, u64::MAX)
-    }
-
-    fn is_dummy(&self) -> bool {
-        self.mem_diff() == u64::MAX
-    }
-
-    /// Get the split path as bytes
-    pub fn split_path_bytes(&self) -> &[u8] {
-        self.boundary_account.as_bytes()
-    }
-
-    /// Get the split path as nibbles
-    pub fn split_path_nibbles(&self) -> Vec<u8> {
-        bytes_to_nibbles(self.split_path_bytes()).collect()
-    }
-
-    /// Get absolute difference between right and left memory
-    fn mem_diff(&self) -> u64 {
-        self.right_memory.abs_diff(self.left_memory)
-    }
 }
 
 fn byte_to_nibbles(byte: u8) -> [u8; 2] {

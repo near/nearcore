@@ -53,8 +53,8 @@ jobs:
           persist-credentials: false
 
       - name: Neard release binary build and upload to S3
-        run: ./scripts/mac-release.sh
+        run: ./scripts/binary_release.sh
 
       - name: Neard nightly-release build and upload to S3
-        run: ./scripts/mac-release.sh nightly-release
+        run: ./scripts/binary_release.sh nightly-release
 

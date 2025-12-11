@@ -994,7 +994,7 @@ pub(crate) fn print_epoch_analysis(
         EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, None);
     let epoch_manager = epoch_manager.read();
 
-    let epoch_ids = iterate_and_filter(store, |_| true);
+    let epoch_ids = iterate_and_filter(store.clone(), |_| true);
     let epoch_infos: HashMap<EpochId, Arc<EpochInfo>> = HashMap::from_iter(
         epoch_ids
             .into_iter()
@@ -1022,7 +1022,7 @@ pub(crate) fn print_epoch_analysis(
             if epoch_height > max_epoch_height {
                 return None;
             }
-            Some((epoch_height, epoch_manager.get_epoch_validator_info(epoch_id).unwrap()))
+            Some((epoch_height, store.epoch_store().get_epoch_validator_info(epoch_id).unwrap()))
         }));
 
     // The parameters below are required for the next next epoch generation.
