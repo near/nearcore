@@ -5,13 +5,19 @@ use near_async::messaging::AsyncSender;
 use near_client::{GetBlock, Query, QueryError};
 use near_client_primitives::types::GetBlockError;
 use near_crypto::PublicKey;
-use near_network::client::{ProcessTxRequest, ProcessTxResponse};
+use near_network::client::{ProcessTxRequest, ProcessTxResponse, TxStatusRequest};
+use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{
+    Action, CreateAccountAction, DeployContractAction, FunctionCallAction, SignedTransaction,
+    TransferAction,
+};
 use near_primitives::types::{AccountId, Balance, BlockReference};
 use near_primitives::views::{
-    BlockHeaderView, BlockView, QueryRequest, QueryResponse, QueryResponseKind,
+    BlockHeaderView, BlockView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
+    QueryResponse, QueryResponseKind,
 };
+// use near_primitives::borsh::BorshSerialize; // if needed
 use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -20,7 +26,7 @@ use serde_with::serde_as;
 use std::panic;
 use std::path::PathBuf;
 use std::sync::{Arc, atomic};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::task::{self, JoinSet};
 
 pub mod account;
@@ -52,12 +58,19 @@ struct ControllerConfig {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+enum TransactionTypeConfig {
+    NativeToken,
+    FungibleToken { wasm_path: PathBuf },
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Config {
     schedule: Vec<Load>,
     controller: Option<ControllerConfig>,
     accounts_path: PathBuf,
     receiver_accounts_path: Option<PathBuf>,
-
+    #[serde(default = "default_transaction_type")]
+    transaction_type: TransactionTypeConfig,
     /// ratio of receivers chosen from the senders accounts [0.0, 1.0];
     /// 0.0: receivers are chosen from the receiver accounts (default). The receiver accounts may actually have the senders accounts as a subset
     /// 1.0: receivers are chosen only from the senders accounts
@@ -67,6 +80,10 @@ pub struct Config {
     sender_accounts_zipf_skew: f64,
     #[serde(default = "default_receiver_accounts_zipf_skew")]
     receiver_accounts_zipf_skew: f64,
+}
+
+fn default_transaction_type() -> TransactionTypeConfig {
+    TransactionTypeConfig::NativeToken
 }
 
 fn default_sender_accounts_zipf_skew() -> f64 {
@@ -88,6 +105,7 @@ impl Default for Config {
             controller: Default::default(),
             accounts_path: "".into(),
             receiver_accounts_path: None,
+            transaction_type: TransactionTypeConfig::NativeToken,
             receivers_from_senders_ratio: default_receivers_from_senders_ratio(),
             sender_accounts_zipf_skew: default_sender_accounts_zipf_skew(),
             receiver_accounts_zipf_skew: default_receiver_accounts_zipf_skew(),
@@ -104,6 +122,7 @@ pub struct ClientSender {
 pub struct ViewClientSender {
     pub block_request_sender: AsyncSender<GetBlock, Result<BlockView, GetBlockError>>,
     pub query_sender: AsyncSender<Query, Result<QueryResponse, QueryError>>,
+    pub tx_status_request: AsyncSender<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>>,
 }
 
 pub struct TxGenerator {
@@ -259,8 +278,8 @@ impl TransactionSender {
     /// Generates a transaction between two random (but different) accounts and pushes it to the `client_sender`
     pub async fn generate_send_transaction(
         &self,
-        rnd: &mut StdRng,    
-        block_hash: &CryptoHash
+        rnd: &mut StdRng,
+        block_hash: &CryptoHash,
     ) -> bool {
         match self {
             TransactionSender::Native(native_load) => {
@@ -287,19 +306,14 @@ impl NativeTokenTxSender {
         receiver_ids: Arc<Vec<AccountId>>,
         choice: TxAccountsSelector,
     ) -> Self {
-        Self {
-            client_sender,
-            sender_accounts,
-            receiver_ids,
-            choice,
-        }
+        Self { client_sender, sender_accounts, receiver_ids, choice }
     }
 
     /// Generates a transaction between two random (but different) accounts and pushes it to the `client_sender`
     pub async fn generate_send_transaction(
         &self,
-        rnd: &mut StdRng,    
-        block_hash: &CryptoHash
+        rnd: &mut StdRng,
+        block_hash: &CryptoHash,
     ) -> bool {
         // each transaction will transfer this amount
         const AMOUNT: Balance = Balance::from_yoctonear(1);
@@ -325,10 +339,11 @@ impl NativeTokenTxSender {
             *block_hash,
         );
 
-        match self.client_sender
+        match self
+            .client_sender
             .tx_request_sender
             .send_async(ProcessTxRequest { transaction, is_forwarded: false, check_only: false })
-        .await
+            .await
         {
             Ok(res) => match res {
                 ProcessTxResponse::ValidTx => true,
@@ -351,17 +366,462 @@ struct FungibleTokenTxSender {
     client_sender: ClientSender,
     sender_accounts: Arc<Vec<Account>>,
     receiver_ids: Arc<Vec<AccountId>>,
-    choice: TxAccountsSelector,
+    account_selector: TxAccountsSelector,
+    ft_contract_account_id: AccountId,
+}
+
+/// poll for transaction final execution outcome until final status becomes available or timeout
+async fn wait_for_transaction_finalization(
+    view_client_sender: &ViewClientSender,
+    tx_hash: CryptoHash,
+    creator_id: AccountId,
+    timeout: Duration,
+) -> anyhow::Result<bool> {
+    let start = Instant::now();
+    loop {
+        if start.elapsed() > timeout {
+            return Ok(false);
+        }
+        if let Some(outcome) = view_client_sender
+            .tx_status_request
+            .send_async(TxStatusRequest { tx_hash, signer_account_id: creator_id.clone() })
+            .await?
+        {
+            match outcome.status {
+                FinalExecutionStatus::SuccessValue(_) => {
+                    return Ok(true);
+                }
+                FinalExecutionStatus::Failure(err) => {
+                    return Err(err.into());
+                }
+                FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => {}
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+/// Create + transfer + deploy contract in a single transaction (create account + fund + deploy)
+/// The contract account id will be the sub-account of the creator account "ft_contract.<creator_account_id>"
+/// And the initial balance for the contract account will be 100 NEAR
+async fn ft_contract_account_create(
+    client_sender: &ClientSender,
+    view_client_sender: &ViewClientSender,
+    creator: &Account,
+    wasm_path: PathBuf,
+) -> anyhow::Result<AccountId> {
+    let creator_id = creator.id.clone();
+    let creator_signer = creator.as_signer();
+    let ft_contract_account_id: AccountId = format!("ft_contract.{}", creator_id).parse()?;
+
+    tracing::info!(target: "transaction-generator",
+        wasm_path=?&wasm_path,
+        owner_id=?&creator_id,
+        ft_contract_account_id=?&ft_contract_account_id,
+        "creating ft contract account",
+    );
+
+    let wasm_code = std::fs::read(&wasm_path).context("reading the wasm code")?;
+
+    let block_hash = TxGenerator::get_latest_block(&view_client_sender).await?.hash;
+    let create_nonce = creator.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
+    let initial_balance_for_contract: Balance = Balance::from_near(2); // deploying contract needs some extra balance for storage costs (~1.5 NEAR)
+
+    let create_deploy_actions = vec![
+        Action::CreateAccount(CreateAccountAction {}),
+        Action::Transfer(TransferAction { deposit: initial_balance_for_contract }),
+        Action::DeployContract(DeployContractAction { code: wasm_code.clone() }),
+    ];
+
+    let create_deploy_tx = SignedTransaction::from_actions(
+        create_nonce,
+        creator_id.clone(),             // signer_id
+        ft_contract_account_id.clone(), // receiver_id
+        &creator_signer,
+        create_deploy_actions,
+        block_hash,
+        0, // priority fee
+    );
+
+    // send and wait for the create+deploy to be accepted
+    let tx_hash = create_deploy_tx.get_hash();
+    match client_sender
+        .tx_request_sender
+        .send_async(ProcessTxRequest {
+            transaction: create_deploy_tx,
+            is_forwarded: false,
+            check_only: false,
+        })
+        .await
+        .context("send create+deploy tx")?
+    {
+        ProcessTxResponse::ValidTx => {}
+        rsp => {
+            anyhow::bail!("create+deploy tx rejected: {:?}", rsp);
+        }
+    }
+
+    match wait_for_transaction_finalization(
+        &view_client_sender,
+        tx_hash,
+        creator_id.clone(),
+        Duration::from_secs(10),
+    )
+    .await
+    {
+        Ok(true) => {
+            tracing::info!(target: "transaction-generator", "create+deploy tx accepted");
+            Ok(ft_contract_account_id)
+        }
+        Ok(false) => Err(anyhow::anyhow!("timeout waiting for create+deploy tx to be finalized")),
+        Err(err) => Err(err),
+    }
+}
+
+/// Initialize the FT contract by calling `new` with owner_id and metadata
+async fn ft_contract_account_init(
+    client_sender: &ClientSender,
+    view_client_sender: &ViewClientSender,
+    creator: &Account,
+    ft_contract_account_id: &AccountId,
+) -> anyhow::Result<()> {
+    tracing::info!(target: "transaction-generator",
+        ft_contract_account_id=?&ft_contract_account_id,
+        "initializing ft contract"
+    );
+    let creator_signer = creator.as_signer();
+
+    let init_args = serde_json::json!({
+        "owner_id": creator.id.to_string(),
+        "total_supply": "1000000000000000000000000", // 1 million tokens with 18 decimals
+        "metadata": {
+            "spec": "ft-1.0.0",
+            "name": "Benchmark Token",
+            "symbol": "BMT",
+            "decimals": 18u8
+        },
+    })
+    .to_string()
+    .into_bytes();
+
+    let init_nonce = creator.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
+
+    let init_action = Action::FunctionCall(Box::new(FunctionCallAction {
+        method_name: "new".to_string(),
+        args: init_args,
+        gas: Gas::from_teragas(200),
+        deposit: Balance::from_yoctonear(0),
+    }));
+
+    let block_hash = TxGenerator::get_latest_block(&view_client_sender).await?.hash;
+    let init_tx = SignedTransaction::from_actions(
+        init_nonce,
+        creator.id.clone(),
+        ft_contract_account_id.clone(),
+        &creator_signer,
+        vec![init_action],
+        block_hash,
+        0,
+    );
+
+    let init_tx_hash = init_tx.get_hash();
+    let _ = client_sender
+        .tx_request_sender
+        .send_async(ProcessTxRequest {
+            transaction: init_tx,
+            is_forwarded: false,
+            check_only: false,
+        })
+        .await
+        .context("send ft init tx")?;
+
+    // wait for init to finalize
+    match wait_for_transaction_finalization(
+        &view_client_sender,
+        init_tx_hash,
+        creator.id.clone(),
+        Duration::from_secs(10),
+    )
+    .await
+    {
+        Ok(true) => {
+            tracing::info!(target: "transaction-generator", "ft init tx accepted");
+            Ok(())
+        }
+        Ok(false) => Err(anyhow::anyhow!("timeout waiting for ft init tx to be finalized")),
+        Err(err) => Err(err),
+    }
+}
+
+/// Register contract-using accounts.
+/// Creator pays a storage_deposit on behalf of each account, because we do not have the private keys for the receiver accounts.
+async fn ft_contract_register_accounts(
+    client_sender: &ClientSender,
+    view_client_sender: &ViewClientSender,
+    creator: &Account,
+    ft_contract_account_id: &AccountId,
+    receiver_ids: &Vec<AccountId>,
+) -> anyhow::Result<()> {
+    let mut tasks = JoinSet::new();
+
+    tracing::info!(target: "transaction-generator",
+        total_receiver_accounts=receiver_ids.len(),
+        "registering accounts with the ft contract"
+    );
+
+    for receiver_id in receiver_ids {
+        let client_sender = client_sender.clone();
+        let view_client = view_client_sender.clone();
+        let creator_signer = creator.as_signer().clone();
+        let ft_account = ft_contract_account_id.clone();
+        const DEPOSIT: Balance = Balance::from_millinear(125);
+        let receiver_id = receiver_id.clone();
+        let creator_id = creator.id.clone();
+        let nonce = creator.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
+
+        // spawn a future per account
+        tasks.spawn(async move {
+            // prepare and send storage_deposit transaction (creator pays)
+            let block_hash = TxGenerator::get_latest_block(&view_client).await?.hash;
+
+            let args = serde_json::to_vec(&serde_json::json!({
+                "account_id": receiver_id.to_string(),
+                "registration_only": true
+            }))
+            .unwrap();
+
+            let action = Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "storage_deposit".to_string(),
+                args,
+                gas: Gas::from_teragas(30),
+                deposit: DEPOSIT,
+            }));
+
+            let tx = SignedTransaction::from_actions(
+                nonce,
+                creator_id.clone(),
+                ft_account.clone(),
+                &creator_signer,
+                vec![action],
+                block_hash,
+                0,
+            );
+
+            let tx_hash = tx.get_hash();
+            let _ = client_sender
+                .tx_request_sender
+                .send_async(ProcessTxRequest {
+                    transaction: tx,
+                    is_forwarded: false,
+                    check_only: false,
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("send storage_deposit tx failed: {:?}", e))?;
+
+            // wait for tx finalization
+            match wait_for_transaction_finalization(
+                &view_client,
+                tx_hash,
+                creator_id.clone(),
+                Duration::from_secs(10),
+            )
+            .await
+            {
+                Ok(true) => Ok(()),
+                Ok(false) => Err(anyhow::anyhow!(
+                    "timeout waiting for storage_deposit tx to be finalized for {}",
+                    receiver_id
+                )),
+                Err(err) => {
+                    Err(anyhow::anyhow!("storage_deposit tx failed for {}: {:?}", receiver_id, err))
+                }
+            }
+        });
+    }
+
+    // wait for all registration tasks to finish and propagate any error
+    while let Some(res) = tasks.join_next().await {
+        match res {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                return Err(err);
+            }
+            Err(join_err) => {
+                return Err(join_err.into());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Fund contract-using accounts using the
+async fn ft_contract_fund_accounts(
+    client_sender: &ClientSender,
+    view_client_sender: &ViewClientSender,
+    creator: &Account,
+    ft_contract_account_id: &AccountId,
+    receiver_ids: &Vec<AccountId>,
+) -> anyhow::Result<()> {
+    let mut tasks = JoinSet::new();
+
+    tracing::info!(target: "transaction-generator",
+        total_receiver_accounts=receiver_ids.len(),
+        "funding accounts with the ft contract"
+    );
+
+    for receiver_id in receiver_ids {
+        if receiver_id == &creator.id {
+            continue;
+        }
+        let client_sender = client_sender.clone();
+        let view_client = view_client_sender.clone();
+        let creator_signer = creator.as_signer();
+        let ft_account = ft_contract_account_id.clone();
+        let receiver_id = receiver_id.clone();
+        const AMOUNT: u128 = 1_000_000_000_000_000_000; // 1 token with 18 decimals
+        let creator_id = creator.id.clone();
+        let nonce = creator.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
+
+        // spawn a future per account
+        tasks.spawn(async move {
+            // prepare and send ft_transfer transaction (creator pays)
+            let block_hash = TxGenerator::get_latest_block(&view_client).await?.hash;
+
+            let args = serde_json::to_vec(&serde_json::json!({
+                "receiver_id": receiver_id.to_string(),
+                "amount": AMOUNT.to_string(),
+            }))
+            .unwrap();
+
+            let action = Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "ft_transfer".to_string(),
+                args,
+                gas: Gas::from_teragas(100),
+                deposit: Balance::from_yoctonear(1), // 1 yoctoNEAR required for ft_transfer
+            }));
+
+            let tx = SignedTransaction::from_actions(
+                nonce,
+                creator_id.clone(),
+                ft_account.clone(),
+                &creator_signer,
+                vec![action],
+                block_hash,
+                0,
+            );
+
+            let tx_hash = tx.get_hash();
+            let _ = client_sender
+                .tx_request_sender
+                .send_async(ProcessTxRequest {
+                    transaction: tx,
+                    is_forwarded: false,
+                    check_only: false,
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("send ft_transfer tx failed: {:?}", e))?;
+
+            // wait for tx finalization
+            match wait_for_transaction_finalization(
+                &view_client,
+                tx_hash,
+                creator_id.clone(),
+                Duration::from_secs(10),
+            )
+            .await
+            {
+                Ok(true) => Ok(()),
+                Ok(false) => Err(anyhow::anyhow!(
+                    "timeout waiting for ft_transfer tx to be finalized for {}",
+                    receiver_id
+                )),
+                Err(err) => {
+                    Err(anyhow::anyhow!("ft_transfer tx failed for {}: {:?}", receiver_id, err))
+                }
+            }
+        });
+    }
+
+    // wait for all funding tasks to finish and propagate any error
+    while let Some(res) = tasks.join_next().await {
+        match res {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                return Err(err);
+            }
+            Err(join_err) => {
+                return Err(join_err.into());
+            }
+        }
+    }
+
+    Ok(())
 }
 
 impl FungibleTokenTxSender {
+    pub async fn new(
+        client_sender: ClientSender,
+        view_client_sender: ViewClientSender,
+        sender_accounts: Arc<Vec<Account>>,
+        receiver_ids: Arc<Vec<AccountId>>,
+        account_selector: TxAccountsSelector,
+        wasm_path: PathBuf,
+    ) -> anyhow::Result<Self> {
+        // pick a creator account (use first sender account)
+        let creator = &sender_accounts[0];
+
+        let ft_contract_account_id =
+            ft_contract_account_create(&client_sender, &view_client_sender, creator, wasm_path)
+                .await?;
+
+        ft_contract_account_init(
+            &client_sender,
+            &view_client_sender,
+            creator,
+            &ft_contract_account_id,
+        )
+        .await?;
+
+        ft_contract_register_accounts(
+            &client_sender,
+            &view_client_sender,
+            creator,
+            &ft_contract_account_id,
+            &receiver_ids,
+        )
+        .await?;
+
+        ft_contract_fund_accounts(
+            &client_sender,
+            &view_client_sender,
+            creator,
+            &ft_contract_account_id,
+            &receiver_ids,
+        )
+        .await?;
+
+        tracing::info!(target: "transaction-generator",
+            ft_contract_account_id=?&ft_contract_account_id,
+            "fungible token contract is ready",
+        );
+
+        Ok(Self {
+            client_sender,
+            sender_accounts,
+            receiver_ids,
+            account_selector,
+            ft_contract_account_id,
+        })
+    }
+
     /// Generates a transaction between two random (but different) accounts and pushes it to the `client_sender`
     pub async fn generate_ft_transfer_transaction(
         &self,
-        rnd: &mut StdRng,    
-        block_hash: &CryptoHash
+        rnd: &mut StdRng,
+        block_hash: &CryptoHash,
     ) -> bool {
-        let Choice { sender_idx, receiver_idx } = self.choice.sample(rnd);
+        let Choice { sender_idx, receiver_idx } = self.account_selector.sample(rnd);
 
         let sender = &self.sender_accounts[sender_idx];
         let nonce = sender.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
@@ -373,8 +833,48 @@ impl FungibleTokenTxSender {
             choice::FromSendersOrReceivers::FromReceivers(idx) => &self.receiver_ids[idx],
         };
 
-        // todo: construct fungible token transfer transaction
-        return false;
+        const TRANSFER_AMOUNT: u128 = 1_000_000;
+
+        let ft_transfer_args = serde_json::json!({
+            "receiver_id": receiver_id.to_string(),
+            "amount": TRANSFER_AMOUNT.to_string(),
+        })
+        .to_string()
+        .into_bytes();
+
+        let action = Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "ft_transfer".to_string(),
+            args: ft_transfer_args,
+            gas: Gas::from_teragas(100),
+            deposit: Balance::from_yoctonear(1), // 1 yoctoNEAR required for ft_transfer
+        }));
+
+        let transaction = SignedTransaction::from_actions(
+            nonce,
+            sender_id,
+            self.ft_contract_account_id.clone(),
+            &signer,
+            vec![action],
+            *block_hash,
+            0,
+        );
+
+        match self
+            .client_sender
+            .tx_request_sender
+            .send_async(ProcessTxRequest { transaction, is_forwarded: false, check_only: false })
+            .await
+        {
+            Ok(ProcessTxResponse::ValidTx) => true,
+            Ok(rsp) => {
+                tracing::debug!(target: "transaction-generator", ?rsp, "invalid transaction");
+                false
+            }
+            Err(err) => {
+                tracing::debug!(target: "transaction-generator", ?err, "error");
+                false
+            }
+        }
     }
 }
 
@@ -734,7 +1234,7 @@ impl TxGenerator {
         let rx_accounts = Self::prepare_accounts(
             &config.accounts_path,
             &config.receiver_accounts_path,
-            view_client_sender,
+            view_client_sender.clone(),
         )
         .context("prepare accounts")?;
 
@@ -757,6 +1257,7 @@ impl TxGenerator {
             (config.sender_accounts_zipf_skew, config.receiver_accounts_zipf_skew);
         let schedule = config.schedule.clone();
         let receivers_from_senders_ratio = config.receivers_from_senders_ratio;
+        let config = config.clone();
         tokio::spawn(async move {
             let (source_accounts, receiver_ids) = rx_accounts.await.unwrap();
 
@@ -768,14 +1269,34 @@ impl TxGenerator {
                 receivers_from_senders_ratio,
             );
 
-            let tx_generator = Arc::new(TransactionSender::Native(NativeTokenTxSender::new(
-                client_sender.clone(),
-                Arc::clone(&source_accounts),
-                Arc::clone(&receiver_ids),
-                account_selector,
-            )));
+            let tx_generator = match config.transaction_type {
+                TransactionTypeConfig::NativeToken => {
+                    Arc::new(TransactionSender::Native(NativeTokenTxSender::new(
+                        client_sender.clone(),
+                        Arc::clone(&source_accounts),
+                        Arc::clone(&receiver_ids),
+                        account_selector,
+                    )))
+                }
+                TransactionTypeConfig::FungibleToken { wasm_path } => {
+                    let tx_sender = Arc::new(TransactionSender::Fungible(
+                        FungibleTokenTxSender::new(
+                            client_sender.clone(),
+                            view_client_sender.clone(),
+                            Arc::clone(&source_accounts),
+                            Arc::clone(&receiver_ids),
+                            account_selector,
+                            wasm_path,
+                        )
+                        .await
+                        .expect("failed to create fungible token tx sender"),
+                    ));
 
-            // execute the sheduled loads
+                    tx_sender
+                }
+            };
+
+            // execute the scheduled loads
             for load in &schedule {
                 Self::run_load(
                     load.clone(),
