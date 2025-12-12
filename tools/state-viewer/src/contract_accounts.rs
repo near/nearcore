@@ -142,6 +142,7 @@ pub(crate) enum ActionType {
     AddGasKey,
     DeleteGasKey,
     TransferToGasKey,
+    TransferFromGasKey,
 }
 
 impl ContractAccount {
@@ -376,6 +377,7 @@ fn map_action(action: &Action) -> ActionType {
         Action::AddGasKey(_) => ActionType::AddGasKey,
         Action::DeleteGasKey(_) => ActionType::DeleteGasKey,
         Action::TransferToGasKey(_) => ActionType::TransferToGasKey,
+        Action::TransferFromGasKey(_) => ActionType::TransferFromGasKey,
     }
 }
 
