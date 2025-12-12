@@ -482,6 +482,9 @@ pub fn validate_action(
         Action::TransferToGasKey(_) => {
             validate_transfer_to_gas_key_action(current_protocol_version)
         }
+        Action::TransferFromGasKey(_) => {
+            validate_transfer_from_gas_key_action(current_protocol_version)
+        }
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::AddGasKey(a) => {
@@ -740,6 +743,13 @@ fn validate_delete_gas_key_action(
 }
 
 fn validate_transfer_to_gas_key_action(
+    current_protocol_version: u32,
+) -> Result<(), ActionsValidationError> {
+    require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
+    Ok(())
+}
+
+fn validate_transfer_from_gas_key_action(
     current_protocol_version: u32,
 ) -> Result<(), ActionsValidationError> {
     require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;

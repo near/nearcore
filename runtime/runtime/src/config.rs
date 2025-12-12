@@ -93,6 +93,11 @@ pub fn total_send_fees(
                 // TODO(gas-keys): properly handle GasKey fees
                 Gas::ZERO
             }
+            TransferFromGasKey(_) => {
+                // Note implicit account creation is not allowed for TransferFromGasKey
+                // TODO(gas-keys): properly handle GasKey fees
+                Gas::ZERO
+            }
             Stake(_) => fees.fee(ActionCosts::stake).send_fee(sender_is_receiver),
             AddKey(add_key_action) => permission_send_fees(
                 &add_key_action.access_key.permission,
@@ -259,6 +264,11 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
         }
         TransferToGasKey(_) => {
             // Note implicit account creation is not allowed for TransferToGasKey
+            // TODO(gas-keys): properly handle GasKey fees
+            Gas::ZERO
+        }
+        TransferFromGasKey(_) => {
+            // Note implicit account creation is not allowed for TransferFromGasKey
             // TODO(gas-keys): properly handle GasKey fees
             Gas::ZERO
         }

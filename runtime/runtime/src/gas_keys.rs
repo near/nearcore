@@ -1,15 +1,17 @@
 use near_crypto::PublicKey;
 use near_parameters::RuntimeFeesConfig;
 use near_primitives::account::{Account, GasKey};
-use near_primitives::action::{AddGasKeyAction, DeleteGasKeyAction, TransferToGasKeyAction};
+use near_primitives::action::{
+    AddGasKeyAction, DeleteGasKeyAction, TransferFromGasKeyAction, TransferToGasKeyAction,
+};
 use near_primitives::errors::ActionErrorKind;
 use near_primitives::types::{AccountId, Balance, Nonce, NonceIndex, StorageUsage};
 use near_store::{
-    StorageError, TrieUpdate, get_gas_key, remove_gas_key, remove_gas_key_nonce, set_gas_key,
-    set_gas_key_nonce,
+    StorageError, TrieUpdate, get_access_key, get_gas_key, remove_gas_key, remove_gas_key_nonce,
+    set_access_key, set_gas_key, set_gas_key_nonce,
 };
 
-use crate::{ActionResult, ApplyState, initial_nonce_value};
+use crate::{ActionResult, ApplyState, action_transfer, initial_nonce_value};
 
 pub(crate) fn action_transfer_to_gas_key(
     state_update: &mut TrieUpdate,
@@ -17,11 +19,25 @@ pub(crate) fn action_transfer_to_gas_key(
     action: &TransferToGasKeyAction,
     result: &mut ActionResult,
 ) -> Result<(), StorageError> {
-    if let Some(mut gas_key) = get_gas_key(state_update, account_id, &action.public_key)? {
-        gas_key.balance = gas_key.balance.checked_add(action.deposit).ok_or_else(|| {
-            StorageError::StorageInconsistentState("Gas key balance integer overflow".to_string())
-        })?;
-        set_gas_key(state_update, account_id.clone(), action.public_key.clone(), &gas_key);
+    // TODO(gas-keys): The other actions need fixing or removal.
+    let gas_key = get_access_key(state_update, account_id, &action.public_key)?;
+    // TODO(gas-keys): make this a bit nicer?
+    if let Some(mut gas_key) = gas_key {
+        if let Some(gas_balance) = gas_key.permission.gas_balance_mut() {
+            *gas_balance = gas_balance.checked_add(action.deposit).ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "Gas key balance overflow for account {}",
+                    account_id
+                ))
+            })?;
+            set_access_key(state_update, account_id.clone(), action.public_key.clone(), &gas_key);
+        } else {
+            result.result = Err(ActionErrorKind::GasKeyDoesNotExist {
+                account_id: account_id.clone(),
+                public_key: action.public_key.clone().into(),
+            }
+            .into());
+        }
     } else {
         result.result = Err(ActionErrorKind::GasKeyDoesNotExist {
             account_id: account_id.clone(),
@@ -29,6 +45,47 @@ pub(crate) fn action_transfer_to_gas_key(
         }
         .into());
     }
+    Ok(())
+}
+
+pub(crate) fn action_transfer_from_gas_key(
+    state_update: &mut TrieUpdate,
+    account: &mut Account,
+    account_id: &AccountId,
+    action: &TransferFromGasKeyAction,
+    result: &mut ActionResult,
+) -> Result<(), StorageError> {
+    let gas_key = get_access_key(state_update, account_id, &action.public_key)?;
+    let Some(mut gas_key) = gas_key else {
+        result.result = Err(ActionErrorKind::GasKeyDoesNotExist {
+            account_id: account_id.clone(),
+            public_key: action.public_key.clone().into(),
+        }
+        .into());
+        return Ok(());
+    };
+    if let Some(gas_key_balance) = gas_key.permission.gas_balance_mut() {
+        if let Some(new_balance) = gas_key_balance.checked_sub(action.amount) {
+            *gas_key_balance = new_balance;
+            action_transfer(account, action.amount)?;
+            set_access_key(state_update, account_id.clone(), action.public_key.clone(), &gas_key);
+        } else {
+            result.result = Err(ActionErrorKind::InsufficientGasKeyBalance {
+                account_id: account_id.clone(),
+                public_key: action.public_key.clone().into(),
+                requested: action.amount,
+                available: *gas_key_balance,
+            }
+            .into());
+        }
+    } else {
+        result.result = Err(ActionErrorKind::GasKeyDoesNotExist {
+            account_id: account_id.clone(),
+            public_key: action.public_key.clone().into(),
+        }
+        .into());
+    }
+
     Ok(())
 }
 

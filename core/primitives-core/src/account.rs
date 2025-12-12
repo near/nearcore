@@ -476,6 +476,20 @@ impl AccessKey {
     pub fn full_access() -> Self {
         Self { nonce: 0, permission: AccessKeyPermission::FullAccess }
     }
+
+    pub fn gas_key_full_access() -> Self {
+        Self { nonce: 0, permission: AccessKeyPermission::GasKeyFullAccess(Balance::ZERO) }
+    }
+
+    pub fn gas_key_function_call(function_call_permission: FunctionCallPermission) -> Self {
+        Self {
+            nonce: 0,
+            permission: AccessKeyPermission::GasKeyFunctionCall(
+                Balance::ZERO,
+                function_call_permission,
+            ),
+        }
+    }
 }
 
 /// Gas key is like an access key, except it stores a balance separately, and transactions signed

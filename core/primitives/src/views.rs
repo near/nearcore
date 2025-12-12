@@ -7,8 +7,8 @@ use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermis
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::action::{
     AddGasKeyAction, DeleteGasKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
-    GlobalContractDeployMode, GlobalContractIdentifier, TransferToGasKeyAction,
-    UseGlobalContractAction,
+    GlobalContractDeployMode, GlobalContractIdentifier, TransferFromGasKeyAction,
+    TransferToGasKeyAction, UseGlobalContractAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -169,6 +169,18 @@ pub enum AccessKeyPermissionView {
     GasKeyFullAccess {
         balance: Balance,
     } = 3,
+}
+
+impl AccessKeyPermissionView {
+    pub fn gas_balance(&self) -> Option<Balance> {
+        match self {
+            AccessKeyPermissionView::GasKeyFunctionCall { balance, .. }
+            | AccessKeyPermissionView::GasKeyFullAccess { balance } => Some(*balance),
+            AccessKeyPermissionView::FunctionCall { .. } | AccessKeyPermissionView::FullAccess => {
+                None
+            }
+        }
+    }
 }
 
 impl From<AccessKeyPermission> for AccessKeyPermissionView {
@@ -1464,6 +1476,10 @@ pub enum ActionView {
         public_key: PublicKey,
         amount: Balance,
     } = 16,
+    TransferFromGasKey {
+        public_key: PublicKey,
+        amount: Balance,
+    } = 17,
 }
 
 impl From<Action> for ActionView {
@@ -1533,6 +1549,10 @@ impl From<Action> for ActionView {
             Action::TransferToGasKey(action) => ActionView::TransferToGasKey {
                 public_key: action.public_key,
                 amount: action.deposit,
+            },
+            Action::TransferFromGasKey(action) => ActionView::TransferFromGasKey {
+                public_key: action.public_key,
+                amount: action.amount,
             },
         }
     }
@@ -1613,6 +1633,12 @@ impl TryFrom<ActionView> for Action {
                 Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
                     public_key,
                     deposit: amount,
+                }))
+            }
+            ActionView::TransferFromGasKey { public_key, amount } => {
+                Action::TransferFromGasKey(Box::new(TransferFromGasKeyAction {
+                    public_key,
+                    amount,
                 }))
             }
             ActionView::DeleteGasKey { public_key } => {

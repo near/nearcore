@@ -249,7 +249,8 @@ impl ReceiptPreparationPipeline {
                 | Action::DeployGlobalContract(_)
                 | Action::AddGasKey(_)
                 | Action::DeleteGasKey(_)
-                | Action::TransferToGasKey(_) => {}
+                | Action::TransferToGasKey(_)
+                | Action::TransferFromGasKey(_) => {}
             }
         }
         return any_function_calls;

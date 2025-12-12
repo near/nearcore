@@ -6,7 +6,10 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
-use crate::gas_keys::{action_add_gas_key, action_delete_gas_key, action_transfer_to_gas_key};
+use crate::gas_keys::{
+    action_add_gas_key, action_delete_gas_key, action_transfer_from_gas_key,
+    action_transfer_to_gas_key,
+};
 use crate::metrics::{
     TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL,
     TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL,
@@ -495,6 +498,16 @@ impl Runtime {
             Action::TransferToGasKey(transfer) => {
                 metrics::ACTION_CALLED_COUNT.transfer_to_gas_key.inc();
                 action_transfer_to_gas_key(state_update, account_id, transfer, &mut result)?;
+            }
+            Action::TransferFromGasKey(transfer) => {
+                metrics::ACTION_CALLED_COUNT.transfer_from_gas_key.inc();
+                action_transfer_from_gas_key(
+                    state_update,
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    account_id,
+                    transfer,
+                    &mut result,
+                )?;
             }
             Action::Stake(stake) => {
                 metrics::ACTION_CALLED_COUNT.stake.inc();

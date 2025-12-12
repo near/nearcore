@@ -786,6 +786,12 @@ pub enum ActionErrorKind {
         account_id: AccountId,
         public_key: Box<PublicKey>,
     } = 24,
+    InsufficientGasKeyBalance {
+        account_id: AccountId,
+        public_key: Box<PublicKey>,
+        requested: Balance,
+        available: Balance,
+    } = 25,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1087,6 +1093,18 @@ impl Display for ActionErrorKind {
                     f,
                     "Gas key for account {:?} and public key {:?} already exists",
                     account_id, public_key
+                )
+            }
+            ActionErrorKind::InsufficientGasKeyBalance {
+                account_id,
+                public_key,
+                requested,
+                available,
+            } => {
+                write!(
+                    f,
+                    "Gas key for account {:?} and public key {:?} has insufficient balance: requested {}, available {}",
+                    account_id, public_key, requested, available
                 )
             }
         }
