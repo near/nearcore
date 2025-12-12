@@ -1215,8 +1215,6 @@ fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
 }
 
 fn build_non_spice_block(chain: &Chain, prev_block: &Block) -> Arc<Block> {
-    // FIXME: Either don't use get_fake_next_block_spice_chunk_headers or use equivalent but
-    // spice-less.
     block_builder(chain, prev_block).non_spice_block().build()
 }
 
