@@ -11,7 +11,7 @@ use near_store::{DBCol, LATEST_KNOWN_KEY, Store, get_genesis_height};
 
 use crate::NearConfig;
 
-const CHUNK_SIZE: u64 = 10000;
+const BATCH_SIZE: u64 = 100_000;
 
 pub(super) struct Migrator<'a> {
     config: &'a NearConfig,
@@ -91,10 +91,11 @@ fn copy_block_headers_to_cold_db(hot_store: &Store, cold_db: &ColdDB) -> anyhow:
         let (key, value) = t?;
         transaction.set(DBCol::BlockHeader, key.into_vec(), value.into_vec());
         count += 1;
-        if count % CHUNK_SIZE == 0 {
+        if count % BATCH_SIZE == 0 {
             cold_db.write(transaction)?;
             transaction = DBTransaction::new();
-            tracing::info!(target: "migrations", ?count, ?approx_num_blocks, "copied block headers to cold db");
+            let percent_complete = (count as f64 / approx_num_blocks as f64) * 100.0;
+            tracing::info!(target: "migrations", ?count, ?approx_num_blocks, ?percent_complete, "copied block headers to cold db");
         }
     }
     cold_db.write(transaction)?;
@@ -154,11 +155,9 @@ fn verify_block_headers(store: &Store) -> anyhow::Result<()> {
         for block_hash in chain_store.get_all_header_hashes_by_height(height)? {
             let block = match chain_store.get_block(&block_hash) {
                 Ok(block) => block,
-                Err(Error::DBNotFoundErr(_)) => {
-                    // It's possible that some blocks are missing in the DB when we have forks etc.
-                    tracing::debug!(target: "migrations", ?height, ?block_hash, "skipping block not found");
-                    continue;
-                }
+                // It's possible that some blocks are missing in the DB when we have forks etc.
+                Err(Error::DBNotFoundErr(_)) => continue,
+                // Any other error should be propagated
                 Err(err) => return Err(err.into()),
             };
 
@@ -192,7 +191,7 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
                 store_update.set_block_header_only(block.header());
             }
         }
-        if height % CHUNK_SIZE == 0 {
+        if height % BATCH_SIZE == 0 {
             tracing::info!(target: "migrations", ?height, ?latest_known_height, "committing addition of required block headers to hot store");
             store_update.commit()?;
             store_update = chain_store.store_update();
