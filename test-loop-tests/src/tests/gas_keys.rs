@@ -201,19 +201,20 @@ fn send_transfers_as_gas_keys(
         // The second key should fail, because it is a FunctionCall key only.
         for (from_key_index, key) in gas_keys[from_index].iter_mut().enumerate() {
             for (to_index, other_account) in accounts.iter().enumerate() {
-                // Let's just transfer to the other account.
+                // TODO: just a demo, not complete test
+                let deposit = if from_index > to_index { deposit1 } else { Balance::ZERO };
                 let tx = SignedTransaction::from_actions(
                     key.nonce + 1,
                     account.clone(),
                     other_account.clone(),
                     &key.signer,
-                    vec![Action::Transfer(TransferAction { deposit: deposit1 })],
+                    vec![Action::Transfer(TransferAction { deposit })],
                     anchor_hash,
                     0,
                 );
                 eprintln!(
                     "Sent transfer of {} from {} of {} to {}, {}",
-                    deposit1, from_key_index, account, to_index, other_account
+                    deposit, from_key_index, account, to_index, other_account
                 );
                 let process_tx_request =
                     ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
