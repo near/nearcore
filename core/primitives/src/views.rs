@@ -1668,10 +1668,13 @@ pub struct SignedTransactionView {
     // Default value used when deserializing SignedTransactionView which are missing the `priority_fee` field.
     // Data which is missing this field was serialized before the introduction of priority_fee.
     // priority_fee for Transaction::V0 => None, SignedTransactionView => 0
+    // TODO(gas-keys): Deprecate
     #[serde(default)]
     pub priority_fee: u64,
     pub signature: Signature,
     pub hash: CryptoHash,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub nonce_index: Option<NonceIndex>,
 }
 
 impl From<SignedTransaction> for SignedTransactionView {
@@ -1682,7 +1685,8 @@ impl From<SignedTransaction> for SignedTransactionView {
         SignedTransactionView {
             signer_id: transaction.signer_id().clone(),
             public_key: transaction.public_key().clone(),
-            nonce: transaction.nonce(),
+            nonce: transaction.nonce().nonce(),
+            nonce_index: transaction.nonce().nonce_index(),
             receiver_id: transaction.receiver_id().clone(),
             actions: transaction.take_actions().into_iter().map(|action| action.into()).collect(),
             signature: signed_tx.signature,

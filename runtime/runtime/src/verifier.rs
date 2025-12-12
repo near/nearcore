@@ -200,15 +200,22 @@ pub fn verify_and_charge_tx_ephemeral(
         burnt_amount,
     } = *transaction_cost;
     let signer_id = tx.signer_id();
-    if tx.nonce() <= access_key.nonce {
-        let err = InvalidTxError::InvalidNonce { tx_nonce: tx.nonce(), ak_nonce: access_key.nonce };
+    if tx.nonce().nonce() <= access_key.nonce {
+        let err = InvalidTxError::InvalidNonce {
+            tx_nonce: tx.nonce().nonce(),
+            ak_nonce: access_key.nonce,
+        };
         return Err(err.into());
     }
     if let Some(height) = block_height {
         let upper_bound =
             height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-        if tx.nonce() >= upper_bound {
-            return Err(InvalidTxError::NonceTooLarge { tx_nonce: tx.nonce(), upper_bound }.into());
+        if tx.nonce().nonce() >= upper_bound {
+            return Err(InvalidTxError::NonceTooLarge {
+                tx_nonce: tx.nonce().nonce(),
+                upper_bound,
+            }
+            .into());
         }
     }
 
@@ -308,7 +315,7 @@ pub fn verify_and_charge_tx_ephemeral(
         }
     };
 
-    access_key.nonce = tx.nonce();
+    access_key.nonce = tx.nonce().nonce();
     signer.set_amount(new_account_balance);
     if let Some(new_gas_balance) = new_gas_balance {
         *access_key.permission.gas_balance_mut().unwrap() = new_gas_balance;
