@@ -135,10 +135,11 @@ impl ChunkExecutorActor {
         &mut self,
         ExecutorApplyChunksDone { block_hash, apply_results }: ExecutorApplyChunksDone,
     ) -> Result<(), HandleExecutorApplyChunksDoneError> {
-        use HandleExecutorApplyChunksDoneError::*;
-        self.process_apply_chunk_results(block_hash, apply_results).map_err(ProcessApplyChunk)?;
+        self.process_apply_chunk_results(block_hash, apply_results)
+            .map_err(HandleExecutorApplyChunksDoneError::ProcessApplyChunk)?;
         assert!(self.blocks_in_execution.remove(&block_hash));
-        self.try_process_next_blocks(&block_hash).map_err(TryProcessNextBlocks)
+        self.try_process_next_blocks(&block_hash)
+            .map_err(HandleExecutorApplyChunksDoneError::TryProcessNextBlocks)
     }
 }
 
