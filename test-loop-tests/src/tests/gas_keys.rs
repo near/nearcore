@@ -25,7 +25,7 @@ use crate::utils::transactions::get_anchor_hash;
 #[test]
 #[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_keys() {
-    //init_test_logger();
+    init_test_logger();
     let builder = TestLoopBuilder::new();
 
     let num_accounts = 3;
@@ -65,6 +65,7 @@ fn test_gas_keys() {
     test_loop.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
 
+#[allow(dead_code)]
 struct GasKeySigner {
     signer: Signer,
     is_full_access: bool,
@@ -183,20 +184,19 @@ fn send_transfers_as_gas_keys(
 
     let anchor_hash = get_anchor_hash(&clients);
 
-    let mut expected_account_balances =
+    // TODO: Properly track expected balances and assert them.
+    let mut _expected_account_balances =
         accounts.iter().map(|_| Balance::from_near(800000)).collect_vec();
-    let mut expected_gas_key_balances = gas_keys
+    let mut _expected_gas_key_balances = gas_keys
         .iter()
         .map(|keys| keys.iter().map(|_| Balance::from_near(100000)).collect_vec())
         .collect_vec();
-
-    let gas_key_public_keys = gas_keys
+    let _gas_key_public_keys = gas_keys
         .iter()
         .map(|keys| keys.iter().map(|key| key.signer.public_key()).collect_vec())
         .collect_vec();
 
     let deposit1 = Balance::from_near(20);
-    let deposit2 = Balance::from_near(50);
     for (from_index, account) in accounts.iter().enumerate() {
         // The second key should fail, because it is a FunctionCall key only.
         for (from_key_index, key) in gas_keys[from_index].iter_mut().enumerate() {
