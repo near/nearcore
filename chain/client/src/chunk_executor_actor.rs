@@ -274,7 +274,7 @@ impl Handler<ExecutorApplyChunksDone> for ChunkExecutorActor {
     fn handle(&mut self, msg: ExecutorApplyChunksDone) {
         let block_hash = msg.block_hash;
         if let Err(err) = self.handle_apply_chunks_done(msg) {
-            tracing::error!(target:"chunk_executor", ?err, ?block_hash);
+            tracing::error!(target:"chunk_executor", ?err, ?block_hash, "failed to handle apply chunks done");
         }
     }
 }
