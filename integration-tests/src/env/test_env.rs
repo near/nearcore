@@ -160,7 +160,7 @@ impl TestEnv {
             .get_epoch_protocol_version(block.header().epoch_id())
             .unwrap();
         if ProtocolFeature::Spice.enabled(protocol_version) {
-            self.execute_block(id, *block.hash());
+            self.spice_execute_block(id, *block.hash());
         }
     }
 
@@ -906,7 +906,7 @@ impl TestEnv {
         tracing::info!(target: "test", height, ?block_hash, ?chunk_mask, protocol_version, latest_protocol_version, "block");
     }
 
-    pub fn execute_block(&mut self, id: usize, block_hash: CryptoHash) {
+    pub fn spice_execute_block(&mut self, id: usize, block_hash: CryptoHash) {
         assert_matches::assert_matches!(
             self.spice_chunk_executors[id].handle_processed_block(ProcessedBlock { block_hash }),
             TryApplyChunksOutcome::Scheduled
