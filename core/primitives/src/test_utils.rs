@@ -777,7 +777,9 @@ impl BlockBody {
         match self {
             BlockBody::V1(_) => unreachable!("old body should not appear in tests"),
             BlockBody::V2(body) => body.chunk_endorsements = chunk_endorsements,
-            BlockBody::V3(_) => unreachable!("block body for spice should not appear in tests"),
+            // We treat it as a noop since chunk endorsements aren't part of the block anymore but
+            // some tests still use it.
+            BlockBody::V3(_) => {}
         }
     }
 }
@@ -791,7 +793,7 @@ impl BlockBody {
 #[cfg(feature = "clock")]
 pub struct TestBlockBuilder {
     clock: near_time::Clock,
-    prev: Block,
+    prev_header: BlockHeader,
     signer: Arc<ValidatorSigner>,
     height: u64,
     epoch_id: EpochId,
@@ -801,32 +803,41 @@ pub struct TestBlockBuilder {
     max_gas_price: Balance,
     block_merkle_root: CryptoHash,
     chunks: Vec<ShardChunkHeader>,
+    chunk_endorsements: Vec<ChunkEndorsementSignatures>,
+    // TODO(spice): Once spice is released remove Option.
     /// Iff `Some` spice block will be created.
     spice_core_statements: Option<Vec<crate::block_body::SpiceCoreStatement>>,
 }
 
 #[cfg(feature = "clock")]
 impl TestBlockBuilder {
-    pub fn new(clock: near_time::Clock, prev: &Block, signer: Arc<ValidatorSigner>) -> Self {
+    fn new(
+        clock: near_time::Clock,
+        signer: Arc<ValidatorSigner>,
+        prev_header: BlockHeader,
+        prev_chunks: Vec<ShardChunkHeader>,
+    ) -> Self {
         let mut tree = crate::merkle::PartialMerkleTree::default();
-        tree.insert(*prev.hash());
-        let next_epoch_id = if prev.header().is_genesis() {
-            EpochId(*prev.hash())
+        tree.insert(*prev_header.hash());
+        let next_epoch_id = if prev_header.is_genesis() {
+            EpochId(*prev_header.hash())
         } else {
-            *prev.header().next_epoch_id()
+            *prev_header.next_epoch_id()
         };
+        let chunks_len = prev_chunks.len();
         Self {
             clock,
-            prev: Block::clone(prev),
             signer,
-            height: prev.header().height() + 1,
-            epoch_id: *prev.header().epoch_id(),
+            height: prev_header.height() + 1,
+            epoch_id: *prev_header.epoch_id(),
             next_epoch_id,
-            next_bp_hash: *prev.header().next_bp_hash(),
+            next_bp_hash: *prev_header.next_bp_hash(),
             approvals: vec![],
             max_gas_price: Balance::ZERO,
             block_merkle_root: tree.root(),
-            chunks: prev.chunks().iter_raw().cloned().collect(),
+            chunks: prev_chunks,
+            chunk_endorsements: vec![vec![]; chunks_len],
+            prev_header,
             spice_core_statements: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
                 Some(vec![])
             } else {
@@ -834,6 +845,33 @@ impl TestBlockBuilder {
             },
         }
     }
+
+    pub fn from_prev_block_view(
+        clock: near_time::Clock,
+        prev_block_view: &crate::views::BlockView,
+        signer: Arc<ValidatorSigner>,
+    ) -> Self {
+        Self::new(
+            clock,
+            signer,
+            prev_block_view.header.clone().into(),
+            prev_block_view.chunks.iter().cloned().map(Into::into).collect(),
+        )
+    }
+
+    pub fn from_prev_block(
+        clock: near_time::Clock,
+        prev_block: &Block,
+        signer: Arc<ValidatorSigner>,
+    ) -> Self {
+        Self::new(
+            clock,
+            signer,
+            prev_block.header().clone(),
+            prev_block.chunks().iter_raw().cloned().collect(),
+        )
+    }
+
     pub fn height(mut self, height: u64) -> Self {
         self.height = height;
         self
@@ -865,7 +903,7 @@ impl TestBlockBuilder {
         mut self,
         block_merkle_tree: &mut crate::merkle::PartialMerkleTree,
     ) -> Self {
-        block_merkle_tree.insert(*self.prev.hash());
+        block_merkle_tree.insert(*self.prev_header.hash());
         self.block_merkle_root = block_merkle_tree.root();
         self
     }
@@ -888,11 +926,18 @@ impl TestBlockBuilder {
         self
     }
 
+    pub fn chunk_endorsements(
+        mut self,
+        chunk_endorsements: Vec<ChunkEndorsementSignatures>,
+    ) -> Self {
+        self.chunk_endorsements = chunk_endorsements;
+        self
+    }
+
     pub fn build(self) -> Arc<Block> {
         use crate::version::PROTOCOL_VERSION;
 
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
-        let chunks_len = self.chunks.len();
         let last_certified_block_execution_results = BlockExecutionResults(
             self.chunks
                 .iter()
@@ -909,11 +954,11 @@ impl TestBlockBuilder {
         );
         Arc::new(Block::produce(
             PROTOCOL_VERSION,
-            self.prev.header(),
+            &self.prev_header,
             self.height,
-            self.prev.header().block_ordinal() + 1,
+            self.prev_header.block_ordinal() + 1,
             self.chunks,
-            vec![vec![]; chunks_len],
+            self.chunk_endorsements,
             self.epoch_id,
             self.next_epoch_id,
             None,

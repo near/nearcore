@@ -121,8 +121,6 @@ fn test_not_process_same_block_twice() {
 
 /// Test that if a block contains chunks with invalid shard_ids, the client will return error.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_bad_shard_id() {
     let accounts = TestEnvBuilder::make_accounts(1);
     let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
@@ -137,24 +135,37 @@ fn test_bad_shard_id() {
     let chunk = chunks.get(0).unwrap();
     let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
     let congestion_info = CongestionInfo::default();
-    let mut modified_chunk = ShardChunkHeaderV3::new(
-        *chunk.prev_block_hash(),
-        chunk.prev_state_root(),
-        *chunk.prev_outcome_root(),
-        *chunk.encoded_merkle_root(),
-        chunk.encoded_length(),
-        2,
-        ShardId::new(1),
-        chunk.prev_gas_used(),
-        chunk.gas_limit(),
-        chunk.prev_balance_burnt(),
-        *outgoing_receipts_root,
-        *chunk.tx_root(),
-        chunk.prev_validator_proposals().collect(),
-        congestion_info,
-        chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
-        &validator_signer,
-    );
+    let mut modified_chunk = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        ShardChunkHeaderV3::new_for_spice(
+            *chunk.prev_block_hash(),
+            *chunk.encoded_merkle_root(),
+            chunk.encoded_length(),
+            2,
+            ShardId::new(1),
+            *outgoing_receipts_root,
+            *chunk.tx_root(),
+            &validator_signer,
+        )
+    } else {
+        ShardChunkHeaderV3::new(
+            *chunk.prev_block_hash(),
+            chunk.prev_state_root(),
+            *chunk.prev_outcome_root(),
+            *chunk.encoded_merkle_root(),
+            chunk.encoded_length(),
+            2,
+            ShardId::new(1),
+            chunk.prev_gas_used(),
+            chunk.gas_limit(),
+            chunk.prev_balance_burnt(),
+            *outgoing_receipts_root,
+            *chunk.tx_root(),
+            chunk.prev_validator_proposals().collect(),
+            congestion_info,
+            chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
+            &validator_signer,
+        )
+    };
     modified_chunk.height_included = 2;
     chunks[0] = ShardChunkHeader::V3(modified_chunk);
     let mut_block = Arc::make_mut(&mut block);

@@ -27,7 +27,7 @@ use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::time::Clock;
 use near_chain::Block;
 use near_chain::test_utils::{
-    get_chain_with_genesis, get_fake_next_block_spice_chunk_headers, process_block_sync,
+    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
 use near_chain::{BlockProcessingArtifact, Chain, Provenance};
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
@@ -68,8 +68,8 @@ fn build_block(epoch_manager: &dyn EpochManagerAdapter, prev_block: &Block) -> A
         .get_block_producer_info(prev_block.header().epoch_id(), prev_block.header().height() + 1)
         .unwrap();
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
-    TestBlockBuilder::new(Clock::real(), prev_block, signer)
-        .chunks(get_fake_next_block_spice_chunk_headers(&prev_block, epoch_manager))
+    TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
+        .chunks(get_fake_next_block_chunk_headers(&prev_block, epoch_manager))
         .spice_core_statements(vec![])
         .build()
 }

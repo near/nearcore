@@ -952,7 +952,7 @@ mod tests {
                 )
                 .unwrap();
             let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
-            TestBlockBuilder::new(Clock::real(), prev_block, signer)
+            TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
                 .chunks(chunks)
                 .spice_core_statements(vec![])
                 .build()

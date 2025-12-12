@@ -18,7 +18,8 @@ use near_primitives::types::{
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::EpochValidatorInfo;
-use near_store::{ShardUId, StoreUpdate};
+use near_store::ShardUId;
+use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -479,7 +480,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         block_info: BlockInfo,
         random_value: CryptoHash,
-    ) -> Result<StoreUpdate, EpochError>;
+    ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError>;
 
     /// Epoch active protocol version.
     fn get_epoch_protocol_version(
@@ -517,7 +518,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Epoch Manager init procedure that is necessary after Epoch Sync.
     fn init_after_epoch_sync(
         &self,
-        store_update: &mut StoreUpdate,
+        store_update: &mut EpochStoreUpdateAdapter,
         prev_epoch_first_block_info: BlockInfo,
         prev_epoch_prev_last_block_info: BlockInfo,
         prev_epoch_last_block_info: BlockInfo,
@@ -891,14 +892,14 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         block_info: BlockInfo,
         random_value: CryptoHash,
-    ) -> Result<StoreUpdate, EpochError> {
+    ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
         let mut epoch_manager = self.write();
         epoch_manager.add_validator_proposals(block_info, random_value)
     }
 
     fn init_after_epoch_sync(
         &self,
-        store_update: &mut StoreUpdate,
+        store_update: &mut EpochStoreUpdateAdapter,
         prev_epoch_first_block_info: BlockInfo,
         prev_epoch_prev_last_block_info: BlockInfo,
         prev_epoch_last_block_info: BlockInfo,
