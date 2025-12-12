@@ -33,6 +33,7 @@ use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
+use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, ShardId,
@@ -134,6 +135,8 @@ pub struct ApplyChunkResult {
     pub contract_updates: ContractUpdates,
     /// Extra information gathered during chunk application.
     pub stats: ChunkApplyStatsV0,
+    /// Proposed split of this shard (dynamic resharding).
+    pub proposed_split: Option<TrieSplit>,
 }
 
 impl ApplyChunkResult {

@@ -398,6 +398,7 @@ fn test_chunk_endorsement(
                 Balance::ZERO,
                 Some(CongestionInfo::default()),
                 BandwidthRequests::empty(),
+                None,
             ),
             outgoing_receipts_root,
         },
@@ -509,6 +510,7 @@ fn simulate_chunk_application(
         apply_result.total_balance_burnt,
         apply_result.congestion_info,
         apply_result.bandwidth_requests.clone(),
+        apply_result.proposed_split.clone(),
     );
     let shard_layout = actor.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
     let (outgoing_receipts_root, _) = Chain::create_receipts_proofs_from_outgoing_receipts(

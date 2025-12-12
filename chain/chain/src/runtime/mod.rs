@@ -11,6 +11,7 @@ use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfi
 use near_crypto::PublicKey;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_parameters::config::DynamicReshardingConfig;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -26,11 +27,12 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
+use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateRoot, StateRootNode,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, GasKeyInfoView, GasKeyList, GasKeyView,
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
@@ -82,7 +84,6 @@ pub struct NightshadeRuntime {
     gc_num_epochs_to_keep: u64,
     state_parts_compression_lvl: i32,
     is_cloud_archival_writer: bool,
-    dynamic_resharding_dry_run: bool,
 }
 
 impl NightshadeRuntime {
@@ -99,7 +100,6 @@ impl NightshadeRuntime {
         state_snapshot_config: StateSnapshotConfig,
         state_parts_compression_lvl: i32,
         is_cloud_archival_writer: bool,
-        dynamic_resharding_dry_run: bool,
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
@@ -136,7 +136,6 @@ impl NightshadeRuntime {
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
             state_parts_compression_lvl,
             is_cloud_archival_writer,
-            dynamic_resharding_dry_run,
         })
     }
 
@@ -242,6 +241,16 @@ impl NightshadeRuntime {
         let prev_block_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&prev_block_epoch_id)?;
         let is_first_block_of_version = current_protocol_version != prev_block_protocol_version;
+
+        let config = self.runtime_config_store.get_config(current_protocol_version);
+        let proposed_split = self.check_dynamic_resharding(
+            &trie,
+            shard_id,
+            &epoch_id,
+            current_protocol_version,
+            &config.dynamic_resharding_config,
+            &prev_block_hash,
+        )?;
 
         tracing::debug!(
             target: "runtime",
@@ -350,6 +359,7 @@ impl NightshadeRuntime {
             bandwidth_scheduler_state_hash: apply_result.bandwidth_scheduler_state_hash,
             contract_updates: apply_result.contract_updates,
             stats: apply_result.stats,
+            proposed_split,
         };
 
         Ok(result)
@@ -508,30 +518,54 @@ impl NightshadeRuntime {
     fn check_dynamic_resharding_impl(
         &self,
         shard_trie: &Trie,
-        shard_id: ShardId,
-    ) -> Result<(), FindSplitError> {
-        let start = Instant::now();
-        let mem_usage = total_mem_usage(shard_trie)?;
-        // TODO(dynamic_resharding): For the actual resharding trigger, this will be a proper threshold instead of 0
-        if mem_usage > 0 {
-            let trie_split = find_trie_split(shard_trie)?;
-            let elapsed = start.elapsed();
-            tracing::info!(target: "runtime", ?shard_id, ?mem_usage, ?trie_split, ?elapsed, "dynamic resharding dry run");
+        config: &DynamicReshardingConfig,
+    ) -> Result<Option<TrieSplit>, FindSplitError> {
+        if total_mem_usage(shard_trie)? < config.memory_usage_threshold {
+            return Ok(None);
         }
-        Ok(())
+        let trie_split = find_trie_split(shard_trie)?;
+        if trie_split.left_memory < config.min_child_memory_usage {
+            return Ok(None);
+        }
+        if trie_split.right_memory < config.min_child_memory_usage {
+            return Ok(None);
+        }
+        Ok(Some(trie_split))
     }
 
     /// Check if dynamic resharding should be scheduled for the given shard.
     /// This is only a dry-run and will **not** actually trigger resharding.
-    fn check_dynamic_resharding(&self, shard_trie: &Trie, shard_id: ShardId) -> Result<(), Error> {
-        match self.check_dynamic_resharding_impl(shard_trie, shard_id) {
+    fn check_dynamic_resharding(
+        &self,
+        shard_trie: &Trie,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+        protocol_version: ProtocolVersion,
+        config: &DynamicReshardingConfig,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<Option<TrieSplit>, Error> {
+        if !ProtocolFeature::DynamicResharding.enabled(protocol_version) {
+            return Ok(None);
+        }
+        if !self.epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
+            return Ok(None);
+        }
+        if self.epoch_manager.get_shard_layout(epoch_id)?.num_shards()
+            >= config.max_number_of_shards
+        {
+            return Ok(None);
+        }
+
+        // TODO(dynamic_resharding): Check how many epochs since last resharding
+
+        match self.check_dynamic_resharding_impl(shard_trie, config) {
             Err(FindSplitError::Storage(err)) => Err(err)?,
             Err(err) => {
-                tracing::error!(target: "runtime", ?shard_id, ?err, "dynamic resharding check failed")
+                tracing::error!(target: "runtime", ?shard_id, ?err, "dynamic resharding check failed");
+                Ok(None)
             }
-            Ok(()) => {}
+            Ok(split) => Ok(split),
         }
-        Ok(())
     }
 }
 
@@ -1022,13 +1056,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&block.prev_block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let config = self.runtime_config_store.get_config(protocol_version);
-
-        // TODO(dynamic_resharding): Use recording for this when actual resharding (not dry run) is triggered
-        if self.dynamic_resharding_dry_run
-            && self.epoch_manager.is_next_block_epoch_start(&block.prev_block_hash)?
-        {
-            self.check_dynamic_resharding(&trie, shard_id)?;
-        }
 
         let proof_limit = config.witness_config.main_storage_proof_size_soft_limit;
         trie = trie.recording_reads_with_proof_size_limit(proof_limit);

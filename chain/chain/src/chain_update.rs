@@ -131,6 +131,7 @@ impl<'a> ChainUpdate<'a> {
                     apply_result.total_balance_burnt,
                     apply_result.congestion_info,
                     apply_result.bandwidth_requests,
+                    apply_result.proposed_split,
                 );
                 self.chain_store_update.save_chunk_extra(
                     block_hash,
@@ -557,6 +558,7 @@ impl<'a> ChainUpdate<'a> {
             apply_result.total_balance_burnt,
             apply_result.congestion_info,
             apply_result.bandwidth_requests,
+            apply_result.proposed_split,
         );
         self.chain_store_update.save_chunk_extra(
             block_header.hash(),
