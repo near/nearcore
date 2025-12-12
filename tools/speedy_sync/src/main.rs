@@ -229,7 +229,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         home_dir,
         &Default::default(),
         near_config.config.cold_store.as_ref(),
-        near_config.config.cloud_storage_config(),
+        near_config.cloud_storage_context(),
     )
     .open()
     .unwrap()

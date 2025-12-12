@@ -29,7 +29,7 @@ use std::sync::Arc;
 use crate::spice_core::{SpiceCoreReader, record_uncertified_chunks_for_block};
 use crate::spice_core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use crate::test_utils::{
-    get_chain_with_genesis, get_fake_next_block_spice_chunk_headers, process_block_sync,
+    get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
 use crate::{BlockProcessingArtifact, Chain, Provenance};
 
@@ -1211,7 +1211,7 @@ fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
         .unwrap();
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
     TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
-        .chunks(get_fake_next_block_spice_chunk_headers(&prev_block, chain.epoch_manager.as_ref()))
+        .chunks(get_fake_next_block_chunk_headers(&prev_block, chain.epoch_manager.as_ref()))
 }
 
 fn build_non_spice_block(chain: &Chain, prev_block: &Block) -> Arc<Block> {

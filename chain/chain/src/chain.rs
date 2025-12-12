@@ -1504,7 +1504,7 @@ impl Chain {
                 BlockInfo::from_header(header, last_finalized_height),
                 *header.random_value(),
             )?;
-            chain_store_update.merge(epoch_manager_update);
+            chain_store_update.merge(epoch_manager_update.into());
             chain_store_update.commit()?;
         }
 
