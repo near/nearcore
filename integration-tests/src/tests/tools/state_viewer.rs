@@ -15,8 +15,6 @@ use std::sync::Arc;
 /// Tests that getting the latest trie state actually gets the latest state.
 /// Adds a transaction and waits for it to be included in a block.
 /// Checks that the change of state caused by that transaction is visible to `load_trie()`.
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_latest_trie_state() {
     near_o11y::testonly::init_test_logger();
     let validators = vec!["test0".parse::<AccountId>().unwrap()];

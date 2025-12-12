@@ -1135,7 +1135,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             height_included,
             shard_id: inner.shard_id(),
             gas_used: inner.prev_gas_used(),
-            gas_limit: inner.gas_limit(),
+            gas_limit: if inner.is_spice_chunk() { Gas::default() } else { inner.gas_limit() },
             rent_paid: Balance::ZERO,
             validator_reward: Balance::ZERO,
             balance_burnt: inner.prev_balance_burnt(),
