@@ -424,6 +424,7 @@ pub(crate) fn handle_gas_refund(
     public_key: &PublicKey,
     deposit: Balance,
 ) -> Result<(), StorageError> {
+    tracing::trace!(target: "refunds", %account_id, ?public_key, %deposit, "handling gas refund");
     if let Some(mut access_key) = get_access_key(state_update, account_id, public_key)? {
         let mut updated = false;
         if let Some(function_call_permission) =

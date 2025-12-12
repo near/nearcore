@@ -2528,6 +2528,14 @@ fn action_transfer_or_implicit_account_creation(
                 deposit,
             )?;
         } else {
+            if is_refund {
+                tracing::trace!(
+                   target: "refunds",
+                   receiver_id = %receipt.receiver_id(),
+                   %deposit,
+                   "refund transfer",
+                );
+            }
             action_transfer(account, deposit)?;
         }
     } else {

@@ -8,8 +8,10 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, FunctionCallPermission};
 use near_primitives::action::{
-    Action, AddKeyAction, TransferAction, TransferFromGasKeyAction, TransferToGasKeyAction,
+    Action, AddKeyAction, FunctionCallAction, TransferAction, TransferFromGasKeyAction,
+    TransferToGasKeyAction,
 };
+use near_primitives::gas::Gas;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, Nonce};
@@ -214,6 +216,36 @@ fn send_transfers_as_gas_keys(
                 );
                 eprintln!(
                     "Sent transfer of {} from {} of {} to {}, {}",
+                    deposit, from_key_index, account, to_index, other_account
+                );
+                let process_tx_request =
+                    ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+                node_datas[from_index % clients.len()].rpc_handler_sender.send(process_tx_request);
+                key.nonce += 1;
+                // Now let's do a function call, but just from 1st account
+                if from_index == 1 {
+                    continue;
+                }
+                let deposit = Balance::from_near(5);
+                let tx = SignedTransaction::from_actions(
+                    key.nonce + 1,
+                    account.clone(),
+                    other_account.clone(),
+                    &key.signer,
+                    vec![Action::FunctionCall(
+                        FunctionCallAction {
+                            method_name: "some_method".to_string(),
+                            args: vec![],
+                            gas: Gas::from_teragas(200),
+                            deposit,
+                        }
+                        .into(),
+                    )],
+                    anchor_hash,
+                    0,
+                );
+                eprintln!(
+                    "Sent function call with deposit {} from {} of {} to {}, {}",
                     deposit, from_key_index, account, to_index, other_account
                 );
                 let process_tx_request =
