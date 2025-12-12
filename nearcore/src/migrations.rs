@@ -57,9 +57,10 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
     }
 }
 
-/// This migration does two things:
-/// 1. Generate and save the compressed epoch sync proof
-/// 2. Clear the block headers from genesis to tail in hot_store
+/// This migration does three things:
+/// 1. Copy block headers from hot_store to cold_db (if cold_db is present)
+/// 2. Generate and save the compressed epoch sync proof
+/// 3. Clear the block headers from genesis to tail in hot_store
 #[allow(dead_code)]
 fn migrate_47_to_48(
     hot_store: &Store,
@@ -78,6 +79,10 @@ fn migrate_47_to_48(
     Ok(())
 }
 
+// Copy block headers from hot_store to cold_db in batches
+// Note that we are using raw DBTransaction iteration to avoid deserializing and re-serializing the block headers
+// Typically this is NOT recommended as ColdDB has specific ways for storing data, example RC columns.
+// But in our case this is fine as the block headers are stored as-is in both hot and cold DBs.
 fn copy_block_headers_to_cold_db(hot_store: &Store, cold_db: &ColdDB) -> anyhow::Result<()> {
     let genesis_height = get_genesis_height(hot_store)?.unwrap();
     let head_height = hot_store.chain_store().head().unwrap().height;
