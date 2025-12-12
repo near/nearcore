@@ -465,7 +465,7 @@ impl Block {
         // With spice chunks wouldn't contain prev_state_roots.
         // TODO(spice): check that block's state_root matches state_root corresponding to chunks of
         // the appropriate executed block from the past.
-        if !cfg!(feature = "protocol_feature_spice") {
+        if !self.is_spice_block() {
             let state_root = self.chunks().compute_state_root();
             if self.header().prev_state_root() != &state_root {
                 return Err(InvalidStateRoot);
