@@ -803,6 +803,7 @@ pub struct TestBlockBuilder {
     max_gas_price: Balance,
     block_merkle_root: CryptoHash,
     chunks: Vec<ShardChunkHeader>,
+    chunk_endorsements: Vec<ChunkEndorsementSignatures>,
     // TODO(spice): Once spice is released remove Option.
     /// Iff `Some` spice block will be created.
     spice_core_statements: Option<Vec<crate::block_body::SpiceCoreStatement>>,
@@ -823,6 +824,7 @@ impl TestBlockBuilder {
         } else {
             *prev_header.next_epoch_id()
         };
+        let chunks_len = prev_chunks.len();
         Self {
             clock,
             signer,
@@ -834,6 +836,7 @@ impl TestBlockBuilder {
             max_gas_price: Balance::ZERO,
             block_merkle_root: tree.root(),
             chunks: prev_chunks,
+            chunk_endorsements: vec![vec![]; chunks_len],
             prev_header,
             spice_core_statements: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
                 Some(vec![])
@@ -923,11 +926,18 @@ impl TestBlockBuilder {
         self
     }
 
+    pub fn chunk_endorsements(
+        mut self,
+        chunk_endorsements: Vec<ChunkEndorsementSignatures>,
+    ) -> Self {
+        self.chunk_endorsements = chunk_endorsements;
+        self
+    }
+
     pub fn build(self) -> Arc<Block> {
         use crate::version::PROTOCOL_VERSION;
 
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
-        let chunks_len = self.chunks.len();
         let last_certified_block_execution_results = BlockExecutionResults(
             self.chunks
                 .iter()
@@ -948,7 +958,7 @@ impl TestBlockBuilder {
             self.height,
             self.prev_header.block_ordinal() + 1,
             self.chunks,
-            vec![vec![]; chunks_len],
+            self.chunk_endorsements,
             self.epoch_id,
             self.next_epoch_id,
             None,
