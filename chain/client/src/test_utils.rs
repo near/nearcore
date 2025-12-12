@@ -18,12 +18,12 @@ use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk, ShardChunkWithEncoding};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
+use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::types::{Balance, BlockHeight, EpochId, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::ShardUId;
-use num_rational::Ratio;
 use parking_lot::Mutex;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::mem::swap;
@@ -243,30 +243,13 @@ pub fn create_chunk(
     let signer = client.validator_signer.get().unwrap();
     let endorsement =
         ChunkEndorsement::new(EpochId::default(), &encoded_chunk.cloned_header(), signer.as_ref());
-    block_merkle_tree.insert(*last_block.hash());
-    let block = Arc::new(Block::produce(
-        PROTOCOL_VERSION,
-        last_block.header(),
-        next_height,
-        last_block.header().block_ordinal() + 1,
-        vec![encoded_chunk.cloned_header()],
-        vec![vec![Some(Box::new(endorsement.signature()))]],
-        *last_block.header().epoch_id(),
-        *last_block.header().next_epoch_id(),
-        None,
-        vec![],
-        Ratio::new(0, 1),
-        Balance::ZERO,
-        Balance::from_yoctonear(100),
-        None,
-        &*client.validator_signer.get().unwrap(),
-        *last_block.header().next_bp_hash(),
-        block_merkle_tree.root(),
-        client.clock.clone(),
-        None,
-        None,
-        None,
-    ));
+    let block = TestBlockBuilder::from_prev_block(client.clock.clone(), &last_block, signer)
+        .height(next_height)
+        .chunks(vec![encoded_chunk.cloned_header()])
+        .chunk_endorsements(vec![vec![Some(Box::new(endorsement.signature()))]])
+        .max_gas_price(Balance::from_yoctonear(100))
+        .block_merkle_tree(&mut block_merkle_tree)
+        .build();
     let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk).unwrap();
     (ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts }, block)
 }
