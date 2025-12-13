@@ -688,6 +688,7 @@ mod tests {
                 Balance::ZERO,
                 Some(CongestionInfo::default()),
                 BandwidthRequests::empty(),
+                None,
             );
             let block_shard_uid = get_block_shard_uid(&parent_root, &parent_shard);
             chain_store_update

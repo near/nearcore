@@ -142,7 +142,6 @@ impl TestEnv {
             StateSnapshotConfig::enabled(dir.path().join("data")),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
             false,
-            false,
         );
         let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
         let genesis_hash = hash(&[0]);

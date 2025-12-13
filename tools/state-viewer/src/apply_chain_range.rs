@@ -444,6 +444,7 @@ fn apply_block_from_range(
         apply_result.total_balance_burnt,
         apply_result.congestion_info,
         apply_result.bandwidth_requests.clone(),
+        apply_result.proposed_split.clone(),
     );
 
     let state_update =

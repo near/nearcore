@@ -468,6 +468,7 @@ mod trie_recording_tests {
             Balance::ZERO,
             Some(CongestionInfo::default()),
             BandwidthRequests::empty(),
+            None,
         );
         let mut update_for_chunk_extra = tries_for_building.store_update();
         update_for_chunk_extra

@@ -364,6 +364,27 @@ impl ChunkProducer {
                 &*validator_signer,
                 &mut self.reed_solomon_encoder,
             )
+        } else if ProtocolFeature::DynamicResharding.enabled(protocol_version) {
+            ShardChunkWithEncoding::new_for_dynamic_resharding(
+                prev_block_hash,
+                *chunk_extra.state_root(),
+                *chunk_extra.outcome_root(),
+                next_height,
+                shard_id,
+                gas_used,
+                chunk_extra.gas_limit(),
+                chunk_extra.balance_burnt(),
+                chunk_extra.validator_proposals().collect(),
+                prepared_transactions.transactions,
+                outgoing_receipts.clone(),
+                outgoing_receipts_root,
+                tx_root,
+                congestion_info,
+                bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
+                chunk_extra.proposed_split().cloned(),
+                &*validator_signer,
+                &mut self.reed_solomon_encoder,
+            )
         } else {
             ShardChunkWithEncoding::new(
                 prev_block_hash,

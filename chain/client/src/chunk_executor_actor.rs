@@ -1005,6 +1005,7 @@ fn new_execution_result(
         apply_result.total_balance_burnt,
         apply_result.congestion_info,
         apply_result.bandwidth_requests.clone(),
+        apply_result.proposed_split.clone(),
     );
     ChunkExecutionResult { chunk_extra, outgoing_receipts_root }
 }

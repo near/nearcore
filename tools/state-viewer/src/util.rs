@@ -110,12 +110,15 @@ fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
         (ChunkExtra::V2(l), ChunkExtra::V2(r)) => return l == r,
         (ChunkExtra::V3(l), ChunkExtra::V3(r)) => return l == r,
         (ChunkExtra::V4(l), ChunkExtra::V4(r)) => return l == r,
+        (ChunkExtra::V5(l), ChunkExtra::V5(r)) => return l == r,
         (ChunkExtra::V1(_), ChunkExtra::V2(_))
         | (ChunkExtra::V2(_), ChunkExtra::V1(_))
         | (_, ChunkExtra::V3(_))
         | (ChunkExtra::V3(_), _)
         | (_, ChunkExtra::V4(_))
-        | (ChunkExtra::V4(_), _) => {}
+        | (ChunkExtra::V4(_), _)
+        | (_, ChunkExtra::V5(_))
+        | (ChunkExtra::V5(_), _) => {}
     };
     if l.state_root() != r.state_root() {
         return false;
@@ -138,6 +141,9 @@ fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
     if l.bandwidth_requests() != r.bandwidth_requests() {
         return false;
     }
+    if l.proposed_split() != r.proposed_split() {
+        return false;
+    }
     l.validator_proposals().collect::<Vec<_>>() == r.validator_proposals().collect::<Vec<_>>()
 }
 
@@ -152,6 +158,7 @@ pub fn resulting_chunk_extra(result: &ApplyChunkResult, gas_limit: Gas) -> Chunk
         result.total_balance_burnt,
         result.congestion_info,
         result.bandwidth_requests.clone(),
+        result.proposed_split.clone(),
     )
 }
 

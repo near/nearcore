@@ -1183,6 +1183,7 @@ mod tests {
                 apply_result.total_balance_burnt,
                 apply_result.congestion_info,
                 apply_result.bandwidth_requests.clone(),
+                apply_result.proposed_split.clone(),
             );
             let shard_layout =
                 self.chain.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();

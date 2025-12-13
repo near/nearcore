@@ -814,6 +814,7 @@ pub fn apply_result_to_chunk_extra(
         apply_result.total_balance_burnt,
         apply_result.congestion_info,
         apply_result.bandwidth_requests,
+        apply_result.proposed_split,
     )
 }
 

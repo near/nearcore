@@ -550,6 +550,7 @@ mod tests {
             Balance::ZERO,
             Some(CongestionInfo::default()),
             BandwidthRequests::empty(),
+            None,
         );
         let mut store_update = store.store_update();
         store_update
