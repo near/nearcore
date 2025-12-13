@@ -7,8 +7,8 @@ use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermis
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::action::{
     AddGasKeyAction, DeleteGasKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
-    GlobalContractDeployMode, GlobalContractIdentifier, TransferToGasKeyAction,
-    UseGlobalContractAction,
+    GlobalContractDeployMode, GlobalContractIdentifier, TransferFromGasKeyAction,
+    TransferToGasKeyAction, UseGlobalContractAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -49,7 +49,7 @@ use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
-use near_primitives_core::account::{AccountContract, GasKey};
+use near_primitives_core::account::{AccountContract, GasKey, GasKeyInfo};
 use near_primitives_core::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
@@ -154,8 +154,35 @@ impl From<AccountView> for Account {
 #[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AccessKeyPermissionView {
-    FunctionCall { allowance: Option<Balance>, receiver_id: String, method_names: Vec<String> } = 0,
+    FunctionCall {
+        allowance: Option<Balance>,
+        receiver_id: String,
+        method_names: Vec<String>,
+    } = 0,
     FullAccess = 1,
+    GasKeyFunctionCall {
+        balance: Balance,
+        num_nonces: NonceIndex,
+        allowance: Option<Balance>,
+        receiver_id: String,
+        method_names: Vec<String>,
+    } = 2,
+    GasKeyFullAccess {
+        balance: Balance,
+        num_nonces: NonceIndex,
+    } = 3,
+}
+
+impl AccessKeyPermissionView {
+    pub fn gas_balance(&self) -> Option<Balance> {
+        match self {
+            AccessKeyPermissionView::GasKeyFunctionCall { balance, .. }
+            | AccessKeyPermissionView::GasKeyFullAccess { balance, .. } => Some(*balance),
+            AccessKeyPermissionView::FunctionCall { .. } | AccessKeyPermissionView::FullAccess => {
+                None
+            }
+        }
+    }
 }
 
 impl From<AccessKeyPermission> for AccessKeyPermissionView {
@@ -167,6 +194,21 @@ impl From<AccessKeyPermission> for AccessKeyPermissionView {
                 method_names: func_call.method_names,
             },
             AccessKeyPermission::FullAccess => AccessKeyPermissionView::FullAccess,
+            AccessKeyPermission::GasKeyFunctionCall(gas_key_info, func_call) => {
+                AccessKeyPermissionView::GasKeyFunctionCall {
+                    balance: gas_key_info.balance,
+                    num_nonces: gas_key_info.num_nonces,
+                    allowance: func_call.allowance,
+                    receiver_id: func_call.receiver_id,
+                    method_names: func_call.method_names,
+                }
+            }
+            AccessKeyPermission::GasKeyFullAccess(gas_key_info) => {
+                AccessKeyPermissionView::GasKeyFullAccess {
+                    balance: gas_key_info.balance,
+                    num_nonces: gas_key_info.num_nonces,
+                }
+            }
         }
     }
 }
@@ -182,6 +224,19 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
                 })
             }
             AccessKeyPermissionView::FullAccess => AccessKeyPermission::FullAccess,
+            AccessKeyPermissionView::GasKeyFunctionCall {
+                balance,
+                num_nonces,
+                allowance,
+                receiver_id,
+                method_names,
+            } => AccessKeyPermission::GasKeyFunctionCall(
+                GasKeyInfo { balance, num_nonces },
+                FunctionCallPermission { allowance, receiver_id, method_names },
+            ),
+            AccessKeyPermissionView::GasKeyFullAccess { balance, num_nonces } => {
+                AccessKeyPermission::GasKeyFullAccess(GasKeyInfo { balance, num_nonces })
+            }
         }
     }
 }
@@ -1428,6 +1483,10 @@ pub enum ActionView {
         public_key: PublicKey,
         amount: Balance,
     } = 16,
+    TransferFromGasKey {
+        public_key: PublicKey,
+        amount: Balance,
+    } = 17,
 }
 
 impl From<Action> for ActionView {
@@ -1497,6 +1556,10 @@ impl From<Action> for ActionView {
             Action::TransferToGasKey(action) => ActionView::TransferToGasKey {
                 public_key: action.public_key,
                 amount: action.deposit,
+            },
+            Action::TransferFromGasKey(action) => ActionView::TransferFromGasKey {
+                public_key: action.public_key,
+                amount: action.amount,
             },
         }
     }
@@ -1579,6 +1642,12 @@ impl TryFrom<ActionView> for Action {
                     deposit: amount,
                 }))
             }
+            ActionView::TransferFromGasKey { public_key, amount } => {
+                Action::TransferFromGasKey(Box::new(TransferFromGasKeyAction {
+                    public_key,
+                    amount,
+                }))
+            }
             ActionView::DeleteGasKey { public_key } => {
                 Action::DeleteGasKey(Box::new(DeleteGasKeyAction { public_key }))
             }
@@ -1606,10 +1675,13 @@ pub struct SignedTransactionView {
     // Default value used when deserializing SignedTransactionView which are missing the `priority_fee` field.
     // Data which is missing this field was serialized before the introduction of priority_fee.
     // priority_fee for Transaction::V0 => None, SignedTransactionView => 0
+    // TODO(gas-keys): Deprecate
     #[serde(default)]
     pub priority_fee: u64,
     pub signature: Signature,
     pub hash: CryptoHash,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub nonce_index: Option<NonceIndex>,
 }
 
 impl From<SignedTransaction> for SignedTransactionView {
@@ -1620,7 +1692,8 @@ impl From<SignedTransaction> for SignedTransactionView {
         SignedTransactionView {
             signer_id: transaction.signer_id().clone(),
             public_key: transaction.public_key().clone(),
-            nonce: transaction.nonce(),
+            nonce: transaction.nonce().nonce(),
+            nonce_index: transaction.nonce().nonce_index(),
             receiver_id: transaction.receiver_id().clone(),
             actions: transaction.take_actions().into_iter().map(|action| action.into()).collect(),
             signature: signed_tx.signature,

@@ -1,15 +1,17 @@
 use near_client::Client;
+use near_crypto::PublicKey;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, Balance, ShardId};
 use near_primitives::views::{
-    FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind,
+    AccessKeyView, FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind,
 };
 
 pub trait ClientQueries {
     fn client_index_tracking_account(&self, account: &AccountId) -> usize;
     fn runtime_query(&self, account: &AccountId, query: QueryRequest) -> QueryResponse;
     fn query_balance(&self, account: &AccountId) -> Balance;
+    fn query_access_key(&self, account: &AccountId, public_key: &PublicKey) -> AccessKeyView;
     #[allow(unused)]
     fn view_call(&self, account: &AccountId, method: &str, args: &[u8]) -> Vec<u8>;
     #[allow(unused)]
@@ -79,6 +81,25 @@ where
         );
         if let QueryResponseKind::ViewAccount(account_view) = response.kind {
             account_view.amount
+        } else {
+            panic!("Wrong return value")
+        }
+    }
+
+    fn query_access_key(
+        &self,
+        account_id: &AccountId,
+        public_key: &near_crypto::PublicKey,
+    ) -> near_primitives::views::AccessKeyView {
+        let response = self.runtime_query(
+            account_id,
+            QueryRequest::ViewAccessKey {
+                account_id: account_id.clone(),
+                public_key: public_key.clone(),
+            },
+        );
+        if let QueryResponseKind::AccessKey(access_key_view) = response.kind {
+            access_key_view
         } else {
             panic!("Wrong return value")
         }

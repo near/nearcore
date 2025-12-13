@@ -707,7 +707,7 @@ impl TargetChainTx {
     fn target_nonce(&self) -> TargetNonce {
         match self {
             Self::Ready(t) => TargetNonce {
-                nonce: Some(t.target_tx.transaction.nonce()),
+                nonce: Some(t.target_tx.transaction.nonce().nonce()),
                 pending_outcomes: HashSet::new(),
             },
             Self::AwaitingNonce(t) => t.target_nonce.clone(),

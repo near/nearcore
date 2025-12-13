@@ -345,6 +345,23 @@ pub struct TransferToGasKeyAction {
     BorshDeserialize,
     PartialEq,
     Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct TransferFromGasKeyAction {
+    pub public_key: PublicKey,
+    pub amount: Balance,
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
     Debug,
     Clone,
     serde::Serialize,
@@ -375,6 +392,7 @@ pub enum Action {
     AddGasKey(Box<AddGasKeyAction>) = 12,
     DeleteGasKey(Box<DeleteGasKeyAction>) = 13,
     TransferToGasKey(Box<TransferToGasKeyAction>) = 14,
+    TransferFromGasKey(Box<TransferFromGasKeyAction>) = 15,
 }
 
 const _: () = assert!(

@@ -6,7 +6,10 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
-use crate::gas_keys::{action_add_gas_key, action_delete_gas_key, action_transfer_to_gas_key};
+use crate::gas_keys::{
+    action_add_gas_key, action_delete_gas_key, action_transfer_from_gas_key,
+    action_transfer_to_gas_key,
+};
 use crate::metrics::{
     TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL,
     TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL,
@@ -17,8 +20,8 @@ use crate::verifier::{
     StorageStakingError, check_storage_stake, validate_receipt, validate_transaction_well_formed,
 };
 pub use crate::verifier::{
-    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
-    validate_transaction, verify_and_charge_tx_ephemeral,
+    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_key_state, get_signer_and_key_state, set_key_state,
+    set_tx_state_changes, validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
@@ -72,8 +75,8 @@ use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
-    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
-    get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
+    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_account,
+    get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
     has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
     set_account, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
 };
@@ -495,6 +498,16 @@ impl Runtime {
             Action::TransferToGasKey(transfer) => {
                 metrics::ACTION_CALLED_COUNT.transfer_to_gas_key.inc();
                 action_transfer_to_gas_key(state_update, account_id, transfer, &mut result)?;
+            }
+            Action::TransferFromGasKey(transfer) => {
+                metrics::ACTION_CALLED_COUNT.transfer_from_gas_key.inc();
+                action_transfer_from_gas_key(
+                    state_update,
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    account_id,
+                    transfer,
+                    &mut result,
+                )?;
             }
             Action::Stake(stake) => {
                 metrics::ACTION_CALLED_COUNT.stake.inc();
@@ -1666,9 +1679,17 @@ impl Runtime {
                             accounts.entry(signer_id).or_insert_with(|| {
                                 get_account(&processing_state.state_update, signer_id)
                             });
-                            access_keys.entry((signer_id, pubkey)).or_insert_with(|| {
-                                get_access_key(&processing_state.state_update, signer_id, pubkey)
-                            });
+                            let nonce_index = tx.transaction.nonce().nonce_index();
+                            access_keys.entry((signer_id, pubkey, nonce_index)).or_insert_with(
+                                || {
+                                    get_key_state(
+                                        &processing_state.state_update,
+                                        signer_id,
+                                        pubkey,
+                                        nonce_index,
+                                    )
+                                },
+                            );
                         }
                     });
                 (accounts, access_keys)
@@ -1735,7 +1756,8 @@ impl Runtime {
                 Some(Err(e)) => return Err(e.clone().into()),
                 None => unreachable!("accounts should've been prefetched"),
             };
-            let mut access_key = access_keys.get_mut(&(signer_id, pubkey));
+            let nonce_index = tx.transaction.nonce().nonce_index();
+            let mut access_key = access_keys.get_mut(&(signer_id, pubkey, nonce_index));
             let access_key = match access_key.as_deref_mut() {
                 Some(Ok(Some(ak))) => ak,
                 Some(Ok(None)) => {
@@ -1775,6 +1797,35 @@ impl Runtime {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                         tracing::debug!(%tx_hash, error=&error as &dyn std::error::Error, "transaction failed verify/charge");
                         let outcome = ExecutionOutcomeWithId::failed(tx, error);
+
+                        // TODO: Refactor to function?
+                        // TODO: Is this all the stats we need to update?
+                        match safe_add_balance(
+                            processing_state.stats.balance.tx_burnt_amount,
+                            outcome.outcome.tokens_burnt,
+                        ) {
+                            Ok(new_balance) => {
+                                processing_state.stats.balance.tx_burnt_amount = new_balance;
+                            }
+                            Err(err) => {
+                                // We just drop the transaction here and do not produce any outcome for it.
+                                // This should never happen unless there is a bug in the code.
+                                metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                                tracing::error!(
+                                    target: "runtime",
+                                    tx_hash=?tx.hash(),
+                                    tx_burnt_amount=?outcome.outcome.tokens_burnt,
+                                    ?err,
+                                    "chunk total burnt gas overflow",
+                                );
+                                continue;
+                            }
+                        }
+                        processing_state.total.add(
+                            outcome.outcome.gas_burnt.as_gas(),
+                            // TODO: Should we match compute usage to gas burnt or 0 here?
+                            outcome.outcome.compute_usage.unwrap_or_default(),
+                        )?;
 
                         Self::register_outcome(
                             processing_state.protocol_version,
@@ -1857,7 +1908,7 @@ impl Runtime {
             processing_state.outcomes.push(outcome);
             metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
             set_account(&mut processing_state.state_update, signer_id.clone(), account);
-            set_access_key(
+            set_key_state(
                 &mut processing_state.state_update,
                 signer_id.clone(),
                 pubkey.clone(),
@@ -2477,15 +2528,24 @@ fn action_transfer_or_implicit_account_creation(
     epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
     Ok(if let Some(account) = account.as_mut() {
-        action_transfer(account, deposit)?;
-        // Check if this is a gas refund, then try to refund the access key allowance.
         if is_refund && action_receipt.signer_id() == receipt.receiver_id() {
-            try_refund_allowance(
+            handle_gas_refund(
+                account,
                 state_update,
                 receipt.receiver_id(),
                 &action_receipt.signer_public_key(),
                 deposit,
             )?;
+        } else {
+            if is_refund {
+                tracing::trace!(
+                   target: "refunds",
+                   receiver_id = %receipt.receiver_id(),
+                   %deposit,
+                   "refund transfer",
+                );
+            }
+            action_transfer(account, deposit)?;
         }
     } else {
         debug_assert!(!is_refund);

@@ -3,11 +3,12 @@ use crate::config::{
 };
 use crate::deterministic_account_id::create_deterministic_account;
 use crate::ext::{ExternalError, RuntimeExt};
+use crate::gas_keys::gas_key_storage_cost;
 use crate::receipt_manager::ReceiptManager;
 use crate::{ActionResult, ApplyState, metrics};
 use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
-use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
+use near_primitives::account::{AccessKey, Account, AccountContract, GasKey};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
@@ -32,7 +33,7 @@ use near_store::trie::AccessOptions;
 use near_store::{
     StorageError, TrieAccess, TrieUpdate, enqueue_promise_yield_timeout, get_access_key,
     get_promise_yield_indices, remove_access_key, remove_account, set_access_key,
-    set_promise_yield_indices,
+    set_gas_key_nonce, set_promise_yield_indices,
 };
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
@@ -415,17 +416,20 @@ pub(crate) fn action_stake(
     Ok(())
 }
 
-/// Tries to refunds the allowance of the access key for a gas refund action.
-pub(crate) fn try_refund_allowance(
+// Refunds deposit to access key allowance and gas balance if applicable.
+// If the deposit cannot be refunded to the access key, it is refunded to the account balance.
+pub(crate) fn handle_gas_refund(
+    account: &mut Account,
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
     public_key: &PublicKey,
     deposit: Balance,
 ) -> Result<(), StorageError> {
+    tracing::trace!(target: "refunds", %account_id, ?public_key, %deposit, "handling gas refund");
     if let Some(mut access_key) = get_access_key(state_update, account_id, public_key)? {
         let mut updated = false;
-        if let AccessKeyPermission::FunctionCall(function_call_permission) =
-            &mut access_key.permission
+        if let Some(function_call_permission) =
+            &mut access_key.permission.function_call_permission_mut()
         {
             if let Some(allowance) = function_call_permission.allowance.as_mut() {
                 let new_allowance = allowance.saturating_add(deposit);
@@ -435,6 +439,18 @@ pub(crate) fn try_refund_allowance(
                 }
             }
         }
+
+        if let Some(gas_key_balance) = access_key.permission.gas_balance_mut() {
+            *gas_key_balance = gas_key_balance.checked_add(deposit).ok_or_else(|| {
+                StorageError::StorageInconsistentState(
+                    "gas key balance integer overflow".to_string(),
+                )
+            })?;
+            updated = true;
+        } else {
+            action_transfer(account, deposit)?;
+        }
+
         if updated {
             set_access_key(state_update, account_id.clone(), public_key.clone(), &access_key);
         }
@@ -762,25 +778,64 @@ pub(crate) fn action_add_key(
         return Ok(());
     }
     let mut access_key = add_key.access_key.clone();
-    access_key.nonce = initial_nonce_value(apply_state.block_height);
-    set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
-
-    let storage_config = &apply_state.config.fees.storage_usage_config;
-    account.set_storage_usage(
-        account
-            .storage_usage()
-            .checked_add(
-                borsh::object_length(&add_key.public_key).unwrap() as u64
-                    + borsh::object_length(&add_key.access_key).unwrap() as u64
-                    + storage_config.num_extra_bytes_record,
-            )
-            .ok_or_else(|| {
-                StorageError::StorageInconsistentState(format!(
-                    "Storage usage integer overflow for account {}",
-                    account_id
+    // Needs special vector nonce handling.
+    if let Some(num_nonces) = access_key.num_nonces() {
+        access_key.nonce = 0;
+        if let Some(balance) = access_key.permission.gas_balance_mut() {
+            *balance = Balance::ZERO;
+        }
+        set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
+        let nonce = initial_nonce_value(apply_state.block_height);
+        for i in 0..num_nonces {
+            tracing::warn!(target: "runtime", %account_id, %i, "adding gas key nonce");
+            set_gas_key_nonce(
+                state_update,
+                account_id.clone(),
+                add_key.public_key.clone(),
+                i,
+                nonce,
+            );
+        }
+        account.set_storage_usage(
+            account
+                .storage_usage()
+                .checked_add(gas_key_storage_cost(
+                    &apply_state.config.fees,
+                    &add_key.public_key,
+                    &GasKey {
+                        num_nonces,
+                        balance: Balance::ZERO,
+                        permission: access_key.permission.clone(),
+                    },
                 ))
-            })?,
-    );
+                .ok_or_else(|| {
+                    StorageError::StorageInconsistentState(format!(
+                        "Storage usage integer overflow for account {}",
+                        account_id
+                    ))
+                })?,
+        );
+    } else {
+        access_key.nonce = initial_nonce_value(apply_state.block_height);
+        set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
+
+        let storage_config = &apply_state.config.fees.storage_usage_config;
+        account.set_storage_usage(
+            account
+                .storage_usage()
+                .checked_add(
+                    borsh::object_length(&add_key.public_key).unwrap() as u64
+                        + borsh::object_length(&add_key.access_key).unwrap() as u64
+                        + storage_config.num_extra_bytes_record,
+                )
+                .ok_or_else(|| {
+                    StorageError::StorageInconsistentState(format!(
+                        "Storage usage integer overflow for account {}",
+                        account_id
+                    ))
+                })?,
+        );
+    }
     Ok(())
 }
 
@@ -942,7 +997,7 @@ fn validate_delegate_action_key(
 
     // The restriction of "function call" access keys:
     // the transaction must contain the only `FunctionCall` if "function call" access key is used
-    if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
+    if let Some(function_call_permission) = access_key.permission.function_call_permission() {
         if actions.len() != 1 {
             result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
                 InvalidAccessKeyError::RequiresFullAccess,
@@ -1015,6 +1070,7 @@ pub(crate) fn check_actor_permissions(
         | Action::DeployGlobalContract(_)
         | Action::UseGlobalContract(_)
         | Action::AddGasKey(_)
+        | Action::TransferFromGasKey(_)
         | Action::DeleteGasKey(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
@@ -1106,7 +1162,8 @@ pub(crate) fn check_account_existence(
         | Action::UseGlobalContract(_)
         | Action::AddGasKey(_)
         | Action::DeleteGasKey(_)
-        | Action::TransferToGasKey(_) => {
+        | Action::TransferToGasKey(_)
+        | Action::TransferFromGasKey(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),
@@ -1166,7 +1223,7 @@ mod tests {
     use super::*;
     use crate::actions_test_utils::{setup_account, test_delete_large_account};
     use crate::near_primitives::shard_layout::ShardUId;
-    use near_primitives::account::FunctionCallPermission;
+    use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
     use near_primitives::action::delegate::NonDelegateAction;
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;

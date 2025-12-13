@@ -476,6 +476,43 @@ impl AccessKey {
     pub fn full_access() -> Self {
         Self { nonce: 0, permission: AccessKeyPermission::FullAccess }
     }
+
+    pub fn gas_key_full_access(num_nonces: NonceIndex) -> Self {
+        Self {
+            nonce: 0,
+            permission: AccessKeyPermission::GasKeyFullAccess(GasKeyInfo {
+                balance: Balance::ZERO,
+                num_nonces,
+            }),
+        }
+    }
+
+    pub fn gas_key_function_call(
+        num_nonces: NonceIndex,
+        function_call_permission: FunctionCallPermission,
+    ) -> Self {
+        Self {
+            nonce: 0,
+            permission: AccessKeyPermission::GasKeyFunctionCall(
+                GasKeyInfo { balance: Balance::ZERO, num_nonces },
+                function_call_permission,
+            ),
+        }
+    }
+
+    pub fn num_nonces(&self) -> Option<NonceIndex> {
+        match &self.permission {
+            AccessKeyPermission::GasKeyFullAccess(info)
+            | AccessKeyPermission::GasKeyFunctionCall(info, _) => Some(info.num_nonces),
+            AccessKeyPermission::FullAccess | AccessKeyPermission::FunctionCall(_) => None,
+        }
+    }
+}
+
+pub struct KeyState {
+    pub nonce: Nonce,
+    pub permission: AccessKeyPermission,
+    pub nonce_index: Option<NonceIndex>,
 }
 
 /// Gas key is like an access key, except it stores a balance separately, and transactions signed
@@ -529,6 +566,65 @@ pub enum AccessKeyPermission {
     /// Grants full access to the account.
     /// NOTE: It's used to replace account-level public keys.
     FullAccess,
+
+    GasKeyFullAccess(GasKeyInfo),
+    GasKeyFunctionCall(GasKeyInfo, FunctionCallPermission),
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Hash,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct GasKeyInfo {
+    pub balance: Balance,
+    pub num_nonces: NonceIndex,
+}
+
+impl AccessKeyPermission {
+    pub fn function_call_permission(&self) -> Option<&FunctionCallPermission> {
+        match self {
+            AccessKeyPermission::FullAccess | AccessKeyPermission::GasKeyFullAccess(_) => None,
+            AccessKeyPermission::FunctionCall(permission)
+            | AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
+        }
+    }
+
+    pub fn function_call_permission_mut(&mut self) -> Option<&mut FunctionCallPermission> {
+        match self {
+            AccessKeyPermission::FullAccess | AccessKeyPermission::GasKeyFullAccess(_) => None,
+            AccessKeyPermission::FunctionCall(permission)
+            | AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
+        }
+    }
+
+    pub fn gas_balance(&self) -> Option<&Balance> {
+        match self {
+            AccessKeyPermission::GasKeyFullAccess(GasKeyInfo { balance, .. })
+            | AccessKeyPermission::GasKeyFunctionCall(GasKeyInfo { balance, .. }, _) => {
+                Some(balance)
+            }
+            AccessKeyPermission::FullAccess | AccessKeyPermission::FunctionCall(_) => None,
+        }
+    }
+
+    pub fn gas_balance_mut(&mut self) -> Option<&mut Balance> {
+        match self {
+            AccessKeyPermission::GasKeyFullAccess(GasKeyInfo { balance, .. })
+            | AccessKeyPermission::GasKeyFunctionCall(GasKeyInfo { balance, .. }, _) => {
+                Some(balance)
+            }
+            AccessKeyPermission::FullAccess | AccessKeyPermission::FunctionCall(_) => None,
+        }
+    }
 }
 
 /// Grants limited permission to make transactions with FunctionCallActions
