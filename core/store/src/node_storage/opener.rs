@@ -1,4 +1,4 @@
-use crate::archive::cloud_storage::config::CloudArchivalConfig;
+use crate::archive::cloud_storage::config::CloudStorageContext;
 use crate::archive::cloud_storage::opener::CloudStorageOpener;
 use crate::config::StateSnapshotType;
 use crate::db::ColdDB;
@@ -209,12 +209,12 @@ impl<'a> StoreOpener<'a> {
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
         cold_store_config: Option<&'a StoreConfig>,
-        cloud_archival_config: Option<&'a CloudArchivalConfig>,
+        cloud_storage_context: Option<CloudStorageContext>,
     ) -> Self {
         let hot = DBOpener::new(home_dir, store_config, Temperature::Hot);
         let cold =
             cold_store_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold));
-        let cloud = cloud_archival_config.map(|config| CloudStorageOpener::new(config.clone()));
+        let cloud = cloud_storage_context.map(|context| CloudStorageOpener::new(context));
         Self { hot, cold, migrator: None, cloud }
     }
 
