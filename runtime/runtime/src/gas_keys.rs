@@ -175,7 +175,7 @@ pub(crate) fn action_delete_gas_key(
     Ok(())
 }
 
-fn gas_key_storage_cost(
+pub(crate) fn gas_key_storage_cost(
     fee_config: &RuntimeFeesConfig,
     public_key: &PublicKey,
     gas_key: &GasKey,

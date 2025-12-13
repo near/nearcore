@@ -49,7 +49,7 @@ use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
-use near_primitives_core::account::{AccountContract, GasKey};
+use near_primitives_core::account::{AccountContract, GasKey, GasKeyInfo};
 use near_primitives_core::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
@@ -162,12 +162,14 @@ pub enum AccessKeyPermissionView {
     FullAccess = 1,
     GasKeyFunctionCall {
         balance: Balance,
+        num_nonces: NonceIndex,
         allowance: Option<Balance>,
         receiver_id: String,
         method_names: Vec<String>,
     } = 2,
     GasKeyFullAccess {
         balance: Balance,
+        num_nonces: NonceIndex,
     } = 3,
 }
 
@@ -175,7 +177,7 @@ impl AccessKeyPermissionView {
     pub fn gas_balance(&self) -> Option<Balance> {
         match self {
             AccessKeyPermissionView::GasKeyFunctionCall { balance, .. }
-            | AccessKeyPermissionView::GasKeyFullAccess { balance } => Some(*balance),
+            | AccessKeyPermissionView::GasKeyFullAccess { balance, .. } => Some(*balance),
             AccessKeyPermissionView::FunctionCall { .. } | AccessKeyPermissionView::FullAccess => {
                 None
             }
@@ -192,16 +194,20 @@ impl From<AccessKeyPermission> for AccessKeyPermissionView {
                 method_names: func_call.method_names,
             },
             AccessKeyPermission::FullAccess => AccessKeyPermissionView::FullAccess,
-            AccessKeyPermission::GasKeyFunctionCall(balance, func_call) => {
+            AccessKeyPermission::GasKeyFunctionCall(gas_key_info, func_call) => {
                 AccessKeyPermissionView::GasKeyFunctionCall {
-                    balance,
+                    balance: gas_key_info.balance,
+                    num_nonces: gas_key_info.num_nonces,
                     allowance: func_call.allowance,
                     receiver_id: func_call.receiver_id,
                     method_names: func_call.method_names,
                 }
             }
-            AccessKeyPermission::GasKeyFullAccess(balance) => {
-                AccessKeyPermissionView::GasKeyFullAccess { balance }
+            AccessKeyPermission::GasKeyFullAccess(gas_key_info) => {
+                AccessKeyPermissionView::GasKeyFullAccess {
+                    balance: gas_key_info.balance,
+                    num_nonces: gas_key_info.num_nonces,
+                }
             }
         }
     }
@@ -220,15 +226,16 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
             AccessKeyPermissionView::FullAccess => AccessKeyPermission::FullAccess,
             AccessKeyPermissionView::GasKeyFunctionCall {
                 balance,
+                num_nonces,
                 allowance,
                 receiver_id,
                 method_names,
             } => AccessKeyPermission::GasKeyFunctionCall(
-                balance,
+                GasKeyInfo { balance, num_nonces },
                 FunctionCallPermission { allowance, receiver_id, method_names },
             ),
-            AccessKeyPermissionView::GasKeyFullAccess { balance } => {
-                AccessKeyPermission::GasKeyFullAccess(balance)
+            AccessKeyPermissionView::GasKeyFullAccess { balance, num_nonces } => {
+                AccessKeyPermission::GasKeyFullAccess(GasKeyInfo { balance, num_nonces })
             }
         }
     }

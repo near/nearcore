@@ -91,17 +91,21 @@ fn create_gas_keys(
         let key1 = InMemorySigner::from_random(account.clone(), KeyType::ED25519);
         let key2 = InMemorySigner::from_random(account.clone(), KeyType::SECP256K1);
         signers.push(vec![Signer::InMemory(key1.clone()), Signer::InMemory(key2.clone())]);
+        let num_nonces = 1;
         let action1 = Action::AddKey(Box::new(AddKeyAction {
             public_key: key1.public_key(),
-            access_key: AccessKey::gas_key_full_access(),
+            access_key: AccessKey::gas_key_full_access(num_nonces),
         }));
         let action2 = Action::AddKey(Box::new(AddKeyAction {
             public_key: key2.public_key(),
-            access_key: AccessKey::gas_key_function_call(FunctionCallPermission {
-                allowance: None,
-                method_names: vec!["allowed".to_string()],
-                receiver_id: account.to_string(),
-            }),
+            access_key: AccessKey::gas_key_function_call(
+                num_nonces,
+                FunctionCallPermission {
+                    allowance: None,
+                    method_names: vec!["allowed".to_string()],
+                    receiver_id: account.to_string(),
+                },
+            ),
         }));
         let action3 = Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
             public_key: key1.public_key(),
@@ -155,7 +159,7 @@ fn create_gas_keys(
         assert_eq!(gas_key_view2.permission.gas_balance().unwrap(), Balance::from_near(100000));
         assert!(matches!(
             gas_key_view2.permission,
-            AccessKeyPermissionView::GasKeyFunctionCall{balance: _, allowance: None, method_names, receiver_id } if method_names == vec!["allowed".to_string()] && receiver_id.as_bytes() == account.as_bytes()
+            AccessKeyPermissionView::GasKeyFunctionCall{allowance: None, method_names, receiver_id, .. } if method_names == vec!["allowed".to_string()] && receiver_id.as_bytes() == account.as_bytes()
         ));
         gas_key_signers.push(vec![
             GasKeySigner {

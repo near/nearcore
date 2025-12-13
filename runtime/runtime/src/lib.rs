@@ -20,8 +20,8 @@ use crate::verifier::{
     StorageStakingError, check_storage_stake, validate_receipt, validate_transaction_well_formed,
 };
 pub use crate::verifier::{
-    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
-    validate_transaction, verify_and_charge_tx_ephemeral,
+    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_key_state, get_signer_and_key_state, set_key_state,
+    set_tx_state_changes, validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
@@ -75,8 +75,8 @@ use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
-    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
-    get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
+    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_account,
+    get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
     has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
     set_account, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
 };
@@ -1679,9 +1679,17 @@ impl Runtime {
                             accounts.entry(signer_id).or_insert_with(|| {
                                 get_account(&processing_state.state_update, signer_id)
                             });
-                            access_keys.entry((signer_id, pubkey)).or_insert_with(|| {
-                                get_access_key(&processing_state.state_update, signer_id, pubkey)
-                            });
+                            let nonce_index = tx.transaction.nonce().nonce_index();
+                            access_keys.entry((signer_id, pubkey, nonce_index)).or_insert_with(
+                                || {
+                                    get_key_state(
+                                        &processing_state.state_update,
+                                        signer_id,
+                                        pubkey,
+                                        nonce_index,
+                                    )
+                                },
+                            );
                         }
                     });
                 (accounts, access_keys)
@@ -1748,7 +1756,8 @@ impl Runtime {
                 Some(Err(e)) => return Err(e.clone().into()),
                 None => unreachable!("accounts should've been prefetched"),
             };
-            let mut access_key = access_keys.get_mut(&(signer_id, pubkey));
+            let nonce_index = tx.transaction.nonce().nonce_index();
+            let mut access_key = access_keys.get_mut(&(signer_id, pubkey, nonce_index));
             let access_key = match access_key.as_deref_mut() {
                 Some(Ok(Some(ak))) => ak,
                 Some(Ok(None)) => {
@@ -1899,7 +1908,7 @@ impl Runtime {
             processing_state.outcomes.push(outcome);
             metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
             set_account(&mut processing_state.state_update, signer_id.clone(), account);
-            set_access_key(
+            set_key_state(
                 &mut processing_state.state_update,
                 signer_id.clone(),
                 pubkey.clone(),

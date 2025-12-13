@@ -3,11 +3,12 @@ use crate::config::{
 };
 use crate::deterministic_account_id::create_deterministic_account;
 use crate::ext::{ExternalError, RuntimeExt};
+use crate::gas_keys::gas_key_storage_cost;
 use crate::receipt_manager::ReceiptManager;
 use crate::{ActionResult, ApplyState, metrics};
 use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
-use near_primitives::account::{AccessKey, Account, AccountContract};
+use near_primitives::account::{AccessKey, Account, AccountContract, GasKey};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
@@ -32,7 +33,7 @@ use near_store::trie::AccessOptions;
 use near_store::{
     StorageError, TrieAccess, TrieUpdate, enqueue_promise_yield_timeout, get_access_key,
     get_promise_yield_indices, remove_access_key, remove_account, set_access_key,
-    set_promise_yield_indices,
+    set_gas_key_nonce, set_promise_yield_indices,
 };
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
@@ -777,25 +778,64 @@ pub(crate) fn action_add_key(
         return Ok(());
     }
     let mut access_key = add_key.access_key.clone();
-    access_key.nonce = initial_nonce_value(apply_state.block_height);
-    set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
-
-    let storage_config = &apply_state.config.fees.storage_usage_config;
-    account.set_storage_usage(
-        account
-            .storage_usage()
-            .checked_add(
-                borsh::object_length(&add_key.public_key).unwrap() as u64
-                    + borsh::object_length(&add_key.access_key).unwrap() as u64
-                    + storage_config.num_extra_bytes_record,
-            )
-            .ok_or_else(|| {
-                StorageError::StorageInconsistentState(format!(
-                    "Storage usage integer overflow for account {}",
-                    account_id
+    // Needs special vector nonce handling.
+    if let Some(num_nonces) = access_key.num_nonces() {
+        access_key.nonce = 0;
+        if let Some(balance) = access_key.permission.gas_balance_mut() {
+            *balance = Balance::ZERO;
+        }
+        set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
+        let nonce = initial_nonce_value(apply_state.block_height);
+        for i in 0..num_nonces {
+            tracing::warn!(target: "runtime", %account_id, %i, "adding gas key nonce");
+            set_gas_key_nonce(
+                state_update,
+                account_id.clone(),
+                add_key.public_key.clone(),
+                i,
+                nonce,
+            );
+        }
+        account.set_storage_usage(
+            account
+                .storage_usage()
+                .checked_add(gas_key_storage_cost(
+                    &apply_state.config.fees,
+                    &add_key.public_key,
+                    &GasKey {
+                        num_nonces,
+                        balance: Balance::ZERO,
+                        permission: access_key.permission.clone(),
+                    },
                 ))
-            })?,
-    );
+                .ok_or_else(|| {
+                    StorageError::StorageInconsistentState(format!(
+                        "Storage usage integer overflow for account {}",
+                        account_id
+                    ))
+                })?,
+        );
+    } else {
+        access_key.nonce = initial_nonce_value(apply_state.block_height);
+        set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
+
+        let storage_config = &apply_state.config.fees.storage_usage_config;
+        account.set_storage_usage(
+            account
+                .storage_usage()
+                .checked_add(
+                    borsh::object_length(&add_key.public_key).unwrap() as u64
+                        + borsh::object_length(&add_key.access_key).unwrap() as u64
+                        + storage_config.num_extra_bytes_record,
+                )
+                .ok_or_else(|| {
+                    StorageError::StorageInconsistentState(format!(
+                        "Storage usage integer overflow for account {}",
+                        account_id
+                    ))
+                })?,
+        );
+    }
     Ok(())
 }
 
