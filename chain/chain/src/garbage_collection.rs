@@ -19,6 +19,7 @@ use near_primitives::utils::{
     get_execution_results_key, get_outcome_id_block_hash, get_receipt_proof_key,
     get_uncertified_execution_results_key, get_witnesses_key, index_to_bytes,
 };
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
@@ -750,6 +751,10 @@ impl<'a> ChainStoreUpdate<'a> {
         // 3. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());
         self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
+        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+            // We need to GC BlockHeader only when ContinuousEpochSync feature is enabled in binary
+            self.gc_col(DBCol::BlockHeader, block_hash.as_bytes());
+        }
         if cfg!(feature = "protocol_feature_spice") {
             self.gc_col(DBCol::all_next_block_hashes(), block_hash.as_bytes());
         }
@@ -1079,12 +1084,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::BlockHeader => {
-                // TODO(#3488) At the moment header sync needs block headers.
-                // However, we want to eventually garbage collect headers.
-                // When that happens we should make sure that block headers is
-                // copied to the cold storage.
                 store_update.delete(col, key);
-                unreachable!();
             }
             DBCol::Block => {
                 store_update.delete(col, key);
