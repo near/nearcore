@@ -337,6 +337,7 @@ pub enum ProtocolFeature {
     DynamicResharding,
     GasKeys,
     Spice,
+    ContinuousEpochSync,
 }
 
 impl ProtocolFeature {
@@ -451,13 +452,14 @@ impl ProtocolFeature {
             ProtocolFeature::Spice => 180,
 
             // Place features that are not yet in Nightly below this line.
+            ProtocolFeature::ContinuousEpochSync => 201,
             // TODO(dynamic_resharding): This should be 152, but some resharding tests bump
             //     protocol version to trigger resharding and accidentally turn on this feature
             ProtocolFeature::DynamicResharding => 252,
         }
     }
 
-    pub fn enabled(&self, protocol_version: ProtocolVersion) -> bool {
+    pub const fn enabled(&self, protocol_version: ProtocolVersion) -> bool {
         protocol_version >= self.protocol_version()
     }
 }
