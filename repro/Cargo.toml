@@ -1,0 +1,12 @@
+[package]
+name = "repro"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+
+
+[dependencies]
+near-workspaces = { version = "0.22", features = ["unstable"] }
+tokio = { version = "1", features = ["full"] }
