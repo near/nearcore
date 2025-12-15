@@ -4377,6 +4377,7 @@ dependencies = [
  "primitive-types 0.10.1",
  "rand 0.8.5",
  "rand_hc 0.3.1",
+ "rayon",
  "serde",
  "tracing",
 ]
@@ -4795,6 +4796,7 @@ dependencies = [
  "bytesize 1.1.0",
  "chrono",
  "criterion",
+ "derive_builder",
  "derive_more 2.0.1",
  "easy-ext",
  "enum-map",

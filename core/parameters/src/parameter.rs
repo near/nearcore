@@ -204,7 +204,6 @@ pub enum Parameter {
 
     // Contract runtime features
     FlatStorageReads,
-    ImplicitAccountCreation,
     FixContractLoadingCost,
     VmKind,
     EthImplicitAccounts,
@@ -245,6 +244,12 @@ pub enum Parameter {
 
     // Flag to enabled deterministic account ids
     DeterministicAccountIds,
+
+    // Dynamic resharding
+    MemoryUsageThreshold,
+    MinChildMemoryUsage,
+    MaxNumberOfShards,
+    MinEpochsBetweenResharding,
 }
 
 #[derive(

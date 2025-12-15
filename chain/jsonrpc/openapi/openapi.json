@@ -4088,6 +4088,42 @@
         ],
         "type": "object"
       },
+      "DynamicReshardingConfigView": {
+        "description": "Configuration for dynamic resharding feature",
+        "properties": {
+          "max_number_of_shards": {
+            "description": "Maximum number of shards in the network.\n\nSee [`CongestionControlConfig`] for more details.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "memory_usage_threshold": {
+            "description": "Memory threshold over which a shard is marked for a split.\n\nSee [`CongestionControlConfig`] for more details.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "min_child_memory_usage": {
+            "description": "Minimum memory usage of a child shard.\n\nSee [`CongestionControlConfig`] for more details.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "min_epochs_between_resharding": {
+            "description": "Minimum number of epochs until next resharding can be scheduled.\n\nSee [`CongestionControlConfig`] for more details.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "memory_usage_threshold",
+          "min_child_memory_usage",
+          "max_number_of_shards",
+          "min_epochs_between_resharding"
+        ],
+        "type": "object"
+      },
       "EpochId": {
         "allOf": [
           {
@@ -16183,6 +16219,20 @@
             ],
             "description": "The configuration for congestion control."
           },
+          "dynamic_resharding_config": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DynamicReshardingConfigView"
+              }
+            ],
+            "default": {
+              "max_number_of_shards": 999999999999999,
+              "memory_usage_threshold": 999999999999999,
+              "min_child_memory_usage": 999999999999999,
+              "min_epochs_between_resharding": 999999999999999
+            },
+            "description": "Configuration for dynamic resharding feature."
+          },
           "storage_amount_per_byte": {
             "allOf": [
               {
@@ -16320,6 +16370,18 @@
               "V2"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "V3": {
+                "$ref": "#/components/schemas/ShardLayoutV3"
+              }
+            },
+            "required": [
+              "V3"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -16444,6 +16506,51 @@
           "id_to_index_map",
           "index_to_id_map",
           "version"
+        ],
+        "type": "object"
+      },
+      "ShardLayoutV3": {
+        "description": "Counterpart to `ShardLayoutV3` composed of maps with string keys to aid\nserde serialization.",
+        "properties": {
+          "boundary_accounts": {
+            "items": {
+              "$ref": "#/components/schemas/AccountId"
+            },
+            "type": "array"
+          },
+          "id_to_index_map": {
+            "additionalProperties": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "last_split": {
+            "$ref": "#/components/schemas/ShardId"
+          },
+          "shard_ids": {
+            "items": {
+              "$ref": "#/components/schemas/ShardId"
+            },
+            "type": "array"
+          },
+          "shards_split_map": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/ShardId"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "boundary_accounts",
+          "shard_ids",
+          "id_to_index_map",
+          "shards_split_map",
+          "last_split"
         ],
         "type": "object"
       },
@@ -17779,7 +17886,7 @@
             "type": "integer"
           },
           "implicit_account_creation": {
-            "description": "See [VMConfig::implicit_account_creation](crate::vm::Config::implicit_account_creation).",
+            "description": "Deprecated",
             "type": "boolean"
           },
           "limit_config": {

@@ -1,5 +1,6 @@
 use near_primitives::num_rational::Ratio;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::ShardUId;
 
 use crate::utils::process_blocks::prepare_env_with_congestion;
 
@@ -13,7 +14,9 @@ fn test_capped_gas_price() {
         env.produce_block(0, i);
         let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
         let min_gas_price = env.clients[0].chain.block_economics_config.min_gas_price();
-        was_congested |= block.chunks()[0].prev_gas_used() >= block.chunks()[0].gas_limit();
+        let chunk_extra =
+            env.clients[0].chain.get_chunk_extra(block.hash(), &ShardUId::single_shard()).unwrap();
+        was_congested |= chunk_extra.gas_used() >= chunk_extra.gas_limit();
         price_exceeded_limit |=
             block.header().next_gas_price() > min_gas_price.checked_mul(20).unwrap();
     }

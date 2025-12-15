@@ -4,7 +4,7 @@ use crate::utils::process_blocks::produce_blocks_from_height;
 use assert_matches::assert_matches;
 use near_async::messaging::CanSend;
 use near_chain::orphan::NUM_ORPHAN_ANCESTORS_CHECK;
-use near_chain::{Error, Provenance};
+use near_chain::{ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::create_chunk;
@@ -213,8 +213,6 @@ fn test_transaction_hash_collision_for_near_implicit_account_fail() {
 
 /// Test that chunks with transactions that have expired are considered invalid.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_chunk_transaction_validity() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);

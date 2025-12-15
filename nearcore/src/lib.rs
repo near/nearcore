@@ -102,7 +102,7 @@ pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result
         home_dir,
         &near_config.config.store,
         near_config.config.cold_store.as_ref(),
-        near_config.config.cloud_storage_config(),
+        near_config.cloud_storage_context(),
     )
     .with_migrator(&migrator);
     let storage = match opener.open() {
@@ -399,7 +399,8 @@ pub async fn start_with_config_and_synchronization_impl(
         Some(home_dir),
     );
 
-    let genesis_epoch_config = epoch_manager.get_epoch_config(&EpochId::default())?;
+    let epoch_id = EpochId::default();
+    let genesis_epoch_config = epoch_manager.get_epoch_config(&epoch_id)?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.
     // This sets up genesis_state_roots and genesis_hash in store.

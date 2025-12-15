@@ -575,7 +575,7 @@ impl TieredMessageBody {
                 T1MessageBody::VersionedPartialEncodedChunk(Box::new(partial_encoded_chunk)).into()
             }
             RoutedMessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg) => {
-                T1MessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg).into()
+                T2MessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg).into()
             }
             RoutedMessageBody::ChunkStateWitnessAck(chunk_state_witness_ack) => {
                 T2MessageBody::ChunkStateWitnessAck(chunk_state_witness_ack).into()
@@ -664,7 +664,10 @@ impl From<T2MessageBody> for TieredMessageBody {
 pub enum T1MessageBody {
     BlockApproval(Approval),
     VersionedPartialEncodedChunk(Box<PartialEncodedChunk>),
-    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+    // This is not enabled yet, to be migrated in the next release.
+    // TODO: make sure to deprecate the corresponding variant as part of
+    // T2MessageBody enum when this is enabled to be sent over T1.
+    _PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
     PartialEncodedStateWitness(PartialEncodedStateWitness),
     PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
     VersionedChunkEndorsement(ChunkEndorsement),
@@ -722,6 +725,7 @@ pub enum T2MessageBody {
     PartialEncodedContractDeploys(PartialEncodedContractDeploys),
     StateHeaderRequest(StateHeaderRequest),
     StateRequestAck(StateRequestAck),
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 }
 
 impl T2MessageBody {
@@ -829,6 +833,48 @@ impl RoutedMessageBody {
             | RoutedMessageBody::SpiceChunkEndorsement(_)
             | RoutedMessageBody::SpicePartialDataRequest(..) => true,
             _ => false,
+        }
+    }
+
+    pub fn is_used(&self) -> bool {
+        match self {
+            RoutedMessageBody::_UnusedQueryRequest
+            | RoutedMessageBody::_UnusedQueryResponse
+            | RoutedMessageBody::_UnusedReceiptOutcomeRequest(_)
+            | RoutedMessageBody::_UnusedReceiptOutcomeResponse
+            | RoutedMessageBody::_UnusedStateRequestHeader
+            | RoutedMessageBody::_UnusedStateRequestPart
+            | RoutedMessageBody::_UnusedStateResponse
+            | RoutedMessageBody::_UnusedPartialEncodedChunk
+            | RoutedMessageBody::_UnusedVersionedStateResponse
+            | RoutedMessageBody::_UnusedChunkStateWitness
+            | RoutedMessageBody::_UnusedChunkEndorsement
+            | RoutedMessageBody::_UnusedEpochSyncRequest
+            | RoutedMessageBody::_UnusedEpochSyncResponse(_) => false,
+            RoutedMessageBody::BlockApproval(_)
+            | RoutedMessageBody::ForwardTx(_)
+            | RoutedMessageBody::TxStatusRequest(_, _)
+            | RoutedMessageBody::TxStatusResponse(_)
+            | RoutedMessageBody::PartialEncodedChunkRequest(_)
+            | RoutedMessageBody::PartialEncodedChunkResponse(_)
+            | RoutedMessageBody::Ping(_)
+            | RoutedMessageBody::Pong(_)
+            | RoutedMessageBody::VersionedPartialEncodedChunk(_)
+            | RoutedMessageBody::PartialEncodedChunkForward(_)
+            | RoutedMessageBody::ChunkStateWitnessAck(_)
+            | RoutedMessageBody::PartialEncodedStateWitness(_)
+            | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
+            | RoutedMessageBody::VersionedChunkEndorsement(_)
+            | RoutedMessageBody::StatePartRequest(_)
+            | RoutedMessageBody::ChunkContractAccesses(_)
+            | RoutedMessageBody::ContractCodeRequest(_)
+            | RoutedMessageBody::ContractCodeResponse(_)
+            | RoutedMessageBody::PartialEncodedContractDeploys(_)
+            | RoutedMessageBody::StateHeaderRequest(_)
+            | RoutedMessageBody::SpicePartialData(_)
+            | RoutedMessageBody::StateRequestAck(_)
+            | RoutedMessageBody::SpiceChunkEndorsement(_)
+            | RoutedMessageBody::SpicePartialDataRequest(_) => true,
         }
     }
 }
@@ -946,7 +992,7 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                 T1MessageBody::VersionedPartialEncodedChunk(partial_encoded_chunk) => {
                     RoutedMessageBody::VersionedPartialEncodedChunk(*partial_encoded_chunk)
                 }
-                T1MessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg) => {
+                T1MessageBody::_PartialEncodedChunkForward(partial_encoded_chunk_forward_msg) => {
                     RoutedMessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg)
                 }
                 T1MessageBody::PartialEncodedStateWitness(partial_encoded_state_witness) => {
@@ -996,6 +1042,9 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                     RoutedMessageBody::PartialEncodedChunkResponse(
                         partial_encoded_chunk_response_msg,
                     )
+                }
+                T2MessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg) => {
+                    RoutedMessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg)
                 }
                 T2MessageBody::Ping(ping) => RoutedMessageBody::Ping(ping),
                 T2MessageBody::Pong(pong) => RoutedMessageBody::Pong(pong),
@@ -1132,20 +1181,6 @@ impl RoutedMessageV3 {
     pub fn decrease_ttl(&mut self) -> bool {
         self.ttl = self.ttl.saturating_sub(1);
         self.ttl > 0
-    }
-}
-
-impl From<RoutedMessageV1> for RoutedMessageV3 {
-    fn from(msg: RoutedMessageV1) -> Self {
-        Self {
-            target: msg.target,
-            author: msg.author,
-            ttl: msg.ttl,
-            body: TieredMessageBody::from_routed(msg.body),
-            signature: Some(msg.signature),
-            created_at: None,
-            num_hops: 0,
-        }
     }
 }
 

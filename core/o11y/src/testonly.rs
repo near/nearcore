@@ -37,13 +37,6 @@ pub fn init_test_logger() {
     setup_subscriber_from_filter(env_filter);
 }
 
-pub fn init_test_logger_allow_panic() {
-    let env_filter = EnvFilter::new(
-        "cranelift=warn,wasmtime=warn,h2=warn,tower=warn,trust_dns=warn,tokio_reactor=info,tokio_core=info,hyper=info,debug",
-    );
-    setup_subscriber_from_filter(env_filter);
-}
-
 pub fn init_test_module_logger(module: &str) {
     let env_filter =
         EnvFilter::new("cranelift=warn,wasmtime=warn,h2=warn,tower=warn,trust_dns=warn,tokio_reactor=info,tokio_core=info,hyper=info,cranelift_wasm=warn,info")

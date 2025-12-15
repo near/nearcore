@@ -285,25 +285,39 @@ pub fn get_fake_next_block_chunk_headers(
         shard_id: ShardId,
         prev_block_hash: CryptoHash,
         signer: &ValidatorSigner,
+        is_spice_block: bool,
     ) -> ShardChunkHeader {
-        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            prev_block_hash,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            height,
-            shard_id,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            CongestionInfo::default(),
-            BandwidthRequests::empty(),
-            signer,
-        ))
+        if is_spice_block {
+            ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
+                prev_block_hash,
+                Default::default(),
+                Default::default(),
+                height,
+                shard_id,
+                Default::default(),
+                Default::default(),
+                signer,
+            ))
+        } else {
+            ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+                prev_block_hash,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                height,
+                shard_id,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                CongestionInfo::default(),
+                BandwidthRequests::empty(),
+                signer,
+            ))
+        }
     }
 
     let mut chunks = Vec::new();
@@ -318,7 +332,8 @@ pub fn get_fake_next_block_chunk_headers(
             })
             .unwrap();
         let signer = create_test_signer(chunk_producer.account_id().as_str());
-        let mut chunk_header = chunk_header(height, shard_id, *block.hash(), &signer);
+        let mut chunk_header =
+            chunk_header(height, shard_id, *block.hash(), &signer, block.is_spice_block());
         *chunk_header.height_included_mut() = height;
         chunks.push(chunk_header);
     }

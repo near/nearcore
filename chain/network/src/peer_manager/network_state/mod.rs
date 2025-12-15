@@ -674,7 +674,7 @@ impl NetworkState {
         }
 
         let accounts_data = self.accounts_data.load();
-        if tcp::Tier::T1.is_allowed_routed(&msg) {
+        if tcp::Tier::T1.is_allowed_send_routed(&msg) {
             for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys| keys.iter())
             {
                 let data = match accounts_data.data.get(key) {
@@ -759,7 +759,7 @@ impl NetworkState {
                         .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk));
                     None
                 }
-                T1MessageBody::PartialEncodedChunkForward(msg) => {
+                T1MessageBody::_PartialEncodedChunkForward(msg) => {
                     self.shards_manager_adapter.send(
                         ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg),
                     );
@@ -844,6 +844,12 @@ impl NetworkState {
                             partial_encoded_chunk_response: response,
                             received_time: clock.now().into(),
                         },
+                    );
+                    None
+                }
+                T2MessageBody::PartialEncodedChunkForward(msg) => {
+                    self.shards_manager_adapter.send(
+                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg),
                     );
                     None
                 }

@@ -23,6 +23,9 @@ use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessag
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt as _;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::apply::ApplyChunkReason;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
+use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::gas::Gas;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ReceiptProof;
@@ -33,7 +36,7 @@ use near_primitives::stateless_validation::spice_state_witness::{
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    ChunkExecutionResult, ChunkExecutionResultHash, ShardId, SpiceChunkId,
+    Balance, ChunkExecutionResult, ChunkExecutionResultHash, ShardId, SpiceChunkId,
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::adapter::StoreAdapter as _;
@@ -49,6 +52,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use crate::spice_chunk_validator_actor::{SpiceChunkStateWitnessMessage, SpiceChunkValidatorActor};
 
 const TEST_RECEIPTS: Vec<Receipt> = Vec::new();
+const GAS_LIMIT: Gas = Gas::from_teragas(300);
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -288,7 +292,7 @@ fn build_block(chain: &Chain, prev_block: &Block) -> Arc<Block> {
         .get_block_producer_info(prev_block.header().epoch_id(), prev_block.header().height() + 1)
         .unwrap();
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
-    TestBlockBuilder::new(Clock::real(), prev_block, signer)
+    TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
         .chunks(get_fake_next_block_chunk_headers(&prev_block, chain.epoch_manager.as_ref()))
         .spice_core_statements(vec![])
         .build()
@@ -385,7 +389,16 @@ fn test_chunk_endorsement(
     SpiceChunkEndorsement::new(
         SpiceChunkId { block_hash: *block.hash(), shard_id: block.chunks()[0].shard_id() },
         ChunkExecutionResult {
-            chunk_extra: ChunkExtra::new_with_only_state_root(&state_root),
+            chunk_extra: ChunkExtra::new(
+                &state_root,
+                CryptoHash::default(),
+                vec![],
+                Gas::ZERO,
+                GAS_LIMIT,
+                Balance::ZERO,
+                Some(CongestionInfo::default()),
+                BandwidthRequests::empty(),
+            ),
             outgoing_receipts_root,
         },
         &create_test_signer(&validator),
@@ -472,7 +485,7 @@ fn simulate_chunk_application(
             ApplyChunkShardContext {
                 shard_id: chunk_header.shard_id(),
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
-                gas_limit: chunk_header.gas_limit(),
+                gas_limit: GAS_LIMIT,
                 is_new_chunk: true,
                 on_post_state_ready: None,
             },
@@ -492,7 +505,7 @@ fn simulate_chunk_application(
         outcome_root,
         apply_result.validator_proposals.clone(),
         apply_result.total_gas_burnt,
-        chunk_header.gas_limit(),
+        GAS_LIMIT,
         apply_result.total_balance_burnt,
         apply_result.congestion_info,
         apply_result.bandwidth_requests.clone(),

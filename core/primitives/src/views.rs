@@ -1080,6 +1080,7 @@ impl From<BlockHeaderInnerLiteView> for BlockHeaderInnerLite {
 /// Contains main info about the chunk.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+// TODO(spice): Once spice is released deprecate fields that wouldn't be part of spice chunks.
 pub struct ChunkHeaderView {
     pub chunk_hash: CryptoHash,
     pub prev_block_hash: CryptoHash,
@@ -1123,7 +1124,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             chunk_hash: hash,
             prev_block_hash: *inner.prev_block_hash(),
             outcome_root: *inner.prev_outcome_root(),
-            prev_state_root: if cfg!(feature = "protocol_feature_spice") {
+            prev_state_root: if inner.is_spice_chunk() {
                 CryptoHash::default()
             } else {
                 *inner.prev_state_root()
@@ -1134,7 +1135,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             height_included,
             shard_id: inner.shard_id(),
             gas_used: inner.prev_gas_used(),
-            gas_limit: inner.gas_limit(),
+            gas_limit: if inner.is_spice_chunk() { Gas::default() } else { inner.gas_limit() },
             rent_paid: Balance::ZERO,
             validator_reward: Balance::ZERO,
             balance_burnt: inner.prev_balance_burnt(),

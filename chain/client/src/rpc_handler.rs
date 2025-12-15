@@ -21,6 +21,7 @@ use near_primitives::types::BlockHeightDelta;
 use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
 use near_primitives::unwrap_or_return;
+use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
@@ -188,9 +189,10 @@ impl RpcHandlerActor {
 
         if self.shard_tracker.cares_about_shard_this_or_next_epoch(&head.last_block_hash, shard_id)
         {
-            if !cfg!(feature = "protocol_feature_spice") {
+            if !ProtocolFeature::Spice.enabled(protocol_version) {
+                let chunk_store = self.chain_store.chunk_store();
                 let state_root =
-                    match self.chain_store.get_chunk_extra(&head.last_block_hash, &shard_uid) {
+                    match chunk_store.get_chunk_extra(&head.last_block_hash, &shard_uid) {
                         Ok(chunk_extra) => *chunk_extra.state_root(),
                         Err(_) => {
                             // Not being able to fetch a state root most likely implies that we haven't
