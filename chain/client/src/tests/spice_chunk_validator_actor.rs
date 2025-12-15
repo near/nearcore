@@ -9,9 +9,7 @@ use near_chain::spice_core_writer_actor::{
 use near_chain::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
-use near_chain::types::{
-    ApplyChunkResult, ApplyChunkShardContext, RuntimeStorageConfig, StorageDataSource,
-};
+use near_chain::types::{ApplyChunkShardContext, RuntimeStorageConfig, StorageDataSource};
 use near_chain::{
     ApplyChunksSpawner, Block, BlockProcessingArtifact, Chain, ChainGenesis, Provenance,
 };
@@ -500,18 +498,7 @@ fn simulate_chunk_application(
         )
         .unwrap();
 
-    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
-    let chunk_extra = ChunkExtra::new(
-        &apply_result.new_root,
-        outcome_root,
-        apply_result.validator_proposals.clone(),
-        apply_result.total_gas_burnt,
-        GAS_LIMIT,
-        apply_result.total_balance_burnt,
-        apply_result.congestion_info,
-        apply_result.bandwidth_requests.clone(),
-        apply_result.proposed_split.clone(),
-    );
+    let chunk_extra = apply_result.to_chunk_extra(GAS_LIMIT);
     let shard_layout = actor.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
     let (outgoing_receipts_root, _) = Chain::create_receipts_proofs_from_outgoing_receipts(
         &shard_layout,

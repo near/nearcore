@@ -117,22 +117,12 @@ impl<'a> ChainUpdate<'a> {
         let height = block.header().height();
         match result {
             ShardUpdateResult::NewChunk(NewChunkResult { gas_limit, shard_uid, apply_result }) => {
-                let (outcome_root, outcome_paths) =
+                let (_, outcome_paths) =
                     ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
 
                 // Save state root after applying transactions.
-                let chunk_extra = ChunkExtra::new(
-                    &apply_result.new_root,
-                    outcome_root,
-                    apply_result.validator_proposals,
-                    apply_result.total_gas_burnt,
-                    gas_limit,
-                    apply_result.total_balance_burnt,
-                    apply_result.congestion_info,
-                    apply_result.bandwidth_requests,
-                    apply_result.proposed_split,
-                );
+                let chunk_extra = apply_result.to_chunk_extra(gas_limit);
                 self.chain_store_update.save_chunk_extra(
                     block_hash,
                     &shard_uid,
@@ -530,8 +520,7 @@ impl<'a> ChainUpdate<'a> {
             transactions,
         )?;
 
-        let (outcome_root, outcome_proofs) =
-            ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
+        let (_, outcome_proofs) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
 
         self.chain_store_update.save_chunk(chunk);
 
@@ -547,19 +536,10 @@ impl<'a> ChainUpdate<'a> {
         )?;
         self.chain_store_update.merge(store_update.into());
 
-        self.chain_store_update.save_trie_changes(*block_header.hash(), apply_result.trie_changes);
+        self.chain_store_update
+            .save_trie_changes(*block_header.hash(), apply_result.trie_changes.clone());
 
-        let chunk_extra = ChunkExtra::new(
-            &apply_result.new_root,
-            outcome_root,
-            apply_result.validator_proposals,
-            apply_result.total_gas_burnt,
-            gas_limit,
-            apply_result.total_balance_burnt,
-            apply_result.congestion_info,
-            apply_result.bandwidth_requests,
-            apply_result.proposed_split,
-        );
+        let chunk_extra = apply_result.to_chunk_extra(gas_limit);
         self.chain_store_update.save_chunk_extra(
             block_header.hash(),
             &shard_uid,

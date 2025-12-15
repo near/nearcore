@@ -199,14 +199,10 @@ mod tests {
     use crate::trie::update::TrieUpdateResult;
     use crate::trie::{AccessOptions, AccessTracker};
     use crate::{DBCol, KeyLookupMode, NibbleSlice, ShardTries, Store, Trie, TrieUpdate};
-    use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
     use near_primitives::state::FlatStateValue;
     use near_primitives::trie_key::TrieKey;
-    use near_primitives::types::Balance;
-    use near_primitives::types::Gas;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::{StateChangeCause, StateRoot};
     use rand::rngs::StdRng;
@@ -541,17 +537,7 @@ mod tests {
         shard_uid: ShardUId,
         state_root: StateRoot,
     ) {
-        let chunk_extra = ChunkExtra::new(
-            &state_root,
-            CryptoHash::default(),
-            Vec::new(),
-            Gas::ZERO,
-            Gas::ZERO,
-            Balance::ZERO,
-            Some(CongestionInfo::default()),
-            BandwidthRequests::empty(),
-            None,
-        );
+        let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
         let mut store_update = store.store_update();
         store_update
             .set_ser(DBCol::ChunkExtra, &get_block_shard_uid(&block_hash, &shard_uid), &chunk_extra)
