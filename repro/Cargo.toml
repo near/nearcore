@@ -10,3 +10,5 @@ edition = "2024"
 [dependencies]
 near-workspaces = { version = "0.22", features = ["unstable"] }
 tokio = { version = "1", features = ["full"] }
+wasm-encoder = { version = "0.243.0", features = ["wasmparser"] }
+wasmparser = { version = "0.243.0" }
