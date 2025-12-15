@@ -4,8 +4,17 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion =
-    if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) { 48 } else { 47 };
+pub const DB_VERSION: DbVersion = if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION)
+{
+    UNSTABLE_DB_VERSION
+} else {
+    STABLE_DB_VERSION
+};
+
+/// Use unstable db version while the feature is being implemented and we don't want to migration to run.
+/// To add a new stable db migration, simply bump the STABLE_DB_VERSION and add migration implementation.
+pub const STABLE_DB_VERSION: DbVersion = 47;
+pub const UNSTABLE_DB_VERSION: DbVersion = STABLE_DB_VERSION + 1;
 
 /// Minimum supported database version. This is a property of the current binary.
 pub const MIN_SUPPORTED_DB_VERSION: DbVersion = 45;
