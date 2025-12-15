@@ -378,8 +378,13 @@ async fn wait_for_transaction_finalization(
     timeout: Duration,
 ) -> anyhow::Result<bool> {
     let start = Instant::now();
+    let mut best_status = None; // best status seen so far
     loop {
         if start.elapsed() > timeout {
+            tracing::debug!(target: "transaction-generator",
+                tx_hash=?&tx_hash,
+                best_status=?best_status,
+                "timeout waiting for transaction finalization");
             return Ok(false);
         }
         if let Some(outcome) = view_client_sender
@@ -394,7 +399,9 @@ async fn wait_for_transaction_finalization(
                 FinalExecutionStatus::Failure(err) => {
                     return Err(err.into());
                 }
-                FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => {}
+                st => {
+                    best_status = Some(st);
+                }
             }
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -402,8 +409,6 @@ async fn wait_for_transaction_finalization(
 }
 
 /// Create + transfer + deploy contract in a single transaction (create account + fund + deploy)
-/// The contract account id will be the sub-account of the creator account "ft_contract.<creator_account_id>"
-/// And the initial balance for the contract account will be 100 NEAR
 async fn ft_contract_account_create(
     client_sender: &ClientSender,
     view_client_sender: &ViewClientSender,
@@ -412,7 +417,9 @@ async fn ft_contract_account_create(
 ) -> anyhow::Result<AccountId> {
     let creator_id = creator.id.clone();
     let creator_signer = creator.as_signer();
-    let ft_contract_account_id: AccountId = format!("ft_contract.{}", creator_id).parse()?;
+    let prefix = creator_id.as_str().split('_').next().unwrap_or(creator_id.as_str());
+    let ft_contract_account_id: AccountId =
+        format!("{}_ft_contract.{}", prefix, creator_id).parse()?;
 
     tracing::info!(target: "transaction-generator",
         wasm_path=?&wasm_path,
@@ -425,7 +432,7 @@ async fn ft_contract_account_create(
 
     let block_hash = TxGenerator::get_latest_block(&view_client_sender).await?.hash;
     let create_nonce = creator.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
-    let initial_balance_for_contract: Balance = Balance::from_near(2); // deploying contract needs some extra balance for storage costs (~1.5 NEAR)
+    let initial_balance_for_contract: Balance = Balance::from_near(2); // deploying contract needs some extra balance for storage costs
 
     let create_deploy_actions = vec![
         Action::CreateAccount(CreateAccountAction {}),
@@ -473,12 +480,17 @@ async fn ft_contract_account_create(
             tracing::info!(target: "transaction-generator", "create+deploy tx accepted");
             Ok(ft_contract_account_id)
         }
-        Ok(false) => Err(anyhow::anyhow!("timeout waiting for create+deploy tx to be finalized")),
+        Ok(false) => {
+            Err(anyhow::anyhow!("timeout waiting for create+deploy tx to be finalized"))
+            // // there are issues with transaction finalization on mocknet
+            // tracing::error!(target: "transaction-generator", "create+deploy tx timeout");
+            // Ok(ft_contract_account_id)
+        }
         Err(err) => Err(err),
     }
 }
 
-/// Initialize the FT contract by calling `new` with owner_id and metadata
+/// Initialize the FT contract. The creator account is the owner of the FT contract. Creator gets all (1M) tokens initially.
 async fn ft_contract_account_init(
     client_sender: &ClientSender,
     view_client_sender: &ViewClientSender,
@@ -525,7 +537,7 @@ async fn ft_contract_account_init(
     );
 
     let init_tx_hash = init_tx.get_hash();
-    let _ = client_sender
+    match client_sender
         .tx_request_sender
         .send_async(ProcessTxRequest {
             transaction: init_tx,
@@ -533,9 +545,15 @@ async fn ft_contract_account_init(
             check_only: false,
         })
         .await
-        .context("send ft init tx")?;
+        .context("send ft init tx")?
+    {
+        ProcessTxResponse::ValidTx => {}
+        rsp => {
+            anyhow::bail!("ft init tx rejected: {:?}", rsp);
+        }
+    };
 
-    // wait for init to finalize
+    // wait to finalize
     match wait_for_transaction_finalization(
         &view_client_sender,
         init_tx_hash,
@@ -555,6 +573,7 @@ async fn ft_contract_account_init(
 
 /// Register contract-using accounts.
 /// Creator pays a storage_deposit on behalf of each account, because we do not have the private keys for the receiver accounts.
+/// Makes multiple passes to make sure all accounts are registered.
 async fn ft_contract_register_accounts(
     client_sender: &ClientSender,
     view_client_sender: &ViewClientSender,
@@ -569,93 +588,125 @@ async fn ft_contract_register_accounts(
         "registering accounts with the ft contract"
     );
 
-    for receiver_id in receiver_ids {
-        let client_sender = client_sender.clone();
-        let view_client = view_client_sender.clone();
-        let creator_signer = creator.as_signer().clone();
-        let ft_account = ft_contract_account_id.clone();
-        const DEPOSIT: Balance = Balance::from_millinear(125);
-        let receiver_id = receiver_id.clone();
-        let creator_id = creator.id.clone();
-        let nonce = creator.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
+    // small delay to avoid overloading the tx processing
+    let mut tx_interval = tokio::time::interval(Duration::from_micros(400));
 
-        // spawn a future per account
-        tasks.spawn(async move {
-            // prepare and send storage_deposit transaction (creator pays)
-            let block_hash = TxGenerator::get_latest_block(&view_client).await?.hash;
+    let mut to_register = receiver_ids.clone();
 
-            let args = serde_json::to_vec(&serde_json::json!({
-                "account_id": receiver_id.to_string(),
-                "registration_only": true
-            }))
-            .unwrap();
+    while !to_register.is_empty() {
+        tracing::info!(target: "transaction-generator",
+            remaining_accounts=to_register.len(),
+            "registrations pending"
+        );
 
-            let action = Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "storage_deposit".to_string(),
-                args,
-                gas: Gas::from_teragas(30),
-                deposit: DEPOSIT,
-            }));
+        let mut another_round = Vec::<AccountId>::new();
 
-            let tx = SignedTransaction::from_actions(
-                nonce,
-                creator_id.clone(),
-                ft_account.clone(),
-                &creator_signer,
-                vec![action],
-                block_hash,
-                0,
-            );
+        for receiver_id in to_register {
+            let client_sender = client_sender.clone();
+            let view_client = view_client_sender.clone();
+            let creator_signer = creator.as_signer().clone();
+            let ft_account = ft_contract_account_id.clone();
+            const DEPOSIT: Balance = Balance::from_millinear(125);
+            let receiver_id = receiver_id.clone();
+            let creator_id = creator.id.clone();
+            let nonce = creator.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
 
-            let tx_hash = tx.get_hash();
-            let _ = client_sender
-                .tx_request_sender
-                .send_async(ProcessTxRequest {
-                    transaction: tx,
-                    is_forwarded: false,
-                    check_only: false,
-                })
+            // spawn a future per account
+            tasks.spawn(async move {
+                // prepare and send storage_deposit transaction (creator pays)
+                let block_hash = TxGenerator::get_latest_block(&view_client).await?.hash;
+
+                let args = serde_json::to_vec(&serde_json::json!({
+                    "account_id": receiver_id.to_string(),
+                    "registration_only": true
+                }))
+                .unwrap();
+
+                let action = Action::FunctionCall(Box::new(FunctionCallAction {
+                    method_name: "storage_deposit".to_string(),
+                    args,
+                    gas: Gas::from_teragas(30),
+                    deposit: DEPOSIT,
+                }));
+
+                let tx = SignedTransaction::from_actions(
+                    nonce,
+                    creator_id.clone(),
+                    ft_account.clone(),
+                    &creator_signer,
+                    vec![action],
+                    block_hash,
+                    0,
+                );
+
+                let tx_hash = tx.get_hash();
+                match client_sender
+                    .tx_request_sender
+                    .send_async(ProcessTxRequest {
+                        transaction: tx,
+                        is_forwarded: false,
+                        check_only: false,
+                    })
+                    .await
+                    .map_err(|e| anyhow::anyhow!("send storage_deposit tx failed: {:?}", e))?
+                {
+                    ProcessTxResponse::ValidTx => {}
+                    rsp => {
+                        return Err(anyhow::anyhow!("storage_deposit tx rejected: {:?}", rsp));
+                    }
+                }
+
+                // wait for tx finalization
+                match wait_for_transaction_finalization(
+                    &view_client,
+                    tx_hash,
+                    creator_id.clone(),
+                    Duration::from_secs(10),
+                )
                 .await
-                .map_err(|e| anyhow::anyhow!("send storage_deposit tx failed: {:?}", e))?;
+                {
+                    Ok(true) => Ok(None),
+                    Ok(false) => {
+                        tracing::trace!(target: "transaction-generator",
+                            "timeout waiting for storage_deposit tx to be finalized for {}",
+                            receiver_id);
+                        Ok(Some(receiver_id))
+                    }
+                    Err(err) => Err(anyhow::anyhow!(
+                        "storage_deposit tx failed for {}: {:?}",
+                        receiver_id,
+                        err
+                    )),
+                }
+            });
 
-            // wait for tx finalization
-            match wait_for_transaction_finalization(
-                &view_client,
-                tx_hash,
-                creator_id.clone(),
-                Duration::from_secs(10),
-            )
-            .await
-            {
-                Ok(true) => Ok(()),
-                Ok(false) => Err(anyhow::anyhow!(
-                    "timeout waiting for storage_deposit tx to be finalized for {}",
-                    receiver_id
-                )),
-                Err(err) => {
-                    Err(anyhow::anyhow!("storage_deposit tx failed for {}: {:?}", receiver_id, err))
+            tx_interval.tick().await;
+        }
+
+        // wait for all registration tasks to finish and propagate any error
+        while let Some(res) = tasks.join_next().await {
+            match res {
+                Ok(Ok(None)) => {}
+                Ok(Ok(Some(receiver_id))) => {
+                    another_round.push(receiver_id);
+                }
+                Ok(Err(err)) => {
+                    return Err(err);
+                }
+                Err(join_err) => {
+                    return Err(join_err.into());
                 }
             }
-        });
-    }
-
-    // wait for all registration tasks to finish and propagate any error
-    while let Some(res) = tasks.join_next().await {
-        match res {
-            Ok(Ok(())) => {}
-            Ok(Err(err)) => {
-                return Err(err);
-            }
-            Err(join_err) => {
-                return Err(join_err.into());
-            }
         }
+
+        to_register = another_round;
     }
 
     Ok(())
 }
 
-/// Fund contract-using accounts using the
+/// Fund contract-using accounts with fungible tokens from the creator account.
+/// Each receiver gets 1 token (with 18 decimals).
 async fn ft_contract_fund_accounts(
     client_sender: &ClientSender,
     view_client_sender: &ViewClientSender,
@@ -667,8 +718,11 @@ async fn ft_contract_fund_accounts(
 
     tracing::info!(target: "transaction-generator",
         total_receiver_accounts=receiver_ids.len(),
-        "funding accounts with the ft contract"
+        "funding accounts with the fungible tokens"
     );
+
+    // small delay to avoid overloading the tx processing
+    let mut tx_interval = tokio::time::interval(Duration::from_micros(400));
 
     for receiver_id in receiver_ids {
         if receiver_id == &creator.id {
@@ -712,7 +766,7 @@ async fn ft_contract_fund_accounts(
             );
 
             let tx_hash = tx.get_hash();
-            let _ = client_sender
+            match client_sender
                 .tx_request_sender
                 .send_async(ProcessTxRequest {
                     transaction: tx,
@@ -720,7 +774,13 @@ async fn ft_contract_fund_accounts(
                     check_only: false,
                 })
                 .await
-                .map_err(|e| anyhow::anyhow!("send ft_transfer tx failed: {:?}", e))?;
+                .map_err(|e| anyhow::anyhow!("send ft_transfer tx failed: {:?}", e))?
+            {
+                ProcessTxResponse::ValidTx => {}
+                rsp => {
+                    return Err(anyhow::anyhow!("ft_transfer tx rejected: {:?}", rsp));
+                }
+            }
 
             // wait for tx finalization
             match wait_for_transaction_finalization(
@@ -741,14 +801,17 @@ async fn ft_contract_fund_accounts(
                 }
             }
         });
+
+        tx_interval.tick().await;
     }
 
-    // wait for all funding tasks to finish and propagate any error
+    let mut failed = 0;
+    // wait for all funding tasks to finish. It is ok if some fail.
     while let Some(res) = tasks.join_next().await {
         match res {
             Ok(Ok(())) => {}
-            Ok(Err(err)) => {
-                return Err(err);
+            Ok(Err(_)) => {
+                failed += 1;
             }
             Err(join_err) => {
                 return Err(join_err.into());
@@ -756,7 +819,103 @@ async fn ft_contract_fund_accounts(
         }
     }
 
+    tracing::info!(target: "transaction-generator",
+        failed,
+        total=receiver_ids.len(),
+        "ft contract funding completed",
+    );
+
     Ok(())
+}
+
+// Waits for the chain to warm up by sending native token transfer transactions and checking their finalization.
+// Returns true if the chain is warmed up within the timeout, false otherwise.
+async fn wait_chain_warm_up(
+    client_sender: &ClientSender,
+    view_client_sender: &ViewClientSender,
+    sender: &Account,
+    receiver_id: AccountId,
+    timeout: Duration,
+) -> bool {
+    // number of consecutive successful transactions to consider the chain warmed up
+    const TARGET_SUCCESS_COUNT: u64 = 10;
+    // timeout for each transaction to finalize. 5s never finalized on mocknet with 2s block time.
+    const FINALIZATION_TIMEOUT: Duration = Duration::from_secs(10);
+
+    let now = Instant::now();
+    let mut success_count = 0;
+    loop {
+        if timeout < now.elapsed() {
+            return false;
+        }
+
+        let fund_action = Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) });
+        let block_hash = match TxGenerator::get_latest_block(&view_client_sender).await {
+            Ok(block) => block.hash,
+            Err(err) => {
+                tracing::debug!(target: "transaction-generator", "get latest block failed: {:?}", err);
+                continue;
+            }
+        };
+        let tx_nonce = sender.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
+        let debug_tx = SignedTransaction::from_actions(
+            tx_nonce,
+            sender.id.clone(),
+            receiver_id.clone(),
+            &sender.as_signer(),
+            vec![fund_action],
+            block_hash,
+            0, // priority fee
+        );
+        // wait for the fund tx to finalize
+        let debug_tx_hash = debug_tx.get_hash();
+        match client_sender
+            .tx_request_sender
+            .send_async(ProcessTxRequest {
+                transaction: debug_tx,
+                is_forwarded: false,
+                check_only: false,
+            })
+            .await
+            .context("send fund tx")
+        {
+            Ok(ProcessTxResponse::ValidTx) => {}
+            Ok(rsp) => {
+                success_count = 0;
+                tracing::debug!(target: "transaction-generator", "warmup tx rejected: {:?}", rsp);
+            }
+            Err(err) => {
+                success_count = 0;
+                tracing::debug!(target: "transaction-generator", "warmup tx failed: {:?}", err);
+            }
+        }
+
+        match wait_for_transaction_finalization(
+            &view_client_sender,
+            debug_tx_hash,
+            sender.id.clone(),
+            FINALIZATION_TIMEOUT,
+        )
+        .await
+        {
+            Ok(true) => {
+                success_count += 1;
+                tracing::debug!(target: "transaction-generator", success_count, "warmup tx finalized");
+                if TARGET_SUCCESS_COUNT <= success_count {
+                    tracing::info!(target: "transaction-generator", "chain warmed up");
+                    return true;
+                }
+            }
+            Ok(false) => {
+                success_count = 0;
+                tracing::debug!(target: "transaction-generator", "native token tx timed out");
+            }
+            Err(err) => {
+                success_count = 0;
+                tracing::debug!(target: "transaction-generator", "native token tx failed: {:?}", err);
+            }
+        }
+    }
 }
 
 impl FungibleTokenTxSender {
@@ -768,8 +927,20 @@ impl FungibleTokenTxSender {
         account_selector: TxAccountsSelector,
         wasm_path: PathBuf,
     ) -> anyhow::Result<Self> {
-        // pick a creator account (use first sender account)
+        // account used to create and initialize the ft contract, register and fund accounts
         let creator = &sender_accounts[0];
+
+        if !wait_chain_warm_up(
+            &client_sender,
+            &view_client_sender,
+            creator,
+            sender_accounts[1].id.clone(),
+            Duration::from_secs(600),
+        )
+        .await
+        {
+            anyhow::bail!("chain did not warm up in time");
+        }
 
         let ft_contract_account_id =
             ft_contract_account_create(&client_sender, &view_client_sender, creator, wasm_path)
@@ -803,7 +974,7 @@ impl FungibleTokenTxSender {
 
         tracing::info!(target: "transaction-generator",
             ft_contract_account_id=?&ft_contract_account_id,
-            "fungible token contract is ready",
+            "fungible token transaction sender initialized",
         );
 
         Ok(Self {
@@ -1064,7 +1235,7 @@ impl TxGenerator {
         stats: Arc<Stats>,
         tx_generator: Arc<TransactionSender>,
     ) {
-        tracing::info!(target: "transaction-generator", ?load, "starting the load");
+        tracing::info!(target: "transaction-generator", ?load, "starting the static load schedule");
 
         let mut tasks = JoinSet::new();
 
@@ -1116,7 +1287,7 @@ impl TxGenerator {
                             if height == last_height {
                                 // if the time between blocks is too long, skip the controller update and
                                 // stop generating transactions for a while
-                                // the trigger value (3s) needs to be outside of the normal operation range to
+                                // the trigger value needs to be outside of the normal operation range to
                                 // avoid getting into a mode where we spit out the chunk of
                                 // transactions at a very high rate and then wait for chain to recover,
                                 // and then repeat the cycle.
