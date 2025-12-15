@@ -1,8 +1,6 @@
 use near_store::Store;
 use near_store::db::ColdDB;
-use near_store::db::metadata::{
-    DB_VERSION, DbVersion, MIN_SUPPORTED_DB_VERSION, UNSTABLE_DB_VERSION,
-};
+use near_store::db::metadata::{DB_VERSION, DbVersion, MIN_SUPPORTED_DB_VERSION};
 
 use crate::NearConfig;
 
@@ -40,7 +38,6 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 &self.config.genesis.config,
                 &self.config.config.store,
             ),
-            47 if DB_VERSION == UNSTABLE_DB_VERSION => Ok(()), // TODO(continuous_epoch_sync): Implement the migration
             DB_VERSION.. => unreachable!(),
         }
     }
