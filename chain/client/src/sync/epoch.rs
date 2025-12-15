@@ -97,8 +97,6 @@ impl EpochSync {
         let chain_store = store.chain_store();
         let target_epoch_last_block_header =
             chain_store.get_block_header(&target_epoch_last_block_hash)?;
-        let target_epoch_second_last_block_header =
-            chain_store.get_block_header(target_epoch_last_block_header.prev_hash())?;
 
         let mut guard = cache.lock();
         if let Some((epoch_id, proof)) = &*guard {
@@ -109,8 +107,8 @@ impl EpochSync {
         // We're purposefully not releasing the lock here. This is so that if the cache
         // is out of date, only one thread should be doing the computation.
         let proof = derive_epoch_sync_proof_from_last_final_block(
-            store,
-            &target_epoch_second_last_block_header,
+            &store.epoch_store(),
+            &target_epoch_last_block_hash,
         );
         let (proof, _) = match CompressedEpochSyncProof::encode(&proof?) {
             Ok(proof) => proof,
