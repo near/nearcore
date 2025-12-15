@@ -33,7 +33,7 @@ pub const ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT: StorageUsage = 770;
 
 /// Possible errors when checking whether an account has enough tokens for storage staking
 /// Read details of state staking
-/// <https://nomicon.io/Economics/README.html#state-stake>.
+/// <https://nomicon.io/Economics/Economics.html#state-stake>.
 pub enum StorageStakingError {
     /// An account does not have enough and the additional amount needed for storage staking
     LackBalanceForStorageStaking(Balance),
