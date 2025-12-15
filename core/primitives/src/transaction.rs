@@ -12,7 +12,8 @@ use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::RuntimeConfig;
 use near_primitives_core::serialize::{from_base64, to_base64};
-use near_primitives_core::types::{Compute, NonceIndex};
+use near_primitives_core::types::{Compute, NonceIndex, ProtocolVersion};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 #[cfg(feature = "schemars")]
 use schemars::json_schema;
@@ -52,6 +53,14 @@ pub enum TransactionNonce {
 }
 
 impl TransactionNonce {
+    pub fn from_nonce(nonce: Nonce) -> Self {
+        TransactionNonce::Nonce { nonce }
+    }
+
+    pub fn from_nonce_and_index(nonce: Nonce, nonce_index: NonceIndex) -> Self {
+        TransactionNonce::NonceAndIndex { nonce, nonce_index }
+    }
+
     pub fn nonce(&self) -> Nonce {
         match self {
             TransactionNonce::Nonce { nonce } => *nonce,
@@ -262,8 +271,9 @@ impl ValidatedTransaction {
     pub fn new(
         config: &RuntimeConfig,
         signed_tx: SignedTransaction,
+        protocol_version: ProtocolVersion,
     ) -> Result<Self, (InvalidTxError, SignedTransaction)> {
-        match Self::check_valid_for_config(config, &signed_tx) {
+        match Self::check_valid_for_config(config, &signed_tx, protocol_version) {
             Ok(()) => {}
             Err(err) => return Err((err, signed_tx)),
         }
@@ -282,9 +292,11 @@ impl ValidatedTransaction {
     pub fn check_valid_for_config(
         config: &RuntimeConfig,
         signed_tx: &SignedTransaction,
+        protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
-        // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
-        if matches!(signed_tx.transaction, Transaction::V1(_)) {
+        if !ProtocolFeature::GasKeys.enabled(protocol_version)
+            && matches!(signed_tx.transaction, Transaction::V1(_))
+        {
             return Err(InvalidTxError::InvalidTransactionVersion);
         }
         let tx_size = signed_tx.get_size();

@@ -17,7 +17,8 @@ use crate::metrics::{
 use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{
-    StorageStakingError, check_storage_stake, validate_receipt, validate_transaction_well_formed,
+    StorageStakingError, check_storage_stake, get_key_state_with_access_key, validate_receipt,
+    validate_transaction_well_formed,
 };
 pub use crate::verifier::{
     ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_key_state, get_signer_and_key_state, set_key_state,
@@ -75,8 +76,8 @@ use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
-    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_account,
-    get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
+    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
+    get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
     has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
     set_account, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
 };
@@ -1679,17 +1680,9 @@ impl Runtime {
                             accounts.entry(signer_id).or_insert_with(|| {
                                 get_account(&processing_state.state_update, signer_id)
                             });
-                            let nonce_index = tx.transaction.nonce().nonce_index();
-                            access_keys.entry((signer_id, pubkey, nonce_index)).or_insert_with(
-                                || {
-                                    get_key_state(
-                                        &processing_state.state_update,
-                                        signer_id,
-                                        pubkey,
-                                        nonce_index,
-                                    )
-                                },
-                            );
+                            access_keys.entry((signer_id, pubkey)).or_insert_with(|| {
+                                get_access_key(&processing_state.state_update, signer_id, pubkey)
+                            });
                         }
                     });
                 (accounts, access_keys)
@@ -1757,7 +1750,7 @@ impl Runtime {
                 None => unreachable!("accounts should've been prefetched"),
             };
             let nonce_index = tx.transaction.nonce().nonce_index();
-            let mut access_key = access_keys.get_mut(&(signer_id, pubkey, nonce_index));
+            let mut access_key = access_keys.get_mut(&(signer_id, pubkey));
             let access_key = match access_key.as_deref_mut() {
                 Some(Ok(Some(ak))) => ak,
                 Some(Ok(None)) => {
@@ -1783,16 +1776,54 @@ impl Runtime {
                 Some(Err(e)) => return Err(e.clone().into()),
                 None => unreachable!("access keys should've been prefetched"),
             };
+
+            let key_state = get_key_state_with_access_key(
+                &processing_state.state_update,
+                signer_id,
+                pubkey,
+                nonce_index,
+                access_key,
+            )?;
+            let Some(mut key_state) = key_state else {
+                // TODO(gas-keys): Better error handling
+                metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                tracing::debug!(%tx_hash, "transaction signed by access key with invalid nonce");
+                let outcome = ExecutionOutcomeWithId::failed(
+                    tx,
+                    InvalidTxError::InvalidAccessKeyError(
+                        InvalidAccessKeyError::AccessKeyNotFound {
+                            account_id: signer_id.clone(),
+                            public_key: Box::new(pubkey.clone()),
+                        },
+                    ),
+                );
+
+                Self::register_outcome(
+                    processing_state.protocol_version,
+                    &mut processing_state.outcomes,
+                    outcome,
+                );
+                continue;
+            };
+
             let verification_result = {
                 match verify_and_charge_tx_ephemeral(
                     &processing_state.apply_state.config,
                     account,
-                    access_key,
+                    &mut key_state,
                     &tx.transaction,
                     &cost,
                     Some(block_height),
                 ) {
-                    Ok(v) => v,
+                    Ok(v) => {
+                        // TODO(gas-keys): Here is some hackery. Need to use better types instead.
+                        access_key.permission = key_state.permission.clone();
+                        if key_state.nonce_index.is_none() {
+                            access_key.nonce = key_state.nonce;
+                        }
+
+                        v
+                    }
                     Err(error) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                         tracing::debug!(%tx_hash, error=&error as &dyn std::error::Error, "transaction failed verify/charge");
@@ -1912,7 +1943,7 @@ impl Runtime {
                 &mut processing_state.state_update,
                 signer_id.clone(),
                 pubkey.clone(),
-                access_key,
+                &key_state,
             );
             processing_state
                 .state_update

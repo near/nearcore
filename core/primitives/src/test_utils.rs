@@ -180,7 +180,7 @@ impl SignedTransaction {
 
     /// Explicitly create v1 transaction to test in cases where errors are expected.
     pub fn from_actions_v1(
-        nonce: Nonce,
+        nonce: TransactionNonce,
         signer_id: AccountId,
         receiver_id: AccountId,
         signer: &Signer,
@@ -189,7 +189,7 @@ impl SignedTransaction {
         priority_fee: u64,
     ) -> Self {
         Transaction::V1(TransactionV1 {
-            nonce: TransactionNonce::Nonce { nonce },
+            nonce,
             signer_id,
             public_key: signer.public_key(),
             receiver_id,

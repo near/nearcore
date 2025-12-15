@@ -13,8 +13,8 @@ use near_primitives::action::{
 };
 use near_primitives::gas::Gas;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, Nonce};
+use near_primitives::transaction::{SignedTransaction, TransactionNonce};
+use near_primitives::types::{AccountId, Balance, Nonce, NonceIndex};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::AccessKeyPermissionView;
 
@@ -71,7 +71,7 @@ fn test_gas_keys() {
 struct GasKeySigner {
     signer: Signer,
     is_full_access: bool,
-    nonce: Nonce,
+    nonces: Vec<Nonce>,
 }
 
 fn create_gas_keys(
@@ -91,7 +91,7 @@ fn create_gas_keys(
         let key1 = InMemorySigner::from_random(account.clone(), KeyType::ED25519);
         let key2 = InMemorySigner::from_random(account.clone(), KeyType::SECP256K1);
         signers.push(vec![Signer::InMemory(key1.clone()), Signer::InMemory(key2.clone())]);
-        let num_nonces = 1;
+        let num_nonces = 8;
         let action1 = Action::AddKey(Box::new(AddKeyAction {
             public_key: key1.public_key(),
             access_key: AccessKey::gas_key_full_access(num_nonces),
@@ -149,28 +149,30 @@ fn create_gas_keys(
     for (_i, (account, keys)) in accounts.iter().zip(&signers).enumerate() {
         eprintln!("Balance for account {}: {}", account, clients.query_balance(account));
         // assert_eq!(clients.query_balance(account), Balance::from_near(800000));
-        let gas_key_view1 = clients.query_access_key(account, &keys[0].public_key());
+        let gas_key_view1 = clients.query_gas_key(account, &keys[0].public_key());
         assert_eq!(gas_key_view1.permission.gas_balance().unwrap(), Balance::from_near(100000));
         assert!(matches!(
             gas_key_view1.permission,
             AccessKeyPermissionView::GasKeyFullAccess { .. }
         ));
-        let gas_key_view2 = clients.query_access_key(account, &keys[1].public_key());
+        let gas_key_view2 = clients.query_gas_key(account, &keys[1].public_key());
         assert_eq!(gas_key_view2.permission.gas_balance().unwrap(), Balance::from_near(100000));
         assert!(matches!(
             gas_key_view2.permission,
             AccessKeyPermissionView::GasKeyFunctionCall{allowance: None, method_names, receiver_id, .. } if method_names == vec!["allowed".to_string()] && receiver_id.as_bytes() == account.as_bytes()
         ));
+        eprintln!("nonces1: {:?}", gas_key_view1.nonces);
+        eprintln!("nonces2: {:?}", gas_key_view2.nonces);
         gas_key_signers.push(vec![
             GasKeySigner {
                 signer: keys[0].clone(),
                 is_full_access: true,
-                nonce: gas_key_view1.nonce,
+                nonces: gas_key_view1.nonces,
             },
             GasKeySigner {
                 signer: keys[1].clone(),
                 is_full_access: false,
-                nonce: gas_key_view2.nonce,
+                nonces: gas_key_view2.nonces,
             },
         ]);
     }
@@ -206,56 +208,74 @@ fn send_transfers_as_gas_keys(
     for (from_index, account) in accounts.iter().enumerate() {
         // The second key should fail, because it is a FunctionCall key only.
         for (from_key_index, key) in gas_keys[from_index].iter_mut().enumerate() {
-            for (to_index, other_account) in accounts.iter().enumerate() {
-                // TODO: just a demo, not complete test
-                let deposit = if from_index > to_index { deposit1 } else { Balance::ZERO };
-                let tx = SignedTransaction::from_actions(
-                    key.nonce + 1,
-                    account.clone(),
-                    other_account.clone(),
-                    &key.signer,
-                    vec![Action::Transfer(TransferAction { deposit })],
-                    anchor_hash,
-                    0,
-                );
-                eprintln!(
-                    "Sent transfer of {} from {} of {} to {}, {}",
-                    deposit, from_key_index, account, to_index, other_account
-                );
-                let process_tx_request =
-                    ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
-                node_datas[from_index % clients.len()].rpc_handler_sender.send(process_tx_request);
-                key.nonce += 1;
-                // Now let's do a function call, but just from 1st account
-                if from_index == 1 {
-                    continue;
+            for (nonce_index, nonce) in key.nonces.iter_mut().enumerate() {
+                for (to_index, other_account) in accounts.iter().enumerate() {
+                    // TODO: just a demo, not complete test
+                    let deposit = if from_index > to_index { deposit1 } else { Balance::ZERO };
+                    let tx = SignedTransaction::from_actions_v1(
+                        TransactionNonce::from_nonce_and_index(
+                            *nonce + 1,
+                            nonce_index as NonceIndex,
+                        ),
+                        account.clone(),
+                        other_account.clone(),
+                        &key.signer,
+                        vec![Action::Transfer(TransferAction { deposit })],
+                        anchor_hash,
+                        0,
+                    );
+                    eprintln!(
+                        "Sent transfer of {} from {} of {} to {}, {}",
+                        deposit, from_key_index, account, to_index, other_account
+                    );
+                    let process_tx_request = ProcessTxRequest {
+                        transaction: tx,
+                        is_forwarded: false,
+                        check_only: false,
+                    };
+                    node_datas[from_index % clients.len()]
+                        .rpc_handler_sender
+                        .send(process_tx_request);
+                    *nonce += 1;
+                    // Now let's do a function call, but just from 1st account
+                    if from_index == 1 {
+                        continue;
+                    }
+                    let deposit = Balance::from_near(5);
+                    let tx = SignedTransaction::from_actions_v1(
+                        TransactionNonce::from_nonce_and_index(
+                            *nonce + 1,
+                            nonce_index as NonceIndex,
+                        ),
+                        account.clone(),
+                        other_account.clone(),
+                        &key.signer,
+                        vec![Action::FunctionCall(
+                            FunctionCallAction {
+                                method_name: "some_method".to_string(),
+                                args: vec![],
+                                gas: Gas::from_teragas(200),
+                                deposit,
+                            }
+                            .into(),
+                        )],
+                        anchor_hash,
+                        0,
+                    );
+                    eprintln!(
+                        "Sent function call with deposit {} from {} of {} to {}, {}",
+                        deposit, from_key_index, account, to_index, other_account
+                    );
+                    let process_tx_request = ProcessTxRequest {
+                        transaction: tx,
+                        is_forwarded: false,
+                        check_only: false,
+                    };
+                    node_datas[from_index % clients.len()]
+                        .rpc_handler_sender
+                        .send(process_tx_request);
+                    *nonce += 1;
                 }
-                let deposit = Balance::from_near(5);
-                let tx = SignedTransaction::from_actions(
-                    key.nonce + 1,
-                    account.clone(),
-                    other_account.clone(),
-                    &key.signer,
-                    vec![Action::FunctionCall(
-                        FunctionCallAction {
-                            method_name: "some_method".to_string(),
-                            args: vec![],
-                            gas: Gas::from_teragas(200),
-                            deposit,
-                        }
-                        .into(),
-                    )],
-                    anchor_hash,
-                    0,
-                );
-                eprintln!(
-                    "Sent function call with deposit {} from {} of {} to {}, {}",
-                    deposit, from_key_index, account, to_index, other_account
-                );
-                let process_tx_request =
-                    ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
-                node_datas[from_index % clients.len()].rpc_handler_sender.send(process_tx_request);
-                key.nonce += 1;
             }
         }
     }
@@ -271,13 +291,11 @@ fn send_transfers_as_gas_keys(
         eprintln!("Account {} has balance {}", account, clients.query_balance(account));
 
         for (j, key) in gas_keys[i].iter().enumerate() {
-            let gas_key_view = clients.query_access_key(account, &key.signer.public_key());
+            let gas_key_view = clients.query_gas_key(account, &key.signer.public_key());
 
             eprintln!(
-                "Gas key {} of account {} has balance {}",
-                j,
-                account,
-                gas_key_view.permission.gas_balance().unwrap()
+                "Gas key {} of account {} has balance {} and nonces {:?}",
+                j, account, gas_key_view.balance, gas_key_view.nonces,
             );
         }
     }

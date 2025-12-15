@@ -123,7 +123,7 @@ pub fn validate_transaction(
     if let Err(err) = validate_transaction_actions(&config, &signed_tx, current_protocol_version) {
         return Err((err, signed_tx));
     }
-    ValidatedTransaction::new(config, signed_tx)
+    ValidatedTransaction::new(config, signed_tx, current_protocol_version)
 }
 
 /// Validates a transaction contains well-formed actions and is valid for the given runtime config.
@@ -135,7 +135,7 @@ pub(crate) fn validate_transaction_well_formed<'a>(
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), InvalidTxError> {
     validate_transaction_actions(config, signed_tx, current_protocol_version)?;
-    ValidatedTransaction::check_valid_for_config(config, signed_tx)
+    ValidatedTransaction::check_valid_for_config(config, signed_tx, current_protocol_version)
 }
 
 /// Set new `signer` and `access_key` in `state_update`.
@@ -207,6 +207,41 @@ pub fn get_key_state(
         (None, None) => KeyState {
             nonce: access_key.nonce,
             permission: access_key.permission,
+            nonce_index: None,
+        },
+        _ => {
+            // Access Key and Transaction need to match in use of vector nonces.
+            return Ok(None);
+        }
+    };
+
+    Ok(Some(key_state))
+}
+
+pub fn get_key_state_with_access_key(
+    state_update: &dyn near_store::TrieAccess,
+    signer_id: &AccountId,
+    public_key: &PublicKey,
+    nonce_index: Option<NonceIndex>,
+    access_key: &AccessKey,
+) -> Result<Option<KeyState>, StorageError> {
+    let key_state = match (nonce_index, access_key.num_nonces()) {
+        (Some(tx_nonce_index), Some(ak_num_nonces)) => {
+            if tx_nonce_index >= ak_num_nonces {
+                return Ok(None);
+            }
+
+            let nonce = get_gas_key_nonce(state_update, signer_id, public_key, tx_nonce_index)?
+                .ok_or_else(|| StorageError::StorageInternalError)?;
+            KeyState {
+                nonce,
+                permission: access_key.permission.clone(),
+                nonce_index: Some(tx_nonce_index),
+            }
+        }
+        (None, None) => KeyState {
+            nonce: access_key.nonce,
+            permission: access_key.permission.clone(),
             nonce_index: None,
         },
         _ => {
@@ -869,7 +904,8 @@ mod tests {
     use near_primitives::receipt::{ActionReceipt, ReceiptPriority};
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
-        CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction, TransferAction,
+        CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction, TransactionNonce,
+        TransferAction,
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
@@ -1398,7 +1434,7 @@ mod tests {
             &mut state_update,
             gas_price,
             SignedTransaction::from_actions_v1(
-                1,
+                TransactionNonce::from_nonce(1),
                 alice_account(),
                 bob_account(),
                 &*signer,

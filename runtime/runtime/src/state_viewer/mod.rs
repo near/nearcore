@@ -23,7 +23,7 @@ use near_primitives::types::{
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{GasKeyView, StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
-use near_store::{TrieUpdate, get_access_key, get_account, get_gas_key, get_gas_key_nonce};
+use near_store::{TrieUpdate, get_access_key, get_account, get_gas_key_nonce};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::{str, sync::Arc, time::Instant};
@@ -157,12 +157,23 @@ impl TrieViewer {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<GasKeyView, errors::ViewGasKeyError> {
-        let gas_key = get_gas_key(state_update, account_id, public_key)?.ok_or_else(|| {
+        let gas_key = get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
             errors::ViewGasKeyError::GasKeyDoesNotExist { public_key: public_key.clone() }
         })?;
+        let Some(num_nonces) = gas_key.num_nonces() else {
+            return Err(errors::ViewGasKeyError::GasKeyDoesNotExist {
+                public_key: public_key.clone(),
+            });
+        };
+        let Some(balance) = gas_key.permission.gas_balance() else {
+            return Err(errors::ViewGasKeyError::GasKeyDoesNotExist {
+                public_key: public_key.clone(),
+            });
+        };
+
         // TODO(gas-keys): Consider using iterator with get_raw_prefix_for_gas_key here.
         let mut nonces = Vec::new();
-        for nonce_index in 0..gas_key.num_nonces {
+        for nonce_index in 0..num_nonces {
             let nonce = get_gas_key_nonce(state_update, account_id, public_key, nonce_index)?
                 .ok_or_else(|| errors::ViewGasKeyError::InternalError {
                     error_message: format!(
@@ -173,8 +184,8 @@ impl TrieViewer {
             nonces.push(nonce);
         }
         Ok(near_primitives::views::GasKeyView {
-            num_nonces: gas_key.num_nonces,
-            balance: gas_key.balance,
+            num_nonces,
+            balance: *balance,
             permission: gas_key.permission.into(),
             nonces,
         })
