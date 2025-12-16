@@ -28,6 +28,7 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::sync::Arc;
+use tracing::instrument;
 
 use crate::metrics;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
@@ -137,6 +138,13 @@ impl RpcHandler {
     /// Submits the transaction for future inclusion into the chain.
     ///
     /// If accepted, it will be added to the transaction pool and possibly forwarded to another validator.
+    #[instrument(level = "debug", target = "client", skip_all, 
+    fields(
+        signer_id = %tx.transaction.signer_id(),
+        nonce = tx.transaction.nonce(),
+        tx_hash = ?tx.get_hash(),
+        tag_tx_latency = true,
+    ))]
     #[must_use]
     pub fn process_tx(
         &self,

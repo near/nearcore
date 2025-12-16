@@ -10,6 +10,7 @@ use near_primitives::{
     types::{AccountId, ShardId},
 };
 use std::collections::HashMap;
+use tracing::instrument;
 
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -56,6 +57,13 @@ impl ShardedTransactionPool {
     }
 
     /// Tries to insert the transaction into the pool for a given shard.
+    #[instrument(level = "debug", target = "client", skip_all, 
+    fields(
+        signer_id = %validated_tx.signer_id(),
+        nonce = validated_tx.nonce(),
+        tx_hash = ?validated_tx.get_hash(),
+        tag_tx_latency = true,
+    ))]
     pub fn insert_transaction(
         &mut self,
         shard_uid: ShardUId,
