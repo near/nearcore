@@ -2,13 +2,14 @@ use near_store::Store;
 use near_store::db::ColdDB;
 use near_store::db::metadata::{DB_VERSION, DbVersion, MIN_SUPPORTED_DB_VERSION};
 
+use crate::NearConfig;
+
 pub(super) struct Migrator<'a> {
-    #[allow(dead_code)]
-    config: &'a crate::config::NearConfig,
+    config: &'a NearConfig,
 }
 
 impl<'a> Migrator<'a> {
-    pub fn new(config: &'a crate::config::NearConfig) -> Self {
+    pub fn new(config: &'a NearConfig) -> Self {
         Self { config }
     }
 }
