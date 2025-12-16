@@ -197,14 +197,14 @@ impl RocksDB {
     /// `cf_handles` mapping has been constructed.  We technically should mark
     /// this function unsafe but to improve ergonomics we didn’t.  This is an
     /// internal method so hopefully the implementation knows what it’s doing.
-    fn cf_handle(&self, col: DBCol) -> io::Result<&ColumnFamily> {
+    fn cf_handle(&self, col: DBCol) -> &ColumnFamily {
         if let Some(ptr) = self.cf_handles[col] {
             // SAFETY: The pointers are valid so long as self.db is valid.
-            Ok(unsafe { ptr.as_ref() })
+            unsafe { ptr.as_ref() }
         } else if cfg!(debug_assertions) {
             panic!("The database instance isn’t setup to access {col}");
         } else {
-            Err(io::Error::other(format!("{col}: no such column")))
+            panic!("{col}: column family handle missing");
         }
     }
 
@@ -243,7 +243,7 @@ impl RocksDB {
         lower_bound: Option<&[u8]>,
         upper_bound: Option<&[u8]>,
     ) -> RocksDBIterator<'a> {
-        let cf_handle = self.cf_handle(col).unwrap();
+        let cf_handle = self.cf_handle(col);
         let mut read_options = rocksdb_read_options();
         if prefix.is_some() && (lower_bound.is_some() || upper_bound.is_some()) {
             panic!("Cannot iterate both with prefix and lower/upper bounds at the same time.");
@@ -328,11 +328,10 @@ impl RocksDB {
         }
     }
 
-    pub fn compact_column(&self, col: DBCol) -> io::Result<()> {
+    pub fn compact_column(&self, col: DBCol) {
         let none = Option::<&[u8]>::None;
         tracing::info!(target: "store::db::rocksdb", col = %col, "compacting a column");
-        self.db.compact_range_cf(self.cf_handle(col)?, none, none);
-        Ok(())
+        self.db.compact_range_cf(self.cf_handle(col), none, none);
     }
 
     #[tracing::instrument(
@@ -342,30 +341,32 @@ impl RocksDB {
         skip_all,
         fields(transaction.ops.len = transaction.ops.len()),
     )]
-    fn build_write_batch(&self, transaction: DBTransaction) -> io::Result<WriteBatch> {
+    fn build_write_batch(&self, transaction: DBTransaction) -> WriteBatch {
         let mut batch = WriteBatch::default();
         for op in transaction.ops {
             match op {
                 DBOp::Set { col, key, value } => {
-                    batch.put_cf(self.cf_handle(col)?, key, value);
+                    batch.put_cf(self.cf_handle(col), key, value);
                 }
                 DBOp::Insert { col, key, value } => {
                     if cfg!(debug_assertions) {
-                        if let Ok(Some(old_value)) = self.get_raw_bytes(col, &key) {
+                        if let Some(old_value) = self.get_raw_bytes(col, &key) {
                             super::assert_no_overwrite(col, &key, &value, &*old_value)
                         }
                     }
-                    batch.put_cf(self.cf_handle(col)?, key, value);
+                    batch.put_cf(self.cf_handle(col), key, value);
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    batch.merge_cf(self.cf_handle(col)?, key, value);
+                    batch.merge_cf(self.cf_handle(col), key, value);
                 }
                 DBOp::Delete { col, key } => {
-                    batch.delete_cf(self.cf_handle(col)?, key);
+                    batch.delete_cf(self.cf_handle(col), key);
                 }
                 DBOp::DeleteAll { col } => {
-                    let cf_handle = self.cf_handle(col)?;
-                    let range = self.get_cf_key_range(cf_handle).map_err(io::Error::other)?;
+                    let cf_handle = self.cf_handle(col);
+                    let range = self
+                        .get_cf_key_range(cf_handle)
+                        .unwrap_or_else(|err| panic!("{col}: failed to get key range: {err}"));
                     if let Some(range) = range {
                         batch.delete_range_cf(cf_handle, range.start(), range.end());
                         // delete_range_cf deletes ["begin_key", "end_key"), so need one more delete
@@ -373,26 +374,26 @@ impl RocksDB {
                     }
                 }
                 DBOp::DeleteRange { col, from, to } => {
-                    batch.delete_range_cf(self.cf_handle(col)?, from, to);
+                    batch.delete_range_cf(self.cf_handle(col), from, to);
                 }
             }
         }
-        Ok(batch)
+        batch
     }
 }
 
 impl Database for RocksDB {
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
         let timer =
             metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
         let read_options = rocksdb_read_options();
         let result = self
             .db
-            .get_pinned_cf_opt(self.cf_handle(col)?, key, &read_options)
-            .map_err(io::Error::other)?
+            .get_pinned_cf_opt(self.cf_handle(col), key, &read_options)
+            .unwrap_or_else(|err| panic!("{col}: get_pinned_cf_opt failed: {err}"))
             .map(DBSlice::from_rocksdb_slice);
         timer.observe_duration();
-        Ok(result)
+        result
     }
 
     fn iter_raw_bytes(&self, col: DBCol) -> DBIterator {
@@ -424,9 +425,9 @@ impl Database for RocksDB {
         "RocksDB::write",
         skip_all
     )]
-    fn write(&self, transaction: DBTransaction) -> io::Result<()> {
+    fn write(&self, transaction: DBTransaction) {
         let write_batch_start = std::time::Instant::now();
-        let batch = self.build_write_batch(transaction)?;
+        let batch = self.build_write_batch(transaction);
         let elapsed = write_batch_start.elapsed();
         if elapsed.as_secs_f32() > 0.15 {
             tracing::debug!(
@@ -436,7 +437,7 @@ impl Database for RocksDB {
                 backtrace = %std::backtrace::Backtrace::force_capture()
             );
         }
-        self.db.write(batch).map_err(io::Error::other)
+        self.db.write(batch).unwrap_or_else(|err| panic!("RocksDB::write failed: {err}"));
     }
 
     #[tracing::instrument(
@@ -445,11 +446,10 @@ impl Database for RocksDB {
         "RocksDB::compact",
         skip_all
     )]
-    fn compact(&self) -> io::Result<()> {
+    fn compact(&self) {
         for col in DBCol::iter() {
-            self.compact_column(col)?;
+            self.compact_column(col);
         }
-        Ok(())
     }
 
     #[tracing::instrument(
@@ -458,13 +458,14 @@ impl Database for RocksDB {
         "RocksDB::flush",
         skip_all
     )]
-    fn flush(&self) -> io::Result<()> {
+    fn flush(&self) {
         // Need to iterator over all CFs because the normal `flush()` only
         // flushes the default column family.
         for col in DBCol::iter() {
-            self.db.flush_cf(self.cf_handle(col)?).map_err(io::Error::other)?;
+            self.db
+                .flush_cf(self.cf_handle(col))
+                .unwrap_or_else(|err| panic!("{col}: flush_cf failed: {err}"));
         }
-        Ok(())
     }
 
     /// Trying to get
@@ -913,7 +914,7 @@ mod tests {
         }
         assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap().as_deref(), Some(&[1][..]));
         assert_eq!(
-            rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).unwrap().as_deref(),
+            rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).as_deref(),
             Some(&[1, 2, 0, 0, 0, 0, 0, 0, 0][..])
         );
         {
@@ -923,7 +924,7 @@ mod tests {
         }
         assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap().as_deref(), Some(&[1][..]));
         assert_eq!(
-            rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).unwrap().as_deref(),
+            rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).as_deref(),
             Some(&[1, 1, 0, 0, 0, 0, 0, 0, 0][..])
         );
         {
@@ -934,26 +935,23 @@ mod tests {
         // Refcount goes to 0 -> get() returns None
         assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
         // Internally there is an empty value
-        assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).unwrap().as_deref(), Some(&[][..]));
+        assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).as_deref(), Some(&[][..]));
 
         // single_thread_rocksdb makes compact hang forever
         if !cfg!(feature = "single_thread_rocksdb") {
             let none = Option::<&[u8]>::None;
-            let cf = rocksdb.cf_handle(DBCol::State).unwrap();
+            let cf = rocksdb.cf_handle(DBCol::State);
 
             // I’m not sure why but we need to run compaction twice.  If we run
             // it only once, we end up with an empty value for the key.  This is
             // surprising because I assumed that compaction filter would discard
             // empty values.
             rocksdb.db.compact_range_cf(cf, none, none);
-            assert_eq!(
-                rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).unwrap().as_deref(),
-                Some(&[][..])
-            );
+            assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).as_deref(), Some(&[][..]));
             assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
 
             rocksdb.db.compact_range_cf(cf, none, none);
-            assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).unwrap(), None);
+            assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1; 8]), None);
             assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
         }
     }

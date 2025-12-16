@@ -34,14 +34,10 @@ impl Store {
         skip_all,
         fields(%account_id)
     )]
-    pub fn set_account_announcement(
-        &self,
-        account_id: &AccountId,
-        aa: &AnnounceAccount,
-    ) -> Result<(), Error> {
+    pub fn set_account_announcement(&self, account_id: &AccountId, aa: &AnnounceAccount) {
         let mut update = self.0.new_update();
         update.set::<schema::AccountAnnouncements>(account_id, aa);
-        self.0.commit(update).map_err(Error)
+        self.0.commit(update)
     }
 
     /// Fetches row with key account_id from the AccountAnnouncements column.
@@ -64,10 +60,10 @@ impl Store {
     pub fn set_recent_outbound_connections(
         &self,
         recent_outbound_connections: &Vec<ConnectionInfo>,
-    ) -> Result<(), Error> {
+    ) {
         let mut update = self.0.new_update();
         update.set::<schema::RecentOutboundConnections>(&(), &recent_outbound_connections);
-        self.0.commit(update).map_err(Error)
+        self.0.commit(update)
     }
 
     pub fn get_recent_outbound_connections(&self) -> Vec<ConnectionInfo> {
