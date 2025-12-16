@@ -36,6 +36,7 @@ fn slow_test_state_dump() {
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = 25;
+    genesis.config.transaction_validity_period = 50;
 
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(1)
@@ -144,6 +145,7 @@ fn run_state_sync_with_dumped_parts(
     }
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let num_clients = 2;
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
