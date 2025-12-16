@@ -1606,8 +1606,8 @@ fn test_gas_price_overflow() {
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = Gas::from_gas(gas_limit);
     genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
-    genesis.config.transaction_validity_period = 100000;
     genesis.config.epoch_length = 43200;
+    genesis.config.transaction_validity_period = 43200 * 2;
     genesis.config.max_gas_price = max_gas_price;
 
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
@@ -2560,6 +2560,7 @@ fn test_epoch_multi_protocol_version_change() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.protocol_version = v0;
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(2)
@@ -2634,6 +2635,7 @@ fn slow_test_epoch_multi_protocol_version_change_epoch_overlap() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.protocol_version = v0;
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(2)
