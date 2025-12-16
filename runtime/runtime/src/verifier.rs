@@ -1030,15 +1030,16 @@ mod tests {
         gas_price: Balance,
         signed_transaction: SignedTransaction,
         expected_err: InvalidTxError,
+        current_protocol_version: ProtocolVersion,
     ) {
-        let validated_tx = match validate_transaction(config, signed_transaction, PROTOCOL_VERSION)
-        {
-            Ok(v) => v,
-            Err((err, _tx)) => {
-                assert_eq!(err, expected_err);
-                return;
-            }
-        };
+        let validated_tx =
+            match validate_transaction(config, signed_transaction, current_protocol_version) {
+                Ok(v) => v,
+                Err((err, _tx)) => {
+                    assert_eq!(err, expected_err);
+                    return;
+                }
+            };
         let cost = match tx_cost(config, &validated_tx.to_tx(), gas_price) {
             Ok(c) => c,
             Err(err) => {
@@ -1274,6 +1275,7 @@ mod tests {
             gas_price,
             tx,
             InvalidTxError::InvalidSignature,
+            PROTOCOL_VERSION,
         );
     }
 
@@ -1341,6 +1343,7 @@ mod tests {
                 total_prepaid_gas: Gas::from_gas(200),
                 limit: Gas::from_gas(100),
             }),
+            PROTOCOL_VERSION,
         );
     }
 
@@ -1420,6 +1423,7 @@ mod tests {
                 CryptoHash::default(),
             ),
             InvalidTxError::CostOverflow,
+            PROTOCOL_VERSION,
         );
     }
 
@@ -1443,6 +1447,7 @@ mod tests {
                 1,
             ),
             InvalidTxError::InvalidTransactionVersion,
+            ProtocolFeature::GasKeys.protocol_version() - 1,
         );
     }
 
