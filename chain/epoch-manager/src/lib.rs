@@ -22,7 +22,7 @@ use near_primitives::types::{
     EpochInfoProvider, ProtocolVersion, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
-use near_primitives::version::ProtocolFeature;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
@@ -801,8 +801,10 @@ impl EpochManager {
                     self.finalize_epoch(&mut store_update, &block_info, &current_hash, rng_seed)?;
                 }
 
-                if self.is_next_block_in_next_epoch(&prev_block_info)? {
-                    self.update_epoch_sync_proof(&block_info)?;
+                if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+                    if self.is_next_block_in_next_epoch(&prev_block_info)? {
+                        self.update_epoch_sync_proof(&block_info)?;
+                    }
                 }
             }
         }

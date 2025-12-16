@@ -2,6 +2,7 @@ use near_async::time::Duration;
 use near_epoch_manager::epoch_sync::derive_epoch_sync_proof_from_last_final_block;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreAdapter;
 
@@ -13,6 +14,11 @@ use crate::utils::node::TestLoopNode;
 // Validate the updated proof against derive_epoch_sync_proof_from_last_final_block.
 #[test]
 fn test_epoch_sync_proof_update() {
+    // This test is only relevant when ContinuousEpochSync is enabled.
+    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
     init_test_logger();
     let epoch_length = 10;
     let validators_spec = create_validators_spec(1, 0);
@@ -53,6 +59,11 @@ fn test_epoch_sync_proof_update() {
 #[test]
 fn test_epoch_sync_proof_update_with_forks() {
     use near_client::client_actor::AdvProduceBlockHeightSelection;
+
+    // This test is only relevant when ContinuousEpochSync is enabled.
+    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+        return;
+    }
 
     init_test_logger();
     let epoch_length = 10;
