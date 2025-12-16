@@ -47,11 +47,6 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 &self.config.genesis.config,
                 &self.config.config.store,
             ),
-            47 => migrate_47_to_48(
-                hot_store,
-                cold_db,
-                self.config.genesis.config.transaction_validity_period,
-            ),
             DB_VERSION.. => unreachable!(),
         }
     }
