@@ -38,6 +38,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 &self.config.genesis.config,
                 &self.config.config.store,
             ),
+            47 => Ok(()), // TODO(continuous_epoch_sync): Implement the migration
             DB_VERSION.. => unreachable!(),
         }
     }
