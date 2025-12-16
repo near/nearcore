@@ -19,7 +19,7 @@ use near_primitives::stateless_validation::validator_assignment::ChunkValidatorA
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, ChunkStats, EpochId,
-    EpochInfoProvider, NumBlocks, ProtocolVersion, ShardId, ValidatorId, ValidatorInfoIdentifier,
+    EpochInfoProvider, ProtocolVersion, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
 use near_primitives::version::ProtocolFeature;
@@ -120,7 +120,6 @@ pub struct EpochManager {
     /// Current epoch config.
     config: AllEpochConfig,
     reward_calculator: RewardCalculator,
-    transaction_validity_period: NumBlocks,
 
     /// Cache of epoch information.
     epochs_info: SyncLruCache<EpochId, Arc<EpochInfo>>,
@@ -213,15 +212,9 @@ impl EpochManager {
             genesis_config.protocol_version,
         );
         Arc::new(
-            Self::new(
-                store,
-                all_epoch_config,
-                reward_calculator,
-                genesis_config.validators(),
-                genesis_config.transaction_validity_period,
-            )
-            .unwrap()
-            .into_handle(),
+            Self::new(store, all_epoch_config, reward_calculator, genesis_config.validators())
+                .unwrap()
+                .into_handle(),
         )
     }
 
@@ -230,14 +223,12 @@ impl EpochManager {
         config: AllEpochConfig,
         reward_calculator: RewardCalculator,
         validators: Vec<ValidatorStake>,
-        transaction_validity_period: NumBlocks,
     ) -> Result<Self, EpochError> {
         let epoch_info_aggregator = store.get_epoch_info_aggregator().unwrap_or_default();
         let mut epoch_manager = EpochManager {
             store,
             config,
             reward_calculator,
-            transaction_validity_period,
             epochs_info: SyncLruCache::new(EPOCH_CACHE_SIZE),
             blocks_info: SyncLruCache::new(BLOCK_CACHE_SIZE),
             epoch_id_to_start: SyncLruCache::new(EPOCH_CACHE_SIZE),
@@ -836,24 +827,6 @@ impl EpochManager {
         let first_block_hash_in_ppe = last_block_info_in_pe.epoch_first_block();
         let first_block_info_in_ppe = self.store.get_block_info(first_block_hash_in_ppe)?;
         let last_block_hash_in_ppe = first_block_info_in_ppe.prev_hash();
-
-        // Assert for transaction_validity_period.
-        // First block of the target epoch should be at lease `transaction_validity_period` blocks
-        // behind the current head
-        let last_block_info_in_ppe = self.store.get_block_info(last_block_hash_in_ppe)?;
-        let first_block_hash_in_ppe = last_block_info_in_ppe.epoch_first_block();
-        let first_block_info_in_ppe = self.store.get_block_info(first_block_hash_in_ppe)?;
-        if !first_block_info_in_ppe.is_genesis() {
-            let being_height = first_block_info_in_ppe.height();
-            let end_height = first_block_info.height();
-            assert!(
-                being_height + self.transaction_validity_period <= end_height,
-                "{:?} + {:?} <= {:?} is false",
-                being_height,
-                self.transaction_validity_period,
-                end_height,
-            );
-        }
 
         extend_epoch_sync_proof(&self.store, last_block_hash_in_ppe).unwrap();
 

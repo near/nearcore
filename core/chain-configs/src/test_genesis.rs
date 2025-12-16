@@ -74,8 +74,7 @@ pub struct TestGenesisBuilder {
     min_gas_price: Balance,
     max_gas_price: Balance,
     gas_limit: Gas,
-    // Typically transaction_validity_period is set to epoch_length * 2
-    transaction_validity_period: Option<NumBlocks>,
+    transaction_validity_period: NumBlocks,
     protocol_treasury_account: String,
     max_inflation_rate: Rational32,
     dynamic_resharding: bool,
@@ -291,7 +290,7 @@ impl Default for TestGenesisBuilder {
             min_gas_price: Balance::ZERO,
             max_gas_price: Balance::ZERO,
             gas_limit: Gas::from_teragas(1000),
-            transaction_validity_period: None,
+            transaction_validity_period: 100,
             protocol_treasury_account: "near".to_string().parse().unwrap(),
             max_inflation_rate: Rational32::new(1, 1),
             user_accounts: vec![],
@@ -371,7 +370,7 @@ impl TestGenesisBuilder {
     }
 
     pub fn transaction_validity_period(mut self, transaction_validity_period: NumBlocks) -> Self {
-        self.transaction_validity_period = Some(transaction_validity_period);
+        self.transaction_validity_period = transaction_validity_period;
         self
     }
 
@@ -511,9 +510,7 @@ impl TestGenesisBuilder {
             gas_limit: self.gas_limit,
             dynamic_resharding: self.dynamic_resharding,
             fishermen_threshold: self.fishermen_threshold,
-            transaction_validity_period: self
-                .transaction_validity_period
-                .unwrap_or(self.epoch_length * 2),
+            transaction_validity_period: self.transaction_validity_period,
             protocol_version: self.protocol_version,
             protocol_treasury_account,
             online_min_threshold: self.online_min_threshold,
