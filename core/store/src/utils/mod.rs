@@ -353,37 +353,43 @@ pub fn remove_account(
     let public_keys = state_update
         .locked_iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id), &lock)?
         .map(|raw_key| {
-            trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id).map_err(
-                |_e| {
-                    StorageError::StorageInconsistentState(
-                        "Can't parse public key from raw key for AccessKey".to_string(),
-                    )
-                },
-            )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    drop(lock);
+            let raw_key = raw_key?;
+            let public_key =
+                trie_key_parsers::parse_public_key_from_access_key_key(&raw_key, account_id)
+                    .map_err(|_e| {
+                        StorageError::StorageInconsistentState(
+                            "Can't parse public key from raw key for AccessKey".to_string(),
+                        )
+                    });
 
-    for public_key in public_keys {
-        state_update.remove(TrieKey::AccessKey { account_id: account_id.clone(), public_key });
-    }
-
-    // Removing gas keys
-    let lock = state_update.trie().lock_for_iter();
-    let gas_trie_keys = state_update
-        .locked_iter(&trie_key_parsers::get_raw_prefix_for_gas_keys(account_id), &lock)?
-        .map(|raw_key| {
-            trie_key_parsers::parse_trie_key_gas_key_from_raw_key(&raw_key?).map_err(|_e| {
-                StorageError::StorageInconsistentState(
-                    "Can't parse trie key from raw key for GasKey".to_string(),
+            public_key.map(|public_key| {
+                let nonce_index = trie_key_parsers::parse_nonce_index_from_gas_key_key(
+                    &raw_key,
+                    account_id,
+                    &public_key,
                 )
-            })
+                .map_err(|_e| {
+                    StorageError::StorageInconsistentState(
+                        "Can't parse nonce index from raw key for AccessKey".to_string(),
+                    )
+                })?;
+
+                Ok::<(PublicKey, Option<NonceIndex>), StorageError>((public_key, nonce_index))
+            })?
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<Vec<(PublicKey, Option<NonceIndex>)>, _>>()?;
     drop(lock);
 
-    for gas_key in gas_trie_keys {
-        state_update.remove(gas_key);
+    for (public_key, nonce_index) in public_keys {
+        if let Some(nonce_index) = nonce_index {
+            state_update.remove(TrieKey::GasKey {
+                account_id: account_id.clone(),
+                public_key: public_key.clone(),
+                index: Some(nonce_index),
+            });
+        } else {
+            state_update.remove(TrieKey::AccessKey { account_id: account_id.clone(), public_key });
+        }
     }
 
     // Removing contract data

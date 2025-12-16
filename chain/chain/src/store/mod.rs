@@ -702,19 +702,6 @@ impl ChainStore {
                 }
                 changes
             }
-            StateChangesRequest::SingleGasKeyChanges { keys } => {
-                let mut changes = StateChanges::new();
-                for key in keys {
-                    let data_key = trie_key_parsers::get_raw_prefix_for_gas_key(
-                        &key.account_id,
-                        &key.public_key,
-                    );
-                    let storage_key = KeyForStateChanges::from_raw_key(block_hash, &data_key);
-                    let changes_per_key_prefix = storage_key.find_iter(&store);
-                    changes.extend(StateChanges::from_gas_key_changes(changes_per_key_prefix)?);
-                }
-                changes
-            }
             StateChangesRequest::AllAccessKeyChanges { account_ids } => {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
@@ -722,16 +709,6 @@ impl ChainStore {
                     let storage_key = KeyForStateChanges::from_raw_key(block_hash, &data_key);
                     let changes_per_key_prefix = storage_key.find_iter(&store);
                     changes.extend(StateChanges::from_access_key_changes(changes_per_key_prefix)?);
-                }
-                changes
-            }
-            StateChangesRequest::AllGasKeyChanges { account_ids } => {
-                let mut changes = StateChanges::new();
-                for account_id in account_ids {
-                    let data_key = trie_key_parsers::get_raw_prefix_for_gas_keys(account_id);
-                    let storage_key = KeyForStateChanges::from_raw_key(block_hash, &data_key);
-                    let changes_per_key_prefix = storage_key.find_iter(&store);
-                    changes.extend(StateChanges::from_gas_key_changes(changes_per_key_prefix)?);
                 }
                 changes
             }

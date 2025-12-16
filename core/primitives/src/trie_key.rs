@@ -65,13 +65,10 @@ pub mod col {
     /// Global contract code instance. Values are contract blobs,
     /// the same as for `CONTRACT_CODE`.
     pub const GLOBAL_CONTRACT_CODE: u8 = 18;
-    /// Gas key is used to store the gas key or a single nonce ID for the gas key.
-    /// If index is None, the value is of type `GasKey`; otherwise it is of type u64.
-    pub const GAS_KEY: u8 = 19;
 
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
-    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 10] = [
+    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 9] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -81,10 +78,9 @@ pub mod col {
         (POSTPONED_RECEIPT, "PostponedReceipt"),
         (CONTRACT_DATA, "ContractData"),
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
-        (GAS_KEY, "GasKey"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 19] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 18] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -103,7 +99,6 @@ pub mod col {
         (BUFFERED_RECEIPT_GROUPS_QUEUE_DATA, "BufferedReceiptGroupsQueueData"),
         (BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM, "BufferedReceiptGroupsQueueItem"),
         (GLOBAL_CONTRACT_CODE, "GlobalContractCode"),
-        (GAS_KEY, "GasKey"),
     ];
 }
 
@@ -250,7 +245,7 @@ pub enum TrieKey {
         account_id: AccountId,
         public_key: PublicKey,
         index: Option<NonceIndex>,
-    } = col::GAS_KEY,
+    } = 19,
 }
 
 /// Provides `len` function.
@@ -342,9 +337,9 @@ impl TrieKey {
                 col::GLOBAL_CONTRACT_CODE.len() + identifier.len()
             }
             TrieKey::GasKey { account_id, public_key, index } => {
-                col::GAS_KEY.len()
+                col::ACCESS_KEY.len()
                     + account_id.len()
-                    + ACCOUNT_DATA_SEPARATOR.len()
+                    + col::ACCESS_KEY.len()
                     + public_key.len()
                     + borsh::object_length(index).unwrap()
             }
@@ -446,9 +441,9 @@ impl TrieKey {
                 identifier.append_into(buf);
             }
             TrieKey::GasKey { account_id, public_key, index } => {
-                buf.push(col::GAS_KEY);
+                buf.push(col::ACCESS_KEY);
                 buf.extend(account_id.as_bytes());
-                buf.push(ACCOUNT_DATA_SEPARATOR);
+                buf.push(col::ACCESS_KEY);
                 borsh::to_writer(buf.borsh_writer(), &public_key).unwrap();
                 borsh::to_writer(buf.borsh_writer(), &index).unwrap();
             }
@@ -565,33 +560,15 @@ pub mod trie_key_parsers {
         PublicKey::try_from_slice(&raw_key[prefix_len..])
     }
 
-    pub fn parse_public_key_from_gas_key_key(
-        raw_key: &[u8],
-        account_id: &AccountId,
-    ) -> Result<PublicKey, std::io::Error> {
-        let prefix_len = col::GAS_KEY.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len();
-        if raw_key.len() < prefix_len {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "raw key is too short for TrieKey::GasKey",
-            ));
-        }
-        let mut buffer = &raw_key[prefix_len..];
-        PublicKey::deserialize(&mut buffer)
-    }
-
     pub fn parse_nonce_index_from_gas_key_key(
         raw_key: &[u8],
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Option<u32>, std::io::Error> {
         let prefix_len =
-            col::GAS_KEY.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len() + public_key.len();
-        if raw_key.len() < prefix_len {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "raw key is too short for TrieKey::GasKey",
-            ));
+            col::ACCESS_KEY.len() + account_id.len() + col::ACCESS_KEY.len() + public_key.len();
+        if raw_key.len() <= prefix_len {
+            return Ok(None);
         }
         Option::<u32>::try_from_slice(&raw_key[prefix_len..])
     }
@@ -690,18 +667,6 @@ pub mod trie_key_parsers {
         }
     }
 
-    pub fn parse_account_id_from_gas_key_key(raw_key: &[u8]) -> Result<AccountId, std::io::Error> {
-        let account_id_prefix = parse_account_id_prefix(col::GAS_KEY, raw_key)?;
-        if let Some(account_id) = next_token(account_id_prefix, ACCOUNT_DATA_SEPARATOR) {
-            parse_account_id_from_slice(account_id, "GasKey")
-        } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "raw key does not have public key to be TrieKey::GasKey",
-            ))
-        }
-    }
-
     pub fn parse_index_from_delayed_receipt_key(raw_key: &[u8]) -> Result<u64, std::io::Error> {
         // The length of TrieKey::DelayedReceipt { .. } should be 9 since it's a single byte for the
         // column and then 8 bytes for a u64 index.
@@ -728,13 +693,6 @@ pub mod trie_key_parsers {
         let account_id = parse_account_id_from_access_key_key(raw_key)?;
         let public_key = parse_public_key_from_access_key_key(raw_key, &account_id)?;
         Ok(TrieKey::AccessKey { account_id, public_key })
-    }
-
-    pub fn parse_trie_key_gas_key_from_raw_key(raw_key: &[u8]) -> Result<TrieKey, std::io::Error> {
-        let account_id = parse_account_id_from_gas_key_key(raw_key)?;
-        let public_key = parse_public_key_from_gas_key_key(raw_key, &account_id)?;
-        let index = parse_nonce_index_from_gas_key_key(raw_key, &account_id, &public_key)?;
-        Ok(TrieKey::GasKey { account_id, public_key, index })
     }
 
     pub fn parse_account_id_from_raw_key(
@@ -806,22 +764,12 @@ pub mod trie_key_parsers {
 
     pub fn get_raw_prefix_for_gas_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
         let mut res = Vec::with_capacity(
-            col::GAS_KEY.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len() + public_key.len(),
+            col::ACCESS_KEY.len() + account_id.len() + col::ACCESS_KEY.len() + public_key.len(),
         );
-        res.push(col::GAS_KEY);
+        res.push(col::ACCESS_KEY);
         res.extend(account_id.as_bytes());
-        res.push(ACCOUNT_DATA_SEPARATOR);
+        res.push(col::ACCESS_KEY);
         borsh::to_writer(&mut res, public_key).unwrap();
-        res
-    }
-
-    pub fn get_raw_prefix_for_gas_keys(account_id: &AccountId) -> Vec<u8> {
-        let mut res = Vec::with_capacity(
-            col::GAS_KEY.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len(),
-        );
-        res.push(col::GAS_KEY);
-        res.extend(account_id.as_bytes());
-        res.push(ACCOUNT_DATA_SEPARATOR);
         res
     }
 

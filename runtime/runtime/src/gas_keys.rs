@@ -466,7 +466,7 @@ mod tests {
 
         let lock = state_update.trie().lock_for_iter();
         let gas_key_count = state_update
-            .locked_iter(&trie_key_parsers::get_raw_prefix_for_gas_keys(&account_id), &lock)
+            .locked_iter(&trie_key_parsers::get_raw_prefix_for_access_keys(&account_id), &lock)
             .expect("could not get trie iterator")
             .count();
         assert_eq!(gas_key_count, 0);

@@ -2703,13 +2703,7 @@ pub enum StateChangesRequestView {
     SingleAccessKeyChanges {
         keys: Vec<AccountWithPublicKey>,
     },
-    SingleGasKeyChanges {
-        keys: Vec<AccountWithPublicKey>,
-    },
     AllAccessKeyChanges {
-        account_ids: Vec<AccountId>,
-    },
-    AllGasKeyChanges {
         account_ids: Vec<AccountId>,
     },
     ContractCodeChanges {
@@ -2731,14 +2725,8 @@ impl From<StateChangesRequestView> for StateChangesRequest {
             StateChangesRequestView::SingleAccessKeyChanges { keys } => {
                 Self::SingleAccessKeyChanges { keys }
             }
-            StateChangesRequestView::SingleGasKeyChanges { keys } => {
-                Self::SingleGasKeyChanges { keys }
-            }
             StateChangesRequestView::AllAccessKeyChanges { account_ids } => {
                 Self::AllAccessKeyChanges { account_ids }
-            }
-            StateChangesRequestView::AllGasKeyChanges { account_ids } => {
-                Self::AllGasKeyChanges { account_ids }
             }
             StateChangesRequestView::ContractCodeChanges { account_ids } => {
                 Self::ContractCodeChanges { account_ids }

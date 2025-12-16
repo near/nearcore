@@ -625,6 +625,14 @@ impl AccessKeyPermission {
             AccessKeyPermission::FullAccess | AccessKeyPermission::FunctionCall(_) => None,
         }
     }
+
+    pub fn gas_key_info(&self) -> Option<&GasKeyInfo> {
+        match self {
+            AccessKeyPermission::GasKeyFullAccess(info)
+            | AccessKeyPermission::GasKeyFunctionCall(info, _) => Some(info),
+            AccessKeyPermission::FullAccess | AccessKeyPermission::FunctionCall(_) => None,
+        }
+    }
 }
 
 /// Grants limited permission to make transactions with FunctionCallActions

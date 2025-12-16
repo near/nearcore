@@ -256,9 +256,7 @@ pub type RawStateChanges = std::collections::BTreeMap<Vec<u8>, RawStateChangesWi
 pub enum StateChangesRequest {
     AccountChanges { account_ids: Vec<AccountId> },
     SingleAccessKeyChanges { keys: Vec<AccountWithPublicKey> },
-    SingleGasKeyChanges { keys: Vec<AccountWithPublicKey> },
     AllAccessKeyChanges { account_ids: Vec<AccountId> },
-    AllGasKeyChanges { account_ids: Vec<AccountId> },
     ContractCodeChanges { account_ids: Vec<AccountId> },
     DataChanges { account_ids: Vec<AccountId>, key_prefix: StoreKey },
 }
@@ -480,24 +478,7 @@ impl StateChanges {
                     state_change.value,
                     StateChangeValue::AccessKeyUpdate { .. }
                         | StateChangeValue::AccessKeyDeletion { .. }
-                )
-            })
-            .collect())
-    }
-
-    pub fn from_gas_key_changes(
-        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
-    ) -> Result<StateChanges, std::io::Error> {
-        let state_changes = Self::from_changes(raw_changes)?;
-
-        Ok(state_changes
-            .into_iter()
-            .filter(|state_change| {
-                matches!(
-                    state_change.value,
-                    StateChangeValue::GasKeyUpdate { .. }
                         | StateChangeValue::GasKeyNonceUpdate { .. }
-                        | StateChangeValue::GasKeyDeletion { .. }
                 )
             })
             .collect())
