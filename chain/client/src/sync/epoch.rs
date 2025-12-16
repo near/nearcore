@@ -135,9 +135,6 @@ impl EpochSync {
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), Error> {
-        if self.config.disable_epoch_sync_for_bootstrapping {
-            return Ok(());
-        }
         let tip_height = chain.chain_store().header_head()?.height;
         if tip_height != chain.genesis().height() {
             // Epoch Sync only supports bootstrapping at genesis. This is because there is no reason
@@ -522,10 +519,6 @@ impl EpochSync {
 
 impl Handler<EpochSyncRequestMessage> for ClientActor {
     fn handle(&mut self, msg: EpochSyncRequestMessage) {
-        if self.client.sync_handler.epoch_sync.config.ignore_epoch_sync_network_requests {
-            // Temporary kill switch for the rare case there were issues with this network request.
-            return;
-        }
         let store = self.client.chain.chain_store.store();
         let network_adapter = self.client.network_adapter.clone();
         let requester_peer_id = msg.from_peer;

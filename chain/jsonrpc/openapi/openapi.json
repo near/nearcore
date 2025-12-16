@@ -4134,21 +4134,11 @@
       },
       "EpochSyncConfig": {
         "properties": {
-          "disable_epoch_sync_for_bootstrapping": {
-            "default": false,
-            "description": "If true, even if the node started from genesis, it will not perform epoch sync.\nThere should be no reason to set this flag in production, because on both mainnet\nand testnet it would be infeasible to catch up from genesis without epoch sync.",
-            "type": "boolean"
-          },
           "epoch_sync_horizon": {
             "description": "This serves as two purposes: (1) the node will not epoch sync and instead resort to\nheader sync, if the genesis block is within this many blocks from the current block;\n(2) the node will reject an epoch sync proof if the provided proof is for an epoch\nthat is more than this many blocks behind the current block.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
-          },
-          "ignore_epoch_sync_network_requests": {
-            "default": false,
-            "description": "If true, the node will ignore epoch sync requests from the network. It is strongly\nrecommended not to set this flag, because it will prevent other nodes from\nbootstrapping. This flag is only included as a kill-switch and may be removed in a\nfuture release. Please note that epoch sync requests are heavily rate limited and\ncached, and therefore should not affect the performance of the node or introduce\nany non-negligible increase in network traffic.",
-            "type": "boolean"
           },
           "timeout_for_epoch_sync": {
             "allOf": [
