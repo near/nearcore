@@ -109,6 +109,7 @@ impl EpochSync {
         let proof = derive_epoch_sync_proof_from_last_block(
             &store.epoch_store(),
             &target_epoch_last_block_hash,
+            true,
         );
         let (proof, _) = match CompressedEpochSyncProof::encode(&proof?) {
             Ok(proof) => proof,

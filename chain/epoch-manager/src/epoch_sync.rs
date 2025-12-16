@@ -36,9 +36,16 @@ pub fn extend_epoch_sync_proof(
         return Ok(());
     }
 
-    let prev_proof = store.get_epoch_sync_proof()?;
-    let new_proof = create_epoch_sync_proof_from_prev_proof(store, last_block_hash, prev_proof)?;
+    let proof = store.get_epoch_sync_proof()?;
+    if let Some(proof) = &proof {
+        let prev_proof_first_block_hash = proof.current_epoch.first_block_header_in_epoch.hash();
+        if prev_proof_first_block_hash == last_block_info.epoch_first_block() {
+            // Proof is already up-to-date. This can happen if we are processing forks
+            return Ok(());
+        }
+    }
 
+    let new_proof = create_epoch_sync_proof_from_prev_proof(store, last_block_hash, proof)?;
     let mut store_update = store.store_update();
     store_update.set_epoch_sync_proof(&new_proof);
     store_update.commit()?;
@@ -181,6 +188,7 @@ pub fn find_target_epoch_to_produce_proof_for(
 pub fn derive_epoch_sync_proof_from_last_block(
     store: &EpochStoreAdapter,
     last_block_hash: &CryptoHash,
+    use_existing_proof: bool,
 ) -> Result<EpochSyncProof, Error> {
     let chain_store = store.chain_store();
     let last_block_header = chain_store.get_block_header(&last_block_hash)?;
@@ -190,7 +198,8 @@ pub fn derive_epoch_sync_proof_from_last_block(
     // If we have an existing (possibly and likely outdated) EpochSyncProof stored on disk,
     // the last epoch we have a proof for is the "previous epoch" included in that EpochSyncProof.
     // Otherwise, the last epoch we have a "proof" for is the genesis epoch.
-    let existing_epoch_sync_proof = store.get_epoch_sync_proof()?;
+    let existing_epoch_sync_proof =
+        if use_existing_proof { store.get_epoch_sync_proof()? } else { None };
     let last_epoch_height_we_have_proof_for = existing_epoch_sync_proof
         .as_ref()
         .map(|existing_proof| existing_proof.last_epoch.next_epoch_info.epoch_height())
