@@ -47,9 +47,6 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 &self.config.genesis.config,
                 &self.config.config.store,
             ),
-            47 => {
-                migrate_47_to_48(hot_store, self.config.genesis.config.transaction_validity_period)
-            }
             DB_VERSION.. => unreachable!(),
         }
     }
@@ -58,6 +55,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
 /// This migration does two things:
 /// 1. Generate and save the compressed epoch sync proof
 /// 2. Clear the block headers from genesis to tail in hot_store
+#[allow(dead_code)]
 fn migrate_47_to_48(
     hot_store: &Store,
     transaction_validity_period: BlockHeightDelta,
