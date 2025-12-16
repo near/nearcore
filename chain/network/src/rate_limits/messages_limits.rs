@@ -211,7 +211,7 @@ fn get_key_and_token_cost(message: &PeerMessage) -> Option<(RateLimitedPeerMessa
                 T1MessageBody::VersionedPartialEncodedChunk(_) => {
                     Some((VersionedPartialEncodedChunk, 1))
                 }
-                T1MessageBody::_PartialEncodedChunkForward(_) => {
+                T1MessageBody::PartialEncodedChunkForward(_) => {
                     Some((PartialEncodedChunkForward, 1))
                 }
                 T1MessageBody::PartialEncodedStateWitness(_) => {

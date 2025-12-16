@@ -759,7 +759,7 @@ impl NetworkState {
                         .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(*chunk));
                     None
                 }
-                T1MessageBody::_PartialEncodedChunkForward(msg) => {
+                T1MessageBody::PartialEncodedChunkForward(msg) => {
                     self.shards_manager_adapter.send(
                         ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg),
                     );
