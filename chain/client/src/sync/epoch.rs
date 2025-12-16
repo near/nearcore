@@ -83,7 +83,7 @@ impl EpochSync {
     /// Derives an epoch sync proof for a recent epoch, that can be directly used to bootstrap
     /// a new node or bring a far-behind node to a recent epoch.
     #[instrument(skip(store, cache))]
-    pub fn derive_epoch_sync_proof(
+    fn derive_epoch_sync_proof(
         store: Store,
         transaction_validity_period: BlockHeightDelta,
         cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
