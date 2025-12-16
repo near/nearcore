@@ -2,6 +2,7 @@ use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain::Provenance;
 use near_chain_configs::ExternalStorageLocation::Filesystem;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{
     DumpConfig, ExternalStorageConfig, Genesis, SyncConfig, TrackedShardsConfig,
 };
@@ -38,7 +39,9 @@ use near_store::db::RocksDB;
 async fn slow_test_sync_state_nodes() {
     init_integration_logger();
 
-    let genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(&["test1"], &[]))
+        .build();
 
     let (port1, port2) =
         (tcp::ListenerAddr::reserve_for_test(), tcp::ListenerAddr::reserve_for_test());
@@ -636,9 +639,10 @@ async fn slow_test_state_sync_headers() {
         Arc::new(tempfile::Builder::new().prefix("test_state_sync_headers").tempdir().unwrap());
     let dir1 = _dir1.clone();
     let actor_system = ActorSystem::new();
-    let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
-    // Increase epoch_length if the test is flaky.
-    genesis.config.epoch_length = 100;
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(&["test1"], &[]))
+        .epoch_length(100)
+        .build();
 
     let mut near1 =
         load_test_config("test1", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
@@ -782,10 +786,11 @@ async fn slow_test_state_sync_headers_no_tracked_shards() {
         );
         let dir2 = _dir2.clone();
         let actor_system = ActorSystem::new();
-        let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
-        // Increase epoch_length if the test is flaky.
         let epoch_length = 100;
-        genesis.config.epoch_length = epoch_length;
+        let genesis = TestGenesisBuilder::new()
+            .validators_spec(ValidatorsSpec::desired_roles(&["test1"], &[]))
+            .epoch_length(epoch_length)
+            .build();
 
         let port1 = tcp::ListenerAddr::reserve_for_test();
         let mut near1 = load_test_config("test1", port1, genesis.clone());

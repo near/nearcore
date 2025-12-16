@@ -3,6 +3,7 @@ use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::time::Clock;
 use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_client::ProcessTxResponse;
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
@@ -97,7 +98,9 @@ fn test_flat_storage_iter() {
 /// state of the previous flat head inaccessible.
 fn test_not_supported_block() {
     init_test_logger();
-    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .build();
     let shard_layout = ShardLayout::single_shard();
     let shard_uid = shard_layout.shard_uids().next().unwrap();
     let store = create_test_store();

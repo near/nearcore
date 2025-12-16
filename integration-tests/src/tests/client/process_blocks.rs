@@ -13,6 +13,7 @@ use near_async::time::{Clock, Duration};
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{BlockProcessingArtifact, ChainStore, ChainStoreAccess, Error, Provenance};
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, ProtocolVersionCheckConfig};
 use near_client::test_utils::create_chunk_on_height;
@@ -494,8 +495,10 @@ async fn client_sync_headers() {
 #[test]
 fn test_process_invalid_tx() {
     init_test_logger();
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
-    genesis.config.transaction_validity_period = 10;
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .transaction_validity_period(10)
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
     let tx = SignedTransaction::new(
