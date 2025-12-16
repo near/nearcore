@@ -6,7 +6,7 @@
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_client::test_utils::create_chunk_on_height;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::InMemorySigner;
@@ -30,7 +30,9 @@ fn benchmark_large_chunk_production_time() {
     let n_txes = 20;
     let tx_size = mb / 2;
 
-    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let account_id = env.get_client_id(0);

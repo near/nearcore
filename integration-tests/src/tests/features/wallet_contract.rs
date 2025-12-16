@@ -3,7 +3,7 @@ use aurora_engine_transactions::EthTransactionKind;
 use aurora_engine_transactions::eip_2930::Transaction2930;
 use aurora_engine_types::types::{Address, Wei};
 use ethabi::ethereum_types::U256;
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signer};
 use near_primitives::account::id::AccountIdRef;
@@ -87,7 +87,9 @@ fn view_nonce(env: &TestEnv, account: &AccountIdRef, pk: PublicKey) -> u64 {
 // TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_eth_implicit_account_creation() {
-    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let chain_id = &genesis.config.chain_id;
@@ -143,7 +145,9 @@ fn test_eth_implicit_account_creation() {
 // TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_from_eth_implicit_account_fail() {
-    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let chain_id = &genesis.config.chain_id;
@@ -242,7 +246,12 @@ fn test_transaction_from_eth_implicit_account_fail() {
 // TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_wallet_contract_interaction() {
-    let genesis = Genesis::test(vec!["test0".parse().unwrap(), alice_account(), bob_account()], 1);
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &["test0"],
+            &[alice_account().as_str(), bob_account().as_str()],
+        ))
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();

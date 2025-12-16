@@ -1,7 +1,7 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 use near_chain::{Block, Provenance};
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_client::ProcessTxResponse;
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
@@ -129,12 +129,14 @@ pub fn prepare_env_with_congestion(
 ) -> (TestEnv, Vec<CryptoHash>) {
     init_test_logger();
     let epoch_length = 100;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.protocol_version = protocol_version;
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.gas_limit = Gas::from_teragas(10);
-    if let Some(gas_price_adjustment_rate) = gas_price_adjustment_rate {
-        genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
+    let mut genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+        .protocol_version(protocol_version)
+        .epoch_length(epoch_length)
+        .gas_limit(Gas::from_teragas(10))
+        .build();
+    if let Some(rate) = gas_price_adjustment_rate {
+        genesis.config.gas_price_adjustment_rate = rate;
     }
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
