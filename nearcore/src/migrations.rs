@@ -128,7 +128,7 @@ fn update_epoch_sync_proof(
         find_target_epoch_to_produce_proof_for(&store, transaction_validity_period)?;
 
     tracing::info!(target: "migrations", ?last_block_hash, "deriving epoch sync proof from last final block");
-    let proof = derive_epoch_sync_proof_from_last_block(&epoch_store, &last_block_hash)?;
+    let proof = derive_epoch_sync_proof_from_last_block(&epoch_store, &last_block_hash, true)?;
 
     tracing::info!(target: "migrations", "storing latest epoch sync proof");
     let mut store_update = epoch_store.store_update();
