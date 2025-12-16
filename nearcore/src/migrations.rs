@@ -13,6 +13,8 @@ use crate::NearConfig;
 
 const CHUNK_SIZE: u64 = 5000;
 
+use crate::NearConfig;
+
 pub(super) struct Migrator<'a> {
     config: &'a NearConfig,
 }
