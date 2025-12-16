@@ -1,5 +1,7 @@
 use std::fmt;
 
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+
 /// This enum holds the information about the columns that we use within the
 /// RocksDB storage.
 ///
@@ -571,10 +573,11 @@ impl DBCol {
             DBCol::_ReceiptIdToShardId => false,
             // This can be re-constructed from the Chunks column, so no need to store in Cold DB.
             DBCol::PartialChunks => false,
+            // BlockHeader is considered cold once ContinuousEpochSync is enabled. Before that, it is false
+            DBCol::BlockHeader => ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION),
 
             // Columns that are not GC-ed need not be copied to the cold storage.
-            DBCol::BlockHeader
-            | DBCol::_BlockExtra
+            DBCol::_BlockExtra
             | DBCol::_GCCount
             | DBCol::BlockHeight
             | DBCol::_Peers
@@ -677,7 +680,7 @@ impl DBCol {
             DBCol::LatestWitnessesByIndex => &[DBKeyType::LatestWitnessIndex],
             DBCol::InvalidChunkStateWitnesses => &[DBKeyType::InvalidWitnessesKey],
             DBCol::InvalidWitnessesByIndex => &[DBKeyType::InvalidWitnessIndex],
-            DBCol::EpochSyncProof => &[DBKeyType::Empty],
+            DBCol::EpochSyncProof => &[DBKeyType::StringLiteral],
             DBCol::StateShardUIdMapping => &[DBKeyType::ShardUId],
             DBCol::StateSyncHashes => &[DBKeyType::EpochId],
             DBCol::StateSyncNewChunks => &[DBKeyType::BlockHash],

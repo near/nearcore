@@ -1,5 +1,4 @@
 use crate::client_actor::ClientActor;
-use crate::metrics;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
@@ -10,7 +9,8 @@ use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::epoch_sync::{
-    derive_epoch_sync_proof_from_last_final_block, get_epoch_info_block_producers,
+    derive_epoch_sync_proof_from_last_final_block, find_target_epoch_to_produce_proof_for,
+    get_epoch_info_block_producers,
 };
 use near_network::client::{EpochSyncRequestMessage, EpochSyncResponseMessage};
 use near_network::types::{
@@ -27,8 +27,8 @@ use near_primitives::network::PeerId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{Balance, BlockHeight, BlockHeightDelta, EpochId};
 use near_primitives::utils::compression::CompressedData;
-use near_store::Store;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::{Store, metrics};
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use std::sync::Arc;
@@ -92,7 +92,7 @@ impl EpochSync {
         // epoch the "target epoch". In the context of talking about the proof or the newly
         // bootstrapped node, it is also called the "current epoch".
         let target_epoch_last_block_hash =
-            Self::find_target_epoch_to_produce_proof_for(&store, transaction_validity_period)?;
+            find_target_epoch_to_produce_proof_for(&store, transaction_validity_period)?;
 
         let chain_store = store.chain_store();
         let target_epoch_last_block_header =
@@ -124,56 +124,6 @@ impl EpochSync {
         metrics::EPOCH_SYNC_LAST_GENERATED_COMPRESSED_PROOF_SIZE.set(proof.size_bytes() as i64);
         *guard = Some((*target_epoch_last_block_header.epoch_id(), proof.clone()));
         Ok(proof)
-    }
-
-    /// Figures out which target epoch we should produce a proof for, based on the current
-    /// state of the blockchain.
-    ///
-    /// The basic requirement for picking the target epoch is that its first block must be
-    /// final. That's just so that we don't have to deal with any forks. Therefore, it is
-    /// sufficient to pick whatever epoch the current final block is in. However, there are
-    /// additional considerations:
-    ///  - Because state sync also requires some previous headers to be available (depending
-    ///    on how many chunks were missing), if we pick the most recent epoch, after the node
-    ///    finishes epoch sync and transitions to state sync, it would not have these headers
-    ///    before the epoch. Therefore, for this purpose, it's convenient for epoch sync to not
-    ///    pick the most recent epoch. This would ensure that state sync has a whole epoch of
-    ///    headers before the epoch it's syncing to.
-    ///  - We also need to have enough block headers to check for transaction_validity_period.
-    ///    Therefore, we need find the latest epoch for which we would have at least that many
-    ///    headers.
-    ///
-    /// This function returns the hash of the last final block (third last block) of the target
-    /// epoch.
-    fn find_target_epoch_to_produce_proof_for(
-        store: &Store,
-        transaction_validity_period: BlockHeightDelta,
-    ) -> Result<CryptoHash, Error> {
-        let chain_store = store.chain_store();
-        let epoch_store = store.epoch_store();
-
-        let tip = chain_store.final_head()?;
-        let current_epoch_start_height = epoch_store.get_epoch_start(&tip.epoch_id)?;
-        let next_next_epoch_id = tip.next_epoch_id;
-        // Last block hash of the target epoch is the same as the next next EpochId.
-        // That's a general property for Near's epochs.
-        let mut target_epoch_last_block_hash = next_next_epoch_id.0;
-        Ok(loop {
-            let block_info = epoch_store.get_block_info(&target_epoch_last_block_hash)?;
-            let target_epoch_first_block_header =
-                chain_store.get_block_header(block_info.epoch_first_block())?;
-            // Check that we have enough headers to check for transaction_validity_period.
-            // We check this against the current epoch's start height, because when we state
-            // sync, we will sync against the current epoch, and starting from the point we
-            // state sync is when we'll need to be able to check for transaction validity.
-            if target_epoch_first_block_header.height() + transaction_validity_period
-                > current_epoch_start_height
-            {
-                target_epoch_last_block_hash = *target_epoch_first_block_header.prev_hash();
-            } else {
-                break target_epoch_last_block_hash;
-            }
-        })
     }
 
     /// Performs the epoch sync logic if applicable in the current state of the blockchain.
