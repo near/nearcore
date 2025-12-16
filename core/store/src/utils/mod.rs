@@ -6,7 +6,7 @@ use crate::trie::AccessOptions;
 use crate::{DBCol, GENESIS_STATE_ROOTS_KEY, Store, StoreUpdate, TrieAccess, TrieUpdate};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives::account::{AccessKey, Account, GasKey};
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::bandwidth_scheduler::BandwidthSchedulerState;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::StorageError;
@@ -247,15 +247,6 @@ pub fn set_access_key(
     set(state_update, TrieKey::AccessKey { account_id, public_key }, access_key);
 }
 
-pub fn set_gas_key(
-    state_update: &mut TrieUpdate,
-    account_id: AccountId,
-    public_key: PublicKey,
-    gas_key: &GasKey,
-) {
-    set(state_update, TrieKey::GasKey { account_id, public_key, index: None }, gas_key);
-}
-
 pub fn set_gas_key_nonce(
     state_update: &mut TrieUpdate,
     account_id: AccountId,
@@ -263,7 +254,7 @@ pub fn set_gas_key_nonce(
     index: NonceIndex,
     nonce: Nonce,
 ) {
-    set(state_update, TrieKey::GasKey { account_id, public_key, index: Some(index) }, &nonce);
+    set(state_update, TrieKey::GasKey { account_id, public_key, index }, &nonce);
 }
 
 pub fn remove_access_key(
@@ -274,17 +265,13 @@ pub fn remove_access_key(
     state_update.remove(TrieKey::AccessKey { account_id, public_key });
 }
 
-pub fn remove_gas_key(state_update: &mut TrieUpdate, account_id: AccountId, public_key: PublicKey) {
-    state_update.remove(TrieKey::GasKey { account_id, public_key, index: None });
-}
-
 pub fn remove_gas_key_nonce(
     state_update: &mut TrieUpdate,
     account_id: AccountId,
     public_key: PublicKey,
     index: NonceIndex,
 ) {
-    state_update.remove(TrieKey::GasKey { account_id, public_key, index: Some(index) });
+    state_update.remove(TrieKey::GasKey { account_id, public_key, index });
 }
 
 pub fn get_access_key(
@@ -298,21 +285,6 @@ pub fn get_access_key(
     )
 }
 
-pub fn get_gas_key(
-    trie: &dyn TrieAccess,
-    account_id: &AccountId,
-    public_key: &PublicKey,
-) -> Result<Option<GasKey>, StorageError> {
-    get(
-        trie,
-        &TrieKey::GasKey {
-            account_id: account_id.clone(),
-            public_key: public_key.clone(),
-            index: None,
-        },
-    )
-}
-
 pub fn get_gas_key_nonce(
     trie: &dyn TrieAccess,
     account_id: &AccountId,
@@ -321,11 +293,7 @@ pub fn get_gas_key_nonce(
 ) -> Result<Option<Nonce>, StorageError> {
     get(
         trie,
-        &TrieKey::GasKey {
-            account_id: account_id.clone(),
-            public_key: public_key.clone(),
-            index: Some(index),
-        },
+        &TrieKey::GasKey { account_id: account_id.clone(), public_key: public_key.clone(), index },
     )
 }
 
@@ -385,7 +353,7 @@ pub fn remove_account(
             state_update.remove(TrieKey::GasKey {
                 account_id: account_id.clone(),
                 public_key: public_key.clone(),
-                index: Some(nonce_index),
+                index: nonce_index,
             });
         } else {
             state_update.remove(TrieKey::AccessKey { account_id: account_id.clone(), public_key });

@@ -244,7 +244,7 @@ pub enum TrieKey {
     GasKey {
         account_id: AccountId,
         public_key: PublicKey,
-        index: Option<NonceIndex>,
+        index: NonceIndex,
     } = 19,
 }
 
@@ -557,7 +557,8 @@ pub mod trie_key_parsers {
                 "raw key is too short for TrieKey::AccessKey",
             ));
         }
-        PublicKey::try_from_slice(&raw_key[prefix_len..])
+        let mut buf = &raw_key[prefix_len..];
+        PublicKey::deserialize(&mut buf)
     }
 
     pub fn parse_nonce_index_from_gas_key_key(
@@ -570,7 +571,7 @@ pub mod trie_key_parsers {
         if raw_key.len() <= prefix_len {
             return Ok(None);
         }
-        Option::<u32>::try_from_slice(&raw_key[prefix_len..])
+        u32::try_from_slice(&raw_key[prefix_len..]).map(Some)
     }
 
     pub fn parse_data_key_from_contract_data_key<'a>(

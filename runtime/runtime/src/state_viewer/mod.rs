@@ -239,7 +239,7 @@ impl TrieViewer {
                 let trie_key = TrieKey::GasKey {
                     account_id: account_id.clone(),
                     public_key: public_key.clone(),
-                    index: Some(nonce_index.unwrap()),
+                    index: nonce_index.unwrap(),
                 };
                 let value =
                     near_store::get::<Nonce>(state_update, &trie_key)?.ok_or_else(|| {

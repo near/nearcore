@@ -13,7 +13,6 @@ use crate::trie_key::{TrieKey, col};
 use crate::types::{AccountId, StoreKey, StoreValue};
 use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
-use near_primitives_core::account::GasKey;
 use near_primitives_core::types::{Nonce, NonceIndex, ShardId};
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -60,8 +59,6 @@ pub enum StateRecord {
     /// Delayed Receipt.
     /// The receipt was delayed because the shard was overwhelmed.
     DelayedReceipt(DelayedReceipt),
-    /// Gas key for an account.
-    GasKey { account_id: AccountId, public_key: PublicKey, gas_key: GasKey },
     /// Nonce for a gas key index.
     GasKeyNonce { account_id: AccountId, public_key: PublicKey, index: NonceIndex, nonce: Nonce },
 }
@@ -147,7 +144,6 @@ impl StateRecord {
             StateRecord::Data { .. } => "Data",
             StateRecord::Contract { .. } => "Contract",
             StateRecord::AccessKey { .. } => "AccessKey",
-            StateRecord::GasKey { .. } => "GasKey",
             StateRecord::GasKeyNonce { .. } => "GasKeyNonce",
             StateRecord::PostponedReceipt { .. } => "PostponedReceipt",
             StateRecord::ReceivedData { .. } => "ReceivedData",
@@ -185,9 +181,6 @@ impl Display for StateRecord {
             ),
             StateRecord::PostponedReceipt(receipt) => write!(f, "Postponed receipt {:?}", receipt),
             StateRecord::DelayedReceipt(receipt) => write!(f, "Delayed receipt {:?}", receipt),
-            StateRecord::GasKey { account_id, public_key, gas_key } => {
-                write!(f, "Gas key {:?},{:?}: {:?}", account_id, public_key, gas_key)
-            }
             StateRecord::GasKeyNonce { account_id, public_key, index, nonce } => {
                 write!(f, "Gas key nonce {:?},{:?}[{}]: {}", account_id, public_key, index, nonce)
             }
@@ -214,7 +207,6 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &Shard
     match state_record {
         StateRecord::Account { account_id, .. }
         | StateRecord::AccessKey { account_id, .. }
-        | StateRecord::GasKey { account_id, .. }
         | StateRecord::GasKeyNonce { account_id, .. }
         | StateRecord::Contract { account_id, .. }
         | StateRecord::ReceivedData { account_id, .. }
@@ -230,7 +222,6 @@ pub fn state_record_to_account_id(state_record: &StateRecord) -> &AccountId {
     match state_record {
         StateRecord::Account { account_id, .. }
         | StateRecord::AccessKey { account_id, .. }
-        | StateRecord::GasKey { account_id, .. }
         | StateRecord::GasKeyNonce { account_id, .. }
         | StateRecord::Contract { account_id, .. }
         | StateRecord::ReceivedData { account_id, .. }
