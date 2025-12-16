@@ -49,7 +49,6 @@ pub mod shard_tracker;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
-pub mod validate;
 mod validator_selection;
 mod validator_stats;
 

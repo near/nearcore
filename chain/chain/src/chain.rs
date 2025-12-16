@@ -36,7 +36,7 @@ pub use crate::update_shard::{
     apply_new_chunk, apply_old_chunk,
 };
 use crate::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
-use crate::validate::validate_chunk_with_chunk_extra;
+use crate::validate::{validate_chunk_with_chunk_extra, validate_optimistic_block_relevant};
 use crate::{
     BlockStatus, ChainGenesis, Doomslug, Provenance, byzantine_assert,
     create_light_client_block_view,
@@ -55,7 +55,6 @@ use near_chain_primitives::error::{BlockKnownError, Error};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::validate::validate_optimistic_block_relevant;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::block::{
     Block, BlockValidityError, ChunkType, Chunks, Tip, compute_bp_hash_from_validator_stakes,
@@ -2193,7 +2192,7 @@ impl Chain {
         if !validate_optimistic_block_relevant(
             self.epoch_manager.as_ref(),
             block,
-            &self.chain_store.store(),
+            &self.chain_store,
         )? {
             return Err(Error::InvalidSignature);
         }
