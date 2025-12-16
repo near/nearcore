@@ -123,9 +123,8 @@ impl Block {
         clock: near_time::Clock,
         sandbox_delta_time: Option<near_time::Duration>,
         optimistic_block: Option<OptimisticBlock>,
-        // TODO(spice): Remove option once spice feature is tied to protocol version. We use option
-        // for now to indicate whether spice feature is enabled to allow creating non-spice blocks
-        // for tests.
+        // TODO(spice): Once spice is released remove Option.
+        // Spice block is created IFF this is Some.
         spice_info: Option<SpiceNewBlockProductionInfo>,
     ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
@@ -231,7 +230,7 @@ impl Block {
         ));
 
         let chunks_wrapper = Chunks::from_chunk_headers(&chunks, height);
-        let prev_state_root = if cfg!(feature = "protocol_feature_spice") {
+        let prev_state_root = if spice_info.is_some() {
             // TODO(spice): include state root from the relevant previous executed block.
             CryptoHash::default()
         } else {
@@ -466,7 +465,7 @@ impl Block {
         // With spice chunks wouldn't contain prev_state_roots.
         // TODO(spice): check that block's state_root matches state_root corresponding to chunks of
         // the appropriate executed block from the past.
-        if !cfg!(feature = "protocol_feature_spice") {
+        if !self.is_spice_block() {
             let state_root = self.chunks().compute_state_root();
             if self.header().prev_state_root() != &state_root {
                 return Err(InvalidStateRoot);

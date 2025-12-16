@@ -128,12 +128,12 @@ impl StateSyncInfo {
 }
 
 pub mod shard_chunk_header_inner;
+use self::shard_chunk_header_inner::ShardChunkHeaderInnerV6SpiceTxOnly;
+use crate::trie_split::TrieSplit;
 pub use shard_chunk_header_inner::{
     ShardChunkHeaderInner, ShardChunkHeaderInnerV1, ShardChunkHeaderInnerV2,
     ShardChunkHeaderInnerV3,
 };
-
-use self::shard_chunk_header_inner::ShardChunkHeaderInnerV5SpiceTxOnly;
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
 #[borsh(init=init)]
@@ -340,7 +340,7 @@ impl ShardChunkHeaderV3 {
         tx_root: CryptoHash,
         signer: &ValidatorSigner,
     ) -> Self {
-        let inner = ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5SpiceTxOnly {
+        let inner = ShardChunkHeaderInner::V6(ShardChunkHeaderInnerV6SpiceTxOnly {
             prev_block_hash,
             encoded_merkle_root,
             encoded_length,
@@ -589,7 +589,8 @@ impl ShardChunkHeader {
                 ShardChunkHeaderInner::V2(_) => false,
                 ShardChunkHeaderInner::V3(_) => false,
                 ShardChunkHeaderInner::V4(_) => true,
-                ShardChunkHeaderInner::V5(_) => ProtocolFeature::Spice.enabled(version),
+                ShardChunkHeaderInner::V5(_) => ProtocolFeature::DynamicResharding.enabled(version),
+                ShardChunkHeaderInner::V6(_) => ProtocolFeature::Spice.enabled(version),
             },
         };
 
@@ -648,6 +649,14 @@ impl ShardChunkHeader {
             ShardChunkHeader::V1(header) => ShardChunkHeaderV1::compute_hash(&header.inner),
             ShardChunkHeader::V2(header) => ShardChunkHeaderV2::compute_hash(&header.inner),
             ShardChunkHeader::V3(header) => ShardChunkHeaderV3::compute_hash(&header.inner),
+        }
+    }
+
+    #[inline]
+    pub fn proposed_split(&self) -> Option<&TrieSplit> {
+        match self {
+            ShardChunkHeader::V1(_) | ShardChunkHeader::V2(_) => None,
+            ShardChunkHeader::V3(header) => header.inner.proposed_split(),
         }
     }
 }

@@ -930,7 +930,7 @@ impl Client {
         let next_epoch_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let spice_info = if cfg!(feature = "protocol_feature_spice") {
+        let spice_info = if ProtocolFeature::Spice.enabled(protocol_version) {
             let core_statements =
                 self.chain.spice_core_reader.core_statement_for_next_block(&prev_header)?;
             let last_certified_block_execution_results =
