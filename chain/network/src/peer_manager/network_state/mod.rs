@@ -847,12 +847,6 @@ impl NetworkState {
                     );
                     None
                 }
-                T2MessageBody::PartialEncodedChunkForward(msg) => {
-                    self.shards_manager_adapter.send(
-                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg),
-                    );
-                    None
-                }
                 T2MessageBody::ChunkStateWitnessAck(ack) => {
                     self.partial_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
                     None

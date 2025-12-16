@@ -722,11 +722,8 @@ pub enum T2MessageBody {
     PartialEncodedContractDeploys(PartialEncodedContractDeploys),
     StateHeaderRequest(StateHeaderRequest),
     StateRequestAck(StateRequestAck),
-    /// TODO: Moved to T1, deprecate:
-    /// Receiving over T1 was enabled in 2.10.
-    /// Sending is expected to be adopted by the network in 2.12.
-    /// So this varian can be removed at the earliest in 2.13 release.
-    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+    // Moved to T1
+    // PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 }
 
 impl T2MessageBody {
@@ -1043,9 +1040,6 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                     RoutedMessageBody::PartialEncodedChunkResponse(
                         partial_encoded_chunk_response_msg,
                     )
-                }
-                T2MessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg) => {
-                    RoutedMessageBody::PartialEncodedChunkForward(partial_encoded_chunk_forward_msg)
                 }
                 T2MessageBody::Ping(ping) => RoutedMessageBody::Ping(ping),
                 T2MessageBody::Pong(pong) => RoutedMessageBody::Pong(pong),
