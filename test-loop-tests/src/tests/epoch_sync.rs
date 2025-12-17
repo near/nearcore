@@ -7,7 +7,7 @@ use near_chain::ChainStoreAccess;
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_epoch_manager::epoch_sync::{
-    derive_epoch_sync_proof_from_last_final_block, find_target_epoch_to_produce_proof_for,
+    derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
 };
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
@@ -241,7 +241,7 @@ impl TestLoopEnv {
         let tx_validity_period = self.shared_state.genesis.config.transaction_validity_period;
         let last_block_hash =
             find_target_epoch_to_produce_proof_for(&store, tx_validity_period).unwrap();
-        derive_epoch_sync_proof_from_last_final_block(&store.epoch_store(), &last_block_hash, true)
+        derive_epoch_sync_proof_from_last_block(&store.epoch_store(), &last_block_hash, true)
             .unwrap()
     }
 

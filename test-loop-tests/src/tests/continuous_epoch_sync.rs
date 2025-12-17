@@ -1,5 +1,5 @@
 use near_async::time::Duration;
-use near_epoch_manager::epoch_sync::derive_epoch_sync_proof_from_last_final_block;
+use near_epoch_manager::epoch_sync::derive_epoch_sync_proof_from_last_block;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -11,7 +11,7 @@ use crate::utils::account::{create_validators_spec, validators_spec_clients};
 use crate::utils::node::TestLoopNode;
 
 // Test that epoch sync proof is correctly updated after each epoch.
-// Validate the updated proof against derive_epoch_sync_proof_from_last_final_block.
+// Validate the updated proof against derive_epoch_sync_proof_from_last_block.
 #[test]
 fn test_epoch_sync_proof_update() {
     // This test is only relevant when ContinuousEpochSync is enabled.
@@ -114,16 +114,16 @@ fn test_epoch_sync_proof_update_with_forks() {
 }
 
 // Validate that the epoch sync proof stored in epoch_store matches the one derived
-// from derive_epoch_sync_proof_from_last_final_block.
+// from derive_epoch_sync_proof_from_last_block.
 //
 // We pass the first_block_hash of the current epoch T.
 // The proof stored in epoch_store is for epoch T-2.
 fn validate_epoch_sync_proof(epoch_store: &EpochStoreAdapter, first_block_hash: &CryptoHash) {
     // Get the proof stored in epoch_store, compare this against the expected proof generated
-    // from derive_epoch_sync_proof_from_last_final_block.
+    // from derive_epoch_sync_proof_from_last_block.
     let proof = epoch_store.get_epoch_sync_proof().unwrap().expect("Proof should exist");
 
-    // For derive_epoch_sync_proof_from_last_final_block, we need to provide the last final block of epoch T-2,
+    // For derive_epoch_sync_proof_from_last_block, we need to provide the last final block of epoch T-2,
     let first_block_info = epoch_store.get_block_info(first_block_hash).unwrap();
     let last_block_info_in_prev_epoch =
         epoch_store.get_block_info(first_block_info.prev_hash()).unwrap();
@@ -132,7 +132,7 @@ fn validate_epoch_sync_proof(epoch_store: &EpochStoreAdapter, first_block_hash: 
         epoch_store.get_block_info(&first_block_hash_in_prev_epoch).unwrap();
     let last_block_hash_in_prev_prev_epoch = first_block_info_in_prev_epoch.prev_hash();
 
-    let expected_proof = derive_epoch_sync_proof_from_last_final_block(
+    let expected_proof = derive_epoch_sync_proof_from_last_block(
         &epoch_store,
         &last_block_hash_in_prev_prev_epoch,
         false,
