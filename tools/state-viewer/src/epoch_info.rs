@@ -212,7 +212,6 @@ pub(crate) fn iterate_and_filter(
 ) -> Vec<EpochId> {
     store
         .iter(DBCol::EpochInfo)
-        .map(Result::unwrap)
         .filter_map(|(key, value)| {
             if key.as_ref() == AGGREGATOR_KEY {
                 None

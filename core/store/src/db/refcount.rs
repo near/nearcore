@@ -133,14 +133,11 @@ pub(crate) fn refcount_merge<'a>(
 /// Iterator treats empty value as no value and strips refcount
 pub(crate) fn iter_with_rc_logic<'a>(
     col: DBCol,
-    iterator: impl IntoIterator<Item = io::Result<(Box<[u8]>, Box<[u8]>)>> + 'a,
+    iterator: impl IntoIterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a,
 ) -> crate::db::DBIterator<'a> {
     if col.is_rc() {
-        Box::new(iterator.into_iter().filter_map(|item| match item {
-            Err(err) => Some(Err(err)),
-            Ok((key, value)) => {
-                strip_refcount(value.into_vec()).map(|value| Ok((key, value.into_boxed_slice())))
-            }
+        Box::new(iterator.into_iter().filter_map(|(key, value)| {
+            strip_refcount(value.into_vec()).map(|value| (key, value.into_boxed_slice()))
         }))
     } else {
         Box::new(iterator.into_iter())
@@ -308,9 +305,8 @@ mod test {
             use std::ops::Deref;
 
             const KEY: &[u8] = b"key";
-            let iter = values.into_iter().map(|value| Ok((into_box(KEY), into_box(value))));
+            let iter = values.into_iter().map(|value| (into_box(KEY), into_box(value)));
             let got = super::iter_with_rc_logic(col, iter)
-                .map(Result::unwrap)
                 .map(|(key, value)| {
                     assert_eq!(&*key, KEY);
                     value

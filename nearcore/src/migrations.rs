@@ -87,8 +87,7 @@ fn copy_block_headers_to_cold_db(hot_store: &Store, cold_db: &ColdDB) -> anyhow:
 
     let mut count = 0;
     let mut transaction = DBTransaction::new();
-    for t in hot_store.iter_raw_bytes(DBCol::BlockHeader) {
-        let (key, value) = t?;
+    for (key, value) in hot_store.iter_raw_bytes(DBCol::BlockHeader) {
         transaction.set(DBCol::BlockHeader, key.into_vec(), value.into_vec());
         count += 1;
         if count % BATCH_SIZE == 0 {

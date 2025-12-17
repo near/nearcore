@@ -286,13 +286,12 @@ impl<T: Iterator<Item = Result<ContractAccount>>> Summary for T {
 /// processing receipts that would come later. Changes made to the action set by
 /// already processed receipts will not be reverted.
 fn try_find_actions_spawned_by_receipt(
-    raw_kv_pair: std::io::Result<(Box<[u8]>, Box<[u8]>)>,
+    raw_kv_pair: (Box<[u8]>, Box<[u8]>),
     accounts: &mut BTreeMap<AccountId, ContractInfo>,
     store: &Store,
     filter: &ContractAccountFilter,
 ) -> Result<()> {
-    let (raw_key, raw_value) =
-        raw_kv_pair.map_err(|e| ContractAccountError::UnparsableValue(e, DBCol::Receipts))?;
+    let (raw_key, raw_value) = raw_kv_pair;
     // key: receipt id (CryptoHash)
     let key = CryptoHash::deserialize(&mut raw_value.as_ref())
         .map_err(|e| ContractAccountError::InvalidKey(e, raw_key.to_vec()))?;

@@ -157,8 +157,7 @@ pub fn snapshots_sanity_check(
     let cloud_storage = get_cloud_storage(env, archival_id);
     let client = get_client(env, archival_id);
     let mut epoch_heights_with_snapshot = HashSet::<EpochHeight>::new();
-    for entry in store.iter(DBCol::EpochInfo) {
-        let (epoch_id, epoch_info) = entry.unwrap();
+    for (epoch_id, epoch_info) in store.iter(DBCol::EpochInfo) {
         if epoch_id.as_ref() == AGGREGATOR_KEY {
             continue;
         }

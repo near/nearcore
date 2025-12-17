@@ -36,28 +36,14 @@ impl SplitDB {
 
     /// The cmp function for the DBIteratorItems.
     ///
-    /// Note that this does not implement total ordering because there isn't a
-    /// clear way to compare errors to errors or errors to values. Instead it
-    /// implements total order on values but always compares the error on the
-    /// left as lesser. This isn't even partial order. It is fine for merging
-    /// lists but should not be used for anything more complex like sorting.
+    /// Compares only the keys, ignoring values. Values in hot and cold may
+    /// differ in refcount representation, but the key order remains stable.
     pub(crate) fn db_iter_item_cmp(a: &DBIteratorItem, b: &DBIteratorItem) -> Ordering {
-        match (a, b) {
-            // Always put errors first.
-            (Err(_), _) => Ordering::Less,
-            (_, Err(_)) => Ordering::Greater,
-            // When comparing two (key, value) paris only compare the keys.
-            // - values in hot and cold may differ in rc but they are still the same
-            // - values written to cold should be immutable anyway
-            // - values written to cold should be final
-            (Ok((a_key, _)), Ok((b_key, _))) => Ord::cmp(a_key, b_key),
-        }
+        Ord::cmp(&a.0, &b.0)
     }
 
     /// Returns merge iterator for the given two DBIterators. The returned
     /// iterator will contain unique and sorted items from both input iterators.
-    ///
-    /// All errors from both inputs will be returned.
     pub(crate) fn merge_iter<'a>(a: DBIterator<'a>, b: DBIterator<'a>) -> DBIterator<'a> {
         // Merge the two iterators using the cmp function. The result will be an
         // iter of EitherOrBoth.
@@ -370,7 +356,6 @@ mod test {
         // Check that the resulting iterator is sorted and unique.
 
         let iter = split.iter(col);
-        let iter = iter.map(|item| item.unwrap());
         let result = iter.collect_vec();
         let expected_result: Vec<(Box<[u8]>, Box<[u8]>)> = vec![
             (BAR.into(), BAR_VALUE.into()),
@@ -397,7 +382,6 @@ mod test {
         set_rc(&cold, col, BAZ, BAZ_VALUE);
 
         let iter = split.iter_raw_bytes(col);
-        let iter = iter.map(|item| item.unwrap());
         let result = iter.collect_vec();
         let expected_result: Vec<(Box<[u8]>, Box<[u8]>)> = vec![
             (BAR.into(), append_rc(BAR_VALUE)),
@@ -428,7 +412,6 @@ mod test {
 
         let key_prefix = b"BA";
         let iter = split.iter_prefix(col, key_prefix);
-        let iter = iter.map(|item| item.unwrap());
         let result = iter.collect_vec();
         let expected_result: Vec<(Box<[u8]>, Box<[u8]>)> =
             vec![(BAR.into(), BAR_VALUE.into()), (BAZ.into(), BAZ_VALUE.into())];
@@ -463,7 +446,6 @@ mod test {
         let upper_bound = Some(b"FOO7".as_slice());
 
         let iter = split.iter_range(col, lower_bound, upper_bound);
-        let iter = iter.map(|item| item.unwrap());
         let result = iter.collect_vec();
         let expected_result: Vec<(Box<[u8]>, Box<[u8]>)> = vec![
             (bx(b"FOO2"), bx(b"FOO2_VALUE")),

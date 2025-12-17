@@ -62,16 +62,14 @@ impl EpochStoreAdapter {
 
     // Iterate over all the epoch infos in store
     pub fn iter_epoch_info<'a>(&'a self) -> impl Iterator<Item = (EpochId, EpochInfo)> + 'a {
-        self.store
-            .iter(DBCol::EpochInfo)
-            .map(Result::unwrap)
-            .filter(|(key, _)| key.as_ref() != AGGREGATOR_KEY)
-            .map(|(key, value)| {
+        self.store.iter(DBCol::EpochInfo).filter(|(key, _)| key.as_ref() != AGGREGATOR_KEY).map(
+            |(key, value)| {
                 (
                     EpochId::try_from_slice(key.as_ref()).unwrap(),
                     EpochInfo::try_from_slice(value.as_ref()).unwrap(),
                 )
-            })
+            },
+        )
     }
 
     pub fn get_epoch_info_aggregator<T: BorshDeserialize>(&self) -> Result<T, EpochError> {

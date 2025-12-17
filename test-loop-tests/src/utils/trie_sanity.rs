@@ -384,8 +384,7 @@ pub fn check_state_shard_uid_mapping_after_resharding(
     // Whether we found any value in DB for which we could test the mapping.
     let mut has_any_parent_shard_uid_prefix = false;
     let trie_store = store.trie_store();
-    for kv in store.iter_raw_bytes(DBCol::State) {
-        let (key, value) = kv.unwrap();
+    for (key, value) in store.iter_raw_bytes(DBCol::State) {
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
         if shard_uid != parent_shard_uid {
             continue;

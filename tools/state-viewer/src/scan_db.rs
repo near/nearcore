@@ -48,10 +48,9 @@ pub(crate) fn scan_db_column(
 ) {
     let db_col: DBCol = find_db_col(col);
     tracing::info!(target: "scan", ?db_col);
-    for item in
+    for (key, value) in
         store.iter_range(db_col, lower_bound, upper_bound).take(max_keys.unwrap_or(usize::MAX))
     {
-        let (key, value) = item.unwrap();
         let (key_ser, value_ser) =
             format_key_and_value(key.as_ref(), value.as_ref(), db_col, &store);
         if no_value {

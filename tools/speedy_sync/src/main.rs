@@ -135,17 +135,13 @@ fn create_snapshot(create_cmd: CreateCmd) {
     // Get epoch information:
     let mut epochs = store
         .iter(DBCol::EpochInfo)
-        .filter_map(|result| {
-            if let Ok((key, value)) = result {
-                if key.as_ref() == AGGREGATOR_KEY {
-                    None
-                } else {
-                    let info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
-                    let id = EpochId::try_from_slice(key.as_ref()).unwrap();
-                    Some(EpochCheckpoint { id, info })
-                }
-            } else {
+        .filter_map(|(key, value)| {
+            if key.as_ref() == AGGREGATOR_KEY {
                 None
+            } else {
+                let info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
+                let id = EpochId::try_from_slice(key.as_ref()).unwrap();
+                Some(EpochCheckpoint { id, info })
             }
         })
         .collect::<Vec<EpochCheckpoint>>();

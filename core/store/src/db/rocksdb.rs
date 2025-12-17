@@ -296,10 +296,13 @@ impl<'a> Drop for RocksDBIterator<'a> {
 }
 
 impl<'a> Iterator for RocksDBIterator<'a> {
-    type Item = io::Result<(Box<[u8]>, Box<[u8]>)>;
+    type Item = (Box<[u8]>, Box<[u8]>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        Some(self.iter.next()?.map_err(io::Error::other))
+        match self.iter.next()? {
+            Ok(item) => Some(item),
+            Err(err) => panic!("RocksDB iterator next failed: {err}"),
+        }
     }
 }
 

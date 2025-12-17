@@ -172,8 +172,8 @@ impl FlatStoreAdapter {
         let iter = self
             .store
             .iter_range(DBCol::FlatState, Some(&db_key_from), Some(&db_key_to))
-            .map(|result| match result {
-                Ok((key, value)) => Ok((
+            .map(|(key, value)| {
+                Ok((
                     decode_flat_state_db_key(&key)
                         .map_err(|err| {
                             FlatStorageError::StorageInternalError(format!(
@@ -186,10 +186,7 @@ impl FlatStoreAdapter {
                             "invalid FlatState value format: {err}"
                         ))
                     })?,
-                )),
-                Err(err) => Err(FlatStorageError::StorageInternalError(format!(
-                    "FlatState iterator error: {err}"
-                ))),
+                ))
             });
         Box::new(iter)
     }

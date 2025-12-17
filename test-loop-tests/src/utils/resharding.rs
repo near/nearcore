@@ -760,8 +760,7 @@ pub(crate) fn temporary_account_during_resharding(
 fn retain_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
     let store = client.chain.chain_store.store().trie_store();
     let mut store_update = store.store_update();
-    for kv in store.store().iter_raw_bytes(DBCol::State) {
-        let (key, value) = kv.unwrap();
+    for (key, value) in store.store().iter_raw_bytes(DBCol::State) {
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
         if shard_uid == the_only_shard_uid {
             continue;
@@ -778,8 +777,7 @@ fn retain_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
 fn check_has_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
     let store = client.chain.chain_store.store();
     let mut shard_uid_prefixes = HashSet::new();
-    for kv in store.iter_raw_bytes(DBCol::State) {
-        let (key, _) = kv.unwrap();
+    for (key, _) in store.iter_raw_bytes(DBCol::State) {
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
         shard_uid_prefixes.insert(shard_uid);
     }

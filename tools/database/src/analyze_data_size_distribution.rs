@@ -5,8 +5,8 @@ use parking_lot::Mutex;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::println;
 use std::sync::Arc;
-use std::{panic, println};
 use strum::IntoEnumIterator;
 
 use crate::utils::{open_rocksdb, resolve_column};
@@ -140,22 +140,14 @@ fn read_all_pairs(db: &RocksDB, col_families: &Vec<DBCol>) -> DataSizeDistributi
         let mut local_key_sizes: HashMap<usize, usize> = HashMap::new();
         let mut local_value_sizes: HashMap<usize, usize> = HashMap::new();
 
-        //let cf_handle = db.cf_handle(col_family).unwrap();
-        for res in db.iter_raw_bytes(*col_family) {
-            match res {
-                Ok(tuple) => {
-                    // Count key sizes
-                    let key_len = tuple.0.len();
-                    *local_key_sizes.entry(key_len).or_insert(0) += 1;
+        for (key, value) in db.iter_raw_bytes(*col_family) {
+            // Count key sizes
+            let key_len = key.len();
+            *local_key_sizes.entry(key_len).or_insert(0) += 1;
 
-                    // Count value sizes
-                    let value_len = tuple.1.len();
-                    *local_value_sizes.entry(value_len).or_insert(0) += 1;
-                }
-                Err(err) => {
-                    panic!("Error occurred during iteration of {}: {}", col_family, err);
-                }
-            }
+            // Count value sizes
+            let value_len = value.len();
+            *local_value_sizes.entry(value_len).or_insert(0) += 1;
         }
 
         {

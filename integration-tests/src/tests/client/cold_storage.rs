@@ -47,7 +47,7 @@ fn check_iter(
     no_check_rules: &Vec<Box<dyn Fn(DBCol, &Box<[u8]>, &Box<[u8]>) -> bool>>,
 ) -> u64 {
     let mut num_checks = 0;
-    for (key, value) in first_store.iter(col).map(Result::unwrap) {
+    for (key, value) in first_store.iter(col) {
         let mut check = true;
         for no_check in no_check_rules {
             if no_check(col, &key, &value) {
