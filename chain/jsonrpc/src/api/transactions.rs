@@ -21,7 +21,7 @@ impl RpcRequest for RpcSendTransactionRequest {
                     wait_until: Default::default(),
                 })
             })
-            .try_pair(|_: String, _: String| {
+            .try_pair(|_: Value, _: Value| {
                 // Here, we restrict serde parsing object from the array
                 // `wait_until` is a new feature supported only in object
                 Err(RpcParseError(
