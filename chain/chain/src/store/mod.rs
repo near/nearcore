@@ -206,7 +206,7 @@ pub trait ChainStoreAccess {
 
     fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error>;
 
-    fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error>;
+    fn is_height_processed(&self, height: BlockHeight) -> bool;
 
     fn get_block_height(&self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
         if hash == &CryptoHash::default() {
@@ -1042,7 +1042,7 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_block_hash_from_ordinal(self, block_ordinal)
     }
 
-    fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error> {
+    fn is_height_processed(&self, height: BlockHeight) -> bool {
         ChainStoreAdapter::is_height_processed(self, height)
     }
 
@@ -1461,9 +1461,9 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error> {
+    fn is_height_processed(&self, height: BlockHeight) -> bool {
         if self.chain_store_cache_update.processed_block_heights.contains(&height) {
-            Ok(true)
+            true
         } else {
             self.chain_store.is_height_processed(height)
         }

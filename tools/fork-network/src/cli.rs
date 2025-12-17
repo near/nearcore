@@ -806,7 +806,7 @@ impl ForkNetworkCommand {
     ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId, ShardLayout)> {
         let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY)?.unwrap());
         let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH")?.unwrap();
-        let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT")?.unwrap();
+        let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT").unwrap();
         let block_height = u64::from_le_bytes(block_height.as_slice().try_into().unwrap());
 
         let flat_head = BlockInfo {
