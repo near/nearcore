@@ -150,7 +150,7 @@ pub(super) async fn run_state_sync_for_shard(
     let apply_parts_started = any(0..num_parts, |part_id| {
         let key = StatePartKey(sync_hash, shard_id, part_id);
         let key_bytes = borsh::to_vec(&key).unwrap();
-        store.exists(DBCol::StatePartsApplied, &key_bytes).unwrap_or(false)
+        store.exists(DBCol::StatePartsApplied, &key_bytes)
     });
     if apply_parts_started {
         tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "not clearing flat storage before applying state parts because some parts were already applied");
@@ -294,7 +294,7 @@ async fn apply_state_part(
 ) -> Result<StatePartApplyResult, near_chain::Error> {
     let key = StatePartKey(sync_hash, shard_id, part_id);
     let key_bytes = borsh::to_vec(&key).unwrap();
-    let already_applied = store.exists(DBCol::StatePartsApplied, &key_bytes)?;
+    let already_applied = store.exists(DBCol::StatePartsApplied, &key_bytes);
     if already_applied {
         tracing::debug!(target: "sync", ?key, "state part already applied, skipping");
         return Ok(StatePartApplyResult::AlreadyApplied);
@@ -416,7 +416,7 @@ mod tests {
         assert_eq!(result, StatePartApplyResult::Applied);
 
         // Part should be marked as applied in store
-        assert!(store.exists(DBCol::StatePartsApplied, &key_bytes).unwrap());
+        assert!(store.exists(DBCol::StatePartsApplied, &key_bytes));
 
         // Try to apply the state part again
         let result = apply_state_part(

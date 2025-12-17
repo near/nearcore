@@ -1097,13 +1097,13 @@ impl Chain {
             }
             match chunk_header {
                 ChunkType::New(chunk_header) => {
-                    if !self.chain_store.partial_chunk_exists(chunk_hash)? {
+                    if !self.chain_store.partial_chunk_exists(chunk_hash) {
                         missing.push(chunk_header.clone());
                     } else if self
                         .shard_tracker
                         .cares_about_shard_this_or_next_epoch(&parent_hash, shard_id)
                     {
-                        if !self.chain_store.chunk_exists(chunk_hash)? {
+                        if !self.chain_store.chunk_exists(chunk_hash) {
                             missing.push(chunk_header.clone());
                         }
                     }
@@ -2297,7 +2297,7 @@ impl Chain {
         }
 
         // Block is an orphan if we do not know about the previous full block.
-        if !is_next && !self.block_exists(prev_hash)? {
+        if !is_next && !self.block_exists(prev_hash) {
             // Before we add the block to the orphan pool, do some checks:
             // 1. Block header is signed by the block producer for height.
             // 2. Chunk headers in block body match block header.
@@ -3546,7 +3546,7 @@ impl Chain {
         if self.is_block_invalid(block_hash) {
             return Ok(BlockKnowledge::Known(BlockKnownError::KnownAsInvalid));
         }
-        self.check_block_known_store(block_hash)
+        Ok(self.check_block_known_store(block_hash))
     }
 
     /// Check if block header is known.
@@ -3560,19 +3560,19 @@ impl Chain {
         {
             return Ok(BlockKnowledge::Known(BlockKnownError::KnownInHeader));
         }
-        self.check_block_known_store(header.hash())
+        Ok(self.check_block_known_store(header.hash()))
     }
 
     /// Check if this block is in the store already.
     /// Returns Err(Error) if any error occurs when checking store
     ///         Ok(Err(BlockKnownError)) if the block is in the store
     ///         Ok(Ok()) otherwise
-    fn check_block_known_store(&self, block_hash: &CryptoHash) -> Result<BlockKnowledge, Error> {
-        if self.chain_store().block_exists(block_hash)? {
-            Ok(BlockKnowledge::Known(BlockKnownError::KnownInStore))
+    fn check_block_known_store(&self, block_hash: &CryptoHash) -> BlockKnowledge {
+        if self.chain_store().block_exists(block_hash) {
+            BlockKnowledge::Known(BlockKnownError::KnownInStore)
         } else {
             // Not yet processed this block, we can proceed.
-            Ok(BlockKnowledge::Unknown)
+            BlockKnowledge::Unknown
         }
     }
 }
@@ -3682,7 +3682,7 @@ impl Chain {
 
     /// Check if block exists.
     #[inline]
-    pub fn block_exists(&self, hash: &CryptoHash) -> Result<bool, Error> {
+    pub fn block_exists(&self, hash: &CryptoHash) -> bool {
         self.chain_store.block_exists(hash)
     }
 

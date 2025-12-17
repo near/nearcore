@@ -1046,7 +1046,7 @@ pub fn receipt_proof_exists(
     block_hash: &CryptoHash,
     to_shard_id: ShardId,
     from_shard_id: ShardId,
-) -> Result<bool, std::io::Error> {
+) -> bool {
     let key = get_receipt_proof_key(block_hash, from_shard_id, to_shard_id);
     store.exists(DBCol::receipt_proofs(), &key)
 }

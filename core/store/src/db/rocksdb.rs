@@ -1004,9 +1004,9 @@ mod tests {
         store_update.delete_range(column, &keys[1], &keys[3]);
         store_update.commit().unwrap();
 
-        assert_matches!(store.exists(column, &keys[0]), Ok(true));
-        assert_matches!(store.exists(column, &keys[1]), Ok(false));
-        assert_matches!(store.exists(column, &keys[2]), Ok(false));
-        assert_matches!(store.exists(column, &keys[3]), Ok(true));
+        assert_matches!(store.exists(column, &keys[0]), true);
+        assert_matches!(store.exists(column, &keys[1]), false);
+        assert_matches!(store.exists(column, &keys[2]), false);
+        assert_matches!(store.exists(column, &keys[3]), true);
     }
 }

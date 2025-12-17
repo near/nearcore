@@ -1338,7 +1338,7 @@ fn gc_state(
             // If shard_uid exists in the TrieChanges column, it means we were tracking the shard_uid in this epoch.
             // We would like to remove shard_uid from shards_to_cleanup
             let trie_changes_key = get_block_shard_uid(&current_block_hash, shard_uid);
-            !store.exists(DBCol::TrieChanges, &trie_changes_key).unwrap()
+            !store.exists(DBCol::TrieChanges, &trie_changes_key)
         });
 
         // Go to the previous epoch last_block_hash
