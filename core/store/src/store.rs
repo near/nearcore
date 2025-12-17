@@ -120,8 +120,8 @@ impl Store {
         Ok(value)
     }
 
-    pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {
-        Ok(self.get(column, key).is_some())
+    pub fn exists(&self, column: DBCol, key: &[u8]) -> bool {
+        self.get(column, key).is_some()
     }
 
     pub fn store_update(&self) -> StoreUpdate {

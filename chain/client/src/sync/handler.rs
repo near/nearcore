@@ -137,7 +137,6 @@ impl SyncHandler {
 
         let blocks_to_request =
             self.request_sync_blocks(chain, &block_header, highest_height_peers);
-        let blocks_to_request = unwrap_and_report_state_sync_result!(blocks_to_request);
 
         let state_sync_status = match &mut self.sync_status {
             SyncStatus::StateSync(s) => s,
@@ -266,24 +265,24 @@ impl SyncHandler {
         sync_hash: &CryptoHash,
         block_hash: &CryptoHash,
         now: Utc,
-    ) -> Result<(bool, bool), near_chain::Error> {
+    ) -> (bool, bool) {
         // The sync hash block is saved as an orphan. The other blocks are saved
         // as regular blocks. Check if block exists depending on that.
         let block_exists = if sync_hash == block_hash {
             chain.is_orphan(block_hash)
         } else {
-            chain.block_exists(block_hash)?
+            chain.block_exists(block_hash)
         };
 
         if block_exists {
-            return Ok((false, true));
+            return (false, true);
         }
         let timeout = self.config.state_sync_external_timeout;
         let timeout = near_async::time::Duration::try_from(timeout);
         let timeout = timeout.unwrap();
 
         let Some(last_time) = self.last_time_sync_block_requested.get(block_hash) else {
-            return Ok((true, false));
+            return (true, false);
         };
 
         if (now - *last_time) >= timeout {
@@ -293,9 +292,9 @@ impl SyncHandler {
                 ?timeout,
                 "state sync: block request timed out"
             );
-            Ok((true, false))
+            (true, false)
         } else {
-            Ok((false, false))
+            (false, false)
         }
     }
 
@@ -306,7 +305,7 @@ impl SyncHandler {
         chain: &Chain,
         block_header: &BlockHeader,
         highest_height_peers: &[HighestHeightPeerInfo],
-    ) -> Result<Vec<(CryptoHash, PeerId)>, near_chain::Error> {
+    ) -> Vec<(CryptoHash, PeerId)> {
         let now = self.clock.now_utc();
 
         let sync_hash = *block_header.hash();
@@ -319,8 +318,7 @@ impl SyncHandler {
         let mut blocks_to_request = vec![];
 
         for hash in needed_block_hashes.clone() {
-            let (request_block, have_block) =
-                self.sync_block_status(chain, &sync_hash, &hash, now)?;
+            let (request_block, have_block) = self.sync_block_status(chain, &sync_hash, &hash, now);
             tracing::trace!(target: "sync", ?hash, ?request_block, ?have_block, "request_sync_blocks");
 
             if have_block {
@@ -344,6 +342,6 @@ impl SyncHandler {
 
         tracing::trace!(target: "sync", num_blocks_to_request = blocks_to_request.len(), "request_sync_blocks: done");
 
-        Ok(blocks_to_request)
+        blocks_to_request
     }
 }

@@ -50,13 +50,13 @@ impl ChunkStoreAdapter {
     }
 
     /// Does this partial chunk exist?
-    pub fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        self.store.exists(DBCol::PartialChunks, h.as_ref()).map_err(|e| e.into())
+    pub fn partial_chunk_exists(&self, h: &ChunkHash) -> bool {
+        self.store.exists(DBCol::PartialChunks, h.as_ref())
     }
 
     /// Does this chunk exist?
-    pub fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        self.store.exists(DBCol::Chunks, h.as_ref()).map_err(|e| e.into())
+    pub fn chunk_exists(&self, h: &ChunkHash) -> bool {
+        self.store.exists(DBCol::Chunks, h.as_ref())
     }
 
     /// Returns a HashSet of Chunk Hashes for current Height

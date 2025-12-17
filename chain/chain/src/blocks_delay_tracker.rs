@@ -530,7 +530,7 @@ impl Chain {
         if self.is_in_processing(block_hash) {
             return BlockProcessingStatus::InProcessing;
         }
-        if self.chain_store().block_exists(block_hash).unwrap_or_default() {
+        if self.chain_store().block_exists(block_hash) {
             return BlockProcessingStatus::Accepted;
         }
         if let Some(dropped_reason) = &block_info.dropped {

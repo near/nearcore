@@ -172,16 +172,11 @@ fn test_process_chunk_endorsement_fails_with_irrelevant_endorsement() {
             InvalidSpiceEndorsementError::EndorsementIsNotRelevant
         ))
     );
-    assert!(
-        !core_writer_actor
-            .core_reader
-            .endorsement_exists(
-                block.hash(),
-                chunk_header.shard_id(),
-                &AccountId::from_str(&irrelevant_validator).unwrap()
-            )
-            .unwrap()
-    );
+    assert!(!core_writer_actor.core_reader.endorsement_exists(
+        block.hash(),
+        chunk_header.shard_id(),
+        &AccountId::from_str(&irrelevant_validator).unwrap()
+    ));
 }
 
 #[test]
@@ -531,16 +526,11 @@ fn test_handle_processed_block_processes_pending_endorsements_with_invalid_endor
 
     let irrelevant_validator =
         find_irrelevant_validator(&validators, chain, &block, chunk_header.shard_id());
-    assert!(
-        !core_writer_actor
-            .core_reader
-            .endorsement_exists(
-                block.hash(),
-                chunk_header.shard_id(),
-                &AccountId::from_str(&irrelevant_validator).unwrap()
-            )
-            .unwrap()
-    )
+    assert!(!core_writer_actor.core_reader.endorsement_exists(
+        block.hash(),
+        chunk_header.shard_id(),
+        &AccountId::from_str(&irrelevant_validator).unwrap()
+    ))
 }
 
 #[test]
