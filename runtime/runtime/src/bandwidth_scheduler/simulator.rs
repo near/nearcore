@@ -21,8 +21,8 @@ use near_primitives::bandwidth_scheduler::{
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{BlockHeight, ShardId, ShardIndex};
+use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
-use rand_chacha::ChaCha20Rng;
 
 use super::scheduler::{BandwidthScheduler, ShardStatus};
 use testlib::bandwidth_scheduler::{
@@ -39,7 +39,7 @@ struct ChainSimulator {
     shard_states: BTreeMap<(BlockHeight, ShardId), ShardState>,
     // Result of applying a chunk at some height
     application_results: BTreeMap<(BlockHeight, ShardId), ChunkApplicationResult>,
-    rng: ChaCha20Rng,
+    rng: SmallRng,
     next_block_height: BlockHeight,
     scenario: TestScenario,
     chunk_stats: BTreeMap<(BlockHeight, ShardIndex), ChunkBandwidthStats>,
@@ -113,7 +113,7 @@ impl ChainSimulator {
         let mut blocks = BTreeMap::new();
         blocks.insert(0, Some(Rc::new(genesis_block)));
 
-        let rng = ChaCha20Rng::seed_from_u64(0);
+        let rng = SmallRng::seed_from_u64(0);
 
         Self {
             blocks,
@@ -169,9 +169,14 @@ impl ChainSimulator {
     fn apply_chunk(&mut self, height: BlockHeight, shard_id: ShardId) {
         // Load the current shard state
         let mut shard_state_opt = None;
+        let mut pre_state_hash_opt = None;
         for previous_height in (0..height).rev() {
             if let Some(state) = self.shard_states.get(&(previous_height, shard_id)) {
                 shard_state_opt = Some(state.clone());
+                pre_state_hash_opt = self
+                    .application_results
+                    .get(&(previous_height, shard_id))
+                    .map(|res| res.post_state_hash);
                 break;
             }
         }
@@ -182,7 +187,8 @@ impl ChainSimulator {
                 sanity_check_hash: CryptoHash::default(),
             }),
         });
-        let pre_state_hash = CryptoHash::hash_borsh(&shard_state);
+        let pre_state_hash =
+            pre_state_hash_opt.unwrap_or_else(|| CryptoHash::hash_borsh(&shard_state));
 
         // Find the block that contains this chunk
         let current_block = self.blocks.get(&height).unwrap().clone().unwrap();
@@ -501,7 +507,7 @@ fn test_bandwidth_scheduler_simulator_max_size_receipts() {
 fn test_bandwidth_scheduler_simulator_random_link_generators() {
     let num_shards = 10;
     let mut scenario_builder = TestScenarioBuilder::new().num_shards(10);
-    let mut rng = ChaCha20Rng::seed_from_u64(0);
+    let mut rng = SmallRng::seed_from_u64(0);
     for sender in 0..num_shards {
         for receiver in 0..num_shards {
             match rng.gen_range(0..4) {
