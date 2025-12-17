@@ -12,7 +12,6 @@ use std::collections::{BTreeMap, VecDeque};
 use std::convert::Infallible;
 use std::rc::Rc;
 
-use borsh::BorshSerialize;
 use bytesize::ByteSize;
 use near_primitives::bandwidth_scheduler::{
     BandwidthRequest, BandwidthRequests, BandwidthRequestsV1, BandwidthSchedulerParams,
@@ -46,14 +45,14 @@ struct ChainSimulator {
 }
 
 /// Simulated block
-#[derive(Debug, Clone, BorshSerialize)]
+#[derive(Debug, Clone)]
 struct Block {
     chunks: BTreeMap<ShardId, NewOrOld<Rc<Chunk>>>,
 }
 
 /// New or old (missing) chunk
 /// Not using MaybeNew because it needs to own the value
-#[derive(Debug, Clone, BorshSerialize)]
+#[derive(Debug, Clone)]
 enum NewOrOld<T> {
     New(T),
     Old(T),
@@ -69,7 +68,7 @@ impl<T> NewOrOld<T> {
 }
 
 /// Simulated chunk
-#[derive(Debug, Clone, BorshSerialize)]
+#[derive(Debug, Clone)]
 struct Chunk {
     /// Outgoing receipts to other shards generated during the previous chunk application on this shard.
     prev_outgoing_receipts: Rc<BTreeMap<ShardId, Vec<SimReceipt>>>,
@@ -77,14 +76,14 @@ struct Chunk {
 }
 
 /// Current state of some shard in the simulation.
-#[derive(Debug, Clone, BorshSerialize)]
+#[derive(Debug, Clone)]
 struct ShardState {
     buffered_outgoing_receipts: BTreeMap<ShardId, VecDeque<SimReceipt>>,
     scheduler_state: BandwidthSchedulerState,
 }
 
 /// Simulated receipt, represents a receipt with some size.
-#[derive(Debug, Clone, BorshSerialize)]
+#[derive(Debug, Clone)]
 struct SimReceipt {
     size: u64,
 }
@@ -93,8 +92,6 @@ struct SimReceipt {
 struct ChunkApplicationResult {
     outgoing_receipts: Rc<BTreeMap<ShardId, Vec<SimReceipt>>>,
     bandwidth_requests: BandwidthRequests,
-    pre_state_hash: CryptoHash,
-    post_state_hash: CryptoHash,
 }
 
 impl ChainSimulator {
@@ -131,7 +128,6 @@ impl ChainSimulator {
         for _ in 0..num_blocks {
             self.produce_next_block();
         }
-        self.assert_pre_post_state();
     }
 
     fn produce_next_block(&mut self) {
@@ -169,14 +165,9 @@ impl ChainSimulator {
     fn apply_chunk(&mut self, height: BlockHeight, shard_id: ShardId) {
         // Load the current shard state
         let mut shard_state_opt = None;
-        let mut pre_state_hash_opt = None;
         for previous_height in (0..height).rev() {
             if let Some(state) = self.shard_states.get(&(previous_height, shard_id)) {
                 shard_state_opt = Some(state.clone());
-                pre_state_hash_opt = self
-                    .application_results
-                    .get(&(previous_height, shard_id))
-                    .map(|res| res.post_state_hash);
                 break;
             }
         }
@@ -187,8 +178,6 @@ impl ChainSimulator {
                 sanity_check_hash: CryptoHash::default(),
             }),
         });
-        let pre_state_hash =
-            pre_state_hash_opt.unwrap_or_else(|| CryptoHash::hash_borsh(&shard_state));
 
         // Find the block that contains this chunk
         let current_block = self.blocks.get(&height).unwrap().clone().unwrap();
@@ -242,8 +231,6 @@ impl ChainSimulator {
                 ChunkApplicationResult {
                     outgoing_receipts: Rc::new(BTreeMap::new()),
                     bandwidth_requests: BandwidthRequests::empty(),
-                    pre_state_hash,
-                    post_state_hash: CryptoHash::hash_borsh(&shard_state),
                 },
             );
             self.shard_states.insert((height, shard_id), shard_state);
@@ -353,14 +340,11 @@ impl ChainSimulator {
         self.chunk_stats.insert((height, shard_index), stats);
 
         // Save the application result and new shard state
-        let post_state_hash = CryptoHash::hash_borsh(&shard_state);
         let application_result = ChunkApplicationResult {
             outgoing_receipts: Rc::new(outgoing_receipts),
             bandwidth_requests: BandwidthRequests::V1(BandwidthRequestsV1 {
                 requests: bandwidth_requests,
             }),
-            pre_state_hash,
-            post_state_hash,
         };
         self.application_results.insert((height, shard_id), application_result);
         self.shard_states.insert((height, shard_id), shard_state);
@@ -426,18 +410,6 @@ impl ChainSimulator {
     fn scheduler_params(&self) -> BandwidthSchedulerParams {
         // TODO(bandwidth_scheduler) - use current RuntimeConfig?
         BandwidthSchedulerParams::for_test(self.shard_layout.num_shards())
-    }
-
-    /// Make sure that post state of previous chunk application is always pre state for the next application.
-    /// Sanity check.
-    fn assert_pre_post_state(&self) {
-        let mut last_state_hash: BTreeMap<ShardId, CryptoHash> = BTreeMap::new();
-        for ((_height, shard), application_res) in &self.application_results {
-            if let Some(last_hash) = last_state_hash.get(shard) {
-                assert_eq!(last_hash, &application_res.pre_state_hash);
-            }
-            last_state_hash.insert(*shard, application_res.post_state_hash);
-        }
     }
 
     fn stats(self) -> TestBandwidthStats {
