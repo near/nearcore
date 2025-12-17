@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::sync::Arc;
-use std::{fmt, io};
 
 use itertools::Itertools;
 use near_chain_configs::GCConfig;
@@ -352,10 +352,9 @@ impl ChainStore {
         let mut total_entries = 0;
         let mut entries_cleared = 0;
         let mut store_update = self.store().store_update();
-        for res in self.store().iter(DBCol::StateTransitionData) {
+        for (key, _) in self.store().iter(DBCol::StateTransitionData) {
             total_entries += 1;
-            let key = &res?.0;
-            let (block_hash, shard_id) = get_block_shard_id_rev(key).map_err(|err| {
+            let (block_hash, shard_id) = get_block_shard_id_rev(&key).map_err(|err| {
                 Error::StorageError(near_store::StorageError::StorageInconsistentState(format!(
                     "Invalid StateTransitionData key: {err:?}"
                 )))
@@ -363,7 +362,7 @@ impl ChainStore {
 
             let Some(final_block_height) = final_block_chunk_created_heights.get(&shard_id) else {
                 if !relevant_shards.contains(&shard_id) {
-                    store_update.delete(DBCol::StateTransitionData, key);
+                    store_update.delete(DBCol::StateTransitionData, &key);
                     entries_cleared += 1;
                 }
                 // StateTransitionData may correspond to the shard that is created in next epoch.
@@ -372,7 +371,7 @@ impl ChainStore {
 
             let block_height = self.get_block_height(&block_hash)?;
             if block_height < *final_block_height {
-                store_update.delete(DBCol::StateTransitionData, key);
+                store_update.delete(DBCol::StateTransitionData, &key);
                 entries_cleared += 1;
             }
         }
@@ -764,8 +763,8 @@ impl<'a> ChainStoreUpdate<'a> {
         let stored_state_changes: Vec<Box<[u8]>> = self
             .store()
             .iter_prefix(DBCol::StateChanges, storage_key.as_ref())
-            .map(|item| item.map(|(key, _)| key))
-            .collect::<io::Result<Vec<_>>>()?;
+            .map(|(key, _)| key)
+            .collect();
         for key in stored_state_changes {
             self.gc_col(DBCol::StateChanges, &key);
         }
@@ -823,8 +822,8 @@ impl<'a> ChainStoreUpdate<'a> {
                     DBCol::endorsements(),
                     &get_endorsements_key_prefix(block_hash, shard_id),
                 )
-                .map(|item| item.map(|(key, _)| key))
-                .collect::<io::Result<Vec<_>>>()?;
+                .map(|(key, _)| key)
+                .collect();
             let mut execution_result_hashes = HashSet::new();
             for key in endorsement_keys {
                 let endorsement: SpiceStoredVerifiedEndorsement =
@@ -942,8 +941,8 @@ impl<'a> ChainStoreUpdate<'a> {
         let stored_state_changes: Vec<Box<[u8]>> = self
             .store()
             .iter_prefix(DBCol::StateChanges, storage_key.as_ref())
-            .map(|item| item.map(|(key, _)| key))
-            .collect::<io::Result<Vec<_>>>()?;
+            .map(|(key, _)| key)
+            .collect();
         for key in stored_state_changes {
             self.gc_col(DBCol::StateChanges, &key);
         }

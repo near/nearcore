@@ -14,7 +14,6 @@ use near_store::{COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY};
 use near_store::{DBCol, NodeStorage, Store, StoreOpener};
 use nearcore::NearConfig;
 use rand::seq::SliceRandom;
-use std::io::Result;
 use std::path::Path;
 use strum::IntoEnumIterator;
 
@@ -308,7 +307,7 @@ fn check_iter(
     col: DBCol,
 ) -> u64 {
     let mut num_checks = 0;
-    for (key, _value) in first_store.iter(col).map(Result::unwrap) {
+    for (key, _value) in first_store.iter(col) {
         check_key(first_store, second_store, col, &key);
         num_checks += 1;
     }

@@ -114,7 +114,7 @@ mod tests {
         update.commit().unwrap();
 
         fn collect<'a>(iter: crate::db::DBIterator<'a>) -> Vec<Box<[u8]>> {
-            iter.map(Result::unwrap).map(|(key, _)| key).collect()
+            iter.map(|(key, _)| key).collect()
         }
 
         // Check that full scan produces keys in proper order.
