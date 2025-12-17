@@ -959,9 +959,10 @@ impl PeerActor {
         msg_author: PeerId,
         prev_hop: PeerId,
         msg_hash: CryptoHash,
+        num_hops: u32,
         body: TieredMessageBody,
     ) -> Result<Option<TieredMessageBody>, ReasonForBan> {
-        Ok(network_state.receive_routed_message(clock, msg_author, prev_hop, msg_hash, body).await)
+        Ok(network_state.receive_routed_message(clock, msg_author, prev_hop, msg_hash, num_hops, body).await)
     }
 
     fn receive_message(&self, conn: &connection::Connection, msg: PeerMessage) {
@@ -1006,6 +1007,7 @@ impl PeerActor {
                         msg.author().clone(),
                         peer_id.clone(),
                         msg_hash,
+                        msg.num_hops(),
                         msg.body_owned(),
                     )
                     .await?

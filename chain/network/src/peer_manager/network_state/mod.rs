@@ -666,6 +666,7 @@ impl NetworkState {
                     msg.author().clone(),
                     my_peer_id,
                     hash,
+                    0,
                     msg.body_owned(),
                 )
                 .await;
@@ -742,6 +743,7 @@ impl NetworkState {
         msg_author: PeerId,
         prev_hop: PeerId,
         msg_hash: CryptoHash,
+        num_hops: u32,
         body: TieredMessageBody,
     ) -> Option<TieredMessageBody> {
         match body {
@@ -818,6 +820,18 @@ impl NetworkState {
                     None
                 }
                 T2MessageBody::ForwardTx(transaction) => {
+                    {
+                        let _span = tracing::debug_span!(
+                            target: "network",
+                            "receive_forward_tx",
+                            %num_hops,
+                            signer_id = %transaction.transaction.signer_id(),
+                            nonce = transaction.transaction.nonce(),
+                            tx_hash = ?transaction.get_hash(),
+                            tag_tx_latency = true)
+                        .entered();
+                    }
+
                     self.client
                         .send_async(ProcessTxRequest {
                             transaction,
