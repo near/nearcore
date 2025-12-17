@@ -490,7 +490,7 @@ impl Chain {
                     // Reset header head and "sync" head to be consistent with current block head.
                     let mut store_update = chain_store.store_update();
                     store_update.save_header_head(&block_head)?;
-                    store_update.commit()?;
+                    store_update.commit();
                     header_head = block_head.clone();
                 }
 
@@ -676,7 +676,7 @@ impl Chain {
         // We don't need to increase refcount for `prev_hash` at this point
         // because this is the block before State Sync.
 
-        chain_store_update.commit()?;
+        chain_store_update.commit();
         Ok(())
     }
 
@@ -689,7 +689,7 @@ impl Chain {
         if !chain_store_update.is_height_processed(block_height)? {
             chain_store_update.save_block_height_processed(block_height);
         }
-        chain_store_update.commit()?;
+        chain_store_update.commit();
         Ok(())
     }
 
@@ -1505,7 +1505,7 @@ impl Chain {
                 *header.random_value(),
             )?;
             chain_store_update.merge(epoch_manager_update.into());
-            chain_store_update.commit()?;
+            chain_store_update.commit();
         }
 
         let mut chain_update = self.chain_update();
@@ -1590,7 +1590,7 @@ impl Chain {
         chain_store_update.update_tail(new_tail)?;
         // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
         chain_store_update.update_chunk_tail(new_chunk_tail);
-        chain_store_update.commit()?;
+        chain_store_update.commit();
 
         // Check if there are any orphans unlocked by this state sync.
         // We can't fail beyond this point because the caller will not process accepted blocks
@@ -1804,7 +1804,7 @@ impl Chain {
         if new_head.is_some() {
             chain_update.check_protocol_version(&block_hash, epoch_to_check)?;
         }
-        chain_update.commit()?;
+        chain_update.commit();
         Ok(new_head)
     }
 
@@ -2555,7 +2555,7 @@ impl Chain {
         let mut height = shard_state_header.chunk_height_included();
         let mut chain_update = self.chain_update();
         let shard_uid = chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
-        chain_update.commit()?;
+        chain_update.commit();
 
         // We restored the state on height `shard_state_header.chunk.header.height_included`.
         // Now we should build a chain up to height of `sync_hash` block.
@@ -2565,7 +2565,7 @@ impl Chain {
             // Result of successful execution of set_state_finalize_on_height is bool,
             // should we commit and continue or stop.
             if chain_update.set_state_finalize_on_height(height, shard_id, sync_hash)? {
-                chain_update.commit()?;
+                chain_update.commit();
             } else {
                 break;
             }
@@ -2597,7 +2597,7 @@ impl Chain {
         let mut store_update = self.chain_store.store().store_update();
         store_update.delete_all(DBCol::StateParts);
         store_update.delete_all(DBCol::StateHeaders);
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -2781,7 +2781,7 @@ impl Chain {
             results,
             should_save_state_transition_data,
         )?;
-        chain_update.commit()?;
+        chain_update.commit();
 
         let epoch_id = block.header().epoch_id();
         for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
@@ -2834,7 +2834,7 @@ impl Chain {
         }
         chain_store_update.remove_state_sync_info(*epoch_first_block);
 
-        chain_store_update.commit()?;
+        chain_store_update.commit();
 
         for hash in affected_blocks {
             self.check_orphans(*hash, block_processing_artifacts, apply_chunks_done_sender.clone());

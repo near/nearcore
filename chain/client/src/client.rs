@@ -2157,7 +2157,7 @@ impl Client {
             update.add_state_sync_info(StateSyncInfo::V1(state_sync_info.clone()));
             // TODO: would be nice to be able to propagate context up the call stack so we can just log
             // once at the top with all the info. Otherwise this error will look very cryptic
-            update.commit()?;
+            update.commit();
         }
         Ok(state_sync_info.sync_hash)
     }

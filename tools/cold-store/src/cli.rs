@@ -171,10 +171,10 @@ fn print_heads(store: &NodeStorage) -> anyhow::Result<()> {
 
     // hot store
     {
-        let kind = hot_store.get_db_kind()?;
-        let head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
-        let final_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
-        let cold_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
+        let kind = hot_store.get_db_kind();
+        let head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY);
+        let final_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY);
+        let cold_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY);
         println!("HOT STORE KIND is {:#?}", kind);
         println!("HOT STORE HEAD is at {:#?}", head);
         println!("HOT STORE FINAL_HEAD is at {:#?}", final_head);
@@ -183,8 +183,8 @@ fn print_heads(store: &NodeStorage) -> anyhow::Result<()> {
 
     // cold store
     if let Some(cold_store) = cold_store {
-        let kind = cold_store.get_db_kind()?;
-        let head_in_cold = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
+        let kind = cold_store.get_db_kind();
+        let head_in_cold = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY);
         println!("COLD STORE KIND is {:#?}", kind);
         println!("COLD STORE HEAD is at {:#?}", head_in_cold);
     }
@@ -372,7 +372,7 @@ impl PrepareHotCmd {
 
         tracing::info!(target: "prepare-hot", "the hot, cold and RPC stores are suitable for cold storage migration");
         tracing::info!(target: "prepare-hot", "changing the db kind of the rpc store to hot");
-        rpc_store.set_db_kind(DbKind::Hot)?;
+        rpc_store.set_db_kind(DbKind::Hot);
 
         tracing::info!(target: "prepare-hot", ?path, "successfully prepared the hot store for migration, you can now set the `config.store.path` in neard config");
 
@@ -385,7 +385,7 @@ impl PrepareHotCmd {
         cold_store: &Store,
         rpc_store: &Store,
     ) -> anyhow::Result<()> {
-        let hot_db_kind = hot_store.get_db_kind()?;
+        let hot_db_kind = hot_store.get_db_kind();
         if hot_db_kind != Some(DbKind::Hot) && hot_db_kind != Some(DbKind::Archive) {
             return Err(anyhow::anyhow!(
                 "Unexpected hot_store DbKind, expected: DbKind::Hot or DbKind::Archive, got: {:?}",
@@ -393,7 +393,7 @@ impl PrepareHotCmd {
             ));
         }
 
-        let cold_db_kind = cold_store.get_db_kind()?;
+        let cold_db_kind = cold_store.get_db_kind();
         if cold_db_kind != Some(DbKind::Cold) {
             return Err(anyhow::anyhow!(
                 "Unexpected cold_store DbKind, expected: DbKind::Cold, got: {:?}",
@@ -401,7 +401,7 @@ impl PrepareHotCmd {
             ));
         }
 
-        let rpc_db_kind = rpc_store.get_db_kind()?;
+        let rpc_db_kind = rpc_store.get_db_kind();
         if rpc_db_kind != Some(DbKind::RPC) {
             return Err(anyhow::anyhow!(
                 "Unexpected rpc_store DbKind, expected: DbKind::RPC, got: {:?}",
@@ -676,7 +676,7 @@ impl ResetColdCmd {
         let mut store_update = cold_store.store_update();
         store_update.delete(DBCol::BlockMisc, HEAD_KEY);
         store_update.delete(DBCol::BlockMisc, COLD_HEAD_KEY);
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 }

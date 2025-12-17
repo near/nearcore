@@ -210,7 +210,7 @@ impl ChainStore {
             .get_ser(
                 near_store::DBCol::StateTransitionData,
                 &near_primitives::utils::get_block_shard_id(block_hash, shard_id),
-            )?
+            )
             .ok_or_else(|| {
                 let message = format!(
                     "Missing transition state proof for block {block_hash} and shard {shard_id}"

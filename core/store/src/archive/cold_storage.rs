@@ -190,7 +190,8 @@ fn update_state_shard_uid_mapping(cold_db: &ColdDB, shard_layout: &ShardLayout) 
             update.trie_store_update().set_shard_uid_mapping(child_shard_uid, mapped_shard_uid);
         }
     }
-    update.commit()
+    update.commit();
+    Ok(())
 }
 
 // A specialized version of copy_from_store for the State column. Finds all the
@@ -228,7 +229,7 @@ fn copy_state_from_store(
         let shard_uid_key = shard_uid.to_bytes();
         let key = join_two_keys(&block_hash_key, &shard_uid_key);
         let trie_changes: Option<TrieChanges> =
-            hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &key)?;
+            hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &key);
 
         let Some(trie_changes) = trie_changes else { continue };
         copied_shards.insert(shard_uid);
@@ -433,7 +434,7 @@ pub fn copy_all_data_to_cold(
                 }
                 transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec())?;
             }
-            transaction.write()?;
+            transaction.write();
             tracing::info!(target: "cold_store", ?col, "finished column migration");
         }
     }
@@ -579,7 +580,7 @@ fn get_keys_from_store(
                                 &join_two_keys(&block_hash_key, &shard_id.to_le_bytes()),
                             )
                         })
-                        .collect::<io::Result<Vec<Option<Vec<CryptoHash>>>>>()?
+                        .collect::<Vec<Option<Vec<CryptoHash>>>>()
                         .into_iter()
                         .flat_map(|hashes| {
                             hashes
@@ -669,7 +670,7 @@ impl ColdMigrationStore for Store {
 
     fn get_for_cold(&self, column: DBCol, key: &[u8]) -> io::Result<StoreValue> {
         crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(column)]).inc();
-        Ok(self.get(column, key)?.map(|x| x.as_slice().to_vec()))
+        Ok(self.get(column, key).map(|x| x.as_slice().to_vec()))
     }
 
     fn get_ser_for_cold<T: BorshDeserialize>(
@@ -721,16 +722,16 @@ impl BatchTransaction {
         self.transaction_size += size;
 
         if self.transaction_size > self.threshold_transaction_size {
-            self.write()?;
+            self.write();
         }
         Ok(())
     }
 
     /// Writes `self.transaction` and replaces it with new empty DBTransaction.
     /// Sets `self.transaction_size` to 0.
-    fn write(&mut self) -> io::Result<()> {
+    fn write(&mut self) {
         if self.transaction.ops.is_empty() {
-            return Ok(());
+            return;
         }
 
         let column_label = [<&str>::from(self.transaction.ops[0].col())];
@@ -751,8 +752,6 @@ impl BatchTransaction {
         let transaction = std::mem::take(&mut self.transaction);
         self.cold_db.write(transaction);
         self.transaction_size = 0;
-
-        Ok(())
     }
 }
 

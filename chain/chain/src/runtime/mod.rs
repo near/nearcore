@@ -378,7 +378,7 @@ impl NightshadeRuntime {
         // is finished we can check the store kind. It's only set to hot after the
         // migration is finished. If the migration has not finished yet, we expect
         // the GC not to run regardless of what we return here.
-        let kind = self.store.get_db_kind()?;
+        let kind = self.store.get_db_kind();
         if let Some(DbKind::Hot) = kind {
             let Some(cold_head_epoch_start_height) = get_epoch_start_height_from_archival_head(
                 &self.store,
@@ -540,7 +540,7 @@ fn get_epoch_start_height_from_archival_head(
     epoch_manager: &EpochManager,
     archival_head_key: &[u8],
 ) -> Result<Option<BlockHeight>, Error> {
-    let archival_head = store.get_ser::<Tip>(DBCol::BlockMisc, archival_head_key)?;
+    let archival_head = store.get_ser::<Tip>(DBCol::BlockMisc, archival_head_key);
     let Some(archival_head) = archival_head else {
         return Ok(None);
     };
@@ -1323,7 +1323,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         //       Optimize taking into account that flat state values always correspond to a consecutive range of keys.
         flat_state_delta.apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
         self.precompile_contracts(epoch_id, contract_codes)?;
-        Ok(store_update.commit()?)
+        store_update.commit();
+        Ok(())
     }
 
     /// `block_hash` is a block whose `prev_state_root` is `state_root`

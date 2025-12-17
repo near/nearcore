@@ -621,7 +621,7 @@ impl ChunkExecutorActor {
         )?;
         let final_execution_head = chain_update.update_spice_final_execution_head(&block)?;
         chain_update.save_spice_execution_head(block.header())?;
-        chain_update.commit()?;
+        chain_update.commit();
         if let Some(final_execution_head) = final_execution_head {
             self.update_flat_storage_head(&shard_layout, &final_execution_head)?;
             self.gc_memtrie_roots(&shard_layout, &final_execution_head)?;
@@ -865,7 +865,7 @@ impl ChunkExecutorActor {
         for proof in receipt_proofs {
             save_receipt_proof(&mut store_update, &block_hash, &proof)?
         }
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -874,7 +874,7 @@ impl ChunkExecutorActor {
         let mut store_update = store.store_update();
         let VerifiedReceipts { receipt_proof, block_hash } = verified_receipts;
         save_receipt_proof(&mut store_update, &block_hash, &receipt_proof)?;
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -1033,7 +1033,7 @@ pub(crate) fn save_witness(
     let key = get_witnesses_key(block_hash, shard_id);
     let value = borsh::to_vec(&witness)?;
     store_update.set(DBCol::witnesses(), &key, &value);
-    store_update.commit()?;
+    store_update.commit();
     Ok(())
 }
 

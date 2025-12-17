@@ -255,7 +255,7 @@ impl EpochSync {
         chain_store_update.set_header_head(&Tip::from_header(&last_header));
         chain_store_update.set_final_head(&Tip::from_header(&self.genesis));
 
-        chain_store_update.commit()?;
+        chain_store_update.commit();
 
         // Initialize the epoch manager with the last epoch.
         epoch_manager.init_after_epoch_sync(
@@ -296,7 +296,7 @@ impl EpochSync {
             &proof.current_epoch.partial_merkle_tree_for_first_block,
         );
 
-        store_update.commit()?;
+        store_update.commit();
 
         *status = SyncStatus::EpochSyncDone;
         tracing::info!(epoch_id=?last_header.epoch_id(), "bootstrapped from epoch sync");

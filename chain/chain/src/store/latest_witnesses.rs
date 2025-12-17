@@ -168,7 +168,7 @@ impl ChainStore {
         // Read the current `LatestWitnessesInfo`, or create a new one if there is none.
         let mut info = self
             .store()
-            .get_ser::<LatestWitnessesInfo>(DBCol::Misc, LATEST_WITNESSES_INFO)?
+            .get_ser::<LatestWitnessesInfo>(DBCol::Misc, LATEST_WITNESSES_INFO)
             .unwrap_or_default();
 
         let new_witness_index = info.next_witness_index;
@@ -184,7 +184,7 @@ impl ChainStore {
         while !info.is_within_limits() && info.lowest_index < info.next_witness_index {
             let store = self.store();
             let key_to_delete = store
-                .get(DBCol::LatestWitnessesByIndex, &info.lowest_index.to_be_bytes())?
+                .get(DBCol::LatestWitnessesByIndex, &info.lowest_index.to_be_bytes())
                 .ok_or_else(|| {
                     std::io::Error::new(
                         ErrorKind::NotFound,
@@ -222,7 +222,7 @@ impl ChainStore {
         let store_update_time = start_time.elapsed();
 
         // Commit the transaction
-        store_update.commit()?;
+        store_update.commit();
 
         let store_commit_time = start_time.elapsed().saturating_sub(store_update_time);
 
@@ -267,9 +267,9 @@ impl ChainStore {
 
         let mut result: Vec<ChunkStateWitness> = Vec::new();
 
-        for read_result in self.store().iter_prefix_ser::<ChunkStateWitness>(db_col, &key_prefix) {
-            let (key_bytes, witness) = read_result?;
-
+        for (key_bytes, witness) in
+            self.store().iter_prefix_ser::<ChunkStateWitness>(db_col, &key_prefix)
+        {
             let key = StoredWitnessesKey::deserialize(&key_bytes)?;
             if let Some(h) = height {
                 if key.height_created != h {
@@ -352,7 +352,7 @@ pub fn save_invalid_chunk_state_witness(
 
     // Read the current `InvalidWitnessesInfo`, or create a new one if there is none.
     let mut info = store
-        .get_ser::<InvalidWitnessesInfo>(DBCol::Misc, INVALID_WITNESSES_INFO)?
+        .get_ser::<InvalidWitnessesInfo>(DBCol::Misc, INVALID_WITNESSES_INFO)
         .unwrap_or_default();
 
     let new_witness_index = info.next_witness_index;
@@ -370,7 +370,7 @@ pub fn save_invalid_chunk_state_witness(
         // Go over witnesses with increasing indexes and remove them until the limits are satisfied.
         while !info.is_within_limits() && info.lowest_index < info.next_witness_index {
             let key_to_delete = store
-                .get(DBCol::InvalidWitnessesByIndex, &info.lowest_index.to_be_bytes())?
+                .get(DBCol::InvalidWitnessesByIndex, &info.lowest_index.to_be_bytes())
                 .ok_or_else(|| {
                     std::io::Error::new(
                         ErrorKind::NotFound,
@@ -413,7 +413,7 @@ pub fn save_invalid_chunk_state_witness(
         let store_update_time = start_time.elapsed();
 
         // Commit the transaction
-        store_update.commit()?;
+        store_update.commit();
 
         let store_commit_time = start_time.elapsed().saturating_sub(store_update_time);
 

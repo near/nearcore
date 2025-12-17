@@ -409,13 +409,13 @@ impl ForkNetworkCommand {
         );
 
         let mut store_update = store.store_update();
-        store_update.set_ser(DBCol::Misc, EPOCH_ID_KEY, epoch_id)?;
-        store_update.set_ser(DBCol::Misc, FLAT_HEAD_KEY, &desired_flat_head)?;
-        store_update.set_ser(DBCol::Misc, SHARD_LAYOUT_KEY, &target_shard_layout)?;
+        store_update.set_ser(DBCol::Misc, EPOCH_ID_KEY, epoch_id);
+        store_update.set_ser(DBCol::Misc, FLAT_HEAD_KEY, &desired_flat_head);
+        store_update.set_ser(DBCol::Misc, SHARD_LAYOUT_KEY, &target_shard_layout);
         for (shard_uid, state_root) in &state_roots {
             store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_uid), state_root)?;
         }
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -677,7 +677,7 @@ impl ForkNetworkCommand {
                 genesis_block.header().height(),
             );
         }
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -804,9 +804,9 @@ impl ForkNetworkCommand {
         store: Store,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId, ShardLayout)> {
-        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY)?.unwrap());
-        let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH")?.unwrap();
-        let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT")?.unwrap();
+        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY).unwrap());
+        let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH").unwrap();
+        let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT").unwrap();
         let block_height = u64::from_le_bytes(block_height.as_slice().try_into().unwrap());
 
         let flat_head = BlockInfo {
@@ -849,11 +849,11 @@ impl ForkNetworkCommand {
         store: Store,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId, ShardLayout)> {
-        let Some(flat_head) = store.get_ser(DBCol::Misc, FLAT_HEAD_KEY)? else {
+        let Some(flat_head) = store.get_ser(DBCol::Misc, FLAT_HEAD_KEY) else {
             return self.legacy_get_state_roots_and_hash(store, epoch_manager);
         };
-        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY)?.unwrap());
-        let shard_layout = store.get_ser(DBCol::Misc, SHARD_LAYOUT_KEY)?.unwrap();
+        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY).unwrap());
+        let shard_layout = store.get_ser(DBCol::Misc, SHARD_LAYOUT_KEY).unwrap();
         let mut state_roots = HashMap::new();
         for (key, value) in store.iter_prefix(DBCol::Misc, FORKED_ROOTS_KEY_PREFIX) {
             let shard_uid = parse_state_roots_key(&key)?;
@@ -1089,7 +1089,7 @@ impl ForkNetworkCommand {
             }
             if storage_mutator.should_commit(batch_size) {
                 tracing::info!(?shard_uid, ref_keys_retrieved, records_parsed,);
-                storage_mutator.commit()?;
+                storage_mutator.commit();
                 storage_mutator = make_storage_mutator(update_state.clone())?;
             }
         }
@@ -1097,7 +1097,7 @@ impl ForkNetworkCommand {
         // Commit the remaining updates.
         if storage_mutator.should_commit(1) {
             tracing::info!(?shard_uid, ref_keys_retrieved, records_parsed,);
-            storage_mutator.commit()?;
+            storage_mutator.commit();
             storage_mutator = make_storage_mutator(update_state.clone())?;
         }
 
@@ -1154,14 +1154,14 @@ impl ForkNetworkCommand {
                     )?;
                     num_added += 1;
                     if storage_mutator.should_commit(batch_size) {
-                        storage_mutator.commit()?;
+                        storage_mutator.commit();
                         storage_mutator = make_storage_mutator(update_state.clone())?;
                     }
                 }
             }
         }
         tracing::info!(?shard_uid, num_accounts, num_added, "pass 2 done");
-        storage_mutator.commit()?;
+        storage_mutator.commit();
         Ok(receipts_tracker)
     }
 
@@ -1328,7 +1328,7 @@ impl ForkNetworkCommand {
                 AccessKey::full_access(),
             )?;
         }
-        storage_mutator.commit()?;
+        storage_mutator.commit();
         Ok(new_validator_accounts)
     }
 
@@ -1457,7 +1457,7 @@ impl ForkNetworkCommand {
                 serde_json::to_writer(account_writer, &account_infos)?;
             }
 
-            state_roots = storage_mutator.commit()?;
+            state_roots = storage_mutator.commit();
         }
 
         Ok(state_roots)

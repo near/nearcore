@@ -31,7 +31,7 @@ pub fn undo_block(
 
     chain_store_update.save_head(&prev_tip)?;
 
-    chain_store_update.commit()?;
+    chain_store_update.commit();
 
     chain_store.save_latest_known(LatestKnown {
         height: prev_tip.height,
@@ -70,7 +70,7 @@ pub fn undo_only_block_head(
     let mut chain_store_update = ChainStoreUpdate::new(chain_store);
     chain_store_update.clear_head_block_data(epoch_manager)?;
     chain_store_update.save_body_head(&new_head)?;
-    chain_store_update.commit()?;
+    chain_store_update.commit();
 
     let new_chain_store_head = chain_store.head()?;
     let new_chain_store_header_head = chain_store.header_head()?;

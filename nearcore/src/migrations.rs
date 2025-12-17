@@ -119,7 +119,7 @@ fn update_epoch_sync_proof(
     if let Some(proof) = store.get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[]).unwrap() {
         let mut store_update = epoch_store.store_update();
         store_update.set_epoch_sync_proof(&proof);
-        store_update.commit()?;
+        store_update.commit();
     }
 
     // Now we generate the epoch sync proof and update it to latest
@@ -135,7 +135,7 @@ fn update_epoch_sync_proof(
     tracing::info!(target: "migrations", "storing latest epoch sync proof");
     let mut store_update = epoch_store.store_update();
     store_update.set_epoch_sync_proof(&proof);
-    store_update.commit()?;
+    store_update.commit();
 
     Ok(())
 }
@@ -173,7 +173,7 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
 
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::BlockHeader);
-    store_update.commit()?;
+    store_update.commit();
 
     let chain_store = store.chain_store();
     let tail_height = chain_store.tail().unwrap();
@@ -192,11 +192,11 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
         }
         if height % BATCH_SIZE == 0 {
             tracing::info!(target: "migrations", ?height, ?latest_known_height, "committing addition of required block headers to hot store");
-            store_update.commit()?;
+            store_update.commit();
             store_update = chain_store.store_update();
         }
     }
-    store_update.commit()?;
+    store_update.commit();
     tracing::info!(target: "migrations", ?latest_known_height, "completed deletion of old block headers from hot store");
 
     Ok(())

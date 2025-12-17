@@ -67,31 +67,11 @@ macro_rules! check_discrepancy {
     };
 }
 
-macro_rules! unwrap_or_err {
-    ($obj: expr, $($x: tt),*) => {
-        match $obj {
-            Ok(value) => value,
-            Err(e) => {
-                return Err(StoreValidatorError::InvalidData {
-                    func_name: get_parent_function_name!(),
-                    reason: format!("{}, error: {}", format!($($x),*), e)
-                })
-            }
-        }
-    };
-}
-
 macro_rules! unwrap_or_err_db {
     ($obj: expr, $($x: expr),*) => {
         match $obj {
-            Ok(Some(value)) => value,
-            Err(e) => {
-                return Err(StoreValidatorError::DBNotFound {
-                    func_name: get_parent_function_name!(),
-                    reason: format!("{}, error: {}", format!($($x),*), e)
-                })
-            }
-            _ => {
+            Some(value) => value,
+            None => {
                 return Err(StoreValidatorError::DBNotFound {
                     func_name: get_parent_function_name!(),
                     reason: format!($($x),*)
@@ -107,18 +87,9 @@ pub(crate) fn head_tail_validity(sv: &mut StoreValidator) -> Result<(), StoreVal
     let mut tail = sv.config.genesis_height;
     let mut chunk_tail = sv.config.genesis_height;
     let mut fork_tail = sv.config.genesis_height;
-    let tail_db = unwrap_or_err!(
-        sv.store.get_ser::<BlockHeight>(DBCol::BlockMisc, TAIL_KEY),
-        "Can't get Tail from storage"
-    );
-    let chunk_tail_db = unwrap_or_err!(
-        sv.store.get_ser::<BlockHeight>(DBCol::BlockMisc, CHUNK_TAIL_KEY),
-        "Can't get Chunk Tail from storage"
-    );
-    let fork_tail_db = unwrap_or_err!(
-        sv.store.get_ser::<BlockHeight>(DBCol::BlockMisc, FORK_TAIL_KEY),
-        "Can't get Chunk Tail from storage"
-    );
+    let tail_db = sv.store.get_ser::<BlockHeight>(DBCol::BlockMisc, TAIL_KEY);
+    let chunk_tail_db = sv.store.get_ser::<BlockHeight>(DBCol::BlockMisc, CHUNK_TAIL_KEY);
+    let fork_tail_db = sv.store.get_ser::<BlockHeight>(DBCol::BlockMisc, FORK_TAIL_KEY);
     if tail_db.is_none() != chunk_tail_db.is_none() {
         // Archival nodes can have chunk_tail set without tail being set.
         // TODO(cloud_archival) Think about the cloud archival case
@@ -885,10 +856,8 @@ pub(crate) fn state_part_header_exists(
     _part: &[u8],
 ) -> Result<(), StoreValidatorError> {
     let StatePartKey(block_hash, shard_id, part_id) = *key;
-    let state_header_key = unwrap_or_err!(
-        borsh::to_vec(&StateHeaderKey(shard_id, block_hash)),
-        "Can't serialize StateHeaderKey"
-    );
+    let state_header_key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))
+        .expect("Can't serialize StateHeaderKey");
     let header = unwrap_or_err_db!(
         sv.store.get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &state_header_key),
         "Can't get StateHeaderKey from DB"

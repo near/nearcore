@@ -159,7 +159,7 @@ impl Chain {
             )
         }
         store_update.merge(tmp_store_update);
-        store_update.commit()?;
+        store_update.commit();
         tracing::info!(target: "chain", height = %block_head.height, ?block_head.last_block_hash, ?state_roots, "genesis has been saved");
         Ok(())
     }
@@ -327,7 +327,7 @@ fn get_genesis_congestion_infos_impl(
     tracing::debug!(target: "chain", "saving genesis congestion infos to database");
     let mut store_update = runtime.store().store_update();
     near_store::set_genesis_congestion_infos(&mut store_update, &new_infos);
-    store_update.commit()?;
+    store_update.commit();
 
     Ok(new_infos)
 }

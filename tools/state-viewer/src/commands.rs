@@ -1361,7 +1361,7 @@ pub(crate) fn maybe_save_trie_changes(
             ChainStore::new(store, false, genesis_config.transaction_validity_period);
         let mut chain_store_update = chain_store.store_update();
         chain_store_update.save_trie_changes(block_hash, apply_result.trie_changes);
-        chain_store_update.commit()?;
+        chain_store_update.commit();
         tracing::debug!(%block_height, %shard_id, "trie changes persisted for block and shard");
     }
     Ok(())

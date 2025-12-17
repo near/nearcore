@@ -256,7 +256,7 @@ impl FlatStorageResharder {
         for child in [left_child_shard, right_child_shard] {
             store_update.remove_all_values(*child);
         }
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -713,7 +713,7 @@ impl FlatStorageResharder {
             shard_uid,
             FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(flat_head)),
         );
-        store_update.commit()?;
+        store_update.commit();
 
         // Update metrics with current head height progress.
         metrics.set_head_height(flat_head.height);
@@ -774,7 +774,7 @@ impl FlatStorageResharder {
             },
         });
         store_update.set_flat_storage_status(shard_uid, flat_storage_status.clone());
-        store_update.commit()?;
+        store_update.commit();
         metrics.set_status(&flat_storage_status);
         tracing::info!(target: "resharding", ?shard_uid, %deltas_gc_count, "garbage collected flat storage deltas");
         // Create the flat storage entry for this shard in the manager.

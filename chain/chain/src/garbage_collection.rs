@@ -213,7 +213,7 @@ impl ChainStore {
                 chain_store_update.update_fork_tail(gc_stop_height);
                 fork_tail = gc_stop_height;
             }
-            chain_store_update.commit()?;
+            chain_store_update.commit();
         }
         let mut gc_blocks_remaining = gc_config.gc_blocks_limit;
         let _span = tracing::debug_span!(
@@ -247,7 +247,7 @@ impl ChainStore {
             }
             let mut chain_store_update = self.store_update();
             chain_store_update.update_fork_tail(height);
-            chain_store_update.commit()?;
+            chain_store_update.commit();
         }
 
         tracing::debug!(
@@ -308,7 +308,7 @@ impl ChainStore {
                 gc_blocks_remaining -= 1;
             }
             chain_store_update.update_tail(height)?;
-            chain_store_update.commit()?;
+            chain_store_update.commit();
         }
 
         Ok(())
@@ -377,7 +377,7 @@ impl ChainStore {
         }
 
         metrics::STATE_TRANSITION_DATA_GC_TOTAL_ENTRIES.set(total_entries);
-        store_update.commit()?;
+        store_update.commit();
         metrics::STATE_TRANSITION_DATA_GC_CLEARED_ENTRIES.inc_by(entries_cleared);
         Ok(())
     }
@@ -450,7 +450,7 @@ impl ChainStore {
                         current_hash,
                         GCMode::Fork(tries.clone()),
                     )?;
-                    chain_store_update.commit()?;
+                    chain_store_update.commit();
                     *gc_blocks_remaining -= 1;
 
                     current_hash = prev_hash;
@@ -526,7 +526,7 @@ impl ChainStore {
                     block_hash,
                     GCMode::StateSync { clear_block_info: block_hash != prev_hash },
                 )?;
-                chain_store_update.commit()?;
+                chain_store_update.commit();
             }
         }
 
@@ -535,7 +535,7 @@ impl ChainStore {
         // The largest height of chunk we have in storage is head.height + 1
         let chunk_height = std::cmp::min(head.height + 2, sync_height);
         chain_store_update.clear_chunk_data_and_headers(chunk_height)?;
-        chain_store_update.commit()?;
+        chain_store_update.commit();
 
         // clear all trie data
         let tries = runtime_adapter.get_tries();
@@ -546,7 +546,7 @@ impl ChainStore {
 
         // The reason to reset tail here is not to allow Tail be greater than Head
         chain_store_update.reset_tail();
-        chain_store_update.commit()?;
+        chain_store_update.commit();
         Ok(())
     }
 }
@@ -827,7 +827,7 @@ impl<'a> ChainStoreUpdate<'a> {
             let mut execution_result_hashes = HashSet::new();
             for key in endorsement_keys {
                 let endorsement: SpiceStoredVerifiedEndorsement =
-                    self.store().get_ser(DBCol::endorsements(), &key)?.unwrap();
+                    self.store().get_ser(DBCol::endorsements(), &key).unwrap();
                 execution_result_hashes.insert(endorsement.execution_result_hash);
                 self.gc_col(DBCol::endorsements(), &key);
             }
@@ -858,7 +858,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let shard_uids_to_gc = self.get_shard_uids_to_gc(epoch_manager, &block_hash);
         for shard_uid in shard_uids_to_gc {
             let trie_changes_key = get_block_shard_uid(&block_hash, &shard_uid);
-            let trie_changes = self.store().get_ser(DBCol::TrieChanges, &trie_changes_key)?;
+            let trie_changes = self.store().get_ser(DBCol::TrieChanges, &trie_changes_key);
 
             let Some(trie_changes) = trie_changes else {
                 continue;
@@ -1019,7 +1019,7 @@ impl<'a> ChainStoreUpdate<'a> {
         if epoch_to_hashes.is_empty() {
             store_update.delete(DBCol::BlockPerHeight, key);
         } else {
-            store_update.set_ser(DBCol::BlockPerHeight, key, &epoch_to_hashes)?;
+            store_update.set_ser(DBCol::BlockPerHeight, key, &epoch_to_hashes);
         }
         if self.is_height_processed(height)? {
             self.gc_col(DBCol::ProcessedBlockHeights, key);
@@ -1338,7 +1338,7 @@ fn gc_state(
             // If shard_uid exists in the TrieChanges column, it means we were tracking the shard_uid in this epoch.
             // We would like to remove shard_uid from shards_to_cleanup
             let trie_changes_key = get_block_shard_uid(&current_block_hash, shard_uid);
-            !store.exists(DBCol::TrieChanges, &trie_changes_key).unwrap()
+            !store.exists(DBCol::TrieChanges, &trie_changes_key)
         });
 
         // Go to the previous epoch last_block_hash

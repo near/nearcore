@@ -54,9 +54,10 @@ impl SpiceCoreReader {
         shard_id: ShardId,
         account_id: &AccountId,
     ) -> Result<bool, std::io::Error> {
-        self.chain_store
+        Ok(self
+            .chain_store
             .store()
-            .exists(DBCol::endorsements(), &get_endorsements_key(block_hash, shard_id, account_id))
+            .exists(DBCol::endorsements(), &get_endorsements_key(block_hash, shard_id, account_id)))
     }
 
     fn get_endorsement(
@@ -65,10 +66,10 @@ impl SpiceCoreReader {
         shard_id: ShardId,
         account_id: &AccountId,
     ) -> Result<Option<SpiceStoredVerifiedEndorsement>, std::io::Error> {
-        self.chain_store.store().get_ser(
+        Ok(self.chain_store.store().get_ser(
             DBCol::endorsements(),
             &get_endorsements_key(block_hash, shard_id, &account_id),
-        )
+        ))
     }
 
     fn get_execution_result(
@@ -99,7 +100,7 @@ impl SpiceCoreReader {
         shard_id: ShardId,
     ) -> Result<Option<Arc<ChunkExecutionResult>>, std::io::Error> {
         let key = get_execution_results_key(block_hash, shard_id);
-        self.chain_store.store().caching_get_ser(DBCol::execution_results(), &key)
+        Ok(self.chain_store.store().caching_get_ser(DBCol::execution_results(), &key))
     }
 
     fn get_uncertified_chunks(
@@ -200,7 +201,6 @@ impl SpiceCoreReader {
         ) -> Result<Arc<Block>, InvalidSpiceCoreStatementsError> {
             store
                 .caching_get_ser(DBCol::Block, block_hash.as_ref())
-                .map_err(|error| IoError { error })?
                 .ok_or(UnknownBlock { block_hash: *block_hash })
         }
 
@@ -432,7 +432,7 @@ fn get_uncertified_chunks(
         Ok(vec![])
     } else {
         let Some(uncertified_chunks) =
-            chain_store.store_ref().get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())?
+            chain_store.store_ref().get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())
         else {
             debug_assert!(
                 false,
@@ -535,7 +535,7 @@ pub fn record_uncertified_chunks_for_block(
         DBCol::uncertified_chunks(),
         block.header().hash().as_ref(),
         &uncertified_chunks,
-    )?;
+    );
     chain_store_update.merge(store_update);
     Ok(())
 }

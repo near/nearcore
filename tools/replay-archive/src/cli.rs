@@ -254,7 +254,7 @@ impl ReplayController {
                 shard_id,
                 replay_output.outgoing_receipts,
             );
-            let _ = store_update.commit()?;
+            let _ = store_update.commit();
         }
 
         Ok(ReplayBlockOutput::Replayed(block, total_gas_burnt))
@@ -432,7 +432,7 @@ impl ReplayController {
             BlockInfo::from_header(block.header(), last_finalized_height),
             *block.header().random_value(),
         )?;
-        let _ = store_update.commit()?;
+        let _ = store_update.commit();
         Ok(())
     }
 
@@ -488,7 +488,7 @@ impl ReplayController {
             self.epoch_manager.as_ref(),
             &mut store_update,
         )?;
-        let _ = store_update.commit()?;
+        let _ = store_update.commit();
         Ok(())
     }
 }

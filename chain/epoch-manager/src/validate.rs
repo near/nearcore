@@ -14,7 +14,7 @@ pub fn validate_optimistic_block_relevant(
     block: &OptimisticBlock,
     store: &Store,
 ) -> Result<bool, Error> {
-    let head = store.get_ser::<Tip>(near_store::DBCol::BlockMisc, HEAD_KEY)?;
+    let head = store.get_ser::<Tip>(near_store::DBCol::BlockMisc, HEAD_KEY);
     let Some(head) = head else {
         return Ok(true);
     };

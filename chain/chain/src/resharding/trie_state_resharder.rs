@@ -183,7 +183,7 @@ impl TrieStateResharder {
                 &borsh::to_vec(status)?,
             );
         }
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -244,7 +244,7 @@ impl TrieStateResharder {
         Ok(self
             .runtime
             .store()
-            .get_ser::<TrieStateReshardingStatus>(DBCol::Misc, TRIE_STATE_RESHARDING_STATUS_KEY)?)
+            .get_ser::<TrieStateReshardingStatus>(DBCol::Misc, TRIE_STATE_RESHARDING_STATUS_KEY))
     }
 
     /// Initializes the trie state resharding status for a new resharding operation.
@@ -311,7 +311,7 @@ impl TrieStateResharder {
 
         let mut store_update = self.runtime.store().store_update();
         store_update.set(DBCol::Misc, TRIE_STATE_RESHARDING_STATUS_KEY, &borsh::to_vec(&status)?);
-        store_update.commit()?;
+        store_update.commit();
 
         Ok(())
     }
@@ -690,10 +690,12 @@ mod tests {
                 BandwidthRequests::empty(),
             );
             let block_shard_uid = get_block_shard_uid(&parent_root, &parent_shard);
-            chain_store_update
-                .set_ser(near_store::DBCol::ChunkExtra, &block_shard_uid, &chunk_extra)
-                .unwrap();
-            chain_store_update.commit().unwrap();
+            chain_store_update.set_ser(
+                near_store::DBCol::ChunkExtra,
+                &block_shard_uid,
+                &chunk_extra,
+            );
+            chain_store_update.commit();
 
             // Now unload the parent memtrie, so the test can verify
             // it will get loaded correctly during resume.

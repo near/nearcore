@@ -478,9 +478,9 @@ fn commit_to_existing_state(
 
     tracing::info!(?shard_uid, num_updates, "committing");
     let key = crate::cli::make_state_roots_key(shard_uid);
-    update.store_update().set_ser(DBCol::Misc, &key, &state_root)?;
+    update.store_update().set_ser(DBCol::Misc, &key, &state_root);
 
-    update.commit()?;
+    update.commit();
     tracing::info!(?shard_uid, ?state_root, "commit is done");
     Ok(())
 }
@@ -510,7 +510,7 @@ fn commit_to_new_state(
     FlatStateChanges::from_state_changes(&state_changes)
         .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
     let key = crate::cli::make_state_roots_key(shard_uid);
-    store_update.store_update().set_ser(DBCol::Misc, &key, &state_root)?;
+    store_update.store_update().set_ser(DBCol::Misc, &key, &state_root);
     tracing::info!(?shard_uid, "committing initial state to new shard");
     store_update
         .commit()
@@ -622,7 +622,7 @@ pub(crate) fn write_bandwidth_scheduler_state(
     for shard_idx in target_shard_layout.shard_indexes() {
         mutator.set_bandwidth_scheduler_state(shard_idx, new_state.clone())?;
     }
-    mutator.commit()?;
+    mutator.commit();
     Ok(())
 }
 

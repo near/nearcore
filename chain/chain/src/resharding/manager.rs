@@ -284,7 +284,7 @@ impl ReshardingManager {
         }
 
         chain_store_update.merge(store_update.into());
-        chain_store_update.commit()?;
+        chain_store_update.commit();
 
         Ok(split_shard_trie_changes)
     }

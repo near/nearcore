@@ -41,7 +41,7 @@ pub fn initialize_sharded_genesis_state(
         // TODO: with 2.6 release, remove storing genesis height
         let mut store_update: crate::StoreUpdate = store.store_update();
         set_genesis_height(&mut store_update, &genesis.config.genesis_height);
-        store_update.commit().expect("Store failed on genesis initialization");
+        store_update.commit();
 
         let genesis_height = get_genesis_height(&store)
             .expect("Store failed on genesis initialization")
@@ -64,7 +64,7 @@ pub fn initialize_sharded_genesis_state(
         let mut store_update = store.store_update();
         set_genesis_state_roots(&mut store_update, &state_roots);
         set_genesis_height(&mut store_update, &genesis.config.genesis_height);
-        store_update.commit().expect("Store failed on genesis initialization");
+        store_update.commit();
         state_roots
     };
 
@@ -92,7 +92,7 @@ fn genesis_state_from_dump(store: Store, home_dir: &Path) -> Vec<StateRoot> {
     tracing::error!(target: "near", "loading genesis from a state dump file, do not use this outside of genesis-tools");
     let mut state_file = home_dir.to_path_buf();
     state_file.push(STATE_DUMP_FILE);
-    store.load_state_from_file(state_file.as_path()).expect("Failed to read state dump");
+    store.load_state_from_file(state_file.as_path());
     let mut roots_files = home_dir.to_path_buf();
     roots_files.push(GENESIS_ROOTS_FILE);
     let data = fs::read(roots_files).expect("Failed to read genesis roots file.");

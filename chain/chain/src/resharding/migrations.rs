@@ -86,10 +86,7 @@ pub fn migrate_46_to_47(
         } = split_shard_params;
 
         let chunk_extra: ChunkExtra = cold_store
-            .get_ser(
-                DBCol::ChunkExtra,
-                &get_block_shard_uid(&resharding_block_hash, &parent_shard),
-            )?
+            .get_ser(DBCol::ChunkExtra, &get_block_shard_uid(&resharding_block_hash, &parent_shard))
             .unwrap();
         let parent_trie = tries
             .get_trie_for_shard(parent_shard, *chunk_extra.state_root())

@@ -160,7 +160,7 @@ pub(super) async fn run_state_sync_for_shard(
         runtime
             .get_flat_storage_manager()
             .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update())?;
-        store_update.commit()?;
+        store_update.commit();
     }
 
     return_if_cancelled!(cancel);
@@ -268,7 +268,7 @@ fn create_flat_storage_for_shard(
             },
         }),
     );
-    store_update.commit()?;
+    store_update.commit();
     flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
     Ok(())
 }
@@ -294,7 +294,7 @@ async fn apply_state_part(
 ) -> Result<StatePartApplyResult, near_chain::Error> {
     let key = StatePartKey(sync_hash, shard_id, part_id);
     let key_bytes = borsh::to_vec(&key).unwrap();
-    let already_applied = store.exists(DBCol::StatePartsApplied, &key_bytes)?;
+    let already_applied = store.exists(DBCol::StatePartsApplied, &key_bytes);
     if already_applied {
         tracing::debug!(target: "sync", ?key, "state part already applied, skipping");
         return Ok(StatePartApplyResult::AlreadyApplied);
@@ -326,8 +326,8 @@ async fn apply_state_part(
 
     // Mark part as applied.
     let mut store_update = store.store_update();
-    store_update.set_ser(DBCol::StatePartsApplied, &key_bytes, &true)?;
-    store_update.commit()?;
+    store_update.set_ser(DBCol::StatePartsApplied, &key_bytes, &true);
+    store_update.commit();
 
     Ok(StatePartApplyResult::Applied)
 }
