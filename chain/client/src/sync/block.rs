@@ -154,7 +154,7 @@ impl BlockSync {
         loop {
             match chain.chain_store().get_next_block_hash(&hash) {
                 Ok(got_hash) => {
-                    if chain.block_exists(&got_hash)? {
+                    if chain.block_exists(&got_hash) {
                         hash = got_hash;
                     } else {
                         break;

@@ -2267,18 +2267,12 @@ impl Client {
         fields(%hash, %peer_id)
     )]
     pub fn request_block(&self, hash: CryptoHash, peer_id: PeerId) {
-        match self.chain.block_exists(&hash) {
-            Ok(false) => {
-                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::BlockRequest { hash, peer_id },
-                ));
-            }
-            Ok(true) => {
-                tracing::debug!(target: "client", ?hash, "send_block_request_to_peer: block already known")
-            }
-            Err(err) => {
-                tracing::error!(target: "client", ?hash, ?err, "send_block_request_to_peer: failed to check block exists")
-            }
+        if !self.chain.block_exists(&hash) {
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::BlockRequest { hash, peer_id },
+            ));
+        } else {
+            tracing::debug!(target: "client", ?hash, "send_block_request_to_peer: block already known");
         }
     }
 
