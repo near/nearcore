@@ -1,6 +1,5 @@
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
-use std::io;
 use std::ops::Bound;
 use std::sync::Arc;
 
@@ -58,7 +57,7 @@ impl Database for TestDB {
         let iterator = self.db.read()[col]
             .clone()
             .into_iter()
-            .map(|(k, v)| Ok((k.into_boxed_slice(), v.into_boxed_slice())));
+            .map(|(k, v)| (k.into_boxed_slice(), v.into_boxed_slice()));
         Box::new(iterator)
     }
 
@@ -66,8 +65,8 @@ impl Database for TestDB {
         let iterator = self.db.read()[col]
             .range(key_prefix.to_vec()..)
             .take_while(move |(k, _)| k.starts_with(&key_prefix))
-            .map(|(k, v)| Ok((k.clone().into_boxed_slice(), v.clone().into_boxed_slice())))
-            .collect::<Vec<io::Result<_>>>();
+            .map(|(k, v)| (k.clone().into_boxed_slice(), v.clone().into_boxed_slice()))
+            .collect::<Vec<_>>();
         refcount::iter_with_rc_logic(col, iterator)
     }
 
@@ -82,8 +81,8 @@ impl Database for TestDB {
 
         let iterator = self.db.read()[col]
             .range((lower, upper))
-            .map(|(k, v)| Ok((k.clone().into_boxed_slice(), v.clone().into_boxed_slice())))
-            .collect::<Vec<io::Result<_>>>();
+            .map(|(k, v)| (k.clone().into_boxed_slice(), v.clone().into_boxed_slice()))
+            .collect::<Vec<_>>();
         refcount::iter_with_rc_logic(col, iterator)
     }
 

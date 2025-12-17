@@ -337,8 +337,8 @@ impl ChainStore {
         self.store
             .store()
             .iter(DBCol::StateDlInfos)
-            .map(|item| match item {
-                Ok((k, v)) => Ok((
+            .map(|(k, v)| {
+                Ok((
                     CryptoHash::try_from(k.as_ref()).map_err(|_| {
                         std::io::Error::new(
                             std::io::ErrorKind::InvalidData,
@@ -346,8 +346,7 @@ impl ChainStore {
                         )
                     })?,
                     StateSyncInfo::try_from_slice(v.as_ref())?,
-                )),
-                Err(err) => Err(err.into()),
+                ))
             })
             .collect()
     }

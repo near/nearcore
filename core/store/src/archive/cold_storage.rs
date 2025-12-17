@@ -334,9 +334,8 @@ fn copy_state_changes_from_store(
     let mut total_size = 0;
 
     // Use iter_prefix to read all StateChanges for this block in one sequential scan.
-    for iter_result in hot_store.iter_prefix(col, block_hash_key) {
+    for (key, value) in hot_store.iter_prefix(col, block_hash_key) {
         metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(col)]).inc();
-        let (key, value) = iter_result?;
         total_keys += 1;
         total_size += value.len();
         transaction.set(col, key.to_vec(), value.to_vec());
@@ -427,12 +426,11 @@ pub fn copy_all_data_to_cold(
         if col.is_cold() {
             tracing::info!(target: "cold_store", ?col, "started column migration");
             let mut transaction = BatchTransaction::new(cold_db.clone(), batch_size);
-            for result in hot_store.iter(col) {
+            for (key, value) in hot_store.iter(col) {
                 if !keep_going.load(std::sync::atomic::Ordering::Relaxed) {
                     tracing::debug!(target: "cold_store", "stopping copy_all_data_to_cold");
                     return Ok(CopyAllDataToColdStatus::Interrupted);
                 }
-                let (key, value) = result?;
                 transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec())?;
             }
             transaction.write()?;
@@ -459,7 +457,7 @@ pub fn test_cold_genesis_update(cold_db: &ColdDB, hot_store: &Store) -> io::Resu
             cold_db,
             &hot_store,
             col,
-            hot_store.iter(col).map(|x| x.unwrap().0.to_vec()).collect(),
+            hot_store.iter(col).map(|x| x.0.to_vec()).collect(),
         )?;
     }
     Ok(())
@@ -662,9 +660,8 @@ impl ColdMigrationStore for Store {
         key_prefix: &[u8],
         mut callback: impl FnMut(Box<[u8]>),
     ) -> io::Result<()> {
-        for iter_result in self.iter_prefix(col, key_prefix) {
+        for (key, _) in self.iter_prefix(col, key_prefix) {
             crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(col)]).inc();
-            let (key, _) = iter_result?;
             callback(key);
         }
         Ok(())

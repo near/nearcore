@@ -1,7 +1,6 @@
 use crate::{DBCol, deserialized_column};
 use near_fmt::{AbbrBytes, StorageKey};
 use std::collections::HashSet;
-use std::io;
 use std::sync::Arc;
 
 mod colddb;
@@ -174,7 +173,7 @@ impl DBTransaction {
     }
 }
 
-pub type DBIteratorItem = io::Result<(Box<[u8]>, Box<[u8]>)>;
+pub type DBIteratorItem = (Box<[u8]>, Box<[u8]>);
 pub type DBIterator<'a> = Box<dyn Iterator<Item = DBIteratorItem> + 'a>;
 
 pub trait Database: Sync + Send {
