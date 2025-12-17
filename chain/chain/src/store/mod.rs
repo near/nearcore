@@ -98,6 +98,8 @@ pub trait ChainStoreAccess {
     fn gc_stop_height(&self) -> Result<BlockHeight, Error>;
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error>;
+    /// Get full chunk.
+    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error>;
     /// Get partial chunk.
     fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error>;
     /// Does this full block exist?
@@ -916,9 +918,14 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_block(self, h)
     }
 
+    /// Get full chunk.
+    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error> {
+        self.chunk_store().get_chunk(chunk_hash).map_err(Into::into)
+    }
+
     /// Get partial chunk.
     fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error> {
-        ChainStoreAdapter::get_partial_chunk(self, chunk_hash)
+        self.chunk_store().get_partial_chunk(chunk_hash).map_err(Into::into)
     }
 
     /// Does this full block exist?
@@ -927,11 +934,11 @@ impl ChainStoreAccess for ChainStore {
     }
 
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        ChainStoreAdapter::chunk_exists(self, h)
+        self.chunk_store().chunk_exists(h)
     }
 
     fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        ChainStoreAdapter::partial_chunk_exists(self, h)
+        self.chunk_store().partial_chunk_exists(h)
     }
 
     /// Get previous header.
@@ -945,7 +952,7 @@ impl ChainStoreAccess for ChainStore {
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
     ) -> Result<Arc<ChunkExtra>, Error> {
-        ChainStoreAdapter::get_chunk_extra(self, block_hash, shard_uid)
+        self.chunk_store().get_chunk_extra(block_hash, shard_uid)
     }
 
     fn get_chunk_apply_stats(
@@ -953,7 +960,7 @@ impl ChainStoreAccess for ChainStore {
         block_hash: &CryptoHash,
         shard_id: &ShardId,
     ) -> Result<Option<ChunkApplyStats>, Error> {
-        ChainStoreAdapter::get_chunk_apply_stats(&self, block_hash, shard_id)
+        self.chunk_store().get_chunk_apply_stats(block_hash, shard_id)
     }
 
     /// Get block header.
@@ -1007,7 +1014,7 @@ impl ChainStoreAccess for ChainStore {
         &self,
         chunk_hash: &ChunkHash,
     ) -> Result<Option<Arc<EncodedShardChunk>>, Error> {
-        ChainStoreAdapter::is_invalid_chunk(self, chunk_hash)
+        self.chunk_store().is_invalid_chunk(chunk_hash)
     }
 
     fn get_transaction(
@@ -1236,6 +1243,15 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             }
         }
         self.chain_store.get_block(h)
+    }
+
+    /// Get full chunk.
+    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error> {
+        if let Some(arced_chunk) = self.chain_store_cache_update.chunks.get(chunk_hash) {
+            Ok(ShardChunk::from(arced_chunk.as_ref()))
+        } else {
+            self.chain_store.get_chunk(chunk_hash)
+        }
     }
 
     /// Does this full block exist?
@@ -1953,8 +1969,9 @@ impl<'a> ChainStoreUpdate<'a> {
                         entry.get_mut().insert(chunk_hash.clone());
                     }
                     Entry::Vacant(entry) => {
+                        let chunk_store = self.chain_store.chunk_store();
                         let mut hash_set =
-                            match self.chain_store.get_all_chunk_hashes_by_height(height_created) {
+                            match chunk_store.get_all_chunk_hashes_by_height(height_created) {
                                 Ok(hash_set) => hash_set.clone(),
                                 Err(_) => HashSet::new(),
                             };
@@ -2244,7 +2261,8 @@ mod tests {
         chain.set_transaction_validity_period(5);
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
-        let short_fork = [TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build()];
+        let short_fork =
+            [TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build()];
         let mut store_update = chain.mut_chain_store().store_update();
         store_update.save_block_header(short_fork[0].header().clone()).unwrap();
         store_update.commit().unwrap();
@@ -2272,7 +2290,9 @@ mod tests {
         for i in 1..(chain.transaction_validity_period() + 3) {
             let mut store_update = chain.mut_chain_store().store_update();
             let block =
-                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
+                TestBlockBuilder::from_prev_block(Clock::real(), &prev_block, signer.clone())
+                    .height(i)
+                    .build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             store_update.update_height(block.header().height(), *block.hash()).unwrap();
@@ -2326,7 +2346,9 @@ mod tests {
         for i in 1..(chain.transaction_validity_period() + 2) {
             let mut store_update = chain.mut_chain_store().store_update();
             let block =
-                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
+                TestBlockBuilder::from_prev_block(Clock::real(), &prev_block, signer.clone())
+                    .height(i)
+                    .build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             store_update.update_height(block.header().height(), *block.hash()).unwrap();
@@ -2351,9 +2373,10 @@ mod tests {
                 )
                 .is_ok()
         );
-        let new_block = TestBlockBuilder::new(Clock::real(), &blocks.last().unwrap(), signer)
-            .height(chain.transaction_validity_period() + 3)
-            .build();
+        let new_block =
+            TestBlockBuilder::from_prev_block(Clock::real(), &blocks.last().unwrap(), signer)
+                .height(chain.transaction_validity_period() + 3)
+                .build();
 
         let mut store_update = chain.mut_chain_store().store_update();
         store_update.save_block_header(new_block.header().clone()).unwrap();
@@ -2387,7 +2410,9 @@ mod tests {
         for i in 1..(chain.transaction_validity_period() + 2) {
             let mut store_update = chain.mut_chain_store().store_update();
             let block =
-                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
+                TestBlockBuilder::from_prev_block(Clock::real(), &prev_block, signer.clone())
+                    .height(i)
+                    .build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             short_fork.push(block);
@@ -2415,7 +2440,9 @@ mod tests {
         for i in 1..(chain.transaction_validity_period() * 5) {
             let mut store_update = chain.mut_chain_store().store_update();
             let block =
-                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
+                TestBlockBuilder::from_prev_block(Clock::real(), &prev_block, signer.clone())
+                    .height(i)
+                    .build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             long_fork.push(block);

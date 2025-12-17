@@ -421,19 +421,19 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     }
 
     let base_shard_layout = get_base_shard_layout();
-    base_epoch_config.shard_layout = base_shard_layout.clone();
+    let base_epoch_config = base_epoch_config.with_shard_layout(base_shard_layout.clone());
     let mut new_boundary_account = params.new_boundary_account;
-    let epoch_config =
+    let (epoch_config, shard_layout) =
         derive_new_epoch_config_from_boundary(&base_epoch_config, &new_boundary_account);
 
     let mut epoch_configs = vec![
-        (base_protocol_version, Arc::new(base_epoch_config.clone())),
-        (base_protocol_version + 1, Arc::new(epoch_config.clone())),
+        (base_protocol_version, Arc::new(base_epoch_config), base_shard_layout.clone()),
+        (base_protocol_version + 1, Arc::new(epoch_config.clone()), shard_layout),
     ];
 
     let genesis = TestGenesisBuilder::new()
         .genesis_time_from_clock(&builder.clock())
-        .shard_layout(base_shard_layout)
+        .shard_layout(base_shard_layout.clone())
         .protocol_version(base_protocol_version)
         .epoch_length(params.epoch_length)
         .validators_spec(ValidatorsSpec::desired_roles(
@@ -444,25 +444,30 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .build();
 
     if let Some(second_resharding_boundary_account) = &params.second_resharding_boundary_account {
-        let second_resharding_epoch_config = derive_new_epoch_config_from_boundary(
+        let (second_resharding_epoch_config, shard_layout) = derive_new_epoch_config_from_boundary(
             &epoch_config,
             second_resharding_boundary_account,
         );
-        epoch_configs.push((base_protocol_version + 2, Arc::new(second_resharding_epoch_config)));
+        epoch_configs.push((
+            base_protocol_version + 2,
+            Arc::new(second_resharding_epoch_config),
+            shard_layout,
+        ));
         let upgrade_schedule = two_upgrades_voting_schedule(base_protocol_version + 2);
         builder = builder.protocol_upgrade_schedule(upgrade_schedule);
         new_boundary_account = second_resharding_boundary_account.clone();
     }
-    let initial_num_shards = epoch_configs.first().unwrap().1.shard_layout.num_shards();
-    let expected_num_shards = epoch_configs.last().unwrap().1.shard_layout.num_shards();
+    let initial_num_shards = epoch_configs.first().unwrap().2.num_shards();
+    let expected_num_shards = epoch_configs.last().unwrap().2.num_shards();
     if params.second_resharding_boundary_account.is_some() {
         assert_eq!(expected_num_shards, initial_num_shards + 2);
     } else {
         assert_eq!(expected_num_shards, initial_num_shards + 1);
     }
-    let parent_shard_uid =
-        base_epoch_config.shard_layout.account_id_to_shard_uid(&new_boundary_account);
-    let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(epoch_configs));
+    let parent_shard_uid = base_shard_layout.account_id_to_shard_uid(&new_boundary_account);
+    let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(
+        epoch_configs.into_iter().map(|(epoch_id, config, _)| (epoch_id, config)),
+    ));
 
     if params.track_all_shards {
         builder = builder.track_all_shards();

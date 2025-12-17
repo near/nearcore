@@ -19,6 +19,7 @@ use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
 use near_store::DBCol;
 use near_store::Store;
+use near_store::adapter::StoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
@@ -42,7 +43,7 @@ fn get_incoming_receipts(
 ) -> anyhow::Result<Vec<Receipt>> {
     let mut receipt_proofs = vec![];
 
-    let chunk_hashes = chain_store.get_all_chunk_hashes_by_height(target_height)?;
+    let chunk_hashes = chain_store.chunk_store().get_all_chunk_hashes_by_height(target_height)?;
     if !chunk_hashes.contains(chunk_hash) {
         return Err(anyhow!(
             "given chunk hash is not listed in DBCol::ChunkHashesByHeight[{}]",

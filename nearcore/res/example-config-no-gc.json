@@ -11,7 +11,7 @@
         "polling_config": {
             "polling_interval": {
                 "secs": 0,
-                "nanos": 500000000
+                "nanos": 200000000
             },
             "polling_timeout": {
                 "secs": 10,

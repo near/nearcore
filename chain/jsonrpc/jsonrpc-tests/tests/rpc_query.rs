@@ -3,6 +3,7 @@ use std::ops::ControlFlow;
 use near_chain_configs::test_utils::TESTING_INIT_BALANCE;
 use near_primitives::action::GlobalContractDeployMode;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use reqwest::StatusCode;
 
 use near_crypto::{InMemorySigner, Signature};
@@ -120,7 +121,10 @@ async fn test_chunk_by_hash() {
     assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
     assert_eq!(chunk.header.encoded_length, 8);
     assert_eq!(chunk.header.encoded_merkle_root.as_ref().len(), 32);
-    assert_eq!(chunk.header.gas_limit, Gas::from_teragas(1000));
+    // In spice gas_limit isn't part of the chunk.
+    if !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        assert_eq!(chunk.header.gas_limit, Gas::from_teragas(1000));
+    }
     assert_eq!(chunk.header.gas_used, Gas::ZERO);
     assert_eq!(chunk.header.height_created, 0);
     assert_eq!(chunk.header.height_included, 0);
@@ -706,7 +710,10 @@ async fn test_get_chunk_with_object_in_params() {
     assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
     assert_eq!(chunk.header.encoded_length, 8);
     assert_eq!(chunk.header.encoded_merkle_root.as_ref().len(), 32);
-    assert_eq!(chunk.header.gas_limit, Gas::from_teragas(1000));
+    // In spice gas_limit isn't part of the chunk.
+    if !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        assert_eq!(chunk.header.gas_limit, Gas::from_teragas(1000));
+    }
     assert_eq!(chunk.header.gas_used, Gas::ZERO);
     assert_eq!(chunk.header.height_created, 0);
     assert_eq!(chunk.header.height_included, 0);

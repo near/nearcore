@@ -36,7 +36,7 @@ pub use crate::update_shard::{
     apply_new_chunk, apply_old_chunk,
 };
 use crate::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
-use crate::validate::validate_chunk_with_chunk_extra;
+use crate::validate::{validate_chunk_with_chunk_extra, validate_optimistic_block_relevant};
 use crate::{
     BlockStatus, ChainGenesis, Doomslug, Provenance, byzantine_assert,
     create_light_client_block_view,
@@ -55,7 +55,6 @@ use near_chain_primitives::error::{BlockKnownError, Error};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::validate::validate_optimistic_block_relevant;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::block::{
     Block, BlockValidityError, ChunkType, Chunks, Tip, compute_bp_hash_from_validator_stakes,
@@ -393,7 +392,11 @@ impl Chain {
             noop().into_multi_sender(),
         );
         let num_shards = runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
-        let spice_core_reader = SpiceCoreReader::new(store.chain_store(), epoch_manager.clone());
+        let spice_core_reader = SpiceCoreReader::new(
+            store.chain_store(),
+            epoch_manager.clone(),
+            chain_genesis.gas_limit,
+        );
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -568,8 +571,11 @@ impl Chain {
         let max_num_shards =
             runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
         let apply_chunks_spawner = apply_chunks_spawner.into_spawner(max_num_shards);
-        let spice_core_reader =
-            SpiceCoreReader::new(chain_store.store().chain_store(), epoch_manager.clone());
+        let spice_core_reader = SpiceCoreReader::new(
+            chain_store.store().chain_store(),
+            epoch_manager.clone(),
+            chain_genesis.gas_limit,
+        );
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
@@ -835,19 +841,6 @@ impl Chain {
             return Err(Error::InvalidSignature);
         }
 
-        if let Ok(epoch_protocol_version) =
-            self.epoch_manager.get_epoch_protocol_version(header.epoch_id())
-        {
-            if header.latest_protocol_version() < epoch_protocol_version {
-                tracing::error!(
-                    header_version = %header.latest_protocol_version(),
-                    %epoch_protocol_version,
-                    "header protocol version smaller than epoch protocol version"
-                );
-                return Err(Error::InvalidProtocolVersion);
-            }
-        }
-
         let prev_header = self.get_previous_header(header)?;
 
         // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
@@ -863,6 +856,17 @@ impl Chain {
             != header.next_epoch_id()
         {
             return Err(Error::InvalidEpochHash);
+        }
+
+        let epoch_protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
+        if header.latest_protocol_version() < epoch_protocol_version {
+            tracing::error!(
+                header_version = %header.latest_protocol_version(),
+                %epoch_protocol_version,
+                "header protocol version smaller than epoch protocol version"
+            );
+            return Err(Error::InvalidProtocolVersion);
         }
 
         if header.epoch_id() == prev_header.epoch_id() {
@@ -952,7 +956,7 @@ impl Chain {
                 return Err(Error::InvalidBlockMerkleRoot);
             }
 
-            if !cfg!(feature = "protocol_feature_spice") {
+            if !ProtocolFeature::Spice.enabled(epoch_protocol_version) {
                 validate_chunk_endorsements_in_header(self.epoch_manager.as_ref(), header)?;
             }
         }
@@ -1499,7 +1503,7 @@ impl Chain {
                 BlockInfo::from_header(header, last_finalized_height),
                 *header.random_value(),
             )?;
-            chain_store_update.merge(epoch_manager_update);
+            chain_store_update.merge(epoch_manager_update.into());
             chain_store_update.commit()?;
         }
 
@@ -2130,8 +2134,10 @@ impl Chain {
         block: &Block,
         shard_id: ShardId,
     ) -> Result<(), Error> {
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
         // In spice we need to keep flat head and memtries until execution.
-        if cfg!(feature = "protocol_feature_spice") {
+        if ProtocolFeature::Spice.enabled(protocol_version) {
             return Ok(());
         }
 
@@ -2186,7 +2192,7 @@ impl Chain {
         if !validate_optimistic_block_relevant(
             self.epoch_manager.as_ref(),
             block,
-            &self.chain_store.store(),
+            &self.chain_store,
         )? {
             return Err(Error::InvalidSignature);
         }
@@ -2342,11 +2348,25 @@ impl Chain {
             return Err(e);
         }
 
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+        let last_certified_block_execution_results =
+            if ProtocolFeature::Spice.enabled(protocol_version) {
+                // We cannot get last certified block until block is fully processed.
+                Some(self.spice_core_reader.get_last_certified_execution_results_for_next_block(
+                    &prev,
+                    block.spice_core_statements(),
+                )?)
+            } else {
+                None
+            };
+
         if !block.verify_gas_price(
             gas_price,
             self.block_economics_config.min_gas_price(),
             self.block_economics_config.max_gas_price(),
             self.block_economics_config.gas_price_adjustment_rate(),
+            last_certified_block_execution_results.as_ref(),
         ) {
             byzantine_assert!(false);
             return Err(Error::InvalidGasPrice);
@@ -2366,13 +2386,13 @@ impl Chain {
 
         self.validate_chunk_headers(&block, &prev_block)?;
 
-        if !cfg!(feature = "protocol_feature_spice") {
+        if !ProtocolFeature::Spice.enabled(protocol_version) {
             validate_chunk_endorsements_in_block(self.epoch_manager.as_ref(), &block)?;
         }
 
         self.ping_missing_chunks(prev_hash, block)?;
 
-        let incoming_receipts = if cfg!(feature = "protocol_feature_spice") {
+        let incoming_receipts = if ProtocolFeature::Spice.enabled(protocol_version) {
             // TODO(spice): move incoming receipts collection inside apply_chunks_preprocessing
             HashMap::default()
         } else {
@@ -2386,7 +2406,7 @@ impl Chain {
         // Check if block can be finalized and drop it otherwise.
         self.check_if_finalizable(header)?;
 
-        if cfg!(feature = "protocol_feature_spice") {
+        if ProtocolFeature::Spice.enabled(protocol_version) {
             self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
         } else {
             if block.is_spice_block() {
@@ -2997,7 +3017,16 @@ impl Chain {
         let next_epoch_id =
             self.epoch_manager.get_next_epoch_id_from_prev_block(block_header.prev_hash())?;
         let validator_signer = self.validator_signer.get();
-        let Some(account_id) = validator_signer.as_ref().map(|v| v.validator_id()) else {
+
+        let validator_id = if let Some(validator_signer) = &validator_signer {
+            Some(validator_signer.validator_id())
+        } else {
+            // If the node shadows another validator, we want it to have all the transition
+            // data so it can seamlessly take over as the main validator if required.
+            self.shard_tracker.get_shadow_validator_id()
+        };
+
+        let Some(account_id) = validator_id else {
             return Ok(false);
         };
         Ok(self.epoch_manager.is_chunk_producer_for_epoch(epoch_id, account_id)?
@@ -3050,7 +3079,9 @@ impl Chain {
         mut state_patch: SandboxStatePatch,
         invalid_chunks: &mut Vec<ShardChunkHeader>,
     ) -> Result<Vec<UpdateShardJob>, Error> {
-        if cfg!(feature = "protocol_feature_spice") {
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+        if ProtocolFeature::Spice.enabled(protocol_version) {
             return Ok(vec![]);
         }
 
@@ -3243,7 +3274,7 @@ impl Chain {
         let shard_update_reason = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
             let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?;
-            let chunk = get_chunk_clone_from_header(&self.chain_store, chunk_header)?;
+            let chunk = get_chunk_clone_from_header(&self.chain_store.chunk_store(), chunk_header)?;
             let prev_chunk_height_included = prev_chunk_header.height_included();
 
             // Validate that all next chunk information matches previous chunk extra.

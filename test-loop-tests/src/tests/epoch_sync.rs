@@ -6,12 +6,13 @@ use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::sync::epoch::EpochSync;
+use near_epoch_manager::epoch_sync::{
+    derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
+};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta};
-use near_primitives::utils::compression::CompressedData;
 use near_store::adapter::StoreAdapter;
 
 use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
@@ -237,15 +238,11 @@ impl TestLoopEnv {
     fn derive_epoch_sync_proof(&self, node_index: usize) -> EpochSyncProof {
         let client_handle = self.node_datas[node_index].client_sender.actor_handle();
         let store = self.test_loop.data.get(&client_handle).client.chain.chain_store.store();
-        EpochSync::derive_epoch_sync_proof(
-            store,
-            self.shared_state.genesis.config.transaction_validity_period,
-            Default::default(),
-        )
-        .unwrap()
-        .decode()
-        .unwrap()
-        .0
+        let tx_validity_period = self.shared_state.genesis.config.transaction_validity_period;
+        let last_block_hash =
+            find_target_epoch_to_produce_proof_for(&store, tx_validity_period).unwrap();
+        derive_epoch_sync_proof_from_last_block(&store.epoch_store(), &last_block_hash, true)
+            .unwrap()
     }
 
     fn chain_final_head_height(&self, node_index: usize) -> u64 {

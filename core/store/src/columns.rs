@@ -1,5 +1,7 @@
 use std::fmt;
 
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+
 /// This enum holds the information about the columns that we use within the
 /// RocksDB storage.
 ///
@@ -571,10 +573,11 @@ impl DBCol {
             DBCol::_ReceiptIdToShardId => false,
             // This can be re-constructed from the Chunks column, so no need to store in Cold DB.
             DBCol::PartialChunks => false,
+            // BlockHeader is considered cold once ContinuousEpochSync is enabled. Before that, it is false
+            DBCol::BlockHeader => ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION),
 
             // Columns that are not GC-ed need not be copied to the cold storage.
-            DBCol::BlockHeader
-            | DBCol::_BlockExtra
+            DBCol::_BlockExtra
             | DBCol::_GCCount
             | DBCol::BlockHeight
             | DBCol::_Peers
@@ -677,7 +680,7 @@ impl DBCol {
             DBCol::LatestWitnessesByIndex => &[DBKeyType::LatestWitnessIndex],
             DBCol::InvalidChunkStateWitnesses => &[DBKeyType::InvalidWitnessesKey],
             DBCol::InvalidWitnessesByIndex => &[DBKeyType::InvalidWitnessIndex],
-            DBCol::EpochSyncProof => &[DBKeyType::Empty],
+            DBCol::EpochSyncProof => &[DBKeyType::StringLiteral],
             DBCol::StateShardUIdMapping => &[DBKeyType::ShardUId],
             DBCol::StateSyncHashes => &[DBKeyType::EpochId],
             DBCol::StateSyncNewChunks => &[DBKeyType::BlockHash],
@@ -768,10 +771,10 @@ mod tests {
         }
     }
 
-    // In split storage archival nodes the State column and the
-    // TrieNodeOrValueHash db key type and handled separately.
-    // This implementation asserts that the TrieNodeOrValueHash key type is
-    // only use in the State column and in no other columns.
+    // In split storage archival nodes some columns are handled separately:
+    // - State column uses TrieNodeOrValueHash key type
+    // - StateChanges is the only cold column using TrieKey key type
+    // This test asserts these key types are only used in their respective columns.
     #[test]
     fn key_type_split_storage_sanity() {
         for col in DBCol::iter() {
@@ -781,6 +784,15 @@ mod tests {
             let key_types = col.key_type();
             for key_type in key_types {
                 assert_ne!(key_type, &DBKeyType::TrieNodeOrValueHash);
+            }
+        }
+        for col in DBCol::iter() {
+            if col == DBCol::StateChanges || !col.is_cold() {
+                continue;
+            }
+            let key_types = col.key_type();
+            for key_type in key_types {
+                assert_ne!(key_type, &DBKeyType::TrieKey);
             }
         }
     }

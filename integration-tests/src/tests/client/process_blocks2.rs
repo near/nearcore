@@ -19,6 +19,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{Balance, Gas, ShardId};
 use near_primitives::utils::MaybeValidated;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::ShardUId;
 use std::sync::Arc;
 
@@ -120,8 +121,6 @@ fn test_not_process_same_block_twice() {
 
 /// Test that if a block contains chunks with invalid shard_ids, the client will return error.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_bad_shard_id() {
     let accounts = TestEnvBuilder::make_accounts(1);
     let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
@@ -136,24 +135,37 @@ fn test_bad_shard_id() {
     let chunk = chunks.get(0).unwrap();
     let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
     let congestion_info = CongestionInfo::default();
-    let mut modified_chunk = ShardChunkHeaderV3::new(
-        *chunk.prev_block_hash(),
-        chunk.prev_state_root(),
-        *chunk.prev_outcome_root(),
-        *chunk.encoded_merkle_root(),
-        chunk.encoded_length(),
-        2,
-        ShardId::new(1),
-        chunk.prev_gas_used(),
-        chunk.gas_limit(),
-        chunk.prev_balance_burnt(),
-        *outgoing_receipts_root,
-        *chunk.tx_root(),
-        chunk.prev_validator_proposals().collect(),
-        congestion_info,
-        chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
-        &validator_signer,
-    );
+    let mut modified_chunk = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        ShardChunkHeaderV3::new_for_spice(
+            *chunk.prev_block_hash(),
+            *chunk.encoded_merkle_root(),
+            chunk.encoded_length(),
+            2,
+            ShardId::new(1),
+            *outgoing_receipts_root,
+            *chunk.tx_root(),
+            &validator_signer,
+        )
+    } else {
+        ShardChunkHeaderV3::new(
+            *chunk.prev_block_hash(),
+            chunk.prev_state_root(),
+            *chunk.prev_outcome_root(),
+            *chunk.encoded_merkle_root(),
+            chunk.encoded_length(),
+            2,
+            ShardId::new(1),
+            chunk.prev_gas_used(),
+            chunk.gas_limit(),
+            chunk.prev_balance_burnt(),
+            *outgoing_receipts_root,
+            *chunk.tx_root(),
+            chunk.prev_validator_proposals().collect(),
+            congestion_info,
+            chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
+            &validator_signer,
+        )
+    };
     modified_chunk.height_included = 2;
     chunks[0] = ShardChunkHeader::V3(modified_chunk);
     let mut_block = Arc::make_mut(&mut block);
@@ -260,7 +272,13 @@ impl BadCongestionInfoMode {
     }
 }
 
-fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
+fn test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
+    // Congestion info isn't part of chunks with spice so it doesn't make sense to test when
+    // congestion info is bad in chunks.
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
     let accounts = TestEnvBuilder::make_accounts(1);
     let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
@@ -321,38 +339,36 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_bad_congestion_info_receipt_bytes() {
-    test_bad_congestion_info_impl(BadCongestionInfoMode::CorruptReceiptBytes);
+fn test_validate_chunk_with_chunk_extra_bad_congestion_info_receipt_bytes() {
+    test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(
+        BadCongestionInfoMode::CorruptReceiptBytes,
+    );
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_bad_congestion_info_corrupt_delayed_receipts_bytes() {
-    test_bad_congestion_info_impl(BadCongestionInfoMode::CorruptDelayedReceiptsBytes);
+fn test_validate_chunk_with_chunk_extra_bad_congestion_info_corrupt_delayed_receipts_bytes() {
+    test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(
+        BadCongestionInfoMode::CorruptDelayedReceiptsBytes,
+    );
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_bad_congestion_info_corrupt_buffered_receipts_bytes() {
-    test_bad_congestion_info_impl(BadCongestionInfoMode::CorruptBufferedReceiptsBytes);
+fn test_validate_chunk_with_chunk_extra_bad_congestion_info_corrupt_buffered_receipts_bytes() {
+    test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(
+        BadCongestionInfoMode::CorruptBufferedReceiptsBytes,
+    );
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_bad_congestion_info_corrupt_allowed_shard() {
-    test_bad_congestion_info_impl(BadCongestionInfoMode::CorruptAllowedShard);
+fn test_validate_chunk_with_chunk_extra_bad_congestion_info_corrupt_allowed_shard() {
+    test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(
+        BadCongestionInfoMode::CorruptAllowedShard,
+    );
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_bad_congestion_info_none() {
-    test_bad_congestion_info_impl(BadCongestionInfoMode::None);
+fn test_validate_chunk_with_chunk_extra_bad_congestion_info_none() {
+    test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(BadCongestionInfoMode::None);
 }
 
 // Helper function to check that a block was produced from an optimistic block
