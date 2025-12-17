@@ -34,8 +34,8 @@ fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) 
     let pretty_key = near_fmt::StorageKey(key);
     tracing::debug!(?col, ?pretty_key, "checking");
 
-    let first_res = first_store.get(col, key).unwrap();
-    let second_res = second_store.get(col, key).unwrap();
+    let first_res = first_store.get(col, key);
+    let second_res = second_store.get(col, key);
 
     assert_eq!(first_res, second_res, "col: {:?} key: {:?}", col, pretty_key);
 }
