@@ -9,7 +9,7 @@ use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::epoch_sync::{
-    derive_epoch_sync_proof_from_last_final_block, find_target_epoch_to_produce_proof_for,
+    derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
     get_epoch_info_block_producers,
 };
 use near_network::client::{EpochSyncRequestMessage, EpochSyncResponseMessage};
@@ -106,7 +106,7 @@ impl EpochSync {
         }
         // We're purposefully not releasing the lock here. This is so that if the cache
         // is out of date, only one thread should be doing the computation.
-        let proof = derive_epoch_sync_proof_from_last_final_block(
+        let proof = derive_epoch_sync_proof_from_last_block(
             &store.epoch_store(),
             &target_epoch_last_block_hash,
         );

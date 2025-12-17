@@ -24,9 +24,7 @@ use tracing::instrument;
 
 /// Function to extend epoch sync proof by one epoch.
 /// - Retrieve the existing epoch sync proof from the store
-/// - Validate that the existing proof is consistent with the new epoch to be added, i.e.
-///   the proof exists upto the previous epoch.
-/// - Generate and append the new epoch data to the existing proof.
+/// - Create and append the new epoch data to the existing proof.
 /// - Updated proof back to the store.
 pub fn extend_epoch_sync_proof(
     store: &EpochStoreAdapter,
@@ -38,42 +36,62 @@ pub fn extend_epoch_sync_proof(
         return Ok(());
     }
 
+    let prev_proof = store.get_epoch_sync_proof()?;
+    let new_proof = create_epoch_sync_proof_from_prev_proof(store, last_block_hash, prev_proof)?;
+
+    let mut store_update = store.store_update();
+    store_update.set_epoch_sync_proof(&new_proof);
+    store_update.commit()?;
+    Ok(())
+}
+
+fn create_epoch_sync_proof_from_prev_proof(
+    store: &EpochStoreAdapter,
+    last_block_hash: &CryptoHash,
+    prev_proof: Option<EpochSyncProofV1>,
+) -> Result<EpochSyncProof, Error> {
+    let last_block_info = store.get_block_info(&last_block_hash)?;
     let first_block_hash = last_block_info.epoch_first_block();
     let first_block_info = store.get_block_info(&first_block_hash)?;
     let last_block_hash_in_prev_epoch = first_block_info.prev_hash();
     let last_block_info_in_prev_epoch = store.get_block_info(&last_block_hash_in_prev_epoch)?;
 
-    let mut all_epochs = match store.get_epoch_sync_proof()? {
-        Some(EpochSyncProofV1 { all_epochs, current_epoch, .. }) => {
-            // Sanity check ensuring continuity of epochs. The `current_epoch` from the existing proof
-            // should correspond to the previous epoch we are adding now.
-            let expected_first_block_hash = last_block_info_in_prev_epoch.epoch_first_block();
-            let actual_first_block_hash = current_epoch.first_block_header_in_epoch.hash();
-            debug_assert_eq!(expected_first_block_hash, actual_first_block_hash);
-            all_epochs
-        }
-        None => {
-            // This should only happen if we are on the epoch after genesis.
-            debug_assert_eq!(last_block_info_in_prev_epoch.epoch_id(), &EpochId::default());
-            vec![]
-        }
-    };
+    validate_existing_proof(&last_block_info_in_prev_epoch, &prev_proof);
 
-    all_epochs.push(get_epoch_sync_proof_epoch_data(store, &last_block_info)?);
+    let mut all_epochs = prev_proof.map(|proof| proof.all_epochs).unwrap_or_default();
+    all_epochs.push(get_epoch_sync_proof_epoch_data_to_extend_proof(store, &last_block_info)?);
     let last_epoch = get_epoch_sync_proof_last_epoch_data(store, &last_block_hash_in_prev_epoch)?;
     let current_epoch =
         get_epoch_sync_proof_current_epoch_data(&store.chain_store(), &last_block_info)?;
 
     let proof = EpochSyncProofV1 { all_epochs, last_epoch, current_epoch };
-    let proof = EpochSyncProof::V1(proof);
-    let mut store_update = store.store_update();
-    store_update.set_epoch_sync_proof(&proof);
-    store_update.commit()?;
-
-    Ok(())
+    Ok(EpochSyncProof::V1(proof))
 }
 
-fn get_epoch_sync_proof_epoch_data(
+/// Validates that the existing epoch sync proof is consistent with the new epoch to be added.
+/// The existing epoch sync proof must be that of the previous epoch.
+fn validate_existing_proof(
+    last_block_info_in_prev_epoch: &BlockInfo,
+    existing_proof: &Option<EpochSyncProofV1>,
+) {
+    if let Some(proof) = existing_proof {
+        // Sanity check ensuring continuity of epochs. The `current_epoch` from the existing proof
+        // should correspond to the previous epoch we are adding now.
+        let expected_first_block_hash = last_block_info_in_prev_epoch.epoch_first_block();
+        let actual_first_block_hash = proof.current_epoch.first_block_header_in_epoch.hash();
+        debug_assert_eq!(expected_first_block_hash, actual_first_block_hash);
+    } else {
+        // Existing proof should be None only if we are on the epoch after genesis.
+        debug_assert_eq!(last_block_info_in_prev_epoch.epoch_id(), &EpochId::default());
+    }
+}
+
+/// Derives the EpochSyncProofEpochData for the epoch of the given last_block_info.
+/// This function is used to extend the existing epoch sync proof by one epoch, i.e. `all_epochs`.
+/// Additionally, we expect the epoch protocol version to be at least BLOCK_HEADER_V3_PROTOCOL_VERSION + 1.
+///
+/// Warn: Do not use this helper function to generate the entire epoch sync proof from genesis.
+fn get_epoch_sync_proof_epoch_data_to_extend_proof(
     store: &EpochStoreAdapter,
     last_block_info: &BlockInfo,
 ) -> Result<EpochSyncProofEpochData, Error> {
@@ -160,7 +178,7 @@ pub fn find_target_epoch_to_produce_proof_for(
 
 /// Derives an epoch sync proof using a target epoch whose last final block is given
 /// (actually it's the block after that, so that we can find the approvals).
-pub fn derive_epoch_sync_proof_from_last_final_block(
+pub fn derive_epoch_sync_proof_from_last_block(
     store: &EpochStoreAdapter,
     last_block_hash: &CryptoHash,
 ) -> Result<EpochSyncProof, Error> {

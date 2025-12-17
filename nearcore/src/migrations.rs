@@ -1,6 +1,6 @@
 use near_chain::{Error, LatestKnown};
 use near_epoch_manager::epoch_sync::{
-    derive_epoch_sync_proof_from_last_final_block, find_target_epoch_to_produce_proof_for,
+    derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
 };
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::types::BlockHeightDelta;
@@ -128,7 +128,7 @@ fn update_epoch_sync_proof(
         find_target_epoch_to_produce_proof_for(&store, transaction_validity_period)?;
 
     tracing::info!(target: "migrations", ?last_block_hash, "deriving epoch sync proof from last final block");
-    let proof = derive_epoch_sync_proof_from_last_final_block(&epoch_store, &last_block_hash)?;
+    let proof = derive_epoch_sync_proof_from_last_block(&epoch_store, &last_block_hash)?;
 
     tracing::info!(target: "migrations", "storing latest epoch sync proof");
     let mut store_update = epoch_store.store_update();
