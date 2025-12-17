@@ -49,7 +49,7 @@ impl Store {
     /// returns the data as [`DBSlice`] object.  The object dereferences into
     /// a slice, for cases when caller doesn’t need to own the value, and
     /// provides conversion into a vector or an Arc.
-    pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+    pub fn get(&self, column: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
         let value = if column.is_rc() {
             self.storage.get_with_rc_stripped(column, &key)
         } else {
@@ -62,11 +62,11 @@ impl Store {
             key = %StorageKey(key),
             size = value.as_deref().map(<[u8]>::len)
         );
-        Ok(value)
+        value
     }
 
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
-        self.get(column, key)?.as_deref().map(T::try_from_slice).transpose()
+        self.get(column, key).as_deref().map(T::try_from_slice).transpose()
     }
 
     pub fn caching_get_ser<T: BorshDeserialize + Send + Sync + 'static>(
@@ -121,7 +121,7 @@ impl Store {
     }
 
     pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {
-        self.get(column, key).map(|value| value.is_some())
+        Ok(self.get(column, key).is_some())
     }
 
     pub fn store_update(&self) -> StoreUpdate {

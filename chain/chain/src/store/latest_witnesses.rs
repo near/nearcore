@@ -184,7 +184,7 @@ impl ChainStore {
         while !info.is_within_limits() && info.lowest_index < info.next_witness_index {
             let store = self.store();
             let key_to_delete = store
-                .get(DBCol::LatestWitnessesByIndex, &info.lowest_index.to_be_bytes())?
+                .get(DBCol::LatestWitnessesByIndex, &info.lowest_index.to_be_bytes())
                 .ok_or_else(|| {
                     std::io::Error::new(
                         ErrorKind::NotFound,
@@ -370,7 +370,7 @@ pub fn save_invalid_chunk_state_witness(
         // Go over witnesses with increasing indexes and remove them until the limits are satisfied.
         while !info.is_within_limits() && info.lowest_index < info.next_witness_index {
             let key_to_delete = store
-                .get(DBCol::InvalidWitnessesByIndex, &info.lowest_index.to_be_bytes())?
+                .get(DBCol::InvalidWitnessesByIndex, &info.lowest_index.to_be_bytes())
                 .ok_or_else(|| {
                     std::io::Error::new(
                         ErrorKind::NotFound,

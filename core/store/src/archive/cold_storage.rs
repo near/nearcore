@@ -29,7 +29,7 @@ pub trait ColdMigrationStore {
         callback: impl FnMut(Box<[u8]>),
     ) -> io::Result<()>;
 
-    fn get_for_cold(&self, column: DBCol, key: &[u8]) -> io::Result<StoreValue>;
+    fn get_for_cold(&self, column: DBCol, key: &[u8]) -> StoreValue;
 
     fn get_ser_for_cold<T: BorshDeserialize>(
         &self,
@@ -293,7 +293,7 @@ fn copy_from_store(
         // might speed things up.  Currently our Database abstraction
         // doesn't offer interface for it so that would need to be
         // added.
-        let data = hot_store.get_for_cold(col, &key)?;
+        let data = hot_store.get_for_cold(col, &key);
         if let Some(value) = data {
             // TODO: As an optimization, we might consider breaking the
             // abstraction layer.  Since we're always writing to cold database,
@@ -667,9 +667,9 @@ impl ColdMigrationStore for Store {
         Ok(())
     }
 
-    fn get_for_cold(&self, column: DBCol, key: &[u8]) -> io::Result<StoreValue> {
+    fn get_for_cold(&self, column: DBCol, key: &[u8]) -> StoreValue {
         crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(column)]).inc();
-        Ok(self.get(column, key)?.map(|x| x.as_slice().to_vec()))
+        self.get(column, key).map(|x| x.as_slice().to_vec())
     }
 
     fn get_ser_for_cold<T: BorshDeserialize>(
@@ -677,14 +677,17 @@ impl ColdMigrationStore for Store {
         column: DBCol,
         key: &[u8],
     ) -> io::Result<Option<T>> {
-        match self.get_for_cold(column, key)? {
+        match self.get_for_cold(column, key) {
             Some(bytes) => Ok(Some(T::try_from_slice(&bytes)?)),
             None => Ok(None),
         }
     }
 
     fn get_or_err_for_cold(&self, column: DBCol, key: &[u8]) -> io::Result<Vec<u8>> {
-        option_to_not_found(self.get_for_cold(column, key), format_args!("{:?}: {:?}", column, key))
+        option_to_not_found(
+            Ok(self.get_for_cold(column, key)),
+            format_args!("{:?}: {:?}", column, key),
+        )
     }
 
     fn get_ser_or_err_for_cold<T: BorshDeserialize>(

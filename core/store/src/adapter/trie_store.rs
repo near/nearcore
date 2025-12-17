@@ -56,13 +56,9 @@ impl TrieStoreAdapter {
         hash: &CryptoHash,
     ) -> Result<DBSlice<'_>, StorageError> {
         let key = get_key_from_shard_uid_and_hash(shard_uid, hash);
-        self.store
-            .get(DBCol::State, key.as_ref())
-            .map_err(|_| StorageError::StorageInternalError)?
-            .ok_or(StorageError::MissingTrieValue(MissingTrieValue {
-                context: MissingTrieValueContext::TrieStorage,
-                hash: *hash,
-            }))
+        self.store.get(DBCol::State, key.as_ref()).ok_or(StorageError::MissingTrieValue(
+            MissingTrieValue { context: MissingTrieValueContext::TrieStorage, hash: *hash },
+        ))
     }
 
     /// Replaces shard_uid prefix with a mapped value according to mapping strategy in Resharding V3.

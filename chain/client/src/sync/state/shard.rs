@@ -305,7 +305,7 @@ async fn apply_state_part(
     return_if_cancelled!(cancel);
     handle.set_status("Loading part data from store");
     let bytes = store
-        .get(DBCol::StateParts, &key_bytes)?
+        .get(DBCol::StateParts, &key_bytes)
         .ok_or_else(|| {
             near_chain::Error::DBNotFoundErr(format!(
                 "No state part {} for shard {}",
