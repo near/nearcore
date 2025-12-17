@@ -1,6 +1,6 @@
 use near_chain::{Error, LatestKnown};
 use near_epoch_manager::epoch_sync::{
-    derive_epoch_sync_proof_from_last_final_block, find_target_epoch_to_produce_proof_for,
+    derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
 };
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::types::BlockHeightDelta;
@@ -109,7 +109,6 @@ fn update_epoch_sync_proof(
     transaction_validity_period: BlockHeightDelta,
 ) -> anyhow::Result<()> {
     let epoch_store = store.epoch_store();
-    let chain_store = store.chain_store();
 
     tracing::info!(target: "migrations", "updating existing epoch sync proof to compressed format");
 
@@ -127,11 +126,9 @@ fn update_epoch_sync_proof(
     tracing::info!(target: "migrations", "generating latest epoch sync proof");
     let last_block_hash =
         find_target_epoch_to_produce_proof_for(&store, transaction_validity_period)?;
-    let last_block_header = chain_store.get_block_header(&last_block_hash)?;
-    let second_last_block_header = chain_store.get_block_header(last_block_header.prev_hash())?;
 
     tracing::info!(target: "migrations", ?last_block_hash, "deriving epoch sync proof from last final block");
-    let proof = derive_epoch_sync_proof_from_last_final_block(store, &second_last_block_header)?;
+    let proof = derive_epoch_sync_proof_from_last_block(&epoch_store, &last_block_hash)?;
 
     tracing::info!(target: "migrations", "storing latest epoch sync proof");
     let mut store_update = epoch_store.store_update();
