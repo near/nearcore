@@ -939,12 +939,14 @@ async fn test_experimental_view_account_missing_account() {
 }
 
 /// Test EXPERIMENTAL_view_code method
+// TODO(spice): Fix test setup to support SPICE's async chunk execution.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[tokio::test]
 async fn test_experimental_view_code() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
     let client = new_client(&setup.server_addr);
 
-    let account = "test1".parse().unwrap();
+    let account: AccountId = "test1".parse().unwrap();
     let code = near_test_contracts::rs_contract().to_vec();
     deploy_contract(&client, &account, code.clone()).await;
 
@@ -1118,6 +1120,8 @@ async fn test_experimental_view_access_key_list_unknown_block() {
 }
 
 /// Test EXPERIMENTAL_call_function method
+// TODO(spice): Fix test setup to support SPICE's async chunk execution.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[tokio::test]
 async fn test_experimental_call_function() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
@@ -1144,6 +1148,8 @@ async fn test_experimental_call_function() {
 }
 
 /// Test EXPERIMENTAL_call_function error on missing method (MethodNotFound)
+// TODO(spice): Fix test setup to support SPICE's async chunk execution.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[tokio::test]
 async fn test_experimental_call_function_nonexisting_method() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
