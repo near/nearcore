@@ -6,7 +6,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 ///
 /// **NOTE: This is an artificial value calculated according to `TRIE_COST`. Hence, it does not
 /// represent actual memory allocation, but the split ratio should be roughly consistent with that.**
-#[derive(Debug, Clone, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, BorshSerialize, BorshDeserialize)]
 pub struct TrieSplit {
     /// Account ID representing the split path
     pub boundary_account: AccountId,

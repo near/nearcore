@@ -26,8 +26,6 @@ use crate::store::filter_incoming_receipts_for_shard;
 use crate::types::{RuntimeAdapter, StorageDataSource};
 use crate::{Chain, ChainStore};
 
-use super::chunk_validation::apply_result_to_chunk_extra;
-
 pub struct SpicePreValidationOutput {
     new_chunk_data: NewChunkData,
 }
@@ -201,7 +199,7 @@ pub fn spice_validate_chunk_state_witness(
             None,
         )?;
         let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
-        let chunk_extra = apply_result_to_chunk_extra(main_apply_result, gas_limit);
+        let chunk_extra = main_apply_result.to_chunk_extra(gas_limit);
 
         (chunk_extra, outgoing_receipts)
     };
@@ -355,7 +353,6 @@ mod tests {
 
     use crate::store::ChainStoreAccess;
     use crate::test_utils::{get_chain_with_genesis, process_block_sync};
-    use crate::types::ApplyChunkResult;
     use crate::{BlockProcessingArtifact, Provenance};
 
     use super::*;
@@ -1172,18 +1169,7 @@ mod tests {
             )
             .unwrap();
 
-            let (outcome_root, _) =
-                ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
-            let chunk_extra = ChunkExtra::new(
-                &apply_result.new_root,
-                outcome_root,
-                apply_result.validator_proposals.clone(),
-                apply_result.total_gas_burnt,
-                gas_limit,
-                apply_result.total_balance_burnt,
-                apply_result.congestion_info,
-                apply_result.bandwidth_requests.clone(),
-            );
+            let chunk_extra = apply_result.to_chunk_extra(gas_limit);
             let shard_layout =
                 self.chain.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
             let (outgoing_receipts_root, _) = Chain::create_receipts_proofs_from_outgoing_receipts(

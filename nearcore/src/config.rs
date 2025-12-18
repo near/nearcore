@@ -429,11 +429,6 @@ pub struct Config {
     /// if its height + chunks_cache_height_horizon < largest_seen_height.
     /// The default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.
     pub chunks_cache_height_horizon: Option<BlockHeightDelta>,
-    /// If true, the runtime will do a dynamic resharding 'dry run' at the last block of each epoch.
-    /// This means calculating tentative boundary accounts for splitting the tracked shards.
-    /// The default is disabled.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub dynamic_resharding_dry_run: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -503,7 +498,6 @@ impl Default for Config {
             protocol_version_check_config_override: None,
             enable_early_prepare_transactions: None,
             chunks_cache_height_horizon: None,
-            dynamic_resharding_dry_run: false,
         }
     }
 }
@@ -783,7 +777,6 @@ impl NearConfig {
                 chunks_cache_height_horizon: config
                     .chunks_cache_height_horizon
                     .unwrap_or_else(default_chunks_cache_height_horizon),
-                dynamic_resharding_dry_run: config.dynamic_resharding_dry_run,
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,
@@ -888,7 +881,6 @@ impl NightshadeRuntime {
             state_snapshot_config,
             config.client_config.state_sync.parts_compression_lvl,
             config.client_config.cloud_archival_writer.is_some(),
-            config.client_config.dynamic_resharding_dry_run,
         ))
     }
 }

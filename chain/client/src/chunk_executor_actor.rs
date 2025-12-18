@@ -640,7 +640,7 @@ impl ChunkExecutorActor {
         let shard_id = shard_uid.shard_id();
 
         let execution_result =
-            new_execution_result(gas_limit, apply_result, outgoing_receipts_root);
+            new_execution_result(*gas_limit, apply_result, outgoing_receipts_root);
         let execution_result_hash = execution_result.compute_hash();
         if self
             .epoch_manager
@@ -991,21 +991,11 @@ impl ChunkExecutorActor {
 }
 
 fn new_execution_result(
-    gas_limit: &Gas,
+    gas_limit: Gas,
     apply_result: &ApplyChunkResult,
     outgoing_receipts_root: CryptoHash,
 ) -> ChunkExecutionResult {
-    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
-    let chunk_extra = ChunkExtra::new(
-        &apply_result.new_root,
-        outcome_root,
-        apply_result.validator_proposals.clone(),
-        apply_result.total_gas_burnt,
-        *gas_limit,
-        apply_result.total_balance_burnt,
-        apply_result.congestion_info,
-        apply_result.bandwidth_requests.clone(),
-    );
+    let chunk_extra = apply_result.to_chunk_extra(gas_limit);
     ChunkExecutionResult { chunk_extra, outgoing_receipts_root }
 }
 

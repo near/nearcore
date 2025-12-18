@@ -896,9 +896,6 @@ pub struct ClientConfig {
     /// if its height + chunks_cache_height_horizon < largest_seen_height.
     /// The default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.
     pub chunks_cache_height_horizon: BlockHeightDelta,
-    /// If true, the runtime will do a dynamic resharding 'dry run' at the last block of each epoch.
-    /// This means calculating tentative boundary accounts for splitting the tracked shards.
-    pub dynamic_resharding_dry_run: bool,
 }
 
 #[cfg(feature = "schemars")]

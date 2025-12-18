@@ -178,6 +178,7 @@ impl Chain {
             Balance::ZERO,
             congestion_info,
             BandwidthRequests::empty(),
+            None,
         )
     }
 
