@@ -3148,37 +3148,26 @@ fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
 }
 
 fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHeader {
-    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
-            h[0],
-            h[2],
-            0,
-            1,
-            ShardId::new(0),
-            h[2],
-            h[2],
-            signer,
-        ))
-    } else {
-        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            h[0],
-            h[2],
-            h[2],
-            h[2],
-            0,
-            1,
-            ShardId::new(0),
-            Gas::ZERO,
-            Gas::ZERO,
-            Balance::ZERO,
-            h[2],
-            h[2],
-            vec![],
-            Default::default(),
-            BandwidthRequests::empty(),
-            signer,
-        ))
-    }
+    ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        h[0],
+        h[2],
+        h[2],
+        h[2],
+        0,
+        1,
+        ShardId::new(0),
+        Gas::ZERO,
+        Gas::ZERO,
+        Balance::ZERO,
+        h[2],
+        h[2],
+        vec![],
+        Default::default(),
+        BandwidthRequests::empty(),
+        None,
+        signer,
+        PROTOCOL_VERSION,
+    ))
 }
 
 #[test]

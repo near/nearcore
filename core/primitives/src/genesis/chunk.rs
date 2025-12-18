@@ -83,8 +83,10 @@ fn genesis_chunk(
         CryptoHash::default(),
         congestion_info,
         BandwidthRequests::empty(),
+        None,
         &EmptyValidatorSigner::default().into(),
         rs,
+        PROD_GENESIS_PROTOCOL_VERSION,
     );
     let encoded_chunk = chunk.into_parts().1;
     encoded_chunk.decode_chunk().expect("Failed to decode genesis chunk")

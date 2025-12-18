@@ -135,37 +135,32 @@ fn test_bad_shard_id() {
     let chunk = chunks.get(0).unwrap();
     let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
     let congestion_info = CongestionInfo::default();
-    let mut modified_chunk = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        ShardChunkHeaderV3::new_for_spice(
-            *chunk.prev_block_hash(),
-            *chunk.encoded_merkle_root(),
-            chunk.encoded_length(),
-            2,
-            ShardId::new(1),
-            *outgoing_receipts_root,
-            *chunk.tx_root(),
-            &validator_signer,
-        )
+    // This is needed because calling prev_state_root() on spice header causes panic
+    let prev_state_root = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        Default::default()
     } else {
-        ShardChunkHeaderV3::new(
-            *chunk.prev_block_hash(),
-            chunk.prev_state_root(),
-            *chunk.prev_outcome_root(),
-            *chunk.encoded_merkle_root(),
-            chunk.encoded_length(),
-            2,
-            ShardId::new(1),
-            chunk.prev_gas_used(),
-            chunk.gas_limit(),
-            chunk.prev_balance_burnt(),
-            *outgoing_receipts_root,
-            *chunk.tx_root(),
-            chunk.prev_validator_proposals().collect(),
-            congestion_info,
-            chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
-            &validator_signer,
-        )
+        chunk.prev_state_root()
     };
+    let mut modified_chunk = ShardChunkHeaderV3::new(
+        *chunk.prev_block_hash(),
+        prev_state_root,
+        *chunk.prev_outcome_root(),
+        *chunk.encoded_merkle_root(),
+        chunk.encoded_length(),
+        2,
+        ShardId::new(1),
+        chunk.prev_gas_used(),
+        chunk.gas_limit(),
+        chunk.prev_balance_burnt(),
+        *outgoing_receipts_root,
+        *chunk.tx_root(),
+        chunk.prev_validator_proposals().collect(),
+        congestion_info,
+        chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
+        None,
+        &validator_signer,
+        PROTOCOL_VERSION,
+    );
     modified_chunk.height_included = 2;
     chunks[0] = ShardChunkHeader::V3(modified_chunk);
     let mut_block = Arc::make_mut(&mut block);
@@ -183,7 +178,7 @@ fn test_bad_shard_id() {
         .process_block_test(MaybeValidated::from(block), Provenance::NONE)
         .unwrap_err();
     if let near_chain::Error::InvalidShardId(shard_id) = err {
-        assert!(shard_id == ShardId::new(1));
+        assert_eq!(shard_id, ShardId::new(1));
     } else {
         panic!("Expected InvalidShardId error, got {:?}", err);
     }
@@ -311,7 +306,9 @@ fn test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(mode: BadConges
         chunk.prev_validator_proposals().collect(),
         congestion_info,
         chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
+        None,
         &validator_signer,
+        PROTOCOL_VERSION,
     );
     modified_chunk_header.height_included = 2;
 
