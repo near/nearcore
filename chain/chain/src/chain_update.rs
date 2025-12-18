@@ -536,10 +536,10 @@ impl<'a> ChainUpdate<'a> {
         )?;
         self.chain_store_update.merge(store_update.into());
 
-        self.chain_store_update
-            .save_trie_changes(*block_header.hash(), apply_result.trie_changes.clone());
-
         let chunk_extra = apply_result.to_chunk_extra(gas_limit);
+
+        self.chain_store_update.save_trie_changes(*block_header.hash(), apply_result.trie_changes);
+
         self.chain_store_update.save_chunk_extra(
             block_header.hash(),
             &shard_uid,

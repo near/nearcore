@@ -518,11 +518,16 @@ impl NightshadeRuntime {
     fn check_dynamic_resharding_impl(
         &self,
         shard_trie: &Trie,
+        shard_layout: ShardLayout,
         config: &DynamicReshardingConfig,
     ) -> Result<Option<TrieSplit>, FindSplitError> {
+        if shard_layout.num_shards() >= config.max_number_of_shards {
+            return Ok(None);
+        }
         if total_mem_usage(shard_trie)? < config.memory_usage_threshold {
             return Ok(None);
         }
+
         let trie_split = find_trie_split(shard_trie)?;
         if trie_split.left_memory < config.min_child_memory_usage {
             return Ok(None);
@@ -534,7 +539,8 @@ impl NightshadeRuntime {
     }
 
     /// Check if dynamic resharding should be scheduled for the given shard.
-    /// This is only a dry-run and will **not** actually trigger resharding.
+    /// The `epoch_id` and `protocol_version` are at `prev_block_hash`.
+    /// Will on trigger if the current block is the last block of the epoch.
     fn check_dynamic_resharding(
         &self,
         shard_trie: &Trie,
@@ -550,15 +556,11 @@ impl NightshadeRuntime {
         if !self.epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
             return Ok(None);
         }
-        if self.epoch_manager.get_shard_layout(epoch_id)?.num_shards()
-            >= config.max_number_of_shards
-        {
-            return Ok(None);
-        }
+        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
 
         // TODO(dynamic_resharding): Check how many epochs since last resharding
 
-        match self.check_dynamic_resharding_impl(shard_trie, config) {
+        match self.check_dynamic_resharding_impl(shard_trie, shard_layout, config) {
             Err(FindSplitError::Storage(err)) => Err(err)?,
             Err(err) => {
                 tracing::error!(target: "runtime", ?shard_id, ?err, "dynamic resharding check failed");
