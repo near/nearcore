@@ -378,8 +378,12 @@ async fn wait_for_transaction_finalization(
     timeout: Duration,
 ) -> anyhow::Result<bool> {
     let start = Instant::now();
+    let mut best_status = None; // debug
     loop {
         if start.elapsed() > timeout {
+            tracing::warn!(target: "transaction-generator",
+                tx_hash=?&tx_hash,
+                "timeout waiting for transaction finalization, best status: {:?}", best_status); // debug
             return Ok(false);
         }
         if let Some(outcome) = view_client_sender
@@ -394,7 +398,10 @@ async fn wait_for_transaction_finalization(
                 FinalExecutionStatus::Failure(err) => {
                     return Err(err.into());
                 }
-                FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => {}
+                st => {
+                    // debug
+                    best_status = Some(st);
+                } // FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => {}
             }
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
