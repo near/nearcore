@@ -421,19 +421,6 @@ impl StateSyncConfig {
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct EpochSyncConfig {
-    /// If true, even if the node started from genesis, it will not perform epoch sync.
-    /// There should be no reason to set this flag in production, because on both mainnet
-    /// and testnet it would be infeasible to catch up from genesis without epoch sync.
-    #[serde(default)]
-    pub disable_epoch_sync_for_bootstrapping: bool,
-    /// If true, the node will ignore epoch sync requests from the network. It is strongly
-    /// recommended not to set this flag, because it will prevent other nodes from
-    /// bootstrapping. This flag is only included as a kill-switch and may be removed in a
-    /// future release. Please note that epoch sync requests are heavily rate limited and
-    /// cached, and therefore should not affect the performance of the node or introduce
-    /// any non-negligible increase in network traffic.
-    #[serde(default)]
-    pub ignore_epoch_sync_network_requests: bool,
     /// This serves as two purposes: (1) the node will not epoch sync and instead resort to
     /// header sync, if the genesis block is within this many blocks from the current block;
     /// (2) the node will reject an epoch sync proof if the provided proof is for an epoch
@@ -449,12 +436,11 @@ pub struct EpochSyncConfig {
 impl Default for EpochSyncConfig {
     fn default() -> Self {
         Self {
-            disable_epoch_sync_for_bootstrapping: false,
-            ignore_epoch_sync_network_requests: false,
             // Mainnet is 43200 blocks per epoch, so let's default to epoch sync if
-            // we're more than 5 epochs behind, and we accept proofs up to 2 epochs old.
-            // (Epoch sync should not be picking a target epoch more than 2 epochs old.)
-            epoch_sync_horizon: 216000,
+            // we're more than 4 epochs behind, and we accept proofs up to 2 epochs old.
+            // Note that in case we are not doing epoch sync, we would need to be within
+            // the GC period (typically 5 epochs) to be able to do header sync.
+            epoch_sync_horizon: 172_800,
             timeout_for_epoch_sync: Duration::seconds(60),
         }
     }
