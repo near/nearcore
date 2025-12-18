@@ -1,5 +1,4 @@
 use crate::client_actor::ClientActor;
-use crate::metrics;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
@@ -10,7 +9,7 @@ use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::epoch_sync::{
-    derive_epoch_sync_proof_from_last_final_block, find_target_epoch_to_produce_proof_for,
+    derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
     get_epoch_info_block_producers,
 };
 use near_network::client::{EpochSyncRequestMessage, EpochSyncResponseMessage};
@@ -28,8 +27,8 @@ use near_primitives::network::PeerId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{Balance, BlockHeight, BlockHeightDelta, EpochId};
 use near_primitives::utils::compression::CompressedData;
-use near_store::Store;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::{Store, metrics};
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use std::sync::Arc;
@@ -84,7 +83,7 @@ impl EpochSync {
     /// Derives an epoch sync proof for a recent epoch, that can be directly used to bootstrap
     /// a new node or bring a far-behind node to a recent epoch.
     #[instrument(skip(store, cache))]
-    pub fn derive_epoch_sync_proof(
+    fn derive_epoch_sync_proof(
         store: Store,
         transaction_validity_period: BlockHeightDelta,
         cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
@@ -98,8 +97,6 @@ impl EpochSync {
         let chain_store = store.chain_store();
         let target_epoch_last_block_header =
             chain_store.get_block_header(&target_epoch_last_block_hash)?;
-        let target_epoch_second_last_block_header =
-            chain_store.get_block_header(target_epoch_last_block_header.prev_hash())?;
 
         let mut guard = cache.lock();
         if let Some((epoch_id, proof)) = &*guard {
@@ -109,9 +106,10 @@ impl EpochSync {
         }
         // We're purposefully not releasing the lock here. This is so that if the cache
         // is out of date, only one thread should be doing the computation.
-        let proof = derive_epoch_sync_proof_from_last_final_block(
-            store,
-            &target_epoch_second_last_block_header,
+        let proof = derive_epoch_sync_proof_from_last_block(
+            &store.epoch_store(),
+            &target_epoch_last_block_hash,
+            true,
         );
         let (proof, _) = match CompressedEpochSyncProof::encode(&proof?) {
             Ok(proof) => proof,
