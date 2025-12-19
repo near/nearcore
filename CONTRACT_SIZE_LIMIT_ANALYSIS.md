@@ -283,8 +283,8 @@ If we decide to raise the limit, we should test:
 
 The current 4 MiB limit represents a well-considered balance between functionality and performance. While it's technically feasible to raise the limit, doing so would:
 
-- **Increase storage staking requirements** proportionally
-- **Impact performance** through higher contract loading costs
+- **Increase storage staking requirements** proportionally (419 NEAR → 839 NEAR for 8 MiB)
+- **Impact performance** through higher contract loading costs (though still reasonable)
 - **Affect state size and witness bandwidth** for stateless validation
 - **Require transaction size limit increases** as well
 
@@ -295,3 +295,44 @@ Any change should be:
 4. **Coordinated with stateless validation** development
 
 The limit has remained at 4 MiB because it works well for the vast majority of use cases while keeping costs and performance reasonable.
+
+## Summary of Findings
+
+### Question: What's the max size of the contract?
+**Answer:** 4 MiB (4,194,304 bytes), not 1.5 MB. This is defined in `core/parameters/res/runtime_configs/parameters.yaml` as `max_contract_size: 4_194_304`.
+
+### Question: Why is it the way it is?
+**Answer:** The 4 MiB limit balances multiple concerns:
+- **Economic**: Manageable storage staking (~419 NEAR)
+- **Performance**: Low contract loading overhead (0.45% of max gas)
+- **Network**: Fits within transaction size constraints
+- **Practical**: Sufficient for virtually all smart contracts
+- **State management**: Controls blockchain state growth
+
+### Question: Has it always been that way?
+**Answer:** Yes, for all recent protocol versions. The limit has been stable at 4 MiB, though the protocol has evolved with various features to better manage contract complexity (function limits, local limits, deployment costs).
+
+### Question: Could we raise the limit?
+**Answer:** Yes, technically possible via protocol upgrade, but with significant trade-offs:
+- **8 MiB**: Feasible, doubles storage stake to ~839 NEAR
+- **16 MiB**: Challenging, requires ~1,678 NEAR stake (high barrier to entry)
+- **32+ MiB**: Problematic due to storage economics and state size concerns
+
+### Question: Would it just cost more in storage or would it be a performance hit for every node?
+**Answer:** Both, but differently:
+
+**Storage Costs (Primary Concern):**
+- Storage is **staked, not burned** - refunded when contract deleted
+- Costs scale linearly: 0.0001 NEAR per byte
+- Main economic barrier for developers
+
+**Performance Impact (Secondary Concern):**
+- Contract loading gas costs scale linearly (216,750 gas/byte)
+- Even at 32 MiB, loading is only 3.64% of max gas - still reasonable
+- True performance concerns are:
+  - State size growth across all validator nodes
+  - Bandwidth for state witness distribution (stateless validation)
+  - Memory usage during compilation and execution
+  - Network propagation of larger transactions
+
+**Conclusion:** Storage staking is the primary economic limiter. Performance remains reasonable even at much larger sizes, but state size and network bandwidth become concerns before gas costs do.
