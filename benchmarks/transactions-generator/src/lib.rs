@@ -378,12 +378,13 @@ async fn wait_for_transaction_finalization(
     timeout: Duration,
 ) -> anyhow::Result<bool> {
     let start = Instant::now();
-    let mut best_status = None; // debug
+    let mut best_status = None; // best status seen so far
     loop {
         if start.elapsed() > timeout {
-            tracing::warn!(target: "transaction-generator",
+            tracing::debug!(target: "transaction-generator",
                 tx_hash=?&tx_hash,
-                "timeout waiting for transaction finalization, best status: {:?}", best_status); // debug
+                best_status=?best_status,
+                "timeout waiting for transaction finalization");
             return Ok(false);
         }
         if let Some(outcome) = view_client_sender
@@ -399,9 +400,8 @@ async fn wait_for_transaction_finalization(
                     return Err(err.into());
                 }
                 st => {
-                    // debug
                     best_status = Some(st);
-                } // FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => {}
+                }
             }
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -481,16 +481,16 @@ async fn ft_contract_account_create(
             Ok(ft_contract_account_id)
         }
         Ok(false) => {
-            // there are issues with transaction finalization on mocknet
-            // Err(anyhow::anyhow!("timeout waiting for create+deploy tx to be finalized")),
-            tracing::error!(target: "transaction-generator", "create+deploy tx timeout");
-            Ok(ft_contract_account_id)
+            Err(anyhow::anyhow!("timeout waiting for create+deploy tx to be finalized"))
+            // // there are issues with transaction finalization on mocknet
+            // tracing::error!(target: "transaction-generator", "create+deploy tx timeout");
+            // Ok(ft_contract_account_id)
         }
         Err(err) => Err(err),
     }
 }
 
-/// Initialize the FT contract by calling `new` with owner_id and metadata
+/// Initialize the FT contract. The creator account is the owner of the FT contract. Creator gets all (1M) tokens initially.
 async fn ft_contract_account_init(
     client_sender: &ClientSender,
     view_client_sender: &ViewClientSender,
@@ -553,7 +553,7 @@ async fn ft_contract_account_init(
         }
     };
 
-    // wait for init to finalize
+    // wait to finalize
     match wait_for_transaction_finalization(
         &view_client_sender,
         init_tx_hash,
@@ -567,10 +567,10 @@ async fn ft_contract_account_init(
             Ok(())
         }
         Ok(false) => {
-            // there are issues with transaction finalization on mocknet
-            // Err(anyhow::anyhow!("timeout waiting for ft init tx to be finalized")),
-            tracing::error!(target: "transaction-generator", "ft init tx timeout");
-            Ok(())
+            Err(anyhow::anyhow!("timeout waiting for ft init tx to be finalized"))
+            // // there are issues with transaction finalization on mocknet
+            // tracing::error!(target: "transaction-generator", "ft init tx timeout");
+            // Ok(())
         }
         Err(err) => Err(err),
     }
@@ -593,104 +593,117 @@ async fn ft_contract_register_accounts(
     );
 
     // small delay to avoid overloading the tx processing
-    let mut tx_interval = tokio::time::interval(Duration::from_micros(500));
+    let mut tx_interval = tokio::time::interval(Duration::from_micros(400));
 
-    for receiver_id in receiver_ids {
-        let client_sender = client_sender.clone();
-        let view_client = view_client_sender.clone();
-        let creator_signer = creator.as_signer().clone();
-        let ft_account = ft_contract_account_id.clone();
-        const DEPOSIT: Balance = Balance::from_millinear(125);
-        let receiver_id = receiver_id.clone();
-        let creator_id = creator.id.clone();
-        let nonce = creator.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
+    let mut to_register = receiver_ids.clone();
 
-        // spawn a future per account
-        tasks.spawn(async move {
-            // prepare and send storage_deposit transaction (creator pays)
-            let block_hash = TxGenerator::get_latest_block(&view_client).await?.hash;
+    while !to_register.is_empty() {
+        tracing::info!(target: "transaction-generator",
+            remaining_accounts=to_register.len(),
+            "still need to register accounts with the ft contract"
+        );
 
-            let args = serde_json::to_vec(&serde_json::json!({
-                "account_id": receiver_id.to_string(),
-                "registration_only": true
-            }))
-            .unwrap();
+        let mut another_round = Vec::<AccountId>::new();
 
-            let action = Action::FunctionCall(Box::new(FunctionCallAction {
-                method_name: "storage_deposit".to_string(),
-                args,
-                gas: Gas::from_teragas(30),
-                deposit: DEPOSIT,
-            }));
+        for receiver_id in to_register {
+            let client_sender = client_sender.clone();
+            let view_client = view_client_sender.clone();
+            let creator_signer = creator.as_signer().clone();
+            let ft_account = ft_contract_account_id.clone();
+            const DEPOSIT: Balance = Balance::from_millinear(125);
+            let receiver_id = receiver_id.clone();
+            let creator_id = creator.id.clone();
+            let nonce = creator.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
 
-            let tx = SignedTransaction::from_actions(
-                nonce,
-                creator_id.clone(),
-                ft_account.clone(),
-                &creator_signer,
-                vec![action],
-                block_hash,
-                0,
-            );
+            // spawn a future per account
+            tasks.spawn(async move {
+                // prepare and send storage_deposit transaction (creator pays)
+                let block_hash = TxGenerator::get_latest_block(&view_client).await?.hash;
 
-            let tx_hash = tx.get_hash();
-            match client_sender
-                .tx_request_sender
-                .send_async(ProcessTxRequest {
-                    transaction: tx,
-                    is_forwarded: false,
-                    check_only: false,
-                })
+                let args = serde_json::to_vec(&serde_json::json!({
+                    "account_id": receiver_id.to_string(),
+                    "registration_only": true
+                }))
+                .unwrap();
+
+                let action = Action::FunctionCall(Box::new(FunctionCallAction {
+                    method_name: "storage_deposit".to_string(),
+                    args,
+                    gas: Gas::from_teragas(30),
+                    deposit: DEPOSIT,
+                }));
+
+                let tx = SignedTransaction::from_actions(
+                    nonce,
+                    creator_id.clone(),
+                    ft_account.clone(),
+                    &creator_signer,
+                    vec![action],
+                    block_hash,
+                    0,
+                );
+
+                let tx_hash = tx.get_hash();
+                match client_sender
+                    .tx_request_sender
+                    .send_async(ProcessTxRequest {
+                        transaction: tx,
+                        is_forwarded: false,
+                        check_only: false,
+                    })
+                    .await
+                    .map_err(|e| anyhow::anyhow!("send storage_deposit tx failed: {:?}", e))?
+                {
+                    ProcessTxResponse::ValidTx => {}
+                    rsp => {
+                        return Err(anyhow::anyhow!("storage_deposit tx rejected: {:?}", rsp));
+                    }
+                }
+
+                // wait for tx finalization
+                match wait_for_transaction_finalization(
+                    &view_client,
+                    tx_hash,
+                    creator_id.clone(),
+                    Duration::from_secs(10),
+                )
                 .await
-                .map_err(|e| anyhow::anyhow!("send storage_deposit tx failed: {:?}", e))?
-            {
-                ProcessTxResponse::ValidTx => {}
-                rsp => {
-                    return Err(anyhow::anyhow!("storage_deposit tx rejected: {:?}", rsp));
+                {
+                    Ok(true) => Ok(None),
+                    Ok(false) => {
+                        tracing::trace!(target: "transaction-generator",
+                            "timeout waiting for storage_deposit tx to be finalized for {}",
+                            receiver_id);
+                        Ok(Some(receiver_id))
+                    }
+                    Err(err) => Err(anyhow::anyhow!(
+                        "storage_deposit tx failed for {}: {:?}",
+                        receiver_id,
+                        err
+                    )),
                 }
-            }
+            });
 
-            // wait for tx finalization
-            match wait_for_transaction_finalization(
-                &view_client,
-                tx_hash,
-                creator_id.clone(),
-                Duration::from_secs(100),
-            )
-            .await
-            {
-                Ok(true) => Ok(()),
-                Ok(false) => {
-                    // there are issues with transaction finalization on mocknet
-                    tracing::error!(target: "transaction-generator",
-                        "timeout waiting for storage_deposit tx to be finalized for {}",
-                        receiver_id);
-                    Ok(())
-                    //     Err(anyhow::anyhow!(
-                    //     "timeout waiting for storage_deposit tx to be finalized for {}",
-                    //     receiver_id
-                    // ))
+            tx_interval.tick().await;
+        }
+
+        // wait for all registration tasks to finish and propagate any error
+        while let Some(res) = tasks.join_next().await {
+            match res {
+                Ok(Ok(None)) => {}
+                Ok(Ok(Some(receiver_id))) => {
+                    another_round.push(receiver_id);
                 }
-                Err(err) => {
-                    Err(anyhow::anyhow!("storage_deposit tx failed for {}: {:?}", receiver_id, err))
+                Ok(Err(err)) => {
+                    return Err(err);
                 }
-            }
-        });
-
-        tx_interval.tick().await;
-    }
-
-    // wait for all registration tasks to finish and propagate any error
-    while let Some(res) = tasks.join_next().await {
-        match res {
-            Ok(Ok(())) => {}
-            Ok(Err(err)) => {
-                return Err(err);
-            }
-            Err(join_err) => {
-                return Err(join_err.into());
+                Err(join_err) => {
+                    return Err(join_err.into());
+                }
             }
         }
+
+        to_register = another_round;
     }
 
     Ok(())
@@ -783,6 +796,7 @@ async fn ft_contract_fund_accounts(
             {
                 Ok(true) => Ok(()),
                 Ok(false) => {
+                    // todo(slavas): fix this
                     // there are issues with transaction finalization on mocknet
                     tracing::error!(target: "transaction-generator",
                         "timeout waiting for ft_transfer tx to be finalized for {}",
