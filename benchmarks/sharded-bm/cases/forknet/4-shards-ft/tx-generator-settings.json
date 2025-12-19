@@ -11,6 +11,7 @@
 			}
 		},
 		"schedule": [
+			{ "tps": 5, "duration_s": 18000 },
 			{ "tps": 1000, "duration_s": 180 },
 			{ "tps": 2000, "duration_s": 180 },
 			{ "tps": 3000, "duration_s": 60 }
