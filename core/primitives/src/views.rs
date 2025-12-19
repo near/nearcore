@@ -1293,6 +1293,10 @@ impl ChunkView {
 #[derive(serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(untagged)]
+/// This is needed to deserialize [GlobalContractIdentifierView] after
+/// changing serialization format. Examples of the new and the old format
+/// can be found in `test_deserialize_global_contract_identifier_view_*`
+/// tests.
 enum BackwardCompatibleGlobalContractIdentifierView {
     DeprecatedCodeHash(CryptoHash),
     DeprecatedAccountId(AccountId),
