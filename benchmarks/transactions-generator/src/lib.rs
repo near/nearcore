@@ -828,6 +828,58 @@ impl FungibleTokenTxSender {
         // pick a creator account (use first sender account)
         let creator = &sender_accounts[0];
 
+        // debug start. add the native token transaction and wait for its finalization
+        let tx_nonce = creator.nonce.fetch_add(1, atomic::Ordering::Relaxed) + 1;
+        let receiver_id = &sender_accounts[1].id;
+        let fund_action = Action::Transfer(TransferAction { deposit: Balance::from_near(5) });
+        let block_hash = TxGenerator::get_latest_block(&view_client_sender).await?.hash;
+        let debug_tx = SignedTransaction::from_actions(
+            tx_nonce,
+            creator.id.clone(),
+            receiver_id.clone(),
+            &creator.as_signer(),
+            vec![fund_action],
+            block_hash,
+            0, // priority fee
+        );
+        // wait for the fund tx to finalize
+        let debug_tx_hash = debug_tx.get_hash();
+        match client_sender
+            .tx_request_sender
+            .send_async(ProcessTxRequest {
+                transaction: debug_tx,
+                is_forwarded: false,
+                check_only: false,
+            })
+            .await
+            .context("send fund tx")?
+        {
+            ProcessTxResponse::ValidTx => {}
+            rsp => {
+                anyhow::bail!("fund tx rejected: {:?}", rsp);
+            }
+        }
+        match wait_for_transaction_finalization(
+            &view_client_sender,
+            debug_tx_hash,
+            creator.id.clone(),
+            Duration::from_secs(10),
+        )
+        .await
+        {
+            Ok(true) => {
+                tracing::info!(target: "transaction-generator", "native token tx finalized");
+            }
+            Ok(false) => {
+                // there are issues with transaction finalization on mocknet
+                tracing::error!(target: "transaction-generator", "native token tx timed out");
+            }
+            Err(err) => {
+                anyhow::bail!("fund tx failed: {:?}", err);
+            }
+        }
+        // debug end
+
         let ft_contract_account_id =
             ft_contract_account_create(&client_sender, &view_client_sender, creator, wasm_path)
                 .await?;
