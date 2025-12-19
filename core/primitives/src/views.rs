@@ -1300,12 +1300,8 @@ impl ChunkView {
 enum BackwardCompatibleGlobalContractIdentifierView {
     DeprecatedCodeHash(CryptoHash),
     DeprecatedAccountId(AccountId),
-    CodeHash {
-        hash: CryptoHash,
-    },
-    AccountId {
-        account_id: AccountId,
-    },
+    CodeHash { hash: CryptoHash },
+    AccountId { account_id: AccountId },
 }
 
 #[derive(
