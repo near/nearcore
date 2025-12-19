@@ -25,7 +25,7 @@ import mirror_utils
 # Create a bunch of subaccounts spanning 'a' to 'z'
 def create_subaccounts(node, signer_key):
     height, block_hash = node.get_latest_block()
-    block_hash_ bytes = base58.b58decode(block_hash.encode('utf8'))
+    block_hash_bytes = base58.b58decode(block_hash.encode('utf8'))
     sub_keys = []
     for c in range(ord('a'), ord('z')):
         subaccount = chr(c) + 'aa'
