@@ -504,9 +504,11 @@ impl PeerMessage {
 /// T1 messages are sent over T1 connections and they are critical for the progress of the network.
 /// T2 messages are sent over T2 connections and they are routed over multiple hops.
 #[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum TieredMessageBody {
-    T1(Box<T1MessageBody>),
-    T2(Box<T2MessageBody>),
+    T1(Box<T1MessageBody>) = 0,
+    T2(Box<T2MessageBody>) = 1,
 }
 
 impl fmt::Debug for TieredMessageBody {
@@ -661,19 +663,21 @@ impl From<T2MessageBody> for TieredMessageBody {
     ProtocolSchema,
     Debug,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum T1MessageBody {
-    BlockApproval(Approval),
-    VersionedPartialEncodedChunk(Box<PartialEncodedChunk>),
-    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
-    PartialEncodedStateWitness(PartialEncodedStateWitness),
-    PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
-    VersionedChunkEndorsement(ChunkEndorsement),
-    ChunkContractAccesses(ChunkContractAccesses),
-    ContractCodeRequest(ContractCodeRequest),
-    ContractCodeResponse(ContractCodeResponse),
-    SpicePartialData(SpicePartialData),
-    SpiceChunkEndorsement(SpiceChunkEndorsement),
-    SpicePartialDataRequest(SpicePartialDataRequest),
+    BlockApproval(Approval) = 0,
+    VersionedPartialEncodedChunk(Box<PartialEncodedChunk>) = 1,
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg) = 2,
+    PartialEncodedStateWitness(PartialEncodedStateWitness) = 3,
+    PartialEncodedStateWitnessForward(PartialEncodedStateWitness) = 4,
+    VersionedChunkEndorsement(ChunkEndorsement) = 5,
+    ChunkContractAccesses(ChunkContractAccesses) = 6,
+    ContractCodeRequest(ContractCodeRequest) = 7,
+    ContractCodeResponse(ContractCodeResponse) = 8,
+    SpicePartialData(SpicePartialData) = 9,
+    SpiceChunkEndorsement(SpiceChunkEndorsement) = 10,
+    SpicePartialDataRequest(SpicePartialDataRequest) = 11,
 }
 
 impl T1MessageBody {
@@ -708,22 +712,24 @@ impl T1MessageBody {
     ProtocolSchema,
     Debug,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum T2MessageBody {
-    ForwardTx(SignedTransaction),
-    TxStatusRequest(AccountId, CryptoHash),
-    TxStatusResponse(Box<FinalExecutionOutcomeView>),
-    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
-    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
+    ForwardTx(SignedTransaction) = 0,
+    TxStatusRequest(AccountId, CryptoHash) = 1,
+    TxStatusResponse(Box<FinalExecutionOutcomeView>) = 2,
+    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg) = 3,
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg) = 4,
     /// Ping/Pong used for testing networking and routing.
-    Ping(Ping),
-    Pong(Pong),
-    ChunkStateWitnessAck(ChunkStateWitnessAck),
-    StatePartRequest(StatePartRequest),
-    PartialEncodedContractDeploys(PartialEncodedContractDeploys),
-    StateHeaderRequest(StateHeaderRequest),
-    StateRequestAck(StateRequestAck),
+    Ping(Ping) = 5,
+    Pong(Pong) = 6,
+    ChunkStateWitnessAck(ChunkStateWitnessAck) = 7,
+    StatePartRequest(StatePartRequest) = 8,
+    PartialEncodedContractDeploys(PartialEncodedContractDeploys) = 9,
+    StateHeaderRequest(StateHeaderRequest) = 10,
+    StateRequestAck(StateRequestAck) = 11,
     // Moved to T1
-    // PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+    // PartialEncodedChunkForward(PartialEncodedChunkForwardMsg) = 12,
 }
 
 impl T2MessageBody {
@@ -746,47 +752,49 @@ impl T2MessageBody {
     strum::IntoStaticStr,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum RoutedMessageBody {
-    BlockApproval(Approval),
-    ForwardTx(SignedTransaction),
-    TxStatusRequest(AccountId, CryptoHash),
-    TxStatusResponse(FinalExecutionOutcomeView),
+    BlockApproval(Approval) = 0,
+    ForwardTx(SignedTransaction) = 1,
+    TxStatusRequest(AccountId, CryptoHash) = 2,
+    TxStatusResponse(FinalExecutionOutcomeView) = 3,
     /// Not used, but needed for borsh backward compatibility.
-    _UnusedQueryRequest,
-    _UnusedQueryResponse,
-    _UnusedReceiptOutcomeRequest(CryptoHash),
-    _UnusedReceiptOutcomeResponse,
-    _UnusedStateRequestHeader,
-    _UnusedStateRequestPart,
-    _UnusedStateResponse,
-    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
-    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
-    _UnusedPartialEncodedChunk,
+    _UnusedQueryRequest = 4,
+    _UnusedQueryResponse = 5,
+    _UnusedReceiptOutcomeRequest(CryptoHash) = 6,
+    _UnusedReceiptOutcomeResponse = 7,
+    _UnusedStateRequestHeader = 8,
+    _UnusedStateRequestPart = 9,
+    _UnusedStateResponse = 10,
+    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg) = 11,
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg) = 12,
+    _UnusedPartialEncodedChunk = 13,
     /// Ping/Pong used for testing networking and routing.
-    Ping(Ping),
-    Pong(Pong),
-    VersionedPartialEncodedChunk(PartialEncodedChunk),
-    _UnusedVersionedStateResponse,
-    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
-    _UnusedChunkStateWitness,
-    _UnusedChunkEndorsement,
-    ChunkStateWitnessAck(ChunkStateWitnessAck),
-    PartialEncodedStateWitness(PartialEncodedStateWitness),
-    PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
-    VersionedChunkEndorsement(ChunkEndorsement),
+    Ping(Ping) = 14,
+    Pong(Pong) = 15,
+    VersionedPartialEncodedChunk(PartialEncodedChunk) = 16,
+    _UnusedVersionedStateResponse = 17,
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg) = 18,
+    _UnusedChunkStateWitness = 19,
+    _UnusedChunkEndorsement = 20,
+    ChunkStateWitnessAck(ChunkStateWitnessAck) = 21,
+    PartialEncodedStateWitness(PartialEncodedStateWitness) = 22,
+    PartialEncodedStateWitnessForward(PartialEncodedStateWitness) = 23,
+    VersionedChunkEndorsement(ChunkEndorsement) = 24,
     /// Not used, but needed for borsh backward compatibility.
-    _UnusedEpochSyncRequest,
-    _UnusedEpochSyncResponse(CompressedEpochSyncProof),
-    StatePartRequest(StatePartRequest),
-    ChunkContractAccesses(ChunkContractAccesses),
-    ContractCodeRequest(ContractCodeRequest),
-    ContractCodeResponse(ContractCodeResponse),
-    PartialEncodedContractDeploys(PartialEncodedContractDeploys),
-    StateHeaderRequest(StateHeaderRequest),
-    SpicePartialData(SpicePartialData),
-    StateRequestAck(StateRequestAck),
-    SpiceChunkEndorsement(SpiceChunkEndorsement),
-    SpicePartialDataRequest(SpicePartialDataRequest),
+    _UnusedEpochSyncRequest = 25,
+    _UnusedEpochSyncResponse(CompressedEpochSyncProof) = 26,
+    StatePartRequest(StatePartRequest) = 27,
+    ChunkContractAccesses(ChunkContractAccesses) = 28,
+    ContractCodeRequest(ContractCodeRequest) = 29,
+    ContractCodeResponse(ContractCodeResponse) = 30,
+    PartialEncodedContractDeploys(PartialEncodedContractDeploys) = 31,
+    StateHeaderRequest(StateHeaderRequest) = 32,
+    SpicePartialData(SpicePartialData) = 33,
+    StateRequestAck(StateRequestAck) = 34,
+    SpiceChunkEndorsement(SpiceChunkEndorsement) = 35,
+    SpicePartialDataRequest(SpicePartialDataRequest) = 36,
 }
 
 impl RoutedMessageBody {
@@ -1193,10 +1201,12 @@ impl From<RoutedMessageV3> for RoutedMessage {
 /// If target is hash, it is a message that should be routed back using the same path used to route
 /// the request in first place. It is the hash of the request message.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum RoutedMessage {
-    V1(RoutedMessageV1),
-    V2(RoutedMessageV2),
-    V3(RoutedMessageV3),
+    V1(RoutedMessageV1) = 0,
+    V2(RoutedMessageV2) = 1,
+    V3(RoutedMessageV3) = 2,
 }
 
 impl From<RoutedMessageV1> for RoutedMessage {
@@ -1418,9 +1428,11 @@ impl RoutedMessageV1 {
     Hash,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum PeerIdOrHash {
-    PeerId(PeerId),
-    Hash(CryptoHash),
+    PeerId(PeerId) = 0,
+    Hash(CryptoHash) = 1,
 }
 
 /// Message for chunk part owners to forward their parts to validators tracking that shard.
@@ -1534,9 +1546,11 @@ pub struct StateResponseInfoV2 {
 #[derive(
     PartialEq, Eq, Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize, ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum StateResponseInfo {
-    V1(Box<StateResponseInfoV1>),
-    V2(Box<StateResponseInfoV2>),
+    V1(Box<StateResponseInfoV1>) = 0,
+    V2(Box<StateResponseInfoV2>) = 1,
 }
 
 impl StateResponseInfo {
