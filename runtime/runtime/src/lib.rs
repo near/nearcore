@@ -1705,7 +1705,7 @@ impl Runtime {
                         };
                         let outcome = ExecutionOutcomeWithId::failed(tx, tx_error);
                         let error = &error as &dyn std::error::Error;
-                        tracing::debug!(%tx_hash, error, "transaction cost calculation failed");
+                        tracing::error!(%tx_hash, error, "transaction cost calculation failed");
                         Self::register_outcome(
                             processing_state.protocol_version,
                             &mut processing_state.outcomes,
@@ -1720,7 +1720,7 @@ impl Runtime {
                 Some(Ok(Some(a))) => a,
                 Some(Ok(None)) => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    tracing::debug!(%tx_hash, "transaction signed by unknown account");
+                    tracing::error!(%tx_hash, "transaction signed by unknown account");
                     let outcome = ExecutionOutcomeWithId::failed(
                         tx,
                         InvalidTxError::InvalidSignerId { signer_id: signer_id.to_string() },
@@ -1740,7 +1740,7 @@ impl Runtime {
                 Some(Ok(Some(ak))) => ak,
                 Some(Ok(None)) => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    tracing::debug!(%tx_hash, "transaction signed by unknown signing key");
+                    tracing::error!(%tx_hash, "transaction signed by unknown signing key");
                     let outcome = ExecutionOutcomeWithId::failed(
                         tx,
                         InvalidTxError::InvalidAccessKeyError(
@@ -1773,7 +1773,7 @@ impl Runtime {
                     Ok(v) => v,
                     Err(error) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        tracing::debug!(%tx_hash, error=&error as &dyn std::error::Error, "transaction failed verify/charge");
+                        tracing::error!(%tx_hash, error=&error as &dyn std::error::Error, "transaction failed verify/charge");
                         let outcome = ExecutionOutcomeWithId::failed(tx, error);
 
                         Self::register_outcome(
