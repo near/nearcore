@@ -623,7 +623,7 @@ pub async fn start_with_config_and_synchronization_impl(
         shard_tracker.clone(),
         runtime.clone(),
         node_id,
-        state_sync_spawner.clone(),
+        state_sync_spawner,
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
@@ -701,7 +701,7 @@ pub async fn start_with_config_and_synchronization_impl(
         shard_tracker: shard_tracker.clone(),
         runtime,
         validator: config.validator_signer.clone(),
-        future_spawner: state_sync_spawner,
+        future_spawner: actor_system.new_future_spawner("state sync dumper").into(),
     };
     state_sync_dumper.start()?;
 
