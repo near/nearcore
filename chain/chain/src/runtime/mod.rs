@@ -845,14 +845,14 @@ impl RuntimeAdapter for NightshadeRuntime {
                     &prev_block,
                     &validated_tx,
                 )? {
-                    tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "discarding transaction due to congestion");
+                    tracing::error!(target: "runtime", tx=?validated_tx.get_hash(), "discarding transaction due to congestion");
                     rejected_due_to_congestion += 1;
                     continue;
                 }
 
                 // Verifying the transaction is on the same chain and hasn't expired yet.
                 if !chain_validate(&validated_tx.to_signed_tx()) {
-                    tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "discarding transaction that failed chain validation");
+                    tracing::error!(target: "runtime", tx=?validated_tx.get_hash(), "discarding transaction that failed chain validation");
                     rejected_invalid_for_chain += 1;
                     continue;
                 }
@@ -893,7 +893,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
                 match verify_result {
                     Ok(cost) => {
-                        tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
+                        tracing::error!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         total_gas_burnt = total_gas_burnt.checked_add(cost.gas_burnt).unwrap();
                         total_size += validated_tx.get_size();
                         result.transactions.push(validated_tx);
@@ -901,7 +901,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         break;
                     }
                     Err(err) => {
-                        tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), ?err, "discarding transaction that failed verification or verification");
+                        tracing::error!(target: "runtime", tx=?validated_tx.get_hash(), ?err, "discarding transaction that failed verification or verification");
                         rejected_invalid_tx += 1;
                     }
                 }
