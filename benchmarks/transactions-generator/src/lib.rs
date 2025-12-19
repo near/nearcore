@@ -799,8 +799,10 @@ async fn ft_contract_fund_accounts(
                     // todo(slavas): fix this
                     // there are issues with transaction finalization on mocknet
                     tracing::error!(target: "transaction-generator",
+                        ?tx_hash,
                         "timeout waiting for ft_transfer tx to be finalized for {}",
-                        receiver_id);
+                        receiver_id
+                    );
                     Ok(())
                     //     Err(anyhow::anyhow!(
                     //     "timeout waiting for ft_transfer tx to be finalized for {}",

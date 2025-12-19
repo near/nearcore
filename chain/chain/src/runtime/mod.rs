@@ -893,7 +893,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
                 match verify_result {
                     Ok(cost) => {
-                        tracing::error!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
+                        tracing::info!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         total_gas_burnt = total_gas_burnt.checked_add(cost.gas_burnt).unwrap();
                         total_size += validated_tx.get_size();
                         result.transactions.push(validated_tx);

@@ -1679,8 +1679,10 @@ impl Runtime {
             signed_txs.get_potentially_expired_transactions_and_expiration_flags();
         for (tx, maybe_validation_error) in maybe_expired_txs.iter().zip(validations) {
             metrics::TRANSACTION_PROCESSED_TOTAL.inc();
+            let tx_hash = tx.hash();
             if let Some(err) = maybe_validation_error {
                 metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                tracing::error!(target: "runtime", %tx_hash, error=&err as &dyn std::error::Error, "transaction validation failed");
                 let outcome = ExecutionOutcomeWithId::failed(tx, err);
                 Self::register_outcome(
                     processing_state.protocol_version,
@@ -1692,35 +1694,37 @@ impl Runtime {
             let signer_id = tx.transaction.signer_id();
             let pubkey = tx.transaction.public_key();
             let gas_price = processing_state.apply_state.gas_price;
-            let tx_hash = tx.hash();
             let block_height = processing_state.apply_state.block_height;
 
-            let cost =
-                match tx_cost(&processing_state.apply_state.config, &tx.transaction, gas_price) {
-                    Ok(c) => c,
-                    Err(error) => {
-                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        let tx_error = match error {
-                            IntegerOverflowError => InvalidTxError::CostOverflow,
-                        };
-                        let outcome = ExecutionOutcomeWithId::failed(tx, tx_error);
-                        let error = &error as &dyn std::error::Error;
-                        tracing::error!(%tx_hash, error, "transaction cost calculation failed");
-                        Self::register_outcome(
-                            processing_state.protocol_version,
-                            &mut processing_state.outcomes,
-                            outcome,
-                        );
-                        continue;
-                    }
-                };
+            let cost = match tx_cost(
+                &processing_state.apply_state.config,
+                &tx.transaction,
+                gas_price,
+            ) {
+                Ok(c) => c,
+                Err(error) => {
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                    let tx_error = match error {
+                        IntegerOverflowError => InvalidTxError::CostOverflow,
+                    };
+                    let outcome = ExecutionOutcomeWithId::failed(tx, tx_error);
+                    let error = &error as &dyn std::error::Error;
+                    tracing::error!(target: "runtime", %tx_hash, error, "transaction cost calculation failed");
+                    Self::register_outcome(
+                        processing_state.protocol_version,
+                        &mut processing_state.outcomes,
+                        outcome,
+                    );
+                    continue;
+                }
+            };
 
             let mut account = accounts.get_mut(signer_id);
             let account = match account.as_deref_mut() {
                 Some(Ok(Some(a))) => a,
                 Some(Ok(None)) => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    tracing::error!(%tx_hash, "transaction signed by unknown account");
+                    tracing::error!(target: "runtime", %tx_hash, "transaction signed by unknown account");
                     let outcome = ExecutionOutcomeWithId::failed(
                         tx,
                         InvalidTxError::InvalidSignerId { signer_id: signer_id.to_string() },
@@ -1740,7 +1744,7 @@ impl Runtime {
                 Some(Ok(Some(ak))) => ak,
                 Some(Ok(None)) => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    tracing::error!(%tx_hash, "transaction signed by unknown signing key");
+                    tracing::error!(target: "runtime", %tx_hash, "transaction signed by unknown signing key");
                     let outcome = ExecutionOutcomeWithId::failed(
                         tx,
                         InvalidTxError::InvalidAccessKeyError(
@@ -1770,10 +1774,13 @@ impl Runtime {
                     &cost,
                     Some(block_height),
                 ) {
-                    Ok(v) => v,
+                    Ok(v) => {
+                        tracing::info!(target: "runtime", %tx_hash, "transaction passed verify/charge");
+                        v
+                    }
                     Err(error) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        tracing::error!(%tx_hash, error=&error as &dyn std::error::Error, "transaction failed verify/charge");
+                        tracing::error!(target: "runtime", %tx_hash, error=&error as &dyn std::error::Error, "transaction failed verify/charge");
                         let outcome = ExecutionOutcomeWithId::failed(tx, error);
 
                         Self::register_outcome(
@@ -1869,7 +1876,10 @@ impl Runtime {
         }
 
         if ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version) {
-            debug_assert!(processing_state.outcomes.len() == num_transactions);
+            assert!(processing_state.outcomes.len() == num_transactions);
+            for outcome in processing_state.outcomes.iter() {
+                tracing::debug!(target: "runtime", id=?outcome.id, "transaction processed with outcome");
+            }
         }
 
         processing_state
