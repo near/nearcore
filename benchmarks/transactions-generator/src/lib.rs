@@ -592,7 +592,8 @@ async fn ft_contract_register_accounts(
         "registering accounts with the ft contract"
     );
 
-    let mut tx_interval = tokio::time::interval(Duration::from_micros(250));
+    // small delay to avoid overloading the tx processing
+    let mut tx_interval = tokio::time::interval(Duration::from_micros(500));
 
     for receiver_id in receiver_ids {
         let client_sender = client_sender.clone();
@@ -676,7 +677,7 @@ async fn ft_contract_register_accounts(
             }
         });
 
-        tx_interval.tick().await; // small delay to avoid overloading the tx processing
+        tx_interval.tick().await;
     }
 
     // wait for all registration tasks to finish and propagate any error
@@ -710,7 +711,8 @@ async fn ft_contract_fund_accounts(
         "funding accounts with the ft contract"
     );
 
-    let mut tx_interval = tokio::time::interval(Duration::from_micros(250));
+    // small delay to avoid overloading the tx processing
+    let mut tx_interval = tokio::time::interval(Duration::from_micros(500));
 
     for receiver_id in receiver_ids {
         if receiver_id == &creator.id {
@@ -797,7 +799,7 @@ async fn ft_contract_fund_accounts(
             }
         });
 
-        tx_interval.tick().await; // small delay to avoid overloading the tx processing
+        tx_interval.tick().await;
     }
 
     // wait for all funding tasks to finish and propagate any error

@@ -16,9 +16,9 @@
 			{ "tps": 3000, "duration_s": 60 }
 		],
 		"controller": {
-			"target_block_production_time_s": 1.5,
+			"target_block_production_time_s": 1.3,
 			"bps_filter_window_length": 6,
-			"gain_proportional": 150.0,
+			"gain_proportional": 50.0,
 			"gain_integral": 0,
 			"gain_derivative": 0.0,
 			"block_pause_threshold_ms": 10000
