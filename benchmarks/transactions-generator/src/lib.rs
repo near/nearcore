@@ -997,7 +997,7 @@ impl TxGenerator {
     }
 
     pub fn start(self: &mut Self) -> anyhow::Result<()> {
-        std::thread::sleep(std::time::Duration::from_secs(20)); // sleep to let the chain to start/stabilize
+        std::thread::sleep(std::time::Duration::from_secs(300)); // debug. sleep 5m to let the chain to start/stabilize
         let client_sender = self.client_sender.clone();
         let view_client_sender = self.view_client_sender.clone();
 
