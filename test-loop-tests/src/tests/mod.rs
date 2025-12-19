@@ -1,3 +1,4 @@
+mod archival_nodes;
 mod bandwidth_scheduler;
 #[cfg(feature = "test_features")]
 mod block_chunk_signature;
@@ -5,7 +6,6 @@ mod bug_repro;
 mod catching_up;
 mod chunk_validator_kickout;
 mod chunks_management;
-mod cloud_archival;
 mod congestion_control;
 mod congestion_control_genesis_bootstrap;
 mod consensus;
@@ -40,4 +40,3 @@ mod single_shard_tracking;
 mod spice;
 mod state_sync;
 mod syncing;
-mod view_requests_to_archival_node;
