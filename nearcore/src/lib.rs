@@ -69,7 +69,7 @@ mod metrics;
 pub mod migrations;
 pub mod state_sync;
 use near_async::ActorSystem;
-use near_async::futures::FutureSpawner;
+use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_client::client_actor::{ClientActorInner, SpiceClientConfig};
@@ -341,6 +341,8 @@ pub struct NearNode {
     // A handle that allows the main process to interrupt resharding if needed.
     // This typically happens when the main process is interrupted.
     pub resharding_handle: ReshardingHandle,
+    // The threads that state sync runs in.
+    pub state_sync_runtime: Arc<tokio::runtime::Runtime>,
     /// Shard tracker, allows querying of which shards are tracked by this node.
     pub shard_tracker: ShardTracker,
 }
@@ -579,8 +581,11 @@ pub async fn start_with_config_and_synchronization_impl(
         config.client_config.resharding_config.clone(),
     ));
 
-    let state_sync_spawner: Arc<dyn FutureSpawner> =
-        actor_system.new_future_spawner("state sync").into();
+    // TODO: This should use the new actor system method to create a future spawner,
+    // however state-sync internally relies on the underlying runtime being multi-threaded.
+    let state_sync_runtime =
+        Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
+    let state_sync_spawner = Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime.clone()));
 
     let chunk_executor_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
@@ -781,6 +786,7 @@ pub async fn start_with_config_and_synchronization_impl(
         cold_store_loop_handle,
         cloud_archival_writer_handle,
         resharding_handle,
+        state_sync_runtime,
         shard_tracker,
     })
 }
