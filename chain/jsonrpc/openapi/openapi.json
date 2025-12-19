@@ -7595,6 +7595,28 @@
           },
           {
             "$ref": "#/components/schemas/AccountId"
+          },
+          {
+            "properties": {
+              "hash": {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            },
+            "required": [
+              "hash"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            },
+            "required": [
+              "account_id"
+            ],
+            "type": "object"
           }
         ]
       },
