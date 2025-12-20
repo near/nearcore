@@ -7589,14 +7589,9 @@
         ]
       },
       "GlobalContractIdentifierView": {
-        "anyOf": [
+        "oneOf": [
           {
-            "$ref": "#/components/schemas/CryptoHash"
-          },
-          {
-            "$ref": "#/components/schemas/AccountId"
-          },
-          {
+            "additionalProperties": false,
             "properties": {
               "hash": {
                 "$ref": "#/components/schemas/CryptoHash"
@@ -7608,6 +7603,7 @@
             "type": "object"
           },
           {
+            "additionalProperties": false,
             "properties": {
               "account_id": {
                 "$ref": "#/components/schemas/AccountId"

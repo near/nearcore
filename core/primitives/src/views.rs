@@ -1315,7 +1315,7 @@ enum BackwardCompatibleGlobalContractIdentifierView {
     serde::Deserialize,
 )]
 #[serde(rename_all = "snake_case", from = "BackwardCompatibleGlobalContractIdentifierView")]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema), schemars(!from))]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum GlobalContractIdentifierView {
