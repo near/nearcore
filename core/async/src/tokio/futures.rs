@@ -16,12 +16,9 @@ impl CancellableFutureSpawner {
             .expect("Failed to create Tokio runtime");
         let runtime_handle = runtime.handle().clone();
 
-        runtime_handle.spawn({
-            let cancel = cancel.clone();
-            async move {
-                let _runtime = AsyncDroppableRuntime::new(runtime);
-                cancel.cancelled().await;
-            }
+        runtime_handle.spawn(async move {
+            let _runtime = AsyncDroppableRuntime::new(runtime);
+            cancel.cancelled().await;
         });
         Self { runtime_handle }
     }
