@@ -12,8 +12,8 @@ pub mod tokio;
 use crate::futures::FutureSpawner;
 use crate::messaging::Actor;
 use crate::multithread::runtime_handle::{MultithreadRuntimeHandle, spawn_multithread_actor};
-use crate::tokio::TokioRuntimeHandle;
 use crate::tokio::runtime_handle::{TokioRuntimeBuilder, spawn_tokio_actor};
+use crate::tokio::{CancellableFutureSpawner, TokioRuntimeHandle};
 pub use near_time as time;
 use parking_lot::Mutex;
 use std::any::type_name;
@@ -148,6 +148,14 @@ impl ActorSystem {
             description.to_string(),
             self.tokio_cancellation_signal.clone(),
         );
+        handle.future_spawner()
+    }
+
+    /// Returns a future spawner for the actor system on an independent multi-threaded Tokio
+    /// runtime.
+    /// Multi-threaded future spawner does not support instrumentation.
+    pub fn new_future_spawner_multi_threaded(&self, _description: &str) -> Box<dyn FutureSpawner> {
+        let handle = CancellableFutureSpawner::new(self.tokio_cancellation_signal.clone());
         handle.future_spawner()
     }
 }
