@@ -1298,10 +1298,10 @@ impl ChunkView {
 // can be found in `test_deserialize_global_contract_identifier_view_*`
 // tests.
 enum BackwardCompatibleGlobalContractIdentifierView {
-    DeprecatedCodeHash(CryptoHash),
-    DeprecatedAccountId(AccountId),
     CodeHash { hash: CryptoHash },
     AccountId { account_id: AccountId },
+    DeprecatedCodeHash(CryptoHash),
+    DeprecatedAccountId(AccountId),
 }
 
 #[derive(
