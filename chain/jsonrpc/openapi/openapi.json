@@ -7589,12 +7589,30 @@
         ]
       },
       "GlobalContractIdentifierView": {
-        "anyOf": [
+        "oneOf": [
           {
-            "$ref": "#/components/schemas/CryptoHash"
+            "additionalProperties": false,
+            "properties": {
+              "hash": {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            },
+            "required": [
+              "hash"
+            ],
+            "type": "object"
           },
           {
-            "$ref": "#/components/schemas/AccountId"
+            "additionalProperties": false,
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            },
+            "required": [
+              "account_id"
+            ],
+            "type": "object"
           }
         ]
       },
