@@ -413,6 +413,7 @@ impl External for MockedExternal {
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
         match &self.action_log[receipt_index as usize] {
             MockAction::CreateReceipt { receiver_id, .. } => receiver_id,
+            MockAction::YieldCreate { receiver_id, .. } => receiver_id,
             _ => panic!("not a valid receipt index!"),
         }
     }
