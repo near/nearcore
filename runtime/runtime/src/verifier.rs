@@ -190,6 +190,32 @@ pub fn verify_and_charge_tx_ephemeral(
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
 ) -> Result<VerificationResult, InvalidTxError> {
+    verify_and_charge_tx_ephemeral_with_min_required_balance(
+        config,
+        signer,
+        access_key,
+        tx,
+        transaction_cost,
+        block_height,
+        Balance::ZERO,
+    )
+}
+
+/// Similar to `verify_and_charge_tx_ephemeral`. Additionally, allows specifying
+/// a minimum required balance that must remain after charging the transaction
+/// cost.
+/// The account must have at least `total_cost + min_required_balance` balance
+/// and be able to pay for storage staking with the remaining balance to
+/// pass verification.
+pub fn verify_and_charge_tx_ephemeral_with_min_required_balance(
+    config: &RuntimeConfig,
+    signer: &mut Account,
+    access_key: &mut AccessKey,
+    tx: &Transaction,
+    transaction_cost: &TransactionCost,
+    block_height: Option<BlockHeight>,
+    min_required_balance: Balance,
+) -> Result<VerificationResult, InvalidTxError> {
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
     let signer_id = tx.signer_id();
@@ -211,6 +237,13 @@ pub fn verify_and_charge_tx_ephemeral(
         let err = InvalidTxError::NotEnoughBalance { signer_id, balance, cost: total_cost };
         return Err(err.into());
     };
+    let spendable_balance = new_amount.checked_sub(min_required_balance).ok_or_else(|| {
+        InvalidTxError::NotEnoughBalance {
+            signer_id: signer_id.clone(),
+            balance,
+            cost: total_cost.checked_add(min_required_balance).unwrap(),
+        }
+    })?;
 
     if let AccessKeyPermission::FunctionCall(ref mut perms) = access_key.permission {
         if let Some(ref mut allowance) = perms.allowance {
@@ -225,7 +258,7 @@ pub fn verify_and_charge_tx_ephemeral(
         }
     }
 
-    match check_storage_stake(&signer, new_amount, config) {
+    match check_storage_stake(&signer, spendable_balance, config) {
         Ok(()) => {}
         Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
             let err = InvalidTxError::LackBalanceForState { signer_id: signer_id.clone(), amount };
