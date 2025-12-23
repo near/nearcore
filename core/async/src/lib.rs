@@ -154,7 +154,7 @@ impl ActorSystem {
     /// Returns a future spawner for the actor system on an independent multi-threaded Tokio
     /// runtime.
     /// Multi-threaded future spawner does not support instrumentation.
-    pub fn new_future_spawner_multi_threaded(&self, _description: &str) -> Box<dyn FutureSpawner> {
+    pub fn new_multi_threaded_future_spawner(&self) -> Box<dyn FutureSpawner> {
         let handle = CancellableFutureSpawner::new(self.tokio_cancellation_signal.clone());
         handle.future_spawner()
     }
