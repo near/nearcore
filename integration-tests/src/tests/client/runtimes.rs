@@ -1,7 +1,7 @@
 //! Client is responsible for tracking the chain, chunks, and producing them when needed.
 //! This client works completely synchronously and must be operated by some async actor outside.
 
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_crypto::KeyType;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_primitives::block::{Approval, ApprovalInner};
@@ -11,7 +11,6 @@ use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::Balance;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -20,7 +19,9 @@ use crate::env::test_env::TestEnv;
 
 #[test]
 fn test_pending_approvals() {
-    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let signer = create_test_signer("test0");
     let parent_hash = hash(&[1]);
@@ -37,7 +38,9 @@ fn test_pending_approvals() {
 
 #[test]
 fn test_invalid_approvals() {
-    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+        .build();
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -62,13 +65,13 @@ fn test_invalid_approvals() {
 #[test]
 fn test_cap_max_gas_price() {
     use near_chain::Provenance;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let epoch_length = 5;
-    genesis.config.min_gas_price = Balance::from_yoctonear(1_000);
-    genesis.config.max_gas_price = Balance::from_yoctonear(1_000_000);
-    genesis.config.protocol_version = PROTOCOL_VERSION;
-    genesis.config.epoch_length = epoch_length;
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+        .epoch_length(5)
+        .gas_prices(Balance::from_yoctonear(1_000), Balance::from_yoctonear(1_000_000))
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
+    let epoch_length = 5;
 
     for i in 1..epoch_length {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();

@@ -1,7 +1,7 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 use near_chain::Provenance;
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_client::test_utils::create_chunk;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_primitives::account::id::AccountIdRef;
@@ -22,7 +22,12 @@ fn test_invalid_transactions_no_panic() {
             create_user_test_signer(AccountIdRef::new(account_id.as_str()).unwrap())
         })
         .collect();
-    let genesis = Genesis::test(accounts.clone(), 2);
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &[accounts[0].as_str(), accounts[1].as_str()],
+            &[accounts[2].as_str()],
+        ))
+        .build();
     let mut env = TestEnv::builder(&genesis.config)
         .validators(accounts.clone())
         .clients(accounts.clone())
@@ -155,7 +160,12 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
             create_user_test_signer(AccountIdRef::new(account_id.as_str()).unwrap())
         })
         .collect();
-    let genesis = Genesis::test(accounts.clone(), 2);
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &[accounts[0].as_str(), accounts[1].as_str()],
+            &[accounts[2].as_str()],
+        ))
+        .build();
     let mut env = TestEnv::builder(&genesis.config)
         .validators(accounts.clone())
         .clients(accounts.clone())

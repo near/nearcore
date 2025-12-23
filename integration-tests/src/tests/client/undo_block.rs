@@ -1,5 +1,6 @@
 use near_chain::{ChainStore, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::testonly::init_test_logger;
 use near_store::Store;
@@ -24,8 +25,10 @@ fn test_undo_block(epoch_length: u64, stop_height: u64) {
 
     let save_trie_changes = true;
 
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = epoch_length;
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .epoch_length(epoch_length)
+        .build();
 
     let store = create_test_store();
     let (mut env, epoch_manager) = setup_env(&genesis, store.clone());

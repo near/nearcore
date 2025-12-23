@@ -4,9 +4,12 @@ pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
 pub use crate::node::thread_node::ThreadNode;
 use crate::user::User;
-use near_chain_configs::Genesis;
 use near_chain_configs::MutableConfigValue;
 use near_chain_configs::TrackedShardsConfig;
+use near_chain_configs::{
+    Genesis,
+    test_genesis::{TestGenesisBuilder, ValidatorsSpec},
+};
 use near_crypto::Signer;
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::AccountContract;
@@ -29,8 +32,13 @@ mod thread_node;
 pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
 pub const TEST_BLOCK_MAX_SIZE: u32 = 1000;
 
-pub fn configure_chain_spec() -> Genesis {
-    Genesis::test(vec![alice_account(), bob_account()], 2)
+pub fn configure_chain_spec() -> near_chain_configs::Genesis {
+    TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &[alice_account().as_str(), bob_account().as_str()],
+            &[],
+        ))
+        .build()
 }
 
 /// Config that can be used to start a node or connect to an existing node.

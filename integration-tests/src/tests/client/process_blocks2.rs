@@ -4,7 +4,7 @@ use assert_matches::assert_matches;
 use near_chain::test_utils::is_optimistic_block_in_processing;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Provenance, test_utils};
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_crypto::vrf::Value;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -123,7 +123,10 @@ fn test_not_process_same_block_twice() {
 #[test]
 fn test_bad_shard_id() {
     let accounts = TestEnvBuilder::make_accounts(1);
-    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(&[accounts[0].as_str()], &[]))
+        .shard_layout(near_primitives::shard_layout::ShardLayout::multi_shard(4, 1))
+        .build();
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
 
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
@@ -193,7 +196,10 @@ fn test_bad_shard_id() {
 #[test]
 fn test_bad_block_content_vrf() {
     let accounts = TestEnvBuilder::make_accounts(1);
-    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(&[accounts[0].as_str()], &[]))
+        .shard_layout(near_primitives::shard_layout::ShardLayout::multi_shard(4, 1))
+        .build();
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
 
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
@@ -215,7 +221,10 @@ fn test_bad_block_content_vrf() {
 #[test]
 fn test_bad_block_signature() {
     let accounts = TestEnvBuilder::make_accounts(1);
-    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(&[accounts[0].as_str()], &[]))
+        .shard_layout(near_primitives::shard_layout::ShardLayout::multi_shard(4, 1))
+        .build();
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
 
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
@@ -280,7 +289,10 @@ fn test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(mode: BadConges
     }
 
     let accounts = TestEnvBuilder::make_accounts(1);
-    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(&[accounts[0].as_str()], &[]))
+        .shard_layout(near_primitives::shard_layout::ShardLayout::multi_shard(4, 1))
+        .build();
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
 
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
@@ -387,7 +399,10 @@ fn check_block_produced_from_optimistic_block(block: &Block, optimistic_block: &
 #[test]
 fn test_process_optimistic_block() {
     let accounts = TestEnvBuilder::make_accounts(1);
-    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let genesis = TestGenesisBuilder::new()
+        .validators_spec(ValidatorsSpec::desired_roles(&[accounts[0].as_str()], &[]))
+        .shard_layout(near_primitives::shard_layout::ShardLayout::multi_shard(4, 1))
+        .build();
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
 
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
