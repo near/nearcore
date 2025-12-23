@@ -259,7 +259,7 @@ fn copy_state_from_store(
     let read_duration = instant.elapsed();
 
     let instant = std::time::Instant::now();
-    cold_db.write(transaction)?;
+    cold_db.write(transaction);
     let write_duration = instant.elapsed();
 
     tracing::trace!(target: "cold_store", ?total_keys, ?total_size, ?read_duration, ?write_duration, "copy_state_from_store finished");
@@ -311,7 +311,7 @@ fn copy_from_store(
     let read_duration = instant.elapsed();
 
     let instant = std::time::Instant::now();
-    cold_db.write(transaction)?;
+    cold_db.write(transaction);
     let write_duration = instant.elapsed();
 
     tracing::trace!(target: "cold_store", ?col, ?good_keys, ?total_keys, ?total_size, ?read_duration, ?write_duration, "copy_from_store finished");
@@ -345,7 +345,7 @@ fn copy_state_changes_from_store(
     let read_duration = instant.elapsed();
 
     let instant = std::time::Instant::now();
-    cold_db.write(transaction)?;
+    cold_db.write(transaction);
     let write_duration = instant.elapsed();
 
     tracing::trace!(target: "cold_store", ?col, ?total_keys, ?total_size, ?read_duration, ?write_duration, "copy_state_changes_from_store finished");
@@ -379,21 +379,21 @@ pub fn update_cold_head(
     {
         let mut transaction = DBTransaction::new();
         transaction.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
-        cold_db.write(transaction)?;
+        cold_db.write(transaction);
     }
 
     // Write COLD_HEAD_KEY to the cold db.
     {
         let mut transaction = DBTransaction::new();
         transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
-        cold_db.write(transaction)?;
+        cold_db.write(transaction);
     }
 
     // Write COLD_HEAD to the hot db.
     {
         let mut transaction = DBTransaction::new();
         transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
-        hot_store.database().write(transaction)?;
+        hot_store.database().write(transaction);
 
         crate::metrics::COLD_HEAD_HEIGHT.set(*height as i64);
     }
@@ -404,7 +404,7 @@ pub fn update_cold_head(
 /// Reads the cold-head from the Cold DB.
 pub fn get_cold_head(cold_db: &ColdDB) -> io::Result<Option<Tip>> {
     cold_db
-        .get_raw_bytes(DBCol::BlockMisc, HEAD_KEY)?
+        .get_raw_bytes(DBCol::BlockMisc, HEAD_KEY)
         .as_deref()
         .map(Tip::try_from_slice)
         .transpose()
@@ -752,7 +752,7 @@ impl BatchTransaction {
                 "writing a cold store transaction");
 
         let transaction = std::mem::take(&mut self.transaction);
-        self.cold_db.write(transaction)?;
+        self.cold_db.write(transaction);
         self.transaction_size = 0;
 
         Ok(())

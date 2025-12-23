@@ -38,9 +38,7 @@ impl Inner {
     /// If there is an outbound connection to the given peer in storage, removes it
     fn remove_outbound(&mut self, peer_id: &PeerId) {
         self.outbound.retain(|c| c.peer_info.id != *peer_id);
-        if let Err(err) = self.store.set_recent_outbound_connections(&self.outbound) {
-            tracing::error!(target: "network", ?err, "failed to save recent outbound connections");
-        }
+        self.store.set_recent_outbound_connections(&self.outbound);
     }
 
     /// Takes a list of ConnectionInfos and inserts them to the front of the outbound store.
@@ -62,9 +60,7 @@ impl Inner {
         // Evict the longest-disconnected connections, if needed
         conns.truncate(OUTBOUND_CONNECTIONS_CACHE_SIZE);
 
-        if let Err(err) = self.store.set_recent_outbound_connections(&conns) {
-            tracing::error!(target: "network", ?err, "failed to save recent outbound connections");
-        }
+        self.store.set_recent_outbound_connections(&conns);
         self.outbound = conns;
     }
 }

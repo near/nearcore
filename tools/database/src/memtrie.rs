@@ -506,7 +506,7 @@ impl ArchivalDataLossRecoveryCommand {
                 rc_aware_set(&mut transaction, DBCol::State, key, value);
             }
         }
-        cold_db.write(transaction)?;
+        cold_db.write(transaction);
 
         Ok(())
     }

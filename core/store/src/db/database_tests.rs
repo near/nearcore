@@ -17,7 +17,7 @@ fn test_db_iter() {
         transaction.insert(DBCol::Block, "aa1".into(), "val_aa1".into());
         transaction.insert(DBCol::Block, "bb1".into(), "val_bb1".into());
         transaction.insert(DBCol::Block, "cc1".into(), "val_cc1".into());
-        db.write(transaction).unwrap();
+        db.write(transaction);
 
         let keys: Vec<_> = db
             .iter(DBCol::Block)

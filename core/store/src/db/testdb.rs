@@ -45,8 +45,8 @@ impl TestDB {
 }
 
 impl Database for TestDB {
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
-        Ok(self.db.read()[col].get(key).cloned().map(DBSlice::from_vec))
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
+        self.db.read()[col].get(key).cloned().map(DBSlice::from_vec)
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
@@ -87,7 +87,7 @@ impl Database for TestDB {
         refcount::iter_with_rc_logic(col, iterator)
     }
 
-    fn write(&self, transaction: DBTransaction) -> io::Result<()> {
+    fn write(&self, transaction: DBTransaction) {
         let mut db = self.db.write();
         for op in transaction.ops {
             match op {
@@ -125,16 +125,11 @@ impl Database for TestDB {
                 }
             };
         }
-        Ok(())
     }
 
-    fn flush(&self) -> io::Result<()> {
-        Ok(())
-    }
+    fn flush(&self) {}
 
-    fn compact(&self) -> io::Result<()> {
-        Ok(())
-    }
+    fn compact(&self) {}
 
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
         self.stats.read().clone()

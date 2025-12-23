@@ -412,7 +412,7 @@ impl CloudArchivalWriter {
         let cloud_head_tip = Tip::from_header(&cloud_head_header);
         let mut transaction = DBTransaction::new();
         transaction.set(DBCol::BlockMisc, CLOUD_HEAD_KEY.to_vec(), borsh::to_vec(&cloud_head_tip)?);
-        self.hot_store.database().write(transaction)?;
+        self.hot_store.database().write(transaction);
         Ok(())
     }
 }

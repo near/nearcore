@@ -124,7 +124,7 @@ fn maybe_read<T: std::str::FromStr>(
     key: &[u8],
 ) -> std::io::Result<Option<T>> {
     let msg = "it’s not a neard database or database is corrupted";
-    db.get_raw_bytes(crate::DBCol::DbVersion, key)?
+    db.get_raw_bytes(crate::DBCol::DbVersion, key)
         .map(|bytes| {
             let value = std::str::from_utf8(&bytes)
                 .map_err(|_err| format!("invalid {what}: {bytes:?}; {msg}"))?;

@@ -54,7 +54,7 @@ impl Store {
             self.storage.get_with_rc_stripped(column, &key)
         } else {
             self.storage.get_raw_bytes(column, &key)
-        }?;
+        };
         tracing::trace!(
             target: "store",
             db_op = "get",
@@ -253,7 +253,7 @@ impl Store {
                 }
             }
         }
-        let result = self.storage.write(transaction);
+        self.storage.write(transaction);
         for col in DBCol::iter() {
             let flushed = keys_flushed[col];
             if flushed != 0 {
@@ -261,17 +261,19 @@ impl Store {
                 cache.lock().active_flushes -= flushed;
             }
         }
-        result
+        Ok(())
     }
 
     /// If the storage is backed by disk, flushes any in-memory data to disk.
     pub fn flush(&self) -> io::Result<()> {
-        self.storage.flush()
+        self.storage.flush();
+        Ok(())
     }
 
     /// Blocking compaction request if supported by storage.
     pub fn compact(&self) -> io::Result<()> {
-        self.storage.compact()
+        self.storage.compact();
+        Ok(())
     }
 
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
