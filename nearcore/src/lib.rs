@@ -580,7 +580,7 @@ pub async fn start_with_config_and_synchronization_impl(
     ));
 
     let state_sync_spawner: Arc<dyn FutureSpawner> =
-        actor_system.new_future_spawner_multi_threaded("state sync").into();
+        actor_system.new_multi_threaded_future_spawner().into();
 
     let chunk_executor_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
