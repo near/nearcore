@@ -271,27 +271,6 @@ pub(super) enum NeardSubCommand {
     DumpEpochConfigs(DumpEpochConfigsCommand),
 }
 
-#[allow(unused)]
-#[derive(Debug, Clone)]
-enum FirstProtocolVersion {
-    Since(ProtocolVersion),
-    Latest,
-}
-
-impl FromStr for FirstProtocolVersion {
-    type Err = String;
-
-    fn from_str(input: &str) -> Result<Self, Self::Err> {
-        match input {
-            "latest" => Ok(FirstProtocolVersion::Latest),
-            _ => input
-                .parse::<ProtocolVersion>()
-                .map(FirstProtocolVersion::Since)
-                .map_err(|_| format!("Invalid value for FirstProtocolVersion: {}", input)),
-        }
-    }
-}
-
 #[derive(clap::Parser)]
 pub(super) struct InitCmd {
     /// Download the verified NEAR genesis file automatically.
