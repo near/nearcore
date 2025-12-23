@@ -490,7 +490,8 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                 }
                 near_primitives::action::Action::AddGasKey(_)
                 | near_primitives::action::Action::DeleteGasKey(_)
-                | near_primitives::action::Action::TransferToGasKey(_) => {
+                | near_primitives::action::Action::TransferToGasKey(_)
+                | near_primitives::action::Action::TransferFromGasKey(_) => {
                     // TODO(gas-keys): Implement rosetta adapter, ignored for now.
                 }
             }

@@ -702,7 +702,7 @@ impl TxTracker {
                                 tx.try_set_nonce(nonce);
                                 match tx {
                                     TargetChainTx::Ready(t) => {
-                                        tracing::debug!(target: "mirror", ?access_key, tx_ref = %r, nonce = %t.target_tx.transaction.nonce(), "set nonce for access key");
+                                        tracing::debug!(target: "mirror", ?access_key, tx_ref = %r, nonce = %t.target_tx.transaction.nonce().nonce(), "set nonce for access key");
                                     }
                                     _ => {
                                         tracing::warn!(target: "mirror", ?access_key, tx_ref = %r, "couldn't set nonce for access key");
@@ -894,17 +894,17 @@ impl TxTracker {
         let txs = self.txs_by_signer.entry(access_key.clone()).or_default();
 
         if let Some(highest_nonce) = txs.iter().next_back() {
-            if highest_nonce.nonce > tx.target_tx.transaction.nonce() {
+            if highest_nonce.nonce > tx.target_tx.transaction.nonce().nonce() {
                 tracing::warn!(
                     target: "mirror",
                     ?hash,
-                    nonce = %tx.target_tx.transaction.nonce(),
+                    nonce = %tx.target_tx.transaction.nonce().nonce(),
                     ?txs,
                     "transaction sent with out of order nonce, sent so far"
                 );
             }
         }
-        if !txs.insert(TxId { hash, nonce: tx.target_tx.transaction.nonce() }) {
+        if !txs.insert(TxId { hash, nonce: tx.target_tx.transaction.nonce().nonce() }) {
             tracing::warn!(target: "mirror", ?hash, "inserted tx twice into txs_by_signer");
         }
 
@@ -960,7 +960,7 @@ impl TxTracker {
             tx.target_tx.transaction.public_key(),
         )?
         .unwrap();
-        t.nonce = std::cmp::max(t.nonce, Some(tx.target_tx.transaction.nonce()));
+        t.nonce = std::cmp::max(t.nonce, Some(tx.target_tx.transaction.nonce().nonce()));
         crate::put_target_nonce(
             db,
             tx.target_tx.transaction.signer_id(),
@@ -1061,7 +1061,7 @@ impl TxTracker {
                                         target_tx.try_set_nonce(None);
                                         match target_tx {
                                             TargetChainTx::Ready(t) => {
-                                                tracing::debug!(target: "mirror", %tx_ref, ?access_key, tx_awaiting_nonce = %r, nonce = %t.target_tx.transaction.nonce(), "after skipping setting nonce for access key");
+                                                tracing::debug!(target: "mirror", %tx_ref, ?access_key, tx_awaiting_nonce = %r, nonce = %t.target_tx.transaction.nonce().nonce(), "after skipping setting nonce for access key");
                                             }
                                             _ => {
                                                 tracing::warn!(target: "mirror", %tx_ref, ?access_key, tx_awaiting_nonce = %r, "after skipping could not set nonce for access key");
