@@ -41,6 +41,8 @@ BENCHNET_DIR = f"{REMOTE_HOME}/bench"
 NEAR_HOME = f"{REMOTE_HOME}/.near"
 CONFIG_PATH = f"{NEAR_HOME}/config.json"
 
+FUNGIBLE_TOKEN_WASM_LOCAL_PATH = f"{BENCHNET_DIR}/contracts/fungible_token.wasm"
+
 
 def fetch_forknet_details(forknet_name, bm_params):
     """Fetch the forknet details from GCP."""
@@ -67,7 +69,6 @@ def fetch_forknet_details(forknet_name, bm_params):
 
     cp_instances = list(map(lambda x: x.split(), nodes_data[:num_cp_instances]))
     cp_instance_names = [instance[0] for instance in cp_instances]
-    cp_instance_zones = [instance[2] for instance in cp_instances]
 
     find_tracing_server_cmd = [
         "gcloud", "compute", "instances", "list", f"--project={PROJECT}",
@@ -89,9 +90,26 @@ def fetch_forknet_details(forknet_name, bm_params):
     }
 
 
+def upload_ft_contract(args):
+    """Upload the fungible_token contract from the google bucket
+    https://storage.cloud.google.com/infraops-benchmark-data/contracts/fungible_token.wasm
+    to the benchmark directory on each node
+    @return the absolute path (local to the remote node) to the uploaded contract
+    """
+    FUNGIBLE_TOKEN_GS_PATH = "gs://infraops-benchmark-data/contracts/fungible_token.wasm"
+
+    logger.info(
+        f"uploading the contracts from {FUNGIBLE_TOKEN_GS_PATH} to {FUNGIBLE_TOKEN_WASM_LOCAL_PATH}..."
+    )
+
+    run_cmd_args = copy.deepcopy(args)
+    run_cmd_args.cmd = f"gcloud storage cp {FUNGIBLE_TOKEN_GS_PATH} {FUNGIBLE_TOKEN_WASM_LOCAL_PATH}"
+    run_remote_cmd(CommandContext(run_cmd_args))
+
+
 def upload_local_neard(args):
-    """ 
-    uploads the local `neard` binary to every node to the ${BENCHNET_DIR}. 
+    """
+    uploads the local `neard` binary to every node to the ${BENCHNET_DIR}.
     @return the absolute path (local to the remote node) to the uploaded `neard`
 
     """
@@ -145,6 +163,8 @@ def handle_init(args):
         logger.info(f"`neard` local path on remote: {args.neard_binary_url}")
     else:
         logger.info("no local `neard` found, continue assuming the remote url")
+
+    upload_ft_contract(args)
 
     init_args = SimpleNamespace(
         neard_upgrade_binary_url="",
@@ -378,14 +398,21 @@ def enable_tx_generator(args, receivers_from_senders_ratio: float):
 
     run_cmd_args = copy.deepcopy(args)
     run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
-    run_cmd_args.cmd = f"\
-            jq --arg accounts_path {accounts_path} \
-               --arg receiver_accounts_dir {receiver_accounts_dir} \
-               --argjson same_shard_traffic {receivers_from_senders_ratio} \
-               '.tx_generator.accounts_path = $accounts_path | .tx_generator.receiver_accounts_path = $receiver_accounts_dir | .tx_generator.receivers_from_senders_ratio = $same_shard_traffic' \
-               {tx_generator_settings} > {tx_generator_settings_tmp} && \
-            jq -s '.[0] * .[1]' {CONFIG_PATH} {tx_generator_settings_tmp} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH} \
-        "
+    run_cmd_args.cmd = f"""
+            jq --arg accounts_path {accounts_path}                                                \
+               --arg receiver_accounts_dir {receiver_accounts_dir}                                \
+               --argjson same_shard_traffic {receivers_from_senders_ratio}                        \
+               --arg ft_contract_path {FUNGIBLE_TOKEN_WASM_LOCAL_PATH}                           \
+               '.tx_generator.accounts_path = $accounts_path                                      \
+                | .tx_generator.receiver_accounts_path = $receiver_accounts_dir                   \
+                | .tx_generator.receivers_from_senders_ratio = $same_shard_traffic                \
+                | if .tx_generator.transaction_type.FungibleToken? != null                        \
+                  then .tx_generator.transaction_type.FungibleToken.wasm_path = $ft_contract_path \
+                  else .                                                                          \
+                  end'                                                                            \
+               {tx_generator_settings} > {tx_generator_settings_tmp} &&                           
+            jq -s '.[0] * .[1]' {CONFIG_PATH} {tx_generator_settings_tmp} > tmp.$$.json && mv tmp.$$.json {CONFIG_PATH}
+        """
 
     run_remote_cmd(CommandContext(run_cmd_args))
 
@@ -580,10 +607,10 @@ def main():
 
     if unique_id is None and mocknet_id is None:
         logger.error(
-            f"Error: Either --unique-id or --mocknet-id must be provided")
+            "Error: Either --unique-id or --mocknet-id must be provided")
         sys.exit(1)
     if case is None:
-        logger.error(f"Error: --case must be provided")
+        logger.error("Error: --case must be provided")
         sys.exit(1)
 
     try:
