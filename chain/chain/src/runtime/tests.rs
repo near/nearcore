@@ -1611,6 +1611,7 @@ fn prepare_transactions(
                 .is_ok()
         },
         default_produce_chunk_add_transactions_time_limit(),
+        None,
     )
 }
 
@@ -1651,6 +1652,7 @@ fn prepare_transactions_extra(
         },
         skip_tx_hashes,
         default_produce_chunk_add_transactions_time_limit(),
+        None,
         cancel,
     )
 }
