@@ -425,7 +425,6 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
         .genesis_time_from_clock(&clock.clock())
         .genesis_height(10000)
         .epoch_length(10)
-        .transaction_validity_period(1000)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, initial_balance)

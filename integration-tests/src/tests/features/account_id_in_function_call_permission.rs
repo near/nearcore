@@ -18,6 +18,7 @@ fn test_invalid_account_id() {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
+        genesis.config.transaction_validity_period = epoch_length * 2;
         TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,

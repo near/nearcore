@@ -988,6 +988,7 @@ mod tests {
         let store = near_store::test_utils::create_test_store();
         let mut genesis = Genesis::test(vec!["test".parse::<AccountId>().unwrap()], 1);
         genesis.config.epoch_length = 123;
+        genesis.config.transaction_validity_period = 123 * 2;
         let tempdir = tempfile::tempdir().unwrap();
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);

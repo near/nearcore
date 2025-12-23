@@ -439,6 +439,10 @@ impl EpochConfigStore {
             .1
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = (&ProtocolVersion, &Arc<EpochConfig>)> {
+        self.store.iter()
+    }
+
     fn dump_epoch_config(directory: &Path, version: &ProtocolVersion, config: &Arc<EpochConfig>) {
         let content = serde_json::to_string_pretty(config.as_ref()).unwrap();
         let path = PathBuf::from(directory).join(format!("{}.json", version));

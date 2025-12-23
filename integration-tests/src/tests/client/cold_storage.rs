@@ -123,6 +123,7 @@ fn test_storage_after_commit_of_cold_update() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.min_gas_price = Balance::ZERO;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
@@ -240,6 +241,7 @@ fn test_cold_db_head_update() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &storage.get_hot_store();
     let cold_store = &storage.get_cold_store().unwrap();
@@ -280,6 +282,7 @@ fn test_cold_db_copy_with_height_skips() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.min_gas_price = Balance::ZERO;
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes_congestion_control_disabled(&genesis)
@@ -389,6 +392,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
@@ -475,6 +479,7 @@ fn test_cold_loop_on_gc_boundary() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &storage.get_hot_store();

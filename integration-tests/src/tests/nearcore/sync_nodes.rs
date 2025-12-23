@@ -25,6 +25,7 @@ async fn ultra_slow_test_sync_state_stake_change() {
     let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
     let epoch_length = 20;
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.block_producer_kickout_threshold = 80;
 
     let (port1, port2) =

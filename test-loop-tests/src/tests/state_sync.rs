@@ -142,7 +142,6 @@ fn setup_initial_blockchain(
         .genesis_height(GENESIS_HEIGHT)
         .epoch_length(EPOCH_LENGTH)
         .shard_layout(shard_layout.clone())
-        .transaction_validity_period(1000)
         .validators_spec(validators_spec.clone());
     if let Some(accounts) = accounts.as_ref() {
         for accounts in accounts {

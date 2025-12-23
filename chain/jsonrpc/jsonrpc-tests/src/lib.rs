@@ -87,6 +87,7 @@ pub fn create_test_setup_with_accounts_and_validity(
     // Create genesis with all specified accounts
     let mut genesis = Genesis::test(all_accounts, num_validator_seats);
     genesis.config.epoch_length = 10; // Short epochs for faster tests
+    genesis.config.transaction_validity_period = 10 * 2;
 
     initialize_genesis_state(store.clone(), &genesis, None);
 

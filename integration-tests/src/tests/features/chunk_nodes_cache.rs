@@ -90,6 +90,7 @@ fn compare_node_counts() {
     let num_blocks = 5;
 
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(
             &genesis,

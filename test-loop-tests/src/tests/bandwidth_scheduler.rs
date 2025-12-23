@@ -158,7 +158,6 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&all_accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
-        .transaction_validity_period(1000)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 

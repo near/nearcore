@@ -64,6 +64,7 @@ fn create_highest_height_peer_infos(num_peers: usize) -> Vec<HighestHeightPeerIn
 fn test_env_with_epoch_length(epoch_length: u64) -> TestEnv {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
 
     TestEnv::builder_from_genesis(&genesis).clients_count(2).build()
 }

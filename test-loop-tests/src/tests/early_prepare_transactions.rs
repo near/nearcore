@@ -41,7 +41,6 @@ fn setup(num_nodes: usize, epoch_length: BlockHeightDelta) -> TestLoopEnv {
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, Balance::from_near(10_000))
         .genesis_height(10000)
-        .transaction_validity_period(1000)
         .build();
     TestLoopBuilder::new()
         .genesis(genesis)

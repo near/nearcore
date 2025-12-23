@@ -107,6 +107,7 @@ impl TestEnv {
         );
         // No fees mode.
         genesis.config.epoch_length = config.epoch_length;
+        genesis.config.transaction_validity_period = config.epoch_length * 2;
         genesis.config.chunk_producer_kickout_threshold =
             genesis.config.block_producer_kickout_threshold;
         genesis.config.chunk_validator_only_kickout_threshold =

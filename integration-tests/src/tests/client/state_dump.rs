@@ -36,6 +36,7 @@ fn slow_test_state_dump() {
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = 25;
+    genesis.config.transaction_validity_period = 50;
 
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(1)
@@ -144,6 +145,7 @@ fn run_state_sync_with_dumped_parts(
     }
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let num_clients = 2;
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
@@ -157,8 +159,6 @@ fn run_state_sync_with_dumped_parts(
         Some(Arc::new(InMemoryValidatorSigner::from_signer(signer.clone()))),
         "validator_signer",
     );
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_hash = *genesis_block.hash();
 
     let mut blocks = vec![];
     let chain = &env.clients[0].chain;
@@ -198,6 +198,7 @@ fn run_state_sync_with_dumped_parts(
 
     for i in 1..=dump_node_head_height {
         if i == account_creation_at_height {
+            let head = env.clients[0].chain.head().unwrap();
             let tx = SignedTransaction::create_account(
                 1,
                 "test0".parse().unwrap(),
@@ -205,7 +206,7 @@ fn run_state_sync_with_dumped_parts(
                 Balance::from_near(1),
                 signer.public_key(),
                 &signer,
-                genesis_hash,
+                head.prev_block_hash,
             );
             assert_eq!(
                 env.rpc_handlers[0].process_tx(tx, false, false),

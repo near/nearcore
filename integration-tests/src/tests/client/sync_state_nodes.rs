@@ -139,6 +139,7 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
         vec![2, 2],
     );
     genesis.config.epoch_length = 150; // so that by the time test2 joins it is not kicked out yet
+    genesis.config.transaction_validity_period = 300;
 
     let _dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
     let dir1 = _dir1.clone();
@@ -284,6 +285,7 @@ async fn ultra_slow_test_sync_state_dump() {
     // Needs to be long enough to give enough time to the second node to
     // start, sync headers and find a dump of state.
     genesis.config.epoch_length = 70;
+    genesis.config.transaction_validity_period = 140;
 
     let _dump_dir = Arc::new(tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap());
     let dump_dir = _dump_dir.clone();
@@ -423,6 +425,7 @@ async fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
+        genesis.config.transaction_validity_period = epoch_length * 2;
         let mut env = TestEnv::builder(&genesis.config)
             .clients_count(2)
             .use_state_snapshots()
@@ -639,6 +642,7 @@ async fn slow_test_state_sync_headers() {
     let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
     // Increase epoch_length if the test is flaky.
     genesis.config.epoch_length = 100;
+    genesis.config.transaction_validity_period = 200;
 
     let mut near1 =
         load_test_config("test1", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
@@ -786,6 +790,7 @@ async fn slow_test_state_sync_headers_no_tracked_shards() {
         // Increase epoch_length if the test is flaky.
         let epoch_length = 100;
         genesis.config.epoch_length = epoch_length;
+        genesis.config.transaction_validity_period = epoch_length * 2;
 
         let port1 = tcp::ListenerAddr::reserve_for_test();
         let mut near1 = load_test_config("test1", port1, genesis.clone());

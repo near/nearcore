@@ -61,6 +61,7 @@ fn setup_network_node(
 
     let mut genesis = Genesis::test(validators, 1);
     genesis.config.epoch_length = 5;
+    genesis.config.transaction_validity_period = 10;
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(node_storage.get_hot_store(), &genesis, Some(tempdir.path()));
     let epoch_manager =

@@ -44,7 +44,6 @@ pub fn standard_setup_1() -> TestLoopEnv {
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, Balance::from_near(10_000))
         .genesis_height(10000)
-        .transaction_validity_period(1000)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)

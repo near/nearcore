@@ -47,7 +47,7 @@ use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats};
+use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, NumSeats};
 use near_primitives::validator_signer::EmptyValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
 use near_store::adapter::StoreAdapter;
@@ -78,7 +78,6 @@ fn setup(
     enable_doomslug: bool,
     state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
-    transaction_validity_period: NumBlocks,
     genesis_time: Utc,
     chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
 ) -> (
@@ -105,8 +104,10 @@ fn setup(
         }
     }
 
+    let transaction_validity_period = epoch_length * 2;
     let mut genesis = Genesis::test(validators, num_validator_seats);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = transaction_validity_period;
     initialize_genesis_state(store.clone(), &genesis, None);
 
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
@@ -308,11 +309,10 @@ pub fn setup_mock(
         skip_sync_wait,
         enable_doomslug,
         peer_manager_mock,
-        100,
     )
 }
 
-pub fn setup_mock_with_validity_period(
+fn setup_mock_with_validity_period(
     clock: Clock,
     actor_system: ActorSystem,
     validators: Vec<AccountId>,
@@ -327,7 +327,6 @@ pub fn setup_mock_with_validity_period(
             ) -> PeerManagerMessageResponse
             + Send,
     >,
-    transaction_validity_period: NumBlocks,
 ) -> ActorHandlesForTesting {
     let network_adapter = LateBoundSender::new();
     let (
@@ -350,7 +349,6 @@ pub fn setup_mock_with_validity_period(
         enable_doomslug,
         true,
         network_adapter.as_multi_sender(),
-        transaction_validity_period,
         clock.now_utc(),
         None,
     );
@@ -399,18 +397,16 @@ pub fn setup_no_network(
         validators,
         account_id,
         skip_sync_wait,
-        100,
         enable_doomslug,
     )
 }
 
-pub fn setup_no_network_with_validity_period(
+fn setup_no_network_with_validity_period(
     clock: Clock,
     actor_system: ActorSystem,
     validators: Vec<AccountId>,
     account_id: AccountId,
     skip_sync_wait: bool,
-    transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
 ) -> ActorHandlesForTesting {
     let my_account_id = account_id.clone();
@@ -437,7 +433,6 @@ pub fn setup_no_network_with_validity_period(
             };
             PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
         }),
-        transaction_validity_period,
     )
 }
 
