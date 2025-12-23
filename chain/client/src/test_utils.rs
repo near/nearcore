@@ -190,40 +190,33 @@ pub fn create_chunk(
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
         let header = encoded_chunk.cloned_header();
-        let (new_chunk, mut new_merkle_paths) = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
-        {
-            ShardChunkWithEncoding::new_for_spice(
-                *header.prev_block_hash(),
-                header.height_created(),
-                header.shard_id(),
-                validated_txs,
-                decoded_chunk.prev_outgoing_receipts().to_vec(),
-                *header.prev_outgoing_receipts_root(),
-                tx_root,
-                &*signer,
-                &rs,
-            )
+        // This is needed because calling prev_state_root() on spice header causes panic
+        let prev_state_root = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            Default::default()
         } else {
-            ShardChunkWithEncoding::new(
-                *header.prev_block_hash(),
-                header.prev_state_root(),
-                *header.prev_outcome_root(),
-                header.height_created(),
-                header.shard_id(),
-                header.prev_gas_used(),
-                header.gas_limit(),
-                header.prev_balance_burnt(),
-                header.prev_validator_proposals().collect(),
-                validated_txs,
-                decoded_chunk.prev_outgoing_receipts().to_vec(),
-                *header.prev_outgoing_receipts_root(),
-                tx_root,
-                header.congestion_info(),
-                header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
-                &*signer,
-                &rs,
-            )
+            header.prev_state_root()
         };
+        let (new_chunk, mut new_merkle_paths) = ShardChunkWithEncoding::new(
+            *header.prev_block_hash(),
+            prev_state_root,
+            *header.prev_outcome_root(),
+            header.height_created(),
+            header.shard_id(),
+            header.prev_gas_used(),
+            header.gas_limit(),
+            header.prev_balance_burnt(),
+            header.prev_validator_proposals().collect(),
+            validated_txs,
+            decoded_chunk.prev_outgoing_receipts().to_vec(),
+            *header.prev_outgoing_receipts_root(),
+            tx_root,
+            header.congestion_info(),
+            header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
+            None,
+            &*signer,
+            &rs,
+            PROTOCOL_VERSION,
+        );
         let mut new_encoded_chunk = new_chunk.into_parts().1;
         swap(&mut encoded_chunk, &mut new_encoded_chunk);
         swap(&mut merkle_paths, &mut new_merkle_paths);
