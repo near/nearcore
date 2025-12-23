@@ -794,6 +794,7 @@ pub(crate) fn apply_delegate_action(
     _priority: ReceiptPriority,
 ) -> Result<(), RuntimeError> {
     let delegate_action = &signed_delegate_action.delegate_action;
+    let actions = delegate_action.get_actions();
 
     if !signed_delegate_action.verify() {
         result.result = Err(ActionErrorKind::DelegateActionInvalidSignature.into());
@@ -812,7 +813,7 @@ pub(crate) fn apply_delegate_action(
         return Ok(());
     }
 
-    validate_delegate_action_key(state_update, apply_state, delegate_action, result)?;
+    validate_delegate_action_key(state_update, apply_state, delegate_action, &actions, result)?;
     if result.result.is_err() {
         // Validation failed. Need to return Ok() because this is not a runtime error.
         // "result.result" will be return to the User as the action execution result.
@@ -831,7 +832,7 @@ pub(crate) fn apply_delegate_action(
             gas_price: action_receipt.gas_price(),
             output_data_receivers: vec![],
             input_data_ids: vec![],
-            actions: delegate_action.get_actions(),
+            actions,
         }),
     });
 
@@ -895,6 +896,7 @@ fn validate_delegate_action_key(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
     delegate_action: &DelegateAction,
+    actions: &[Action],
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     // 'delegate_action.sender_id' account existence must be checked by a caller
@@ -937,8 +939,6 @@ fn validate_delegate_action_key(
     }
 
     access_key.nonce = delegate_action.nonce;
-
-    let actions = delegate_action.get_actions();
 
     // The restriction of "function call" access keys:
     // the transaction must contain the only `FunctionCall` if "function call" access key is used
@@ -1572,10 +1572,12 @@ mod tests {
 
         // Everything is ok
         let mut result = ActionResult::default();
+        let actions = signed_delegate_action.delegate_action.get_actions();
         validate_delegate_action_key(
             &mut state_update,
             &apply_state,
             &signed_delegate_action.delegate_action,
+            &actions,
             &mut result,
         )
         .expect("Expect ok");
@@ -1583,10 +1585,12 @@ mod tests {
 
         // Must fail, Nonce had been updated by previous step.
         result = ActionResult::default();
+        let actions = signed_delegate_action.delegate_action.get_actions();
         validate_delegate_action_key(
             &mut state_update,
             &apply_state,
             &signed_delegate_action.delegate_action,
+            &actions,
             &mut result,
         )
         .expect("Expect ok");
@@ -1603,10 +1607,12 @@ mod tests {
         result = ActionResult::default();
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.nonce += 1;
+        let actions = delegate_action.get_actions();
         validate_delegate_action_key(
             &mut state_update,
             &apply_state,
             &delegate_action,
+            &actions,
             &mut result,
         )
         .expect("Expect ok");
@@ -1629,10 +1635,12 @@ mod tests {
             &access_key,
         );
 
+        let actions = signed_delegate_action.delegate_action.get_actions();
         validate_delegate_action_key(
             &mut state_update,
             &apply_state,
             &signed_delegate_action.delegate_action,
+            &actions,
             &mut result,
         )
         .expect("Expect ok");
@@ -1663,10 +1671,12 @@ mod tests {
             create_apply_state(signed_delegate_action.delegate_action.max_block_height);
         let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
 
+        let actions = signed_delegate_action.delegate_action.get_actions();
         validate_delegate_action_key(
             &mut state_update,
             &apply_state,
             &signed_delegate_action.delegate_action,
+            &actions,
             &mut result,
         )
         .expect("Expect ok");
@@ -1691,10 +1701,12 @@ mod tests {
         let apply_state = create_apply_state(1);
         let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
 
+        let actions = signed_delegate_action.delegate_action.get_actions();
         validate_delegate_action_key(
             &mut state_update,
             &apply_state,
             &signed_delegate_action.delegate_action,
+            &actions,
             &mut result,
         )
         .expect("Expect ok");
@@ -1719,10 +1731,12 @@ mod tests {
         let apply_state = create_apply_state(delegate_action.max_block_height);
         let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
 
+        let actions = delegate_action.get_actions();
         validate_delegate_action_key(
             &mut state_update,
             &apply_state,
             &delegate_action,
+            &actions,
             &mut result,
         )
         .expect("Expect ok");
