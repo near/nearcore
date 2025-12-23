@@ -69,7 +69,6 @@ extern "C" {
     fn promise_and(promise_idx_ptr: u64, promise_idx_count: u64) -> u64;
     fn promise_batch_create(account_id_len: u64, account_id_ptr: u64) -> u64;
     fn promise_batch_then(promise_index: u64, account_id_len: u64, account_id_ptr: u64) -> u64;
-    #[cfg(feature = "nightly")]
     fn promise_set_refund_to(promise_index: u64, account_id_len: u64, account_id_ptr: u64);
     // #######################
     // # Promise API actions #
@@ -1918,7 +1917,3 @@ pub unsafe fn resume_with_large_payload() {
     );
     assert_eq!(success, 1);
 }
-
-/// local NO-OP placeholder function, to be removed on stabilization of DeterministicAccountIds
-#[cfg(not(feature = "nightly"))]
-fn promise_set_refund_to(_promise_index: u64, _account_id_len: u64, _account_id_ptr: u64) {}

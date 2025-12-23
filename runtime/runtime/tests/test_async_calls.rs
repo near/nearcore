@@ -1218,12 +1218,7 @@ fn test_create_transfer_64len_hex_fail() {
 // redirect the balance refund using `promise_refund_to`
 #[test]
 fn test_refund_to() {
-    let test_contract = if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
-        near_test_contracts::nightly_rs_contract()
-    } else {
-        near_test_contracts::rs_contract()
-    };
-    let group = RuntimeGroup::new(4, 4, &test_contract);
+    let group = RuntimeGroup::new(4, 4, near_test_contracts::rs_contract());
 
     let signer_sender = group.signers[0].clone();
     let signer_receiver = group.signers[1].clone();
