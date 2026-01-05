@@ -96,14 +96,12 @@ def upload_ft_contract(args):
     to the benchmark directory on each node
     @return the absolute path (local to the remote node) to the uploaded contract
     """
-    FUNGIBLE_TOKEN_GS_PATH = "gs://infraops-benchmark-data/contracts/fungible_token.wasm"
-
     logger.info(
-        f"uploading the contracts from {FUNGIBLE_TOKEN_GS_PATH} to {FUNGIBLE_TOKEN_WASM_LOCAL_PATH}..."
+        f"uploading the contracts from {args.ft_contract_path} to {FUNGIBLE_TOKEN_WASM_LOCAL_PATH}..."
     )
 
     run_cmd_args = copy.deepcopy(args)
-    run_cmd_args.cmd = f"gcloud storage cp {FUNGIBLE_TOKEN_GS_PATH} {FUNGIBLE_TOKEN_WASM_LOCAL_PATH}"
+    run_cmd_args.cmd = f"gcloud storage cp {args.ft_contract_path} {FUNGIBLE_TOKEN_WASM_LOCAL_PATH}"
     run_remote_cmd(CommandContext(run_cmd_args))
 
 
@@ -164,7 +162,8 @@ def handle_init(args):
     else:
         logger.info("no local `neard` found, continue assuming the remote url")
 
-    upload_ft_contract(args)
+    if args.ft_contract_path:
+        upload_ft_contract(args)
 
     init_args = SimpleNamespace(
         neard_upgrade_binary_url="",
@@ -647,6 +646,11 @@ def main():
     init_parser.add_argument(
         '--neard-binary-url',
         help='URL of the neard binary to use',
+    )
+    init_parser.add_argument(
+        '--ft-contract-path',
+        help='path (gs://) to the fungible token contract',
+        default = None,
     )
 
     subparsers.add_parser(

@@ -482,9 +482,6 @@ async fn ft_contract_account_create(
         }
         Ok(false) => {
             Err(anyhow::anyhow!("timeout waiting for create+deploy tx to be finalized"))
-            // // there are issues with transaction finalization on mocknet
-            // tracing::error!(target: "transaction-generator", "create+deploy tx timeout");
-            // Ok(ft_contract_account_id)
         }
         Err(err) => Err(err),
     }
@@ -553,7 +550,6 @@ async fn ft_contract_account_init(
         }
     };
 
-    // wait to finalize
     match wait_for_transaction_finalization(
         &view_client_sender,
         init_tx_hash,
@@ -584,7 +580,7 @@ async fn ft_contract_register_accounts(
     let mut tasks = JoinSet::new();
 
     tracing::info!(target: "transaction-generator",
-        total_receiver_accounts=receiver_ids.len(),
+        total_receiver_accounts = receiver_ids.len(),
         "registering accounts with the ft contract"
     );
 
@@ -595,7 +591,7 @@ async fn ft_contract_register_accounts(
 
     while !to_register.is_empty() {
         tracing::info!(target: "transaction-generator",
-            remaining_accounts=to_register.len(),
+            remaining_accounts = to_register.len(),
             "registrations pending"
         );
 
@@ -821,7 +817,7 @@ async fn ft_contract_fund_accounts(
 
     tracing::info!(target: "transaction-generator",
         failed,
-        total=receiver_ids.len(),
+        total = receiver_ids.len(),
         "ft contract funding completed",
     );
 
@@ -853,7 +849,7 @@ async fn wait_chain_warm_up(
         let block_hash = match TxGenerator::get_latest_block(&view_client_sender).await {
             Ok(block) => block.hash,
             Err(err) => {
-                tracing::debug!(target: "transaction-generator", "get latest block failed: {:?}", err);
+                tracing::debug!(target: "transaction-generator", ?err, "get latest block failed");
                 continue;
             }
         };
@@ -882,11 +878,11 @@ async fn wait_chain_warm_up(
             Ok(ProcessTxResponse::ValidTx) => {}
             Ok(rsp) => {
                 success_count = 0;
-                tracing::debug!(target: "transaction-generator", "warmup tx rejected: {:?}", rsp);
+                tracing::debug!(target: "transaction-generator", ?rsp, "warmup tx rejected");
             }
             Err(err) => {
                 success_count = 0;
-                tracing::debug!(target: "transaction-generator", "warmup tx failed: {:?}", err);
+                tracing::debug!(target: "transaction-generator", ?err, "warmup tx failed");
             }
         }
 
@@ -912,7 +908,7 @@ async fn wait_chain_warm_up(
             }
             Err(err) => {
                 success_count = 0;
-                tracing::debug!(target: "transaction-generator", "native token tx failed: {:?}", err);
+                tracing::debug!(target: "transaction-generator", ?err, "native token tx failed");
             }
         }
     }
@@ -1178,7 +1174,7 @@ impl TxGenerator {
                     }
                     Err(err) => {
                         tracing::debug!(target: "transaction-generator",
-                            nonce_update_failed=?err);
+                            ?err, "nonce update failed");
                     }
                 }
             }
