@@ -1885,13 +1885,6 @@ async fn deprecated_debug_block_status_handler(
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct DebugRpcEpochInfoRequest {
-    #[serde(flatten)]
-    pub epoch_id: near_primitives::types::EpochId,
-}
-
 async fn debug_epoch_info_handler(
     State(handler): State<Arc<JsonRpcHandler>>,
     Path(epoch_id_str): Path<String>,
