@@ -8,7 +8,10 @@ use near_async::time::Duration;
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
 use near_crypto::Signer;
-use near_indexer::{AwaitForNodeSyncedEnum, IndexerConfig, StreamerMessage, SyncModeEnum, start};
+use near_indexer::{
+    AwaitForNodeSyncedEnum, IndexerConfig, IndexerExecutionOutcomeWithReceipt, StreamerMessage,
+    SyncModeEnum, start,
+};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
@@ -17,7 +20,7 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, Finality, Nonce, NumBlocks};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_primitives::views::ExecutionStatusView;
+use near_primitives::views::{ActionView, ExecutionStatusView, ReceiptEnumView, ReceiptView};
 use near_store::StoreConfig;
 use tokio::sync::mpsc;
 
@@ -164,6 +167,38 @@ fn test_indexer_failed_local_tx() {
     assert_matches!(outcome.status, ExecutionStatusView::Failure(_));
     assert!(outcome.receipt_ids.is_empty());
     assert!(indexer_shard.receipt_execution_outcomes.is_empty());
+
+    shutdown(env);
+}
+
+#[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_indexer_deploy_contract_local_tx() {
+    init_test_logger();
+    let mut env = setup();
+    deploy_test_contract(&mut env);
+    let validator_node = TestLoopNode::from(&env.node_datas[0]);
+    let deploy_contract_height = validator_node.head(env.test_loop_data()).height;
+
+    let mut indexer_receiver =
+        start_indexer(&env, SyncModeEnum::BlockHeight(deploy_contract_height));
+    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
+    let indexer_shard = &msg.shards[0];
+    assert_eq!(indexer_shard.chunk.as_ref().unwrap().transactions.len(), 1);
+    let [
+        IndexerExecutionOutcomeWithReceipt {
+            receipt: ReceiptView { receipt: ReceiptEnumView::Action { actions, .. }, .. },
+            ..
+        },
+    ] = indexer_shard.receipt_execution_outcomes.as_slice()
+    else {
+        panic!("expected single action receipt")
+    };
+    let [ActionView::DeployContract { code }] = actions.as_slice() else {
+        panic!("expected single deploy contract action")
+    };
+    assert_eq!(code, CryptoHash::hash_bytes(near_test_contracts::rs_contract()).as_bytes());
 
     shutdown(env);
 }
