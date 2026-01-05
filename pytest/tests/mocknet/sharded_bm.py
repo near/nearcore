@@ -650,7 +650,7 @@ def main():
     init_parser.add_argument(
         '--ft-contract-path',
         help='path (gs://) to the fungible token contract',
-        default = None,
+        default=None,
     )
 
     subparsers.add_parser(
