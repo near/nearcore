@@ -67,6 +67,13 @@ do-it:
     just init-localnet
     just unlimit
     just create-accounts
-    # just enable-tx
+    just enable-tx
+    just run-localnet
+
+do-ft:
+    #!/usr/bin/env bash
+    just init-localnet
+    just unlimit
+    just create-accounts
     just enable-ft
     just run-localnet

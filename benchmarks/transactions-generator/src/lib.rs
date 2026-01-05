@@ -17,7 +17,6 @@ use near_primitives::views::{
     BlockHeaderView, BlockView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
     QueryResponse, QueryResponseKind,
 };
-// use near_primitives::borsh::BorshSerialize; // if needed
 use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -480,9 +479,7 @@ async fn ft_contract_account_create(
             tracing::info!(target: "transaction-generator", "create+deploy tx accepted");
             Ok(ft_contract_account_id)
         }
-        Ok(false) => {
-            Err(anyhow::anyhow!("timeout waiting for create+deploy tx to be finalized"))
-        }
+        Ok(false) => Err(anyhow::anyhow!("timeout waiting for create+deploy tx to be finalized")),
         Err(err) => Err(err),
     }
 }
