@@ -428,10 +428,12 @@ impl ViewClientActor {
                 } => QueryError::UnknownGasKey { public_key, block_height, block_hash },
                 near_chain::near_chain_primitives::error::QueryError::ContractExecutionError {
                     error_message,
+                    error,
                     block_hash,
                     block_height,
                 } => QueryError::ContractExecutionError {
                     vm_error: error_message,
+                    error,
                     block_height,
                     block_hash,
                 },

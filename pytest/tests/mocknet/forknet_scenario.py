@@ -2,12 +2,13 @@
 This script is used to run a forknet scenario.
 """
 
-from argparse import ArgumentParser
+from argparse import ArgumentParser, ArgumentTypeError
 import sys
 import pathlib
 import subprocess
 from enum import Enum
 import os
+import re
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
@@ -59,13 +60,14 @@ def call_gh_workflow(action: Action,
     return result.returncode
 
 
-def handle_create(args):
+def handle_create(test_setup):
     """
     Create the infrastructure for the test case.
     """
-    test_setup = get_test_case(args.test_case, args)
-    unique_id = args.unique_id
+    unique_id = test_setup.unique_id
     start_height = test_setup.start_height
+    if start_height is None:
+        raise ValueError("Start height is not set")
     regions = test_setup.regions
     has_archival = test_setup.has_archival
     has_state_dumper = test_setup.has_state_dumper
@@ -75,10 +77,11 @@ def handle_create(args):
                      regions, has_archival, has_state_dumper, tracing_server)
 
 
-def handle_destroy(args):
-    test_setup = get_test_case(args.test_case, args)
-    unique_id = args.unique_id
+def handle_destroy(test_setup):
+    unique_id = test_setup.unique_id
     start_height = test_setup.start_height
+    if start_height is None:
+        raise ValueError("Start height is not set")
 
     # Remove mocknet info bucket folder when destroying cluster
     mocknet_id = f"{CHAIN_ID}-{start_height}-{unique_id}"
@@ -96,9 +99,9 @@ def handle_destroy(args):
     call_gh_workflow(Action.DESTROY, unique_id, start_height)
 
 
-def handle_start_test(args):
+def handle_start_test(test_setup):
     logger.info("🚀 Starting test...")
-    test_setup = get_test_case(args.test_case, args)
+    test_setup.fail_if_args_not_set()
     logger.info("🔄 Initializing environment...")
     test_setup.init_env()
     logger.info("🔄 Running before test setup...")
@@ -118,6 +121,15 @@ def handle_start_test(args):
     logger.info("🎉 Test setup completed!")
 
 
+def validate_unique_id(value):
+    pattern = r"^(?:[a-z](?:[-a-z0-9]{3,10}[a-z0-9])?)$"
+    if not re.match(pattern, value):
+        raise ArgumentTypeError(
+            f"'{value}' is not a valid unique ID. Must match pattern: {pattern}"
+        )
+    return value
+
+
 def main():
     parser = ArgumentParser(
         description='Forknet cluster parameters to launch a release test')
@@ -132,6 +144,7 @@ def main():
     parser.add_argument(
         '--unique-id',
         help='Unique ID for the test case',
+        type=validate_unique_id,
         required=True,
     )
 
@@ -140,6 +153,14 @@ def main():
         help=
         f'Name of the test case to run (available test cases: {", ".join(get_available_test_cases())})',
         required=True,
+    )
+
+    parser.add_argument(
+        '--start-height',
+        type=int,
+        help=
+        'Height of image used to start the network. Used as default if test case class does not set it.',
+        required=False,
     )
 
     subparsers = parser.add_subparsers(
@@ -167,15 +188,24 @@ def main():
         'URL of the neard binary to upgrade to. Can be set in the test case class.',
     )
 
+    start_parser.add_argument(
+        '--genesis-protocol-version',
+        type=int,
+        help=
+        'Genesis protocol version to use. Used as default if test case class does not set it.',
+        required=False,
+    )
+
     args = parser.parse_args()
 
+    test_setup = get_test_case(args.test_case, args)
     # Route to appropriate handler based on command
     if args.command == 'create':
-        handle_create(args)
+        handle_create(test_setup)
     elif args.command == 'destroy':
-        handle_destroy(args)
+        handle_destroy(test_setup)
     elif args.command == 'start':
-        handle_start_test(args)
+        handle_start_test(test_setup)
     else:
         parser.print_help()
 

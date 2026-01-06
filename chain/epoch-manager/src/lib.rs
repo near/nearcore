@@ -1,6 +1,7 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
 pub use crate::adapter::EpochManagerAdapter;
+use crate::epoch_sync::extend_epoch_sync_proof;
 use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::reward_calculator::RewardCalculator;
@@ -21,7 +22,7 @@ use near_primitives::types::{
     EpochInfoProvider, ProtocolVersion, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
-use near_primitives::version::ProtocolFeature;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
@@ -49,7 +50,6 @@ pub mod shard_tracker;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
-pub mod validate;
 mod validator_selection;
 mod validator_stats;
 
@@ -818,9 +818,39 @@ impl EpochManager {
                 if self.is_next_block_in_next_epoch(&block_info)? {
                     self.finalize_epoch(&mut store_update, &block_info, &current_hash, rng_seed)?;
                 }
+
+                if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+                    if self.is_next_block_in_next_epoch(&prev_block_info)? {
+                        self.update_epoch_sync_proof(&block_info)?;
+                    }
+                }
             }
         }
         Ok(store_update)
+    }
+
+    /// We call this function on the first block of epoch T. We update the epoch sync proof to that
+    /// of epoch T-2. We pass the last_block_hash of epoch T-2 to extend the epoch sync proof.
+    ///
+    /// Any new node doing epoch sync needs to have at least `transaction_validity_period` number of
+    /// block headers to validate transactions.
+    /// Currently, `transaction_validity_period` is set to ~2 epochs worth of blocks, which is why
+    /// we update the epoch sync proof to that of epoch T-2 here.
+    ///
+    /// In the future, if `transaction_validity_period` were to increase, we would need to update
+    /// this function.
+    fn update_epoch_sync_proof(&self, first_block_info: &BlockInfo) -> Result<(), EpochError> {
+        // pe -> previous_epoch
+        // ppe -> previous_previous_epoch
+        let last_block_hash_in_pe = first_block_info.prev_hash();
+        let last_block_info_in_pe = self.store.get_block_info(last_block_hash_in_pe)?;
+        let first_block_hash_in_ppe = last_block_info_in_pe.epoch_first_block();
+        let first_block_info_in_ppe = self.store.get_block_info(first_block_hash_in_ppe)?;
+        let last_block_hash_in_ppe = first_block_info_in_ppe.prev_hash();
+
+        extend_epoch_sync_proof(&self.store, last_block_hash_in_ppe).unwrap();
+
+        Ok(())
     }
 
     /// Returns settlement of all block producers in current epoch

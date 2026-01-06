@@ -393,15 +393,12 @@ mod trie_recording_tests {
     use crate::trie::{AccessOptions, AccessTracker, TrieNodesCount};
     use crate::{DBCol, KeyLookupMode, PartialStorage, ShardTries, Store, Trie};
     use borsh::BorshDeserialize;
-    use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
     use near_primitives::state::PartialState;
     use near_primitives::state::ValueRef;
-    use near_primitives::types::Balance;
+    use near_primitives::types::StateRoot;
     use near_primitives::types::chunk_extra::ChunkExtra;
-    use near_primitives::types::{Gas, StateRoot};
     use rand::prelude::SliceRandom;
     use rand::{Rng, random, thread_rng};
     use std::cell::{Cell, RefCell};
@@ -459,16 +456,7 @@ mod trie_recording_tests {
         );
 
         // ChunkExtra is needed for in-memory trie loading code to query state roots.
-        let chunk_extra = ChunkExtra::new(
-            &state_root,
-            CryptoHash::default(),
-            Vec::new(),
-            Gas::ZERO,
-            Gas::ZERO,
-            Balance::ZERO,
-            Some(CongestionInfo::default()),
-            BandwidthRequests::empty(),
-        );
+        let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
         let mut update_for_chunk_extra = tries_for_building.store_update();
         update_for_chunk_extra
             .store_update()

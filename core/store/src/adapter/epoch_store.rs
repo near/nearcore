@@ -92,10 +92,11 @@ impl EpochStoreAdapter {
     ) -> Result<Option<CompressedEpochSyncProof>, EpochError> {
         // Use this function only when ProtocolFeature::ContinuousEpochSync is enabled
         assert!(ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION));
-        Ok(self.store.get_ser::<CompressedEpochSyncProof>(
+        let proof = self.store.caching_get_ser::<CompressedEpochSyncProof>(
             DBCol::EpochSyncProof,
             COMPRESSED_EPOCH_SYNC_PROOF_KEY,
-        )?)
+        )?;
+        Ok(proof.as_deref().cloned())
     }
 
     /// Slightly expensive function, decodes the compressed epoch sync proof

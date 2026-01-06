@@ -9,7 +9,7 @@ use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::epoch_sync::{
-    derive_epoch_sync_proof_from_last_final_block, find_target_epoch_to_produce_proof_for,
+    derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
     get_epoch_info_block_producers,
 };
 use near_network::client::{EpochSyncRequestMessage, EpochSyncResponseMessage};
@@ -27,6 +27,7 @@ use near_primitives::network::PeerId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{Balance, BlockHeight, BlockHeightDelta, EpochId};
 use near_primitives::utils::compression::CompressedData;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{Store, metrics};
 use parking_lot::Mutex;
@@ -83,7 +84,7 @@ impl EpochSync {
     /// Derives an epoch sync proof for a recent epoch, that can be directly used to bootstrap
     /// a new node or bring a far-behind node to a recent epoch.
     #[instrument(skip(store, cache))]
-    pub fn derive_epoch_sync_proof(
+    fn derive_epoch_sync_proof(
         store: Store,
         transaction_validity_period: BlockHeightDelta,
         cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
@@ -97,8 +98,6 @@ impl EpochSync {
         let chain_store = store.chain_store();
         let target_epoch_last_block_header =
             chain_store.get_block_header(&target_epoch_last_block_hash)?;
-        let target_epoch_second_last_block_header =
-            chain_store.get_block_header(target_epoch_last_block_header.prev_hash())?;
 
         let mut guard = cache.lock();
         if let Some((epoch_id, proof)) = &*guard {
@@ -108,9 +107,10 @@ impl EpochSync {
         }
         // We're purposefully not releasing the lock here. This is so that if the cache
         // is out of date, only one thread should be doing the computation.
-        let proof = derive_epoch_sync_proof_from_last_final_block(
-            store,
-            &target_epoch_second_last_block_header,
+        let proof = derive_epoch_sync_proof_from_last_block(
+            &store.epoch_store(),
+            &target_epoch_last_block_hash,
+            true,
         );
         let (proof, _) = match CompressedEpochSyncProof::encode(&proof?) {
             Ok(proof) => proof,
@@ -526,30 +526,48 @@ impl Handler<EpochSyncRequestMessage> for ClientActor {
             // Temporary kill switch for the rare case there were issues with this network request.
             return;
         }
-        let store = self.client.chain.chain_store.store();
-        let network_adapter = self.client.network_adapter.clone();
-        let requester_peer_id = msg.from_peer;
-        let cache = self.client.sync_handler.epoch_sync.last_epoch_sync_response_cache.clone();
-        let transaction_validity_period = self.client.chain.transaction_validity_period();
-        self.client.sync_handler.epoch_sync.async_computation_spawner.spawn(
-            "respond to epoch sync request",
-            move || {
-                let proof = match EpochSync::derive_epoch_sync_proof(
-                    store,
-                    transaction_validity_period,
-                    cache,
-                ) {
-                    Ok(epoch_sync_proof) => epoch_sync_proof,
-                    Err(err) => {
-                        tracing::error!(?err, "failed to derive epoch sync proof");
-                        return;
-                    }
-                };
-                network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::EpochSyncResponse { peer_id: requester_peer_id, proof },
-                ));
-            },
-        )
+
+        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+            // When ContinuousEpochSync is enabled, we simply return the stored compressed proof.
+            // The proof is automatically updated at the beginning of each epoch via the epoch manager.
+            let epoch_store = self.client.chain.chain_store.epoch_store();
+            let Some(proof) = epoch_store.get_compressed_epoch_sync_proof().unwrap() else {
+                // This would likely only happen when the blockchain is an epoch or two around genesis.
+                let chain_store = epoch_store.chain_store();
+                let head = chain_store.head();
+                let genesis_height = chain_store.get_genesis_height();
+                tracing::warn!(?head, ?genesis_height, "no epoch sync proof is stored");
+                return;
+            };
+            self.client.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::EpochSyncResponse { peer_id: msg.from_peer, proof },
+            ));
+        } else {
+            let store = self.client.chain.chain_store.store();
+            let network_adapter = self.client.network_adapter.clone();
+            let requester_peer_id = msg.from_peer;
+            let cache = self.client.sync_handler.epoch_sync.last_epoch_sync_response_cache.clone();
+            let transaction_validity_period = self.client.chain.transaction_validity_period();
+            self.client.sync_handler.epoch_sync.async_computation_spawner.spawn(
+                "respond to epoch sync request",
+                move || {
+                    let proof = match EpochSync::derive_epoch_sync_proof(
+                        store,
+                        transaction_validity_period,
+                        cache,
+                    ) {
+                        Ok(epoch_sync_proof) => epoch_sync_proof,
+                        Err(err) => {
+                            tracing::error!(?err, "failed to derive epoch sync proof");
+                            return;
+                        }
+                    };
+                    network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::EpochSyncResponse { peer_id: requester_peer_id, proof },
+                    ));
+                },
+            )
+        }
     }
 }
 
