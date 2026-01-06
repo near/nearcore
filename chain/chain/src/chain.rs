@@ -685,7 +685,7 @@ impl Chain {
 
     fn save_block_height_processed(&mut self, block_height: BlockHeight) -> Result<(), Error> {
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.chain_store);
-        if !chain_store_update.is_height_processed(block_height)? {
+        if !chain_store_update.is_height_processed(block_height) {
             chain_store_update.save_block_height_processed(block_height);
         }
         chain_store_update.commit()?;
@@ -1256,7 +1256,7 @@ impl Chain {
         let block_height = block.height();
 
         self.blocks_delay_tracker.record_optimistic_block_ready(block_height);
-        if let Ok(true) = self.is_height_processed(block_height) {
+        if self.is_height_processed(block_height) {
             metrics::NUM_DROPPED_OPTIMISTIC_BLOCKS_BECAUSE_OF_PROCESSED_HEIGHT.inc();
             tracing::debug!(
                 target: "chain", prev_block_hash = ?prev_block_hash,
@@ -3799,7 +3799,7 @@ impl Chain {
     }
 
     #[inline]
-    pub fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error> {
+    pub fn is_height_processed(&self, height: BlockHeight) -> bool {
         self.chain_store.is_height_processed(height)
     }
 

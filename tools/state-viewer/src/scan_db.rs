@@ -169,7 +169,7 @@ fn format_key_and_value<'a>(
         ),
         DBCol::Receipts => {
             // Handle refcounting by querying the value.
-            let value = store.get(db_col, key).unwrap().unwrap();
+            let value = store.get(db_col, key).unwrap();
             (
                 Box::new(CryptoHash::try_from(key).unwrap()),
                 Box::new(Receipt::try_from_slice(&value).unwrap()),
@@ -180,7 +180,7 @@ fn format_key_and_value<'a>(
             let s: ShardUId = ShardUId::try_from(&key[..8]).unwrap();
             let h: CryptoHash = CryptoHash::try_from_slice(&key[8..]).unwrap();
             // Handle refcounting by querying the value.
-            let value = store.get(db_col, key).unwrap().unwrap();
+            let value = store.get(db_col, key).unwrap();
             let res = if let Ok(node) = RawTrieNodeWithSize::try_from_slice(&value) {
                 format!("Node: {node:?}")
             } else {
@@ -207,7 +207,7 @@ fn format_key_and_value<'a>(
         ),
         DBCol::Transactions => {
             // Handle refcounting by querying the value.
-            let value = store.get(db_col, key).unwrap().unwrap();
+            let value = store.get(db_col, key).unwrap();
             (
                 Box::new(CryptoHash::try_from(key).unwrap()),
                 Box::new(SignedTransaction::try_from_slice(&value).unwrap()),

@@ -904,7 +904,7 @@ mod tests {
         let store = opener.open().unwrap().get_hot_store();
         let database = store.database();
         let rocksdb = unsafe { convert_db_to_rocksdb(database) };
-        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
+        assert_eq!(store.get(DBCol::State, &[1; 8]), None);
         {
             let mut store_update = store.store_update();
             store_update.increment_refcount(DBCol::State, &[1; 8], &[1]);
@@ -915,7 +915,7 @@ mod tests {
             store_update.increment_refcount(DBCol::State, &[1; 8], &[1]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap().as_deref(), Some(&[1][..]));
+        assert_eq!(store.get(DBCol::State, &[1; 8]).as_deref(), Some(&[1][..]));
         assert_eq!(
             rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).as_deref(),
             Some(&[1, 2, 0, 0, 0, 0, 0, 0, 0][..])
@@ -925,7 +925,7 @@ mod tests {
             store_update.decrement_refcount(DBCol::State, &[1; 8]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap().as_deref(), Some(&[1][..]));
+        assert_eq!(store.get(DBCol::State, &[1; 8]).as_deref(), Some(&[1][..]));
         assert_eq!(
             rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).as_deref(),
             Some(&[1, 1, 0, 0, 0, 0, 0, 0, 0][..])
@@ -936,7 +936,7 @@ mod tests {
             store_update.commit().unwrap();
         }
         // Refcount goes to 0 -> get() returns None
-        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
+        assert_eq!(store.get(DBCol::State, &[1; 8]), None);
         // Internally there is an empty value
         assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).as_deref(), Some(&[][..]));
 
@@ -951,11 +951,11 @@ mod tests {
             // empty values.
             rocksdb.db.compact_range_cf(cf, none, none);
             assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).as_deref(), Some(&[][..]));
-            assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
+            assert_eq!(store.get(DBCol::State, &[1; 8]), None);
 
             rocksdb.db.compact_range_cf(cf, none, none);
             assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1; 8]), None);
-            assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
+            assert_eq!(store.get(DBCol::State, &[1; 8]), None);
         }
     }
 

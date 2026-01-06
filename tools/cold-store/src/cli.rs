@@ -491,7 +491,7 @@ impl StateRootSelector {
                     let height_key = height.to_le_bytes();
                     storage
                         .get_hot_store()
-                        .get(DBCol::BlockHeight, &height_key)?
+                        .get(DBCol::BlockHeight, &height_key)
                         .ok_or_else(|| {
                             anyhow::anyhow!("Failed to find block hash for height {:?}", height)
                         })?
@@ -660,7 +660,7 @@ impl CheckStateRootCmd {
     ) -> std::io::Result<Option<near_store::db::DBSlice<'a>>> {
         // As cold db strips shard_uid at the beginning of State key, we can add any 8 u8s as prefix.
         let cold_state_key = [&[1; 8], trie_key.as_ref()].concat();
-        store.get(DBCol::State, &cold_state_key)
+        Ok(store.get(DBCol::State, &cold_state_key))
     }
 }
 

@@ -157,7 +157,6 @@ fn assert_state_transition_data_is_cleared(
             assert!(
                 store
                     .get(DBCol::StateTransitionData, &get_block_shard_id(&block_hash, *shard_id))
-                    .unwrap()
                     .is_some(),
                 "StateTransitionData missing for shard id {shard_id} and height {height}",
             );

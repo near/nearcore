@@ -1021,7 +1021,7 @@ impl<'a> ChainStoreUpdate<'a> {
         } else {
             store_update.set_ser(DBCol::BlockPerHeight, key, &epoch_to_hashes)?;
         }
-        if self.is_height_processed(height)? {
+        if self.is_height_processed(height) {
             self.gc_col(DBCol::ProcessedBlockHeights, key);
         }
         self.merge(store_update);

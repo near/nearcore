@@ -208,7 +208,6 @@ fn assert_new_chunks_exist(chain_store: &ChainStoreAdapter, tracked_shards: &Has
             assert!(
                 store
                     .get(DBCol::ChunkExtra, &get_block_shard_uid(&block_hash, shard_uid))
-                    .unwrap()
                     .is_some(),
                 "ChunkExtra missing for ShardUId {shard_uid} and height {height}",
             );
