@@ -1,7 +1,7 @@
 use crate::db::refcount::set_refcount;
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database};
 use crate::{DBCol, Store};
-use near_o11y::{log_assert, log_assert_fail};
+use near_o11y::log_assert_fail;
 
 /// A database which provides access to the cold storage.
 ///
@@ -30,39 +30,39 @@ impl ColdDB {
     }
 
     // Checks if the column is the cold db and panics if not.
-    fn log_assert_is_in_colddb(col: DBCol) {
-        log_assert!(col.is_in_colddb(), "{}", Self::err_msg(col));
+    fn assert_is_in_colddb(col: DBCol) {
+        assert!(col.is_in_colddb(), "{}", Self::err_msg(col));
     }
 }
 
 impl Database for ColdDB {
     /// Returns raw bytes for given `key` ignoring any reference count decoding if any.
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
-        Self::log_assert_is_in_colddb(col);
+        Self::assert_is_in_colddb(col);
         self.cold.get_raw_bytes(col, key)
     }
 
     /// Returns value for given `key` forcing a reference count decoding.
     fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
-        Self::log_assert_is_in_colddb(col);
+        Self::assert_is_in_colddb(col);
         self.cold.get_with_rc_stripped(col, key)
     }
 
     /// Iterates over all values in a column.
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        Self::log_assert_is_in_colddb(col);
+        Self::assert_is_in_colddb(col);
         self.cold.iter(col)
     }
 
     /// Iterates over values in a given column whose key has given prefix.
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        Self::log_assert_is_in_colddb(col);
+        Self::assert_is_in_colddb(col);
         self.cold.iter_prefix(col, key_prefix)
     }
 
     /// Iterate over items in given column bypassing reference count decoding if any.
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        Self::log_assert_is_in_colddb(col);
+        Self::assert_is_in_colddb(col);
         self.cold.iter_raw_bytes(col)
     }
 
@@ -73,7 +73,7 @@ impl Database for ColdDB {
         lower_bound: Option<&[u8]>,
         upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
-        Self::log_assert_is_in_colddb(col);
+        Self::assert_is_in_colddb(col);
         self.cold.iter_range(col, lower_bound, upper_bound)
     }
 
