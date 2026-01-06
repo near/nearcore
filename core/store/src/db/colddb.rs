@@ -306,8 +306,7 @@ mod test {
             result.push(col.to_string());
             for (is_raw, db) in dbs {
                 let name = if is_raw { "raw " } else { "cold" };
-                for item in db.iter(col) {
-                    let (key, value) = item;
+                for (key, value) in db.iter(col) {
                     let value = pretty_value(Some(value.as_ref()), false);
                     let key = pretty_key(&key);
                     result.push(format!("[{name}] ({key}, {value})"));
