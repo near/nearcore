@@ -38,9 +38,9 @@ pub fn extend_epoch_sync_proof(
 
     let proof = store.get_epoch_sync_proof()?;
     if let Some(proof) = &proof {
-        let prev_proof_first_block_hash = proof.current_epoch.first_block_header_in_epoch.hash();
-        if prev_proof_first_block_hash == last_block_info.epoch_first_block() {
-            // Proof is already up-to-date. This can happen if we are processing forks
+        let first_block_info = store.get_block_info(last_block_info.epoch_first_block())?;
+        if first_block_info.height() <= proof.current_epoch.first_block_header_in_epoch.height() {
+            // Proof is already up-to-date. This can happen if we are processing forks or catching up after epoch sync.
             return Ok(());
         }
     }
