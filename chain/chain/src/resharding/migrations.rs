@@ -109,7 +109,7 @@ pub fn migrate_46_to_47(
     }
 
     tracing::info!(target: "migrations", "Writing changes to the database");
-    cold_db.write(transaction)?;
+    cold_db.write(transaction);
 
     Ok(())
 }
