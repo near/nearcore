@@ -303,8 +303,7 @@ fn apply_tx_in_chunk(
     let head = chain_store.head()?.height;
     let mut chunk_hashes = vec![];
 
-    for item in store.iter(DBCol::ChunkHashesByHeight) {
-        let (k, v) = item.context("scanning ChunkHashesByHeight column")?;
+    for (k, v) in store.iter(DBCol::ChunkHashesByHeight) {
         let height = BlockHeight::from_le_bytes(k[..].try_into().unwrap());
         if height > head {
             let hashes = HashSet::<ChunkHash>::try_from_slice(&v).unwrap();
@@ -439,8 +438,7 @@ fn apply_receipt_in_chunk(
     let mut to_apply = HashSet::new();
     let mut non_applied_chunks = HashMap::new();
 
-    for item in store.iter(DBCol::ChunkHashesByHeight) {
-        let (k, v) = item.context("scanning ChunkHashesByHeight column")?;
+    for (k, v) in store.iter(DBCol::ChunkHashesByHeight) {
         let height = BlockHeight::from_le_bytes(k[..].try_into().unwrap());
         if height > head {
             let hashes = HashSet::<ChunkHash>::try_from_slice(&v).unwrap();

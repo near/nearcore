@@ -19,15 +19,13 @@ fn test_db_iter() {
         transaction.insert(DBCol::Block, "cc1".into(), "val_cc1".into());
         db.write(transaction);
 
-        let keys: Vec<_> = db
-            .iter(DBCol::Block)
-            .map(|data| String::from_utf8(data.unwrap().0.to_vec()).unwrap())
-            .collect();
+        let keys: Vec<_> =
+            db.iter(DBCol::Block).map(|data| String::from_utf8(data.0.to_vec()).unwrap()).collect();
         assert_eq!(keys, vec!["a", "aa", "aa1", "bb1", "cc1"]);
 
         let keys: Vec<_> = db
             .iter_range(DBCol::Block, Some("aa".as_bytes()), Some("bb1".as_bytes()))
-            .map(|data| String::from_utf8(data.unwrap().0.to_vec()).unwrap())
+            .map(|data| String::from_utf8(data.0.to_vec()).unwrap())
             .collect();
         assert_eq!(keys, vec!["aa", "aa1"]);
     }
