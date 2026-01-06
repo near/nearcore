@@ -9,8 +9,9 @@ pub struct CancellableFutureSpawner {
 }
 
 impl CancellableFutureSpawner {
-    pub(crate) fn new(cancel: CancellationToken) -> Self {
+    pub(crate) fn new(cancel: CancellationToken, thread_name: String) -> Self {
         let runtime = tokio::runtime::Builder::new_multi_thread()
+            .thread_name(thread_name)
             .enable_all()
             .build()
             .expect("Failed to create Tokio runtime");
