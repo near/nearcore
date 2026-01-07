@@ -154,8 +154,8 @@ impl ChainStoreAdapter {
     }
 
     /// Does this full block exist?
-    pub fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
-        self.store.exists(DBCol::Block, h.as_ref()).map_err(|e| e.into())
+    pub fn block_exists(&self, h: &CryptoHash) -> bool {
+        self.store.exists(DBCol::Block, h.as_ref())
     }
 
     /// Get block header.
@@ -306,7 +306,7 @@ impl ChainStoreAdapter {
     }
 
     pub fn is_height_processed(&self, height: BlockHeight) -> bool {
-        self.store.exists(DBCol::ProcessedBlockHeights, &index_to_bytes(height)).unwrap()
+        self.store.exists(DBCol::ProcessedBlockHeights, &index_to_bytes(height))
     }
 
     pub fn get_outcome_by_id_and_block_hash(

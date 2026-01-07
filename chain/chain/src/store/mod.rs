@@ -103,11 +103,11 @@ pub trait ChainStoreAccess {
     /// Get partial chunk.
     fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error>;
     /// Does this full block exist?
-    fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
+    fn block_exists(&self, h: &CryptoHash) -> bool;
     /// Does this chunk exist?
-    fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
+    fn chunk_exists(&self, h: &ChunkHash) -> bool;
     /// Does this partial chunk exist?
-    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
+    fn partial_chunk_exists(&self, h: &ChunkHash) -> bool;
     /// Get previous header.
     fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error>;
     /// Get chunk extra info for given block hash + shard id.
@@ -146,7 +146,7 @@ pub trait ChainStoreAccess {
         for height in tail + 1..=head_header_height {
             if let Ok(block_hash) = self.get_block_hash_by_height(height) {
                 let earliest_block_hash = *self.get_block_header(&block_hash)?.prev_hash();
-                debug_assert!(matches!(self.block_exists(&earliest_block_hash), Ok(true)));
+                debug_assert!(self.block_exists(&earliest_block_hash));
                 return Ok(Some(earliest_block_hash));
             }
         }
@@ -928,15 +928,15 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Does this full block exist?
-    fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
+    fn block_exists(&self, h: &CryptoHash) -> bool {
         ChainStoreAdapter::block_exists(self, h)
     }
 
-    fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
+    fn chunk_exists(&self, h: &ChunkHash) -> bool {
         self.chunk_store().chunk_exists(h)
     }
 
-    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
+    fn partial_chunk_exists(&self, h: &ChunkHash) -> bool {
         self.chunk_store().partial_chunk_exists(h)
     }
 
@@ -1254,23 +1254,22 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     /// Does this full block exist?
-    fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
+    fn block_exists(&self, h: &CryptoHash) -> bool {
         if let Some(block) = &self.chain_store_cache_update.block {
             if block.hash() == h {
-                return Ok(true);
+                return true;
             }
         }
         self.chain_store.block_exists(h)
     }
 
-    fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        Ok(self.chain_store_cache_update.chunks.contains_key(h)
-            || self.chain_store.chunk_exists(h)?)
+    fn chunk_exists(&self, h: &ChunkHash) -> bool {
+        self.chain_store_cache_update.chunks.contains_key(h) || self.chain_store.chunk_exists(h)
     }
 
-    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        Ok(self.chain_store_cache_update.partial_chunks.contains_key(h)
-            || self.chain_store.partial_chunk_exists(h)?)
+    fn partial_chunk_exists(&self, h: &ChunkHash) -> bool {
+        self.chain_store_cache_update.partial_chunks.contains_key(h)
+            || self.chain_store.partial_chunk_exists(h)
     }
 
     /// Get previous header.
@@ -1957,7 +1956,7 @@ impl<'a> ChainStoreUpdate<'a> {
             let mut chunk_hashes_by_height: HashMap<BlockHeight, HashSet<ChunkHash>> =
                 HashMap::new();
             for (chunk_hash, chunk) in &self.chain_store_cache_update.chunks {
-                if self.chain_store.chunk_exists(chunk_hash)? {
+                if self.chain_store.chunk_exists(chunk_hash) {
                     // No need to add same Chunk once again
                     continue;
                 }

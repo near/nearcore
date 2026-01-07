@@ -34,11 +34,9 @@ impl FlatStoreAdapter {
         FlatStoreUpdateAdapter { store_update: StoreUpdateHolder::Owned(self.store.store_update()) }
     }
 
-    pub fn exists(&self, shard_uid: ShardUId, key: &[u8]) -> Result<bool, FlatStorageError> {
+    pub fn exists(&self, shard_uid: ShardUId, key: &[u8]) -> bool {
         let db_key = encode_flat_state_db_key(shard_uid, key);
-        self.store.exists(DBCol::FlatState, &db_key).map_err(|err| {
-            FlatStorageError::StorageInternalError(format!("failed to read FlatState value: {err}"))
-        })
+        self.store.exists(DBCol::FlatState, &db_key)
     }
 
     pub fn get(
