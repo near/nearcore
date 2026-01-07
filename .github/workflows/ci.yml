@@ -37,6 +37,7 @@ jobs:
             os: warp-ubuntu-2204-x64-16x
             type: spice
             # We disable profraws upload because it causes Github runners to run out of space.
+            # This in turns prevents us from having coverage data for testing with spice.
             upload_profraws: false
             run_on_pr: true
           - name: Linux Nightly
