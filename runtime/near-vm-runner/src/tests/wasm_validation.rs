@@ -140,8 +140,8 @@ fn extension_saturating_float_to_int() {
         ])
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-                Err: PrepareError: Error happened while deserializing the module.
+                VMOutcome: balance 0 storage_usage 0 return data None burnt gas 0 used gas 0
+                Err: MethodNotFound
             "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100803663 used gas 100803663
