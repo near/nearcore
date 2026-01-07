@@ -35,22 +35,6 @@ struct ValidatorsFirstShardAssignmentItem {
 }
 
 type ValidatorsFirstShardAssignment = MinHeap<ValidatorsFirstShardAssignmentItem>;
-
-/// A helper struct to maintain the shard assignment sorted by the stake
-/// assigned to each shard.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct StakeFirstShardAssignmentItem {
-    stake: Balance,
-    validators: usize,
-    shard_index: ShardIndex,
-}
-
-impl From<ValidatorsFirstShardAssignmentItem> for StakeFirstShardAssignmentItem {
-    fn from(v: ValidatorsFirstShardAssignmentItem) -> Self {
-        Self { validators: v.validators, stake: v.stake, shard_index: v.shard_index }
-    }
-}
-
 fn assign_to_satisfy_shards_inner<T: HasStake + Eq, I: Iterator<Item = (usize, T)>>(
     shard_assignment: &mut ValidatorsFirstShardAssignment,
     result: &mut Vec<Vec<T>>,
