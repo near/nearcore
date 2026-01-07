@@ -135,11 +135,11 @@ fn test_bad_shard_id() {
     let chunk = chunks.get(0).unwrap();
     let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
     let congestion_info = CongestionInfo::default();
-    // This is needed because calling prev_state_root() on spice header causes panic
-    let prev_state_root = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        Default::default()
+    // This is needed because calling prev_state_root() or gas_limit() on spice header causes panic
+    let (prev_state_root, gas_limit) = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        (Default::default(), Gas::ZERO)
     } else {
-        chunk.prev_state_root()
+        (chunk.prev_state_root(), chunk.gas_limit())
     };
     let mut modified_chunk = ShardChunkHeaderV3::new(
         *chunk.prev_block_hash(),
@@ -150,7 +150,7 @@ fn test_bad_shard_id() {
         2,
         ShardId::new(1),
         chunk.prev_gas_used(),
-        chunk.gas_limit(),
+        gas_limit,
         chunk.prev_balance_burnt(),
         *outgoing_receipts_root,
         *chunk.tx_root(),

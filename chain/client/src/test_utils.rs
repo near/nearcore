@@ -13,6 +13,7 @@ use near_chain::{ApplyChunksIterationMode, ChainStoreAccess, Provenance};
 use near_client_primitives::types::Error;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
+use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::optimistic_block::BlockToApply;
@@ -190,11 +191,11 @@ pub fn create_chunk(
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
 
         let header = encoded_chunk.cloned_header();
-        // This is needed because calling prev_state_root() on spice header causes panic
-        let prev_state_root = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-            Default::default()
+        // This is needed because calling prev_state_root() or gas_limit() on spice header causes panic
+        let (prev_state_root, gas_limit) = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            (Default::default(), Gas::ZERO)
         } else {
-            header.prev_state_root()
+            (header.prev_state_root(), header.gas_limit())
         };
         let (new_chunk, mut new_merkle_paths) = ShardChunkWithEncoding::new(
             *header.prev_block_hash(),
@@ -203,7 +204,7 @@ pub fn create_chunk(
             header.height_created(),
             header.shard_id(),
             header.prev_gas_used(),
-            header.gas_limit(),
+            gas_limit,
             header.prev_balance_burnt(),
             header.prev_validator_proposals().collect(),
             validated_txs,
