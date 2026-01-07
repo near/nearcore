@@ -224,7 +224,7 @@ impl BlockSync {
                     _ => return Err(e),
                 },
             };
-            if let BlockKnowledge::Known(err) = chain.check_block_known(&next_hash)? {
+            if let BlockKnowledge::Known(err) = chain.check_block_known(&next_hash) {
                 tracing::debug!(
                     target: "sync",
                     block_hash = ?next_hash,
