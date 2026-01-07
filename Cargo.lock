@@ -8045,6 +8045,7 @@ dependencies = [
  "assert_matches",
  "borsh",
  "bytesize 1.1.0",
+ "cold-store-tool",
  "derive_builder",
  "futures",
  "itertools 0.14.0",

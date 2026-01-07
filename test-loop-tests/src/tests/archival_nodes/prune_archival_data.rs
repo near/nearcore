@@ -5,16 +5,16 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_client::{GetExecutionOutcomesForBlock, TxStatus};
+use near_cold_store_tool::prune_transaction_results;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockHeight, EpochHeight};
+use near_primitives::types::{AccountId, Balance, EpochHeight};
 use near_primitives::utils::get_outcome_id_block_hash_rev;
 use near_primitives::views::{FinalExecutionOutcomeViewEnum, TxExecutionStatus, TxStatusView};
 use near_store::adapter::StoreAdapter;
-use near_store::{DBCol, Store};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -68,7 +68,8 @@ fn test_prune_archival_data() {
     let cold_store = env.test_loop.data.get(&cold_store_actor_handle).get_cold_db().as_store();
 
     let prune_height = GC_NUM_EPOCHS_TO_KEEP * EPOCH_LENGTH;
-    let (pruned_outcomes, remaining_outcomes) = prune_data(&hot_store, &cold_store, prune_height);
+    let (pruned_outcomes, remaining_outcomes) =
+        prune_transaction_results(&hot_store, &cold_store, prune_height).unwrap();
     verify_prune_data(
         &mut env.test_loop.data,
         &archival_node,
@@ -109,30 +110,6 @@ fn submit_transactions(
         node.submit_tx(tx);
     }
     tx_hash_to_signer
-}
-
-fn prune_data(
-    hot_store: &Store,
-    cold_store: &Store,
-    prune_height: BlockHeight,
-) -> (HashSet<Box<[u8]>>, HashSet<Box<[u8]>>) {
-    let col = DBCol::TransactionResultForBlock;
-    let mut cold_store_update = cold_store.store_update();
-    let mut pruned_outcomes = HashSet::new();
-    let mut remaining_outcomes = HashSet::new();
-    for kv in cold_store.iter(col) {
-        let (key, _value) = kv.unwrap();
-        let (_outcome_id, block_hash) = get_outcome_id_block_hash_rev(&key).unwrap();
-        let block_height = hot_store.chain_store().get_block_height(&block_hash).unwrap();
-        if block_height < prune_height {
-            cold_store_update.delete(col, &key);
-            pruned_outcomes.insert(key);
-        } else {
-            remaining_outcomes.insert(key);
-        }
-    }
-    cold_store_update.commit().unwrap();
-    (pruned_outcomes, remaining_outcomes)
 }
 
 fn verify_prune_data(

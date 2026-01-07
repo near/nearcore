@@ -8,12 +8,16 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::block::Tip;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::BlockHeight;
+use near_primitives::utils::get_outcome_id_block_hash_rev;
+use near_store::adapter::StoreAdapter;
 use near_store::archive::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::db::metadata::DbKind;
 use near_store::{COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY};
 use near_store::{DBCol, NodeStorage, Store, StoreOpener};
 use nearcore::NearConfig;
 use rand::seq::SliceRandom;
+use std::collections::HashSet;
 use std::io::Result;
 use std::path::Path;
 use strum::IntoEnumIterator;
@@ -57,6 +61,8 @@ enum SubCommand {
     /// Modifies cold db from config to be considered not initialized.
     /// Doesn't actually delete any data, except for HEAD and COLD_HEAD in BlockMisc.
     ResetCold(ResetColdCmd),
+    /// Deletes transaction results for blocks older than given threshold.
+    PruneTransactionResults(PruneTransactionResultsCmd),
 }
 
 impl ColdStoreCommand {
@@ -96,6 +102,7 @@ impl ColdStoreCommand {
             SubCommand::PrepareHot(cmd) => cmd.run(&storage, &home_dir, &near_config),
             SubCommand::CheckStateRoot(cmd) => cmd.run(&storage),
             SubCommand::ResetCold(cmd) => cmd.run(&storage),
+            SubCommand::PruneTransactionResults(cmd) => cmd.run(&storage),
         }
     }
 
@@ -680,4 +687,54 @@ impl ResetColdCmd {
         store_update.commit()?;
         Ok(())
     }
+}
+
+#[derive(clap::Args)]
+struct PruneTransactionResultsCmd {
+    height: BlockHeight,
+}
+
+impl PruneTransactionResultsCmd {
+    pub fn run(self, storage: &NodeStorage) -> anyhow::Result<()> {
+        let hot_store = storage.get_hot_store();
+        let cold_store = storage
+            .get_cold_store()
+            .ok_or_else(|| anyhow::anyhow!("Cold storage is not configured"))?;
+        println!("Pruning transactions results from cold DB ...");
+        let (pruned, left) = prune_transaction_results(&hot_store, &cold_store, self.height)?;
+        println!("Pruned {} outcomes, left {} outcomes.", pruned.len(), left.len());
+        Ok(())
+    }
+}
+
+pub fn prune_transaction_results(
+    hot_store: &Store,
+    cold_store: &Store,
+    prune_height: BlockHeight,
+) -> anyhow::Result<(HashSet<Box<[u8]>>, HashSet<Box<[u8]>>)> {
+    let col = DBCol::TransactionResultForBlock;
+    let mut cold_store_update = cold_store.store_update();
+    let mut pruned_outcomes = HashSet::new();
+    let mut remaining_outcomes = HashSet::new();
+    let mut last_key_prefix = None;
+    for kv in cold_store.iter(col) {
+        let (key, _value) = kv?;
+        let (_outcome_id, block_hash) = get_outcome_id_block_hash_rev(&key)?;
+        let Some(key_prefix) = key.first() else {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid key length"))?;
+        };
+        if last_key_prefix.is_none_or(|c| &c != key_prefix) {
+            last_key_prefix = Some(*key_prefix);
+            tracing::info!("Pruning keys with prefix: {}", key_prefix);
+        }
+        let block_height = hot_store.chain_store().get_block_height(&block_hash)?;
+        if block_height < prune_height {
+            cold_store_update.delete(col, &key);
+            pruned_outcomes.insert(key);
+        } else {
+            remaining_outcomes.insert(key);
+        }
+    }
+    cold_store_update.commit()?;
+    Ok((pruned_outcomes, remaining_outcomes))
 }
