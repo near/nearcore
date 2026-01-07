@@ -81,7 +81,7 @@ jobs:
 
       # Install all the required tools
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
-        uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+        uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just,cargo-nextest,cargo-llvm-cov
 
@@ -157,7 +157,7 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: cargo-llvm-cov
       - run: pip3 install --user -r pytest/requirements.txt
@@ -205,7 +205,7 @@ jobs:
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - run: just check-protocol-schema
@@ -217,7 +217,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - uses: actions/setup-python@v5
@@ -234,7 +234,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - run: just check-cargo-fmt
@@ -264,7 +264,7 @@ jobs:
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - run: just check-cargo-clippy
@@ -294,7 +294,7 @@ jobs:
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - run: just doctests
@@ -305,7 +305,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - run: npm install -g cspell
@@ -318,7 +318,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just,cargo-deny
       - run: just check-cargo-deny
@@ -330,7 +330,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - run: just check-themis
@@ -342,7 +342,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just,cargo-machete
       - run: just check-cargo-machete
@@ -372,7 +372,7 @@ jobs:
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - run: just check-non-default
@@ -402,7 +402,7 @@ jobs:
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just,cargo-udeps
       - run: just check-cargo-udeps
@@ -414,7 +414,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: cargo-audit
       - run: cargo audit -D warnings
@@ -440,7 +440,7 @@ jobs:
           pattern: coverage-profraw-*
           path: coverage/profraw
           merge-multiple: true
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: cargo-llvm-cov
       - uses: actions/setup-python@v5
@@ -547,7 +547,7 @@ jobs:
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         if: steps.run-job.outcome == 'success'
         with:
           tool: just
@@ -564,7 +564,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - run: just openapi-spec

@@ -75,6 +75,7 @@ skip = [
     { name = "hashbrown", version = "0.12.0" },
     { name = "hashbrown", version = "0.13.2" },
     { name = "hashbrown", version = "0.14.5" },
+    { name = "hashbrown", version = "0.15.2" },
     { name = "zerocopy", version = "^0.7" },
 
     # Bolero requires a newer version and the rest of the ecosystem hasn't caught up yet.
