@@ -352,6 +352,17 @@ fn validate_action_receipt(
         });
     }
 
+    if matches!(receipt, VersionedActionReceipt::V2(_))
+        && !ProtocolFeature::DeterministicAccountIds.enabled(current_protocol_version)
+    {
+        return Err(ReceiptValidationError::ActionsValidation(
+            ActionsValidationError::UnsupportedProtocolFeature {
+                protocol_feature: "DeterministicAccountIds".to_owned(),
+                version: current_protocol_version,
+            },
+        ));
+    }
+
     if let Some(account_id) = receipt.refund_to() {
         AccountId::validate(account_id.as_ref()).map_err(|_| {
             ReceiptValidationError::InvalidRefundTo { account_id: account_id.to_string() }
