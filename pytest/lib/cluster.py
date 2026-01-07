@@ -1120,8 +1120,25 @@ def configure_cold_storage_for_archival_node(node_dir: str):
         json.dump(config_json, fd, indent=2)
 
 
+def update_transaction_validity_period_in_genesis(
+        genesis_config_changes: GenesisConfigChanges):
+    """ Function to override the transaction_validity_period to epoch_length * 2 """
+    epoch_length = None
+    has_transaction_validity_period = False
+    for [config, value] in genesis_config_changes:
+        if config == "epoch_length":
+            epoch_length = value
+        if config == "transaction_validity_period":
+            has_transaction_validity_period = True
+    if epoch_length is not None and not has_transaction_validity_period:
+        # Set transaction_validity_period to be equal to epoch_length
+        genesis_config_changes.append(
+            ["transaction_validity_period", epoch_length * 2])
+
+
 def apply_genesis_changes(node_dir: str,
                           genesis_config_changes: GenesisConfigChanges):
+    update_transaction_validity_period_in_genesis(genesis_config_changes)
     # apply genesis.json changes
     fname = os.path.join(node_dir, 'genesis.json')
     with open(fname) as fd:
