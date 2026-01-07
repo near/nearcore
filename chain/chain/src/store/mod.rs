@@ -2,7 +2,6 @@ use crate::types::{Block, BlockHeader, LatestKnown};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 pub use latest_witnesses::LatestWitnessesInfo;
-pub use merkle_proof::MerkleProofAccess;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
@@ -38,7 +37,10 @@ use near_primitives::utils::{
 use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::db::{GC_STOP_HEIGHT_KEY, STATE_SYNC_DUMP_KEY, StoreStatistics};
+use near_store::db::{
+    GC_STOP_HEIGHT_KEY, SPICE_EXECUTION_HEAD_KEY, SPICE_FINAL_EXECUTION_HEAD_KEY,
+    STATE_SYNC_DUMP_KEY, StoreStatistics,
+};
 use near_store::{
     CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
     KeyForStateChanges, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, PartialStorage, Store,
@@ -52,7 +54,6 @@ use std::sync::Arc;
 use utils::{check_transaction_validity_period, early_prepare_txs_check_validity_period};
 
 pub mod latest_witnesses;
-mod merkle_proof;
 pub mod utils;
 
 /// Filter receipts mode for incoming receipts collection.
@@ -87,20 +88,26 @@ pub trait ChainStoreAccess {
     fn head_header(&self) -> Result<Arc<BlockHeader>, Error>;
     /// The chain final head. It is guaranteed to be monotonically increasing.
     fn final_head(&self) -> Result<Arc<Tip>, Error>;
+    /// Last final block of the chain that we executed.
+    fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error>;
+    /// Last block of the chain that we executed.
+    fn spice_execution_head(&self) -> Result<Arc<Tip>, Error>;
     /// Largest approval target height sent by us
     fn largest_target_height(&self) -> Result<BlockHeight, Error>;
     /// Stop height observed during the last garbage collection iteration.
     fn gc_stop_height(&self) -> Result<BlockHeight, Error>;
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error>;
+    /// Get full chunk.
+    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error>;
     /// Get partial chunk.
     fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error>;
     /// Does this full block exist?
-    fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
+    fn block_exists(&self, h: &CryptoHash) -> bool;
     /// Does this chunk exist?
-    fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
+    fn chunk_exists(&self, h: &ChunkHash) -> bool;
     /// Does this partial chunk exist?
-    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error>;
+    fn partial_chunk_exists(&self, h: &ChunkHash) -> bool;
     /// Get previous header.
     fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error>;
     /// Get chunk extra info for given block hash + shard id.
@@ -139,7 +146,7 @@ pub trait ChainStoreAccess {
         for height in tail + 1..=head_header_height {
             if let Ok(block_hash) = self.get_block_hash_by_height(height) {
                 let earliest_block_hash = *self.get_block_header(&block_hash)?.prev_hash();
-                debug_assert!(matches!(self.block_exists(&earliest_block_hash), Ok(true)));
+                debug_assert!(self.block_exists(&earliest_block_hash));
                 return Ok(Some(earliest_block_hash));
             }
         }
@@ -199,7 +206,7 @@ pub trait ChainStoreAccess {
 
     fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error>;
 
-    fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error>;
+    fn is_height_processed(&self, height: BlockHeight) -> bool;
 
     fn get_block_height(&self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
         if hash == &CryptoHash::default() {
@@ -274,6 +281,8 @@ pub struct ChainStore {
     save_trie_changes: bool,
     /// Whether to persist transaction outcomes on disk or not.
     save_tx_outcomes: bool,
+    /// Whether to persist state changes on disk or not.
+    save_state_changes: bool,
     /// The maximum number of blocks for which a transaction is valid since its creation.
     pub(super) transaction_validity_period: BlockHeightDelta,
 }
@@ -307,12 +316,17 @@ impl ChainStore {
             store: store.chain_store(),
             save_trie_changes,
             save_tx_outcomes: true,
+            save_state_changes: true,
             transaction_validity_period,
         }
     }
 
     pub fn with_save_tx_outcomes(self, save_tx_outcomes: bool) -> ChainStore {
         ChainStore { save_tx_outcomes, ..self }
+    }
+
+    pub fn with_save_state_changes(self, save_state_changes: bool) -> ChainStore {
+        ChainStore { save_state_changes, ..self }
     }
 
     pub fn store_update(&mut self) -> ChainStoreUpdate<'_> {
@@ -323,8 +337,8 @@ impl ChainStore {
         self.store
             .store()
             .iter(DBCol::StateDlInfos)
-            .map(|item| match item {
-                Ok((k, v)) => Ok((
+            .map(|(k, v)| {
+                Ok((
                     CryptoHash::try_from(k.as_ref()).map_err(|_| {
                         std::io::Error::new(
                             std::io::ErrorKind::InvalidData,
@@ -332,8 +346,7 @@ impl ChainStore {
                         )
                     })?,
                     StateSyncInfo::try_from_slice(v.as_ref())?,
-                )),
-                Err(err) => Err(err.into()),
+                ))
             })
             .collect()
     }
@@ -889,27 +902,42 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::final_head(self)
     }
 
+    /// Spice final head execution head.
+    fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error> {
+        ChainStoreAdapter::spice_final_execution_head(self)
+    }
+
+    /// Spice execution head.
+    fn spice_execution_head(&self) -> Result<Arc<Tip>, Error> {
+        ChainStoreAdapter::spice_execution_head(self)
+    }
+
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error> {
         ChainStoreAdapter::get_block(self, h)
     }
 
+    /// Get full chunk.
+    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error> {
+        self.chunk_store().get_chunk(chunk_hash).map_err(Into::into)
+    }
+
     /// Get partial chunk.
     fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error> {
-        ChainStoreAdapter::get_partial_chunk(self, chunk_hash)
+        self.chunk_store().get_partial_chunk(chunk_hash).map_err(Into::into)
     }
 
     /// Does this full block exist?
-    fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
+    fn block_exists(&self, h: &CryptoHash) -> bool {
         ChainStoreAdapter::block_exists(self, h)
     }
 
-    fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        ChainStoreAdapter::chunk_exists(self, h)
+    fn chunk_exists(&self, h: &ChunkHash) -> bool {
+        self.chunk_store().chunk_exists(h)
     }
 
-    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        ChainStoreAdapter::partial_chunk_exists(self, h)
+    fn partial_chunk_exists(&self, h: &ChunkHash) -> bool {
+        self.chunk_store().partial_chunk_exists(h)
     }
 
     /// Get previous header.
@@ -923,7 +951,7 @@ impl ChainStoreAccess for ChainStore {
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
     ) -> Result<Arc<ChunkExtra>, Error> {
-        ChainStoreAdapter::get_chunk_extra(self, block_hash, shard_uid)
+        self.chunk_store().get_chunk_extra(block_hash, shard_uid)
     }
 
     fn get_chunk_apply_stats(
@@ -931,7 +959,7 @@ impl ChainStoreAccess for ChainStore {
         block_hash: &CryptoHash,
         shard_id: &ShardId,
     ) -> Result<Option<ChunkApplyStats>, Error> {
-        ChainStoreAdapter::get_chunk_apply_stats(&self, block_hash, shard_id)
+        self.chunk_store().get_chunk_apply_stats(block_hash, shard_id)
     }
 
     /// Get block header.
@@ -985,7 +1013,7 @@ impl ChainStoreAccess for ChainStore {
         &self,
         chunk_hash: &ChunkHash,
     ) -> Result<Option<Arc<EncodedShardChunk>>, Error> {
-        ChainStoreAdapter::is_invalid_chunk(self, chunk_hash)
+        self.chunk_store().is_invalid_chunk(chunk_hash)
     }
 
     fn get_transaction(
@@ -1014,7 +1042,7 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_block_hash_from_ordinal(self, block_ordinal)
     }
 
-    fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error> {
+    fn is_height_processed(&self, height: BlockHeight) -> bool {
         ChainStoreAdapter::is_height_processed(self, height)
     }
 
@@ -1060,6 +1088,8 @@ pub struct ChainStoreUpdate<'a> {
     fork_tail: Option<BlockHeight>,
     header_head: Option<Arc<Tip>>,
     final_head: Option<Arc<Tip>>,
+    spice_final_execution_head: Option<Arc<Tip>>,
+    spice_execution_head: Option<Arc<Tip>>,
     largest_target_height: Option<BlockHeight>,
     gc_stop_height: Option<BlockHeight>,
     trie_changes: Vec<(CryptoHash, WrappedTrieChanges)>,
@@ -1086,6 +1116,8 @@ impl<'a> ChainStoreUpdate<'a> {
             fork_tail: None,
             header_head: None,
             final_head: None,
+            spice_final_execution_head: None,
+            spice_execution_head: None,
             largest_target_height: None,
             gc_stop_height: None,
             trie_changes: vec![],
@@ -1165,6 +1197,22 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
+    fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error> {
+        if let Some(final_execution_head) = self.spice_final_execution_head.as_ref() {
+            Ok(final_execution_head.clone())
+        } else {
+            self.chain_store.spice_final_execution_head()
+        }
+    }
+
+    fn spice_execution_head(&self) -> Result<Arc<Tip>, Error> {
+        if let Some(execution_head) = self.spice_execution_head.as_ref() {
+            Ok(execution_head.clone())
+        } else {
+            self.chain_store.spice_execution_head()
+        }
+    }
+
     fn largest_target_height(&self) -> Result<BlockHeight, Error> {
         if let Some(largest_target_height) = &self.largest_target_height {
             Ok(*largest_target_height)
@@ -1196,24 +1244,32 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.get_block(h)
     }
 
+    /// Get full chunk.
+    fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<ShardChunk, Error> {
+        if let Some(arced_chunk) = self.chain_store_cache_update.chunks.get(chunk_hash) {
+            Ok(ShardChunk::from(arced_chunk.as_ref()))
+        } else {
+            self.chain_store.get_chunk(chunk_hash)
+        }
+    }
+
     /// Does this full block exist?
-    fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
+    fn block_exists(&self, h: &CryptoHash) -> bool {
         if let Some(block) = &self.chain_store_cache_update.block {
             if block.hash() == h {
-                return Ok(true);
+                return true;
             }
         }
         self.chain_store.block_exists(h)
     }
 
-    fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        Ok(self.chain_store_cache_update.chunks.contains_key(h)
-            || self.chain_store.chunk_exists(h)?)
+    fn chunk_exists(&self, h: &ChunkHash) -> bool {
+        self.chain_store_cache_update.chunks.contains_key(h) || self.chain_store.chunk_exists(h)
     }
 
-    fn partial_chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        Ok(self.chain_store_cache_update.partial_chunks.contains_key(h)
-            || self.chain_store.partial_chunk_exists(h)?)
+    fn partial_chunk_exists(&self, h: &ChunkHash) -> bool {
+        self.chain_store_cache_update.partial_chunks.contains_key(h)
+            || self.chain_store.partial_chunk_exists(h)
     }
 
     /// Get previous header.
@@ -1404,9 +1460,9 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error> {
+    fn is_height_processed(&self, height: BlockHeight) -> bool {
         if self.chain_store_cache_update.processed_block_heights.contains(&height) {
-            Ok(true)
+            true
         } else {
             self.chain_store.is_height_processed(height)
         }
@@ -1433,6 +1489,16 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn save_final_head(&mut self, t: &Tip) -> Result<(), Error> {
         self.final_head = Some(t.clone().into());
+        Ok(())
+    }
+
+    pub fn save_spice_final_execution_head(&mut self, t: &Tip) -> Result<(), Error> {
+        self.spice_final_execution_head = Some(t.clone().into());
+        Ok(())
+    }
+
+    pub fn save_spice_execution_head(&mut self, t: Tip) -> Result<(), Error> {
+        self.spice_execution_head = Some(t.into());
         Ok(())
     }
 
@@ -1803,6 +1869,16 @@ impl<'a> ChainStoreUpdate<'a> {
             Self::write_col_misc(&mut store_update, FINAL_HEAD_KEY, &mut self.final_head)?;
             Self::write_col_misc(
                 &mut store_update,
+                SPICE_FINAL_EXECUTION_HEAD_KEY,
+                &mut self.spice_final_execution_head,
+            )?;
+            Self::write_col_misc(
+                &mut store_update,
+                SPICE_EXECUTION_HEAD_KEY,
+                &mut self.spice_execution_head,
+            )?;
+            Self::write_col_misc(
+                &mut store_update,
                 LARGEST_TARGET_HEIGHT_KEY,
                 &mut self.largest_target_height,
             )?;
@@ -1880,7 +1956,7 @@ impl<'a> ChainStoreUpdate<'a> {
             let mut chunk_hashes_by_height: HashMap<BlockHeight, HashSet<ChunkHash>> =
                 HashMap::new();
             for (chunk_hash, chunk) in &self.chain_store_cache_update.chunks {
-                if self.chain_store.chunk_exists(chunk_hash)? {
+                if self.chain_store.chunk_exists(chunk_hash) {
                     // No need to add same Chunk once again
                     continue;
                 }
@@ -1891,8 +1967,9 @@ impl<'a> ChainStoreUpdate<'a> {
                         entry.get_mut().insert(chunk_hash.clone());
                     }
                     Entry::Vacant(entry) => {
+                        let chunk_store = self.chain_store.chunk_store();
                         let mut hash_set =
-                            match self.chain_store.get_all_chunk_hashes_by_height(height_created) {
+                            match chunk_store.get_all_chunk_hashes_by_height(height_created) {
                                 Ok(hash_set) => hash_set.clone(),
                                 Err(_) => HashSet::new(),
                             };
@@ -2032,8 +2109,11 @@ impl<'a> ChainStoreUpdate<'a> {
                 wrapped_trie_changes.apply_mem_changes();
                 wrapped_trie_changes.insertions_into(&mut store_update.trie_store_update());
                 wrapped_trie_changes.deletions_into(&mut deletions_store_update);
-                wrapped_trie_changes
-                    .state_changes_into(&block_hash, &mut store_update.trie_store_update());
+
+                if self.chain_store.save_state_changes {
+                    wrapped_trie_changes
+                        .state_changes_into(&block_hash, &mut store_update.trie_store_update());
+                }
 
                 if self.chain_store.save_trie_changes {
                     wrapped_trie_changes
@@ -2158,12 +2238,20 @@ impl<'a> ChainStoreUpdate<'a> {
 #[cfg(test)]
 mod tests {
     use near_async::time::Clock;
+    use near_primitives::types::BlockHeightDelta;
     use std::sync::Arc;
 
+    use crate::Chain;
     use crate::test_utils::get_chain;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::test_utils::TestBlockBuilder;
     use near_primitives::test_utils::create_test_signer;
+
+    impl Chain {
+        pub fn set_transaction_validity_period(&mut self, to: BlockHeightDelta) {
+            self.chain_store.transaction_validity_period = to;
+        }
+    }
 
     #[test]
     fn test_tx_validity_long_fork() {
@@ -2171,7 +2259,8 @@ mod tests {
         chain.set_transaction_validity_period(5);
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
-        let short_fork = [TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build()];
+        let short_fork =
+            [TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build()];
         let mut store_update = chain.mut_chain_store().store_update();
         store_update.save_block_header(short_fork[0].header().clone()).unwrap();
         store_update.commit().unwrap();
@@ -2199,7 +2288,9 @@ mod tests {
         for i in 1..(chain.transaction_validity_period() + 3) {
             let mut store_update = chain.mut_chain_store().store_update();
             let block =
-                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
+                TestBlockBuilder::from_prev_block(Clock::real(), &prev_block, signer.clone())
+                    .height(i)
+                    .build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             store_update.update_height(block.header().height(), *block.hash()).unwrap();
@@ -2253,7 +2344,9 @@ mod tests {
         for i in 1..(chain.transaction_validity_period() + 2) {
             let mut store_update = chain.mut_chain_store().store_update();
             let block =
-                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
+                TestBlockBuilder::from_prev_block(Clock::real(), &prev_block, signer.clone())
+                    .height(i)
+                    .build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             store_update.update_height(block.header().height(), *block.hash()).unwrap();
@@ -2278,9 +2371,10 @@ mod tests {
                 )
                 .is_ok()
         );
-        let new_block = TestBlockBuilder::new(Clock::real(), &blocks.last().unwrap(), signer)
-            .height(chain.transaction_validity_period() + 3)
-            .build();
+        let new_block =
+            TestBlockBuilder::from_prev_block(Clock::real(), &blocks.last().unwrap(), signer)
+                .height(chain.transaction_validity_period() + 3)
+                .build();
 
         let mut store_update = chain.mut_chain_store().store_update();
         store_update.save_block_header(new_block.header().clone()).unwrap();
@@ -2314,7 +2408,9 @@ mod tests {
         for i in 1..(chain.transaction_validity_period() + 2) {
             let mut store_update = chain.mut_chain_store().store_update();
             let block =
-                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
+                TestBlockBuilder::from_prev_block(Clock::real(), &prev_block, signer.clone())
+                    .height(i)
+                    .build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             short_fork.push(block);
@@ -2342,7 +2438,9 @@ mod tests {
         for i in 1..(chain.transaction_validity_period() * 5) {
             let mut store_update = chain.mut_chain_store().store_update();
             let block =
-                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
+                TestBlockBuilder::from_prev_block(Clock::real(), &prev_block, signer.clone())
+                    .height(i)
+                    .build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             long_fork.push(block);

@@ -45,6 +45,8 @@ fn get_builder(num_shards: usize) -> TestLoopBuilder {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_optimistic_block() {
     let num_shards = 3;
     let mut env: TestLoopEnv = get_builder(num_shards).build().warmup();
@@ -195,6 +197,8 @@ fn get_height_to_skip_and_producers(
 
 #[test]
 /// Test that the optimistic block production does not break after a missing block.
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_optimistic_block_after_missing_block() {
     let num_shards = 3;
     let mut env: TestLoopEnv = get_builder(num_shards).build().warmup();
@@ -202,7 +206,7 @@ fn test_optimistic_block_after_missing_block() {
     env.test_loop.run_for(Duration::seconds(10));
 
     let (height_to_skip, producer, next_producer) = get_height_to_skip_and_producers(&env);
-    tracing::info!(target: "test", ?height_to_skip, ?producer, "Skipping block at height");
+    tracing::info!(target: "test", ?height_to_skip, ?producer, "skipping block at height");
     env = env.drop(DropCondition::BlocksByHeight([height_to_skip].into_iter().collect()));
 
     let client_handle = &env
@@ -286,6 +290,8 @@ fn get_hit_count_and_height(env: &TestLoopEnv, producer: &ValidatorStake) -> (us
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[cfg(feature = "test_features")]
 /// Test that the optimistic block outcome is dropped on other nodes when
 /// the optimistic block content is different than the block.
@@ -299,7 +305,7 @@ fn test_optimistic_block_with_invalidated_outcome() {
 
     let (height_to_skip, producer, next_producer) = get_height_to_skip_and_producers(&env);
 
-    tracing::info!(target: "test", ?height_to_skip, ?producer, "Alter optimistic block at height");
+    tracing::info!(target: "test", ?height_to_skip, ?producer, "alter optimistic block at height");
 
     let producer_client_handle = &env
         .get_node_data_by_account_id(producer.account_id())

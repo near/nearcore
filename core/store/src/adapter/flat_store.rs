@@ -34,11 +34,9 @@ impl FlatStoreAdapter {
         FlatStoreUpdateAdapter { store_update: StoreUpdateHolder::Owned(self.store.store_update()) }
     }
 
-    pub fn exists(&self, shard_uid: ShardUId, key: &[u8]) -> Result<bool, FlatStorageError> {
+    pub fn exists(&self, shard_uid: ShardUId, key: &[u8]) -> bool {
         let db_key = encode_flat_state_db_key(shard_uid, key);
-        self.store.exists(DBCol::FlatState, &db_key).map_err(|err| {
-            FlatStorageError::StorageInternalError(format!("failed to read FlatState value: {err}"))
-        })
+        self.store.exists(DBCol::FlatState, &db_key)
     }
 
     pub fn get(
@@ -120,7 +118,7 @@ impl FlatStoreAdapter {
                         if flat_head.hash == prev_hash {
                             Some(BlockWithChangesInfo { hash: prev_hash, height: flat_head.height })
                         } else {
-                            tracing::error!(target: "store", ?block_hash, ?prev_hash, "Missing delta metadata");
+                            tracing::error!(target: "store", ?block_hash, ?prev_hash, "missing delta metadata");
                             None
                         }
                     }
@@ -172,8 +170,8 @@ impl FlatStoreAdapter {
         let iter = self
             .store
             .iter_range(DBCol::FlatState, Some(&db_key_from), Some(&db_key_to))
-            .map(|result| match result {
-                Ok((key, value)) => Ok((
+            .map(|(key, value)| {
+                Ok((
                     decode_flat_state_db_key(&key)
                         .map_err(|err| {
                             FlatStorageError::StorageInternalError(format!(
@@ -186,10 +184,7 @@ impl FlatStoreAdapter {
                             "invalid FlatState value format: {err}"
                         ))
                     })?,
-                )),
-                Err(err) => Err(FlatStorageError::StorageInternalError(format!(
-                    "FlatState iterator error: {err}"
-                ))),
+                ))
             });
         Box::new(iter)
     }

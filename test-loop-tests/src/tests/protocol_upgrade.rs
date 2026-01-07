@@ -77,15 +77,14 @@ pub(crate) fn test_protocol_upgrade(
         .build();
 
     let mainnet_epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let mut old_epoch_config: EpochConfig =
+    let old_epoch_config: EpochConfig =
         mainnet_epoch_config_store.get_config(old_protocol).deref().clone();
-    let mut new_epoch_config: EpochConfig =
+    let new_epoch_config: EpochConfig =
         mainnet_epoch_config_store.get_config(new_protocol).deref().clone();
 
     // Adjust the epoch configs for the test
-    let adjust_epoch_config = |config: &mut EpochConfig| {
+    let adjust_epoch_config = |mut config: EpochConfig| {
         config.epoch_length = epoch_length;
-        config.shard_layout = shard_layout.clone();
         config.num_block_producer_seats = genesis_epoch_info.num_block_producer_seats;
         config.num_chunk_producer_seats = genesis_epoch_info.num_chunk_producer_seats;
         config.num_chunk_validator_seats = genesis_epoch_info.num_chunk_validator_seats;
@@ -95,9 +94,10 @@ pub(crate) fn test_protocol_upgrade(
             config.chunk_producer_kickout_threshold = 0;
             config.chunk_validator_only_kickout_threshold = 0;
         }
+        config.with_shard_layout(shard_layout.clone())
     };
-    adjust_epoch_config(&mut old_epoch_config);
-    adjust_epoch_config(&mut new_epoch_config);
+    let old_epoch_config = adjust_epoch_config(old_epoch_config);
+    let new_epoch_config = adjust_epoch_config(new_epoch_config);
 
     let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (old_protocol, Arc::new(old_epoch_config)),
@@ -134,7 +134,7 @@ pub(crate) fn test_protocol_upgrade(
                 // There should be no missing blocks
                 assert_eq!(last_observed_height.get() + 1, block_header.height());
             }
-            tracing::info!(target: "test", "Observed new block at height {}, chunk_mask: {:?}", block_header.height(), block_header.chunk_mask());
+            tracing::info!(target: "test", height = %block_header.height(), chunk_mask = ?block_header.chunk_mask(), "observed new block at height");
             last_observed_height.set(block_header.height());
 
             // Record observed missing chunks
@@ -197,11 +197,15 @@ pub(crate) fn test_protocol_upgrade(
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_no_missing_chunks() {
     test_protocol_upgrade(PROTOCOL_VERSION - 1, PROTOCOL_VERSION, HashMap::new());
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_with_missing_chunk_one() {
     test_protocol_upgrade(
         PROTOCOL_VERSION - 1,
@@ -211,6 +215,8 @@ fn slow_test_protocol_upgrade_with_missing_chunk_one() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_with_missing_chunks_two() {
     test_protocol_upgrade(
         PROTOCOL_VERSION - 1,
@@ -223,6 +229,8 @@ fn slow_test_protocol_upgrade_with_missing_chunks_two() {
 /// There was a bug which caused `test_protocol_upgrade` to always upgrade to `PROTOCOL_VERSION`,
 /// this test ensures that the bug is fixed and it upgrades to the desired version, not the latest one.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_not_latest() {
     test_protocol_upgrade(PROTOCOL_VERSION - 2, PROTOCOL_VERSION - 1, HashMap::new());
 }

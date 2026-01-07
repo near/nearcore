@@ -8,7 +8,6 @@ use near_chain::chain::{
 };
 use near_chain::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use near_chain::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
-use near_chain::stateless_validation::chunk_validation::apply_result_to_chunk_extra;
 use near_chain::types::StorageDataSource;
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use near_chain::validate::{validate_chunk_proofs, validate_chunk_with_chunk_extra};
@@ -186,13 +185,13 @@ impl ReplayController {
         let mut total_gas_burnt: Option<Gas> = None;
         match self.replay_block(self.next_height)? {
             ReplayBlockOutput::Genesis(block) => {
-                tracing::debug!(target: "replay-archive", "Skipping genesis block at height {}", block.header().height());
+                tracing::debug!(target: "replay-archive", height = %block.header().height(), "skipping genesis block at height");
             }
             ReplayBlockOutput::Missing(height) => {
-                tracing::debug!(target: "replay-archive", "Skipping missing block at height {}", height);
+                tracing::debug!(target: "replay-archive", %height, "skipping missing block at height");
             }
             ReplayBlockOutput::Replayed(block, gas_burnt) => {
-                tracing::debug!(target: "replay-archive", "Replayed block at height {}", block.header().height());
+                tracing::debug!(target: "replay-archive", height = %block.header().height(), "replayed block at height");
                 total_gas_burnt = Some(gas_burnt);
             }
         }
@@ -203,7 +202,7 @@ impl ReplayController {
     }
 
     fn replay_block(&mut self, height: BlockHeight) -> Result<ReplayBlockOutput> {
-        tracing::info!(target: "replay-archive", "Replaying block at height {}", self.next_height);
+        tracing::info!(target: "replay-archive", height = %self.next_height, "replaying block at height");
 
         let Ok(block_hash) = self.chain_store.get_block_hash_by_height(height) else {
             return Ok(ReplayBlockOutput::Missing(height));
@@ -347,8 +346,7 @@ impl ReplayController {
                 apply_result,
             }) => {
                 let outgoing_receipts = apply_result.outgoing_receipts.clone();
-                let chunk_extra =
-                    apply_result_to_chunk_extra(apply_result, chunk_header.gas_limit()).into();
+                let chunk_extra = apply_result.to_chunk_extra(chunk_header.gas_limit()).into();
                 ReplayChunkOutput { chunk_extra, outgoing_receipts }
             }
             ShardUpdateResult::OldChunk(OldChunkResult { shard_uid: _, apply_result }) => {

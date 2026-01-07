@@ -1,74 +1,56 @@
 use near_indexer_primitives::IndexerTransactionWithOutcome;
 use near_parameters::RuntimeConfig;
-use near_primitives::types::ProtocolVersion;
-use near_primitives::views;
-use node_runtime::config::tx_cost;
+use near_primitives::action::Action;
+use near_primitives::receipt::Receipt;
+use near_primitives::types::Balance;
+use near_primitives::views::{ExecutionStatusView, ReceiptEnumView, ReceiptView};
+use node_runtime::config::calculate_tx_cost;
 
-use crate::streamer::IndexerViewClientFetcher;
+use crate::INDEXER;
 
-use super::errors::FailedToFetchData;
-
-pub(crate) async fn convert_transactions_sir_into_local_receipts(
-    client: &IndexerViewClientFetcher,
+pub(crate) fn convert_transactions_sir_into_local_receipts<'a>(
+    tx_iter: impl IntoIterator<Item = &'a IndexerTransactionWithOutcome>,
     runtime_config: &RuntimeConfig,
-    txs: Vec<&IndexerTransactionWithOutcome>,
-    block: &views::BlockView,
-    protocol_version: ProtocolVersion,
-) -> Result<Vec<views::ReceiptView>, FailedToFetchData> {
-    if txs.is_empty() {
-        return Ok(vec![]);
-    }
-    let prev_block = client.fetch_block(block.header.prev_hash).await?;
-    let prev_block_gas_price = prev_block.header.gas_price;
-
-    let local_receipts: Vec<views::ReceiptView> = txs
-        .into_iter()
-        .map(|indexer_tx| {
-            assert_eq!(indexer_tx.transaction.signer_id, indexer_tx.transaction.receiver_id);
-            let tx = near_primitives::transaction::Transaction::V0(
-                near_primitives::transaction::TransactionV0 {
-                    signer_id: indexer_tx.transaction.signer_id.clone(),
-                    public_key: indexer_tx.transaction.public_key.clone(),
-                    nonce: indexer_tx.transaction.nonce,
-                    receiver_id: indexer_tx.transaction.receiver_id.clone(),
-                    block_hash: block.header.hash,
-                    actions: indexer_tx
-                        .transaction
-                        .actions
-                        .clone()
-                        .into_iter()
-                        .map(|action| {
-                            near_primitives::transaction::Action::try_from(action).unwrap()
-                        })
-                        .collect(),
-                },
+    gas_price: Balance,
+) -> Vec<ReceiptView> {
+    let mut local_receipts = Vec::new();
+    for indexer_tx in tx_iter {
+        let tx = &indexer_tx.transaction;
+        assert_eq!(tx.signer_id, tx.receiver_id);
+        let outcome = &indexer_tx.outcome.execution_outcome.outcome;
+        let ExecutionStatusView::SuccessReceiptId(receipt_id) = outcome.status else {
+            tracing::debug!(
+                target: INDEXER,
+                block_hash = %indexer_tx.outcome.execution_outcome.block_hash,
+                tx_hash = %tx.hash,
+                status = ?outcome.status,
+                "skip failed local tx",
             );
-            // Can't use ValidatedTransaction here because transactions in a chunk can be invalid (RelaxedChunkValidation feature)
-            let cost =
-                tx_cost(&runtime_config, &tx, prev_block_gas_price, protocol_version).unwrap();
-            views::ReceiptView {
-                predecessor_id: indexer_tx.transaction.signer_id.clone(),
-                receiver_id: indexer_tx.transaction.receiver_id.clone(),
-                receipt_id: *indexer_tx
-                    .outcome
-                    .execution_outcome
-                    .outcome
-                    .receipt_ids
-                    .first()
-                    .expect("The transaction ExecutionOutcome should have one receipt id in vec"),
-                receipt: views::ReceiptEnumView::Action {
-                    signer_id: indexer_tx.transaction.signer_id.clone(),
-                    signer_public_key: indexer_tx.transaction.public_key.clone(),
-                    gas_price: cost.receipt_gas_price,
-                    output_data_receivers: vec![],
-                    input_data_ids: vec![],
-                    actions: indexer_tx.transaction.actions.clone(),
-                    is_promise_yield: false,
-                },
-                priority: 0,
-            }
-        })
-        .collect();
-
-    Ok(local_receipts)
+            continue;
+        };
+        let actions: Vec<_> =
+            tx.actions.iter().cloned().map(Action::try_from).map(Result::unwrap).collect();
+        let cost =
+            calculate_tx_cost(&tx.receiver_id, &tx.signer_id, &actions, &runtime_config, gas_price)
+                .unwrap();
+        // Use empty actions here and clone actions from transactions later.
+        // Note that we cannot just pass `actions` here since conversion
+        // ActionView -> Action -> ActionView does not always preserve the
+        // content of the action.
+        let receipt = Receipt::from_tx(
+            receipt_id,
+            tx.signer_id.clone(),
+            tx.receiver_id.clone(),
+            tx.public_key.clone(),
+            cost.receipt_gas_price,
+            vec![],
+        );
+        let mut receipt_view: ReceiptView = receipt.into();
+        let ReceiptEnumView::Action { actions, .. } = &mut receipt_view.receipt else {
+            unreachable!("transaction is expected to be converted to an action receipt");
+        };
+        actions.clone_from(&indexer_tx.transaction.actions);
+        local_receipts.push(receipt_view);
+    }
+    local_receipts
 }

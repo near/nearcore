@@ -14,13 +14,48 @@ use near_store::trie::SubtreeSize;
 use std::sync::LazyLock;
 use std::time::Duration;
 
-pub static ACTION_CALLED_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    try_create_int_counter_vec(
+pub(crate) struct ActionCalledCountMetric {
+    pub(crate) add_key: IntCounter,
+    pub(crate) create_account: IntCounter,
+    pub(crate) delegate: IntCounter,
+    pub(crate) deploy_contract: IntCounter,
+    pub(crate) deploy_global_contract: IntCounter,
+    pub(crate) use_global_contract: IntCounter,
+    pub(crate) deterministic_state_init: IntCounter,
+    pub(crate) function_call: IntCounter,
+    pub(crate) transfer: IntCounter,
+    pub(crate) stake: IntCounter,
+    pub(crate) delete_key: IntCounter,
+    pub(crate) delete_account: IntCounter,
+    pub(crate) add_gas_key: IntCounter,
+    pub(crate) delete_gas_key: IntCounter,
+    pub(crate) transfer_to_gas_key: IntCounter,
+}
+
+pub(crate) static ACTION_CALLED_COUNT: LazyLock<ActionCalledCountMetric> = LazyLock::new(|| {
+    let vec = try_create_int_counter_vec(
         "near_action_called_count",
         "Number of times given action has been called since starting this node",
         &["action"],
     )
-    .unwrap()
+    .unwrap();
+    ActionCalledCountMetric {
+        add_key: vec.with_label_values(&["AddKey"]),
+        create_account: vec.with_label_values(&["CreateAccount"]),
+        delegate: vec.with_label_values(&["Delegate"]),
+        deploy_contract: vec.with_label_values(&["DeployContract"]),
+        deploy_global_contract: vec.with_label_values(&["DeployGlobalContract"]),
+        use_global_contract: vec.with_label_values(&["UseGlobalContract"]),
+        deterministic_state_init: vec.with_label_values(&["DeterministicStateInit"]),
+        function_call: vec.with_label_values(&["FunctionCall"]),
+        transfer: vec.with_label_values(&["Transfer"]),
+        stake: vec.with_label_values(&["Stake"]),
+        delete_key: vec.with_label_values(&["DeleteKey"]),
+        delete_account: vec.with_label_values(&["DeleteAccount"]),
+        add_gas_key: vec.with_label_values(&["AddGasKey"]),
+        delete_gas_key: vec.with_label_values(&["DeleteGasKey"]),
+        transfer_to_gas_key: vec.with_label_values(&["TransferToGasKey"]),
+    }
 });
 
 pub static TRANSACTION_APPLIED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
@@ -64,6 +99,15 @@ pub static INCOMING_RECEIPT_PROCESSED_TOTAL: LazyLock<IntCounterVec> = LazyLock:
         "near_incoming_receipt_processed_total",
         "The number of incoming receipts processed since starting this node",
         &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static OUTGOING_RECEIPT_GENERATED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_outgoing_receipts_generated_total",
+        "Number of outgoing receipts generated since starting this node",
+        &["sender_shard_id", "receiver_shard_id"],
     )
     .unwrap()
 });
@@ -146,6 +190,7 @@ pub static TRANSACTION_PROCESSED_FAILED_TOTAL: LazyLock<IntCounter> = LazyLock::
     )
     .unwrap()
 });
+
 pub static PREFETCH_ENQUEUED: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_prefetch_enqueued",
@@ -294,6 +339,7 @@ static CHUNK_INC_RECEIPTS_TGAS: LazyLock<HistogramVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+
 static CHUNK_YIELD_TIMEOUTS_COMPUTE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_yield_timeouts_compute",

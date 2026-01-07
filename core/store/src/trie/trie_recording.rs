@@ -2,6 +2,7 @@ use super::mem::ArenaMemory;
 use super::mem::node::MemTrieNodeView;
 use super::{Trie, TrieChanges, TrieRefcountDeltaMap};
 use crate::{NibbleSlice, PartialStorage, RawTrieNode, RawTrieNodeWithSize};
+use ahash::RandomState as AHashRandomState;
 use borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::PartialState;
@@ -13,7 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// A simple struct to capture a state proof as it's being accumulated.
 pub struct TrieRecorder {
-    recorded: dashmap::DashMap<CryptoHash, TrieNodeWithRefcount>,
+    recorded: dashmap::DashMap<CryptoHash, TrieNodeWithRefcount, AHashRandomState>,
     size: crossbeam::utils::CachePadded<AtomicUsize>,
     /// Size of the recorded state proof plus some additional size added to cover removals and
     /// contract code.
@@ -33,7 +34,7 @@ pub struct TrieRecorder {
     /// This may get set to u64::MAX to effectively impose no useful limit.
     proof_size_limit: u64,
     /// Account IDs for which the code should be recorded.
-    pub codes_to_record: dashmap::DashSet<AccountId>,
+    pub codes_to_record: dashmap::DashSet<AccountId, AHashRandomState>,
 }
 struct TrieNodeWithRefcount(Arc<[u8]>, u32);
 
@@ -78,13 +79,22 @@ pub struct SubtreeSize {
 impl TrieRecorder {
     pub fn new(proof_size_limit: Option<u64>) -> Self {
         Self {
-            recorded: Default::default(),
+            // Use a faster hash builder and 256 shards (vs the default 16) to
+            // shorten lock hold times when many rayon workers record trie nodes.
+            recorded: dashmap::DashMap::with_capacity_and_hasher_and_shard_amount(
+                4096,
+                AHashRandomState::new(),
+                256,
+            ),
             proof_size_limit: proof_size_limit.unwrap_or(u64::MAX),
             size: Default::default(),
             upper_bound_size: Default::default(),
             removal_counter: Default::default(),
             code_len_counter: Default::default(),
-            codes_to_record: Default::default(),
+            codes_to_record: dashmap::DashSet::with_capacity_and_hasher(
+                128,
+                AHashRandomState::new(),
+            ),
         }
     }
 
@@ -244,7 +254,7 @@ impl TrieRecorder {
                 Ok(raw_node_with_size) => raw_node_with_size.node,
                 Err(_) => {
                     tracing::error!(
-                        "get_subtree_root_by_key: failed to decode node, this shouldn't happen!"
+                        "get_subtree_root_by_key: failed to decode node, this shouldn't happen"
                     );
                     return None;
                 }
@@ -313,7 +323,7 @@ impl TrieRecorder {
                 Ok(raw_node_with_size) => raw_node_with_size.node,
                 Err(_) => {
                     tracing::error!(
-                        "get_subtree_size: failed to decode node, this shouldn't happen!"
+                        "get_subtree_size: failed to decode node, this shouldn't happen"
                     );
                     continue;
                 }
@@ -383,15 +393,12 @@ mod trie_recording_tests {
     use crate::trie::{AccessOptions, AccessTracker, TrieNodesCount};
     use crate::{DBCol, KeyLookupMode, PartialStorage, ShardTries, Store, Trie};
     use borsh::BorshDeserialize;
-    use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
     use near_primitives::state::PartialState;
     use near_primitives::state::ValueRef;
-    use near_primitives::types::Balance;
+    use near_primitives::types::StateRoot;
     use near_primitives::types::chunk_extra::ChunkExtra;
-    use near_primitives::types::{Gas, StateRoot};
     use rand::prelude::SliceRandom;
     use rand::{Rng, random, thread_rng};
     use std::cell::{Cell, RefCell};
@@ -449,16 +456,7 @@ mod trie_recording_tests {
         );
 
         // ChunkExtra is needed for in-memory trie loading code to query state roots.
-        let chunk_extra = ChunkExtra::new(
-            &state_root,
-            CryptoHash::default(),
-            Vec::new(),
-            Gas::ZERO,
-            Gas::ZERO,
-            Balance::ZERO,
-            Some(CongestionInfo::default()),
-            BandwidthRequests::empty(),
-        );
+        let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
         let mut update_for_chunk_extra = tries_for_building.store_update();
         update_for_chunk_extra
             .store_update()
@@ -533,8 +531,7 @@ mod trie_recording_tests {
     ) {
         let key_hashes_to_keep = data_in_trie.iter().map(|(_, v)| hash(&v)).collect::<HashSet<_>>();
         let mut update = store.store_update();
-        for result in store.iter_raw_bytes() {
-            let (key, value) = result.unwrap();
+        for (key, value) in store.iter_raw_bytes() {
             let (_, refcount) = decode_value_with_rc(&value);
             let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
             let key_hash = CryptoHash::try_from_slice(&key[8..]).unwrap();

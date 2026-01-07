@@ -33,6 +33,16 @@ pub enum ViewAccessKeyError {
 }
 
 #[derive(thiserror::Error, Debug)]
+pub enum ViewGasKeyError {
+    #[error("Account ID \"{requested_account_id}\" is invalid")]
+    InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
+    #[error("Gas key for public key #{public_key} does not exist")]
+    GasKeyDoesNotExist { public_key: near_crypto::PublicKey },
+    #[error("Internal error: #{error_message}")]
+    InternalError { error_message: String },
+}
+
+#[derive(thiserror::Error, Debug)]
 pub enum ViewStateError {
     #[error("Account ID \"{requested_account_id}\" is invalid")]
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
@@ -53,7 +63,7 @@ pub enum CallFunctionError {
     #[error("Internal error: #{error_message}")]
     InternalError { error_message: String },
     #[error("VM error occurred: #{error_message}")]
-    VMError { error_message: String },
+    VMError { error: near_primitives::errors::FunctionCallError, error_message: String },
 }
 
 impl From<ViewAccountError> for ViewContractCodeError {
@@ -85,6 +95,12 @@ impl From<near_primitives::errors::StorageError> for ViewContractCodeError {
 }
 
 impl From<near_primitives::errors::StorageError> for ViewAccessKeyError {
+    fn from(storage_error: near_primitives::errors::StorageError) -> Self {
+        Self::InternalError { error_message: storage_error.to_string() }
+    }
+}
+
+impl From<near_primitives::errors::StorageError> for ViewGasKeyError {
     fn from(storage_error: near_primitives::errors::StorageError) -> Self {
         Self::InternalError { error_message: storage_error.to_string() }
     }

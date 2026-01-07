@@ -1,5 +1,4 @@
 use itertools::Itertools;
-use near_async::Message;
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_pool::types::TransactionGroupIterator;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
@@ -12,7 +11,7 @@ use near_primitives::{
 };
 use std::collections::HashMap;
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum ShardsManagerResponse {
     /// Notifies the client that the ShardsManager has collected a complete chunk.
@@ -221,7 +220,7 @@ mod tests {
         // insert some transactions using the old shard layout
 
         let n = 100;
-        tracing::info!("inserting {n} transactions into the pool using the old shard layout");
+        tracing::info!(%n, "inserting transactions into the pool using the old shard layout");
         for i in 0..n {
             let shard_ids: Vec<_> = old_shard_layout.shard_ids().collect();
             let &signer_shard_id = shard_ids.choose(&mut rng).unwrap();
@@ -264,7 +263,7 @@ mod tests {
                 let shard_uid = ShardUId::new(new_shard_layout.version(), shard_id);
                 let pool = pool.pool_for_shard(shard_uid);
                 let pool_len = pool.len();
-                tracing::debug!("checking shard_uid {shard_uid:?}, the pool len is {pool_len}");
+                tracing::debug!(?shard_uid, %pool_len, "checking shard_uid, pool_len");
                 assert_ne!(pool.len(), 0);
             }
 
@@ -277,7 +276,12 @@ mod tests {
                         total += 1;
                         let account_id = validated_tx.signer_id();
                         let tx_shard_uid = new_shard_layout.account_id_to_shard_uid(account_id);
-                        tracing::debug!("checking {account_id:?}:{tx_shard_uid} in {shard_uid}");
+                        tracing::debug!(
+                            ?account_id,
+                            ?tx_shard_uid,
+                            ?shard_uid,
+                            "checking account_id and tx_shard_uid in shard_uid"
+                        );
                         assert_eq!(shard_uid, tx_shard_uid);
                     }
                 }

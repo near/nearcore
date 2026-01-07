@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -7,17 +8,23 @@ use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::types::Tip;
-use near_client::Client;
+use near_chain::{Block, BlockHeader};
+use near_client::client_actor::ClientActor;
+use near_client::{Client, ProcessTxRequest};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_primitives::errors::InvalidTxError;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ShardChunk;
+use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponse,
     QueryResponseKind,
 };
 
 use crate::setup::state::NodeExecutionData;
+use crate::utils::account::rpc_account_id;
 use crate::utils::transactions::TransactionRunner;
 
 /// Represents single node in multinode test loop setup. It simplifies
@@ -25,7 +32,19 @@ use crate::utils::transactions::TransactionRunner;
 /// It serves as a main interface for test actions such as sending
 /// transactions, waiting for blocks to be produces, querying state, etc.
 pub struct TestLoopNode<'a> {
-    data: &'a NodeExecutionData,
+    data: Cow<'a, NodeExecutionData>,
+}
+
+impl<'a> From<&'a NodeExecutionData> for TestLoopNode<'a> {
+    fn from(value: &'a NodeExecutionData) -> Self {
+        Self { data: Cow::Borrowed(value) }
+    }
+}
+
+impl From<NodeExecutionData> for TestLoopNode<'_> {
+    fn from(value: NodeExecutionData) -> Self {
+        Self { data: Cow::Owned(value) }
+    }
 }
 
 impl<'a> TestLoopNode<'a> {
@@ -36,12 +55,16 @@ impl<'a> TestLoopNode<'a> {
             .iter()
             .rfind(|data| &data.account_id == account_id)
             .unwrap_or_else(|| panic!("client with account id {account_id} not found"));
-        Self { data }
+        Self::from(data)
+    }
+
+    pub fn rpc(node_datas: &'a [NodeExecutionData]) -> Self {
+        Self::for_account(node_datas, &rpc_account_id())
     }
 
     #[allow(unused)]
     pub fn all(node_datas: &'a [NodeExecutionData]) -> Vec<Self> {
-        node_datas.iter().map(|data| Self { data }).collect()
+        node_datas.iter().map(|data| Self::from(data)).collect()
     }
 
     pub fn data(&self) -> &NodeExecutionData {
@@ -49,12 +72,52 @@ impl<'a> TestLoopNode<'a> {
     }
 
     pub fn client<'b>(&self, test_loop_data: &'b TestLoopData) -> &'b Client {
-        let client_handle = self.data.client_sender.actor_handle();
+        let client_handle = self.data().client_sender.actor_handle();
         &test_loop_data.get(&client_handle).client
+    }
+
+    pub fn client_actor<'b>(&self, test_loop_data: &'b mut TestLoopData) -> &'b mut ClientActor {
+        let client_handle = self.data().client_sender.actor_handle();
+        test_loop_data.get_mut(&client_handle)
+    }
+
+    pub fn tail(&self, test_loop_data: &TestLoopData) -> BlockHeight {
+        self.client(test_loop_data).chain.tail().unwrap()
     }
 
     pub fn head(&self, test_loop_data: &TestLoopData) -> Arc<Tip> {
         self.client(test_loop_data).chain.head().unwrap()
+    }
+
+    pub fn last_executed(&self, test_loop_data: &TestLoopData) -> Arc<Tip> {
+        if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            self.client(test_loop_data).chain.chain_store().spice_execution_head().unwrap()
+        } else {
+            self.client(test_loop_data).chain.head().unwrap()
+        }
+    }
+
+    pub fn head_block(&self, test_loop_data: &TestLoopData) -> Arc<Block> {
+        let block_hash = self.client(test_loop_data).chain.head().unwrap().last_block_hash;
+        self.block(test_loop_data, block_hash)
+    }
+
+    pub fn last_executed_block(&self, test_loop_data: &TestLoopData) -> Arc<Block> {
+        let block_hash = self.last_executed(test_loop_data).last_block_hash;
+        self.block(test_loop_data, block_hash)
+    }
+
+    pub fn block(&self, test_loop_data: &TestLoopData, block_hash: CryptoHash) -> Arc<Block> {
+        self.client(test_loop_data).chain.get_block(&block_hash).unwrap()
+    }
+
+    pub fn block_chunks(&self, test_loop_data: &TestLoopData, block: &Block) -> Vec<ShardChunk> {
+        let chain = &self.client(test_loop_data).chain;
+        block
+            .chunks()
+            .iter_raw()
+            .map(|chunk_header| chain.get_chunk(chunk_header.chunk_hash()).unwrap())
+            .collect()
     }
 
     pub fn run_until_head_height(&self, test_loop: &mut TestLoopV2, height: BlockHeight) {
@@ -103,6 +166,70 @@ impl<'a> TestLoopNode<'a> {
         );
     }
 
+    pub fn run_until_new_epoch(&self, test_loop: &mut TestLoopV2) {
+        let curr_epoch_id = self.head(&test_loop.data).epoch_id;
+        let epoch_length = self.client(&test_loop.data).config.epoch_length as usize;
+        test_loop.run_until(
+            |test_loop_data| {
+                let head = self.head(test_loop_data);
+                head.epoch_id != curr_epoch_id
+            },
+            self.calculate_block_distance_timeout(&test_loop.data, epoch_length + 1),
+        );
+    }
+
+    pub fn submit_tx(&self, tx: SignedTransaction) {
+        let process_tx_request =
+            ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+        self.data().rpc_handler_sender.send(process_tx_request);
+    }
+
+    pub fn run_until_outcome_available(
+        &self,
+        test_loop: &mut TestLoopV2,
+        tx_hash_or_receipt_id: CryptoHash,
+        maximum_duration: Duration,
+    ) -> ExecutionOutcomeWithIdAndProof {
+        let mut ret = None;
+        test_loop.run_until(
+            |test_loop_data| match self
+                .client(test_loop_data)
+                .chain
+                .get_execution_outcome(&tx_hash_or_receipt_id)
+            {
+                Ok(outcome) => {
+                    ret = Some(outcome);
+                    true
+                }
+                Err(_) => false,
+            },
+            maximum_duration,
+        );
+        ret.unwrap()
+    }
+
+    /// With spice blocks are executed separately from production so this runs until block with passed in
+    /// header is executed.
+    /// Without spice returns immediately.
+    pub fn run_until_block_executed(
+        &self,
+        test_loop: &mut TestLoopV2,
+        block_header: &BlockHeader,
+        maximum_duration: Duration,
+    ) {
+        let protocol_version = self
+            .client(&test_loop.data)
+            .epoch_manager
+            .get_epoch_protocol_version(block_header.epoch_id())
+            .unwrap();
+        if ProtocolFeature::Spice.enabled(protocol_version) {
+            test_loop.run_until(
+                |test_loop_data| self.last_executed(test_loop_data).height >= block_header.height(),
+                maximum_duration,
+            );
+        }
+    }
+
     #[track_caller]
     pub fn run_tx(
         &self,
@@ -123,7 +250,7 @@ impl<'a> TestLoopNode<'a> {
         tx: SignedTransaction,
         maximum_duration: Duration,
     ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
-        let tx_processor_sender = &self.data.rpc_handler_sender;
+        let tx_processor_sender = &self.data().rpc_handler_sender;
         let mut tx_runner = TransactionRunner::new(tx, false);
         let future_spawner = test_loop.future_spawner("TransactionRunner");
 
@@ -200,9 +327,9 @@ impl<'a> TestLoopNode<'a> {
         test_loop: &TestLoopV2,
         message: near_client::NetworkAdversarialMessage,
     ) {
-        let client_sender = self.data.client_sender.clone();
+        let client_sender = self.data().client_sender.clone();
         test_loop.send_adhoc_event(
-            format!("send adversarial {:?} to {}", message, self.data.account_id),
+            format!("send adversarial {:?} to {}", message, self.data().account_id),
             move |_| {
                 client_sender.send(message);
             },
@@ -217,5 +344,10 @@ impl<'a> TestLoopNode<'a> {
         let max_block_production_delay =
             self.client(test_loop_data).config.max_block_production_delay;
         max_block_production_delay * (num_blocks as u32 + 1)
+    }
+
+    /// Returns new TestLoopNode that takes ownership of internal NodeExecutionData.
+    pub fn into_owned(self) -> TestLoopNode<'static> {
+        TestLoopNode::from(self.data.into_owned())
     }
 }

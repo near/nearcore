@@ -77,6 +77,7 @@ fn change_shard_id_to_invalid() {
                 ShardChunkHeaderInner::V3(inner) => inner.shard_id = bad_shard_id,
                 ShardChunkHeaderInner::V4(inner) => inner.shard_id = bad_shard_id,
                 ShardChunkHeaderInner::V5(inner) => inner.shard_id = bad_shard_id,
+                ShardChunkHeaderInner::V6(inner) => inner.shard_id = bad_shard_id,
             },
         };
         new_chunks.push(new_chunk);
@@ -288,14 +289,14 @@ fn ultra_slow_test_check_process_flipped_block_fails() {
         }
         corrupted_bit_idx += 1;
     }
-    tracing::info!("All of the Errors:");
+    tracing::info!("all of the errors:");
     for err in &errs {
-        tracing::info!("{:?}", err);
+        tracing::info!(?err, "error");
     }
     tracing::info!("{}", ["-"; 100].concat());
-    tracing::info!("All of the Oks:");
+    tracing::info!("all of the oks:");
     for ok in &oks {
-        tracing::info!("{:?}", ok);
+        tracing::info!(?ok, "ok");
     }
     assert!(errs.is_empty());
     assert!(

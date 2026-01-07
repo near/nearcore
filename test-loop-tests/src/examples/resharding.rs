@@ -24,7 +24,6 @@ fn resharding_example_test() {
     let epoch_length = 5;
     let validators_spec = create_validators_spec(1, 0);
     let clients = validators_spec_clients(&validators_spec);
-    let validator_id = clients[0].clone();
     let genesis = TestLoopBuilder::new_genesis_builder()
         .protocol_version(PROTOCOL_VERSION - 1)
         .validators_spec(validators_spec)
@@ -33,11 +32,10 @@ fn resharding_example_test() {
         .build();
 
     let base_epoch_config = TestEpochConfigBuilder::from_genesis(&genesis).build();
-    let new_epoch_config = {
+    let (new_epoch_config, new_shard_layout) = {
         let boundary_account: AccountId = "boundary".parse().unwrap();
         derive_new_epoch_config_from_boundary(&base_epoch_config, &boundary_account)
     };
-    let new_shard_layout = new_epoch_config.shard_layout.clone();
 
     let epoch_configs = vec![
         (genesis.config.protocol_version, Arc::new(base_epoch_config)),
@@ -52,21 +50,21 @@ fn resharding_example_test() {
         .build()
         .warmup();
 
-    let node = TestLoopNode::for_account(&env.node_datas, &validator_id);
+    let node = TestLoopNode::from(&env.node_datas[0]);
     let epoch_manager = node.client(&env.test_loop.data).chain.epoch_manager.clone();
     let epoch_id = node.head(env.test_loop_data()).epoch_id;
-    assert_eq!(epoch_manager.get_epoch_config(&epoch_id).unwrap().shard_layout, base_shard_layout);
+    assert_eq!(epoch_manager.get_shard_layout(&epoch_id).unwrap(), base_shard_layout);
 
     env.test_loop.run_until(
         |test_loop_data| {
             let epoch_id = node.head(test_loop_data).epoch_id;
-            epoch_manager.get_epoch_config(&epoch_id).unwrap().shard_layout == new_shard_layout
+            epoch_manager.get_shard_layout(&epoch_id).unwrap() == new_shard_layout
         },
         Duration::seconds((3 * epoch_length) as i64),
     );
 
     let epoch_id = node.head(env.test_loop_data()).epoch_id;
-    assert_eq!(epoch_manager.get_epoch_config(&epoch_id).unwrap().shard_layout, new_shard_layout);
+    assert_eq!(epoch_manager.get_shard_layout(&epoch_id).unwrap(), new_shard_layout);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }

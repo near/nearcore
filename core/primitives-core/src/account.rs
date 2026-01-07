@@ -196,7 +196,7 @@ impl Account {
     }
 
     #[inline]
-    pub fn contract(&self) -> Cow<AccountContract> {
+    pub fn contract(&self) -> Cow<'_, AccountContract> {
         match self {
             Self::V1(account) => {
                 Cow::Owned(AccountContract::from_local_code_hash(account.code_hash))
@@ -501,6 +501,12 @@ pub struct GasKey {
     /// Defines the permissions for this gas key.
     /// If this is a `FunctionCallPermission`, the allowance must be None (unlimited).
     pub permission: AccessKeyPermission,
+}
+
+impl GasKey {
+    /// Maximum number of nonces a gas key can have.
+    /// Limited to prevent too many trie operations when creating / deleting gas keys.
+    pub const MAX_NONCES: NonceIndex = 1024;
 }
 
 /// Defines permissions for AccessKey

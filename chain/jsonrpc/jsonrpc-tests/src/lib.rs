@@ -5,13 +5,11 @@ use axum_test::TestServer;
 use near_async::ActorSystem;
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_chain::ChainGenesis;
-use near_chain::spice_core::CoreStatementsProcessor;
-use near_chain::types::RuntimeAdapter as _;
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_client::adversarial::Controls;
 use near_client::client_actor::SpiceClientConfig;
-use near_client::{RpcHandlerConfig, ViewClientActorInner, spawn_rpc_handler_actor, start_client};
+use near_client::{RpcHandlerConfig, ViewClientActor, spawn_rpc_handler_actor, start_client};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::{EpochManager, shard_tracker::ShardTracker};
 use near_jsonrpc::{RpcConfig, create_jsonrpc_app};
@@ -21,7 +19,6 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumSeats};
-use near_store::adapter::StoreAdapter as _;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_time::Clock;
@@ -119,15 +116,13 @@ pub fn create_test_setup_with_accounts_and_validity(
         min_block_prod_time: 100,
         max_block_prod_time: 200,
         num_block_producer_seats: num_validator_seats,
-        enable_split_store: false,
-        enable_cloud_archival_writer: false,
-        save_trie_changes: true,
+        archive: false,
         state_sync_enabled: true,
     });
 
     // 6. Create ViewClientActor
     let adv = Controls::default();
-    let view_client_actor = ViewClientActorInner::spawn_multithread_actor(
+    let view_client_actor = ViewClientActor::spawn_multithread_actor(
         Clock::real(),
         actor_system.clone(),
         chain_genesis.clone(),
@@ -141,10 +136,6 @@ pub fn create_test_setup_with_accounts_and_validity(
     );
 
     // 7. Create ClientActor
-    let spice_core_processor = CoreStatementsProcessor::new_with_noop_senders(
-        runtime.store().chain_store(),
-        epoch_manager.clone(),
-    );
     let client_result = start_client(
         Clock::real(),
         actor_system.clone(),
@@ -154,7 +145,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         shard_tracker.clone(),
         runtime.clone(),
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
-        actor_system.new_future_spawner().into(),
+        actor_system.new_future_spawner("state sync").into(),
         noop().into_multi_sender(),
         noop().into_sender(),
         signer.clone(),
@@ -168,10 +159,10 @@ pub fn create_test_setup_with_accounts_and_validity(
         Some(TEST_SEED),
         noop().into_multi_sender(),
         SpiceClientConfig {
-            core_processor: spice_core_processor.clone(),
             chunk_executor_sender: noop().into_sender(),
             spice_chunk_validator_sender: noop().into_sender(),
             spice_data_distributor_sender: noop().into_sender(),
+            spice_core_writer_sender: noop().into_sender(),
         },
     );
 
@@ -181,19 +172,18 @@ pub fn create_test_setup_with_accounts_and_validity(
         tx_routing_height_horizon: client_config.tx_routing_height_horizon,
         epoch_length: client_config.epoch_length,
         transaction_validity_period,
+        disable_tx_routing: client_config.disable_tx_routing,
     };
 
     let rpc_handler_actor = spawn_rpc_handler_actor(
         actor_system.clone(),
         rpc_handler_config,
         client_result.tx_pool,
-        client_result.chunk_endorsement_tracker,
         epoch_manager,
         shard_tracker,
         signer,
         runtime,
         noop().into_multi_sender(),
-        spice_core_processor,
     );
 
     // 9. Create Axum Router
@@ -220,7 +210,7 @@ pub fn create_test_setup_with_accounts_and_validity(
     );
 
     // 10. Create TestServer with real HTTP transport to get an address
-    let test_server = TestServer::builder()
+    let test_server: TestServer = TestServer::builder()
         .http_transport()
         .build(app.clone())
         .expect("Failed to create TestServer");

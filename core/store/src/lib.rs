@@ -35,8 +35,8 @@ pub mod db;
 mod deserialized_column;
 pub mod flat;
 pub mod genesis;
+pub mod merkle_proof;
 pub mod metrics;
-pub mod migrations;
 mod node_storage;
 mod store;
 pub mod trie;
@@ -47,7 +47,7 @@ mod tests {
     use super::{DBCol, NodeStorage, Store};
 
     fn test_clear_column(store: Store) {
-        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
+        assert_eq!(store.get(DBCol::State, &[1; 8]), None);
         {
             let mut store_update = store.store_update();
             store_update.increment_refcount(DBCol::State, &[1; 8], &[1]);
@@ -55,13 +55,13 @@ mod tests {
             store_update.increment_refcount(DBCol::State, &[3; 8], &[3]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap().as_deref(), Some(&[1][..]));
+        assert_eq!(store.get(DBCol::State, &[1; 8]).as_deref(), Some(&[1][..]));
         {
             let mut store_update = store.store_update();
             store_update.delete_all(DBCol::State);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
+        assert_eq!(store.get(DBCol::State, &[1; 8]), None);
     }
 
     #[test]
@@ -114,7 +114,7 @@ mod tests {
         update.commit().unwrap();
 
         fn collect<'a>(iter: crate::db::DBIterator<'a>) -> Vec<Box<[u8]>> {
-            iter.map(Result::unwrap).map(|(key, _)| key).collect()
+            iter.map(|(key, _)| key).collect()
         }
 
         // Check that full scan produces keys in proper order.
@@ -179,13 +179,13 @@ mod tests {
         {
             // Fresh storage, should have no data.
             let store = crate::test_utils::create_test_store();
-            assert_eq!(None, store.get(DBCol::State, &[1; 8]).unwrap());
-            assert_eq!(None, store.get(DBCol::State, &[2; 8]).unwrap());
+            assert_eq!(None, store.get(DBCol::State, &[1; 8]));
+            assert_eq!(None, store.get(DBCol::State, &[2; 8]));
 
             // Read data from file.
             store.load_state_from_file(tmp.path()).unwrap();
-            assert_eq!(Some(&[1u8][..]), store.get(DBCol::State, &[1; 8]).unwrap().as_deref());
-            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2; 8]).unwrap().as_deref());
+            assert_eq!(Some(&[1u8][..]), store.get(DBCol::State, &[1; 8]).as_deref());
+            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2; 8]).as_deref());
 
             // Key &[2] should have refcount of two so once decreased it should
             // still exist.
@@ -193,8 +193,8 @@ mod tests {
             store_update.decrement_refcount(DBCol::State, &[1; 8]);
             store_update.decrement_refcount(DBCol::State, &[2; 8]);
             store_update.commit().unwrap();
-            assert_eq!(None, store.get(DBCol::State, &[1; 8]).unwrap());
-            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2; 8]).unwrap().as_deref());
+            assert_eq!(None, store.get(DBCol::State, &[1; 8]));
+            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2; 8]).as_deref());
         }
 
         // Verify detection of corrupt file.

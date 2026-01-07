@@ -1,9 +1,9 @@
 use crate::broadcast::Receiver;
 use crate::config::NetworkConfig;
-use crate::network_protocol::{Encoding, PeerMessage, T2MessageBody};
 use crate::network_protocol::{PartialEncodedChunkRequestMsg, testonly as data};
-use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
-use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::network_protocol::{PeerMessage, T2MessageBody};
+use crate::peer::testonly::{PeerConfig, PeerHandle};
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::rate_limits::messages_limits;
 use crate::tcp;
 use crate::testonly::{Rng, make_rng};
@@ -36,7 +36,7 @@ async fn test_message_rate_limits() -> anyhow::Result<()> {
     // Check how many messages of each type have been received.
     let messages_received =
         wait_for_similar_messages(&messages_samples, &mut events, Duration::from_secs(3)).await;
-    tracing::debug!(target:"test","received {messages_received:?} messages");
+    tracing::debug!(target:"test", ?messages_received, "received messages");
     // BlockRequest gets rate limited (7 sent vs 5 bucket_start).
     assert!(messages_received[0] < MESSAGES);
     // PartialEncodedChunkRequest gets rate limited (7 sent vs 5 bucket_start).
@@ -76,7 +76,7 @@ async fn slow_test_message_rate_limits_over_time() -> anyhow::Result<()> {
 
     let messages_received =
         wait_for_similar_messages(&messages_samples, &mut events, Duration::from_secs(3)).await;
-    tracing::debug!(target:"test","received {messages_received:?} messages");
+    tracing::debug!(target:"test", ?messages_received, "received messages");
     // BlockRequest and PartialEncodedChunkRequest don't get rate limited
     // 12 sent vs 5 bucket_start + 2.5 refilled * 4s
     assert_eq!(messages_received[0], MESSAGES * 3);
@@ -100,7 +100,7 @@ async fn wait_for_similar_messages(
     sleep_until(Instant::now() + duration).await;
     while let Some(event) = events.try_recv() {
         match event {
-            Event::Network(PME::MessageProcessed(_, got)) => {
+            Event::MessageProcessed(_, got) => {
                 for (i, sample) in samples.iter().enumerate() {
                     if sample.msg_variant() == got.msg_variant() {
                         messages_received[i] += 1;
@@ -135,16 +135,10 @@ async fn setup_test_peers(clock: &FakeClock, mut rng: &mut Rng) -> (PeerHandle, 
         network_config
     };
 
-    let inbound_cfg = PeerConfig {
-        chain: chain.clone(),
-        network: add_rate_limits(chain.make_config(&mut rng)),
-        force_encoding: Some(Encoding::Proto),
-    };
-    let outbound_cfg = PeerConfig {
-        chain: chain.clone(),
-        network: add_rate_limits(chain.make_config(&mut rng)),
-        force_encoding: Some(Encoding::Proto),
-    };
+    let inbound_cfg =
+        PeerConfig { chain: chain.clone(), network: add_rate_limits(chain.make_config(&mut rng)) };
+    let outbound_cfg =
+        PeerConfig { chain: chain.clone(), network: add_rate_limits(chain.make_config(&mut rng)) };
     let (outbound_stream, inbound_stream) =
         tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
     let actor_system = ActorSystem::new();
@@ -178,14 +172,14 @@ async fn send_messages(
 ) -> Vec<PeerMessage> {
     let mut messages_samples = Vec::new();
 
-    tracing::info!(target:"test","send BlockRequest");
+    tracing::info!(target:"test", "send block request");
     let message = PeerMessage::BlockRequest(CryptoHash::default());
     for _ in 0..count {
         outbound.send(message.clone()).await;
     }
     messages_samples.push(message);
 
-    tracing::info!(target:"test","send PartialEncodedChunkRequest");
+    tracing::info!(target:"test", "send partial encoded chunk request");
     // Duplicated routed messages are filtered out so we must tweak each message to make it unique.
 
     for i in 0..count {
@@ -208,7 +202,7 @@ async fn send_messages(
         }
     }
 
-    tracing::info!(target:"test","send Transaction");
+    tracing::info!(target: "test", "send transaction");
     let message = PeerMessage::Transaction(data::make_signed_transaction(rng));
     for _ in 0..count {
         outbound.send(message.clone()).await;

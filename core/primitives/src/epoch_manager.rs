@@ -19,7 +19,9 @@ pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
 
 /// Epoch config, determines validator assignment for given epoch.
 /// Can change from epoch to epoch depending on the sharding and other parameters, etc.
-#[derive(Clone, Eq, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Eq, Debug, PartialEq, serde::Serialize, serde::Deserialize, derive_builder::Builder,
+)]
 pub struct EpochConfig {
     /// Epoch length in block heights.
     pub epoch_length: BlockHeightDelta,
@@ -50,7 +52,8 @@ pub struct EpochConfig {
     /// Threshold of stake that needs to indicate that they ready for upgrade.
     pub protocol_upgrade_stake_threshold: Rational32,
     /// Shard layout of this epoch, may change from epoch to epoch
-    pub shard_layout: ShardLayout,
+    /// This is being deprecated in favour of `EpochInfo::shard_layout`
+    shard_layout: ShardLayout,
     /// Additional configuration parameters for the new validator selection
     /// algorithm. See <https://github.com/near/NEPs/pull/167> for details.
     // #[default(100)]
@@ -72,6 +75,7 @@ pub struct EpochConfig {
     pub chunk_producer_assignment_changes_limit: NumSeats,
     // #[default(false)]
     pub shuffle_shard_assignment_for_chunk_producers: bool,
+    pub max_inflation_rate: Rational32,
 }
 
 impl EpochConfig {
@@ -80,6 +84,19 @@ impl EpochConfig {
         self.num_block_producer_seats
             .max(self.num_chunk_producer_seats)
             .max(self.num_chunk_validator_seats)
+    }
+
+    /// **Warning:** This method exists for backwards compatibility.
+    /// When `DynamicResharding` protocol feature is enabled, the source of truth
+    /// regarding shard layout is `EpochInfo`, not `EpochConfig`.
+    pub fn legacy_shard_layout(&self) -> ShardLayout {
+        // TODO(dynamic_resharding): remove all uses of this method except EpochManager
+        self.shard_layout.clone()
+    }
+
+    pub fn with_shard_layout(mut self, shard_layout: ShardLayout) -> Self {
+        self.shard_layout = shard_layout;
+        self
     }
 }
 
@@ -122,62 +139,67 @@ impl EpochConfig {
             minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
+            max_inflation_rate: Rational32::new(1, 40),
         }
     }
 
     /// Minimal config for testing.
-    pub fn minimal() -> Self {
-        Self {
-            epoch_length: 0,
-            num_block_producer_seats: 0,
-            num_block_producer_seats_per_shard: vec![],
-            avg_hidden_validator_seats_per_shard: vec![],
-            block_producer_kickout_threshold: 0,
-            chunk_producer_kickout_threshold: 0,
-            chunk_validator_only_kickout_threshold: 0,
-            target_validator_mandates_per_shard: 0,
-            validator_max_kickout_stake_perc: 0,
-            online_min_threshold: 0.into(),
-            online_max_threshold: 0.into(),
-            fishermen_threshold: Balance::ZERO,
-            minimum_stake_divisor: 0,
-            protocol_upgrade_stake_threshold: 0.into(),
-            shard_layout: ShardLayout::single_shard(),
-            num_chunk_producer_seats: 100,
-            num_chunk_validator_seats: 300,
-            num_chunk_only_producer_seats: 300,
-            minimum_validators_per_shard: 1,
-            minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
-            chunk_producer_assignment_changes_limit: 5,
-            shuffle_shard_assignment_for_chunk_producers: false,
-        }
+    pub fn minimal() -> EpochConfigBuilder {
+        let mut builder = EpochConfigBuilder::default();
+        builder
+            .epoch_length(0)
+            .num_block_producer_seats(0)
+            .num_block_producer_seats_per_shard(vec![])
+            .avg_hidden_validator_seats_per_shard(vec![])
+            .block_producer_kickout_threshold(0)
+            .chunk_producer_kickout_threshold(0)
+            .chunk_validator_only_kickout_threshold(0)
+            .target_validator_mandates_per_shard(0)
+            .validator_max_kickout_stake_perc(0)
+            .online_min_threshold(0.into())
+            .online_max_threshold(0.into())
+            .fishermen_threshold(Balance::ZERO)
+            .minimum_stake_divisor(0)
+            .protocol_upgrade_stake_threshold(0.into())
+            .shard_layout(ShardLayout::single_shard())
+            .num_chunk_producer_seats(100)
+            .num_chunk_validator_seats(300)
+            .num_chunk_only_producer_seats(300)
+            .minimum_validators_per_shard(1)
+            .minimum_stake_ratio(Rational32::new(160i32, 1_000_000i32))
+            .chunk_producer_assignment_changes_limit(5)
+            .shuffle_shard_assignment_for_chunk_producers(false)
+            .max_inflation_rate(Rational32::new(1, 40));
+        builder
     }
 
-    pub fn mock(epoch_length: BlockHeightDelta, shard_layout: ShardLayout) -> Self {
-        Self {
-            epoch_length,
-            num_block_producer_seats: 2,
-            num_block_producer_seats_per_shard: vec![1, 1],
-            avg_hidden_validator_seats_per_shard: vec![1, 1],
-            block_producer_kickout_threshold: 0,
-            chunk_producer_kickout_threshold: 0,
-            chunk_validator_only_kickout_threshold: 0,
-            target_validator_mandates_per_shard: 1,
-            validator_max_kickout_stake_perc: 0,
-            online_min_threshold: Rational32::new(1i32, 4i32),
-            online_max_threshold: Rational32::new(3i32, 4i32),
-            fishermen_threshold: Balance::from_yoctonear(1),
-            minimum_stake_divisor: 1,
-            protocol_upgrade_stake_threshold: Rational32::new(3i32, 4i32),
-            shard_layout,
-            num_chunk_producer_seats: 100,
-            num_chunk_validator_seats: 300,
-            num_chunk_only_producer_seats: 300,
-            minimum_validators_per_shard: 1,
-            minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
-            chunk_producer_assignment_changes_limit: 5,
-            shuffle_shard_assignment_for_chunk_producers: false,
-        }
+    pub fn mock(epoch_length: BlockHeightDelta, shard_layout: ShardLayout) -> EpochConfigBuilder {
+        let mut builder = EpochConfigBuilder::default();
+        builder
+            .epoch_length(epoch_length)
+            .num_block_producer_seats(2)
+            .num_block_producer_seats_per_shard(vec![1, 1])
+            .avg_hidden_validator_seats_per_shard(vec![1, 1])
+            .block_producer_kickout_threshold(0)
+            .chunk_producer_kickout_threshold(0)
+            .chunk_validator_only_kickout_threshold(0)
+            .target_validator_mandates_per_shard(1)
+            .validator_max_kickout_stake_perc(0)
+            .online_min_threshold(Rational32::new(1i32, 4i32))
+            .online_max_threshold(Rational32::new(3i32, 4i32))
+            .fishermen_threshold(Balance::from_yoctonear(1))
+            .minimum_stake_divisor(1)
+            .protocol_upgrade_stake_threshold(Rational32::new(3i32, 4i32))
+            .shard_layout(shard_layout)
+            .num_chunk_producer_seats(100)
+            .num_chunk_validator_seats(300)
+            .num_chunk_only_producer_seats(300)
+            .minimum_validators_per_shard(1)
+            .minimum_stake_ratio(Rational32::new(160i32, 1_000_000i32))
+            .chunk_producer_assignment_changes_limit(5)
+            .shuffle_shard_assignment_for_chunk_producers(false)
+            .max_inflation_rate(Rational32::new(1, 40));
+        builder
     }
 }
 
@@ -303,6 +325,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("mainnet", 76, "76.json"),
     include_config!("mainnet", 78, "78.json"),
     include_config!("mainnet", 80, "80.json"),
+    include_config!("mainnet", 81, "81.json"),
     include_config!("mainnet", 143, "143.json"),
     // Epoch configs for testnet (genesis protocol version is 29).
     include_config!("testnet", 29, "29.json"),
@@ -318,6 +341,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 76, "76.json"),
     include_config!("testnet", 78, "78.json"),
     include_config!("testnet", 80, "80.json"),
+    include_config!("testnet", 81, "81.json"),
     include_config!("testnet", 143, "143.json"),
 ];
 
@@ -456,6 +480,7 @@ mod tests {
     use crate::epoch_manager::EpochConfig;
     use near_primitives_core::types::ProtocolVersion;
     use near_primitives_core::version::PROTOCOL_VERSION;
+    use num_rational::Rational32;
     use std::fs;
     use std::path::Path;
 
@@ -529,6 +554,15 @@ mod tests {
             let epoch_configs = EpochConfigStore::for_chain_id(chain_id, None).unwrap();
             let epoch_config = epoch_configs.get_config(80);
             assert_eq!(epoch_config.num_chunk_validator_seats, 500);
+        }
+    }
+
+    #[test]
+    fn test_protocol_upgrade_81() {
+        for chain_id in ["mainnet", "testnet"] {
+            let epoch_configs = EpochConfigStore::for_chain_id(chain_id, None).unwrap();
+            let epoch_config = epoch_configs.get_config(81);
+            assert_eq!(epoch_config.max_inflation_rate, Rational32::new(1, 40));
         }
     }
 

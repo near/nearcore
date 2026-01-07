@@ -52,7 +52,6 @@ use near_primitives::types::StateRoot;
 use near_store::{PrefetchApi, PrefetchError, Trie};
 use sha2::Digest;
 use std::str::FromStr;
-use tracing::{debug, warn};
 
 use crate::{SignedValidPeriodTransactions, metrics};
 /// Transaction runtime view of the prefetching subsystem.
@@ -238,11 +237,11 @@ impl TriePrefetcher {
         match res {
             Err(PrefetchError::QueueFull) => {
                 self.prefetch_queue_full.inc();
-                debug!(target: "runtime::prefetch", "I/O scheduler input queue is full, dropping prefetch request");
+                tracing::debug!(target: "runtime::prefetch", "IO scheduler input queue is full, dropping prefetch request");
             }
             Err(PrefetchError::QueueDisconnected) => {
                 // This shouldn't have happened, hence logging warning here
-                warn!(target: "runtime::prefetch", "I/O scheduler input queue is disconnected, dropping prefetch request");
+                tracing::warn!(target: "runtime::prefetch", "IO scheduler input queue is disconnected, dropping prefetch request");
             }
             Ok(()) => self.prefetch_enqueued.inc(),
         };
@@ -471,14 +470,12 @@ mod tests {
         let input_keys = accounts_to_trie_keys(input);
         let prefetch_keys = accounts_to_trie_keys(prefetch);
 
-        let shard_uids = vec![ShardUId::single_shard()];
         let trie_config = TrieConfig { enable_receipt_prefetching: true, ..TrieConfig::default() };
         let store = create_test_store();
         let flat_storage_manager = near_store::flat::FlatStorageManager::new(store.flat_store());
         let tries = ShardTries::new(
             store.trie_store(),
             trie_config,
-            &shard_uids,
             flat_storage_manager,
             StateSnapshotConfig::Disabled,
         );

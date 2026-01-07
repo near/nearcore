@@ -17,6 +17,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install jq
 
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # Install all the required tools
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
@@ -36,4 +38,9 @@ jobs:
         run: |
           cd benchmarks/transactions-generator
           ln -s ../../target/release/neard
-          just do-it
+          printf '%s\n' '{ "tx_generator": { "accounts_path": "{{near_accounts_path}}", "schedule": [ { "tps": 20000, "duration_s": 120 } ] } }' > tx-generator-settings.json
+          just init-localnet
+          just unlimit
+          just create-accounts 50000
+          just enable-tx
+          just run-localnet

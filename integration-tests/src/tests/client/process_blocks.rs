@@ -12,8 +12,7 @@ use near_async::messaging::{CanSend, CanSendAsync};
 use near_async::time::{Clock, Duration};
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
-use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
-use near_chain::{ChainStore, MerkleProofAccess};
+use near_chain::{BlockProcessingArtifact, ChainStore, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, ProtocolVersionCheckConfig};
 use near_client::test_utils::create_chunk_on_height;
@@ -55,13 +54,14 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumBlocks};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_primitives_core::num_rational::Ratio;
 use near_store::NodeStorage;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::archive::cold_storage::{update_cold_db, update_cold_head};
 use near_store::db::metadata::{DB_VERSION, DbKind};
+use near_store::merkle_proof::MerkleProofAccess;
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::{DBCol, TrieChanges, get};
 use parking_lot::RwLock;
@@ -140,39 +140,13 @@ async fn receive_network_block() {
     let res = actor_handles.view_client_actor.send_async(GetBlockWithMerkleTree::latest()).await;
     let (last_block, block_merkle_tree) = res.unwrap().unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
-    block_merkle_tree.insert(last_block.header.hash);
     let signer = create_test_signer("test1");
-    let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
-    let block = Block::produce(
-        PROTOCOL_VERSION,
-        &last_block.header.clone().into(),
-        last_block.header.height + 1,
-        next_block_ordinal,
-        last_block.chunks.iter().cloned().map(Into::into).collect(),
-        vec![vec![]; last_block.chunks.len()],
-        EpochId::default(),
-        if last_block.header.prev_hash == CryptoHash::default() {
-            EpochId(last_block.header.hash)
-        } else {
-            EpochId(last_block.header.next_epoch_id)
-        },
-        None,
-        vec![],
-        Ratio::from_integer(0),
-        Balance::ZERO,
-        Balance::from_yoctonear(100),
-        None,
-        &signer,
-        last_block.header.next_bp_hash,
-        block_merkle_tree.root(),
-        Clock::real(),
-        None,
-        None,
-        None,
-    );
+    let block =
+        TestBlockBuilder::from_prev_block_view(Clock::real(), &last_block, Arc::new(signer))
+            .block_merkle_tree(&mut block_merkle_tree)
+            .build();
     actor_handles.client_actor.send(
-        BlockResponse { block: block.into(), peer_id: PeerInfo::random().id, was_requested: false }
-            .span_wrap(),
+        BlockResponse { block, peer_id: PeerInfo::random().id, was_requested: false }.span_wrap(),
     );
     tokio::select! {
         _ = done.cancelled() => {},
@@ -226,42 +200,14 @@ async fn produce_block_with_approvals() {
     let res = actor_handles.view_client_actor.send_async(GetBlockWithMerkleTree::latest()).await;
     let (last_block, block_merkle_tree) = res.unwrap().unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
-    block_merkle_tree.insert(last_block.header.hash);
     let signer1 = create_test_signer(&block_producer);
-    let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
-
-    let chunks = last_block.chunks.into_iter().map(Into::into).collect_vec();
-    let chunk_endorsements = vec![vec![]; chunks.len()];
-    let block = Block::produce(
-        PROTOCOL_VERSION,
-        &last_block.header.clone().into(),
-        last_block.header.height + 1,
-        next_block_ordinal,
-        chunks,
-        chunk_endorsements,
-        EpochId::default(),
-        if last_block.header.prev_hash == CryptoHash::default() {
-            EpochId(last_block.header.hash)
-        } else {
-            EpochId(last_block.header.next_epoch_id)
-        },
-        None,
-        vec![],
-        Ratio::from_integer(0),
-        Balance::ZERO,
-        Balance::from_yoctonear(100),
-        Some(Balance::ZERO),
-        &signer1,
-        last_block.header.next_bp_hash,
-        block_merkle_tree.root(),
-        Clock::real(),
-        None,
-        None,
-        None,
-    );
+    let block =
+        TestBlockBuilder::from_prev_block_view(Clock::real(), &last_block, Arc::new(signer1))
+            .block_merkle_tree(&mut block_merkle_tree)
+            .build();
     actor_handles.client_actor.send(
         BlockResponse {
-            block: block.clone().into(),
+            block: block.clone(),
             peer_id: PeerInfo::random().id,
             was_requested: false,
         }
@@ -335,36 +281,13 @@ async fn invalid_blocks_common(is_requested: bool) {
     let res = actor_handles.view_client_actor.send_async(GetBlockWithMerkleTree::latest()).await;
     let (last_block, block_merkle_tree) = res.unwrap().unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
-    block_merkle_tree.insert(last_block.header.hash);
     let signer = create_test_signer("test");
-    let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
-    let valid_block = Block::produce(
-        PROTOCOL_VERSION,
-        &last_block.header.clone().into(),
-        last_block.header.height + 1,
-        next_block_ordinal,
-        last_block.chunks.iter().cloned().map(Into::into).collect(),
-        vec![vec![]; last_block.chunks.len()],
-        EpochId::default(),
-        if last_block.header.prev_hash == CryptoHash::default() {
-            EpochId(last_block.header.hash)
-        } else {
-            EpochId(last_block.header.next_epoch_id)
-        },
-        None,
-        vec![],
-        Ratio::from_integer(0),
-        Balance::ZERO,
-        Balance::from_yoctonear(100),
-        Some(Balance::ZERO),
-        &signer,
-        last_block.header.next_bp_hash,
-        block_merkle_tree.root(),
-        Clock::real(),
-        None,
-        None,
-        None,
+    let valid_block = Arc::unwrap_or_clone(
+        TestBlockBuilder::from_prev_block_view(Clock::real(), &last_block, Arc::new(signer))
+            .block_merkle_tree(&mut block_merkle_tree)
+            .build(),
     );
+
     // Send block with invalid chunk mask
     let mut block = valid_block.clone();
     block.mut_header().set_chunk_mask(vec![]);
@@ -618,7 +541,7 @@ fn test_time_attack() {
     let client = &mut env.clients[0];
     let signer = client.validator_signer.get().unwrap();
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
+    let mut b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build();
     let timestamp = b1.header().timestamp();
     Arc::make_mut(&mut b1)
         .mut_header()
@@ -649,7 +572,7 @@ fn test_invalid_gas_price() {
     let signer = client.validator_signer.get().unwrap();
 
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
+    let mut b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build();
     Arc::make_mut(&mut b1).mut_header().set_next_gas_price(Balance::ZERO);
     Arc::make_mut(&mut b1).mut_header().resign(signer.as_ref());
 
@@ -663,7 +586,7 @@ fn test_invalid_height_too_large() {
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let _ = env.clients[0].process_block_test(b1.clone().into(), Provenance::PRODUCED).unwrap();
     let signer = Arc::new(create_test_signer("test0"));
-    let b2 = TestBlockBuilder::new(Clock::real(), &b1, signer).height(u64::MAX).build();
+    let b2 = TestBlockBuilder::from_prev_block(Clock::real(), &b1, signer).height(u64::MAX).build();
     let res = env.clients[0].process_block_test(b2.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
 }
@@ -735,6 +658,7 @@ fn test_bad_orphan() {
                 ShardChunkHeaderInner::V3(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
                 ShardChunkHeaderInner::V4(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
                 ShardChunkHeaderInner::V5(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V6(inner) => inner.prev_block_hash = CryptoHash([1; 32]),
             }
             chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
@@ -786,6 +710,8 @@ fn test_bad_orphan() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_bad_chunk_mask() {
     init_test_logger();
 
@@ -1261,6 +1187,8 @@ fn slow_test_gc_after_state_sync() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_process_block_after_state_sync() {
     let epoch_length = 1024;
     // test with shard_version > 0
@@ -1414,6 +1342,8 @@ fn test_tx_forwarding_no_double_forwarding() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_tx_forward_around_epoch_boundary() {
     let epoch_length = 4;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -1543,6 +1473,8 @@ fn test_reject_block_headers_during_epoch_sync() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_gc_tail_update() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 2;
@@ -1790,6 +1722,8 @@ fn test_block_merkle_proof_same_hash() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_data_reset_before_state_sync() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let epoch_length = 5;
@@ -1896,10 +1830,12 @@ fn test_block_height_processed_orphan() {
     let block_height = orphan_block.header().height();
     let res = env.clients[0].process_block_test(orphan_block.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::Orphan);
-    assert!(env.clients[0].chain.mut_chain_store().is_height_processed(block_height).unwrap());
+    assert!(env.clients[0].chain.mut_chain_store().is_height_processed(block_height));
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_validate_chunk_extra() {
     let mut capture = near_o11y::testonly::TracingCapture::enable();
 
@@ -2015,7 +1951,7 @@ fn test_validate_chunk_extra() {
     let validator_id = signer.as_ref().unwrap().validator_id().clone();
     let chunk = ShardChunkWithEncoding::from_encoded_shard_chunk(encoded_chunk).unwrap();
     env.clients[0]
-        .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
+        .distribute_and_persist_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
     env.clients[0].process_blocks_with_missing_chunks(None);
@@ -2041,9 +1977,11 @@ fn test_validate_chunk_extra() {
     let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
     let shard_uid = shard_layout.shard_uids().next().unwrap();
     let shard_id = shard_uid.shard_id();
-    let chunks = client
-        .chunk_inclusion_tracker
-        .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
+    let chunks = client.chunk_inclusion_tracker.get_chunk_headers_ready_for_inclusion(
+        block1.header().epoch_id(),
+        &block1.hash(),
+        PROTOCOL_VERSION,
+    );
     let (chunk_header, _) = client
         .chunk_inclusion_tracker
         .get_chunk_header_and_endorsements(chunks.get(&shard_id).unwrap())
@@ -2063,6 +2001,8 @@ fn test_validate_chunk_extra() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_catchup_gas_price_change() {
     init_test_logger();
     let epoch_length = 8;
@@ -2106,9 +2046,9 @@ fn slow_test_catchup_gas_price_change() {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
         env.process_block(0, block.clone(), Provenance::PRODUCED);
-        tracing::error!("process_block:{i}:0");
+        tracing::error!(%i, "process_block:0");
         env.process_block(1, block, Provenance::NONE);
-        tracing::error!("process_block:{i}:1");
+        tracing::error!(%i, "process_block:1");
     }
 
     assert_ne!(blocks[3].header().next_gas_price(), blocks[4].header().next_gas_price());
@@ -2186,7 +2126,7 @@ fn slow_test_catchup_gas_price_change() {
             env.clients[1].epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         for part_id in 0..num_parts {
             let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
-            let bytes = store.get(DBCol::StateParts, &key).unwrap().unwrap();
+            let bytes = store.get(DBCol::StateParts, &key).unwrap();
             let part = StatePart::from_bytes(bytes.to_vec(), protocol_version).unwrap();
             env.clients[1]
                 .runtime_adapter
@@ -2297,6 +2237,10 @@ fn test_block_execution_outcomes() {
 
 #[test]
 fn test_save_tx_outcomes_false() {
+    // TODO(spice): Once save_tx_outcomes is used by chunk executor re-enable the test for spice.
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        return;
+    }
     init_test_logger();
 
     let epoch_length = 5;
@@ -2751,7 +2695,7 @@ fn produce_chunks(env: &mut TestEnv, epoch_id: &EpochId, height: u64) {
         for client in &mut env.clients {
             let validator_id = client.validator_signer.get().unwrap().validator_id().clone();
             client
-                .persist_and_distribute_encoded_chunk(
+                .distribute_and_persist_encoded_chunk(
                     chunk.clone(),
                     encoded_chunk_parts_paths.clone(),
                     receipts.clone(),
@@ -2829,6 +2773,8 @@ fn test_discard_non_finalizable_block() {
 ///                      \------h+1
 /// even though from the perspective of h+2 the last final block is h-2.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_query_final_state() {
     let epoch_length = 10;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -2909,6 +2855,8 @@ fn test_query_final_state() {
 // Check that if the same receipt is executed twice in forked chain, both outcomes are recorded
 // but child receipt ids are different.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_fork_receipt_ids() {
     let (mut env, tx_hash) = prepare_env_with_transaction();
 
@@ -2961,6 +2909,8 @@ fn test_fork_receipt_ids() {
 // outcomes are recorded, canonical chain outcome is correct and GC cleanups
 // all outcomes.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_fork_execution_outcome() {
     init_test_logger();
 
@@ -3369,6 +3319,8 @@ mod contract_precompilation_tests {
     }
 
     #[test]
+    // TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+    #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     fn slow_test_sync_and_call_cached_contract() {
         init_integration_logger();
         let num_clients = 2;
@@ -3462,6 +3414,8 @@ mod contract_precompilation_tests {
     }
 
     #[test]
+    // TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+    #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     fn slow_test_two_deployments() {
         init_integration_logger();
         let num_clients = 2;
@@ -3536,6 +3490,8 @@ mod contract_precompilation_tests {
     }
 
     #[test]
+    // TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+    #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     fn slow_test_sync_after_delete_account() {
         init_test_logger();
         let num_clients = 3;

@@ -14,9 +14,9 @@ impl RunCompactionCommand {
     pub(crate) fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
         let db = open_rocksdb(home, near_store::Mode::ReadWrite)?;
         if let Some(col_name) = &self.column {
-            db.compact_column(resolve_column(col_name)?)?;
+            db.compact_column(resolve_column(col_name)?);
         } else {
-            db.compact()?;
+            db.compact();
         }
         eprintln!("Compaction is finished!");
         Ok(())

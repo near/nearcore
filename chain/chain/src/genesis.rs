@@ -125,14 +125,16 @@ impl Chain {
         for chunk in genesis_chunks {
             store_update.save_chunk(chunk.clone());
         }
-        store_update.merge(epoch_manager.add_validator_proposals(
-            BlockInfo::from_header(
-                genesis.header(),
-                // genesis height is considered final
-                genesis.header().height(),
-            ),
-            *genesis.header().random_value(),
-        )?);
+        let block_info = BlockInfo::from_header(
+            genesis.header(),
+            // genesis height is considered final
+            genesis.header().height(),
+        );
+        store_update.merge(
+            epoch_manager
+                .add_validator_proposals(block_info, *genesis.header().random_value())?
+                .into(),
+        );
         store_update.save_block_header(genesis.header().clone())?;
         store_update.save_block(genesis.clone().into());
         Self::save_genesis_chunk_extras(&genesis, &state_roots, epoch_manager, &mut store_update)?;
@@ -158,7 +160,7 @@ impl Chain {
         }
         store_update.merge(tmp_store_update);
         store_update.commit()?;
-        tracing::info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
+        tracing::info!(target: "chain", height = %block_head.height, ?block_head.last_block_hash, ?state_roots, "genesis has been saved");
         Ok(())
     }
 
@@ -176,6 +178,7 @@ impl Chain {
             Balance::ZERO,
             congestion_info,
             BandwidthRequests::empty(),
+            None,
         )
     }
 
@@ -196,22 +199,7 @@ impl Chain {
         shard_layout: &ShardLayout,
         shard_id: ShardId,
     ) -> Result<ChunkExtra, Error> {
-        Self::build_genesis_chunk_extra(&chain_store.store(), shard_layout, shard_id, &genesis)
-    }
-
-    pub fn build_genesis_chunk_extra(
-        store: &Store,
-        shard_layout: &ShardLayout,
-        shard_id: ShardId,
-        genesis: &Block,
-    ) -> Result<ChunkExtra, Error> {
         let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let state_root = *get_genesis_state_roots(store)?
-            .ok_or_else(|| Error::Other("genesis state roots do not exist in the db".to_owned()))?
-            .get(shard_index)
-            .ok_or_else(|| {
-                Error::Other(format!("genesis state root does not exist for shard id {shard_id} shard index {shard_index}"))
-            })?;
         let gas_limit = genesis
             .chunks()
             .get(shard_index)
@@ -221,9 +209,29 @@ impl Chain {
                 ))
             })?
             .gas_limit();
-        let congestion_info =
-            genesis.block_congestion_info().get(&shard_id).map(|info| info.congestion_info);
-        Ok(Self::create_genesis_chunk_extra(&state_root, gas_limit, congestion_info))
+        Self::build_genesis_chunk_extra(&chain_store.store(), shard_layout, shard_id, gas_limit)
+    }
+
+    pub fn build_genesis_chunk_extra(
+        store: &Store,
+        shard_layout: &ShardLayout,
+        shard_id: ShardId,
+        gas_limit: Gas,
+    ) -> Result<ChunkExtra, Error> {
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
+        let state_root = *get_genesis_state_roots(store)?
+            .ok_or_else(|| Error::Other("genesis state roots do not exist in the db".to_owned()))?
+            .get(shard_index)
+            .ok_or_else(|| {
+                Error::Other(format!("genesis state root does not exist for shard id {shard_id} shard index {shard_index}"))
+            })?;
+        let congestion_info = *near_store::get_genesis_congestion_infos(store)?
+            .ok_or_else(|| Error::Other("genesis congestion infos do not exist in the db".to_owned()))?
+            .get(shard_index)
+            .ok_or_else(|| {
+                Error::Other(format!("genesis congestion infos do not exist for shard id {shard_id} shard index {shard_index}"))
+            })?;
+        Ok(Self::create_genesis_chunk_extra(&state_root, gas_limit, Some(congestion_info)))
     }
 
     /// Saves the `[ChunkExtra]`s for all shards in the genesis block.
@@ -270,7 +278,7 @@ pub fn get_genesis_congestion_infos(
     state_roots: &Vec<CryptoHash>,
 ) -> Result<Vec<CongestionInfo>, Error> {
     get_genesis_congestion_infos_impl(epoch_manager, runtime, state_roots).map_err(|err| {
-        tracing::error!(target: "chain", ?err, "Failed to get the genesis congestion infos.");
+        tracing::error!(target: "chain", ?err, "failed to get the genesis congestion infos");
         err
     })
 }
@@ -287,7 +295,7 @@ fn get_genesis_congestion_infos_impl(
 
     // Check we had already computed the congestion infos from the genesis state roots.
     if let Some(saved_infos) = near_store::get_genesis_congestion_infos(runtime.store())? {
-        tracing::debug!(target: "chain", "Reading genesis congestion infos from database.");
+        tracing::debug!(target: "chain", "reading genesis congestion infos from database");
         return Ok(saved_infos);
     }
 
@@ -306,7 +314,7 @@ fn get_genesis_congestion_infos_impl(
                 tracing::info!(
                     target: "chain",
                     %shard_id,
-                    "Genesis state unavailable, using default congestion info"
+                    "genesis state unavailable, using default congestion info"
                 );
                 CongestionInfo::default()
             }
@@ -317,7 +325,7 @@ fn get_genesis_congestion_infos_impl(
     // Store it in DB so that we can read it later, instead of recomputing from genesis state roots.
     // Note that this is necessary because genesis state roots will be garbage-collected and will not
     // be available, for example, when the node restarts later.
-    tracing::debug!(target: "chain", "Saving genesis congestion infos to database.");
+    tracing::debug!(target: "chain", "saving genesis congestion infos to database");
     let mut store_update = runtime.store().store_update();
     near_store::set_genesis_congestion_infos(&mut store_update, &new_infos);
     store_update.commit()?;
@@ -337,7 +345,7 @@ fn get_genesis_congestion_info(
     let trie = runtime.get_view_trie_for_shard(shard_id, prev_hash, state_root)?;
     let runtime_config = runtime.get_runtime_config(protocol_version);
     let congestion_info = bootstrap_congestion_info(&trie, runtime_config, shard_id)?;
-    tracing::debug!(target: "chain", %shard_id, ?state_root, ?congestion_info, "Computed genesis congestion info.");
+    tracing::debug!(target: "chain", %shard_id, ?state_root, ?congestion_info, "computed genesis congestion info");
     Ok(congestion_info)
 }
 

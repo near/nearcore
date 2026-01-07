@@ -24,7 +24,6 @@ use near_primitives_core::types::Balance;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock};
-use tracing::warn;
 use wasmtime::{
     CallHook, Engine, Extern, ExternType, Instance, InstanceAllocationStrategy, InstancePre,
     Linker, Memory, Module, ModuleExport, PoolingAllocationConfig, ResourcesRequired, Store,
@@ -164,7 +163,7 @@ impl ConcurrencySemaphore {
         if num_tables != 0 {
             if !self.try_reserve_tables(num_tables) {
                 let active = self.release_tables(num_tables).checked_sub(num_tables.into())?;
-                warn!(active, requested = num_tables, "table lock contended");
+                tracing::warn!(active, requested = num_tables, "table lock contended");
                 let mut guard = self.release_mutex.lock();
                 while !self.try_reserve_tables(num_tables) {
                     iterations = iterations.checked_add(1)?;
@@ -180,7 +179,7 @@ impl ConcurrencySemaphore {
         iterations = 0;
         if !self.try_reserve_instance() {
             let active = self.release_instance().checked_sub(1)?;
-            warn!(active, "instance lock contended");
+            tracing::warn!(active, "instance lock contended");
             let mut guard = self.release_mutex.lock();
             while !self.try_reserve_instance() {
                 iterations = iterations.checked_add(1)?;
@@ -329,9 +328,12 @@ impl IntoVMError for anyhow::Error {
             };
             return Err(VMRunnerError::Nondeterministic(nondeterministic_message.into()));
         }
-        // FIXME: this can blow up in size and would get stored in the storage in case this was a
-        // production runtime. Something more proper should be done here.
-        Ok(FunctionCallError::LinkError { msg: format!("{:?}", cause) })
+        let description = if cause.is::<wasmtime::UnknownImportError>() {
+            "unknown or invalid import".to_string()
+        } else {
+            cause.to_string()
+        };
+        Ok(FunctionCallError::LinkError { msg: description })
     }
 }
 
@@ -446,10 +448,13 @@ impl WasmtimeVM {
     }
 
     pub(crate) fn vm_hash(&self) -> u64 {
+        // increment the `version` when making modifications that affect the
+        // artifact compatibility.
+        let version = 66;
+
         let mut hasher = std::hash::DefaultHasher::new();
         self.engine.precompile_compatibility_hash().hash(&mut hasher);
-        hasher.write_u16(65); // increment the 65 or something when making modifications that affect
-        // the artifact compatibility.
+        hasher.write_u16(version);
         hasher.finish()
     }
 

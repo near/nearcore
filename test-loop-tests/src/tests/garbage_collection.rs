@@ -23,6 +23,8 @@ use crate::utils::setups::derive_new_epoch_config_from_boundary;
 const GC_STEP_PERIOD: Duration = Duration::milliseconds(setup::builder::MIN_BLOCK_PROD_TIME as i64);
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_transition_data_gc_simple() {
     init_test_logger();
 
@@ -61,6 +63,8 @@ fn test_state_transition_data_gc_simple() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_transition_data_gc_when_resharding() {
     init_test_logger();
 
@@ -77,11 +81,10 @@ fn test_state_transition_data_gc_when_resharding() {
 
     let base_epoch_config = TestEpochConfigBuilder::from_genesis(&genesis).build();
 
-    let new_epoch_config = {
+    let (new_epoch_config, new_shard_layout) = {
         let boundary_account: AccountId = "account6".parse().unwrap();
         derive_new_epoch_config_from_boundary(&base_epoch_config, &boundary_account)
     };
-    let new_shard_layout = new_epoch_config.shard_layout.clone();
 
     let epoch_configs = vec![
         (genesis.config.protocol_version, Arc::new(base_epoch_config)),
@@ -115,7 +118,7 @@ fn test_state_transition_data_gc_when_resharding() {
 
             // Because GC is async we need to wait for one extra block after epoch changes to make
             // sure it runs after shard layout change.
-            epoch_manager.get_epoch_config(&epoch_id).unwrap().shard_layout == new_shard_layout
+            epoch_manager.get_shard_layout(&epoch_id).unwrap() == new_shard_layout
         },
         Duration::seconds((3 * epoch_length) as i64),
     );
@@ -131,8 +134,8 @@ fn assert_state_transition_data_is_cleared(
 ) {
     let final_block_height = chain_store.final_head().unwrap().height;
     let store = chain_store.store().store();
-    for res in store.iter(DBCol::StateTransitionData) {
-        let (block_hash, shard_id) = get_block_shard_id_rev(&res.unwrap().0).unwrap();
+    for (key, _) in store.iter(DBCol::StateTransitionData) {
+        let (block_hash, shard_id) = get_block_shard_id_rev(&key).unwrap();
         let block_height = chain_store.get_block_height(&block_hash).unwrap();
         assert!(
             expected_shard_ids.contains(&shard_id),
@@ -154,7 +157,6 @@ fn assert_state_transition_data_is_cleared(
             assert!(
                 store
                     .get(DBCol::StateTransitionData, &get_block_shard_id(&block_hash, *shard_id))
-                    .unwrap()
                     .is_some(),
                 "StateTransitionData missing for shard id {shard_id} and height {height}",
             );

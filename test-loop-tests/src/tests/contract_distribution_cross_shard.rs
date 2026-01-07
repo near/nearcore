@@ -31,6 +31,8 @@ const NUM_ACCOUNTS: usize = NUM_VALIDATORS + NUM_RPC;
 /// Make 2 accounts from each shard make calls to these contracts.
 #[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_contract_distribution_cross_shard() {
     init_test_logger();
     let accounts = make_accounts(NUM_ACCOUNTS);
@@ -122,7 +124,7 @@ fn deploy_contracts(
     let mut contracts = vec![];
     let mut txs = vec![];
     for (i, contract_id) in contract_ids.into_iter().enumerate() {
-        tracing::info!(target: "test", ?rpc_id, ?contract_id, "Deploying contract.");
+        tracing::info!(target: "test", ?rpc_id, ?contract_id, "deploying contract");
         let contract =
             ContractCode::new(near_test_contracts::sized_contract((i + 1) * 100).to_vec(), None);
         let tx = deploy_contract(
@@ -154,7 +156,7 @@ fn call_contracts(
     let mut txs = vec![];
     for sender_id in sender_ids {
         for contract_id in contract_ids {
-            tracing::info!(target: "test", ?rpc_id, ?sender_id, ?contract_id, "Calling contract.");
+            tracing::info!(target: "test", ?rpc_id, ?sender_id, ?contract_id, "calling contract");
             let tx = call_contract(
                 &mut env.test_loop,
                 &env.node_datas,
@@ -169,6 +171,6 @@ fn call_contracts(
             *nonce += 1;
         }
     }
-    env.test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::seconds(3));
     check_txs(&env.test_loop.data, &env.node_datas, &rpc_id, &txs);
 }

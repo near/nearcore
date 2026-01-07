@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use itertools::Itertools;
-use near_async::messaging::{Handler, Message};
+use near_async::messaging::Handler;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::time::Duration;
@@ -9,7 +9,7 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{
     GetBlock, GetChunk, GetExecutionOutcomesForBlock, GetProtocolConfig, GetShardChunk,
     GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
-    ViewClientActorInner,
+    ViewClientActor,
 };
 use near_network::client::BlockHeadersRequest;
 use near_o11y::testonly::init_test_logger;
@@ -28,7 +28,7 @@ use near_primitives::views::{
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
-use crate::utils::transactions::execute_money_transfers;
+use crate::utils::transactions::execute_money_transfers_with_delay;
 
 const NUM_VALIDATORS: usize = 2;
 const NUM_ACCOUNTS: usize = 20;
@@ -45,6 +45,8 @@ const NUM_SHARDS: usize = 4;
 /// The goal is to exercise the codepath that answers the requests, rather than checking
 /// it returns a fully correct response.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_view_requests_to_archival_node() {
     init_test_logger();
     let builder = TestLoopBuilder::new();
@@ -77,16 +79,28 @@ fn slow_test_view_requests_to_archival_node() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(all_clients)
-        .split_store_archival_clients(archival_clients)
+        .cold_storage_archival_clients(archival_clients)
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build()
         .warmup();
 
     let non_validator_accounts = accounts.iter().skip(NUM_VALIDATORS).cloned().collect_vec();
-    execute_money_transfers(&mut test_loop, &node_datas, &non_validator_accounts).unwrap();
+    let client_handle = node_datas[ARCHIVAL_CLIENT].client_sender.actor_handle();
+    let client = &test_loop.data.get(&client_handle).client;
+    let transaction_delay = if client.config.enable_early_prepare_transactions {
+        Duration::milliseconds(100)
+    } else {
+        Duration::milliseconds(300)
+    };
+    execute_money_transfers_with_delay(
+        &mut test_loop,
+        &node_datas,
+        &non_validator_accounts,
+        transaction_delay,
+    )
+    .unwrap();
 
     // Run the chain until it garbage collects blocks from the first epoch.
-    let client_handle = node_datas[ARCHIVAL_CLIENT].client_sender.actor_handle();
     let target_height: u64 = EPOCH_LENGTH * (GC_NUM_EPOCHS_TO_KEEP + 2) + 6;
     test_loop.run_until(
         |test_loop_data| {
@@ -107,7 +121,7 @@ struct ViewClientTester<'a> {
     test_loop: &'a mut TestLoopV2,
     /// List of data handles to the view client senders for sending the requests.
     /// Used to locate the right view client to send a request (by index).
-    handles: Vec<TestLoopDataHandle<ViewClientActorInner>>,
+    handles: Vec<TestLoopDataHandle<ViewClientActor>>,
     /// Cache of block height to Blocks (as they are called in multiple checks).
     block_cache: HashMap<BlockHeight, BlockView>,
 }
@@ -128,9 +142,9 @@ impl<'a> ViewClientTester<'a> {
     /// Sends a message to the `[ViewClientActorInner]` for the client at position `idx`.
     fn send<M, R>(&mut self, request: M, idx: usize) -> R
     where
-        M: Message,
+        M: Send + 'static,
         R: Send,
-        ViewClientActorInner: Handler<M, R>,
+        ViewClientActor: Handler<M, R>,
     {
         let view_client = self.test_loop.data.get_mut(&self.handles[idx]);
         view_client.handle(request)

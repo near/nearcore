@@ -112,31 +112,31 @@ export type SyncStatusView =
     | 'AwaitingPeers'
     | 'NoSync'
     | {
-          EpochSync: { epoch_ord: number };
-      }
+        EpochSync: { epoch_ord: number };
+    }
     | {
-          HeaderSync: {
-              start_height: number;
-              current_height: number;
-              highest_height: number;
-          };
-      }
+        HeaderSync: {
+            start_height: number;
+            current_height: number;
+            highest_height: number;
+        };
+    }
     | {
-          StateSync: {
-              sync_hash: string;
-              sync_status: { [shard_id: number]: string };
-              download_tasks: string[];
-              computation_tasks: string[];
-          };
-      }
+        StateSync: {
+            sync_hash: string;
+            sync_status: { [shard_id: number]: string };
+            download_tasks: string[];
+            computation_tasks: string[];
+        };
+    }
     | 'StateSyncDone'
     | {
-          BlockSync: {
-              start_height: number;
-              current_height: number;
-              highest_height: number;
-          };
-      };
+        BlockSync: {
+            start_height: number;
+            current_height: number;
+            highest_height: number;
+        };
+    };
 
 export interface ShardSyncDownloadView {
     downloads: { error: boolean; done: boolean }[];
@@ -410,6 +410,27 @@ export interface ChainProcessingInfo {
     floating_chunks_info: ChunkProcessingInfo[];
 }
 
+// Helper to format the URL through the proxy
+const getProxyUrl = (addr: string, endpoint: string) => {
+    // This requests /api-proxy/address/endpoint relative to current domain
+    return `/api-proxy/${addr}/${endpoint}`;
+};
+
+// Helper to format the target URL based on current protocol
+function getTargetUrl(addr: string, endpoint: string): string {
+    const protocol = window.location.protocol;
+
+    if (protocol === 'https:') {
+        return getProxyUrl(addr, endpoint);
+    } 
+    
+    if (protocol === 'http:') {
+        return `http://${addr}/${endpoint}`;
+    }
+
+    throw new Error(`Unsupported protocol: ${protocol}`);
+}
+
 export interface ChainProcessingStatusResponse {
     status_response: {
         ChainProcessingStatus: ChainProcessingInfo;
@@ -417,22 +438,22 @@ export interface ChainProcessingStatusResponse {
 }
 
 export async function fetchBasicStatus(addr: string): Promise<StatusResponse> {
-    const response = await fetch(`http://${addr}/status`);
+    const response = await fetch(getTargetUrl(addr, 'status'));
     return await response.json();
 }
 
 export async function fetchFullStatus(addr: string): Promise<StatusResponse> {
-    const response = await fetch(`http://${addr}/debug/api/status`);
+    const response = await fetch(getTargetUrl(addr, 'debug/api/status'));
     return await response.json();
 }
 
 export async function fetchSyncStatus(addr: string): Promise<SyncStatusResponse> {
-    const response = await fetch(`http://${addr}/debug/api/sync_status`);
+    const response = await fetch(getTargetUrl(addr, 'debug/api/sync_status'));
     return await response.json();
 }
 
 export async function fetchTrackedShards(addr: string): Promise<TrackedShardsResponse> {
-    const response = await fetch(`http://${addr}/debug/api/tracked_shards`);
+    const response = await fetch(getTargetUrl(addr, 'debug/api/tracked_shards'));
     return await response.json();
 }
 
@@ -452,8 +473,8 @@ export async function fetchBlockStatus(
     if (numBlocks !== null) {
         params.append('num_blocks', numBlocks.toString());
     }
-    const url = `http://${addr}/debug/api/block_status${params.toString() ? '?' + params : ''}`;
-    const response = await fetch(url);
+    
+    const response = await fetch(getTargetUrl(addr, `debug/api/block_status${params.toString() ? '?' + params : ''}`));
     return await response.json();
 }
 
@@ -462,8 +483,7 @@ export async function fetchEpochInfo(
     epochId: string | null
 ): Promise<EpochInfoResponse> {
     const trailing = epochId ? `/${epochId}` : '';
-    const response = await fetch(`http://${addr}/debug/api/epoch_info${trailing}`);
-
+    const response = await fetch(getTargetUrl(addr, `debug/api/epoch_info${trailing}`));
     if (!response.ok) {
         throw new Error(`Failed to fetch epoch info: ${response.statusText}`);
     }
@@ -472,31 +492,31 @@ export async function fetchEpochInfo(
 }
 
 export async function fetchPeerStore(addr: string): Promise<PeerStoreResponse> {
-    const response = await fetch(`http://${addr}/debug/api/peer_store`);
+    const response = await fetch(getTargetUrl(addr, 'debug/api/peer_store'));
     return await response.json();
 }
 
 export async function fetchRecentOutboundConnections(
     addr: string
-): Promise<RecentOutboundConnectionsResponse> {
-    const response = await fetch(`http://${addr}/debug/api/recent_outbound_connections`);
+): Promise<RecentOutboundConnectionsResponse> {   
+    const response = await fetch(getTargetUrl(addr, 'debug/api/recent_outbound_connections'));
     return await response.json();
 }
 
 export async function fetchRoutingTable(addr: string): Promise<RoutingTableResponse> {
-    const response = await fetch(`http://${addr}/debug/api/network_routes`);
+    const response = await fetch(getTargetUrl(addr, 'debug/api/network_routes'));
     return await response.json();
 }
 
 export async function fetchSnapshotHosts(addr: string): Promise<SnapshotHostsResponse> {
-    const response = await fetch(`http://${addr}/debug/api/snapshot_hosts`);
+    const response = await fetch(getTargetUrl(addr, 'debug/api/snapshot_hosts'));
     return await response.json();
 }
 
 export async function fetchChainProcessingStatus(
     addr: string
 ): Promise<ChainProcessingStatusResponse> {
-    const response = await fetch(`http://${addr}/debug/api/chain_processing_status`);
+    const response = await fetch(getTargetUrl(addr, 'debug/api/chain_processing_status'));
     return await response.json();
 }
 
@@ -508,7 +528,7 @@ export async function fetchEntity(
     addr: string,
     request: EntityQueryWithParams
 ): Promise<ApiEntityDataEntryValue> {
-    const response = await fetch(`http://${addr}/debug/api/entity`, {
+    const response = await fetch(getTargetUrl(addr, 'debug/api/entity'), {
         body: JSON.stringify(request),
         headers: {
             'Content-Type': 'application/json',
@@ -520,3 +540,64 @@ export async function fetchEntity(
     }
     return response.json();
 }
+
+export const INSTRUMENTED_WINDOW_LEN_MS = 500;
+
+export async function fetchInstrumentedThreadsView(
+    addr: string
+): Promise<InstrumentedThreadsViewResponse> {
+    const response = await fetch(getTargetUrl(addr, 'debug/api/instrumented_threads'));
+    return await response.json();
+}
+
+export interface InstrumentedThreadsViewResponse {
+    status_response: {
+        InstrumentedThreads: InstrumentedThreads;
+    }
+}
+
+export interface InstrumentedThreads {
+    threads: InstrumentedThread[];
+    current_time_unix_ms: number;
+    current_time_relative_ms: number;
+}
+
+export interface InstrumentedThread {
+    thread_name: string;
+    active_time_ns: number;
+    message_types: string[];
+    windows: InstrumentedWindow[];
+    active_event: InstrumentedActiveEvent | null;
+    queue: { [message_type: string]: number };
+}
+
+export interface InstrumentedActiveEvent {
+    message_type: number;
+    active_for_ns: number;
+}
+
+export interface InstrumentedWindow {
+    start_time_ms: number;
+    end_time_ms: number;
+    events: InstrumentedEvent[];
+    events_overfilled: boolean;
+    summary: InstrumentedWindowSummary;
+    dequeue_summary: InstrumentedWindowSummary;
+}
+
+export interface InstrumentedEvent {
+    m: number;
+    s: boolean;
+    t: number;
+}
+
+export interface InstrumentedWindowSummary {
+    message_stats_by_type: MessageStatsForType[];
+}
+
+export interface MessageStatsForType {
+    m: number;
+    c: number;
+    t: number;
+}
+

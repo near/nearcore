@@ -9,9 +9,9 @@ use axum::http::{Method, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
-use near_async::messaging::{
-    AsyncSendError, AsyncSender, CanSend, MessageWithCallback, SendAsync, Sender,
-};
+use near_async::instrumentation::all_actor_instrumentations_view;
+use near_async::messaging::{AsyncSendError, AsyncSender, CanSend, CanSendAsync, Sender};
+use near_async::time::Clock;
 use near_chain_configs::{ClientConfig, GenesisConfig, ProtocolConfigView};
 use near_client::{
     DebugStatus, GetBlock, GetBlockProof, GetBlockProofResponse, GetChunk, GetClientConfig,
@@ -36,14 +36,38 @@ pub use near_jsonrpc_primitives as primitives;
 use near_jsonrpc_primitives::errors::{RpcError, RpcErrorKind};
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::blocks::RpcBlockRequest;
+use near_jsonrpc_primitives::types::call_function::{
+    RpcCallFunctionError, RpcCallFunctionRequest, RpcCallFunctionResponse,
+};
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigResponse};
 use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQueryWithParams};
-use near_jsonrpc_primitives::types::query::RpcQueryRequest;
+use near_jsonrpc_primitives::types::query::{RpcQueryError, RpcQueryRequest};
 use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
 };
 use near_jsonrpc_primitives::types::transactions::{
     RpcSendTransactionRequest, RpcTransactionResponse,
+};
+use near_jsonrpc_primitives::types::view_access_key::{
+    RpcViewAccessKeyError, RpcViewAccessKeyRequest, RpcViewAccessKeyResponse,
+};
+use near_jsonrpc_primitives::types::view_access_key_list::{
+    RpcViewAccessKeyListError, RpcViewAccessKeyListRequest, RpcViewAccessKeyListResponse,
+};
+use near_jsonrpc_primitives::types::view_account::{
+    RpcViewAccountError, RpcViewAccountRequest, RpcViewAccountResponse,
+};
+use near_jsonrpc_primitives::types::view_code::{
+    RpcViewCodeError, RpcViewCodeRequest, RpcViewCodeResponse,
+};
+use near_jsonrpc_primitives::types::view_gas_key::{
+    RpcViewGasKeyError, RpcViewGasKeyRequest, RpcViewGasKeyResponse,
+};
+use near_jsonrpc_primitives::types::view_gas_key_list::{
+    RpcViewGasKeyListError, RpcViewGasKeyListRequest, RpcViewGasKeyListResponse,
+};
+use near_jsonrpc_primitives::types::view_state::{
+    RpcViewStateError, RpcViewStateRequest, RpcViewStateResponse,
 };
 use near_network::debug::GetDebugStatus;
 use near_network::tcp::{self, ListenerAddr};
@@ -68,7 +92,6 @@ use std::time::{Duration, Instant};
 use tokio::time::{sleep, timeout};
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
-use tracing::{error, info};
 
 mod api;
 mod metrics;
@@ -82,7 +105,7 @@ pub struct RpcPollingConfig {
 impl Default for RpcPollingConfig {
     fn default() -> Self {
         Self {
-            polling_interval: Duration::from_millis(500),
+            polling_interval: Duration::from_millis(200),
             polling_timeout: Duration::from_secs(10),
         }
     }
@@ -200,6 +223,7 @@ fn process_query_response(
         Err(err) => match err {
             near_jsonrpc_primitives::types::query::RpcQueryError::ContractExecutionError {
                 vm_error,
+                error: _,
                 block_height,
                 block_hash,
             } => Ok(json!({
@@ -380,6 +404,8 @@ impl JsonRpcHandler {
                     }
                     QueryRequest::ViewAccessKey { .. } => "query_view_access_key",
                     QueryRequest::ViewAccessKeyList { .. } => "query_view_access_key_list",
+                    QueryRequest::ViewGasKey { .. } => "query_view_gas_key",
+                    QueryRequest::ViewGasKeyList { .. } => "query_view_gas_key_list",
                     QueryRequest::CallFunction { .. } => "query_call_function",
                     QueryRequest::ViewGlobalContractCode { .. } => {
                         "query_view_global_contract_code"
@@ -450,6 +476,30 @@ impl JsonRpcHandler {
             "validators" => process_method_call(request, |params| self.validators(params)).await,
             "client_config" => {
                 process_method_call(request, |_params: ()| self.client_config()).await
+            }
+            "EXPERIMENTAL_view_account" => {
+                process_method_call(request, |params| self.view_account(params)).await
+            }
+            "EXPERIMENTAL_view_code" => {
+                process_method_call(request, |params| self.view_code(params)).await
+            }
+            "EXPERIMENTAL_view_state" => {
+                process_method_call(request, |params| self.view_state(params)).await
+            }
+            "EXPERIMENTAL_view_access_key" => {
+                process_method_call(request, |params| self.view_access_key(params)).await
+            }
+            "EXPERIMENTAL_view_access_key_list" => {
+                process_method_call(request, |params| self.view_access_key_list(params)).await
+            }
+            "EXPERIMENTAL_call_function" => {
+                process_method_call(request, |params| self.call_function(params)).await
+            }
+            "EXPERIMENTAL_view_gas_key" => {
+                process_method_call(request, |params| self.view_gas_key(params)).await
+            }
+            "EXPERIMENTAL_view_gas_key_list" => {
+                process_method_call(request, |params| self.view_gas_key_list(params)).await
             }
             "EXPERIMENTAL_congestion_level" => {
                 process_method_call(request, |params| self.congestion_level(params)).await
@@ -525,7 +575,7 @@ impl JsonRpcHandler {
 
     async fn client_send<M, R, F, E>(&self, msg: M) -> Result<R, E>
     where
-        ClientSenderForRpc: CanSend<MessageWithCallback<M, Result<R, F>>>,
+        ClientSenderForRpc: CanSendAsync<M, Result<R, F>>,
         R: Send + 'static,
         F: Send + 'static,
         E: RpcFrom<F> + RpcFrom<AsyncSendError>,
@@ -539,7 +589,7 @@ impl JsonRpcHandler {
 
     async fn view_client_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
     where
-        ViewClientSenderForRpc: CanSend<MessageWithCallback<M, Result<T, F>>>,
+        ViewClientSenderForRpc: CanSendAsync<M, Result<T, F>>,
         T: Send + 'static,
         E: RpcFrom<AsyncSendError> + RpcFrom<F>,
         F: Send + 'static,
@@ -553,7 +603,7 @@ impl JsonRpcHandler {
 
     async fn peer_manager_send<M, T, E>(&self, msg: M) -> Result<T, E>
     where
-        PeerManagerSenderForRpc: CanSend<MessageWithCallback<M, T>>,
+        PeerManagerSenderForRpc: CanSendAsync<M, T>,
         T: Send + 'static,
         E: RpcFrom<AsyncSendError> + Send + 'static,
     {
@@ -607,9 +657,10 @@ impl JsonRpcHandler {
         .map_err(|_| {
             metrics::RPC_TIMEOUT_TOTAL.inc();
             tracing::warn!(
-                target: "jsonrpc", "Timeout: tx_exists method. tx_hash {:?} signer_account_id {:?}",
-                tx_hash,
-                signer_account_id
+                target: "jsonrpc",
+                ?tx_hash,
+                ?signer_account_id,
+                "timeout: tx_exists method"
             );
             near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
         })?
@@ -672,11 +723,12 @@ impl JsonRpcHandler {
         .map_err(|_| {
             metrics::RPC_TIMEOUT_TOTAL.inc();
             tracing::warn!(
-                target: "jsonrpc", "Timeout: tx_status_fetch method. tx_info {:?} fetch_receipt {:?} result {:?} timeout {:?}",
-                tx_info,
-                fetch_receipt,
-                tx_status_result,
-                self.polling_config.polling_timeout,
+                target: "jsonrpc",
+                ?tx_info,
+                ?fetch_receipt,
+                ?tx_status_result,
+                timeout = ?self.polling_config.polling_timeout,
+                "timeout: tx_status_fetch method"
             );
             near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
         })?
@@ -909,6 +961,31 @@ impl JsonRpcHandler {
         }
     }
 
+    pub fn instrumented_threads(
+        &self,
+    ) -> Result<
+        Option<near_jsonrpc_primitives::types::status::RpcDebugStatusResponse>,
+        near_jsonrpc_primitives::types::status::RpcStatusError,
+    > {
+        if self.enable_debug_rpc {
+            let response = all_actor_instrumentations_view(&Clock::real());
+            let serialized_response = serde_json::to_value(response).map_err(|err| {
+                near_jsonrpc_primitives::types::status::RpcStatusError::InternalError {
+                    error_message: format!("Failed to serialize instrumented threads: {:?}", err),
+                }
+            })?;
+            let status_response =
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::InstrumentedThreads(
+                    serialized_response,
+                );
+            Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
+                status_response,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub async fn protocol_config(
         &self,
         request_data: near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest,
@@ -932,6 +1009,254 @@ impl JsonRpcHandler {
             .view_client_send(ClientQuery::new(request_data.block_reference, request_data.request))
             .await?;
         Ok(query_response.rpc_into())
+    }
+
+    async fn view_account(
+        &self,
+        request_data: RpcViewAccountRequest,
+    ) -> Result<RpcViewAccountResponse, RpcViewAccountError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewAccount { account_id: request_data.account_id },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewAccountError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::ViewAccount(account) => {
+                Ok(RpcViewAccountResponse {
+                    account,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: ViewAccount, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_code(
+        &self,
+        request_data: RpcViewCodeRequest,
+    ) -> Result<RpcViewCodeResponse, RpcViewCodeError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewCode { account_id: request_data.account_id },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewCodeError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::ViewCode(code) => Ok(RpcViewCodeResponse {
+                code,
+                block_height: query_response.block_height,
+                block_hash: query_response.block_hash,
+            }),
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: ViewCode, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_state(
+        &self,
+        request_data: RpcViewStateRequest,
+    ) -> Result<RpcViewStateResponse, RpcViewStateError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewState {
+                    account_id: request_data.account_id,
+                    prefix: request_data.prefix,
+                    include_proof: request_data.include_proof,
+                },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewStateError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::ViewState(state) => {
+                Ok(RpcViewStateResponse {
+                    state,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: ViewState, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_access_key(
+        &self,
+        request_data: RpcViewAccessKeyRequest,
+    ) -> Result<RpcViewAccessKeyResponse, RpcViewAccessKeyError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewAccessKey {
+                    account_id: request_data.account_id,
+                    public_key: request_data.public_key,
+                },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewAccessKeyError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::AccessKey(access_key) => {
+                Ok(RpcViewAccessKeyResponse {
+                    access_key,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: AccessKey, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_access_key_list(
+        &self,
+        request_data: RpcViewAccessKeyListRequest,
+    ) -> Result<RpcViewAccessKeyListResponse, RpcViewAccessKeyListError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewAccessKeyList { account_id: request_data.account_id },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewAccessKeyListError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::AccessKeyList(access_key_list) => {
+                Ok(RpcViewAccessKeyListResponse {
+                    access_key_list,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!("Unexpected response kind from near client. Expected: AccessKeyList, found: {:?}", query_response.kind),
+            }
+            .into()),
+        }
+    }
+
+    async fn call_function(
+        &self,
+        request_data: RpcCallFunctionRequest,
+    ) -> Result<RpcCallFunctionResponse, RpcCallFunctionError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::CallFunction {
+                    account_id: request_data.account_id,
+                    method_name: request_data.method_name,
+                    args: request_data.args,
+                },
+            ))
+            .await;
+        let query_response = result.map_err(<RpcQueryError as Into<RpcCallFunctionError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::CallResult(result) => {
+                Ok(RpcCallFunctionResponse {
+                    result,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: CallResult, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_gas_key(
+        &self,
+        request_data: RpcViewGasKeyRequest,
+    ) -> Result<RpcViewGasKeyResponse, RpcViewGasKeyError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewGasKey {
+                    account_id: request_data.account_id,
+                    public_key: request_data.public_key,
+                },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewGasKeyError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::GasKey(gas_key) => {
+                Ok(RpcViewGasKeyResponse {
+                    gas_key,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: GasKey, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_gas_key_list(
+        &self,
+        request_data: RpcViewGasKeyListRequest,
+    ) -> Result<RpcViewGasKeyListResponse, RpcViewGasKeyListError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewGasKeyList { account_id: request_data.account_id },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewGasKeyListError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::GasKeyList(gas_key_list) => {
+                Ok(RpcViewGasKeyListResponse {
+                    gas_key_list,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: GasKeyList, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
     }
 
     async fn tx_status_common(
@@ -1500,6 +1825,17 @@ async fn debug_handler(
     }
 }
 
+#[allow(clippy::unused_async)]
+async fn debug_instrumented_threads_handler(
+    State(handler): State<Arc<JsonRpcHandler>>,
+) -> Response {
+    match handler.instrumented_threads() {
+        Ok(Some(value)) => (StatusCode::OK, Json(value)).into_response(),
+        Ok(None) => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
 async fn handle_entity_debug(
     State(handler): State<Arc<JsonRpcHandler>>,
     Json(req): Json<EntityQueryWithParams>,
@@ -1549,13 +1885,6 @@ async fn deprecated_debug_block_status_handler(
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct DebugRpcEpochInfoRequest {
-    #[serde(flatten)]
-    pub epoch_id: near_primitives::types::EpochId,
-}
-
 async fn debug_epoch_info_handler(
     State(handler): State<Arc<JsonRpcHandler>>,
     Path(epoch_id_str): Path<String>,
@@ -1593,6 +1922,16 @@ pub async fn prometheus_handler() -> Response {
         Ok(text) => (StatusCode::OK, [(CONTENT_TYPE, "text/plain")], text).into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
+}
+
+pub async fn openapi_json_handler() -> impl IntoResponse {
+    let bytes = include_bytes!("../../../chain/jsonrpc/openapi/openapi.json");
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/json; charset=utf-8")
+        .body(axum::body::Body::from(bytes.to_vec()))
+        .unwrap()
 }
 
 async fn client_config_handler(State(handler): State<Arc<JsonRpcHandler>>) -> Response {
@@ -1705,7 +2044,8 @@ pub fn create_jsonrpc_app(
         .route("/status", get(status_handler).head(status_handler))
         .route("/health", get(health_handler).head(health_handler))
         .route("/network_info", get(network_info_handler))
-        .route("/metrics", get(prometheus_handler));
+        .route("/metrics", get(prometheus_handler))
+        .route("/openapi.json", get(openapi_json_handler));
 
     if enable_debug_rpc {
         app = app
@@ -1717,6 +2057,7 @@ pub fn create_jsonrpc_app(
             )
             .route("/debug/api/block_status", get(debug_block_status_handler))
             .route("/debug/api/epoch_info/{epoch_id}", get(debug_epoch_info_handler))
+            .route("/debug/api/instrumented_threads", get(debug_instrumented_threads_handler))
             .route("/debug/api/{*api_path}", get(debug_handler))
             .route("/debug/client_config", get(client_config_handler))
             .route("/debug", get(debug_html))
@@ -1736,7 +2077,7 @@ pub fn create_jsonrpc_app(
 /// Prometheus metrics (i.e. covering the `/metrics` path).
 ///
 /// Starts HTTP server(s) listening for RPC requests using the provided future spawner.
-pub fn start_http(
+pub async fn start_http(
     config: RpcConfig,
     genesis_config: GenesisConfig,
     client_sender: ClientSenderForRpc,
@@ -1750,7 +2091,7 @@ pub fn start_http(
     let addr = config.addr;
     let prometheus_addr = config.prometheus_addr.clone().filter(|it| it != &addr.to_string());
     let cors_allowed_origins = config.cors_allowed_origins.clone();
-    info!(target:"network", "Starting http server at {}", addr);
+    tracing::info!(target: "network", %addr, "starting http server");
 
     // Create the axum app using the extracted function
     let app = create_jsonrpc_app(
@@ -1765,28 +2106,35 @@ pub fn start_http(
         entity_debug_handler,
     );
 
-    // Start main server
+    // Bind to socket here, so callers can be sure they can connect once this function returns.
+    // Otherwise, the future_spawner may schedule the server start later, and clients may fail
+    // to connect especially in tests.
     let socket_addr: SocketAddr = addr.to_string().parse().unwrap();
+    let listener = tokio::net::TcpListener::bind(&socket_addr).await.unwrap();
+    // Start main server
     future_spawner.spawn("JSON RPC", async move {
-        let listener = tokio::net::TcpListener::bind(&socket_addr).await.unwrap();
         if let Err(e) = axum::serve(listener, app).await {
-            error!(target:"network", "HTTP server error: {:?}", e);
+            tracing::error!(target: "network", ?e, "HTTP server error");
         }
     });
 
     if let Some(prometheus_addr) = prometheus_addr {
-        info!(target:"network", "Starting http monitoring server at {}", prometheus_addr);
+        tracing::info!(target: "network", %prometheus_addr, "starting http monitoring server");
         // Export only the /metrics service. It's a read-only service and can have very relaxed
         // access restrictions.
         let prometheus_app = Router::new()
             .route("/metrics", get(prometheus_handler))
             .layer(get_cors(&cors_allowed_origins));
 
+        // Bind to socket here, so callers can be sure they can connect once this function returns.
+        // Otherwise, the future_spawner may schedule the server start later, and clients may fail
+        // to connect especially in tests.
         let socket_addr: SocketAddr = prometheus_addr.parse().unwrap();
+        let listener = tokio::net::TcpListener::bind(&socket_addr).await.unwrap();
+        // Start Prometheus server
         future_spawner.spawn("Prometheus Metrics", async move {
-            let listener = tokio::net::TcpListener::bind(&socket_addr).await.unwrap();
             if let Err(e) = axum::serve(listener, prometheus_app).await {
-                error!(target:"network", "Prometheus server error: {:?}", e);
+                tracing::error!(target: "network", ?e, "prometheus server error");
             }
         });
     }
@@ -1797,9 +2145,9 @@ pub async fn start_http_for_readonly_debug_querying(
     addr: ListenerAddr,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
 ) -> Result<(), std::io::Error> {
-    info!("Starting readonly debug API server at {}", addr);
-    info!(
-        "Use tools/debug-ui, use localhost as the node, and go to the Entity Debug tab to start querying."
+    tracing::info!(%addr, "starting readonly debug API server");
+    tracing::info!(
+        "use tools/debug-ui, use localhost as the node, and go to the `Entity Debug` tab to start querying"
     );
 
     let app = Router::new()

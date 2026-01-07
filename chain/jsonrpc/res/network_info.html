@@ -14,7 +14,7 @@
                     data.status_response.EpochInfo.forEach(element => {
                         if (element.epoch_id == epoch_id) {
                             epoch_found = true;
-                            producers_callback(element.block_producers, element.chunk_only_producers);
+                            producers_callback(element.block_producers, element.chunk_producers);
                         }
                     });
                     // This can happen if we're in sync mode - in such case, still print the list of peers,

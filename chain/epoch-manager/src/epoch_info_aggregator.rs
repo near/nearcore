@@ -10,7 +10,7 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, ChunkStats, EpochId, ShardId, ValidatorId, ValidatorStats,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Aggregator of information needed for validator computation at the end of the epoch.
@@ -88,7 +88,7 @@ impl EpochInfoAggregator {
                 tracing::debug!(
                     target: "epoch_tracker",
                     block_producer = ?epoch_info.validator_account_id(block_producer_id),
-                    block_height = height, "Missed block");
+                    block_height = height, "missed block");
                 entry
                     .and_modify(|validator_stats| {
                         validator_stats.expected += 1;
@@ -117,13 +117,14 @@ impl EpochInfoAggregator {
                             chunk_validator = ?epoch_info.validator_account_id(chunk_producer_id),
                             %shard_id,
                             block_height = prev_block_height + 1,
-                            "Missed chunk");
+                            "missed chunk");
                     }
                     *stats.expected_mut() += 1;
                 })
                 .or_insert_with(|| ChunkStats::new_with_production(u64::from(*mask), 1));
 
-            if cfg!(feature = "protocol_feature_spice") {
+            // With spice we have no chunk endorsements for chunks by design.
+            if ProtocolFeature::Spice.enabled(epoch_info.protocol_version()) {
                 continue;
             }
 

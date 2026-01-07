@@ -20,9 +20,7 @@ fn get_state_sync_new_chunks(
 fn iter_state_sync_hashes_keys<'a>(
     store: &'a Store,
 ) -> impl Iterator<Item = Result<EpochId, std::io::Error>> + 'a {
-    store
-        .iter(DBCol::StateSyncHashes)
-        .map(|item| item.and_then(|(k, _v)| EpochId::try_from_slice(&k)))
+    store.iter(DBCol::StateSyncHashes).map(|(k, _v)| EpochId::try_from_slice(&k))
 }
 
 /// Saves new chunk info and returns whether there are at least 2 chunks per shard in the epoch for header.prev_hash()
@@ -291,7 +289,7 @@ impl Chain {
         };
 
         let Some(min_height_included) = sync_prev_block.chunks().min_height_included() else {
-            tracing::warn!(target: "sync", ?sync_prev_hash, "get_extra_sync_block_hashes: Cannot find the min block height");
+            tracing::warn!(target: "sync", ?sync_prev_hash, "cannot find the min block height to sync from");
             return vec![];
         };
 
@@ -300,7 +298,7 @@ impl Chain {
         loop {
             let next_header = self.get_block_header(&next_hash);
             let Ok(next_header) = next_header else {
-                tracing::error!(target: "sync", hash=?next_hash, "get_extra_sync_block_hashes: Cannot get block header");
+                tracing::error!(target: "sync", hash=?next_hash, "cannot get block header to sync");
                 break;
             };
 

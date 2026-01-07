@@ -1,6 +1,8 @@
 use super::*;
-use crate::spice_core::CoreStatementsProcessor;
-use crate::types::{BlockType, ChainConfig, RuntimeStorageConfig};
+use crate::types::{
+    BlockType, ChainConfig, RuntimeStorageConfig, StatePartValidationResult,
+    StateRootNodeValidationResult,
+};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use borsh::BorshDeserialize;
 use near_async::messaging::{IntoMultiSender, noop};
@@ -862,17 +864,29 @@ fn test_state_sync() {
         new_env.last_proposals = proposals;
         new_env.time += 10u64.pow(9);
     }
-    assert!(new_env.runtime.validate_state_root_node(&root_node, &env.state_roots[0]));
+    assert!(matches!(
+        new_env.runtime.validate_state_root_node(&root_node, &env.state_roots[0]),
+        StateRootNodeValidationResult::Valid
+    ));
     let mut root_node_wrong = root_node;
     root_node_wrong.memory_usage += 1;
-    assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
+    assert!(matches!(
+        new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]),
+        StateRootNodeValidationResult::Invalid
+    ));
     root_node_wrong.data = std::sync::Arc::new([123]);
-    assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
-    assert!(!new_env.runtime.validate_state_part(
-        ShardId::new(0),
-        &Trie::EMPTY_ROOT,
-        PartId::new(0, 1),
-        &state_part
+    assert!(matches!(
+        new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]),
+        StateRootNodeValidationResult::Invalid
+    ));
+    assert!(matches!(
+        new_env.runtime.validate_state_part(
+            ShardId::new(0),
+            &Trie::EMPTY_ROOT,
+            PartId::new(0, 1),
+            &state_part
+        ),
+        StatePartValidationResult::Invalid
     ));
     new_env.runtime.validate_state_part(
         ShardId::new(0),
@@ -907,6 +921,8 @@ fn test_state_sync() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_get_validator_info() {
     let num_nodes = 2;
     let validators = (0..num_nodes)
@@ -1550,10 +1566,6 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
-        CoreStatementsProcessor::new_with_noop_senders(
-            env.runtime.store().chain_store(),
-            env.epoch_manager.clone(),
-        ),
         None,
     )
     .unwrap();
@@ -1641,6 +1653,49 @@ fn prepare_transactions_extra(
         default_produce_chunk_add_transactions_time_limit(),
         cancel,
     )
+}
+
+#[test]
+fn test_prepare_transactions_duplicate_nonces() {
+    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
+
+    // Insert a transaction with a duplicate (public key, nonce) pair into the pool.
+    let mut iter = transaction_pool.pool_iterator();
+    let group = iter.next().unwrap();
+    let first_tx = group.peek_next().unwrap();
+    let duplicate_nonce_tx = SignedTransaction::send_money(
+        first_tx.nonce(),
+        first_tx.signer_id().clone(),
+        first_tx.receiver_id().clone(),
+        &InMemorySigner::test_signer(&first_tx.signer_id()),
+        Balance::from_yoctonear(9999),
+        *first_tx.to_tx().block_hash(),
+    );
+    drop(iter);
+
+    let storage_config = RuntimeStorageConfig {
+        state_root: env.state_roots[0],
+        use_flat_storage: true,
+        source: StorageDataSource::Db,
+        state_patch: Default::default(),
+    };
+    let insert_result =
+        transaction_pool.insert_transaction(ValidatedTransaction::new_for_test(duplicate_nonce_tx));
+    assert_eq!(insert_result, InsertTransactionResult::Success);
+    let mut iter = transaction_pool.pool_iterator();
+    let txs = prepare_transactions(&env, &chain, &mut iter, storage_config).unwrap();
+
+    // Collect (public key, nonce) pairs to check for duplicates.
+    let mut pk_nonce_set = HashSet::new();
+    for tx in &txs.transactions {
+        let pk_nonce = (tx.public_key(), tx.nonce());
+        assert!(
+            pk_nonce_set.insert(pk_nonce),
+            "Duplicate transaction with public key {:?} and nonce {} found in prepared transactions",
+            tx.public_key(),
+            tx.nonce()
+        );
+    }
 }
 
 /// Check that transactions validation fails if provided empty storage proof.

@@ -7,7 +7,7 @@ use futures::StreamExt;
 use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_chain_configs::ProtocolConfigView;
-use near_client::ViewClientActorInner;
+use near_client::ViewClientActor;
 use near_primitives::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_primitives::types::Balance;
 
@@ -207,7 +207,7 @@ where
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        serializer.collect_str(self)
     }
 }
 
@@ -296,7 +296,7 @@ impl RosettaAccountBalances {
 pub(crate) async fn query_account(
     block_id: near_primitives::types::BlockReference,
     account_id: near_primitives::types::AccountId,
-    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: MultithreadRuntimeHandle<ViewClientActor>,
 ) -> Result<
     (
         near_primitives::hash::CryptoHash,
@@ -333,7 +333,7 @@ pub(crate) async fn query_account(
 pub(crate) async fn query_accounts<R>(
     block_id: near_primitives::types::BlockReference,
     account_ids: impl Iterator<Item = near_primitives::types::AccountId>,
-    view_client_addr: MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: MultithreadRuntimeHandle<ViewClientActor>,
 ) -> Result<R, crate::errors::ErrorKind>
 where
     R: std::iter::FromIterator<(
@@ -369,7 +369,7 @@ pub(crate) async fn query_access_key(
     block_id: near_primitives::types::BlockReference,
     account_id: near_primitives::types::AccountId,
     public_key: near_crypto::PublicKey,
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
 ) -> Result<
     (
         near_primitives::hash::CryptoHash,
@@ -409,7 +409,7 @@ pub(crate) async fn query_access_key(
 
 pub(crate) async fn query_protocol_config(
     block_hash: near_primitives::hash::CryptoHash,
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
 ) -> crate::errors::Result<ProtocolConfigView> {
     view_client_addr
         .send_async(near_client::GetProtocolConfig(near_primitives::types::BlockReference::from(
@@ -473,7 +473,7 @@ where
 /// Returns `Ok(None)` if the block does not exist or is not final.
 pub(crate) async fn get_block_if_final(
     block_id: &near_primitives::types::BlockReference,
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
 ) -> Result<Option<near_primitives::views::BlockView>, models::Error> {
     let final_block = get_final_block(view_client_addr).await?;
     let is_query_by_height = match block_id {
@@ -520,7 +520,7 @@ pub(crate) async fn get_block_if_final(
 }
 
 pub(crate) async fn get_final_block(
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
 ) -> Result<near_primitives::views::BlockView, errors::ErrorKind> {
     view_client_addr
         .send_async(near_client::GetBlock(near_primitives::types::BlockReference::Finality(
@@ -531,7 +531,7 @@ pub(crate) async fn get_final_block(
 }
 
 pub(crate) async fn get_nonces(
-    view_client_addr: &MultithreadRuntimeHandle<ViewClientActorInner>,
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
     account_id: AccountId,
     public_keys: Vec<models::PublicKey>,
 ) -> Result<AccountBalanceResponseMetadata, models::Error> {

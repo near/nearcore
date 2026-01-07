@@ -44,6 +44,7 @@ members = [
     "core/crypto",
     "core/crypto/ed25519-batch",
     "core/dyn-configs",
+    "core/external-storage",
     "core/o11y",
     "core/parameters",
     "core/primitives",
@@ -162,7 +163,7 @@ blst = { version = "0.3.11", features = ["portable"] }
 bn = { package = "zeropool-bn", version = "0.5.11", default-features = false }
 # TODO: remove this override when https://github.com/camshaft/bolero/issues/196 is fixed upstream
 # Currently the changes here are: https://github.com/camshaft/bolero/compare/master...Ekleog-NEAR:bolero:reduce-list-tests-run
-bolero = { version = "0.10.0", git = "https://github.com/Ekleog-NEAR/bolero", rev = "c37993bd70dcf5b1778b03daf29f686225e9a504", features = [
+bolero = { version = "0.10.0", git = "https://github.com/near/bolero", rev = "c37993bd70dcf5b1778b03daf29f686225e9a504", features = [
     "arbitrary",
 ] }
 borsh = { version = "1.0.0", features = ["derive", "rc"] }
@@ -188,6 +189,7 @@ crossbeam-channel = "0.5.8"
 crossbeam-utils = "0.8"
 csv = "1.2.1"
 curve25519-dalek = { version = "4.1.3", default-features = false }
+ahash = { version = "0.8" }
 dashmap = { version = "6", default-features = false }
 derive_builder = "0.20.2"
 derive_more = "2.0"
@@ -211,7 +213,7 @@ hex-literal = "0.2"
 hkdf = "0.12.3"
 im = "15"
 indexmap = "2"
-indicatif = { version = "0.17.0", features = ["rayon"] }
+indicatif = { version = "0.18.3", features = ["rayon"] }
 insta = { version = "1.41.0", features = ["json", "yaml", "redactions"] }
 integration-tests = { path = "integration-tests" }
 inventory = "0.3.15"
@@ -250,6 +252,7 @@ near-crypto = { path = "core/crypto", default-features = false }
 near-crypto-ed25519-batch = { path = "core/crypto/ed25519-batch" }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
+near-external-storage = { path = "core/external-storage" }
 near-flat-storage = { path = "tools/flat-storage" }
 near-fork-network = { path = "tools/fork-network" }
 near-fmt = { path = "utils/fmt" }
@@ -266,8 +269,6 @@ near-mirror = { path = "tools/mirror" }
 near-network = { path = "chain/network" }
 near-o11y = { path = "core/o11y" }
 near-parameters = { path = "core/parameters" }
-near-performance-metrics = { path = "utils/near-performance-metrics" }
-near-performance-metrics-macros = { path = "utils/near-performance-metrics-macros" }
 near-ping = { path = "tools/ping" }
 near-pool = { path = "chain/pool" }
 near-primitives = { path = "core/primitives" }
@@ -356,7 +357,7 @@ serde_json = "1.0.68"
 serde_repr = "0.1.8"
 serde_with = { version = "3.0", features = ["base64"] }
 serde_yaml = "0.9"
-schemars = { version = "1.0.3", features = ["chrono04"]}
+schemars = { version = "1.0.3", features = ["chrono04"] }
 sha2 = "0.10"
 sha3 = "0.10"
 smallvec = "1.6"
@@ -396,7 +397,7 @@ trybuild = "1.0.11"
 turn = "0.9"
 url = "2.5.0"
 utoipa = "5.4"
-utoipa-swagger-ui = "9"
+utoipa-swagger-ui = {version = "9", features = ["vendored"]}
 wasm-encoder = "0.236"
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmparser-236 = { package = "wasmparser", version = "0.236" }

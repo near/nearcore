@@ -1,4 +1,4 @@
-use super::config::{AccountCreationConfig, RuntimeConfig};
+use super::config::{AccountCreationConfig, DynamicReshardingConfig, RuntimeConfig};
 use crate::config::{BandwidthSchedulerConfig, CongestionControlConfig, WitnessConfig};
 use crate::cost::{
     ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, StorageUsageConfig,
@@ -326,7 +326,6 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 burnt_gas_reward: params.get(Parameter::BurntGasReward)?,
                 pessimistic_gas_price_inflation_ratio: params
                     .get(Parameter::PessimisticGasPriceInflation)?,
-                refund_gas_price_changes: params.get(Parameter::RefundGasPriceChanges)?,
                 gas_refund_penalty: params.get(Parameter::GasRefundPenalty)?,
                 min_gas_refund_penalty: params.get(Parameter::MinGasRefundPenalty)?,
                 storage_usage_config: StorageUsageConfig {
@@ -357,7 +356,6 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     true => StorageGetMode::FlatStorage,
                     false => StorageGetMode::Trie,
                 },
-                implicit_account_creation: params.get(Parameter::ImplicitAccountCreation)?,
                 eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
                 global_contract_host_fns: params.get(Parameter::GlobalContractHostFns)?,
                 deterministic_account_ids: params.get(Parameter::DeterministicAccountIds)?,
@@ -381,6 +379,12 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 max_single_grant: params.get(Parameter::MaxSingleGrant)?,
                 max_allowance: params.get(Parameter::MaxAllowance)?,
                 max_base_bandwidth: params.get(Parameter::MaxBaseBandwidth)?,
+            },
+            dynamic_resharding_config: DynamicReshardingConfig {
+                memory_usage_threshold: params.get(Parameter::MemoryUsageThreshold)?,
+                min_child_memory_usage: params.get(Parameter::MinChildMemoryUsage)?,
+                max_number_of_shards: params.get(Parameter::MaxNumberOfShards)?,
+                min_epochs_between_resharding: params.get(Parameter::MinEpochsBetweenResharding)?,
             },
             use_state_stored_receipt: params.get(Parameter::UseStateStoredReceipt)?,
         })

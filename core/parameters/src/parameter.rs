@@ -19,8 +19,6 @@ pub enum Parameter {
     // Gas economics config
     BurntGasReward,
     PessimisticGasPriceInflation,
-    /// Whether we calculate in the gas price changes when refunding gas.
-    RefundGasPriceChanges,
     /// Ratio of refunded gas that gets taxed.
     GasRefundPenalty,
     /// Minimum gas refund tax.
@@ -206,7 +204,6 @@ pub enum Parameter {
 
     // Contract runtime features
     FlatStorageReads,
-    ImplicitAccountCreation,
     FixContractLoadingCost,
     VmKind,
     EthImplicitAccounts,
@@ -246,6 +243,12 @@ pub enum Parameter {
 
     // Flag to enabled deterministic account ids
     DeterministicAccountIds,
+
+    // Dynamic resharding
+    MemoryUsageThreshold,
+    MinChildMemoryUsage,
+    MaxNumberOfShards,
+    MinEpochsBetweenResharding,
 }
 
 #[derive(

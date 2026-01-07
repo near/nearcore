@@ -1,12 +1,17 @@
 use super::*;
+use crate::network_protocol::PeersResponse;
+use crate::network_protocol::proto_conv::{ParsePeerMessageError, ParseRoutedMessageV3Error};
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Encoding, PeersResponse};
+use crate::network_protocol::{
+    PeerIdOrHash, RoutedMessage, RoutedMessageBody, RoutedMessageV1, proto,
+};
 use crate::testonly::make_rng;
 use crate::types::{Disconnect, HandshakeFailureReason, PeerMessage};
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::{Context as _, bail};
 use itertools::Itertools as _;
 use near_async::time;
+use near_primitives::network::PeerId;
 use rand::Rng as _;
 
 #[test]
@@ -72,9 +77,7 @@ fn serialize_deserialize_protobuf_only() {
         }),
     ];
     for m in msgs {
-        let m2 = PeerMessage::deserialize(Encoding::Proto, &m.serialize(Encoding::Proto))
-            .with_context(|| m.to_string())
-            .unwrap();
+        let m2 = PeerMessage::deserialize(&m.serialize()).with_context(|| m.to_string()).unwrap();
         assert_eq!(m, m2);
     }
 }
@@ -121,7 +124,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         PeerMessage::PeersRequest(PeersRequest { max_peers: None, max_direct_peers: None }),
         PeerMessage::PeersResponse(PeersResponse {
             peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
-            direct_peers: vec![], // TODO: populate this field once borsh support is dropped
+            direct_peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         }),
         PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| *b.hash()).collect()),
         PeerMessage::BlockHeaders(chain.get_block_headers().map(Into::into).collect()),
@@ -134,40 +137,18 @@ fn serialize_deserialize() -> anyhow::Result<()> {
     ];
 
     // Check that serialize;deserialize = 1
-    for enc in [Encoding::Proto, Encoding::Borsh] {
-        for m in &msgs {
-            (|| {
-                let m2 = PeerMessage::deserialize(enc, &m.serialize(enc))
-                    .with_context(|| m.to_string())?;
-                if *m != m2 {
-                    bail!("deserialize(serialize({m}) = {m2}");
-                }
-                anyhow::Ok(())
-            })()
-            .with_context(|| format!("encoding={enc:?}"))?;
+    for m in &msgs {
+        let m2 = PeerMessage::deserialize(&m.serialize()).with_context(|| m.to_string())?;
+        if *m != m2 {
+            bail!("deserialize(serialize({m}) = {m2}");
         }
     }
 
     // Test the unambiguous parsing argument described in
     // https://docs.google.com/document/d/1gCWmt9O-h_-5JDXIqbKxAaSS3Q9pryB1f9DDY1mMav4/edit#heading=h.x1awbr2acslb
     for m in &msgs {
-        let x = m.serialize(Encoding::Proto);
-        assert!(x[0] >= 32, "serialize({},PROTO)[0] = {:?}, want >= 32", m, x.get(0));
-        let y = m.serialize(Encoding::Borsh);
-        assert!(y[0] <= 21, "serialize({},BORSH)[0] = {:?}, want <= 21", m, y.get(0));
-    }
-
-    // Encodings should never be compatible.
-    for (from, to) in [(Encoding::Proto, Encoding::Borsh), (Encoding::Borsh, Encoding::Proto)] {
-        for m in &msgs {
-            let bytes = &m.serialize(from);
-            match PeerMessage::deserialize(to, bytes) {
-                Err(_) => {}
-                Ok(m2) => {
-                    bail!("from={from:?},to={to:?}: deserialize(serialize({m})) = {m2}, want error")
-                }
-            }
-        }
+        let x = m.serialize();
+        assert!(x[0] >= 32, "serialize({})[0] = {:?}, want >= 32", m, x.get(0));
     }
 
     Ok(())
@@ -284,4 +265,44 @@ fn test_t2_is_signed() {
 fn test_body_variant_granularity() {
     let message_v3 = make_chunk_request_message();
     assert_eq!(message_v3.body_variant(), "PartialEncodedChunkRequest");
+}
+
+#[test]
+fn test_unused_routed_message_body_variant() {
+    let mut rng = make_rng(12345);
+    let secret_key = data::make_secret_key(&mut rng);
+    let peer_id = PeerId::new(secret_key.public_key());
+    let target_peer_id = data::make_peer_id(&mut rng);
+
+    // Create a RoutedMessageV1 with an unused variant
+    let body = RoutedMessageBody::_UnusedQueryRequest;
+    let hash =
+        RoutedMessage::build_hash(&PeerIdOrHash::PeerId(target_peer_id.clone()), &peer_id, &body);
+    let signature = secret_key.sign(hash.as_ref());
+
+    let routed_msg_v1 = RoutedMessageV1 {
+        target: PeerIdOrHash::PeerId(target_peer_id),
+        author: peer_id,
+        signature,
+        ttl: 1,
+        body,
+    };
+    let borsh_bytes = borsh::to_vec(&routed_msg_v1).unwrap();
+
+    // Create a proto PeerMessage with Routed variant
+    let mut proto_msg = proto::PeerMessage::default();
+    let mut routed_proto = proto::RoutedMessage::default();
+    routed_proto.borsh = borsh_bytes;
+    routed_proto.num_hops = 0;
+    proto_msg.message_type = Some(proto::peer_message::Message_type::Routed(routed_proto));
+
+    // Conversion should call from_routed with the unused variant
+    let result = PeerMessage::try_from(&proto_msg);
+    assert!(result.is_err());
+    match result.err() {
+        Some(ParsePeerMessageError::RoutedV3(ParseRoutedMessageV3Error::Body(e))) => {
+            assert_eq!(e.kind(), std::io::ErrorKind::InvalidData)
+        }
+        other => panic!("Unexpected error: {:?}", other),
+    }
 }

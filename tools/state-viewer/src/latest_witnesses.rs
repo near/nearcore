@@ -6,7 +6,7 @@ use crate::commands::apply_range;
 use near_chain::runtime::NightshadeRuntime;
 use near_chain::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use near_chain::stateless_validation::state_witness::CreateWitnessResult;
-use near_chain::{Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
+use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_assignment::shard_id_to_index;
 use near_epoch_manager::shard_tracker::ShardTracker;

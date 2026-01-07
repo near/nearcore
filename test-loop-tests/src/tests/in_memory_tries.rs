@@ -18,6 +18,8 @@ use crate::utils::transactions::execute_money_transfers;
 /// and loading memtrie failed because of missing `ChunkExtra` with desired
 /// state root.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_load_memtrie_after_empty_chunks() {
     init_test_logger();
     let builder = TestLoopBuilder::new();
@@ -74,7 +76,7 @@ fn test_load_memtrie_after_empty_chunks() {
         .collect_vec();
     let idx = {
         let current_tracked_shards = clients.tracked_shards_for_each_client();
-        tracing::info!("Current tracked shards: {:?}", current_tracked_shards);
+        tracing::info!(?current_tracked_shards, "current tracked shards");
         current_tracked_shards
             .iter()
             .enumerate()

@@ -285,7 +285,8 @@ impl GenesisBuilder {
                     BlockInfo::from_header(genesis.header(), 0),
                     *genesis.header().random_value(),
                 )
-                .unwrap(),
+                .unwrap()
+                .into(),
         );
         store_update
             .save_block_header(genesis.header().clone())
@@ -309,6 +310,7 @@ impl GenesisBuilder {
                 Balance::ZERO,
                 Some(congestion_info),
                 chunk_header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
+                chunk_header.proposed_split().cloned(),
             );
             store_update.save_chunk_extra(genesis.hash(), &shard_uid, chunk_extra.into());
         }

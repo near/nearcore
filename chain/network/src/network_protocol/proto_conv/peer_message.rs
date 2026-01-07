@@ -521,6 +521,11 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ),
             ProtoMT::Routed(r) => {
                 let msg = RoutedMessageV1::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?;
+                if !msg.body.is_used() {
+                    return Err(Self::Error::RoutedV3(ParseRoutedMessageV3Error::Body(
+                        std::io::Error::new(std::io::ErrorKind::InvalidData, "unused message type"),
+                    )));
+                }
                 let body = TieredMessageBody::from_routed(msg.body);
                 PeerMessage::Routed(Box::new(
                     RoutedMessageV3 {

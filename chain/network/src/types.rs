@@ -1,7 +1,7 @@
 use crate::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    Disconnect, Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
+    Disconnect, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
     SignedAccountData,
 };
 /// Exported types, which are part of network protocol.
@@ -11,9 +11,10 @@ pub use crate::network_protocol::{
     StateResponseInfoV1, StateResponseInfoV2,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
+use crate::spice_data_distribution::SpicePartialDataRequest;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
-use near_async::{Message, MultiSend, MultiSendMessage, MultiSenderFrom, time};
+use near_async::{MultiSend, MultiSenderFrom, time};
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block};
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
@@ -93,7 +94,7 @@ pub enum ReasonForBan {
 
 /// Banning signal sent from Peer instance to PeerManager
 /// just before Peer instance is stopped.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct Ban {
     pub peer_id: PeerId,
     pub ban_reason: ReasonForBan,
@@ -171,11 +172,11 @@ pub struct ChainInfo {
     pub tier1_accounts: Arc<AccountKeys>,
 }
 
-#[derive(Debug, Message)]
+#[derive(Debug)]
 pub struct SetChainInfo(pub ChainInfo);
 
 /// Public actor interface of `PeerManagerActor`.
-#[derive(Message, Debug, strum::IntoStaticStr)]
+#[derive(Debug, strum::IntoStaticStr)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerManagerMessageRequest {
     NetworkRequests(NetworkRequests),
@@ -236,6 +237,14 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
     }
 }
 
+#[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
+pub enum SnapshotHostEvent {
+    /// Triggered when the chain head progresses. Updates the epoch height threshold for discarding old snapshot infos.
+    ChainProgressed { epoch_height: EpochHeight },
+    /// Triggers the network to broadcast the snapshot host info to all peers.
+    SnapshotCreated { sync_hash: CryptoHash, epoch_height: EpochHeight, shards: Vec<ShardId> },
+}
+
 // TODO(#1313): Use Box
 #[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
@@ -272,7 +281,7 @@ pub enum NetworkRequests {
     /// Announce account
     AnnounceAccount(AnnounceAccount),
     /// Broadcast information about a hosted snapshot.
-    SnapshotHostInfo { sync_hash: CryptoHash, epoch_height: EpochHeight, shards: Vec<ShardId> },
+    SnapshotHostEvent(SnapshotHostEvent),
 
     /// Request chunk parts and/or receipts
     PartialEncodedChunkRequest {
@@ -321,9 +330,11 @@ pub enum NetworkRequests {
     SpicePartialData { partial_data: SpicePartialData, recipients: HashSet<AccountId> },
     /// Message for a spice chunk endorsement, sent by a chunk validator to all validators.
     SpiceChunkEndorsement(AccountId, SpiceChunkEndorsement),
+    /// Message requesting spice partial data.
+    SpicePartialDataRequest { request: SpicePartialDataRequest, producer: AccountId },
 }
 
-#[derive(Debug, Message, strum::IntoStaticStr)]
+#[derive(Debug, strum::IntoStaticStr)]
 pub enum StateSyncEvent {
     StatePartReceived(ShardId, u64),
 }
@@ -449,16 +460,12 @@ pub struct PeerManagerAdapter {
     pub state_sync_event_sender: Sender<StateSyncEvent>,
 }
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
-#[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct PeerManagerSenderForNetwork {
     pub tier3_request_sender: Sender<Tier3Request>,
 }
 
-#[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
-#[multi_send_message_derive(Debug)]
-#[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct StateRequestSenderForNetwork {
     pub state_request_header: AsyncSender<StateRequestHeader, Option<StatePartOrHeader>>,
     pub state_request_part: AsyncSender<StateRequestPart, Option<StatePartOrHeader>>,
@@ -566,7 +573,7 @@ pub struct AccountIdOrPeerTrackingShard {
     pub min_height: BlockHeight,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Message)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// An inbound request to which a response should be sent over Tier3
 pub struct Tier3Request {
     /// Target peer to send the response to

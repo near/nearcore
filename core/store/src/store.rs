@@ -49,12 +49,12 @@ impl Store {
     /// returns the data as [`DBSlice`] object.  The object dereferences into
     /// a slice, for cases when caller doesn’t need to own the value, and
     /// provides conversion into a vector or an Arc.
-    pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+    pub fn get(&self, column: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
         let value = if column.is_rc() {
             self.storage.get_with_rc_stripped(column, &key)
         } else {
             self.storage.get_raw_bytes(column, &key)
-        }?;
+        };
         tracing::trace!(
             target: "store",
             db_op = "get",
@@ -62,11 +62,11 @@ impl Store {
             key = %StorageKey(key),
             size = value.as_deref().map(<[u8]>::len)
         );
-        Ok(value)
+        value
     }
 
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
-        self.get(column, key)?.as_deref().map(T::try_from_slice).transpose()
+        self.get(column, key).as_deref().map(T::try_from_slice).transpose()
     }
 
     pub fn caching_get_ser<T: BorshDeserialize + Send + Sync + 'static>(
@@ -120,8 +120,8 @@ impl Store {
         Ok(value)
     }
 
-    pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {
-        self.get(column, key).map(|value| value.is_some())
+    pub fn exists(&self, column: DBCol, key: &[u8]) -> bool {
+        self.get(column, key).is_some()
     }
 
     pub fn store_update(&self) -> StoreUpdate {
@@ -136,9 +136,7 @@ impl Store {
         &'a self,
         col: DBCol,
     ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
-        self.storage
-            .iter(col)
-            .map(|item| item.and_then(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?))))
+        self.storage.iter(col).map(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?)))
     }
 
     /// Fetches raw key/value pairs from the database.
@@ -176,7 +174,7 @@ impl Store {
         assert!(col != DBCol::State, "can't iter prefix ser of State column");
         self.storage
             .iter_prefix(col, key_prefix)
-            .map(|item| item.and_then(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?))))
+            .map(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?)))
     }
 
     /// Saves state (`State` and `FlatState` columns) to given file.
@@ -191,8 +189,7 @@ impl Store {
         for (column_index, &column) in STATE_COLUMNS.iter().enumerate() {
             assert!(column_index < STATE_FILE_END_MARK.into());
             let column_index: u8 = column_index.try_into().unwrap();
-            for item in self.storage.iter_raw_bytes(column) {
-                let (key, value) = item?;
+            for (key, value) in self.storage.iter_raw_bytes(column) {
                 (column_index, key, value).serialize(&mut file)?;
             }
         }
@@ -253,7 +250,7 @@ impl Store {
                 }
             }
         }
-        let result = self.storage.write(transaction);
+        self.storage.write(transaction);
         for col in DBCol::iter() {
             let flushed = keys_flushed[col];
             if flushed != 0 {
@@ -261,17 +258,19 @@ impl Store {
                 cache.lock().active_flushes -= flushed;
             }
         }
-        result
+        Ok(())
     }
 
     /// If the storage is backed by disk, flushes any in-memory data to disk.
     pub fn flush(&self) -> io::Result<()> {
-        self.storage.flush()
+        self.storage.flush();
+        Ok(())
     }
 
     /// Blocking compaction request if supported by storage.
     pub fn compact(&self) -> io::Result<()> {
-        self.storage.compact()
+        self.storage.compact();
+        Ok(())
     }
 
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {

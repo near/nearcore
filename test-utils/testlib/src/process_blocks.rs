@@ -1,6 +1,7 @@
 use near_chain::{Block, BlockHeader};
 use near_primitives::block::Chunks;
 use near_primitives::types::Balance;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::{
     stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
     test_utils::create_test_signer,
@@ -72,7 +73,11 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_rest.chunk_tx_root = chunks.compute_chunk_tx_root();
             header.inner_rest.prev_chunk_outgoing_receipts_root =
                 chunks.compute_chunk_prev_outgoing_receipts_root();
-            header.inner_lite.prev_state_root = chunks.compute_state_root();
+            if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+                header.inner_lite.prev_state_root = *prev_block.header().prev_state_root();
+            } else {
+                header.inner_lite.prev_state_root = chunks.compute_state_root();
+            }
             header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.next_gas_price = prev_block.header().next_gas_price();

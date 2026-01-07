@@ -49,7 +49,7 @@ pub(crate) fn replay_headers(
     for height in start_height..=end_height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
-            tracing::trace!("Height: {}, header: {:#?}", height, header);
+            tracing::trace!(%height, ?header, "height and header");
 
             let block_info = get_block_info(&header, &chain_store, epoch_manager.as_ref())
                 .unwrap_or_else(|e| {
@@ -84,7 +84,7 @@ pub(crate) fn replay_headers(
                 compare_validator_production_stats(&original_validators, &replayed_validators);
                 compare_validator_kickout_stats(&original_validators, &replayed_validators);
             } else if header.height() % 1000 == 0 {
-                tracing::debug!("@ height {}", header.height());
+                tracing::debug!(height = %header.height(), "at height");
             }
         }
     }
@@ -274,7 +274,7 @@ fn create_replay_store(home_dir: &Path, near_config: &NearConfig) -> Store {
         home_dir,
         &near_config.config.store,
         near_config.config.cold_store.as_ref(),
-        near_config.config.cloud_storage_config(),
+        near_config.cloud_storage_context(),
     );
     let storage = store_opener.open_in_mode(Mode::ReadOnly).unwrap();
 

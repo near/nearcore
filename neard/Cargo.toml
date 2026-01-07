@@ -44,7 +44,6 @@ near-jsonrpc-primitives.workspace = true
 near-mirror.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
-near-performance-metrics.workspace = true
 near-ping.workspace = true
 near-primitives.workspace = true
 near-replay-archive-tool.workspace = true
@@ -66,11 +65,10 @@ protocol_feature_spice = [
   "near-client/protocol_feature_spice",
   "near-primitives/protocol_feature_spice",
   "near-store/protocol_feature_spice",
-  "nearcore/protocol_feature_spice"
+  "nearcore/protocol_feature_spice",
+  "near-mirror/protocol_feature_spice",
 ]
 
-performance_stats = ["nearcore/performance_stats"]
-c_memory_stats = ["nearcore/c_memory_stats"]
 test_features = [
   "nearcore/test_features",
   "near-dump-test-contract/test_features",
@@ -103,6 +101,8 @@ shadow_chunk_validation = [
 calimero_zero_storage = [
   "near-primitives/calimero_zero_storage",
 ]
+
+actor_instrumentation_testing = ["nearcore/actor_instrumentation_testing"]
 
 # Compile with option to emit a detailed trace of IO operations and their
 # results that can be replayed on the estimator. To produce the output, compile

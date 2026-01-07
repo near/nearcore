@@ -4,7 +4,7 @@ use itertools::Itertools;
 use lru::LruCache;
 use near_async::messaging::Sender;
 use near_async::time::{Clock, Instant};
-use near_chain_configs::{ClientConfig, LogSummaryStyle};
+use near_chain_configs::ClientConfig;
 use near_client_primitives::types::StateSyncStatus;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkInfo;
@@ -33,7 +33,6 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use sysinfo::{Pid, ProcessExt, System, SystemExt, get_current_pid, set_open_files_limit};
 use time::ext::InstantExt as _;
-use tracing::info;
 
 const TERAGAS: f64 = 1_000_000_000_000_f64;
 
@@ -61,8 +60,6 @@ pub struct InfoHelper {
     gas_used: Gas,
     /// Telemetry event sender.
     telemetry_sender: Sender<TelemetryEvent>,
-    /// Log coloring enabled.
-    log_summary_style: LogSummaryStyle,
     /// Epoch id.
     epoch_id: Option<EpochId>,
     /// Timestamp of starting the client.
@@ -93,7 +90,6 @@ impl InfoHelper {
             num_chunks_in_blocks_processed: 0,
             gas_used: Gas::ZERO,
             telemetry_sender,
-            log_summary_style: client_config.log_summary_style,
             boot_time_seconds: clock.now_utc().unix_timestamp(),
             epoch_id: None,
             enable_multiline_logging: client_config.enable_multiline_logging,
@@ -402,32 +398,28 @@ impl InfoHelper {
         config_updater: &Option<ConfigUpdater>,
         signer: &Option<Arc<ValidatorSigner>>,
     ) {
-        let use_color = matches!(self.log_summary_style, LogSummaryStyle::Colored);
-        let paint = |color: yansi::Color, text: Option<String>| match text {
-            None => yansi::Paint::default(String::new()),
-            Some(text) if use_color => yansi::Paint::default(text).fg(color).bold(),
-            Some(text) => yansi::Paint::default(text),
-        };
-
         let s = |num| if num == 1 { "" } else { "s" };
 
-        let sync_status_log = Some(display_sync_status(sync_status, head));
-        let validator_info_log = validator_info.as_ref().map(|info| {
-            format!(
-                " {}{} validator{}",
-                if info.is_validator { "Validator | " } else { "" },
-                info.num_validators,
-                s(info.num_validators)
-            )
-        });
+        let sync_status_log = display_sync_status(sync_status, head);
+        let validator_info_log = validator_info
+            .as_ref()
+            .map(|info| {
+                format!(
+                    " {}{} validator{}",
+                    if info.is_validator { "Validator | " } else { "" },
+                    info.num_validators,
+                    s(info.num_validators)
+                )
+            })
+            .unwrap_or_default();
 
-        let network_info_log = Some(format!(
+        let network_info_log = format!(
             " {} peer{} ⬇ {} ⬆ {}",
             network_info.num_connected_peers,
             s(network_info.num_connected_peers),
             PrettyNumber::bytes_per_sec(network_info.received_bytes_per_sec),
             PrettyNumber::bytes_per_sec(network_info.sent_bytes_per_sec)
-        ));
+        );
 
         let now = Instant::now();
         let avg_bls = (self.num_blocks_processed as f64)
@@ -437,25 +429,28 @@ impl InfoHelper {
             / (now.signed_duration_since(self.started).whole_milliseconds() as f64)
             * 1000.0) as u64;
         let blocks_info_log =
-            Some(format!(" {:.2} bps {}", avg_bls, PrettyNumber::gas_per_sec(avg_gas_used)));
+            format!(" {:.2} bps {}", avg_bls, PrettyNumber::gas_per_sec(avg_gas_used));
 
         let proc_info = self.pid.filter(|pid| self.sys.refresh_process(*pid)).map(|pid| {
             let proc =
                 self.sys.process(pid).expect("refresh_process succeeds, this should be not None");
             (proc.cpu_usage(), proc.memory())
         });
-        let machine_info_log = proc_info.as_ref().map(|(cpu, mem)| {
-            format!(" CPU: {:.0}%, Mem: {}", cpu, PrettyNumber::bytes(mem * 1024))
-        });
-
-        info!(
-            target: "stats", "{}{}{}{}{}",
-            paint(yansi::Color::Yellow, sync_status_log),
-            paint(yansi::Color::White, validator_info_log),
-            paint(yansi::Color::Cyan, network_info_log),
-            paint(yansi::Color::Green, blocks_info_log),
-            paint(yansi::Color::Blue, machine_info_log),
+        let machine_info_log = proc_info
+            .as_ref()
+            .map(|(cpu, mem)| {
+                format!(" CPU: {:.0}%, Mem: {}", cpu, PrettyNumber::bytes(mem * 1024))
+            })
+            .unwrap_or_default();
+        let node_status = format!(
+            "{}{}{}{}{}",
+            sync_status_log,
+            validator_info_log,
+            network_info_log,
+            blocks_info_log,
+            machine_info_log
         );
+        tracing::info!(target: "stats", ?node_status);
         log_catchup_status(catchup_status);
         if let Some(config_updater) = &config_updater {
             config_updater.report_status();
@@ -622,9 +617,8 @@ impl InfoHelper {
 
     fn log_chain_processing_info(&self, client: &crate::Client, epoch_id: &EpochId) {
         let chain = &client.chain;
-        let use_color = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let info = chain.get_chain_processing_info();
-        let blocks_info = BlocksInfo { blocks_info: info.blocks_info, use_color };
+        let blocks_info = BlocksInfo { blocks_info: info.blocks_info };
         tracing::debug!(
             target: "stats",
             "{:?} Orphans: {} With missing chunks: {} In processing {}{}",
@@ -695,9 +689,9 @@ pub fn log_catchup_status(catchup_status: Vec<CatchupStatusView>) {
         tracing::info!(
             sync_hash=?catchup_status.sync_block_hash,
             sync_height=?catchup_status.sync_block_height,
-            "Catchup Status - shard sync status: {}, next blocks to catch up: {}",
-            shard_sync_string,
-            block_catchup_string,
+            %shard_sync_string,
+            %block_catchup_string,
+            "catchup status"
         )
     }
 }
@@ -780,19 +774,10 @@ impl std::fmt::Display for FormatMillis {
 /// meant to be used in logging where final new line is not desired.
 struct BlocksInfo {
     blocks_info: Vec<near_primitives::views::BlockProcessingInfo>,
-    use_color: bool,
 }
 
 impl std::fmt::Display for BlocksInfo {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let paint = |color: yansi::Color, text: String| {
-            if self.use_color {
-                yansi::Paint::default(text).fg(color).bold()
-            } else {
-                yansi::Paint::default(text)
-            }
-        };
-
         for block_info in &self.blocks_info {
             let mut all_chunks_received = true;
             let chunk_status = block_info
@@ -813,10 +798,6 @@ impl std::fmt::Display for BlocksInfo {
                 })
                 .collect::<String>();
 
-            let chunk_status_color =
-                if all_chunks_received { yansi::Color::Green } else { yansi::Color::White };
-
-            let chunk_status = paint(chunk_status_color, chunk_status);
             let in_progress = FormatMillis("in progress", Some(block_info.in_progress_ms));
             let in_orphan = FormatMillis("orphan", block_info.orphaned_ms);
             let missing_chunks = FormatMillis("missing chunks", block_info.missing_chunks_ms);
@@ -960,7 +941,6 @@ mod tests {
     use near_async::messaging::{IntoMultiSender, IntoSender, noop};
     use near_async::time::Clock;
     use near_chain::runtime::NightshadeRuntime;
-    use near_chain::spice_core::CoreStatementsProcessor;
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
     use near_chain_configs::test_utils::TestClientConfigParams;
@@ -969,8 +949,8 @@ mod tests {
     use near_epoch_manager::shard_tracker::ShardTracker;
     use near_epoch_manager::test_utils::*;
     use near_network::test_utils::peer_id_from_seed;
-    use near_store::adapter::StoreAdapter as _;
     use near_store::genesis::initialize_genesis_state;
+    use num_rational::Rational32;
 
     #[test]
     fn test_pretty_number() {
@@ -999,9 +979,7 @@ mod tests {
             min_block_prod_time: 1230,
             max_block_prod_time: 2340,
             num_block_producer_seats: 50,
-            enable_split_store: false,
-            enable_cloud_archival_writer: false,
-            save_trie_changes: true,
+            archive: false,
             state_sync_enabled: true,
         });
         let validator = MutableConfigValue::new(None, "validator_signer");
@@ -1014,17 +992,13 @@ mod tests {
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-        let runtime = NightshadeRuntime::test(
-            tempdir.path(),
-            store.clone(),
-            &genesis.config,
-            epoch_manager.clone(),
-        );
+        let runtime =
+            NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
         let chain_genesis = ChainGenesis::new(&genesis.config);
         let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
         let chain = Chain::new(
             Clock::real(),
-            epoch_manager.clone(),
+            epoch_manager,
             shard_tracker,
             runtime,
             &chain_genesis,
@@ -1035,7 +1009,6 @@ mod tests {
             Default::default(),
             validator.clone(),
             noop().into_multi_sender(),
-            CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),
             None,
         )
         .unwrap();
@@ -1100,6 +1073,7 @@ mod tests {
             90,
             0,
             default_reward_calculator(),
+            Rational32::new(0, 1),
         )
         .into_handle();
 
@@ -1119,9 +1093,7 @@ mod tests {
             min_block_prod_time: 1230,
             max_block_prod_time: 2340,
             num_block_producer_seats: 50,
-            enable_split_store: false,
-            enable_cloud_archival_writer: false,
-            save_trie_changes: true,
+            archive: false,
             state_sync_enabled: true,
         });
         let mut info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &client_config);

@@ -5,7 +5,6 @@ use std::time::Duration;
 use std::{env, thread};
 
 use rand::Rng;
-use tracing::error;
 
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
@@ -130,6 +129,8 @@ impl ProcessNode {
             command.args(&["run", "-p", "neard"]);
             #[cfg(feature = "nightly")]
             command.args(&["--features", "nightly"]);
+            #[cfg(feature = "protocol_feature_spice")]
+            command.args(&["--features", "protocol_feature_spice"]);
             command.args(&["--bin", "neard", "--", "--home"]);
             command.arg(&self.work_dir);
             command.arg("run");
@@ -148,7 +149,7 @@ impl Drop for ProcessNode {
     fn drop(&mut self) {
         match self.state {
             ProcessNodeState::Running(ref mut child) => {
-                let _ = child.kill().map_err(|_| error!("child process died"));
+                let _ = child.kill().map_err(|_| tracing::error!("child process died"));
                 std::fs::remove_dir_all(&self.work_dir).unwrap();
             }
             ProcessNodeState::Stopped => {}

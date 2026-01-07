@@ -161,6 +161,8 @@ fn slow_test_repro_1183() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_sync_from_archival_node() {
     init_test_logger();
 
@@ -183,7 +185,7 @@ fn slow_test_sync_from_archival_node() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
-        .split_store_archival_clients([clients[0].clone()].into())
+        .cold_storage_archival_clients([clients[0].clone()].into())
         .config_modifier(move |config, idx| {
             config.min_block_production_delay = block_prod_time;
             config.max_block_production_delay = 3 * block_prod_time;

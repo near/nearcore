@@ -46,9 +46,9 @@ impl NetworkState {
     /// Then it broadcasts all the AnnounceAccounts that haven't been seen before.
     pub async fn add_accounts(self: &Arc<NetworkState>, accounts: Vec<AnnounceAccount>) {
         let this = self.clone();
-        self.spawn(async move {
+        self.spawn("add_accounts", async move {
             let new_accounts = this.account_announcements.add_accounts(accounts);
-            tracing::debug!(target: "network", account_id = ?this.config.validator.account_id(), ?new_accounts, "Received new accounts");
+            tracing::debug!(target: "network", account_id = ?this.config.validator.account_id(), ?new_accounts, "received new accounts");
             #[cfg(test)]
             this.config.event_sink.send(crate::peer_manager::peer_manager_actor::Event::AccountsAdded(new_accounts.clone()));
             this.broadcast_routing_table_update(RoutingTableUpdate::from_accounts(
@@ -98,11 +98,8 @@ impl NetworkState {
         );
         self.add_edges(&clock, vec![edge.clone()]).await?;
         #[cfg(feature = "distance_vector_routing")]
-        self.update_routes(
-            &clock,
-            NetworkTopologyChange::PeerConnected(peer_id.clone(), edge.clone()),
-        )
-        .await?;
+        self.update_routes(NetworkTopologyChange::PeerConnected(peer_id.clone(), edge.clone()))
+            .await?;
 
         Ok(edge)
     }
@@ -122,7 +119,7 @@ impl NetworkState {
         let clock = clock.clone();
         self.add_edges_demux
             .call(edges, |edges: Vec<Vec<Edge>>| async move {
-                let (mut edges, oks) = this.graph.update(&clock, edges).await;
+                let (mut edges, oks) = this.graph.update(edges).await;
                 // Don't send tombstones during the initial time.
                 // Most of the network is created during this time, which results
                 // in us sending a lot of tombstones to peers.
@@ -218,7 +215,7 @@ impl NetworkState {
             return;
         }
 
-        tracing::trace!(target: "network", route_back = ?msg.clone(), "Received peer message that requires response");
+        tracing::trace!(target: "network", route_back = ?msg.clone(), "received peer message that requires response");
         let from = &conn.peer_info.id;
 
         match conn.tier {
@@ -242,15 +239,12 @@ impl NetworkState {
     #[cfg(feature = "distance_vector_routing")]
     pub async fn update_routes(
         self: &Arc<Self>,
-        clock: &time::Clock,
         event: NetworkTopologyChange,
     ) -> Result<(), ReasonForBan> {
         let this = self.clone();
-        let clock = clock.clone();
         self.update_routes_demux
             .call(event, |events: Vec<NetworkTopologyChange>| async move {
-                let (to_broadcast, oks) =
-                    this.graph_v2.batch_process_network_changes(&clock, events).await;
+                let (to_broadcast, oks) = this.graph_v2.batch_process_network_changes(events).await;
 
                 if let Some(my_distance_vector) = to_broadcast {
                     this.broadcast_distance_vector(my_distance_vector);

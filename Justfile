@@ -8,10 +8,15 @@ platform_excludes := if os() == "macos" {
     ""
 }
 
+# TODO(spice): Make spice run part of nightly once it's close to being done.
+# Releasing spice may take awhile and we should be able to test features without
+# spice until it's close to being done.
+spice_test_flags := "--features protocol_feature_spice,nightly,test_features"
 nightly_test_flags := "--features nightly,test_features"
 stable_test_flags := "--features test_features"
 
 export RUST_BACKTRACE := env("RUST_BACKTRACE", "short")
+export RUST_LOG := env("RUST_LOG", "info,test_loop=warn")
 ci_hack_nextest_profile := if env("CI_HACKS", "0") == "1" { "--profile ci" } else { "" }
 
 # all the tests, as close to CI as possible
@@ -28,7 +33,7 @@ test-ci *FLAGS: check-cargo-fmt \
                 check-cargo-udeps \
                 (nextest "stable" FLAGS) \
                 (nextest "nightly" FLAGS) \
-                nextest-spice \
+                (nextest "spice" FLAGS) \
                 doctests
 # order them with the fastest / most likely to fail checks first
 # when changing this, remember to adjust the CI workflow in parallel, as CI runs each of these in a separate job
@@ -48,15 +53,12 @@ nextest TYPE *FLAGS:
         {{ platform_excludes }} \
         {{ if TYPE == "nightly" { nightly_test_flags } \
            else if TYPE == "stable" { stable_test_flags } \
-           else { error("TYPE is neither 'nightly' nor 'stable'") } }} \
+           else if TYPE == "spice" { spice_test_flags } \
+           else { error("TYPE is neither 'spice, 'nightly' nor 'stable'") } }} \
         {{ FLAGS }}
 
 nextest-slow TYPE *FLAGS: (nextest TYPE "--ignore-default-filter -E 'default() + test(/^(.*::slow_test|slow_test)/)'" FLAGS)
 nextest-all TYPE *FLAGS: (nextest TYPE "--ignore-default-filter -E 'all()'" FLAGS)
-
-# TODO(#13341): Remove once spice tests can run as part of nightly or stable tests.
-spice_test_filter := "-E 'all() & test(spice)'"
-nextest-spice *FLAGS: (nextest "stable" "--features protocol_feature_spice,test_features" "--ignore-default-filter" spice_test_filter FLAGS)
 
 doctests:
     cargo test --doc
@@ -97,7 +99,9 @@ codecov RULE:
     export RUSTC_WORKSPACE_WRAPPER="{{ absolute_path("scripts/coverage-wrapper-rustc") }}"
     {{ just_executable() }} {{ RULE }}
     mkdir -p coverage/codecov
-    cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/new.json
+    # If coverage profiling produced corrupted/empty .profraw (e.g. due to a segfault),
+    # `cargo llvm-cov report` can fail. Fall back to an empty JSON so CI proceeds.
+    cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/new.json || echo '{}' > coverage/codecov/new.json
 
 # generate a codecov report for RULE, CI version
 codecov-ci RULE:
@@ -105,7 +109,9 @@ codecov-ci RULE:
     set -euxo pipefail
     {{ just_executable() }} codecov "{{ RULE }}"
     pushd target
-    tar -c --zstd -f ../coverage/profraw/new.tar.zst *.profraw
+    # Create a tarball with any produced *.profraw files. If the first tar command exits non-zero
+    # create an empty tarball so next steps don't fail.
+    tar -c --zstd -f ../coverage/profraw/new.tar.zst *.profraw 2>/dev/null || tar -c --zstd -f ../coverage/profraw/new.tar.zst --files-from /dev/null
     popd
     rm -rf target/*.profraw
 

@@ -12,7 +12,7 @@ use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_bloc
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{Actor, Handler, Sender};
 use near_async::multithread::MultithreadRuntimeHandle;
-use near_async::{ActorSystem, Message, MultiSend, MultiSenderFrom};
+use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
 use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::stateless_validation::chunk_validation::{self, MainStateTransitionCache};
 use near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL;
@@ -24,7 +24,6 @@ use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
-use near_performance_metrics_macros::perf;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::state_witness::{
@@ -65,14 +64,14 @@ pub struct ChunkValidationSender {
 
 /// Message to notify the chunk validation actor about new blocks
 /// so it can process orphan witnesses that were waiting for these blocks.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct BlockNotificationMessage {
     pub block: Arc<Block>,
 }
 
 /// An actor for validating chunk state witnesses and orphan witnesses.
 #[derive(Clone)]
-pub struct ChunkValidationActorInner {
+pub struct ChunkValidationActor {
     chain_store: ChainStore,
     genesis_block: Arc<Block>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -88,9 +87,9 @@ pub struct ChunkValidationActorInner {
     rs: Arc<ReedSolomon>,
 }
 
-impl Actor for ChunkValidationActorInner {}
+impl Actor for ChunkValidationActor {}
 
-impl ChunkValidationActorInner {
+impl ChunkValidationActor {
     pub fn new(
         chain_store: ChainStore,
         genesis_block: Arc<Block>,
@@ -175,13 +174,13 @@ impl ChunkValidationActorInner {
         orphan_witness_pool_size: usize,
         max_orphan_witness_size: u64,
         num_actors: usize,
-    ) -> MultithreadRuntimeHandle<ChunkValidationActorInner> {
+    ) -> MultithreadRuntimeHandle<ChunkValidationActor> {
         // Create shared orphan witness pool
         let shared_orphan_pool =
             Arc::new(Mutex::new(OrphanStateWitnessPool::new(orphan_witness_pool_size)));
 
         actor_system.spawn_multithread_actor(num_actors, move || {
-            ChunkValidationActorInner::new_with_shared_pool(
+            ChunkValidationActor::new_with_shared_pool(
                 chain_store.clone(),
                 genesis_block.clone(),
                 epoch_manager.clone(),
@@ -247,7 +246,7 @@ impl ChunkValidationActorInner {
             tracing::debug!(
                 target: "chunk_validation",
                 head_height = chain_head.height,
-                "Not saving an orphaned ChunkStateWitness because its height isn't within the allowed height range"
+                "not saving an orphaned chunk state witness because its height isn't within the allowed height range"
             );
             return Ok(HandleOrphanWitnessOutcome::TooFarFromHead {
                 witness_height,
@@ -265,13 +264,13 @@ impl ChunkValidationActorInner {
                 witness_chunk = ?chunk_header.chunk_hash(),
                 witness_prev_block = ?chunk_header.prev_block_hash(),
                 witness_size = witness_size_u64,
-                "Not saving an orphaned ChunkStateWitness because it's too big. This is unexpected."
+                "not saving an orphaned chunk state witness because it's too big, this is unexpected"
             );
             return Ok(HandleOrphanWitnessOutcome::TooBig(witness_size_u64 as usize));
         }
 
         // Orphan witness is OK, save it to the pool
-        tracing::debug!(target: "chunk_validation", "Saving an orphaned ChunkStateWitness to orphan pool");
+        tracing::debug!(target: "chunk_validation", "saving an orphaned chunk state witness to orphan pool");
         self.orphan_witness_pool
             .lock()
             .add_orphan_state_witness(witness, witness_size_u64 as usize);
@@ -293,11 +292,11 @@ impl ChunkValidationActorInner {
                 witness_shard = ?header.shard_id(),
                 witness_chunk = ?header.chunk_hash(),
                 witness_prev_block = ?header.prev_block_hash(),
-                "Processing an orphaned ChunkStateWitness, its previous block has arrived."
+                "processing an orphaned chunk state witness, its previous block has arrived"
             );
 
             if let Err(err) = self.process_chunk_state_witness(witness, new_block, None) {
-                tracing::error!(target: "chunk_validation", ?err, "Error processing orphan chunk state witness");
+                tracing::error!(target: "chunk_validation", ?err, "error processing orphan chunk state witness");
             }
         }
     }
@@ -322,7 +321,7 @@ impl ChunkValidationActorInner {
             tracing::error!(
                 target: "chunk_validation",
                 ?last_final_block,
-                "Error getting last final block header for orphan witness cleanup"
+                "error getting last final block header for orphan witness cleanup"
             );
         }
     }
@@ -412,7 +411,7 @@ impl ChunkValidationActorInner {
                 ?err,
                 ?chunk_producer_name,
                 ?chunk_production_key,
-                "Failed to pre-validate chunk state witness"
+                "failed to pre-validate chunk state witness"
             );
             err
         })?;
@@ -455,7 +454,7 @@ impl ChunkValidationActorInner {
                         ?err,
                         ?chunk_producer_name,
                         ?chunk_production_key,
-                        "Failed to validate chunk using existing chunk extra",
+                        "failed to validate chunk using existing chunk extra",
                     );
                     CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
                         .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
@@ -504,7 +503,7 @@ impl ChunkValidationActorInner {
                         ?err,
                         ?chunk_producer_name,
                         ?chunk_production_key,
-                        "Failed to validate chunk state witness"
+                        "failed to validate chunk state witness"
                     );
                 }
             }
@@ -531,14 +530,14 @@ impl ChunkValidationActorInner {
 
         // Send acknowledgement back to the chunk producer
         if let Err(err) = self.send_state_witness_ack(&witness) {
-            tracing::error!(target: "chunk_validation", ?err, "Failed to send state witness ack");
+            tracing::error!(target: "chunk_validation", ?err, "failed to send state witness ack");
             return Err(err);
         }
 
         // Save the witness if configured to do so
         if self.save_latest_witnesses {
             if let Err(err) = self.chain_store.save_latest_chunk_state_witness(&witness) {
-                tracing::error!(target: "chunk_validation", ?err, "Failed to save latest witness");
+                tracing::error!(target: "chunk_validation", ?err, "failed to save latest witness");
             }
         }
 
@@ -553,11 +552,11 @@ impl ChunkValidationActorInner {
                     processing_done_tracker,
                 ) {
                     Ok(()) => {
-                        tracing::debug!(target: "chunk_validation", "Chunk witness validation started successfully");
+                        tracing::debug!(target: "chunk_validation", "chunk witness validation started successfully");
                         Ok(())
                     }
                     Err(err) => {
-                        tracing::error!(target: "chunk_validation", ?err, "Failed to start chunk witness validation");
+                        tracing::error!(target: "chunk_validation", ?err, "failed to start chunk witness validation");
                         Err(err)
                     }
                 }
@@ -566,29 +565,28 @@ impl ChunkValidationActorInner {
                 // Previous block isn't available at the moment - handle as orphan
                 tracing::debug!(
                     target: "chunk_validation",
-                    "Previous block not found - handling as orphan witness"
+                    "previous block not found - handling as orphan witness"
                 );
                 match self.handle_orphan_witness(witness, raw_witness_size) {
                     Ok(outcome) => {
-                        tracing::debug!(target: "chunk_validation", ?outcome, "Orphan witness handled");
+                        tracing::debug!(target: "chunk_validation", ?outcome, "orphan witness handled");
                         Ok(())
                     }
                     Err(err) => {
-                        tracing::error!(target: "chunk_validation", ?err, "Failed to handle orphan witness");
+                        tracing::error!(target: "chunk_validation", ?err, "failed to handle orphan witness");
                         Err(err)
                     }
                 }
             }
             Err(err) => {
-                tracing::error!(target: "chunk_validation", ?err, "Failed to get previous block");
+                tracing::error!(target: "chunk_validation", ?err, "failed to get previous block");
                 Err(err)
             }
         }
     }
 }
 
-impl Handler<ChunkStateWitnessMessage> for ChunkValidationActorInner {
-    #[perf]
+impl Handler<ChunkStateWitnessMessage> for ChunkValidationActor {
     fn handle(&mut self, msg: ChunkStateWitnessMessage) {
         let _span = tracing::debug_span!(
             target: "chunk_validation",
@@ -605,8 +603,7 @@ impl Handler<ChunkStateWitnessMessage> for ChunkValidationActorInner {
     }
 }
 
-impl Handler<BlockNotificationMessage> for ChunkValidationActorInner {
-    #[perf]
+impl Handler<BlockNotificationMessage> for ChunkValidationActor {
     fn handle(&mut self, msg: BlockNotificationMessage) {
         let BlockNotificationMessage { block } = msg;
 

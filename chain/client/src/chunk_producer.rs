@@ -1,9 +1,14 @@
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::metrics;
+use crate::prepare_transactions::{
+    PrepareTransactionsJobInputs, PrepareTransactionsJobKey, PrepareTransactionsManager,
+};
 use itertools::Itertools;
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{
-    PrepareTransactionsBlockContext, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
+    RuntimeAdapter, RuntimeStorageConfig,
 };
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::MutableConfigValue;
@@ -17,6 +22,7 @@ use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
+use near_primitives::optimistic_block::{CachedShardUpdateKey, OptimisticBlockKeySource};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkWithEncoding};
 use near_primitives::stateless_validation::ChunkProductionKey;
@@ -24,16 +30,20 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_store::ShardUId;
+use near_primitives::version::ProtocolFeature;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::{ShardUId, TrieUpdate};
+use near_vm_runner::logic::ProtocolVersion;
 use parking_lot::Mutex;
 #[cfg(feature = "test_features")]
 use rand::{Rng, SeedableRng};
 use reed_solomon_erasure::galois_8::ReedSolomon;
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use time::ext::InstantExt as _;
-use tracing::{debug, instrument};
+use tracing::instrument;
 
 #[cfg(feature = "test_features")]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -88,6 +98,9 @@ pub struct ChunkProducer {
     reed_solomon_encoder: ReedSolomon,
     /// Chunk production timing information. Used only for debug purposes.
     pub chunk_production_info: lru::LruCache<(BlockHeight, ShardId), ChunkProduction>,
+
+    prepare_transactions_jobs: PrepareTransactionsManager,
+    prepare_transactions_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
 impl ChunkProducer {
@@ -99,6 +112,7 @@ impl ChunkProducer {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         rng_seed: RngSeed,
         transaction_pool_size_limit: Option<u64>,
+        prepare_transactions_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
         let data_parts = epoch_manager.num_data_parts();
         let parity_parts = epoch_manager.num_total_parts() - data_parts;
@@ -123,6 +137,8 @@ impl ChunkProducer {
             chunk_production_info: lru::LruCache::new(
                 NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap(),
             ),
+            prepare_transactions_jobs: PrepareTransactionsManager::new(),
+            prepare_transactions_spawner,
         }
     }
 
@@ -146,7 +162,7 @@ impl ChunkProducer {
             .unwrap()
             .take_account_id();
         if signer.validator_id() != &chunk_proposer {
-            debug!(
+            tracing::debug!(
                 target: "client",
                 ?chunk_proposer,
                 "not a chunk producer for this height"
@@ -156,7 +172,7 @@ impl ChunkProducer {
 
         #[cfg(feature = "test_features")]
         if self.should_skip_chunk_production(next_height, shard_id) {
-            debug!(target: "client", "skip chunk production");
+            tracing::debug!(target: "client", "skip chunk production");
             return Ok(None);
         }
 
@@ -250,7 +266,7 @@ impl ChunkProducer {
             // apply block with the new chunk, so we also skip chunk production.
             if !ChainStore::prev_block_is_caught_up(&self.chain, &prev_prev_hash, &prev_block_hash)?
             {
-                debug!(target: "client", "prev block is not caught up");
+                tracing::debug!(target: "client", "prev block is not caught up");
                 return Err(Error::ChunkProducer(
                     "State for the epoch is not downloaded yet, skipping chunk production"
                         .to_string(),
@@ -258,33 +274,47 @@ impl ChunkProducer {
             }
         }
 
-        debug!(target: "client", "start producing the chunk");
+        tracing::debug!(target: "client", "start producing the chunk");
 
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
-        let chunk_extra = if cfg!(feature = "protocol_feature_spice") {
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+        let chunk_extra = if ProtocolFeature::Spice.enabled(protocol_version) {
             // TODO(spice): using default values as a placeholder is a temporary hack
             Arc::new(ChunkExtra::new_with_only_state_root(&Default::default()))
         } else {
             self.chain
+                .chunk_store()
                 .get_chunk_extra(&prev_block_hash, &shard_uid)
                 .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
         };
 
+        let cached_transactions = self.get_cached_prepared_transactions(prev_block, shard_uid)?;
         let prepared_transactions = {
             #[cfg(feature = "test_features")]
             match self.adversarial.produce_mode {
-                Some(AdvProduceChunksMode::ProduceWithoutTx) => {
-                    PreparedTransactions { transactions: Vec::new(), limited_by: None }
-                }
-                _ => self.prepare_transactions(
+                Some(AdvProduceChunksMode::ProduceWithoutTx) => PreparedTransactions::new(),
+                _ => match cached_transactions {
+                    Some(txs) => txs,
+                    None => self.prepare_transactions(
+                        shard_uid,
+                        prev_block,
+                        chunk_extra.as_ref(),
+                        chain_validate,
+                        protocol_version,
+                    )?,
+                },
+            }
+            #[cfg(not(feature = "test_features"))]
+            match cached_transactions {
+                Some(txs) => txs,
+                None => self.prepare_transactions(
                     shard_uid,
                     prev_block,
                     chunk_extra.as_ref(),
                     chain_validate,
+                    protocol_version,
                 )?,
             }
-            #[cfg(not(feature = "test_features"))]
-            self.prepare_transactions(shard_uid, prev_block, chunk_extra.as_ref(), chain_validate)?
         };
 
         #[cfg(feature = "test_features")]
@@ -320,30 +350,67 @@ impl ChunkProducer {
             bandwidth_requests.is_some(),
             "Expected bandwidth_request to be Some after BandwidthScheduler feature enabled"
         );
-        let (chunk, merkle_paths) = ShardChunkWithEncoding::new(
-            prev_block_hash,
-            *chunk_extra.state_root(),
-            *chunk_extra.outcome_root(),
-            next_height,
-            shard_id,
-            gas_used,
-            chunk_extra.gas_limit(),
-            chunk_extra.balance_burnt(),
-            chunk_extra.validator_proposals().collect(),
-            prepared_transactions.transactions,
-            outgoing_receipts.clone(),
-            outgoing_receipts_root,
-            tx_root,
-            congestion_info,
-            bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
-            &*validator_signer,
-            &mut self.reed_solomon_encoder,
-        );
+
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+        let (chunk, merkle_paths) = if ProtocolFeature::Spice.enabled(protocol_version) {
+            ShardChunkWithEncoding::new_for_spice(
+                prev_block_hash,
+                next_height,
+                shard_id,
+                prepared_transactions.transactions,
+                outgoing_receipts.clone(),
+                outgoing_receipts_root,
+                tx_root,
+                &*validator_signer,
+                &mut self.reed_solomon_encoder,
+            )
+        } else if ProtocolFeature::DynamicResharding.enabled(protocol_version) {
+            ShardChunkWithEncoding::new_for_dynamic_resharding(
+                prev_block_hash,
+                *chunk_extra.state_root(),
+                *chunk_extra.outcome_root(),
+                next_height,
+                shard_id,
+                gas_used,
+                chunk_extra.gas_limit(),
+                chunk_extra.balance_burnt(),
+                chunk_extra.validator_proposals().collect(),
+                prepared_transactions.transactions,
+                outgoing_receipts.clone(),
+                outgoing_receipts_root,
+                tx_root,
+                congestion_info,
+                bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
+                chunk_extra.proposed_split().cloned(),
+                &*validator_signer,
+                &mut self.reed_solomon_encoder,
+            )
+        } else {
+            ShardChunkWithEncoding::new(
+                prev_block_hash,
+                *chunk_extra.state_root(),
+                *chunk_extra.outcome_root(),
+                next_height,
+                shard_id,
+                gas_used,
+                chunk_extra.gas_limit(),
+                chunk_extra.balance_burnt(),
+                chunk_extra.validator_proposals().collect(),
+                prepared_transactions.transactions,
+                outgoing_receipts.clone(),
+                outgoing_receipts_root,
+                tx_root,
+                congestion_info,
+                bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
+                &*validator_signer,
+                &mut self.reed_solomon_encoder,
+            )
+        };
 
         let encoded_chunk = chunk.to_encoded_shard_chunk();
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
         span.record("transactions_num", tracing::field::display(num_filtered_transactions));
-        debug!(
+        tracing::debug!(
             target: "client",
             num_filtered_transactions,
             num_outgoing_receipts = outgoing_receipts.len(),
@@ -366,12 +433,10 @@ impl ChunkProducer {
                 ),
             },
         );
-        if let Some(limit) = prepared_transactions.limited_by {
-            // When some transactions from the pool didn't fit into the chunk due to a limit, it's reported in a metric.
-            metrics::PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DID_NOT_FIT
-                .with_label_values(&[&shard_id.to_string(), limit.as_ref()])
-                .inc();
-        }
+        // When some transactions from the pool didn't fit into the chunk due to a limit, it's reported in a metric.
+        metrics::PRODUCE_CHUNK_TRANSACTIONS_LIMITED_BY
+            .with_label_values(&[&shard_id.to_string(), prepared_transactions.limited_by.as_ref()])
+            .inc();
 
         Ok(Some(ProduceChunkResult {
             chunk,
@@ -398,18 +463,22 @@ impl ChunkProducer {
         prev_block: &Block,
         chunk_extra: &ChunkExtra,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
+        protocol_version: ProtocolVersion,
     ) -> Result<PreparedTransactions, Error> {
         let shard_id = shard_uid.shard_id();
         let mut pool_guard = self.sharded_tx_pool.lock();
         let prepared_transactions = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid)
         {
-            if cfg!(feature = "protocol_feature_spice") {
+            if ProtocolFeature::Spice.enabled(protocol_version) {
                 // TODO(spice): properly implement transaction preparation to respect limits
                 let mut res = vec![];
                 while let Some(iter) = iter.next() {
                     res.push(iter.next().unwrap());
                 }
-                return Ok(PreparedTransactions { transactions: res, limited_by: None });
+                return Ok(PreparedTransactions {
+                    transactions: res,
+                    limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
+                });
             }
 
             let storage_config = RuntimeStorageConfig {
@@ -429,7 +498,7 @@ impl ChunkProducer {
                 self.chunk_transactions_time_limit.get(),
             )?
         } else {
-            PreparedTransactions { transactions: Vec::new(), limited_by: None }
+            PreparedTransactions::new()
         };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
@@ -437,7 +506,7 @@ impl ChunkProducer {
             .reintroduce_transactions(shard_uid, prepared_transactions.transactions.clone());
 
         if reintroduced_count < prepared_transactions.transactions.len() {
-            debug!(
+            tracing::debug!(
                 target: "client",
                 reintroduced_count,
                 num_tx = prepared_transactions.transactions.len(),
@@ -461,7 +530,7 @@ impl ChunkProducer {
                 tracing::info!(
                     target: "adversary",
                     next_block_height,
-                    "Skipping chunk production due to adversary configuration"
+                    "skipping chunk production due to adversary configuration"
                 );
                 true
             }
@@ -506,7 +575,7 @@ impl ChunkProducer {
             window_start,
             skip_start,
             skip_end,
-            "Computed chunk skipping window"
+            "computed chunk skipping window"
         );
         let should_skip = next_block_height >= skip_start && next_block_height < skip_end;
         if should_skip {
@@ -515,9 +584,159 @@ impl ChunkProducer {
                 next_block_height,
                 skip_start,
                 skip_end,
-                "Skipping chunk production in skip window"
+                "skipping chunk production in skip window"
             );
         }
         should_skip
+    }
+
+    /// Start a background job which performs early transaction preparation. Early transaction
+    /// preparation starts as soon as the post-state TrieUpdate of applied chunk is available.
+    pub fn start_prepare_transactions_job(
+        &mut self,
+        shard_update_key: CachedShardUpdateKey,
+        shard_uid: ShardUId,
+        state: TrieUpdate,
+        prev_block_context: PrepareTransactionsBlockContext,
+        prev_chunk_tx_hashes: HashSet<CryptoHash>,
+        tx_validity_period_check: impl Fn(&SignedTransaction) -> bool + Send + 'static,
+    ) {
+        // next_epoch_id is epoch_id of the current block (block for which height we are preparing
+        // transactions).
+        let protocol_version = self
+            .epoch_manager
+            .get_epoch_protocol_version(&prev_block_context.next_epoch_id)
+            .unwrap();
+        if ProtocolFeature::Spice.enabled(protocol_version) {
+            return;
+        }
+
+        #[cfg(feature = "test_features")]
+        if matches!(self.adversarial.produce_mode, Some(AdvProduceChunksMode::ProduceWithoutTx)) {
+            return;
+        }
+
+        #[cfg(feature = "test_features")]
+        let tx_validity_period_check: Box<
+            dyn Fn(&SignedTransaction) -> bool + Send + 'static,
+        > = match self.adversarial.produce_mode {
+            Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => Box::new(|_| true),
+            _ => Box::new(tx_validity_period_check),
+        };
+
+        let next_height = prev_block_context.height + 1;
+        let _span = tracing::debug_span!(
+            target: "client",
+            "start_prepare_transactions_job",
+            height = next_height,
+            shard_id = %shard_uid.shard_id(),
+            tag_block_production = true,
+        )
+        .entered();
+
+        let prepare_job_key = PrepareTransactionsJobKey {
+            shard_uid,
+            shard_update_key,
+            prev_block_context: prev_block_context.clone(),
+        };
+
+        let prepare_job_inputs = PrepareTransactionsJobInputs {
+            runtime_adapter: self.runtime_adapter.clone(),
+            state,
+            shard_uid,
+            prev_block_context,
+            tx_pool: self.sharded_tx_pool.clone(),
+            tx_validity_period_check: Box::new(tx_validity_period_check),
+            prev_chunk_tx_hashes,
+            time_limit: self.chunk_transactions_time_limit.get(),
+        };
+        let prepare_job = self.prepare_transactions_jobs.push(prepare_job_key, prepare_job_inputs);
+
+        // Run the preparation job on a separate thread
+        self.prepare_transactions_spawner.spawn("prepare_transactions", move || {
+            let _span = tracing::debug_span!(
+                target: "client", "run_prepare_transactions_job",
+                height = next_height,
+                shard_id = %shard_uid.shard_id(),
+                tag_block_production = true)
+            .entered();
+            prepare_job.run_job();
+        });
+        metrics::PREPARE_TRANSACTIONS_JOB_STARTED_TOTAL
+            .with_label_values(&[&shard_uid.shard_id().to_string()])
+            .inc();
+    }
+
+    /// Get transactions that were prepared using the background prepare transactions job.
+    /// Returns None when the job doesn't exist or doesn't match the expected inputs.
+    fn get_cached_prepared_transactions(
+        &mut self,
+        prev_block: &Block,
+        shard_uid: ShardUId,
+    ) -> Result<Option<PreparedTransactions>, Error> {
+        let chunks = prev_block.chunks();
+        let prev_block_context = OptimisticBlockKeySource {
+            height: prev_block.header().height(),
+            prev_block_hash: *prev_block.header().prev_hash(),
+            block_timestamp: prev_block.header().raw_timestamp(),
+            random_seed: *prev_block.header().random_value(),
+        };
+        let shard_id = shard_uid.shard_id();
+        let prev_chunk_shard_update_key: CachedShardUpdateKey =
+            Chain::get_cached_shard_update_key(&prev_block_context, &chunks, shard_id).unwrap();
+
+        let prepare_job_key = PrepareTransactionsJobKey {
+            shard_uid,
+            shard_update_key: prev_chunk_shard_update_key,
+            prev_block_context: PrepareTransactionsBlockContext::new(
+                prev_block,
+                &*self.epoch_manager,
+            )?,
+        };
+
+        let next_height = prev_block.header().height() + 1;
+        let Some(result) = self.prepare_transactions_jobs.pop_job_result(prepare_job_key) else {
+            tracing::debug!(
+                target: "client",
+                %next_height,
+                %shard_id,
+                ?prev_chunk_shard_update_key,
+                "cached prepared transactions not found"
+            );
+            metrics::PREPARE_TRANSACTIONS_JOB_RESULT_NOT_FOUND_TOTAL
+                .with_label_values(&[&shard_id.to_string()])
+                .inc();
+            return Ok(None);
+        };
+        match result {
+            Err(err) => {
+                tracing::warn!(
+                    target: "client",
+                    %next_height,
+                    %shard_id,
+                    ?prev_chunk_shard_update_key,
+                    ?err,
+                    "error preparing transactions",
+                );
+                metrics::PREPARE_TRANSACTIONS_JOB_ERROR_TOTAL
+                    .with_label_values(&[&shard_id.to_string()])
+                    .inc();
+                Ok(None)
+            }
+            Ok(txs) => {
+                tracing::debug!(
+                    target: "client",
+                    %next_height,
+                    %shard_id,
+                    ?prev_chunk_shard_update_key,
+                    num_txs = txs.transactions.len(),
+                    "found cached prepared transactions"
+                );
+                metrics::PREPARE_TRANSACTIONS_JOB_RESULT_USED_TOTAL
+                    .with_label_values(&[&shard_id.to_string()])
+                    .inc();
+                Ok(Some(txs))
+            }
+        }
     }
 }

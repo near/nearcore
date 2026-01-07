@@ -11,15 +11,15 @@ use near_chain_configs::test_utils::{
 use near_chain_configs::{
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
     CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
-    CloudArchivalReaderConfig, CloudArchivalWriterConfig, CloudStorageConfig,
-    EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
-    GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig,
-    GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
+    CloudArchivalWriterConfig, EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH,
+    FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis,
+    GenesisConfig, GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
     MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
     NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
     StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
-    default_chunk_validation_threads, default_chunk_wait_mult, default_enable_multiline_logging,
+    default_chunk_validation_threads, default_chunk_wait_mult, default_chunks_cache_height_horizon,
+    default_enable_early_prepare_transactions, default_enable_multiline_logging,
     default_epoch_sync, default_header_sync_expected_height_per_second,
     default_header_sync_initial_timeout, default_header_sync_progress_timeout,
     default_header_sync_stall_ban_timeout, default_log_summary_period,
@@ -54,6 +54,7 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
+use near_store::archive::cloud_storage::config::{CloudArchivalConfig, CloudStorageContext};
 use near_store::config::{SplitStorageConfig, StateSnapshotType};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
@@ -65,7 +66,6 @@ use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{info, warn};
 
 /// Block production tracking delay.
 pub const BLOCK_PRODUCTION_TRACKING_DELAY: i64 = 10;
@@ -271,9 +271,9 @@ pub struct Config {
 
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
-    /// Configuration for a cloud-based archival reader.
+    /// Configuration for a cloud-based archival node.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cloud_archival_reader: Option<CloudArchivalReaderConfig>,
+    pub cloud_archival: Option<CloudArchivalConfig>,
     /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
     /// writes chunk-related data based on the tracked shards.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -296,10 +296,15 @@ pub struct Config {
     /// - All shards are tracked (i.e. node is an RPC node).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_tx_outcomes: Option<bool>,
+    /// Whether to persist state changes on disk or not.
+    /// If `None`, defaults to true (persist).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_state_changes: Option<bool>,
     /// Whether to persist partial chunk parts for untracked shards in the database.
     /// If `None`, defaults to true (persist).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_untracked_partial_chunks_parts: Option<bool>,
+    /// Deprecated: no longer supported.
     pub log_summary_style: LogSummaryStyle,
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub log_summary_period: Duration,
@@ -356,6 +361,8 @@ pub struct Config {
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
+    /// If true, the node won't forward transactions to next the chunk producers.
+    pub disable_tx_routing: bool,
     /// Limit the time of adding transactions to a chunk.
     ///
     /// A node produces a chunk by adding transactions from the transaction pool until
@@ -410,6 +417,18 @@ pub struct Config {
     ///
     /// Use [`Self::contract_cache_path()`] to access this field.
     pub(crate) contract_cache_path: Option<PathBuf>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// If true, transactions for the next chunk will be prepared early, right after the previous chunk's
+    /// post-state is ready. This can help produce chunks faster, for high-throughput chains.
+    /// The current implementation increases latency on low-load chains, which will be fixed in the future.
+    /// The default is disabled.
+    pub enable_early_prepare_transactions: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Height horizon for the chunk cache. A chunk is removed from the cache
+    /// if its height + chunks_cache_height_horizon < largest_seen_height.
+    /// The default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.
+    pub chunks_cache_height_horizon: Option<BlockHeightDelta>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -438,9 +457,10 @@ impl Default for Config {
             tracked_shards: None,
             tracked_shard_schedule: None,
             archive: false,
-            cloud_archival_reader: None,
+            cloud_archival: None,
             cloud_archival_writer: None,
             save_trie_changes: None,
+            save_state_changes: None,
             save_tx_outcomes: None,
             save_untracked_partial_chunks_parts: None,
             log_summary_style: LogSummaryStyle::Colored,
@@ -464,6 +484,7 @@ impl Default for Config {
             enable_multiline_logging: default_enable_multiline_logging(),
             resharding_config: ReshardingConfig::default(),
             tx_routing_height_horizon: default_tx_routing_height_horizon(),
+            disable_tx_routing: false,
             produce_chunk_add_transactions_time_limit:
                 default_produce_chunk_add_transactions_time_limit(),
             chunk_distribution_network: None,
@@ -475,6 +496,8 @@ impl Default for Config {
             save_invalid_witnesses: false,
             transaction_request_handler_threads: 4,
             protocol_version_check_config_override: None,
+            enable_early_prepare_transactions: None,
+            chunks_cache_height_horizon: None,
         }
     }
 }
@@ -518,10 +541,12 @@ impl Config {
         if !unrecognized_fields.is_empty() {
             let s = if unrecognized_fields.len() > 1 { "s" } else { "" };
             let fields = unrecognized_fields.join(", ");
-            warn!(
+            tracing::warn!(
                 target: "neard",
-                "{}: encountered unrecognized field{s}: {fields}",
-                path.display(),
+                path = %path.display(),
+                fields_count = %s,
+                %fields,
+                "encountered unrecognized fields"
             );
         }
 
@@ -564,7 +589,7 @@ impl Config {
                 target: "neard",
                 deprecated_key = %deprecated_key,
                 new_key        = %new_key,
-                "Deprecated config key detected – please migrate",
+                "deprecated config key detected – please migrate",
             );
         }
     }
@@ -606,26 +631,6 @@ impl Config {
         )
     }
 
-    /// Returns the cloud storage config. Checks if configs are equal if both cloud archival reader and
-    /// writers are enabled.
-    pub fn cloud_storage_config(&self) -> Option<&CloudStorageConfig> {
-        if let (Some(reader), Some(writer)) =
-            (&self.cloud_archival_reader, &self.cloud_archival_writer)
-        {
-            assert_eq!(
-                reader.cloud_storage, writer.cloud_storage,
-                "Cloud archival reader and writer storage configs are not equal."
-            );
-        }
-        if let Some(reader) = &self.cloud_archival_reader {
-            return Some(&reader.cloud_storage);
-        }
-        if let Some(writer) = &self.cloud_archival_writer {
-            return Some(&writer.cloud_storage);
-        }
-        None
-    }
-
     pub fn contract_cache_path(&self) -> PathBuf {
         if let Some(explicit) = &self.contract_cache_path {
             explicit.clone()
@@ -633,6 +638,21 @@ impl Config {
             let store_path = self.store.path.as_deref().unwrap_or_else(|| "data".as_ref());
             [store_path, "contract.cache".as_ref()].into_iter().collect()
         }
+    }
+
+    /// Returns the state sync configuration, deriving it from cloud archival settings
+    /// when archival is enabled, or using the configured/default value otherwise.
+    fn state_sync_config(&self) -> StateSyncConfig {
+        if self.cloud_archival_writer.is_some() {
+            let cloud_archival_config = self
+                .cloud_archival
+                .clone()
+                .expect("cloud storage must be configured on cloud archive writer");
+            let mut config = StateSyncConfig::default();
+            config.dump = Some(cloud_archival_config.into_default_dump_config());
+            return config;
+        }
+        self.state_sync.clone().unwrap_or_default()
     }
 }
 
@@ -706,11 +726,12 @@ impl NearConfig {
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,
                 doomslug_step_period: config.consensus.doomslug_step_period,
                 tracked_shards_config: config.tracked_shards_config(),
+                state_sync: config.state_sync_config(),
                 archive: config.archive,
-                cloud_archival_reader: config.cloud_archival_reader,
                 cloud_archival_writer: config.cloud_archival_writer,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 save_tx_outcomes: config.save_tx_outcomes.unwrap_or(is_archive_or_rpc),
+                save_state_changes: config.save_state_changes.unwrap_or(true),
                 save_untracked_partial_chunks_parts: config
                     .save_untracked_partial_chunks_parts
                     .unwrap_or(true),
@@ -728,7 +749,6 @@ impl NearConfig {
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: 8,
                 state_sync_enabled: config.state_sync_enabled,
-                state_sync: config.state_sync.unwrap_or_default(),
                 epoch_sync: config.epoch_sync.unwrap_or_default(),
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
@@ -737,6 +757,7 @@ impl NearConfig {
                     "resharding_config",
                 ),
                 tx_routing_height_horizon: config.tx_routing_height_horizon,
+                disable_tx_routing: config.disable_tx_routing,
                 produce_chunk_add_transactions_time_limit: MutableConfigValue::new(
                     config.produce_chunk_add_transactions_time_limit,
                     "produce_chunk_add_transactions_time_limit",
@@ -750,6 +771,12 @@ impl NearConfig {
                 protocol_version_check: config
                     .protocol_version_check_config_override
                     .unwrap_or(ProtocolVersionCheckConfig::NextNext),
+                enable_early_prepare_transactions: config
+                    .enable_early_prepare_transactions
+                    .unwrap_or_else(default_enable_early_prepare_transactions),
+                chunks_cache_height_horizon: config
+                    .chunks_cache_height_horizon
+                    .unwrap_or_else(default_chunks_cache_height_horizon),
             },
             #[cfg(feature = "tx_generator")]
             tx_generator: config.tx_generator,
@@ -775,6 +802,18 @@ impl NearConfig {
             return Some(rpc.addr.to_string());
         }
         None
+    }
+
+    /// Returns the cloud archival storage config.
+    pub fn cloud_storage_context(&self) -> Option<CloudStorageContext> {
+        let Some(cloud_archive_config) = &self.config.cloud_archival else {
+            return None;
+        };
+        let cloud_storage_context = CloudStorageContext {
+            cloud_archive: cloud_archive_config.clone(),
+            chain_id: self.client_config.chain_id.clone(),
+        };
+        Some(cloud_storage_context)
     }
 }
 
@@ -876,7 +915,7 @@ fn generate_or_load_key(
                 ));
             }
         }
-        info!(target: "near", "Reusing key {} for {}", signer.public_key(), signer.get_account_id());
+        tracing::info!(target: "near", public_key = %signer.public_key(), account_id = %signer.get_account_id(), "reusing key for account");
         Ok(Some(signer))
     } else if let Some(account_id) = account_id {
         let signer = if let Some(seed) = test_seed {
@@ -884,7 +923,7 @@ fn generate_or_load_key(
         } else {
             InMemorySigner::from_random(account_id, KeyType::ED25519).into()
         };
-        info!(target: "near", "Using key {} for {}", signer.public_key(), signer.get_account_id());
+        tracing::info!(target: "near", public_key = %signer.public_key(), account_id = %signer.get_account_id(), "using key for account");
         signer
             .write_to_file(&path)
             .with_context(|| anyhow!("Failed saving key to ‘{}’", path.display()))?;
@@ -1043,7 +1082,7 @@ pub fn init_configs(
         near_primitives::chains::MAINNET => {
             let genesis = near_mainnet_res::mainnet_genesis();
             genesis.to_file(dir.join(config.genesis_file));
-            info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
+            tracing::info!(target: "near", dir = %dir.display(), "generated mainnet genesis file");
         }
         near_primitives::chains::TESTNET => {
             if let Some(ref filename) = config.genesis_records_file {
@@ -1100,7 +1139,7 @@ pub fn init_configs(
             genesis.config.chain_id.clone_from(&chain_id);
 
             genesis.to_file(dir.join(config.genesis_file));
-            info!(target: "near", "Generated for {chain_id} network node key and genesis file in {}", dir.display());
+            tracing::info!(target: "near", %chain_id, dir = %dir.display(), "generated network node key and genesis file");
         }
         _ => {
             let validator_file = dir.join(&config.validator_key_file);
@@ -1157,7 +1196,7 @@ pub fn init_configs(
             };
             let genesis = Genesis::new(genesis_config, records.into())?;
             genesis.to_file(dir.join(config.genesis_file));
-            info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
+            tracing::info!(target: "near", dir = %dir.display(), "generated node key, validator key, genesis file");
         }
     }
 
@@ -1459,7 +1498,7 @@ pub fn init_localnet_configs(
         log_config
             .write_to_file(&node_dir.join(LOG_CONFIG_FILENAME))
             .expect("Error writing log config");
-        info!(target: "near", "Generated node key, validator key, genesis file in {}", node_dir.display());
+        tracing::info!(target: "near", node_dir = %node_dir.display(), "generated node key, validator key, genesis file");
     }
 }
 
@@ -1486,28 +1525,28 @@ pub fn get_config_url(chain_id: &str, config_type: DownloadConfigType) -> String
 }
 
 pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    info!(target: "near", "Downloading genesis file from: {} ...", url);
+    tracing::info!(target: "near", %url, "downloading genesis file");
     let result = run_download_file(url, path);
     if result.is_ok() {
-        info!(target: "near", "Saved the genesis file to: {} ...", path.display());
+        tracing::info!(target: "near", path = %path.display(), "saved the genesis file");
     }
     result
 }
 
 pub fn download_records(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    info!(target: "near", "Downloading records file from: {} ...", url);
+    tracing::info!(target: "near", %url, "downloading records file");
     let result = run_download_file(url, path);
     if result.is_ok() {
-        info!(target: "near", "Saved the records file to: {} ...", path.display());
+        tracing::info!(target: "near", path = %path.display(), "saved the records file");
     }
     result
 }
 
 pub fn download_config(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    info!(target: "near", "Downloading config file from: {} ...", url);
+    tracing::info!(target: "near", %url, "downloading config file");
     let result = run_download_file(url, path);
     if result.is_ok() {
-        info!(target: "near", "Saved the config file to: {} ...", path.display());
+        tracing::info!(target: "near", path = %path.display(), "saved the config file");
     }
     result
 }

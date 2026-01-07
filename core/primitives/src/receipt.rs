@@ -401,6 +401,29 @@ impl ReceiptPriority {
 }
 
 impl Receipt {
+    pub fn from_tx(
+        receipt_id: CryptoHash,
+        tx_signer_id: AccountId,
+        tx_receiver_id: AccountId,
+        signer_public_key: PublicKey,
+        gas_price: Balance,
+        actions: Vec<Action>,
+    ) -> Self {
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: tx_signer_id.clone(),
+            receiver_id: tx_receiver_id,
+            receipt_id,
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: tx_signer_id,
+                signer_public_key,
+                gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            }),
+        })
+    }
+
     pub fn receiver_id(&self) -> &AccountId {
         match self {
             Receipt::V0(receipt) => &receipt.receiver_id,
@@ -655,6 +678,7 @@ pub enum ReceiptEnum {
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
+/// TODO(#14709): deprecate in favor of `ActionReceiptV2`.
 #[derive(
     BorshSerialize,
     BorshDeserialize,

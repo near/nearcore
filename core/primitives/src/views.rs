@@ -6,8 +6,9 @@
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::action::{
-    DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, UseGlobalContractAction,
+    AddGasKeyAction, DeleteGasKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
+    GlobalContractDeployMode, GlobalContractIdentifier, TransferToGasKeyAction,
+    UseGlobalContractAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -19,8 +20,8 @@ use crate::hash::{CryptoHash, hash};
 use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::receipt::{
-    ActionReceipt, DataReceipt, DataReceiver, GlobalContractDistributionReceipt, Receipt,
-    ReceiptEnum, ReceiptV1, VersionedActionReceipt, VersionedReceiptEnum,
+    ActionReceipt, ActionReceiptV2, DataReceipt, DataReceiver, GlobalContractDistributionReceipt,
+    Receipt, ReceiptEnum, ReceiptV1, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
@@ -229,24 +230,16 @@ pub struct GasKeyView {
     pub num_nonces: NonceIndex,
     pub balance: Balance,
     pub permission: AccessKeyPermissionView,
+    pub nonces: Vec<Nonce>,
 }
 
-impl From<GasKey> for GasKeyView {
-    fn from(gas_key: GasKey) -> Self {
-        Self {
+impl GasKeyView {
+    pub fn new(gas_key: GasKey, nonces: Vec<Nonce>) -> GasKeyView {
+        GasKeyView {
             num_nonces: gas_key.num_nonces,
             balance: gas_key.balance,
             permission: gas_key.permission.into(),
-        }
-    }
-}
-
-impl From<GasKeyView> for GasKey {
-    fn from(view: GasKeyView) -> Self {
-        Self {
-            num_nonces: view.num_nonces,
-            balance: view.balance,
-            permission: view.permission.into(),
+            nonces,
         }
     }
 }
@@ -306,6 +299,19 @@ impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct GasKeyInfoView {
+    pub public_key: PublicKey,
+    pub gas_key: GasKeyView,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct GasKeyList {
+    pub keys: Vec<GasKeyInfoView>,
+}
+
 // cspell:words deepsize
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -348,6 +354,8 @@ pub enum QueryResponseKind {
     CallResult(CallResult),
     AccessKey(AccessKeyView),
     AccessKeyList(AccessKeyList),
+    GasKey(GasKeyView),
+    GasKeyList(GasKeyList),
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -372,6 +380,13 @@ pub enum QueryRequest {
         public_key: PublicKey,
     },
     ViewAccessKeyList {
+        account_id: AccountId,
+    },
+    ViewGasKey {
+        account_id: AccountId,
+        public_key: PublicKey,
+    },
+    ViewGasKeyList {
         account_id: AccountId,
     },
     CallFunction {
@@ -1065,6 +1080,7 @@ impl From<BlockHeaderInnerLiteView> for BlockHeaderInnerLite {
 /// Contains main info about the chunk.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+// TODO(spice): Once spice is released deprecate fields that wouldn't be part of spice chunks.
 pub struct ChunkHeaderView {
     pub chunk_hash: CryptoHash,
     pub prev_block_hash: CryptoHash,
@@ -1108,14 +1124,18 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             chunk_hash: hash,
             prev_block_hash: *inner.prev_block_hash(),
             outcome_root: *inner.prev_outcome_root(),
-            prev_state_root: *inner.prev_state_root(),
+            prev_state_root: if inner.is_spice_chunk() {
+                CryptoHash::default()
+            } else {
+                *inner.prev_state_root()
+            },
             encoded_merkle_root: *inner.encoded_merkle_root(),
             encoded_length: inner.encoded_length(),
             height_created: inner.height_created(),
             height_included,
             shard_id: inner.shard_id(),
             gas_used: inner.prev_gas_used(),
-            gas_limit: inner.gas_limit(),
+            gas_limit: if inner.is_spice_chunk() { Gas::default() } else { inner.gas_limit() },
             rent_paid: Balance::ZERO,
             validator_reward: Balance::ZERO,
             balance_burnt: inner.prev_balance_burnt(),
@@ -1270,6 +1290,20 @@ impl ChunkView {
     }
 }
 
+#[derive(serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+// This is needed to deserialize [GlobalContractIdentifierView] after
+// changing serialization format. Examples of the new and the old format
+// can be found in `test_deserialize_global_contract_identifier_view_*`
+// tests.
+enum BackwardCompatibleGlobalContractIdentifierView {
+    CodeHash { hash: CryptoHash },
+    AccountId { account_id: AccountId },
+    DeprecatedCodeHash(CryptoHash),
+    DeprecatedAccountId(AccountId),
+}
+
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -1280,14 +1314,29 @@ impl ChunkView {
     serde::Serialize,
     serde::Deserialize,
 )]
-#[serde(untagged, rename_all = "snake_case")]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case", from = "BackwardCompatibleGlobalContractIdentifierView")]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema), schemars(!from))]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum GlobalContractIdentifierView {
     #[serde(rename = "hash")]
     CodeHash(CryptoHash) = 0,
     AccountId(AccountId) = 1,
+}
+
+impl From<BackwardCompatibleGlobalContractIdentifierView> for GlobalContractIdentifierView {
+    fn from(value: BackwardCompatibleGlobalContractIdentifierView) -> Self {
+        match value {
+            BackwardCompatibleGlobalContractIdentifierView::DeprecatedCodeHash(hash)
+            | BackwardCompatibleGlobalContractIdentifierView::CodeHash { hash } => {
+                GlobalContractIdentifierView::CodeHash(hash)
+            }
+            BackwardCompatibleGlobalContractIdentifierView::DeprecatedAccountId(account_id)
+            | BackwardCompatibleGlobalContractIdentifierView::AccountId { account_id } => {
+                GlobalContractIdentifierView::AccountId(account_id)
+            }
+        }
+    }
 }
 
 impl From<GlobalContractIdentifier> for GlobalContractIdentifierView {
@@ -1396,6 +1445,18 @@ pub enum ActionView {
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: Balance,
     } = 13,
+    AddGasKey {
+        public_key: PublicKey,
+        num_nonces: NonceIndex,
+        permission: AccessKeyPermissionView,
+    } = 14,
+    DeleteGasKey {
+        public_key: PublicKey,
+    } = 15,
+    TransferToGasKey {
+        public_key: PublicKey,
+        amount: Balance,
+    } = 16,
 }
 
 impl From<Action> for ActionView {
@@ -1454,6 +1515,18 @@ impl From<Action> for ActionView {
                     deposit: action.deposit,
                 }
             }
+            Action::AddGasKey(action) => ActionView::AddGasKey {
+                public_key: action.public_key,
+                num_nonces: action.num_nonces,
+                permission: action.permission.into(),
+            },
+            Action::DeleteGasKey(action) => {
+                ActionView::DeleteGasKey { public_key: action.public_key }
+            }
+            Action::TransferToGasKey(action) => ActionView::TransferToGasKey {
+                public_key: action.public_key,
+                amount: action.deposit,
+            },
         }
     }
 }
@@ -1521,6 +1594,22 @@ impl TryFrom<ActionView> for Action {
                     ),
                     deposit,
                 }))
+            }
+            ActionView::AddGasKey { public_key, num_nonces, permission } => {
+                Action::AddGasKey(Box::new(AddGasKeyAction {
+                    public_key,
+                    num_nonces,
+                    permission: permission.into(),
+                }))
+            }
+            ActionView::TransferToGasKey { public_key, amount } => {
+                Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+                    public_key,
+                    deposit: amount,
+                }))
+            }
+            ActionView::DeleteGasKey { public_key } => {
+                Action::DeleteGasKey(Box::new(DeleteGasKeyAction { public_key }))
             }
         })
     }
@@ -2206,6 +2295,8 @@ pub enum ReceiptEnumView {
         actions: Vec<ActionView>,
         #[serde(default = "default_is_promise")]
         is_promise_yield: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        refund_to: Option<AccountId>,
     } = 0,
     Data {
         data_id: CryptoHash,
@@ -2298,6 +2389,7 @@ impl ReceiptEnumView {
                 .collect(),
             actions: action_receipt.actions().iter().cloned().map(Into::into).collect(),
             is_promise_yield,
+            refund_to: action_receipt.refund_to().clone(),
         }
     }
 }
@@ -2319,29 +2411,54 @@ impl TryFrom<ReceiptView> for Receipt {
                     input_data_ids,
                     actions,
                     is_promise_yield,
+                    refund_to,
                 } => {
-                    let action_receipt = ActionReceipt {
-                        signer_id,
-                        signer_public_key,
-                        gas_price,
-                        output_data_receivers: output_data_receivers
-                            .into_iter()
-                            .map(|data_receiver_view| DataReceiver {
-                                data_id: data_receiver_view.data_id,
-                                receiver_id: data_receiver_view.receiver_id,
-                            })
-                            .collect(),
-                        input_data_ids: input_data_ids.into_iter().map(Into::into).collect(),
-                        actions: actions
-                            .into_iter()
-                            .map(TryInto::try_into)
-                            .collect::<Result<Vec<_>, _>>()?,
-                    };
-
-                    if is_promise_yield {
-                        ReceiptEnum::PromiseYield(action_receipt)
+                    let output_data_receivers: Vec<_> = output_data_receivers
+                        .into_iter()
+                        .map(|data_receiver_view| DataReceiver {
+                            data_id: data_receiver_view.data_id,
+                            receiver_id: data_receiver_view.receiver_id,
+                        })
+                        .collect();
+                    let input_data_ids: Vec<CryptoHash> =
+                        input_data_ids.into_iter().map(Into::into).collect();
+                    let actions = actions
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<_>, _>>()?;
+                    // Note that this is not consistent with how `new_receipts` are
+                    // created by the runtime - there we always create ActionReceiptV2.
+                    // ActionReceiptV2 without refund_to becomes V1 after a roundtrip
+                    // through views. This will be fixed with #14709.
+                    if refund_to.is_some() {
+                        let action_receipt = ActionReceiptV2 {
+                            signer_id,
+                            signer_public_key,
+                            gas_price,
+                            output_data_receivers,
+                            input_data_ids,
+                            actions,
+                            refund_to,
+                        };
+                        if is_promise_yield {
+                            ReceiptEnum::PromiseYieldV2(action_receipt)
+                        } else {
+                            ReceiptEnum::ActionV2(action_receipt)
+                        }
                     } else {
-                        ReceiptEnum::Action(action_receipt)
+                        let action_receipt = ActionReceipt {
+                            signer_id,
+                            signer_public_key,
+                            gas_price,
+                            output_data_receivers,
+                            input_data_ids,
+                            actions,
+                        };
+                        if is_promise_yield {
+                            ReceiptEnum::PromiseYield(action_receipt)
+                        } else {
+                            ReceiptEnum::Action(action_receipt)
+                        }
                     }
                 }
                 ReceiptEnumView::Data { data_id, data, is_promise_resume } => {
@@ -2698,7 +2815,7 @@ pub enum StateChangeValueView {
     GasKeyUpdate {
         account_id: AccountId,
         public_key: PublicKey,
-        gas_key: GasKeyView,
+        gas_key: GasKey,
     },
     GasKeyNonceUpdate {
         account_id: AccountId,
@@ -2750,7 +2867,7 @@ impl From<StateChangeValue> for StateChangeValueView {
                 Self::AccessKeyDeletion { account_id, public_key }
             }
             StateChangeValue::GasKeyUpdate { account_id, public_key, gas_key } => {
-                Self::GasKeyUpdate { account_id, public_key, gas_key: gas_key.into() }
+                Self::GasKeyUpdate { account_id, public_key, gas_key }
             }
             StateChangeValue::GasKeyNonceUpdate { account_id, public_key, index, nonce } => {
                 Self::GasKeyNonceUpdate { account_id, public_key, index, nonce }
@@ -2874,6 +2991,10 @@ mod tests {
     use crate::profile_data_v2::ProfileDataV2;
     use crate::profile_data_v3::ProfileDataV3;
     use crate::transaction::ExecutionMetadata;
+    use crate::views::GlobalContractIdentifierView;
+    use assert_matches::assert_matches;
+    use near_primitives_core::hash::CryptoHash;
+    use serde_json::json;
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
@@ -2927,5 +3048,69 @@ mod tests {
         let json = r#"{"final_execution_status":"FINAL","receipts_outcome":[{"block_hash":"9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K","id":"e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB","outcome":{"executor_id":"btc-client.testnet","gas_burnt":2906160054161,"logs":["Block hash: 0000000000000000ee617846a3e081ae2f30091451442e1b5fb027d8eba09b3a","Saving to mainchain"],"metadata":{"gas_profile":[{"cost":"BASE","cost_category":"WASM_HOST_COST","gas_used":"8472579552"},{"cost":"CONTRACT_LOADING_BASE","cost_category":"WASM_HOST_COST","gas_used":"35445963"},{"cost":"CONTRACT_LOADING_BYTES","cost_category":"WASM_HOST_COST","gas_used":"413841688515"},{"cost":"LOG_BASE","cost_category":"WASM_HOST_COST","gas_used":"7086626100"},{"cost":"LOG_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1253885145"},{"cost":"READ_CACHED_TRIE_NODE","cost_category":"WASM_HOST_COST","gas_used":"102600000000"},{"cost":"READ_MEMORY_BASE","cost_category":"WASM_HOST_COST","gas_used":"54807127200"},{"cost":"READ_MEMORY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2873807748"},{"cost":"READ_REGISTER_BASE","cost_category":"WASM_HOST_COST","gas_used":"22654486674"},{"cost":"READ_REGISTER_BYTE","cost_category":"WASM_HOST_COST","gas_used":"51252240"},{"cost":"SHA256_BASE","cost_category":"WASM_HOST_COST","gas_used":"13622910750"},{"cost":"SHA256_BYTE","cost_category":"WASM_HOST_COST","gas_used":"3400546491"},{"cost":"STORAGE_READ_BASE","cost_category":"WASM_HOST_COST","gas_used":"450854766000"},{"cost":"STORAGE_READ_KEY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"4952405280"},{"cost":"STORAGE_READ_VALUE_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1806743610"},{"cost":"STORAGE_WRITE_BASE","cost_category":"WASM_HOST_COST","gas_used":"256786944000"},{"cost":"STORAGE_WRITE_EVICTED_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2826323016"},{"cost":"STORAGE_WRITE_KEY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"5638629360"},{"cost":"STORAGE_WRITE_VALUE_BYTE","cost_category":"WASM_HOST_COST","gas_used":"8685190920"},{"cost":"TOUCHING_TRIE_NODE","cost_category":"WASM_HOST_COST","gas_used":"434752810002"},{"cost":"UTF8_DECODING_BASE","cost_category":"WASM_HOST_COST","gas_used":"6223558122"},{"cost":"UTF8_DECODING_BYTE","cost_category":"WASM_HOST_COST","gas_used":"27700145505"},{"cost":"WASM_INSTRUCTION","cost_category":"WASM_HOST_COST","gas_used":"126491330196"},{"cost":"WRITE_MEMORY_BASE","cost_category":"WASM_HOST_COST","gas_used":"28037948610"},{"cost":"WRITE_MEMORY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1459941792"},{"cost":"WRITE_REGISTER_BASE","cost_category":"WASM_HOST_COST","gas_used":"28655224860"},{"cost":"WRITE_REGISTER_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2311350912"}],"version":3},"receipt_ids":["8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6"],"status":{"SuccessValue":""},"tokens_burnt":"290616005416100000000"},"proof":[{"direction":"Left","hash":"BoQHueiPH9e4C7fkxouV4tFpGZ4hK5fJhKQnPBWwPazS"},{"direction":"Right","hash":"Ayxj8iVFTJMzZa7estoTtuBKJaUNhoipaaM7WmTjkkiS"}]},{"block_hash":"3rEx3xmgLCRgUfSgueD71YNrJYQYNvhtkXaqVQxdmj4U","id":"8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6","outcome":{"executor_id":"btc-client.testnet","gas_burnt":223182562500,"logs":[],"metadata":{"gas_profile":[],"version":3},"receipt_ids":[],"status":{"SuccessValue":""},"tokens_burnt":"0"},"proof":[{"direction":"Right","hash":"8yEwg14D2GyyLNnJMxdSLDJKyrKShMAL3zTnf9YpQyPW"},{"direction":"Right","hash":"2UK7BfpHf9fCCsvmfHktDfz6Rh8sFihhN6cuTU3R4BBA"}]}],"status":{"SuccessValue":""},"transaction":{"actions":[{"FunctionCall":{"args":"AQAAAABA0CKoR96WKs+KPP6zPl0flT6XC91eR3uAUgwNAAAAAAAAAAzcZU0cipmejc+wGqnRJchd5uM6qRJM5Oojp3FrkJ2HVmGyZsnyFBlkvks8","deposit":"0","gas":100000000000000,"method_name":"submit_blocks"}}],"hash":"GMUCDLHFJVvmZYXmPf9QeUVAt9r9hXcQP1yL5emPFnvx","nonce":170437577001422,"priority_fee":0,"public_key":"ed25519:HM7ax8jJf41JozvanXepzhtD45AeRFcwJQCuLXFuDkjA","receiver_id":"btc-client.testnet","signature":"ed25519:2Qe3ccPSdzPddk764vm5jt4yXcvXgYQz3WzGF3oXpZLuaRa6ggpD131nSSy3FRVPquCvxYqgMGtdum8TKX3dVqNk","signer_id":"btc-client.testnet"},"transaction_outcome":{"block_hash":"9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K","id":"GMUCDLHFJVvmZYXmPf9QeUVAt9r9hXcQP1yL5emPFnvx","outcome":{"executor_id":"btc-client.testnet","gas_burnt":308276385598,"logs":[],"metadata":{"gas_profile":null,"version":1},"receipt_ids":["e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB"],"status":{"SuccessReceiptId":"e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB"},"tokens_burnt":"30827638559800000000"},"proof":[{"direction":"Right","hash":"HDgWEk2okmDdAFAVf6ffxGBH6F6vdLM1X3H5Fmaafe4S"},{"direction":"Right","hash":"Ayxj8iVFTJMzZa7estoTtuBKJaUNhoipaaM7WmTjkkiS"}]}}"#;
         let view: FinalExecutionOutcomeViewEnum = serde_json::from_str(json).unwrap();
         assert!(matches!(view, FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(_)));
+    }
+
+    #[test]
+    fn test_deserialize_global_contract_identifier_view_hash_deprecated() {
+        assert_matches!(
+            deserialize_global_contract_identifier(json!(
+                "9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K"
+            )),
+            GlobalContractIdentifierView::CodeHash(_)
+        );
+    }
+
+    #[test]
+    fn test_deserialize_global_contract_identifier_view_account_id_deprecated() {
+        assert_matches!(
+            deserialize_global_contract_identifier(json!("alice.near")),
+            GlobalContractIdentifierView::AccountId(_)
+        );
+    }
+
+    #[test]
+    fn test_deserialize_global_contract_identifier_view_hash() {
+        assert_matches!(
+            deserialize_global_contract_identifier(
+                json!({ "hash": "9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K" })
+            ),
+            GlobalContractIdentifierView::CodeHash(_)
+        );
+    }
+
+    #[test]
+    fn test_deserialize_global_contract_identifier_view_account_id() {
+        assert_matches!(
+            deserialize_global_contract_identifier(json!({ "account_id": "alice.near" })),
+            GlobalContractIdentifierView::AccountId(_)
+        );
+    }
+
+    #[test]
+    fn test_serialize_global_contract_identifier_view_hash() {
+        assert_eq!(
+            serde_json::to_value(GlobalContractIdentifierView::CodeHash(CryptoHash::hash_bytes(
+                b"42"
+            )))
+            .unwrap(),
+            json!({ "hash": "8kzzuAWtRcnhd4SnD2zeEuieq5VtuA8nsNcBgzpRaLuE" })
+        );
+    }
+
+    #[test]
+    fn test_serialize_global_contract_identifier_view_account_id() {
+        assert_eq!(
+            serde_json::to_value(GlobalContractIdentifierView::AccountId(
+                "alice.near".parse().unwrap()
+            ))
+            .unwrap(),
+            json!({ "account_id": "alice.near" })
+        );
+    }
+
+    fn deserialize_global_contract_identifier(
+        json: serde_json::Value,
+    ) -> GlobalContractIdentifierView {
+        serde_json::from_value(json).unwrap()
     }
 }

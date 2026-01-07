@@ -51,7 +51,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
         signer_account_pk: Vec::from(&SIGNER_ACCOUNT_PK[..]),
         predecessor_account_id: PREDECESSOR_ACCOUNT_ID.parse().unwrap(),
         refund_to_account_id: REFUND_TO_ACCOUNT_ID.parse().unwrap(),
-        input,
+        input: std::rc::Rc::from(input),
         promise_results: Vec::new().into(),
         block_height: 10,
         block_timestamp: 42,

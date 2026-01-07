@@ -1,5 +1,6 @@
 use near_chain_configs::{DumpConfig, ExternalStorageLocation, SyncConfig};
 use near_config_utils::{ValidationError, ValidationErrors};
+use near_store::archive::cloud_storage::opener::CloudStorageOpener;
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -10,7 +11,7 @@ use crate::config::Config;
 pub fn validate_config(config: &Config) -> Result<(), ValidationError> {
     let mut validation_errors = ValidationErrors::new();
     let mut config_validator = ConfigValidator::new(config, &mut validation_errors);
-    tracing::info!(target: "config", "Validating Config, extracted from config.json...");
+    tracing::info!(target: "config", "validating config, extracted from config.json");
     config_validator.validate()
 }
 
@@ -223,50 +224,49 @@ impl<'a> ConfigValidator<'a> {
     }
 
     fn validate_cloud_archival_config(&mut self) {
-        if self.config.cloud_archival_reader.is_none()
-            && self.config.cloud_archival_writer.is_none()
-        {
+        let Some(cloud_archival_config) = &self.config.cloud_archival else {
+            if self.config.cloud_archival_writer.is_some() {
+                let error_message =
+                    "`cloud_archival_writer` is enabled, but `cloud_archival` is disabled."
+                        .to_string();
+                self.validation_errors.push_config_semantics_error(error_message);
+            }
             return;
         };
+        if self.config.state_sync.is_some() || self.config.state_sync_enabled {
+            let error_message =
+                "State sync/dump cannot be configured when cloud archive is enabled; \
+                dump settings are derived from the cloud archival config."
+                    .to_string();
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
+        if !CloudStorageOpener::is_storage_location_supported(&cloud_archival_config.location) {
+            let error_message = format!(
+                "{} is not supported cloud storage location.",
+                cloud_archival_config.location.name()
+            );
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
 
         if !self.config.archive {
-            let error_message =
-                "`archive` is false, but `cloud_archival_*` is configured.".to_string();
+            let error_message = "`archive` is false, but `cloud_archival` is enabled.".to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
-        if self.config.cloud_archival_reader.is_some() && self.config.cold_store.is_none() {
+        if self.config.cloud_archival_writer.is_none() && self.config.cold_store.is_none() {
             let error_message =
-                "`cloud_archival_reader` is enabled, but `cold_store` is missing.".to_string();
-            self.validation_errors.push_config_semantics_error(error_message);
-        }
-        if self.config.cloud_archival_reader.is_none() && self.config.rpc.is_some() {
-            assert!(self.config.cloud_archival_writer.is_some());
-            let error_message =
-                "Cloud archival is enabled, but since it is not running in `cloud_archival_reader` mode, `rpc` must be disabled."
+                "Cloud archival is enabled in reader mode, but `cold_store` is missing."
                     .to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
 
-        let Some(writer) = &self.config.cloud_archival_writer else {
+        let Some(writer_config) = &self.config.cloud_archival_writer else {
             return;
         };
-        // Writer is enabled
-
         let tracked_shards = self.config.tracked_shards_config();
-        if !tracked_shards.tracks_non_empty_subset_of_shards() && !writer.archive_block_data {
+        if !tracked_shards.tracks_non_empty_subset_of_shards() && !writer_config.archive_block_data
+        {
             let error_message =
                 "`cloud_archival_writer` must track at least one shard unless it is configured to `archive_block_data` only.".to_string();
-            self.validation_errors.push_config_semantics_error(error_message);
-        }
-
-        let Some(reader) = &self.config.cloud_archival_reader else {
-            return;
-        };
-        // Both reader and writer are enabled
-
-        if reader.cloud_storage != writer.cloud_storage {
-            let error_message =
-                "`cloud_archival_reader` and `cloud_archival_writer` storage configs must be equal.".to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
     }
@@ -305,9 +305,8 @@ impl<'a> ConfigValidator<'a> {
 
 #[cfg(test)]
 mod tests {
-    use near_chain_configs::test_utils::test_cloud_archival_configs;
     use near_chain_configs::{StateSyncConfig, TrackedShardsConfig};
-    use near_jsonrpc::RpcConfig;
+    use near_store::archive::cloud_storage::config::test_cloud_archival_config;
 
     use super::*;
 
@@ -419,48 +418,32 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: `archive` is false, but `cloud_archival_*` is configured."
+        expected = "\\nconfig.json semantic issue: `archive` is false, but `cloud_archival` is enabled."
     )]
-    fn test_cloud_archival_reader_set_archive_is_false() {
+    fn test_cloud_archival_set_archive_is_false() {
         let mut config = Config::default();
-        let (reader_config, _) = test_cloud_archival_configs("");
-        config.cloud_archival_reader = Some(reader_config);
+        config.cloud_archival = Some(test_cloud_archival_config(""));
         config.archive = false;
         validate_config(&config).unwrap();
     }
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: `archive` is false, but `cloud_archival_*` is configured."
+        expected = "\\nconfig.json semantic issue: `cloud_archival_writer` is enabled, but `cloud_archival` is disabled."
     )]
-    fn test_cloud_archival_writer_set_archive_is_false() {
+    fn test_cloud_archival_writer_set_but_cloud_archival_disabled() {
         let mut config = Config::default();
-        let (_, writer_config) = test_cloud_archival_configs("");
-        config.cloud_archival_writer = Some(writer_config);
-        config.archive = false;
+        config.cloud_archival_writer = Some(Default::default());
         validate_config(&config).unwrap();
     }
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: `cloud_archival_reader` is enabled, but `cold_store` is missing."
+        expected = "\\nconfig.json semantic issue: Cloud archival is enabled in reader mode, but `cold_store` is missing."
     )]
     fn test_cloud_archival_reader_without_cold_store() {
         let mut config = Config::default();
-        let (reader_config, _) = test_cloud_archival_configs("");
-        config.cloud_archival_reader = Some(reader_config);
-        validate_config(&config).unwrap();
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "\\nconfig.json semantic issue: Cloud archival is enabled, but since it is not running in `cloud_archival_reader` mode, `rpc` must be disabled."
-    )]
-    fn test_cloud_archival_not_reader_yet_rpc() {
-        let mut config = Config::default();
-        let (_, writer_config) = test_cloud_archival_configs("");
-        config.cloud_archival_writer = Some(writer_config);
-        config.rpc = Some(RpcConfig::default());
+        config.cloud_archival = Some(test_cloud_archival_config(""));
         validate_config(&config).unwrap();
     }
 
@@ -470,23 +453,43 @@ mod tests {
     )]
     fn test_cloud_archival_writer_tracks_no_shards() {
         let mut config = Config::default();
-        let (_, mut writer_config) = test_cloud_archival_configs("");
-        writer_config.archive_block_data = false;
-        config.cloud_archival_writer = Some(writer_config);
+        config.cloud_archival = Some(test_cloud_archival_config(""));
+        config.cloud_archival_writer = Some(Default::default());
         validate_config(&config).unwrap();
     }
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: `cloud_archival_reader` and `cloud_archival_writer` storage configs must be equal."
+        expected = "\\nconfig.json semantic issue: S3 is not supported cloud storage location."
     )]
-    fn test_cloud_archival_storage_configs_mismatch() {
+    fn test_cloud_archival_storage_s3_not_supported() {
         let mut config = Config::default();
-        let (mut reader_config, writer_config) = test_cloud_archival_configs("");
-        reader_config.cloud_storage.storage =
-            ExternalStorageLocation::Filesystem { root_dir: "x".into() };
-        config.cloud_archival_reader = Some(reader_config);
-        config.cloud_archival_writer = Some(writer_config);
+        let mut cloud_archival_config = test_cloud_archival_config("");
+        cloud_archival_config.location =
+            ExternalStorageLocation::S3 { bucket: "".into(), region: "".into() };
+        config.cloud_archival = Some(cloud_archival_config);
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: State sync/dump cannot be configured when cloud archive is enabled; dump settings are derived from the cloud archival config."
+    )]
+    fn test_cloud_archival_with_state_sync_enabled() {
+        let mut config = Config::default();
+        config.cloud_archival = Some(test_cloud_archival_config(""));
+        config.state_sync_enabled = true;
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: State sync/dump cannot be configured when cloud archive is enabled; dump settings are derived from the cloud archival config."
+    )]
+    fn test_cloud_archival_with_state_sync_configured() {
+        let mut config = Config::default();
+        config.cloud_archival = Some(test_cloud_archival_config(""));
+        config.state_sync = Some(Default::default());
         validate_config(&config).unwrap();
     }
 }

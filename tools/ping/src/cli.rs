@@ -50,6 +50,9 @@ pub struct PingCommand {
     /// Listen address for prometheus metrics.
     #[clap(long, default_value = "0.0.0.0:9000")]
     prometheus_addr: String,
+    /// Just establish a handshake connection and exit without sending pings.
+    #[clap(long)]
+    just_handshake: bool,
 }
 
 fn display_stats(stats: &mut [(crate::PeerIdentifier, crate::PingStats)], peer_id: &PeerId) {
@@ -131,14 +134,14 @@ fn parse_account_filter<P: AsRef<Path>>(filename: P) -> std::io::Result<HashSet<
                 filter.insert(a);
             }
             Err(e) => {
-                tracing::warn!(target: "ping", "Could not parse account {} on line {}: {:?}", &line, line_num, e);
+                tracing::warn!(target: "ping", %line, %line_num, ?e, "could not parse account on line");
             }
         }
         line.clear();
         line_num += 1;
     }
     if filter.is_empty() {
-        tracing::warn!(target: "ping", "No accounts parsed from {:?}. Only sending direct pings.", filename.as_ref());
+        tracing::warn!(target: "ping", filename = ?filename.as_ref(), "no accounts parsed, only sending direct pings");
     }
     Ok(filter)
 }
@@ -209,9 +212,12 @@ impl PingCommand {
                 csv,
                 &mut stats,
                 &self.prometheus_addr,
+                self.just_handshake,
             )
             .await?;
-            display_stats(&mut stats, &peer.id);
+            if !self.just_handshake {
+                display_stats(&mut stats, &peer.id);
+            }
             Ok(())
         })
     }

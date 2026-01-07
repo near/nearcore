@@ -14,6 +14,7 @@ use crate::logic::{HostError, VMLogicError};
 use ExtCosts::*;
 use core::mem::size_of;
 use near_crypto::Secp256K1Signature;
+use near_parameters::vm::Config;
 use near_parameters::{
     ActionCosts, ExtCosts, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee,
 };
@@ -21,6 +22,7 @@ use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, EpochHeight, Gas, GasWeight, StorageUsage};
+use std::rc::Rc;
 use wasmtime::{Caller, Extern, Memory};
 
 // Lookup the memory export and cache it on success.
@@ -698,11 +700,13 @@ pub fn input(caller: &mut Caller<'_, Ctx>, register_id: u64) -> Result<()> {
     let ctx = caller.data_mut();
     ctx.result_state.gas_counter.pay_base(base)?;
 
-    ctx.registers.set(
+    let charge_bytes_gas = !ctx.config.deterministic_account_ids;
+    ctx.registers.set_rc_data(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
-        ctx.context.input.as_slice(),
+        Rc::clone(&ctx.context.input),
+        charge_bytes_gas,
     )
 }
 
@@ -761,6 +765,7 @@ pub fn validator_stake(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
+        &ctx.config,
         account_id_ptr,
         account_id_len,
     )?;
@@ -2148,6 +2153,7 @@ pub fn promise_batch_create(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
+        &ctx.config,
         account_id_ptr,
         account_id_len,
     )?;
@@ -2197,6 +2203,7 @@ pub fn promise_batch_then(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
+        &ctx.config,
         account_id_ptr,
         account_id_len,
     )?;
@@ -2254,6 +2261,7 @@ pub fn promise_set_refund_to(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
+        &ctx.config,
         account_id_ptr,
         account_id_len,
     )?;
@@ -2633,6 +2641,7 @@ fn read_contract_id(
                 &mut ctx.result_state.gas_counter,
                 memory,
                 &ctx.registers,
+                &ctx.config,
                 account_id_ptr,
                 account_id_len,
             )?;
@@ -3015,13 +3024,11 @@ pub fn promise_batch_action_transfer(
     let send_fee = transfer_send_fee(
         &ctx.fees_config,
         sir,
-        ctx.config.implicit_account_creation,
         ctx.config.eth_implicit_accounts,
         receiver_id.get_account_type(),
     );
     let exec_fee = transfer_exec_fee(
         &ctx.fees_config,
-        ctx.config.implicit_account_creation,
         ctx.config.eth_implicit_accounts,
         receiver_id.get_account_type(),
     );
@@ -3194,6 +3201,7 @@ pub fn promise_batch_action_add_key_with_function_call(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
+        &ctx.config,
         receiver_id_ptr,
         receiver_id_len,
     )?;
@@ -3320,6 +3328,7 @@ pub fn promise_batch_action_delete_account(
         &mut ctx.result_state.gas_counter,
         memory,
         &ctx.registers,
+        &ctx.config,
         beneficiary_id_ptr,
         beneficiary_id_len,
     )?;
@@ -3602,11 +3611,13 @@ pub fn promise_result(
     {
         PromiseResult::NotReady => Ok(0),
         PromiseResult::Successful(data) => {
-            ctx.registers.set(
+            let charge_bytes_gas = !ctx.config.deterministic_account_ids;
+            ctx.registers.set_rc_data(
                 &mut ctx.result_state.gas_counter,
                 &ctx.config.limit_config,
                 register_id,
-                data.as_slice(),
+                Rc::clone(data),
+                charge_bytes_gas,
             )?;
             Ok(1)
         }
@@ -3918,6 +3929,7 @@ fn read_and_parse_account_id(
     gas_counter: &mut GasCounter,
     memory: &[u8],
     registers: &Registers,
+    config: &Config,
     ptr: u64,
     len: u64,
 ) -> Result<AccountId> {
@@ -3925,17 +3937,19 @@ fn read_and_parse_account_id(
     gas_counter.pay_base(utf8_decoding_base)?;
     gas_counter.pay_per(utf8_decoding_byte, buf.len() as u64)?;
 
-    // We return an illegally constructed AccountId here for the sake of ensuring
-    // backwards compatibility. For paths previously involving validation, like receipts
-    // we retain validation further down the line in node-runtime/verifier.rs#fn(validate_receipt)
-    // mimicking previous behaviour.
-    let account_id = String::from_utf8(buf.into())
-        .map(
+    let account_id_str = String::from_utf8(buf.into()).map_err(|_| HostError::BadUTF8)?;
+
+    match config.limit_config.account_id_validity_rules_version {
+        near_primitives_core::config::AccountIdValidityRulesVersion::V0
+        | near_primitives_core::config::AccountIdValidityRulesVersion::V1 =>
+        {
             #[allow(deprecated)]
-            AccountId::new_unvalidated,
-        )
-        .map_err(|_| HostError::BadUTF8)?;
-    Ok(account_id)
+            Ok(AccountId::new_unvalidated(account_id_str))
+        }
+        near_primitives_core::config::AccountIdValidityRulesVersion::V2 => {
+            account_id_str.parse().map_err(|_| VMLogicError::HostError(HostError::InvalidAccountId))
+        }
+    }
 }
 
 /// Writes key-value into storage.

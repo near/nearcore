@@ -32,6 +32,45 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| 
     .unwrap()
 });
 
+pub static PREPARE_TRANSACTIONS_JOB_STARTED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_prepare_transactions_job_started_total",
+        "Total number of times prepare transactions job was started since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static PREPARE_TRANSACTIONS_JOB_RESULT_USED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(
+    || {
+        try_create_int_counter_vec(
+            "near_prepare_transactions_job_result_used_total",
+            "Total number of times prepare transactions job result was used since starting this node",
+            &["shard_id"],
+        )
+        .unwrap()
+    },
+);
+
+pub static PREPARE_TRANSACTIONS_JOB_RESULT_NOT_FOUND_TOTAL: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_prepare_transactions_job_result_not_found_total",
+            "Total number of times prepare transactions job was not found since starting this node",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+
+pub static PREPARE_TRANSACTIONS_JOB_ERROR_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_prepare_transactions_job_error_total",
+        "Total number of times prepare transactions job errored since starting this node",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
 pub static CHUNK_TRANSACTIONS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_chunk_transactions_total",
@@ -41,12 +80,11 @@ pub static CHUNK_TRANSACTIONS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| 
     .unwrap()
 });
 
-pub(crate) static PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DID_NOT_FIT: LazyLock<IntCounterVec> =
+pub(crate) static PRODUCE_CHUNK_TRANSACTIONS_LIMITED_BY: LazyLock<IntCounterVec> =
     LazyLock::new(|| {
         try_create_int_counter_vec(
-        "near_produced_chunks_some_pool_transactions_did_not_fit",
-        "Total number of produced chunks where some transactions from the pool didn't fit in the chunk \
-        (since starting this node). The limited_by label specifies which limit was hit.",
+        "near_produce_chunk_transactions_limited_by",
+        "Records what limited the number of transaction included in chunks produced by this node",
         &["shard_id", "limited_by"],
     )
     .unwrap()
@@ -481,15 +519,6 @@ pub(crate) fn export_version(chain_id: &str, neard_version: &near_primitives::ve
         ])
         .inc();
 }
-
-pub(crate) static EPOCH_SYNC_LAST_GENERATED_COMPRESSED_PROOF_SIZE: LazyLock<IntGauge> =
-    LazyLock::new(|| {
-        try_create_int_gauge(
-            "near_epoch_sync_last_generated_compressed_proof_size",
-            "Size of the last generated compressed epoch sync proof, in bytes",
-        )
-        .unwrap()
-    });
 
 pub(crate) static STATE_SYNC_STAGE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(

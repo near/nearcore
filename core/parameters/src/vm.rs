@@ -172,9 +172,6 @@ pub struct Config {
     /// Enable the `FixContractLoadingCost` protocol feature.
     pub fix_contract_loading_cost: bool,
 
-    /// Enable the `ImplicitAccountCreation` protocol feature.
-    pub implicit_account_creation: bool,
-
     /// Enable the `EthImplicitAccounts` protocol feature.
     pub eth_implicit_accounts: bool,
 
@@ -219,7 +216,6 @@ impl Config {
     pub fn enable_all_features(&mut self) {
         self.eth_implicit_accounts = true;
         self.global_contract_host_fns = true;
-        self.implicit_account_creation = true;
     }
 }
 

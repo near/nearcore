@@ -9,7 +9,7 @@ pub(crate) use crate::trie::config::{
 pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
-pub use crate::trie::split::{TrieSplit, find_trie_split};
+pub use crate::trie::split::{FindSplitError, find_trie_split, total_mem_usage};
 pub use crate::trie::state_snapshot::{
     STATE_SNAPSHOT_COLUMNS, SnapshotError, StateSnapshot, StateSnapshotConfig,
 };

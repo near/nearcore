@@ -40,7 +40,7 @@ use crate::utils::transactions::{
 };
 use crate::utils::{get_node_data, retrieve_client_actor};
 use near_chain::types::Tip;
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::ClientActor;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::trie_key::TrieKey;
 use near_store::flat::FlatStorageStatus;
@@ -261,7 +261,7 @@ pub(crate) fn call_burn_gas_contract(
     const CALLS_PER_BLOCK_HEIGHT: usize = 5;
     // Set to a value large enough, so that transactions from the past epoch are settled.
     // Must be less than epoch length, otherwise won't be triggered before the test is finished.
-    let tx_check_blocks_after_resharding = epoch_length - 2;
+    let tx_check_blocks_after_resharding = epoch_length - 1;
 
     let resharding_height = Cell::new(None);
     let nonce = Cell::new(102);
@@ -401,7 +401,7 @@ pub(crate) fn send_large_cross_shard_receipts(
                         outgoing_receipt_sizes.insert(target_shard, receipt_sizes);
                     }
                 }
-                tracing::info!(target: "test", "outgoing buffers from shard {}: {:?}", shard_uid.shard_id(), outgoing_receipt_sizes);
+                tracing::info!(target: "test", shard_id = %shard_uid.shard_id(), ?outgoing_receipt_sizes, "outgoing buffers from shard");
             }
 
             let is_epoch_before_resharding =
@@ -447,10 +447,10 @@ pub(crate) fn send_large_cross_shard_receipts(
                         );
                         tracing::info!(
                             target: "test",
-                            "Sending 3MB receipt from {} to {}. tx_hash: {:?}",
-                            signer_id,
-                            receiver_id,
-                            tx.get_hash()
+                            %signer_id,
+                            %receiver_id,
+                            tx_hash = ?tx.get_hash(),
+                            "sending 3MB receipt"
                         );
                         store_and_submit_tx(
                             &node_datas,
@@ -760,8 +760,7 @@ pub(crate) fn temporary_account_during_resharding(
 fn retain_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
     let store = client.chain.chain_store.store().trie_store();
     let mut store_update = store.store_update();
-    for kv in store.store().iter_raw_bytes(DBCol::State) {
-        let (key, value) = kv.unwrap();
+    for (key, value) in store.store().iter_raw_bytes(DBCol::State) {
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
         if shard_uid == the_only_shard_uid {
             continue;
@@ -778,8 +777,7 @@ fn retain_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
 fn check_has_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
     let store = client.chain.chain_store.store();
     let mut shard_uid_prefixes = HashSet::new();
-    for kv in store.iter_raw_bytes(DBCol::State) {
-        let (key, _) = kv.unwrap();
+    for (key, _) in store.iter_raw_bytes(DBCol::State) {
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
         shard_uid_prefixes.insert(shard_uid);
     }
@@ -1290,7 +1288,7 @@ fn get_resharded_shard_uids(
 // Helper function to retrieve any key from the trie. This bypasses all intermediate layers
 // (caching, memtrie, flat-storage).
 fn get_trie_node_value<I: borsh::BorshDeserialize + Default>(
-    client_actor: &ClientActorInner,
+    client_actor: &ClientActor,
     shard_uid: ShardUId,
     prev_block_hash: &CryptoHash,
     key: TrieKey,

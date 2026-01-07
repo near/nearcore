@@ -1,7 +1,4 @@
 /// Contains types that belong to the `network protocol.
-#[path = "borsh.rs"]
-mod borsh_;
-mod borsh_conv;
 mod edge;
 mod peer;
 mod proto_conv;
@@ -41,6 +38,7 @@ pub use _proto::network as proto;
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
+use crate::spice_data_distribution::SpicePartialDataRequest;
 use near_async::time;
 use near_crypto::PublicKey;
 use near_crypto::Signature;
@@ -465,18 +463,8 @@ impl fmt::Display for PeerMessage {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, strum::IntoStaticStr)]
-pub enum Encoding {
-    Borsh,
-    Proto,
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum ParsePeerMessageError {
-    #[error("BorshDecode")]
-    BorshDecode(#[source] std::io::Error),
-    #[error("BorshConv")]
-    BorshConv(#[source] borsh_conv::ParsePeerMessageError),
     #[error("ProtoDecode")]
     ProtoDecode(#[source] protobuf::Error),
     #[error("ProtoConv")]
@@ -484,38 +472,23 @@ pub enum ParsePeerMessageError {
 }
 
 impl PeerMessage {
-    /// Serializes a message in the given encoding.
-    /// If the encoding is `Proto`, then also attaches current Span's context to the message.
-    pub(crate) fn serialize(&self, enc: Encoding) -> Vec<u8> {
-        match enc {
-            Encoding::Borsh => borsh::to_vec(&borsh_::PeerMessage::from(self)).unwrap(),
-            Encoding::Proto => {
-                let mut msg = proto::PeerMessage::from(self);
-                let cx = Span::current().context();
-                msg.trace_context = inject_trace_context(&cx);
-                msg.write_to_bytes().unwrap()
-            }
-        }
+    /// Serializes a message and attaches current Span's context to the message.
+    pub(crate) fn serialize(&self) -> Vec<u8> {
+        let mut msg = proto::PeerMessage::from(self);
+        let cx = Span::current().context();
+        msg.trace_context = inject_trace_context(&cx);
+        msg.write_to_bytes().unwrap()
     }
 
-    pub(crate) fn deserialize(
-        enc: Encoding,
-        data: &[u8],
-    ) -> Result<PeerMessage, ParsePeerMessageError> {
+    pub(crate) fn deserialize(data: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
         let span = tracing::trace_span!(target: "network", "deserialize").entered();
-        Ok(match enc {
-            Encoding::Borsh => (&borsh_::PeerMessage::try_from_slice(data)
-                .map_err(ParsePeerMessageError::BorshDecode)?)
-                .try_into()
-                .map_err(ParsePeerMessageError::BorshConv)?,
-            Encoding::Proto => {
-                let proto_msg: proto::PeerMessage = proto::PeerMessage::parse_from_bytes(data)
-                    .map_err(ParsePeerMessageError::ProtoDecode)?;
-                if let Ok(extracted_span_context) = extract_span_context(&proto_msg.trace_context) {
-                    span.clone().or_current().add_link(extracted_span_context);
-                }
-                (&proto_msg).try_into().map_err(|err| ParsePeerMessageError::ProtoConv(err))?
+        Ok({
+            let proto_msg: proto::PeerMessage = proto::PeerMessage::parse_from_bytes(data)
+                .map_err(ParsePeerMessageError::ProtoDecode)?;
+            if let Ok(extracted_span_context) = extract_span_context(&proto_msg.trace_context) {
+                span.clone().or_current().add_link(extracted_span_context);
             }
+            (&proto_msg).try_into().map_err(|err| ParsePeerMessageError::ProtoConv(err))?
         })
     }
 
@@ -531,9 +504,11 @@ impl PeerMessage {
 /// T1 messages are sent over T1 connections and they are critical for the progress of the network.
 /// T2 messages are sent over T2 connections and they are routed over multiple hops.
 #[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum TieredMessageBody {
-    T1(Box<T1MessageBody>),
-    T2(Box<T2MessageBody>),
+    T1(Box<T1MessageBody>) = 0,
+    T2(Box<T2MessageBody>) = 1,
 }
 
 impl fmt::Debug for TieredMessageBody {
@@ -645,6 +620,9 @@ impl TieredMessageBody {
             RoutedMessageBody::SpiceChunkEndorsement(chunk_endorsement) => {
                 T1MessageBody::SpiceChunkEndorsement(chunk_endorsement).into()
             }
+            RoutedMessageBody::SpicePartialDataRequest(request) => {
+                T1MessageBody::SpicePartialDataRequest(request).into()
+            }
             RoutedMessageBody::_UnusedQueryRequest
             | RoutedMessageBody::_UnusedQueryResponse
             | RoutedMessageBody::_UnusedReceiptOutcomeRequest(_)
@@ -685,18 +663,21 @@ impl From<T2MessageBody> for TieredMessageBody {
     ProtocolSchema,
     Debug,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum T1MessageBody {
-    BlockApproval(Approval),
-    VersionedPartialEncodedChunk(Box<PartialEncodedChunk>),
-    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
-    PartialEncodedStateWitness(PartialEncodedStateWitness),
-    PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
-    VersionedChunkEndorsement(ChunkEndorsement),
-    ChunkContractAccesses(ChunkContractAccesses),
-    ContractCodeRequest(ContractCodeRequest),
-    ContractCodeResponse(ContractCodeResponse),
-    SpicePartialData(SpicePartialData),
-    SpiceChunkEndorsement(SpiceChunkEndorsement),
+    BlockApproval(Approval) = 0,
+    VersionedPartialEncodedChunk(Box<PartialEncodedChunk>) = 1,
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg) = 2,
+    PartialEncodedStateWitness(PartialEncodedStateWitness) = 3,
+    PartialEncodedStateWitnessForward(PartialEncodedStateWitness) = 4,
+    VersionedChunkEndorsement(ChunkEndorsement) = 5,
+    ChunkContractAccesses(ChunkContractAccesses) = 6,
+    ContractCodeRequest(ContractCodeRequest) = 7,
+    ContractCodeResponse(ContractCodeResponse) = 8,
+    SpicePartialData(SpicePartialData) = 9,
+    SpiceChunkEndorsement(SpiceChunkEndorsement) = 10,
+    SpicePartialDataRequest(SpicePartialDataRequest) = 11,
 }
 
 impl T1MessageBody {
@@ -731,20 +712,24 @@ impl T1MessageBody {
     ProtocolSchema,
     Debug,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum T2MessageBody {
-    ForwardTx(SignedTransaction),
-    TxStatusRequest(AccountId, CryptoHash),
-    TxStatusResponse(Box<FinalExecutionOutcomeView>),
-    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
-    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
+    ForwardTx(SignedTransaction) = 0,
+    TxStatusRequest(AccountId, CryptoHash) = 1,
+    TxStatusResponse(Box<FinalExecutionOutcomeView>) = 2,
+    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg) = 3,
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg) = 4,
     /// Ping/Pong used for testing networking and routing.
-    Ping(Ping),
-    Pong(Pong),
-    ChunkStateWitnessAck(ChunkStateWitnessAck),
-    StatePartRequest(StatePartRequest),
-    PartialEncodedContractDeploys(PartialEncodedContractDeploys),
-    StateHeaderRequest(StateHeaderRequest),
-    StateRequestAck(StateRequestAck),
+    Ping(Ping) = 5,
+    Pong(Pong) = 6,
+    ChunkStateWitnessAck(ChunkStateWitnessAck) = 7,
+    StatePartRequest(StatePartRequest) = 8,
+    PartialEncodedContractDeploys(PartialEncodedContractDeploys) = 9,
+    StateHeaderRequest(StateHeaderRequest) = 10,
+    StateRequestAck(StateRequestAck) = 11,
+    // Moved to T1
+    // PartialEncodedChunkForward(PartialEncodedChunkForwardMsg) = 12,
 }
 
 impl T2MessageBody {
@@ -767,46 +752,49 @@ impl T2MessageBody {
     strum::IntoStaticStr,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum RoutedMessageBody {
-    BlockApproval(Approval),
-    ForwardTx(SignedTransaction),
-    TxStatusRequest(AccountId, CryptoHash),
-    TxStatusResponse(FinalExecutionOutcomeView),
+    BlockApproval(Approval) = 0,
+    ForwardTx(SignedTransaction) = 1,
+    TxStatusRequest(AccountId, CryptoHash) = 2,
+    TxStatusResponse(FinalExecutionOutcomeView) = 3,
     /// Not used, but needed for borsh backward compatibility.
-    _UnusedQueryRequest,
-    _UnusedQueryResponse,
-    _UnusedReceiptOutcomeRequest(CryptoHash),
-    _UnusedReceiptOutcomeResponse,
-    _UnusedStateRequestHeader,
-    _UnusedStateRequestPart,
-    _UnusedStateResponse,
-    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
-    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
-    _UnusedPartialEncodedChunk,
+    _UnusedQueryRequest = 4,
+    _UnusedQueryResponse = 5,
+    _UnusedReceiptOutcomeRequest(CryptoHash) = 6,
+    _UnusedReceiptOutcomeResponse = 7,
+    _UnusedStateRequestHeader = 8,
+    _UnusedStateRequestPart = 9,
+    _UnusedStateResponse = 10,
+    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg) = 11,
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg) = 12,
+    _UnusedPartialEncodedChunk = 13,
     /// Ping/Pong used for testing networking and routing.
-    Ping(Ping),
-    Pong(Pong),
-    VersionedPartialEncodedChunk(PartialEncodedChunk),
-    _UnusedVersionedStateResponse,
-    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
-    _UnusedChunkStateWitness,
-    _UnusedChunkEndorsement,
-    ChunkStateWitnessAck(ChunkStateWitnessAck),
-    PartialEncodedStateWitness(PartialEncodedStateWitness),
-    PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
-    VersionedChunkEndorsement(ChunkEndorsement),
+    Ping(Ping) = 14,
+    Pong(Pong) = 15,
+    VersionedPartialEncodedChunk(PartialEncodedChunk) = 16,
+    _UnusedVersionedStateResponse = 17,
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg) = 18,
+    _UnusedChunkStateWitness = 19,
+    _UnusedChunkEndorsement = 20,
+    ChunkStateWitnessAck(ChunkStateWitnessAck) = 21,
+    PartialEncodedStateWitness(PartialEncodedStateWitness) = 22,
+    PartialEncodedStateWitnessForward(PartialEncodedStateWitness) = 23,
+    VersionedChunkEndorsement(ChunkEndorsement) = 24,
     /// Not used, but needed for borsh backward compatibility.
-    _UnusedEpochSyncRequest,
-    _UnusedEpochSyncResponse(CompressedEpochSyncProof),
-    StatePartRequest(StatePartRequest),
-    ChunkContractAccesses(ChunkContractAccesses),
-    ContractCodeRequest(ContractCodeRequest),
-    ContractCodeResponse(ContractCodeResponse),
-    PartialEncodedContractDeploys(PartialEncodedContractDeploys),
-    StateHeaderRequest(StateHeaderRequest),
-    SpicePartialData(SpicePartialData),
-    StateRequestAck(StateRequestAck),
-    SpiceChunkEndorsement(SpiceChunkEndorsement),
+    _UnusedEpochSyncRequest = 25,
+    _UnusedEpochSyncResponse(CompressedEpochSyncProof) = 26,
+    StatePartRequest(StatePartRequest) = 27,
+    ChunkContractAccesses(ChunkContractAccesses) = 28,
+    ContractCodeRequest(ContractCodeRequest) = 29,
+    ContractCodeResponse(ContractCodeResponse) = 30,
+    PartialEncodedContractDeploys(PartialEncodedContractDeploys) = 31,
+    StateHeaderRequest(StateHeaderRequest) = 32,
+    SpicePartialData(SpicePartialData) = 33,
+    StateRequestAck(StateRequestAck) = 34,
+    SpiceChunkEndorsement(SpiceChunkEndorsement) = 35,
+    SpicePartialDataRequest(SpicePartialDataRequest) = 36,
 }
 
 impl RoutedMessageBody {
@@ -848,8 +836,51 @@ impl RoutedMessageBody {
             | RoutedMessageBody::ContractCodeRequest(_)
             | RoutedMessageBody::ContractCodeResponse(_)
             | RoutedMessageBody::SpicePartialData(_)
-            | RoutedMessageBody::SpiceChunkEndorsement(_) => true,
+            | RoutedMessageBody::SpiceChunkEndorsement(_)
+            | RoutedMessageBody::SpicePartialDataRequest(..) => true,
             _ => false,
+        }
+    }
+
+    pub fn is_used(&self) -> bool {
+        match self {
+            RoutedMessageBody::_UnusedQueryRequest
+            | RoutedMessageBody::_UnusedQueryResponse
+            | RoutedMessageBody::_UnusedReceiptOutcomeRequest(_)
+            | RoutedMessageBody::_UnusedReceiptOutcomeResponse
+            | RoutedMessageBody::_UnusedStateRequestHeader
+            | RoutedMessageBody::_UnusedStateRequestPart
+            | RoutedMessageBody::_UnusedStateResponse
+            | RoutedMessageBody::_UnusedPartialEncodedChunk
+            | RoutedMessageBody::_UnusedVersionedStateResponse
+            | RoutedMessageBody::_UnusedChunkStateWitness
+            | RoutedMessageBody::_UnusedChunkEndorsement
+            | RoutedMessageBody::_UnusedEpochSyncRequest
+            | RoutedMessageBody::_UnusedEpochSyncResponse(_) => false,
+            RoutedMessageBody::BlockApproval(_)
+            | RoutedMessageBody::ForwardTx(_)
+            | RoutedMessageBody::TxStatusRequest(_, _)
+            | RoutedMessageBody::TxStatusResponse(_)
+            | RoutedMessageBody::PartialEncodedChunkRequest(_)
+            | RoutedMessageBody::PartialEncodedChunkResponse(_)
+            | RoutedMessageBody::Ping(_)
+            | RoutedMessageBody::Pong(_)
+            | RoutedMessageBody::VersionedPartialEncodedChunk(_)
+            | RoutedMessageBody::PartialEncodedChunkForward(_)
+            | RoutedMessageBody::ChunkStateWitnessAck(_)
+            | RoutedMessageBody::PartialEncodedStateWitness(_)
+            | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
+            | RoutedMessageBody::VersionedChunkEndorsement(_)
+            | RoutedMessageBody::StatePartRequest(_)
+            | RoutedMessageBody::ChunkContractAccesses(_)
+            | RoutedMessageBody::ContractCodeRequest(_)
+            | RoutedMessageBody::ContractCodeResponse(_)
+            | RoutedMessageBody::PartialEncodedContractDeploys(_)
+            | RoutedMessageBody::StateHeaderRequest(_)
+            | RoutedMessageBody::SpicePartialData(_)
+            | RoutedMessageBody::StateRequestAck(_)
+            | RoutedMessageBody::SpiceChunkEndorsement(_)
+            | RoutedMessageBody::SpicePartialDataRequest(_) => true,
         }
     }
 }
@@ -950,6 +981,9 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::SpiceChunkEndorsement(_) => {
                 write!(f, "SpiceChunkEndorsement")
             }
+            RoutedMessageBody::SpicePartialDataRequest(request) => {
+                write!(f, "SpicePartialDataRequest({:?})", request)
+            }
         }
     }
 }
@@ -992,6 +1026,9 @@ impl From<TieredMessageBody> for RoutedMessageBody {
                 }
                 T1MessageBody::SpiceChunkEndorsement(chunk_endorsement) => {
                     RoutedMessageBody::SpiceChunkEndorsement(chunk_endorsement)
+                }
+                T1MessageBody::SpicePartialDataRequest(request) => {
+                    RoutedMessageBody::SpicePartialDataRequest(request)
                 }
             },
             TieredMessageBody::T2(body) => match *body {
@@ -1150,20 +1187,6 @@ impl RoutedMessageV3 {
     }
 }
 
-impl From<RoutedMessageV1> for RoutedMessageV3 {
-    fn from(msg: RoutedMessageV1) -> Self {
-        Self {
-            target: msg.target,
-            author: msg.author,
-            ttl: msg.ttl,
-            body: TieredMessageBody::from_routed(msg.body),
-            signature: Some(msg.signature),
-            created_at: None,
-            num_hops: 0,
-        }
-    }
-}
-
 impl From<RoutedMessageV3> for RoutedMessage {
     fn from(msg: RoutedMessageV3) -> Self {
         RoutedMessage::V3(msg)
@@ -1178,10 +1201,12 @@ impl From<RoutedMessageV3> for RoutedMessage {
 /// If target is hash, it is a message that should be routed back using the same path used to route
 /// the request in first place. It is the hash of the request message.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum RoutedMessage {
-    V1(RoutedMessageV1),
-    V2(RoutedMessageV2),
-    V3(RoutedMessageV3),
+    V1(RoutedMessageV1) = 0,
+    V2(RoutedMessageV2) = 1,
+    V3(RoutedMessageV3) = 2,
 }
 
 impl From<RoutedMessageV1> for RoutedMessage {
@@ -1219,7 +1244,7 @@ impl RoutedMessage {
                 signature: msg.signature.unwrap_or_else(|| {
                     tracing::error!(
                         target: "network",
-                        "Signature is missing. This should not yet happen."
+                        "signature is missing, this should not yet happen"
                     );
                     Signature::default()
                 }),
@@ -1403,9 +1428,11 @@ impl RoutedMessageV1 {
     Hash,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum PeerIdOrHash {
-    PeerId(PeerId),
-    Hash(CryptoHash),
+    PeerId(PeerId) = 0,
+    Hash(CryptoHash) = 1,
 }
 
 /// Message for chunk part owners to forward their parts to validators tracking that shard.
@@ -1519,9 +1546,11 @@ pub struct StateResponseInfoV2 {
 #[derive(
     PartialEq, Eq, Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize, ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 pub enum StateResponseInfo {
-    V1(Box<StateResponseInfoV1>),
-    V2(Box<StateResponseInfoV2>),
+    V1(Box<StateResponseInfoV1>) = 0,
+    V2(Box<StateResponseInfoV2>) = 1,
 }
 
 impl StateResponseInfo {

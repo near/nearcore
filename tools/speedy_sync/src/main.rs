@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::messaging::{IntoMultiSender, noop};
-use near_chain::spice_core::CoreStatementsProcessor;
 use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{GenesisValidationMode, MutableConfigValue, ReshardingConfig};
@@ -17,7 +16,6 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
 use near_store::HEADER_HEAD_KEY;
-use near_store::adapter::StoreAdapter as _;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreUpdate};
 use near_time::Clock;
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
@@ -137,17 +135,13 @@ fn create_snapshot(create_cmd: CreateCmd) {
     // Get epoch information:
     let mut epochs = store
         .iter(DBCol::EpochInfo)
-        .filter_map(|result| {
-            if let Ok((key, value)) = result {
-                if key.as_ref() == AGGREGATOR_KEY {
-                    None
-                } else {
-                    let info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
-                    let id = EpochId::try_from_slice(key.as_ref()).unwrap();
-                    Some(EpochCheckpoint { id, info })
-                }
-            } else {
+        .filter_map(|(key, value)| {
+            if key.as_ref() == AGGREGATOR_KEY {
                 None
+            } else {
+                let info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
+                let id = EpochId::try_from_slice(key.as_ref()).unwrap();
+                Some(EpochCheckpoint { id, info })
             }
         })
         .collect::<Vec<EpochCheckpoint>>();
@@ -231,7 +225,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         home_dir,
         &Default::default(),
         near_config.config.cold_store.as_ref(),
-        near_config.config.cloud_storage_config(),
+        near_config.cloud_storage_context(),
     )
     .open()
     .unwrap()
@@ -254,7 +248,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
     // This will initialize the database (add genesis block etc)
     let _chain = Chain::new(
         Clock::real(),
-        epoch_manager.clone(),
+        epoch_manager,
         shard_tracker,
         runtime,
         &chain_genesis,
@@ -262,6 +256,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         ChainConfig {
             save_trie_changes: near_config.client_config.save_trie_changes,
             save_tx_outcomes: near_config.client_config.save_tx_outcomes,
+            save_state_changes: near_config.client_config.save_state_changes,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),
@@ -274,7 +269,6 @@ fn load_snapshot(load_cmd: LoadCmd) {
         Default::default(),
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
-        CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),
         None,
     )
     .unwrap();

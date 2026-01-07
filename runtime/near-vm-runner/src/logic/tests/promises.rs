@@ -6,8 +6,10 @@ use crate::map;
 
 use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, ExtCosts};
+use near_primitives_core::config::AccountIdValidityRulesVersion;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Gas;
+use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use serde_json;
 
 fn vm_receipts<'a>(ext: &'a MockedExternal) -> Vec<impl serde::Serialize + 'a> {
@@ -17,7 +19,7 @@ fn vm_receipts<'a>(ext: &'a MockedExternal) -> Vec<impl serde::Serialize + 'a> {
 #[test]
 fn test_promise_results() {
     let promise_results = [
-        PromiseResult::Successful(b"test".to_vec()),
+        PromiseResult::Successful(b"test".to_vec().into()),
         PromiseResult::Failed,
         PromiseResult::NotReady,
     ];
@@ -33,6 +35,31 @@ fn test_promise_results() {
 
     // Only promise with result should write data into register
     logic.assert_read_register(b"test", 0);
+}
+
+#[test]
+fn test_promise_result_per_byte_gas_fee() {
+    const RESULT_SIZE: usize = 100;
+    let promise_results = [PromiseResult::Successful([0u8; RESULT_SIZE].into())];
+
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.context.promise_results = promise_results.into();
+    let mut logic = logic_builder.build();
+
+    logic.promise_result(0, 0).expect("promise_result should succeed");
+
+    if ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
+        assert_costs(map! {
+          ExtCosts::base: 1,
+          ExtCosts::write_register_base: 1,
+        });
+    } else {
+        assert_costs(map! {
+          ExtCosts::base: 1,
+          ExtCosts::write_register_base: 1,
+          ExtCosts::write_register_byte: RESULT_SIZE as u64,
+        });
+    }
 }
 
 #[test]
@@ -148,6 +175,30 @@ fn test_promise_batch_action_function_call() {
           }
         ]"#]]
     .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
+}
+
+#[test]
+fn test_promise_batch_action_use_global_contract_by_account_id_with_invalid_account() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.limit_config.account_id_validity_rules_version =
+        AccountIdValidityRulesVersion::V2;
+    let mut logic = logic_builder.build();
+    let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
+
+    let invalid_account_id = logic.internal_mem_write(b"not a valid account id");
+
+    let err = logic
+        .promise_batch_action_use_global_contract_by_account_id(
+            index,
+            invalid_account_id.len,
+            invalid_account_id.ptr,
+        )
+        .expect_err("should reject invalid account id when strict validation is enabled");
+
+    assert!(matches!(
+        err,
+        crate::logic::VMLogicError::HostError(crate::logic::HostError::InvalidAccountId)
+    ));
 }
 
 #[test]

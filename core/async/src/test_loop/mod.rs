@@ -362,6 +362,7 @@ impl TestLoopV2 {
             event_ignored,
         })
         .unwrap();
+        // TODO(logging): testloop visualizer may have a dependency on seeing the trace in this specific format
         tracing::info!(target: "test_loop", "TEST_LOOP_EVENT_START {}", start_json);
         assert_eq!(self.current_time, event.due);
 
@@ -380,6 +381,7 @@ impl TestLoopV2 {
         let end_json =
             serde_json::to_string(&EventEndLogOutput { total_events: self.next_event_index })
                 .unwrap();
+        // TODO(logging): testloop visualizer may have a dependency on seeing the trace in this specific format
         tracing::info!(target: "test_loop", "TEST_LOOP_EVENT_END {}", end_json);
     }
 

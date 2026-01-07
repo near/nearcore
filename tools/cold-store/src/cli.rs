@@ -14,7 +14,6 @@ use near_store::{COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY};
 use near_store::{DBCol, NodeStorage, Store, StoreOpener};
 use nearcore::NearConfig;
 use rand::seq::SliceRandom;
-use std::io::Result;
 use std::path::Path;
 use strum::IntoEnumIterator;
 
@@ -109,14 +108,14 @@ impl ColdStoreCommand {
         near_config: &'a mut NearConfig,
     ) -> StoreOpener<'a> {
         if !near_config.config.archive {
-            tracing::warn!("Expected archive option in config to be set to true.");
+            tracing::warn!("expected archive option in config to be set to true");
         }
 
         let opener = NodeStorage::opener(
             home_dir,
             &near_config.config.store,
             near_config.config.cold_store.as_ref(),
-            near_config.config.cloud_storage_config(),
+            near_config.cloud_storage_context(),
         );
 
         match self.subcmd {
@@ -139,7 +138,7 @@ impl ColdStoreCommand {
             home_dir,
             &near_config.config.store,
             near_config.config.cold_store.as_ref(),
-            near_config.config.cloud_storage_config(),
+            near_config.cloud_storage_context(),
         )
     }
 }
@@ -308,7 +307,7 @@ fn check_iter(
     col: DBCol,
 ) -> u64 {
     let mut num_checks = 0;
-    for (key, _value) in first_store.iter(col).map(Result::unwrap) {
+    for (key, _value) in first_store.iter(col) {
         check_key(first_store, second_store, col, &key);
         num_checks += 1;
     }
@@ -343,15 +342,15 @@ impl PrepareHotCmd {
         let _span = tracing::info_span!(target: "prepare-hot", "run");
 
         let path = Path::new(&self.store_relative_path);
-        tracing::info!(target : "prepare-hot", "Preparing a hot db from a rpc db at path {path:#?}.");
+        tracing::info!(target: "prepare-hot", rpc_path=?path, "preparing a hot db from the rpc db");
 
-        tracing::info!(target : "prepare-hot", "Opening hot and cold.");
+        tracing::info!(target: "prepare-hot", "opening hot and cold");
         let hot_store = storage.get_hot_store();
         let cold_store = storage.get_cold_store();
         let cold_store =
             cold_store.ok_or_else(|| anyhow::anyhow!("The cold store is not configured!"))?;
 
-        tracing::info!(target : "prepare-hot", "Opening rpc.");
+        tracing::info!(target: "prepare-hot", "opening rpc");
         // Open the rpc_storage using the near_config with the path swapped.
         let mut rpc_store_config = near_config.config.store.clone();
         rpc_store_config.path = Some(path.to_path_buf());
@@ -359,10 +358,10 @@ impl PrepareHotCmd {
         let rpc_storage = rpc_opener.open()?;
         let rpc_store = rpc_storage.get_hot_store();
 
-        tracing::info!(target : "prepare-hot", "Checking db kind");
+        tracing::info!(target: "prepare-hot", "checking db kind");
         Self::check_db_kind(&hot_store, &cold_store, &rpc_store)?;
 
-        tracing::info!(target : "prepare-hot", "Checking up to date");
+        tracing::info!(target: "prepare-hot", "checking up to date");
         Self::check_up_to_date(&cold_store, &rpc_store)?;
 
         // TODO may be worth doing some simple sanity check that the rpc store
@@ -371,11 +370,11 @@ impl PrepareHotCmd {
         // with the node owner still. We don't want to do a full check here
         // as it would take too long.
 
-        tracing::info!(target : "prepare-hot", "The hot, cold and RPC stores are suitable for cold storage migration");
-        tracing::info!(target : "prepare-hot", "Changing the DbKind of the RPC store to Hot");
+        tracing::info!(target: "prepare-hot", "the hot, cold and RPC stores are suitable for cold storage migration");
+        tracing::info!(target: "prepare-hot", "changing the db kind of the rpc store to hot");
         rpc_store.set_db_kind(DbKind::Hot)?;
 
-        tracing::info!(target : "prepare-hot", "Successfully prepared the hot store for migration. You can now set the config.store.path in neard config to {:#?}", path);
+        tracing::info!(target: "prepare-hot", ?path, "successfully prepared the hot store for migration, you can now set the `config.store.path` in neard config");
 
         Ok(())
     }
@@ -464,7 +463,7 @@ impl PrepareHotCmd {
             tracing::warn!(target: "prepare-hot",
                 cold_head_height = cold_head.height,
                 rpc_head_height = rpc_head.height,
-                "The cold head is ahead of the RPC head. This should fix itself when the node catches up and becomes in sync"
+                "the cold head is ahead of the RPC head, this should fix itself when the node catches up and becomes in sync"
             );
         }
 
@@ -492,7 +491,7 @@ impl StateRootSelector {
                     let height_key = height.to_le_bytes();
                     storage
                         .get_hot_store()
-                        .get(DBCol::BlockHeight, &height_key)?
+                        .get(DBCol::BlockHeight, &height_key)
                         .ok_or_else(|| {
                             anyhow::anyhow!("Failed to find block hash for height {:?}", height)
                         })?
@@ -616,9 +615,9 @@ impl CheckStateRootCmd {
         prune_state: &mut PruneState,
         prune_condition: &PruneCondition,
     ) -> anyhow::Result<()> {
-        tracing::debug!(target: "check_trie", "Checking {:?} at {:?}", hash, prune_state);
+        tracing::debug!(target: "check_trie", ?hash, ?prune_state, "checking trie");
         if prune_state.should_prune(prune_condition) {
-            tracing::debug!(target: "check_trie", "Reached prune condition: {:?}", prune_condition);
+            tracing::debug!(target: "check_trie", ?prune_condition, "reached prune condition");
             return Ok(());
         }
 
@@ -628,7 +627,7 @@ impl CheckStateRootCmd {
         let node = near_store::RawTrieNodeWithSize::try_from_slice(&bytes)?;
         match node.node {
             near_store::RawTrieNode::Leaf(..) => {
-                tracing::debug!(target: "check_trie", "Reached leaf node");
+                tracing::debug!(target: "check_trie", "reached leaf node");
                 return Ok(());
             }
             near_store::RawTrieNode::BranchNoValue(mut children)
@@ -661,7 +660,7 @@ impl CheckStateRootCmd {
     ) -> std::io::Result<Option<near_store::db::DBSlice<'a>>> {
         // As cold db strips shard_uid at the beginning of State key, we can add any 8 u8s as prefix.
         let cold_state_key = [&[1; 8], trie_key.as_ref()].concat();
-        store.get(DBCol::State, &cold_state_key)
+        Ok(store.get(DBCol::State, &cold_state_key))
     }
 }
 

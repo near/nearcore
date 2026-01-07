@@ -33,6 +33,8 @@ use near_store::db::RocksDB;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[tokio::test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn slow_test_sync_state_nodes() {
     init_integration_logger();
 
@@ -54,9 +56,11 @@ async fn slow_test_sync_state_nodes() {
 
     let actor_system = ActorSystem::new();
     let nearcore::NearNode { view_client: view_client1, .. } =
-        start_with_config(dir1.path(), near1, actor_system.clone()).expect("start_with_config");
+        start_with_config(dir1.path(), near1, actor_system.clone())
+            .await
+            .expect("start_with_config");
 
-    let view_client2_holder = Arc::new(RwLock::new(None));
+    let view_client2_holder = Arc::new(tokio::sync::RwLock::new(None));
     let actor_system_clone = actor_system.clone();
 
     wait_or_timeout(100, 60000, move || {
@@ -66,7 +70,7 @@ async fn slow_test_sync_state_nodes() {
         let actor_system = actor_system.clone();
         let view_client1 = view_client1.clone();
         async move {
-            if view_client2_holder.read().is_none() {
+            if view_client2_holder.read().await.is_none() {
                 let view_client2_holder2 = view_client2_holder.clone();
                 let genesis2 = genesis.clone();
                 let dir2 = dir2.clone();
@@ -74,7 +78,7 @@ async fn slow_test_sync_state_nodes() {
 
                 match &view_client1.send_async(GetBlock::latest()).await {
                     Ok(Ok(b)) if b.header.height >= 101 => {
-                        let mut view_client2_holder2 = view_client2_holder2.write();
+                        let mut view_client2_holder2 = view_client2_holder2.write().await;
 
                         if view_client2_holder2.is_none() {
                             let mut near2 = load_test_config("test2", port2, genesis2.clone());
@@ -85,6 +89,7 @@ async fn slow_test_sync_state_nodes() {
 
                             let nearcore::NearNode { view_client: view_client2, .. } =
                                 start_with_config(dir2.path(), near2, actor_system.clone())
+                                    .await
                                     .expect("start_with_config");
                             *view_client2_holder2 = Some(view_client2);
                         }
@@ -96,7 +101,7 @@ async fn slow_test_sync_state_nodes() {
                 };
             }
 
-            if let Some(view_client2) = { view_client2_holder.write().clone() } {
+            if let Some(view_client2) = { view_client2_holder.write().await.clone() } {
                 match &view_client2.send_async(GetBlock::latest()).await {
                     Ok(Ok(b)) if b.header.height >= 101 => {
                         return ControlFlow::Break(());
@@ -174,12 +179,14 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
     near4.client_config.max_block_production_delay = near1.client_config.max_block_production_delay;
 
     let nearcore::NearNode { view_client: view_client1, .. } =
-        start_with_config(dir1.path(), near1, actor_system.clone()).expect("start_with_config");
+        start_with_config(dir1.path(), near1, actor_system.clone())
+            .await
+            .expect("start_with_config");
 
-    start_with_config(dir3.path(), near3, actor_system.clone()).expect("start_with_config");
-    start_with_config(dir4.path(), near4, actor_system.clone()).expect("start_with_config");
+    start_with_config(dir3.path(), near3, actor_system.clone()).await.expect("start_with_config");
+    start_with_config(dir4.path(), near4, actor_system.clone()).await.expect("start_with_config");
 
-    let view_client2_holder = Arc::new(RwLock::new(None));
+    let view_client2_holder = Arc::new(tokio::sync::RwLock::new(None));
     let actor_system_clone = actor_system.clone();
 
     wait_or_timeout(100, 60000, move || {
@@ -190,7 +197,7 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
         let actor_system = actor_system.clone();
         let view_client1 = view_client1.clone();
         async move {
-            if value.read().is_none() {
+            if value.read().await.is_none() {
                 let view_client2_holder2 = view_client2_holder.clone();
                 let genesis2 = genesis.clone();
                 let dir2 = dir2.clone();
@@ -198,7 +205,7 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
                 let actor_system = actor_system.clone();
                 match &view_client1.send_async(GetBlock::latest()).await {
                     Ok(Ok(b)) if b.header.height >= 101 => {
-                        let mut view_client2_holder2 = view_client2_holder2.write();
+                        let mut view_client2_holder2 = view_client2_holder2.write().await;
 
                         if view_client2_holder2.is_none() {
                             let mut near2 = load_test_config("test2", port2, genesis2);
@@ -216,6 +223,7 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
 
                             let nearcore::NearNode { view_client: view_client2, .. } =
                                 start_with_config(dir2.path(), near2, actor_system.clone())
+                                    .await
                                     .expect("start_with_config");
                             *view_client2_holder2 = Some(view_client2);
                         }
@@ -227,7 +235,7 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
                 }
             }
 
-            if let Some(view_client2) = { view_client2_holder.write().clone() } {
+            if let Some(view_client2) = { view_client2_holder.write().await.clone() } {
                 match &view_client2.send_async(GetBlock::latest()).await {
                     Ok(Ok(b)) if b.header.height >= 101 => {
                         return ControlFlow::Break(());
@@ -307,7 +315,9 @@ async fn ultra_slow_test_sync_state_dump() {
     near1.config.store.enable_state_snapshot();
 
     let nearcore::NearNode { view_client: view_client1, .. } =
-        start_with_config(dir1.path(), near1, actor_system.clone()).expect("start_with_config");
+        start_with_config(dir1.path(), near1, actor_system.clone())
+            .await
+            .expect("start_with_config");
 
     let view_client2_holder = Arc::new(RwLock::new(None));
     let actor_system = actor_system.clone();
@@ -347,12 +357,13 @@ async fn ultra_slow_test_sync_state_dump() {
 
                         let nearcore::NearNode { view_client: view_client2, .. } =
                             start_with_config(dir2.path(), near2, actor_system.clone())
+                                .await
                                 .expect("start_with_config");
                         *view_client2_holder2 = Some(view_client2);
                     }
                 }
                 Ok(Ok(b)) if b.header.height <= state_sync_horizon => {
-                    tracing::info!("FIRST STAGE {}", b.header.height);
+                    tracing::info!(height = %b.header.height, "first stage");
                 }
                 Err(_) => {}
                 _ => {}
@@ -366,13 +377,13 @@ async fn ultra_slow_test_sync_state_dump() {
                     return ControlFlow::Break(());
                 }
                 Ok(Ok(b)) if b.header.height < 40 => {
-                    tracing::info!("SECOND STAGE {}", b.header.height)
+                    tracing::info!(height = %b.header.height, "second stage")
                 }
                 Ok(Err(e)) => {
-                    tracing::info!("SECOND STAGE ERROR1: {:?}", e);
+                    tracing::info!(?e, "second stage error1");
                 }
                 Err(e) => {
-                    tracing::info!("SECOND STAGE ERROR2: {:?}", e);
+                    tracing::info!(?e, "second stage error2");
                 }
                 _ => {
                     assert!(false);
@@ -455,12 +466,11 @@ async fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                         Provenance::PRODUCED,
                     )
                     .unwrap();
-                tracing::info!("Block {i}: {:?} -- produced no chunk", block.header().epoch_id());
+                tracing::info!(%i, epoch_id = ?block.header().epoch_id(), "block -- produced no chunk");
             } else {
                 env.process_block(0, block.clone(), Provenance::PRODUCED);
                 tracing::info!(
-                    "Block {i}: {:?} -- also produced a chunk",
-                    block.header().epoch_id()
+                    %i, epoch_id = ?block.header().epoch_id(), "block -- also produced a chunk"
                 );
             }
             env.process_block(1, block, Provenance::NONE);
@@ -566,7 +576,7 @@ async fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                 env.clients[1].epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
             for part_id in 0..num_parts {
                 let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
-                let bytes = store.get(DBCol::StateParts, &key).unwrap().unwrap();
+                let bytes = store.get(DBCol::StateParts, &key).unwrap();
                 let part = StatePart::from_bytes(bytes.to_vec(), protocol_version).unwrap();
                 env.clients[1]
                     .runtime_adapter
@@ -617,6 +627,8 @@ async fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
 
 #[tokio::test]
 // Tests StateRequestHeader and StateRequestPart.
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn slow_test_state_sync_headers() {
     init_test_logger();
 
@@ -638,7 +650,9 @@ async fn slow_test_state_sync_headers() {
         view_client: view_client1,
         state_request_client: state_request_client1,
         ..
-    } = start_with_config(dir1.path(), near1, actor_system.clone()).expect("start_with_config");
+    } = start_with_config(dir1.path(), near1, actor_system.clone())
+        .await
+        .expect("start_with_config");
 
     // First we need to find sync_hash. That is done in 3 steps:
     // 1. Get the latest block
@@ -746,6 +760,8 @@ async fn slow_test_state_sync_headers() {
 
 #[tokio::test]
 // Tests StateRequestHeader and StateRequestPart.
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn slow_test_state_sync_headers_no_tracked_shards() {
     // Huh. The compiler complains about type system cycle if this async move is stripped.
     Box::pin(async move {
@@ -781,7 +797,9 @@ async fn slow_test_state_sync_headers_no_tracked_shards() {
         near1.config.state_sync_enabled = false;
         near1.client_config.state_sync_enabled = false;
 
-        start_with_config(dir1.path(), near1, actor_system.clone()).expect("start_with_config");
+        start_with_config(dir1.path(), near1, actor_system.clone())
+            .await
+            .expect("start_with_config");
 
         let mut near2 =
             load_test_config("test2", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
@@ -796,7 +814,9 @@ async fn slow_test_state_sync_headers_no_tracked_shards() {
             view_client: view_client2,
             state_request_client: state_request_client2,
             ..
-        } = start_with_config(dir2.path(), near2, actor_system.clone()).expect("start_with_config");
+        } = start_with_config(dir2.path(), near2, actor_system.clone())
+            .await
+            .expect("start_with_config");
 
         // First we need to find sync_hash. That is done in 3 steps:
         // 1. Get the latest block

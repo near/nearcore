@@ -65,37 +65,22 @@ impl ShardTries {
     pub fn new(
         store: TrieStoreAdapter,
         trie_config: TrieConfig,
-        shard_uids: &[ShardUId],
         flat_storage_manager: FlatStorageManager,
         state_snapshot_config: StateSnapshotConfig,
     ) -> Self {
-        let caches = Self::create_initial_caches(&trie_config, &shard_uids, false);
-        let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
         metrics::HAS_STATE_SNAPSHOT.set(0);
         ShardTries(Arc::new(ShardTriesInner {
             store,
             trie_config,
             memtries: Default::default(),
-            caches: Mutex::new(caches),
-            view_caches: Mutex::new(view_caches),
+            caches: Default::default(),
+            view_caches: Default::default(),
             flat_storage_manager,
             prefetchers: Default::default(),
             state_snapshot: Default::default(),
             state_snapshot_config,
             temp_split_shard_map: Default::default(),
         }))
-    }
-
-    /// Create caches for all shards according to the trie config.
-    fn create_initial_caches(
-        config: &TrieConfig,
-        shard_uids: &[ShardUId],
-        is_view: bool,
-    ) -> HashMap<ShardUId, TrieCache> {
-        shard_uids
-            .iter()
-            .map(|&shard_uid| (shard_uid, TrieCache::new(config, shard_uid, is_view)))
-            .collect()
     }
 
     pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
@@ -106,13 +91,6 @@ impl ShardTries {
         TrieUpdate::new(self.get_view_trie_for_shard(shard_uid, state_root))
     }
 
-    #[tracing::instrument(
-        level = "trace",
-        target = "store::trie::shard_tries",
-        "ShardTries::get_trie_cache_for",
-        skip_all,
-        fields(is_view)
-    )]
     pub(crate) fn get_trie_cache_for(
         &self,
         shard_uid: ShardUId,
@@ -439,17 +417,16 @@ impl ShardTries {
     /// Retains in-memory tries for given shards, i.e. unload tries from memory for shards that are NOT
     /// in the given list. Should be called to unload obsolete tries from memory.
     pub fn retain_memtries(&self, shard_uids: &[ShardUId]) {
-        tracing::info!(target: "memtrie", "Current memtries: {:?}. Keeping memtries for shards {:?}...",
-            self.0.memtries.read().keys(), shard_uids);
+        tracing::info!(target: "memtrie", current_memtries = ?self.0.memtries.read().keys(), ?shard_uids, "keeping memtries for shards");
         self.0.memtries.write().retain(|shard_uid, _| shard_uids.contains(shard_uid));
-        tracing::info!(target: "memtrie", "Memtries retaining complete for shards {:?}", shard_uids);
+        tracing::info!(target: "memtrie", ?shard_uids, "memtries retaining complete for shards");
     }
 
     /// Remove trie from memory for given shard.
     pub fn unload_memtrie(&self, shard_uid: &ShardUId) {
-        tracing::info!(target: "memtrie", "Unloading trie from memory for shard {:?}...", shard_uid);
+        tracing::info!(target: "memtrie", ?shard_uid, "unloading trie from memory for shard");
         self.0.memtries.write().remove(shard_uid);
-        tracing::info!(target: "memtrie", "Memtrie unloading complete for shard {:?}", shard_uid);
+        tracing::info!(target: "memtrie", ?shard_uid, "memtrie unloading complete for shard");
     }
 
     /// Loads in-memory-trie for given shard and state root (if given).
@@ -459,7 +436,7 @@ impl ShardTries {
         state_root: Option<StateRoot>,
         parallelize: bool,
     ) -> Result<(), StorageError> {
-        tracing::info!(target: "memtrie", "Loading trie to memory for shard {:?}...", shard_uid);
+        tracing::info!(target: "memtrie", ?shard_uid, "loading trie to memory for shard");
         let memtries = load_trie_from_flat_state_and_delta(
             &self.0.store.store(),
             *shard_uid,
@@ -467,7 +444,7 @@ impl ShardTries {
             parallelize,
         )?;
         self.0.memtries.write().insert(*shard_uid, Arc::new(RwLock::new(memtries)));
-        tracing::info!(target: "memtrie", "Memtrie loading complete for shard {:?}", shard_uid);
+        tracing::info!(target: "memtrie", ?shard_uid, "memtrie loading complete for shard");
         Ok(())
     }
 
@@ -521,15 +498,15 @@ impl ShardTries {
             load_memtries_for_tracked_shards=?trie_config.load_memtries_for_tracked_shards,
             load_memtries_for_shards=?trie_config.load_memtries_for_shards,
             ?shard_uids_pending_resharding,
-            "Loading tries config"
+            "loading tries config"
         );
-        tracing::info!(target: "memtrie", "Loading tries to memory for shards {:?}...", shard_uids_to_load);
+        tracing::info!(target: "memtrie", ?shard_uids_to_load, "loading tries to memory for shards");
         shard_uids_to_load
             .par_iter()
             .map(|shard_uid| self.load_memtrie(shard_uid, None, parallelize))
             .collect::<Result<(), StorageError>>()?;
 
-        tracing::info!(target: "memtrie", "Memtries loading complete for shards {:?}", shard_uids_to_load);
+        tracing::info!(target: "memtrie", ?shard_uids_to_load, "memtries loading complete for shards");
         Ok(())
     }
 
@@ -567,7 +544,7 @@ impl ShardTries {
             target: "memtrie",
             ?parent_shard_uid,
             ?children_shard_uids,
-            "Freezing parent memtrie, creating children memtries...",
+            "freezing parent memtrie, creating children memtries",
         );
         let mut outer_guard = self.0.memtries.write();
         let Some(memtries) = outer_guard.remove(&parent_shard_uid) else {
@@ -594,7 +571,7 @@ impl ShardTries {
         // Insert the mapping from parent to children shards.
         split_shard_map_guard.insert(parent_shard_uid, children_shard_uids);
 
-        tracing::info!(target: "memtrie", "Memtries freezing complete");
+        tracing::info!(target: "memtrie", "memtries freezing complete");
         Ok(())
     }
 
@@ -871,11 +848,9 @@ mod test {
             view_shard_cache_config: trie_cache_config,
             ..TrieConfig::default()
         };
-        let shard_uids = Vec::from([ShardUId::single_shard()]);
         ShardTries::new(
             store.trie_store(),
             trie_config,
-            &shard_uids,
             FlatStorageManager::new(store.flat_store()),
             StateSnapshotConfig::Disabled,
         )
@@ -952,27 +927,25 @@ mod test {
     //TODO(jbajic) Simplify logic for creating configuration
     #[test]
     fn test_insert_delete_trie_cache() {
-        let shard_uid = ShardUId::single_shard();
         let tries = create_trie();
         let trie_caches = &tries.0.caches;
-        // Assert only one cache for one shard exists
-        assert_eq!(trie_caches.lock().len(), 1);
-        // Assert the shard uid is correct
-        assert!(trie_caches.lock().get(&shard_uid).is_some());
+        assert_eq!(trie_caches.lock().len(), 0);
 
         // Read from cache
         let key = CryptoHash::hash_borsh("alice");
         let val: Vec<u8> = Vec::from([0, 1, 2, 3, 4]);
 
-        assert!(trie_caches.lock().get(&shard_uid).unwrap().get(&key).is_none());
+        let shard_uid = ShardUId::single_shard();
+        let cache = tries.get_trie_cache_for(shard_uid, false).unwrap();
+        assert!(cache.get(&key).is_none());
 
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
         tries.update_cache(insert_ops, shard_uid);
-        assert_eq!(trie_caches.lock().get(&shard_uid).unwrap().get(&key).unwrap().to_vec(), val);
+        assert_eq!(cache.get(&key).unwrap().to_vec(), val);
 
         let deletions_ops = Vec::from([(&key, None)]);
         tries.update_cache(deletions_ops, shard_uid);
-        assert!(trie_caches.lock().get(&shard_uid).unwrap().get(&key).is_none());
+        assert!(cache.get(&key).is_none());
     }
 
     #[test]
@@ -988,13 +961,11 @@ mod test {
             view_shard_cache_config: trie_cache_config,
             ..TrieConfig::default()
         };
-        let shard_uids = Vec::from([ShardUId { shard_id: 0, version: 0 }]);
-        let shard_uid = *shard_uids.first().unwrap();
+        let shard_uid = ShardUId { shard_id: 0, version: 0 };
 
         let trie = ShardTries::new(
             store.trie_store(),
             trie_config,
-            &shard_uids,
             FlatStorageManager::new(store.flat_store()),
             StateSnapshotConfig::Disabled,
         );

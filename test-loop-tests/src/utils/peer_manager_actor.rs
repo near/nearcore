@@ -4,12 +4,11 @@ use std::sync::Arc;
 use itertools::Itertools;
 use near_async::futures::{DelayedActionRunnerExt as _, FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{
-    Actor, AsyncSender, CanSend, Handler, IntoMultiSender as _, IntoSender as _, Message,
-    SendAsync, Sender,
+    Actor, AsyncSender, CanSend, CanSendAsync, Handler, IntoMultiSender, IntoSender, Sender,
 };
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
-use near_async::{Message, MultiSend, MultiSenderFrom};
+use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::{Block, BlockHeader};
 use near_client::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use near_client::{BlockApproval, BlockResponse, SetNetworkInfo};
@@ -19,7 +18,7 @@ use near_network::client::{
     ProcessTxResponse, SpiceChunkEndorsementMessage,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::spice_data_distribution::SpiceIncomingPartialData;
+use near_network::spice_data_distribution::{SpiceIncomingPartialData, SpicePartialDataRequest};
 use near_network::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
@@ -54,8 +53,11 @@ pub struct ClientSenderForTestLoopNetwork {
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct TxRequestHandleSenderForTestLoopNetwork {
     pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
+}
+
+#[derive(Clone, MultiSend, MultiSenderFrom)]
+pub struct ChunkEndorsementSenderForTestLoopNetwork {
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
-    pub spice_chunk_endorsement: AsyncSender<SpiceChunkEndorsementMessage, ()>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -68,11 +70,12 @@ pub struct ViewClientSenderForTestLoopNetwork {
 pub struct SpiceDataDistributorSenderForTestLoopNetwork {
     pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
     pub incoming_data: Sender<SpiceIncomingPartialData>,
+    pub data_requests: Sender<SpicePartialDataRequest>,
 }
 
 /// This message is used to allow TestLoopPeerManagerActor to construct NetworkInfo for each
 /// client.
-#[derive(Message, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestLoopNetworkBlockInfo {
     pub peer: PeerInfo,
     pub block_header: BlockHeader,
@@ -221,10 +224,12 @@ struct OneClientSenders {
     client_sender: ClientSenderForTestLoopNetwork,
     view_client_sender: ViewClientSenderForTestLoopNetwork,
     rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork,
+    chunk_endorsement_handler_sender: ChunkEndorsementSenderForTestLoopNetwork,
     partial_witness_sender: PartialWitnessSenderForNetwork,
     shards_manager_sender: Sender<ShardsManagerRequestFromNetwork>,
     peer_manager_sender: Sender<TestLoopNetworkBlockInfo>,
     spice_data_distributor_actor: SpiceDataDistributorSenderForTestLoopNetwork,
+    spice_core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
 }
 
 /// This actor can be used in situations when we don't expect any events to reach it.
@@ -234,7 +239,7 @@ pub struct UnreachableActor {}
 
 impl<M, R> Handler<M, R> for UnreachableActor
 where
-    M: Message,
+    M: Send + 'static,
     R: Send,
 {
     fn handle(&mut self, _msg: M) -> R {
@@ -249,10 +254,12 @@ fn to_drop_events_senders(s: TestLoopSender<UnreachableActor>) -> Arc<OneClientS
         client_sender: s.clone().into_multi_sender(),
         view_client_sender: s.clone().into_multi_sender(),
         rpc_handler_sender: s.clone().into_multi_sender(),
+        chunk_endorsement_handler_sender: s.clone().into_multi_sender(),
         partial_witness_sender: s.clone().into_multi_sender(),
         shards_manager_sender: s.clone().into_sender(),
         peer_manager_sender: s.clone().into_sender(),
-        spice_data_distributor_actor: s.into_multi_sender(),
+        spice_data_distributor_actor: s.clone().into_multi_sender(),
+        spice_core_writer_sender: s.into_sender(),
     })
 }
 
@@ -275,10 +282,12 @@ impl TestLoopNetworkSharedState {
         ClientSenderForTestLoopNetwork: From<&'a D>,
         ViewClientSenderForTestLoopNetwork: From<&'a D>,
         TxRequestHandleSenderForTestLoopNetwork: From<&'a D>,
+        ChunkEndorsementSenderForTestLoopNetwork: From<&'a D>,
         PartialWitnessSenderForNetwork: From<&'a D>,
         Sender<ShardsManagerRequestFromNetwork>: From<&'a D>,
         Sender<TestLoopNetworkBlockInfo>: From<&'a D>,
         SpiceDataDistributorSenderForTestLoopNetwork: From<&'a D>,
+        Sender<SpiceChunkEndorsementMessage>: From<&'a D>,
     {
         let account_id = AccountId::from(data);
         let peer_id = PeerId::from(data);
@@ -291,12 +300,16 @@ impl TestLoopNetworkSharedState {
                 client_sender: ClientSenderForTestLoopNetwork::from(data),
                 view_client_sender: ViewClientSenderForTestLoopNetwork::from(data),
                 rpc_handler_sender: TxRequestHandleSenderForTestLoopNetwork::from(data),
+                chunk_endorsement_handler_sender: ChunkEndorsementSenderForTestLoopNetwork::from(
+                    data,
+                ),
                 partial_witness_sender: PartialWitnessSenderForNetwork::from(data),
                 shards_manager_sender: Sender::<ShardsManagerRequestFromNetwork>::from(data),
                 peer_manager_sender: Sender::<TestLoopNetworkBlockInfo>::from(data),
                 spice_data_distributor_actor: SpiceDataDistributorSenderForTestLoopNetwork::from(
                     data,
                 ),
+                spice_core_writer_sender: Sender::<SpiceChunkEndorsementMessage>::from(data),
             }),
         );
     }
@@ -496,17 +509,16 @@ fn network_message_to_client_handler(
         NetworkRequests::ChunkEndorsement(target, endorsement) => {
             let future = shared_state
                 .senders_for_account(&my_account_id, &target)
-                .rpc_handler_sender
+                .chunk_endorsement_handler_sender
                 .send_async(ChunkEndorsementMessage(endorsement));
             drop(future);
             None
         }
         NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
-            let future = shared_state
+            shared_state
                 .senders_for_account(&my_account_id, &target)
-                .rpc_handler_sender
-                .send_async(SpiceChunkEndorsementMessage(endorsement));
-            drop(future);
+                .spice_core_writer_sender
+                .send(SpiceChunkEndorsementMessage(endorsement));
             None
         }
         NetworkRequests::EpochSyncRequest { peer_id } => {
@@ -524,6 +536,19 @@ fn network_message_to_client_handler(
                 .senders_for_peer(&my_peer_id, &peer_id)
                 .client_sender
                 .send(EpochSyncResponseMessage { from_peer: my_peer_id, proof });
+            None
+        }
+        NetworkRequests::BanPeer { peer_id, ban_reason } => {
+            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
+            tracing::debug!(
+                target: "test_loop",
+                account = %my_account_id,
+                ?peer_id,
+                ?ban_reason,
+                "test loop banning peer"
+            );
+            shared_state.disallow_requests(my_peer_id.clone(), peer_id.clone());
+            shared_state.disallow_requests(peer_id, my_peer_id);
             None
         }
         NetworkRequests::StateRequestPart { .. } => None,
@@ -647,7 +672,7 @@ fn network_message_to_partial_witness_handler(
 
 fn network_message_to_state_snapshot_handler() -> NetworkRequestHandler {
     Box::new(move |request| match request {
-        NetworkRequests::SnapshotHostInfo { .. } => None,
+        NetworkRequests::SnapshotHostEvent { .. } => None,
         _ => Some(request),
     })
 }
@@ -719,6 +744,14 @@ fn network_message_to_spice_data_distributor_handler(
                     .spice_data_distributor_actor
                     .send(SpiceIncomingPartialData { data: partial_data.clone() });
             }
+            None
+        }
+        NetworkRequests::SpicePartialDataRequest { producer, request } => {
+            assert!(producer != my_account_id, "Sending message to self not supported.");
+            shared_state
+                .senders_for_account(&my_account_id, &producer)
+                .spice_data_distributor_actor
+                .send(request);
             None
         }
         _ => Some(request),

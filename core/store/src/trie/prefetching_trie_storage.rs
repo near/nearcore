@@ -545,7 +545,7 @@ impl Drop for PrefetchingThreadsHandle {
         self.shutdown_channel.take();
         for handle in self.handles.drain(..) {
             if let Err(e) = handle.join() {
-                error!("IO thread panicked joining failed, {e:?}");
+                tracing::error!(?e, "IO thread panicked, joining failed");
             }
         }
     }

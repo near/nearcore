@@ -264,7 +264,8 @@ pub enum ProtocolFeature {
     #[deprecated]
     _DeprecatedSimpleNightshadeV5,
     /// Resharding V3 - Adding "650" boundary.
-    SimpleNightshadeV6,
+    #[deprecated]
+    _DeprecatedSimpleNightshadeV6,
     /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
     #[deprecated]
     _DeprecatedExcludeContractCodeFromStateWitness,
@@ -311,7 +312,8 @@ pub enum ProtocolFeature {
     /// price rather than a pessimistic gas price. Also, introduce a new fee of
     /// 5% for gas refunds and charge the signer this fee for gas refund
     /// receipts.
-    ReducedGasRefunds,
+    #[deprecated]
+    _DeprecatedReducedGasRefunds,
     /// Move from ChunkStateWitness being a single struct to a versioned enum.
     #[deprecated]
     _DeprecatedVersionedStateWitness,
@@ -334,6 +336,10 @@ pub enum ProtocolFeature {
     /// NEP: https://github.com/near/NEPs/pull/616
     DeterministicAccountIds,
     InvalidTxGenerateOutcomes,
+    DynamicResharding,
+    GasKeys,
+    Spice,
+    ContinuousEpochSync,
 }
 
 impl ProtocolFeature {
@@ -425,14 +431,15 @@ impl ProtocolFeature {
             ProtocolFeature::_DeprecatedGlobalContracts
             | ProtocolFeature::_DeprecatedBlockHeightForReceiptId
             | ProtocolFeature::_DeprecatedProduceOptimisticBlock => 77,
-            ProtocolFeature::SimpleNightshadeV6
+            ProtocolFeature::_DeprecatedSimpleNightshadeV6
             | ProtocolFeature::_DeprecatedVersionedStateWitness
             | ProtocolFeature::_DeprecatedChunkPartChecks
             | ProtocolFeature::_DeprecatedSaturatingFloatToInt
-            | ProtocolFeature::ReducedGasRefunds => 78,
+            | ProtocolFeature::_DeprecatedReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
-            ProtocolFeature::StatePartsCompression => 81,
-            ProtocolFeature::Wasmtime => 82,
+            ProtocolFeature::StatePartsCompression | ProtocolFeature::DeterministicAccountIds => 82,
+            ProtocolFeature::Wasmtime => 83,
+            ProtocolFeature::InvalidTxGenerateOutcomes => 84,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -440,13 +447,21 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
-            ProtocolFeature::DeterministicAccountIds => 150,
-            ProtocolFeature::InvalidTxGenerateOutcomes => 151,
+            ProtocolFeature::GasKeys => 149,
+
+            // Spice is setup to include nightly, but not be part of it for now so that features
+            // that are released before spice can be tested properly.
+            ProtocolFeature::Spice => 180,
+
             // Place features that are not yet in Nightly below this line.
+            ProtocolFeature::ContinuousEpochSync => 201,
+            // TODO(dynamic_resharding): This should be 152, but some resharding tests bump
+            //     protocol version to trigger resharding and accidentally turn on this feature
+            ProtocolFeature::DynamicResharding => 252,
         }
     }
 
-    pub fn enabled(&self, protocol_version: ProtocolVersion) -> bool {
+    pub const fn enabled(&self, protocol_version: ProtocolVersion) -> bool {
         protocol_version >= self.protocol_version()
     }
 }
@@ -458,11 +473,22 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 82;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 151;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
+
+// TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
+// time cargo feature for spice should be removed as well.
+// For spice we want to include all nightly features, but for now we don't want nightly to run with
+// spice.
+const SPICE_PROTOCOL_VERSION: ProtocolVersion = 200;
 
 /// Largest protocol version supported by the current binary.
-pub const PROTOCOL_VERSION: ProtocolVersion =
-    if cfg!(feature = "nightly") { NIGHTLY_PROTOCOL_VERSION } else { STABLE_PROTOCOL_VERSION };
+pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "protocol_feature_spice") {
+    SPICE_PROTOCOL_VERSION
+} else if cfg!(feature = "nightly") {
+    NIGHTLY_PROTOCOL_VERSION
+} else {
+    STABLE_PROTOCOL_VERSION
+};

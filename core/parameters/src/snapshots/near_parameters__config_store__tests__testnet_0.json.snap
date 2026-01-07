@@ -205,7 +205,7 @@ expression: config_view
     "deterministic_account_ids": false,
     "storage_get_mode": "Trie",
     "fix_contract_loading_cost": false,
-    "implicit_account_creation": false,
+    "implicit_account_creation": true,
     "eth_implicit_accounts": false,
     "limit_config": {
       "max_gas_burnt": 200000000000000,
@@ -258,5 +258,11 @@ expression: config_view
     "main_storage_proof_size_soft_limit": 4294967295,
     "combined_transactions_size_limit": 4294967295,
     "new_transactions_validation_state_size_soft_limit": 4294967295
+  },
+  "dynamic_resharding_config": {
+    "memory_usage_threshold": 999999999999999,
+    "min_child_memory_usage": 999999999999999,
+    "max_number_of_shards": 999999999999999,
+    "min_epochs_between_resharding": 999999999999999
   }
 }

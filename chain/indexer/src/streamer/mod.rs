@@ -2,10 +2,11 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use near_async::time::{Clock, Duration};
+use near_primitives::types::Balance;
+use near_primitives::version::ProtocolFeature;
 use parking_lot::RwLock;
 use rocksdb::DB;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info};
 
 use near_indexer_primitives::{
     IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
@@ -14,7 +15,7 @@ use near_indexer_primitives::{
 };
 use near_parameters::RuntimeConfig;
 use near_primitives::hash::CryptoHash;
-use near_primitives::views;
+use near_primitives::views::{BlockView, ChunkView, ExecutionStatusView, ReceiptView};
 
 use self::errors::FailedToFetchData;
 use self::utils::convert_transactions_sir_into_local_receipts;
@@ -30,7 +31,7 @@ mod metrics;
 mod utils;
 
 static DELAYED_LOCAL_RECEIPTS_CACHE: std::sync::LazyLock<
-    Arc<RwLock<HashMap<CryptoHash, views::ReceiptView>>>,
+    Arc<RwLock<HashMap<CryptoHash, ReceiptView>>>,
 > = std::sync::LazyLock::new(|| Arc::new(RwLock::new(HashMap::new())));
 
 const INTERVAL: Duration = Duration::milliseconds(250);
@@ -40,19 +41,25 @@ const INTERVAL: Duration = Duration::milliseconds(250);
 /// and returns everything together in one struct
 pub async fn build_streamer_message(
     client: &IndexerViewClientFetcher,
-    block: views::BlockView,
+    block: BlockView,
     shard_tracker: &ShardTracker,
 ) -> Result<StreamerMessage, FailedToFetchData> {
     let _timer = metrics::BUILD_STREAMER_MESSAGE_TIME.start_timer();
     let chunks = client.fetch_block_new_chunks(&block, shard_tracker).await?;
 
     let protocol_config_view = client.fetch_protocol_config(block.header.hash).await?;
+    let protocol_version = protocol_config_view.protocol_version;
     let shard_ids = protocol_config_view.shard_layout.shard_ids();
-
+    let gas_price = if block.header.prev_hash == CryptoHash::default() {
+        block.header.gas_price
+    } else {
+        let prev_block = client.fetch_block(block.header.prev_hash).await?;
+        prev_block.header.gas_price
+    };
     let runtime_config_store = near_parameters::RuntimeConfigStore::new(None);
     let runtime_config = runtime_config_store.get_config(protocol_config_view.protocol_version);
 
-    let mut shards_outcomes = client.fetch_outcomes(block.header.hash).await?;
+    let mut shards_outcomes = client.fetch_outcomes_with_receipts(block.header.hash).await?;
     let mut state_changes = client
         .fetch_state_changes(
             block.header.hash,
@@ -68,13 +75,18 @@ pub async fn build_streamer_message(
         })
         .collect::<Vec<_>>();
 
+    // TODO(spice): Add indexer support for spice.
+    if ProtocolFeature::Spice.enabled(protocol_version) {
+        return Ok(StreamerMessage { block, shards: indexer_shards });
+    }
+
     for chunk in chunks {
-        let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
+        let ChunkView { transactions, author, header, receipts: chunk_prev_outgoing_receipts } =
             chunk;
 
         let outcomes = shards_outcomes
             .remove(&header.shard_id)
-            .expect("Execution outcomes for given shard should be present");
+            .expect("execution outcomes for given shard should be present");
         let outcome_count = outcomes.len();
         let mut outcomes = outcomes
             .into_iter()
@@ -84,25 +96,31 @@ pub async fn build_streamer_message(
         let indexer_transactions = transactions
             .into_iter()
             .filter_map(|transaction| {
-                let outcome = outcomes.remove(&transaction.hash)?;
-                debug_assert!(!outcome.execution_outcome.outcome.receipt_ids.is_empty());
-                Some(IndexerTransactionWithOutcome { outcome, transaction })
+                let outcome = outcomes.remove(&transaction.hash);
+                if outcome.is_none()
+                    && ProtocolFeature::InvalidTxGenerateOutcomes.enabled(protocol_version)
+                {
+                    tracing::error!(
+                        target: INDEXER,
+                        tx_hash = %transaction.hash,
+                        shard_id = %header.shard_id,
+                        block_hash = %block.header.hash,
+                        "unexpected missing transaction outcome"
+                    );
+                }
+                outcome.map(|outcome| IndexerTransactionWithOutcome { outcome, transaction })
             })
             .collect::<Vec<IndexerTransactionWithOutcome>>();
         // All transaction outcomes have been removed.
         let mut receipt_outcomes = outcomes;
 
         let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
-            &client,
-            &runtime_config,
             indexer_transactions
                 .iter()
-                .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id)
-                .collect::<Vec<&IndexerTransactionWithOutcome>>(),
-            &block,
-            protocol_config_view.protocol_version,
-        )
-        .await?;
+                .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id),
+            &runtime_config,
+            gas_price,
+        );
 
         // Add local receipts to corresponding outcomes
         for receipt in &chunk_local_receipts {
@@ -113,8 +131,6 @@ pub async fn build_streamer_message(
                 DELAYED_LOCAL_RECEIPTS_CACHE.write().insert(receipt.receipt_id, receipt.clone());
             }
         }
-
-        let mut chunk_receipts = chunk_local_receipts;
 
         let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
         for (_, outcome) in receipt_outcomes {
@@ -135,8 +151,8 @@ pub async fn build_streamer_message(
                     // in the history of blocks (up to 1000 blocks back)
                     tracing::warn!(
                         target: INDEXER,
-                        "Receipt {} is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
-                        execution_outcome.id,
+                        receipt_id = ?execution_outcome.id,
+                        "receipt is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
                     );
                     lookup_delayed_local_receipt_in_previous_blocks(
                         &client,
@@ -152,8 +168,6 @@ pub async fn build_streamer_message(
                 .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt });
         }
 
-        chunk_receipts.extend(chunk_non_local_receipts);
-
         // Find the shard index for the chunk by shard_id
         let shard_index = protocol_config_view
             .shard_layout
@@ -167,7 +181,8 @@ pub async fn build_streamer_message(
             author,
             header,
             transactions: indexer_transactions,
-            receipts: chunk_receipts,
+            receipts: chunk_prev_outgoing_receipts,
+            local_receipts: chunk_local_receipts,
         });
     }
 
@@ -201,99 +216,101 @@ pub async fn build_streamer_message(
 async fn lookup_delayed_local_receipt_in_previous_blocks(
     client: &IndexerViewClientFetcher,
     runtime_config: &RuntimeConfig,
-    block: views::BlockView,
+    source_block: BlockView,
     receipt_id: CryptoHash,
     shard_tracker: &ShardTracker,
-) -> Result<views::ReceiptView, FailedToFetchData> {
-    let mut prev_block_tried = 0u16;
-    let mut prev_block_hash = block.header.prev_hash;
-    'find_local_receipt: loop {
-        if prev_block_tried > 1000 {
-            panic!("Failed to find local receipt in 1000 prev blocks");
-        }
-        // Log a warning every 100 blocks
-        if prev_block_tried % 100 == 0 {
+) -> Result<ReceiptView, FailedToFetchData> {
+    let mut block = client.fetch_block(source_block.header.prev_hash).await?;
+    for prev_block_tried in 0..1000 {
+        if prev_block_tried % 100 == 99 {
             tracing::warn!(
                 target: INDEXER,
-                "Still looking for receipt {} in previous blocks. {} blocks back already",
-                receipt_id,
+                block_hash = %source_block.header.hash,
+                %receipt_id,
                 prev_block_tried,
+                "still looking for receipt in previous blocks",
             );
         }
-        let prev_block = match client.fetch_block(prev_block_hash).await {
-            Ok(block) => block,
-            Err(err) => panic!("Unable to get previous block: {:?}", err),
+        let (prev_block, gas_price) = if block.header.prev_hash == CryptoHash::default() {
+            (None, block.header.gas_price)
+        } else {
+            let prev_block = client.fetch_block(block.header.prev_hash).await?;
+            let gas_price = prev_block.header.gas_price;
+            (Some(prev_block), gas_price)
         };
 
-        prev_block_hash = prev_block.header.prev_hash;
-
         if let Some(receipt) = find_local_receipt_by_id_in_block(
-            &client,
-            &runtime_config,
-            prev_block,
             receipt_id,
+            &block,
+            client,
+            &runtime_config,
             shard_tracker,
+            gas_price,
         )
         .await?
         {
             tracing::debug!(
                 target: INDEXER,
-                "Found receipt {} in previous block {}",
-                receipt_id,
+                %receipt_id,
                 prev_block_tried,
+                "found receipt in previous block",
             );
             metrics::LOCAL_RECEIPT_LOOKUP_IN_HISTORY_BLOCKS_BACK.set(prev_block_tried as i64);
-            break 'find_local_receipt Ok(receipt);
+            return Ok(receipt);
         }
-
-        prev_block_tried += 1;
+        block = prev_block.unwrap_or_else(|| {
+            panic!("reached genesis and failed to find local receipt {receipt_id}")
+        });
     }
+    panic!("failed to find local receipt {receipt_id} in 1000 prev blocks");
 }
 
-/// Function that tries to find specific local receipt by it's ID and returns it
-/// otherwise returns None
 async fn find_local_receipt_by_id_in_block(
+    receipt_id: CryptoHash,
+    block: &BlockView,
     client: &IndexerViewClientFetcher,
     runtime_config: &RuntimeConfig,
-    block: views::BlockView,
-    receipt_id: near_primitives::hash::CryptoHash,
     shard_tracker: &ShardTracker,
-) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
-    let chunks = client.fetch_block_new_chunks(&block, shard_tracker).await?;
+    gas_price: Balance,
+) -> Result<Option<ReceiptView>, FailedToFetchData> {
+    let new_chunks = client.fetch_block_new_chunks(&block, shard_tracker).await?;
+    let mut outcomes = client.fetch_outcomes(block.header.hash).await?;
 
-    let protocol_config_view = client.fetch_protocol_config(block.header.hash).await?;
-    let mut shards_outcomes = client.fetch_outcomes(block.header.hash).await?;
-
-    for chunk in chunks {
-        let views::ChunkView { header, transactions, .. } = chunk;
-
-        let outcomes = shards_outcomes
+    for chunk in new_chunks {
+        let ChunkView { header, transactions, .. } = chunk;
+        let shard_outcomes = outcomes
             .remove(&header.shard_id)
-            .expect("Execution outcomes for given shard should be present");
+            .expect("execution outcomes for given shard should be present");
 
-        if let Some((transaction, outcome)) =
-            transactions.into_iter().zip(outcomes.into_iter()).find(|(_, outcome)| {
-                outcome
-                    .execution_outcome
-                    .outcome
-                    .receipt_ids
-                    .first()
-                    .expect("The transaction ExecutionOutcome should have one receipt id in vec")
-                    == &receipt_id
-            })
-        {
-            let indexer_transaction = IndexerTransactionWithOutcome { transaction, outcome };
-            let local_receipts = convert_transactions_sir_into_local_receipts(
-                &client,
-                &runtime_config,
-                vec![&indexer_transaction],
-                &block,
-                protocol_config_view.protocol_version,
-            )
-            .await?;
+        let Some(tx_outcome) = shard_outcomes.into_iter().find(|outcome| {
+            if let ExecutionStatusView::SuccessReceiptId(outcome_receipt_id) =
+                outcome.outcome.status
+            {
+                outcome_receipt_id == receipt_id
+            } else {
+                false
+            }
+        }) else {
+            continue;
+        };
+        let tx_hash = tx_outcome.id;
+        let tx = transactions.into_iter().find(|tx| tx.hash == tx_hash)
+            .unwrap_or_else(|| panic!(
+                "failed to find transaction {} that generated local receipt {} in block {} shard {}",
+                tx_hash, receipt_id, block.header.hash, header.shard_id
+            ));
+        let indexer_tx = IndexerTransactionWithOutcome {
+            transaction: tx,
+            outcome: IndexerExecutionOutcomeWithOptionalReceipt {
+                execution_outcome: tx_outcome,
+                receipt: None,
+            },
+        };
 
-            return Ok(local_receipts.into_iter().next());
-        }
+        let local_receipts =
+            convert_transactions_sir_into_local_receipts([&indexer_tx], &runtime_config, gas_price);
+        assert_eq!(local_receipts.len(), 1);
+        return Ok(local_receipts.into_iter().next());
     }
     Ok(None)
 }
@@ -309,7 +326,7 @@ pub async fn start(
     blocks_sink: mpsc::Sender<StreamerMessage>,
     clock: Clock,
 ) {
-    info!(target: INDEXER, "Starting Streamer...");
+    tracing::info!(target: INDEXER, "starting streamer");
     let indexer_db_path =
         near_store::NodeStorage::opener(&indexer_config.home_dir, &store_config, None, None)
             .path()
@@ -328,21 +345,21 @@ pub async fn start(
             AwaitForNodeSyncedEnum::WaitForFullSync => {
                 let status = client.fetch_status().await;
                 let Ok(status) = status else {
-                    tracing::error!(target: INDEXER, ?status, "Failed to fetch node status. Retrying.");
+                    tracing::error!(target: INDEXER, ?status, "failed to fetch node status, retrying");
                     continue;
                 };
                 if status.sync_info.syncing {
-                    tracing::debug!(target: INDEXER, ?status, "The node is syncing. Waiting.");
+                    tracing::debug!(target: INDEXER, ?status, "the node is syncing, waiting");
                     continue;
                 }
             }
             AwaitForNodeSyncedEnum::StreamWhileSyncing => {}
         };
 
-        tracing::debug!(target: INDEXER, "Starting streaming the next block range.");
+        tracing::debug!(target: INDEXER, "starting streaming the next block range");
         let block = view_client.fetch_latest_block(indexer_config.finality.clone()).await;
         let Ok(block) = block else {
-            tracing::error!(target: INDEXER, ?block, "Failed to fetch latest block. Retrying.");
+            tracing::error!(target: INDEXER, ?block, "failed to fetch latest block, retrying");
             continue;
         };
 
@@ -354,42 +371,44 @@ pub async fn start(
             latest_block_height,
         );
 
-        debug!(
+        tracing::debug!(
             target: INDEXER,
-            "Streaming is about to start from block #{} and the latest block is #{}",
-            start_syncing_block_height,
-            latest_block_height
+            %start_syncing_block_height,
+            %latest_block_height,
+            "streaming is about to start",
         );
         metrics::START_BLOCK_HEIGHT.set(start_syncing_block_height as i64);
         metrics::LATEST_BLOCK_HEIGHT.set(latest_block_height as i64);
         for block_height in start_syncing_block_height..=latest_block_height {
             metrics::CURRENT_BLOCK_HEIGHT.set(block_height as i64);
 
-            // This error handling is sketchy. It conflates two cases:
-            // 1. The block is missing - totally fine and expected.
-            // 2. Real error occurred while fetching the block.
-            let block = view_client.fetch_block_by_height(block_height).await;
-            let Ok(block) = block else {
-                tracing::debug!(target: INDEXER, ?block_height, ?block, "Failed to fetch block. Skipping.");
-                continue;
+            let block = match view_client.fetch_block_by_height(block_height).await {
+                Ok(Some(block)) => block,
+                Ok(None) => {
+                    tracing::debug!(target: INDEXER, ?block_height, "skip height - missing block");
+                    continue;
+                }
+                Err(err) => {
+                    tracing::error!(target: INDEXER, ?block_height, ?err, "skip height - failed to fetch block");
+                    continue;
+                }
             };
 
-            // Build the StreamerMessage for the block
             let streamer_message =
                 Box::pin(build_streamer_message(&view_client, block, &shard_tracker)).await;
             let Ok(streamer_message) = streamer_message else {
-                tracing::error!(target: INDEXER, ?block_height, ?streamer_message, "Failed to build StreamerMessage. Skipping.");
+                tracing::error!(target: INDEXER, ?block_height, ?streamer_message, "failed to build streamer message, skipping");
                 continue;
             };
 
-            debug!(target: INDEXER, ?block_height, "Sending streamer message to the listener");
+            tracing::debug!(target: INDEXER, ?block_height, "sending streamer message to the listener");
             let send_result = blocks_sink.send(streamer_message).await;
             if send_result.is_err() {
-                error!(
+                tracing::error!(
                     target: INDEXER,
                     ?block_height,
                     ?send_result,
-                    "Unable to send StreamerMessage to listener, listener doesn't listen. terminating..."
+                    "unable to send streamer message to listener, listener doesn't listen, terminating",
                 );
                 break 'main;
             };

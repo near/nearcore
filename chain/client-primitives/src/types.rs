@@ -1,4 +1,3 @@
-use near_async::Message;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::network::PeerId;
@@ -14,7 +13,6 @@ use near_primitives::views::{
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use near_time::Duration;
 use std::collections::HashMap;
-use tracing::debug_span;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -51,6 +49,10 @@ pub enum ShardSyncStatus {
 impl ShardSyncStatus {
     pub fn repr(&self) -> u8 {
         match self {
+            // NOTE: This is used in metrics.
+            // Do not alter the order of existing values.
+            // Avoid reusing values for different states.
+            // When introducing a new state, always assign a unique, new value to prevent confusion.
             ShardSyncStatus::StateDownloadHeader => 0,
             ShardSyncStatus::StateDownloadParts => 1,
             ShardSyncStatus::StateApplyScheduling => 2,
@@ -161,6 +163,10 @@ impl SyncStatus {
 
     pub fn repr(&self) -> u8 {
         match self {
+            // NOTE: This is used in metrics.
+            // Do not alter the order of existing values.
+            // Avoid reusing values for different states.
+            // When introducing a new state, always assign a unique, new value to prevent confusion.
             // Represent NoSync as 0 because it is the state of a normal well-behaving node.
             SyncStatus::NoSync => 0,
             SyncStatus::AwaitingPeers => 1,
@@ -183,7 +189,7 @@ impl SyncStatus {
 
     pub fn update(&mut self, new_value: Self) {
         let _span =
-            debug_span!(target: "sync", "update_sync_status", old_value = ?self, ?new_value)
+            tracing::debug_span!(target: "sync", "update_sync_status", old_value = ?self, ?new_value)
                 .entered();
         *self = new_value;
     }
@@ -226,7 +232,7 @@ impl From<SyncStatus> for SyncStatusView {
 }
 
 /// Actor message requesting block by id, hash or sync state.
-#[derive(Message, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct GetBlock(pub BlockReference);
 
 #[derive(thiserror::Error, Debug)]
@@ -270,7 +276,7 @@ impl GetBlock {
 }
 
 /// Get block with the block merkle tree. Used for testing
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetBlockWithMerkleTree(pub BlockReference);
 
 impl GetBlockWithMerkleTree {
@@ -280,7 +286,7 @@ impl GetBlockWithMerkleTree {
 }
 
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.
-#[derive(Message, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum GetChunk {
     Height(BlockHeight, ShardId),
     BlockHash(CryptoHash, ShardId),
@@ -290,7 +296,7 @@ pub enum GetChunk {
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.
 /// The difference between this and `GetChunk` is that it returns the actual `ShardChunk`
 /// instead of a `ChunkView`
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub enum GetShardChunk {
     Height(BlockHeight, ShardId),
     BlockHash(CryptoHash, ShardId),
@@ -340,7 +346,7 @@ impl From<near_chain_primitives::Error> for GetChunkError {
 }
 
 /// Queries client for given path / data.
-#[derive(Message, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Query {
     pub block_reference: BlockReference,
     pub request: QueryRequest,
@@ -392,9 +398,18 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error(
+        "Gas key for public key {public_key} has never been observed on the node at block #{block_height}"
+    )]
+    UnknownGasKey {
+        public_key: near_crypto::PublicKey,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("Function call returned an error: {vm_error}")]
     ContractExecutionError {
         vm_error: String,
+        error: near_primitives::errors::FunctionCallError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
@@ -429,7 +444,7 @@ pub enum QueryError {
     Unreachable { error_message: String },
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct Status {
     pub is_health_check: bool,
     // If true - return more detailed information about the current status (recent blocks etc).
@@ -474,7 +489,7 @@ impl From<near_chain_primitives::error::Error> for StatusError {
     }
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetNextLightClientBlock {
     pub last_block_hash: CryptoHash,
 }
@@ -516,10 +531,10 @@ impl From<near_chain_primitives::error::Error> for GetNextLightClientBlockError 
     }
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetNetworkInfo {}
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetGasPrice {
     pub block_id: MaybeBlockId,
 }
@@ -583,7 +598,7 @@ pub struct NetworkInfoResponse {
 }
 
 /// Status of given transaction including all the subsequent receipts.
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct TxStatus {
     pub tx_hash: CryptoHash,
     pub signer_account_id: AccountId,
@@ -604,7 +619,7 @@ impl From<near_chain_primitives::Error> for TxStatusError {
     }
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetValidatorInfo {
     pub epoch_reference: EpochReference,
 }
@@ -638,12 +653,12 @@ impl From<near_chain_primitives::Error> for GetValidatorInfoError {
     }
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetValidatorOrdered {
     pub block_id: MaybeBlockId,
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetStateChanges {
     pub block_hash: CryptoHash,
     pub state_changes_request: StateChangesRequestView,
@@ -683,23 +698,23 @@ impl From<near_chain_primitives::Error> for GetStateChangesError {
     }
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetStateChangesInBlock {
     pub block_hash: CryptoHash,
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetStateChangesWithCauseInBlock {
     pub block_hash: CryptoHash,
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetStateChangesWithCauseInBlockForTrackedShards {
     pub block_hash: CryptoHash,
     pub epoch_id: EpochId,
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetExecutionOutcome {
     pub id: TransactionOrReceiptId,
 }
@@ -763,18 +778,18 @@ impl From<near_chain_primitives::error::Error> for GetExecutionOutcomeError {
     }
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetExecutionOutcomeResponse {
     pub outcome_proof: ExecutionOutcomeWithIdView,
     pub outcome_root_proof: MerklePath,
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetExecutionOutcomesForBlock {
     pub block_hash: CryptoHash,
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetBlockProof {
     pub block_hash: CryptoHash,
     pub head_block_hash: CryptoHash,
@@ -817,7 +832,7 @@ impl From<near_chain_primitives::error::Error> for GetBlockProofError {
     }
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetReceipt {
     pub receipt_id: CryptoHash,
 }
@@ -847,7 +862,7 @@ impl From<near_chain_primitives::Error> for GetReceiptError {
     }
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetProtocolConfig(pub BlockReference);
 
 #[derive(thiserror::Error, Debug)]
@@ -876,7 +891,7 @@ impl From<near_chain_primitives::Error> for GetProtocolConfigError {
     }
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetMaintenanceWindows {
     pub account_id: AccountId,
 }
@@ -900,7 +915,7 @@ impl From<near_chain_primitives::Error> for GetMaintenanceWindowsError {
     }
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetClientConfig {}
 
 #[derive(thiserror::Error, Debug)]
@@ -926,7 +941,7 @@ impl From<near_chain_primitives::Error> for GetClientConfigError {
     }
 }
 
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub struct GetSplitStorageInfo {}
 
 #[derive(thiserror::Error, Debug)]
@@ -959,7 +974,7 @@ impl From<std::io::Error> for GetSplitStorageInfoError {
 }
 
 #[cfg(feature = "sandbox")]
-#[derive(Message, Debug)]
+#[derive(Debug)]
 pub enum SandboxMessage {
     SandboxPatchState(Vec<near_primitives::state_record::StateRecord>),
     SandboxPatchStateStatus,

@@ -1,7 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
 use tokio::sync::mpsc;
-use tracing::info;
 
 use configs::{Opts, SubCommand};
 use near_indexer;
@@ -241,20 +240,21 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::StreamerMessage>
         //         },
         //     ],
         // }
-        info!(
+        tracing::info!(
             target: "indexer_example",
-            "#{} {} Shards: {}, Transactions: {}, Receipts: {}, ExecutionOutcomes: {}",
-            streamer_message.block.header.height,
-            streamer_message.block.header.hash,
-            streamer_message.shards.len(),
-            streamer_message.shards.iter().map(|shard| if let Some(chunk) = &shard.chunk { chunk.transactions.len() } else { 0usize }).sum::<usize>(),
-            streamer_message.shards.iter().map(|shard| if let Some(chunk) = &shard.chunk { chunk.receipts.len() } else { 0usize }).sum::<usize>(),
-            streamer_message.shards.iter().map(|shard| shard.receipt_execution_outcomes.len()).sum::<usize>(),
+            height = %streamer_message.block.header.height,
+            hash = ?streamer_message.block.header.hash,
+            num_shards = %streamer_message.shards.len(),
+            num_transactions = %streamer_message.shards.iter().map(|shard| if let Some(chunk) = &shard.chunk { chunk.transactions.len() } else { 0usize }).sum::<usize>(),
+            num_receipts = %streamer_message.shards.iter().map(|shard| if let Some(chunk) = &shard.chunk { chunk.receipts.len() } else { 0usize }).sum::<usize>(),
+            num_execution_outcomes = %streamer_message.shards.iter().map(|shard| shard.receipt_execution_outcomes.len()).sum::<usize>(),
+            "block processed"
         );
     }
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     // We use it to automatically search the for root certificates to perform HTTPS calls
     // (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();
@@ -281,7 +281,8 @@ fn main() -> Result<()> {
                 .build()
                 .expect("Failed to create Tokio runtime");
             tokio_runtime.block_on(async move {
-                let indexer = near_indexer::Indexer::new(indexer_config).expect("Indexer::new()");
+                let indexer =
+                    near_indexer::Indexer::new(indexer_config).await.expect("Indexer::new()");
                 let stream = indexer.streamer();
                 listen_blocks(stream).await;
             });

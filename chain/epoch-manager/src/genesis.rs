@@ -71,8 +71,8 @@ impl EpochManager {
                 validator_reward,
                 Balance::ZERO,
                 genesis_protocol_version,
+                genesis_epoch_config.legacy_shard_layout(),
                 false,
-                None,
             )
         }
     }

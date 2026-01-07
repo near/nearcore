@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from retrying import retry
 from typing import Literal
+import numpy as np
 import requests
 
 
@@ -137,3 +138,23 @@ def build_stake_distribution(distribution_type: str | None,
         return MainnetStakeDistribution(num_chunk_producers)
     else:
         return StaticStakeDistribution(num_chunk_producers)
+
+
+class PartitionSelector(BaseModel):
+    # Range of partitions to select.
+    # The partitions_range is a tuple of two integers, the first is the start index and the second is the end index.
+    # The end index is inclusive.
+    partitions_range: tuple[int, int]
+    # Number of partitions to split the nodes into.
+    total_partitions: int
+
+    def __call__(self, nodes: list) -> list:
+        # For the results to be deterministic, the nodes must be sorted by name.
+        i, j = self.partitions_range
+        if len(nodes) < self.total_partitions:
+            raise ValueError(
+                f'Partitioning {len(nodes)} nodes in {self.total_partitions} groups will result in empty groups.'
+            )
+        return list(
+            np.concatenate(
+                np.array_split(nodes, self.total_partitions)[i - 1:j]))

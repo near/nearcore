@@ -10,7 +10,6 @@ use near_primitives::borsh;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
-use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::get_block_shard_uid_rev;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunk, StateSyncInfo};
@@ -19,12 +18,12 @@ use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash_rev};
+use near_store::adapter::StoreAdapter;
 use near_store::db::refcount;
 use near_store::{DBCol, Store, TrieChanges};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use strum::IntoEnumIterator;
-use tracing::warn;
 use validate::StoreValidatorError;
 
 mod validate;
@@ -92,18 +91,16 @@ impl StoreValidator {
         store: Store,
         is_archival: bool,
     ) -> Self {
-        let epoch_sync_boundary = store
-            .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])
-            .expect("Store IO error when getting EpochSyncProof")
-            .map(|epoch_sync_proof| {
-                epoch_sync_proof.into_v1().current_epoch.first_block_header_in_epoch.height()
+        let epoch_sync_boundary =
+            store.epoch_store().get_epoch_sync_proof().unwrap().map(|epoch_sync_proof| {
+                epoch_sync_proof.current_epoch.first_block_header_in_epoch.height()
             });
         StoreValidator {
             config,
             epoch_manager,
             shard_tracker,
             runtime,
-            store: store,
+            store,
             inner: StoreValidatorCache::new(),
             timeout: None,
             start_time: Clock::real().now(),
@@ -129,8 +126,7 @@ impl StoreValidator {
         self.errors.push(ErrorMessage { key: format!("{key:?}"), col: col.to_string(), err })
     }
     fn validate_col(&mut self, col: DBCol) -> Result<(), StoreValidatorError> {
-        for item in self.store.clone().iter_raw_bytes(col) {
-            let (key, value) = item?;
+        for (key, value) in self.store.clone().iter_raw_bytes(col) {
             let key_ref = key.as_ref();
             let value_ref = value.as_ref();
             match col {
@@ -353,7 +349,7 @@ impl StoreValidator {
             }
             if let Some(timeout) = self.timeout {
                 if self.start_time.elapsed() > Duration::milliseconds(timeout) {
-                    warn!(target: "adversary", "Store validator hit timeout at {col} ({}/{})", col.into_usize(), DBCol::LENGTH);
+                    tracing::warn!(target: "adversary", %col, col_index = %col.into_usize(), col_length = %DBCol::LENGTH, "store validator hit timeout");
                     return;
                 }
             }
@@ -361,7 +357,7 @@ impl StoreValidator {
         if let Some(timeout) = self.timeout {
             // We didn't complete all Column checks and cannot do final checks, returning here
             if self.start_time.elapsed() > Duration::milliseconds(timeout) {
-                warn!(target: "adversary", "Store validator hit timeout before final checks");
+                tracing::warn!(target: "adversary", "store validator hit timeout before final checks");
                 return;
             }
         }
@@ -403,12 +399,10 @@ mod tests {
     use near_async::time::Clock;
     use near_chain_configs::{Genesis, MutableConfigValue};
     use near_epoch_manager::EpochManager;
-    use near_store::adapter::StoreAdapter as _;
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
 
     use crate::runtime::NightshadeRuntime;
-    use crate::spice_core::CoreStatementsProcessor;
     use crate::types::ChainConfig;
     use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 
@@ -442,10 +436,6 @@ mod tests {
             Default::default(),
             MutableConfigValue::new(None, "validator_signer"),
             noop().into_multi_sender(),
-            CoreStatementsProcessor::new_with_noop_senders(
-                runtime.store().chain_store(),
-                epoch_manager.clone(),
-            ),
             None,
         )
         .unwrap();

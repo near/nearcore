@@ -178,8 +178,8 @@ impl AppInfo {
                 match pending_pings.entry(nonce) {
                     Entry::Occupied(_) => {
                         tracing::warn!(
-                            target: "ping", "Internal error! Sent two pings with nonce {} to {}. \
-                            Latency stats will probably be wrong.", nonce, &peer_id
+                            target: "ping", %nonce, ?peer_id, "internal error, sent two pings with same nonce, \
+                            latency stats will probably be wrong"
                         );
                     }
                     Entry::Vacant(e) => {
@@ -235,15 +235,15 @@ impl AppInfo {
                     None => {
                         tracing::warn!(
                             target: "ping",
-                            "received pong with nonce {} from {}, after we probably treated it as timed out previously",
-                            nonce, peer_str(&peer_id, state.account_id.as_ref())
+                            %nonce, peer = %peer_str(&peer_id, state.account_id.as_ref()),
+                            "received pong after probably treating it as timed out previously"
                         );
                         None
                     }
                 }
             }
             None => {
-                tracing::warn!(target: "ping", "received pong from {:?}, but don't know of this peer", peer_id);
+                tracing::warn!(target: "ping", ?peer_id, "received pong but don't know of this peer");
                 None
             }
         }
@@ -269,7 +269,7 @@ impl AppInfo {
         if let Some(filter) = self.account_filter.as_ref() {
             if let Some(account_id) = account_id.as_ref() {
                 if !filter.contains(account_id) {
-                    tracing::debug!(target: "ping", "skipping AnnounceAccount for {}", account_id);
+                    tracing::debug!(target: "ping", %account_id, "skipping announce account");
                     return;
                 }
             }
@@ -285,9 +285,8 @@ impl AppInfo {
                             // We only use the accounts in the account filter and when displaying
                             // ping targets, so theres no reason we cant keep track of all of them
                             tracing::warn!(
-                                target: "ping", "Received Announce Account mapping {:?} to {:?}, but already \
-                                knew of account id {:?}. Keeping old value",
-                                peer_id, account_id, old
+                                target: "ping", ?peer_id, %account_id, old_account_id = %old,
+                                "received announce account mapping but already knew of account id, keeping old value"
                             );
                         }
                     } else {
@@ -386,6 +385,7 @@ async fn ping_via_node(
     mut latencies_csv: Option<crate::csv::LatenciesCsv>,
     ping_stats: &mut Vec<(PeerIdentifier, PingStats)>,
     prometheus_addr: &str,
+    just_handshake: bool,
 ) -> anyhow::Result<()> {
     let mut app_info = AppInfo::new(account_filter, chain_id);
 
@@ -430,6 +430,12 @@ async fn ping_via_node(
             anyhow::bail!("Error connecting to {:?}: {}", peer_addr, e);
         }
     };
+
+    // If just_handshake is true, exit after successful connection
+    if just_handshake {
+        println!("Handshake completed successfully. Exiting as requested.");
+        return Ok(());
+    }
 
     let mut result = Ok(());
     let mut nonce = 1;

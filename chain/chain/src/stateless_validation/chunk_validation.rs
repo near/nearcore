@@ -9,7 +9,7 @@ use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::store::latest_witnesses::save_invalid_chunk_state_witness;
-use crate::types::{ApplyChunkBlockContext, ApplyChunkResult, RuntimeAdapter, StorageDataSource};
+use crate::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
 use crate::validate::{
     validate_chunk_with_chunk_extra_and_receipts_root, validate_chunk_with_encoded_merkle_root,
 };
@@ -22,7 +22,6 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::gas::Gas;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
@@ -587,7 +586,7 @@ pub fn validate_chunk_state_witness_impl(
                     None,
                 )?;
                 let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
-                let chunk_extra = apply_result_to_chunk_extra(main_apply_result, chunk_gas_limit);
+                let chunk_extra = main_apply_result.to_chunk_extra(chunk_gas_limit);
 
                 (chunk_extra, outgoing_receipts)
             }
@@ -786,28 +785,11 @@ pub fn validate_chunk_state_witness(
             tracing::error!(
                 target: "stateless_validation",
                 ?storage_err,
-                "Failed to store invalid state witness"
+                "failed to store invalid state witness"
             );
         }
     }
     result
-}
-
-pub fn apply_result_to_chunk_extra(
-    apply_result: ApplyChunkResult,
-    chunk_gas_limit: Gas,
-) -> ChunkExtra {
-    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
-    ChunkExtra::new(
-        &apply_result.new_root,
-        outcome_root,
-        apply_result.validator_proposals,
-        apply_result.total_gas_burnt,
-        chunk_gas_limit,
-        apply_result.total_balance_burnt,
-        apply_result.congestion_info,
-        apply_result.bandwidth_requests,
-    )
 }
 
 impl Chain {

@@ -1,7 +1,7 @@
 //! Structs in this file are used for debug purposes, and might change at any time
 //! without backwards compatibility.
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
-use crate::client_actor::ClientActorInner;
+use crate::client_actor::ClientActor;
 use itertools::Itertools;
 use near_async::messaging::Handler;
 use near_async::time::{Clock, Instant};
@@ -19,7 +19,6 @@ use near_client_primitives::{
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::log_assert;
-use near_performance_metrics_macros::perf;
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::EpochError;
 use near_primitives::state_sync::get_num_state_parts;
@@ -171,8 +170,7 @@ impl BlockProductionTracker {
     }
 }
 
-impl Handler<DebugStatus, Result<DebugStatusResponse, StatusError>> for ClientActorInner {
-    #[perf]
+impl Handler<DebugStatus, Result<DebugStatusResponse, StatusError>> for ClientActor {
     fn handle(&mut self, msg: DebugStatus) -> Result<DebugStatusResponse, StatusError> {
         match msg {
             DebugStatus::SyncStatus => Ok(DebugStatusResponse::SyncStatus(
@@ -231,7 +229,7 @@ fn find_first_height_to_fetch(
 
     let min_height_to_search = max(
         height_to_fetch as i64 - DEBUG_MAX_BLOCKS_TO_SEARCH as i64,
-        chain_store.genesis_height() as i64,
+        chain_store.get_genesis_height() as i64,
     ) as u64;
     while height_to_fetch > min_height_to_search {
         let block_hashes = get_block_hashes_to_fetch(chain_store, height_to_fetch, final_height);
@@ -302,7 +300,7 @@ fn get_prev_epoch_identifier(
     Some(ValidatorInfoIdentifier::EpochId(*prev_epoch_last_block_header.epoch_id()))
 }
 
-impl ClientActorInner {
+impl ClientActor {
     // Gets a list of block producers, chunk producers and chunk validators for a given epoch.
     fn get_validators_for_epoch(
         &self,
@@ -362,6 +360,10 @@ impl ClientActorInner {
                     .iter()
                     .enumerate()
                     .map(|(shard_index, chunk)| {
+                        // TODO(spice): chunks in spice no longer contain prev state root.
+                        if chunk.is_spice_chunk() {
+                            return (0, 0);
+                        }
                         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
                         let state_root_node = self.client.runtime_adapter.get_state_root_node(
                             shard_id,
@@ -545,9 +547,10 @@ impl ClientActorInner {
         let mut height_to_fetch = starting_height.unwrap_or(header_head.height);
         height_to_fetch =
             find_first_height_to_fetch(chain_store, height_to_fetch, mode, final_head.height)?;
-        let min_height_to_fetch =
-            max(height_to_fetch as i64 - num_blocks as i64, chain_store.genesis_height() as i64)
-                as u64;
+        let min_height_to_fetch = max(
+            height_to_fetch as i64 - num_blocks as i64,
+            chain_store.get_genesis_height() as i64,
+        ) as u64;
 
         let mut block_hashes_to_force_fetch = HashSet::new();
         while height_to_fetch > min_height_to_fetch || !block_hashes_to_force_fetch.is_empty() {

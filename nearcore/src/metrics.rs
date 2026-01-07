@@ -3,6 +3,7 @@ use near_async::ActorSystem;
 use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
 use near_chain::{Block, ChainStore, ChainStoreAccess};
+use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::metrics::{
     HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, exponential_buckets,
@@ -88,13 +89,13 @@ fn log_trie_item(key: &[u8], value: Vec<u8>) {
         Ok(Some(StateRecord::PostponedReceipt(receipt))) => {
             tracing::trace!(
                 target: "metrics",
-                "trie-stats - PostponedReceipt(predecessor_id: {:?}, receiver_id: {:?})",
-                receipt.predecessor_id(),
-                receipt.receiver_id(),
+                predecessor_id = ?receipt.predecessor_id(),
+                receiver_id = ?receipt.receiver_id(),
+                "trie-stats postponed receipt"
             );
         }
         _ => {
-            tracing::trace!(target: "metrics", "trie-stats - {state_record:?}" );
+            tracing::trace!(target: "metrics", ?state_record, "trie-stats");
         }
     }
 }
@@ -111,13 +112,19 @@ fn export_postponed_receipt_count(
     );
 
     let head = chain_store.final_head()?;
-    let block = chain_store.get_block(&head.last_block_hash)?;
+    let block = chain_store.get_block(&head.last_block_hash);
+    if matches!(block, Err(Error::DBNotFoundErr(_))) {
+        // The head block might be missing during node startup and syncing.
+        tracing::trace!(target: "metrics", "trie-stats - head block not found {head:?}");
+        return Ok(());
+    }
+    let block = block?;
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id())?;
 
     for chunk_header in block.chunks().iter() {
         let shard_id = chunk_header.shard_id();
         if chunk_header.height_included() != block.header().height() {
-            tracing::trace!(target: "metrics", "trie-stats - chunk for shard {shard_id} is missing, skipping it.");
+            tracing::trace!(target: "metrics", %shard_id, "trie-stats chunk for shard is missing, skipping it");
             POSTPONED_RECEIPTS_COUNT.with_label_values(&[&shard_id.to_string()]).set(0);
             continue;
         }
@@ -132,7 +139,7 @@ fn export_postponed_receipt_count(
         let count = match count {
             Ok(count) => count,
             Err(err) => {
-                tracing::trace!(target: "metrics", "trie-stats - error when getting the postponed receipt count {err:?}");
+                tracing::trace!(target: "metrics", ?err, "trie-stats error when getting the postponed receipt count");
                 0
             }
         };
@@ -167,18 +174,18 @@ fn get_postponed_receipt_count_for_trie(trie: Trie) -> Result<i64, anyhow::Error
         let (key, value) = match item {
             Ok(item) => item,
             Err(err) => {
-                tracing::trace!(target: "metrics", "trie-stats - error when reading item {err:?}");
+                tracing::trace!(target: "metrics", ?err, "trie-stats error when reading item");
                 continue;
             }
         };
         if !key.is_empty() && key[0] != trie_key::col::POSTPONED_RECEIPT {
-            tracing::trace!(target: "metrics", "trie-stats - stopping iteration as reached other col type.");
+            tracing::trace!(target: "metrics", "trie-stats - stopping iteration as reached other col type");
             break;
         }
         count += 1;
         log_trie_item(&key, value);
     }
-    tracing::trace!(target: "metrics", "trie-stats - postponed receipt count {count}");
+    tracing::trace!(target: "metrics", %count, "trie-stats postponed receipt count");
     Ok(count)
 }
 
@@ -190,10 +197,10 @@ pub fn spawn_trie_metrics_loop(
     period: Duration,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
 ) {
-    tracing::debug!(target:"metrics", "Spawning the trie metrics loop.");
+    tracing::debug!(target:"metrics", "spawning the trie metrics loop");
 
-    actor_system.new_future_spawner().spawn("trie metrics loop", async move {
-        tracing::debug!(target:"metrics", "Starting the spawn metrics loop.");
+    actor_system.new_future_spawner("trie metrics loop").spawn("trie metrics loop", async move {
+        tracing::debug!(target:"metrics", "starting the spawn metrics loop");
 
         let start = tokio::time::Instant::now();
         let mut interval = tokio::time::interval_at(start, period.unsigned_abs());
@@ -204,10 +211,10 @@ pub fn spawn_trie_metrics_loop(
             let start_time = std::time::Instant::now();
             let result = export_postponed_receipt_count(&near_config, &store, epoch_manager.as_ref());
             if let Err(err) = result {
-                tracing::error!(target: "metrics", "Error when exporting postponed receipts count {err}.");
+                tracing::error!(target: "metrics", %err, "error when exporting postponed receipts count");
             };
 
-            tracing::trace!(target: "metrics", "exporting postponed receipt count took {:?}.", start_time.elapsed());
+            tracing::trace!(target: "metrics", elapsed = ?start_time.elapsed(), "exporting postponed receipt count took");
         }
     });
 }

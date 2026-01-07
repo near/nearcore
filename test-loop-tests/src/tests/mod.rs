@@ -1,4 +1,6 @@
 mod bandwidth_scheduler;
+#[cfg(feature = "test_features")]
+mod block_chunk_signature;
 mod bug_repro;
 mod catching_up;
 mod chunk_validator_kickout;
@@ -7,11 +9,13 @@ mod cloud_archival;
 mod congestion_control;
 mod congestion_control_genesis_bootstrap;
 mod consensus;
+mod continuous_epoch_sync;
 mod contract_distribution_cross_shard;
 mod contract_distribution_simple;
 mod create_delete_account;
 mod cross_shard_tx;
 mod deterministic_account_id;
+mod early_prepare_transactions;
 mod epoch_sync;
 mod fix_chunk_producer_stake_threshold;
 mod fix_stake_threshold;
@@ -20,10 +24,13 @@ mod global_contracts;
 mod global_contracts_distribution;
 mod in_memory_tries;
 mod increase_max_congestion_missing_chunks;
+#[cfg(feature = "test_features")]
 mod indexer;
 mod malicious_chunk_producer;
 mod max_receipt_size;
 mod multinode_stateless_validators;
+#[cfg(feature = "test_features")]
+mod network_drop;
 mod optimistic_block;
 mod process_blocks;
 mod protocol_upgrade;

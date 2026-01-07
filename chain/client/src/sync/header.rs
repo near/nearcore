@@ -10,7 +10,6 @@ use near_primitives::types::BlockHeight;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::cmp::min;
-use tracing::{debug, warn};
 
 /// Maximum number of block headers send over the network.
 pub const MAX_BLOCK_HEADERS: u64 = 512;
@@ -128,9 +127,7 @@ impl HeaderSync {
                 true
             }
             SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
-                debug!(target: "sync", "Sync: initial transition to Header sync. Header head {} at {}",
-                    header_head.last_block_hash, header_head.height,
-                );
+                tracing::debug!(target: "sync", header_head_hash = ?header_head.last_block_hash, header_head_height = header_head.height, "initial transition to header sync");
                 true
             }
             SyncStatus::EpochSync { .. } | SyncStatus::StateSync { .. } => false,
@@ -242,9 +239,8 @@ impl HeaderSync {
                                 if now > *stalling_ts + self.stall_ban_timeout
                                     && *highest_height == peer.highest_block_height
                                 {
-                                    // This message is used in sync_ban.py test. Consider checking there as well if you change it.
                                     // The peer is one of the peers with the highest height, but we consider the peer stalling.
-                                    warn!(target: "sync", "Sync: ban a peer: {}, for not providing enough headers. Peer's height:  {}", peer.peer_info, peer.highest_block_height);
+                                    tracing::warn!(target: "sync", peer_info = %peer.peer_info, peer_height = peer.highest_block_height, "banning a peer for not providing enough headers");
                                     // Ban the peer, which blocks all interactions with the peer for some time.
                                     // TODO: Consider not banning straightaway, but give a node a few attempts before banning it.
                                     // TODO: Prefer not to request the next batch of headers from the same peer.
@@ -317,7 +313,7 @@ impl HeaderSync {
         peer: &HighestHeightPeerInfo,
     ) -> Result<(), near_chain::Error> {
         let locator = self.get_locator(chain)?;
-        debug!(target: "sync", "Sync: request headers: asking {} for headers, {:?}", peer.peer_info.id, locator);
+        tracing::debug!(target: "sync", peer_id = %peer.peer_info.id, ?locator, "requesting headers");
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::BlockHeadersRequest {
                 hashes: locator,
@@ -359,12 +355,11 @@ impl HeaderSync {
                     if *ordinal == tip_ordinal {
                         return Err(e);
                     }
-                    debug!(target: "sync", "Sync: failed to get block hash from ordinal {}; \
-                        this is normal if we just finished epoch sync. Error: {:?}", ordinal, e);
+                    tracing::debug!(target: "sync", ordinal, error = ?e, "failed to get block hash from ordinal, this is normal if we just finished epoch sync");
                 }
             }
         }
-        debug!(target: "sync", "Sync: locator: {:?} ordinals: {:?}", locator, ordinals);
+        tracing::debug!(target: "sync", ?locator, ?ordinals);
         Ok(locator)
     }
 }
@@ -403,14 +398,12 @@ mod test {
     use near_network::types::{
         BlockInfo, FullPeerInfo, HighestHeightPeerInfo, NetworkRequests, PeerInfo,
     };
-    use near_primitives::block::{Approval, Block};
+    use near_primitives::block::Approval;
     use near_primitives::genesis::GenesisId;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::network::PeerId;
     use near_primitives::test_utils::TestBlockBuilder;
     use near_primitives::types::{Balance, EpochId};
-    use near_primitives::version::PROTOCOL_VERSION;
-    use num_rational::Ratio;
     use std::sync::Arc;
     use std::thread;
 
@@ -473,7 +466,7 @@ mod test {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             // Have gaps in the chain, so we don't have final blocks (i.e. last final block is
             // genesis). Otherwise we violate consensus invariants.
-            let block = TestBlockBuilder::new(Clock::real(), &prev, signer.clone())
+            let block = TestBlockBuilder::from_prev_block(Clock::real(), &prev, signer.clone())
                 .height(prev.header().height() + 2)
                 .build();
             process_block_sync(
@@ -489,7 +482,7 @@ mod test {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             // Have gaps in the chain, so we don't have final blocks (i.e. last final block is
             // genesis). Otherwise we violate consensus invariants.
-            let block = TestBlockBuilder::new(Clock::real(), &prev, signer2.clone())
+            let block = TestBlockBuilder::from_prev_block(Clock::real(), &prev, signer2.clone())
                 .height(prev.header().height() + 2)
                 .build();
             process_block_sync(
@@ -562,7 +555,8 @@ mod test {
             // Both chains share a common final block at height 3.
             for _ in 0..5 {
                 let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
-                let block = TestBlockBuilder::new(Clock::real(), &prev, signer.clone()).build();
+                let block =
+                    TestBlockBuilder::from_prev_block(Clock::real(), &prev, signer.clone()).build();
                 process_block_sync(
                     chain,
                     block.into(),
@@ -575,7 +569,7 @@ mod test {
         for _ in 0..7 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             // Test with huge gaps to make sure we are still able to find locators.
-            let block = TestBlockBuilder::new(Clock::real(), &prev, signer.clone())
+            let block = TestBlockBuilder::from_prev_block(Clock::real(), &prev, signer.clone())
                 .height(prev.header().height() + 1000)
                 .build();
             process_block_sync(
@@ -590,7 +584,7 @@ mod test {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             // Test with huge gaps, but 3 blocks here produce a higher height than the 7 blocks
             // above.
-            let block = TestBlockBuilder::new(Clock::real(), &prev, signer2.clone())
+            let block = TestBlockBuilder::from_prev_block(Clock::real(), &prev, signer2.clone())
                 .height(prev.header().height() + 3100)
                 .build();
             process_block_sync(
@@ -692,9 +686,10 @@ mod test {
         let mut all_blocks = vec![];
         for i in 0..61 {
             let current_height = 3 + i * 5;
-            let block = TestBlockBuilder::new(Clock::real(), last_block, signer.clone())
-                .height(current_height)
-                .build();
+            let block =
+                TestBlockBuilder::from_prev_block(Clock::real(), last_block, signer.clone())
+                    .height(current_height)
+                    .build();
             all_blocks.push(block);
             last_block = &all_blocks[all_blocks.len() - 1];
         }
@@ -771,7 +766,6 @@ mod test {
         let (mut chain2, _, _, signer2) = setup_with_tx_validity_period(clock.clock(), 100, 10000);
         // Set up the second chain with 2000+ blocks.
         let mut block_merkle_tree = PartialMerkleTree::default();
-        block_merkle_tree.insert(*chain.genesis().hash()); // for genesis block
         for _ in 0..(4 * MAX_BLOCK_HEADERS + 10) {
             let last_block = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let this_height = last_block.header().height() + 1;
@@ -780,43 +774,29 @@ mod test {
             } else {
                 (*last_block.header().epoch_id(), *last_block.header().next_epoch_id())
             };
-            let block = Arc::new(Block::produce(
-                PROTOCOL_VERSION,
-                last_block.header(),
-                this_height,
-                last_block.header().block_ordinal() + 1,
-                last_block.chunks().iter_raw().cloned().collect(),
-                vec![vec![]; last_block.chunks().len()],
-                epoch_id,
-                next_epoch_id,
-                None,
-                [&signer2]
-                    .iter()
-                    .map(|signer| {
-                        Some(Box::new(
-                            Approval::new(
-                                *last_block.hash(),
-                                last_block.header().height(),
-                                this_height,
-                                signer.as_ref(),
-                            )
-                            .signature,
-                        ))
-                    })
-                    .collect(),
-                Ratio::new(0, 1),
-                Balance::ZERO,
-                Balance::from_yoctonear(100),
-                Some(Balance::ZERO),
-                signer2.as_ref(),
-                *last_block.header().next_bp_hash(),
-                block_merkle_tree.root(),
-                clock.clock(),
-                None,
-                None,
-                None,
-            ));
-            block_merkle_tree.insert(*block.hash());
+            let block =
+                TestBlockBuilder::from_prev_block(clock.clock(), &last_block, signer2.clone())
+                    .epoch_id(epoch_id)
+                    .next_epoch_id(next_epoch_id)
+                    .approvals(
+                        [&signer2]
+                            .iter()
+                            .map(|signer| {
+                                Some(Box::new(
+                                    Approval::new(
+                                        *last_block.hash(),
+                                        last_block.header().height(),
+                                        this_height,
+                                        signer.as_ref(),
+                                    )
+                                    .signature,
+                                ))
+                            })
+                            .collect(),
+                    )
+                    .max_gas_price(Balance::from_yoctonear(100))
+                    .block_merkle_tree(&mut block_merkle_tree)
+                    .build();
             chain2.process_block_header(block.header()).unwrap(); // just to validate
             process_block_sync(
                 &mut chain2,

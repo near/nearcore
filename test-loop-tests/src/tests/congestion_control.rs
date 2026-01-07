@@ -14,7 +14,7 @@ use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::client_actor::ClientActorInner;
+use near_client::client_actor::ClientActor;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfig;
 use near_primitives::errors::InvalidTxError;
@@ -33,6 +33,8 @@ const NUM_CLIENTS: usize = NUM_PRODUCERS + NUM_VALIDATORS + NUM_RPC;
 /// with producers, validators, rpc nodes, single shard tracking and state sync.
 #[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_congestion_control_simple() {
     init_test_logger();
 
@@ -68,6 +70,8 @@ fn slow_test_congestion_control_simple() {
 
 #[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_one_shard_congested() {
     init_test_logger();
 
@@ -188,7 +192,7 @@ fn do_deploy_contract(
     rpc_id: &AccountId,
     contract_id: &AccountId,
 ) {
-    tracing::info!(target: "test", ?rpc_id, ?contract_id, "Deploying contract.");
+    tracing::info!(target: "test", ?rpc_id, ?contract_id, "deploying contract");
     let code = near_test_contracts::rs_contract().to_vec();
     let tx = deploy_contract(test_loop, node_datas, rpc_id, contract_id, code, 1);
     test_loop.run_for(Duration::seconds(5));
@@ -203,7 +207,7 @@ fn do_call_contract(
     contract_id: &AccountId,
     accounts: &Vec<AccountId>,
 ) {
-    tracing::info!(target: "test", ?rpc_id, ?contract_id, "Calling contract.");
+    tracing::info!(target: "test", ?rpc_id, ?contract_id, "calling contract");
     let method_name = "burn_gas_raw".to_owned();
     let burn_gas = Gas::from_teragas(250);
     let args = burn_gas.as_gas().to_le_bytes().to_vec();
@@ -229,7 +233,7 @@ fn do_call_contract(
 /// height is greater than the target height.
 fn height_condition(
     test_loop_data: &TestLoopData,
-    client_handle: &TestLoopDataHandle<ClientActorInner>,
+    client_handle: &TestLoopDataHandle<ClientActor>,
     target_height: BlockHeight,
 ) -> bool {
     test_loop_data.get(&client_handle).client.chain.head().unwrap().height > target_height

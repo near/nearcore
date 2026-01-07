@@ -6,7 +6,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use near_async::messaging::AsyncSender;
 use near_async::time::{Clock, Duration};
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{RuntimeAdapter, StatePartValidationResult};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
@@ -162,7 +162,7 @@ impl StateSyncDownloader {
             let handle =
                 task_tracker.get_handle(&format!("shard {} part {}", shard_id, part_id)).await;
             handle.set_status("Reading existing part");
-            if does_state_part_exist_on_disk(&store, sync_hash, shard_id, part_id)? {
+            if does_state_part_exist_on_disk(&store, sync_hash, shard_id, part_id) {
                 return Ok(());
             }
 
@@ -188,11 +188,14 @@ impl StateSyncDownloader {
                         cancel.clone(),
                     )
                     .await?;
-                if runtime_adapter.validate_state_part(
-                    shard_id,
-                    &state_root,
-                    PartId { idx: part_id, total: num_state_parts },
-                    &part,
+                if matches!(
+                    runtime_adapter.validate_state_part(
+                        shard_id,
+                        &state_root,
+                        PartId { idx: part_id, total: num_state_parts },
+                        &part,
+                    ),
+                    StatePartValidationResult::Valid
                 ) {
                     let mut store_update = store.store_update();
                     let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
@@ -230,9 +233,9 @@ fn does_state_part_exist_on_disk(
     sync_hash: CryptoHash,
     shard_id: ShardId,
     part_id: u64,
-) -> Result<bool, near_chain::Error> {
-    Ok(store.exists(
+) -> bool {
+    store.exists(
         DBCol::StateParts,
         &borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap(),
-    )?)
+    )
 }

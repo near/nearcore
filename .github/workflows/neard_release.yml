@@ -40,6 +40,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch }}
+          persist-credentials: false
 
       - name: Checkout nearcore release
         # for release events we need to checkout all branches to be able to determine
@@ -48,11 +49,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Checkout repository for master branch
         # In case of master branch we want to checkout with depth 1
         if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'release'}}
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -69,19 +73,37 @@ jobs:
           BRANCH=$(git branch --show-current)
           # in case of Release triggered run, branch is empty
           if [ -z "$BRANCH" ]; then
-            BRANCH=$(git branch -r --contains=${{ github.ref_name }} | head -n1 | cut -c3- | cut -d / -f 2)
+            BRANCH=$(git branch -r --contains=${GITHUB_REF_NAME} | head -n1 | cut -c3- | cut -d / -f 2)
           fi
-          aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${BRANCH}/latest
+          UPLOAD_TARGETS=()
+          if [ -n "$BRANCH" ]; then
+            UPLOAD_TARGETS+=("$BRANCH")
+          fi
+          if [ "${{ github.event_name }}" = "release" ]; then
+            RELEASE_TAG="${{ github.event.release.tag_name }}"
+             if [ -n "$RELEASE_TAG" ] && [ "$BRANCH" != "$RELEASE_TAG" ]; then
+              UPLOAD_TARGETS+=("$RELEASE_TAG")
+            fi
+          fi
+
+          if [ ${#UPLOAD_TARGETS[@]} -eq 0 ]; then
+            echo "Unable to determine upload target for latest metadata" >&2
+            exit 1
+          fi
+
+          for target in "${UPLOAD_TARGETS[@]}"; do
+            aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${target}/latest
+          done
       
       - name: Trigger release metadata update workflow
-        if: github.event_name != 'workflow_dispatch' && github.event_name == 'release'
+        if: ${{ matrix.name == 'Intel Linux Ubuntu' && github.event_name == 'release' }}
         run: |
           curl -L -X POST -H "Accept: application/vnd.github+json" \
           --fail-with-body \
           -H "Authorization: Bearer ${{ secrets.NEARONE_GITHUB_TOKEN }}" \
           -H "X-GitHub-Api-Version: 2022-11-28" \
           https://api.github.com/repos/Near-One/infra-ops/dispatches \
-          -d '{"event_type":"metadata-update","client_payload":{"release":"${{ github.ref_name }}"}}'
+          -d '{"event_type":"metadata-update","client_payload":{"release":"${GITHUB_REF_NAME}"}}'
 
   docker-release:
     name: "Build and publish nearcore Docker image"
@@ -93,6 +115,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch }}
+          persist-credentials: false
 
       - name: Checkout nearcore release
         # for release events we need to checkout all branches to be able to determine
@@ -101,11 +124,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Checkout  repository for master branch
         # In case of master branch we want to checkout with depth 1
         if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'release'}}
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -119,17 +145,34 @@ jobs:
           BRANCH=$(git branch --show-current)
           # in case of Release triggered run, branch is empty
           if [ -z "$BRANCH" ]; then
-            BRANCH=$(git branch -r --contains=${{ github.ref_name }} | head -n1 | cut -c3- | cut -d / -f 2)
+            BRANCH=$(git branch -r --contains=${GITHUB_REF_NAME} | head -n1 | cut -c3- | cut -d / -f 2)
           fi
 
-          DOCKER_TAGS="nearprotocol/nearcore:${BRANCH},nearprotocol/nearcore:${BRANCH}-${COMMIT}"
-
-          if [[ ${BRANCH} == "master" ]];
-          then
-            DOCKER_TAGS="${DOCKER_TAGS},nearprotocol/nearcore:latest"
+          TAGS=()
+          if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+            TAGS+=("${GITHUB_REF_NAME}")
+            TAGS+=("${GITHUB_REF_NAME}-${COMMIT}")
+            if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+              TAGS+=("pre-release")
+            else
+              TAGS+=("release")
+            fi
+          else
+            TAGS+=("$BRANCH")
+            TAGS+=("$BRANCH-${COMMIT}")
           fi
 
-          echo "DOCKER_TAGS=${DOCKER_TAGS}" >> $GITHUB_ENV
+          if [[ ${BRANCH} == "master" ]]; then
+            TAGS+=("latest")
+          fi
+          
+          DOCKER_TAGS=()
+          for tag in "${TAGS[@]}"; do
+            DOCKER_TAGS+=("nearprotocol/nearcore:$tag")
+          done
+
+          CSV=$(IFS=','; echo "${DOCKER_TAGS[*]}")
+          echo "DOCKER_TAGS=${CSV}" >> $GITHUB_ENV
 
       - name: Build and push Docker image to Dockerhub
         uses: Warpbuilds/build-push-action@v6
@@ -141,4 +184,4 @@ jobs:
           build-args: |
             make_target=neard-release 
           tags: ${{ env.DOCKER_TAGS }}
-  
+

@@ -9,16 +9,21 @@ import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
+from enum import Enum
 
 from mirror import (CommandContext, amend_binaries_cmd, clear_scheduled_cmds,
-                    get_nodes_status, hard_reset_cmd, new_test_cmd,
+                    get_nodes_pending_new_test, hard_reset_cmd, new_test_cmd,
                     run_remote_cmd, run_remote_download_file,
                     run_remote_upload_file, start_nodes_cmd, start_traffic_cmd,
                     stop_nodes_cmd, update_config_cmd)
-from utils import ScheduleMode
+from utils import ScheduleMode, PartitionSelector
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
+
+
+def time_to_str(time):
+    return time.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
 
 
 class NodeHardware:
@@ -72,25 +77,41 @@ class TestSetup:
     def __init__(self, args):
         self.args = args
         # The forknet image height.
-        self.args.start_height = None
-        self.start_height = None
+        self.start_height = args.start_height
         # The unique id of the forknet.
         self.unique_id = args.unique_id
-
+        # The genesis protocol version.
+        self.genesis_protocol_version = getattr(args,
+                                                'genesis_protocol_version',
+                                                None)
         self.has_archival = False
         self.has_state_dumper = False
         self.tracing_server = False
         # The GCP regions to be used for the nodes.
         self.regions = None
         # Hardware configuration for validators
-        self.node_hardware_config = NodeHardware.SameConfig(
-            num_chunk_producer_seats=0, num_chunk_validator_seats=0)
+        self.node_hardware_config = None
         # The base binary url to be used for the nodes.
-        self.neard_binary_url = getattr(args, 'neard_binary_url', '')
+        self.neard_binary_url = getattr(args, 'neard_binary_url', None)
         self.upgrade_delay_minutes = 0
         # The new binary url to be used for the nodes.
         self.neard_upgrade_binary_url = getattr(args,
-                                                'neard_upgrade_binary_url', '')
+                                                'neard_upgrade_binary_url',
+                                                None)
+
+    def fail_if_args_not_set(self):
+        """
+        Fail if the required arguments are not set.
+        """
+        if self.start_height is None:
+            raise ValueError("Start height is not set")
+        if self.genesis_protocol_version is None:
+            raise ValueError("Genesis protocol version is not set")
+        if self.neard_binary_url is None:
+            raise ValueError("Neard binary url is not set")
+        if self.node_hardware_config is None:
+            raise ValueError("Node hardware config is not set")
+        return self
 
     def _needs_upgrade(self):
         """
@@ -171,14 +192,13 @@ class TestSetup:
         Wait for the network to be ready.
         """
         ctx = CommandContext(self.args)
+        not_ready_nodes = ctx.get_targeted()
         while True:
-            nodes = ctx.get_targeted()
-            not_ready_nodes = get_nodes_status(nodes)
+            not_ready_nodes = get_nodes_pending_new_test(not_ready_nodes)
             if len(not_ready_nodes) == 0:
                 break
 
-            not_ready_nodes_msg = f"{not_ready_nodes[:5]}..." if len(
-                not_ready_nodes) > 5 else not_ready_nodes
+            not_ready_nodes_msg = f"{[node.name() for node in not_ready_nodes[:3]]}..."
             logger.info(
                 f"Waiting for network to be ready. {len(not_ready_nodes)} nodes not ready: {not_ready_nodes_msg}"
             )
@@ -253,22 +273,60 @@ class TestSetup:
         if self.neard_upgrade_binary_url == '':
             return
 
-        def time_to_str(time):
-            return time.astimezone(
-                timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-
-        ref_time = datetime.now() + timedelta(
+        reference_time = datetime.now() + timedelta(
             minutes=self.upgrade_delay_minutes)
         for i in range(1, 5):
-            restart_time = ref_time + timedelta(minutes=i * minutes)
-            start_nodes_args = copy.deepcopy(self.args)
-            start_nodes_args.host_type = 'nodes'
-            start_nodes_args.select_partition = (i, 4)
-            start_nodes_args.binary_idx = 1
-            start_nodes_args.on = ScheduleMode(mode="calendar",
-                                               value=time_to_str(restart_time))
-            start_nodes_args.schedule_id = f"up-start-{i}"
-            start_nodes_cmd(CommandContext(start_nodes_args))
+            self.schedule_binary_upgrade(reference_time,
+                                         i * minutes,
+                                         binary_idx=1,
+                                         partition=PartitionSelector(
+                                             partitions_range=(i, i),
+                                             total_partitions=4))
+
+    def schedule_binary_upgrade(self,
+                                reference_time: datetime | None,
+                                minutes: int,
+                                binary_idx: int,
+                                partition: PartitionSelector | None = None):
+        upgrade_time = (reference_time or
+                        datetime.now()) + timedelta(minutes=minutes)
+        start_nodes_args = copy.deepcopy(self.args)
+        start_nodes_args.host_type = 'nodes'
+        start_nodes_args.binary_idx = binary_idx
+        start_nodes_args.select_partition = partition
+        start_nodes_args.on = ScheduleMode(mode="calendar",
+                                           value=time_to_str(upgrade_time))
+        start_nodes_args.schedule_id = f"start-neard{binary_idx}-in-{minutes}m"
+        start_nodes_cmd(CommandContext(start_nodes_args))
+
+    class StakeAction(Enum):
+        STAKE = "stake"
+        UNSTAKE = "unstake"
+
+    def _send_stake_proposal(self,
+                             action: StakeAction,
+                             reference_time: datetime | None = None,
+                             minutes: int | None = None,
+                             partition: PartitionSelector | None = None):
+        """
+        Send a stake proposal to the nodes.
+        Either stake the full amount or unstake the full amount.
+        Can either be scheduled or run immediately.
+        """
+        run_cmd_args = copy.deepcopy(self.args)
+        run_cmd_args.host_type = 'nodes'
+        run_cmd_args.select_partition = partition
+        run_cmd_args.cmd = f"sh .near/neard-runner/send-stake-proposal.sh"
+        if action == self.StakeAction.UNSTAKE:
+            run_cmd_args.cmd += " 0"
+
+        if minutes is not None:
+            stake_time = (reference_time or
+                          datetime.now()) + timedelta(minutes=minutes)
+            run_cmd_args.on = ScheduleMode(mode="calendar",
+                                           value=time_to_str(stake_time))
+            run_cmd_args.schedule_id = f"stake-proposal-{action.value}"
+        run_remote_cmd(CommandContext(run_cmd_args))
 
     def after_test_start(self):
         """

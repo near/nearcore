@@ -20,7 +20,7 @@ use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
 use near_primitives::types::{
     Balance, BlockId, BlockReference, EpochId, EpochReference, Finality, TransactionOrReceiptId,
 };
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView, TxExecutionStatus};
 use std::ops::ControlFlow;
 use std::time::Duration;
@@ -233,8 +233,7 @@ async fn test_protocol_config_rpc() {
 
             let runtime_config_store = RuntimeConfigStore::new(None);
             let initial_runtime_config = runtime_config_store.get_config(ProtocolVersion::MIN);
-            let latest_runtime_config =
-                runtime_config_store.get_config(near_primitives::version::PROTOCOL_VERSION);
+            let latest_runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
             assert_ne!(
                 config_response.config_view.runtime_config.storage_amount_per_byte,
                 initial_runtime_config.storage_amount_per_byte()
@@ -339,6 +338,8 @@ async fn test_query_rpc_account_view_account_does_not_exist_must_return_error() 
 }
 
 #[tokio::test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn slow_test_tx_not_enough_balance_must_return_error() {
     init_integration_logger();
 
@@ -376,11 +377,6 @@ async fn slow_test_tx_not_enough_balance_must_return_error() {
                 }
                 sleep(std::time::Duration::from_millis(500)).await;
             }
-            let expected_cost = if ProtocolFeature::ReducedGasRefunds.enabled(PROTOCOL_VERSION) {
-                "1100000000000044636512500000000000"
-            } else {
-                "1100000000000045306060187500000000"
-            };
             let res = client.broadcast_tx_commit(to_base64(&bytes)).await;
             match res {
                 Ok(_) => panic!("Transaction must not succeed"),
@@ -393,7 +389,7 @@ async fn slow_test_tx_not_enough_balance_must_return_error() {
                                 "NotEnoughBalance": {
                                     "signer_id": "near.0",
                                     "balance": "950000000000000000000000000000000", // If something changes in setup just update this value
-                                    "cost": expected_cost,
+                                    "cost": "1100000000000044636512500000000000",
                                 }
                             }
                         }})

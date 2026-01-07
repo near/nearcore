@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 impl Graph {
-    async fn simple_update(self: &Arc<Self>, clock: &time::Clock, edges: Vec<Edge>) {
-        assert_eq!(vec![true], self.update(clock, vec![edges]).await.1);
+    async fn simple_update(self: &Arc<Self>, edges: Vec<Edge>) {
+        assert_eq!(vec![true], self.update(vec![edges]).await.1);
     }
 
     fn check(&self, want_mem: &[Edge]) {
@@ -42,7 +42,8 @@ async fn empty() {
         prune_unreachable_peers_after: time::Duration::seconds(3),
         prune_edges_after: None,
     };
-    let g = Graph::new(cfg);
+    let clock = time::FakeClock::default();
+    let g = Graph::new(clock.clock(), cfg);
     g.check(&[]);
 }
 
@@ -60,31 +61,31 @@ async fn one_edge() {
         prune_unreachable_peers_after: time::Duration::seconds(3),
         prune_edges_after: None,
     };
-    let g = Arc::new(Graph::new(cfg.clone()));
+    let g = Arc::new(Graph::new(clock.clock(), cfg.clone()));
 
     let p1 = data::make_secret_key(rng);
     let e1 = data::make_edge(&node_key, &p1, 1);
     let e1v2 = e1.remove_edge(peer_id(&p1), &p1);
 
-    tracing::info!(target:"test", "Add an active edge. Update RT with pruning.");
+    tracing::info!(target:"test", "add an active edge, update rt with pruning");
     // NOOP, since p1 is reachable.
-    g.simple_update(&clock.clock(), vec![e1.clone()]).await;
+    g.simple_update(vec![e1.clone()]).await;
     g.check(&[e1.clone()]);
 
-    tracing::info!(target:"test", "Override with an inactive edge.");
-    g.simple_update(&clock.clock(), vec![e1v2.clone()]).await;
+    tracing::info!(target:"test", "override with an inactive edge");
+    g.simple_update(vec![e1v2.clone()]).await;
     g.check(&[e1v2.clone()]);
 
-    tracing::info!(target:"test", "After 2s, simple_update RT with pruning unreachable for 3s.");
+    tracing::info!(target:"test", "after 2s, simple_update rt with pruning unreachable for 3s");
     // NOOP, since p1 is unreachable for 2s.
     clock.advance(2 * SEC);
-    g.simple_update(&clock.clock(), vec![]).await;
+    g.simple_update(vec![]).await;
     g.check(&[e1v2.clone()]);
 
-    tracing::info!(target:"test", "Update RT with pruning unreachable for 1s.");
+    tracing::info!(target:"test", "update rt with pruning unreachable for 1s");
     // p1 should be moved to DB.
     clock.advance(2 * SEC);
-    g.simple_update(&clock.clock(), vec![]).await;
+    g.simple_update(vec![]).await;
     g.check(&[]);
 }
 
@@ -109,7 +110,7 @@ async fn expired_edges() {
         prune_unreachable_peers_after: time::Duration::hours(100),
         prune_edges_after: Some(110 * SEC),
     };
-    let g = Arc::new(Graph::new(cfg.clone()));
+    let g = Arc::new(Graph::new(clock.clock(), cfg.clone()));
 
     let p1 = data::make_secret_key(rng);
     let p2 = data::make_secret_key(rng);
@@ -120,42 +121,42 @@ async fn expired_edges() {
     let still_old_e2 = data::make_edge(&node_key, &p2, to_active_nonce(now - 90 * SEC));
     let fresh_e2 = data::make_edge(&node_key, &p2, to_active_nonce(now));
 
-    tracing::info!(target:"test", "Add an active edge.");
-    g.simple_update(&clock.clock(), vec![e1.clone(), old_e2.clone()]).await;
+    tracing::info!(target:"test", "add an active edge");
+    g.simple_update(vec![e1.clone(), old_e2.clone()]).await;
     g.check(&[e1.clone(), old_e2.clone()]);
-    tracing::info!(target:"test", "Update RT with pruning.");
+    tracing::info!(target:"test", "update rt with pruning");
     // e1 should stay - as it is fresh, but old_e2 should be removed.
     clock.advance(40 * SEC);
-    g.simple_update(&clock.clock(), vec![]).await;
+    g.simple_update(vec![]).await;
     g.check(&[e1.clone()]);
 
-    tracing::info!(target:"test", "Adding 'still old' edge to e2 should fail.");
+    tracing::info!(target:"test", "adding 'still old' edge to e2 should fail");
     // (as it is older than the last prune_edges_older_than)
-    g.simple_update(&clock.clock(), vec![still_old_e2.clone()]).await;
+    g.simple_update(vec![still_old_e2.clone()]).await;
     g.check(&[e1.clone()]);
 
-    tracing::info!(target:"test", "But adding the fresh edge should work.");
-    g.simple_update(&clock.clock(), vec![fresh_e2.clone()]).await;
+    tracing::info!(target:"test", "but adding the fresh edge should work");
+    g.simple_update(vec![fresh_e2.clone()]).await;
     g.check(&[e1.clone(), fresh_e2.clone()]);
 
-    tracing::info!(target:"test", "Advance so that the edge is 'too old' and should be removed.");
+    tracing::info!(target:"test", "advance so that the edge is 'too old' and should be removed");
     clock.advance(100 * SEC);
-    g.simple_update(&clock.clock(), vec![]).await;
+    g.simple_update(vec![]).await;
     g.check(&[]);
 
-    tracing::info!(target:"test", "Let's create a removal edge.");
+    tracing::info!(target:"test", "let's create a removal edge");
     let e1v2 = data::make_edge(&node_key, &p1, to_active_nonce(clock.now_utc()))
         .remove_edge(peer_id(&p1), &p1);
-    g.simple_update(&clock.clock(), vec![e1v2.clone()]).await;
+    g.simple_update(vec![e1v2.clone()]).await;
     g.check(&[e1v2.clone()]);
 
     // Advance time a bit. The edge should stay.
     clock.advance(20 * SEC);
-    g.simple_update(&clock.clock(), vec![]).await;
+    g.simple_update(vec![]).await;
     g.check(&[e1v2.clone()]);
 
     // Advance time a lot. The edge should be pruned.
     clock.advance(100 * SEC);
-    g.simple_update(&clock.clock(), vec![]).await;
+    g.simple_update(vec![]).await;
     g.check(&[]);
 }

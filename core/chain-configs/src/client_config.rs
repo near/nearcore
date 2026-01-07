@@ -1,5 +1,4 @@
 //! Chain Client Configuration
-use crate::ExternalStorageLocation::GCS;
 use crate::MutableConfigValue;
 use bytesize::ByteSize;
 #[cfg(feature = "schemars")]
@@ -204,44 +203,35 @@ pub struct ExternalStorageConfig {
     pub external_storage_fallback_threshold: u64,
 }
 
+/// Supported external storage backends and their minimal config.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum ExternalStorageLocation {
     S3 {
-        /// Location of state dumps on S3.
+        /// Location on S3.
         bucket: String,
         /// Data may only be available in certain locations.
         region: String,
     },
-    Filesystem {
-        root_dir: PathBuf,
-    },
-    GCS {
-        bucket: String,
-    },
+    /// Local filesystem root for storing data.
+    Filesystem { root_dir: PathBuf },
+    /// Google Cloud Storage bucket name.
+    GCS { bucket: String },
+}
+
+impl ExternalStorageLocation {
+    /// Human-readable backend name.
+    pub fn name(&self) -> &str {
+        match self {
+            Self::S3 { .. } => "S3",
+            Self::Filesystem { .. } => "Filesystem",
+            Self::GCS { .. } => "GCS",
+        }
+    }
 }
 
 fn default_state_parts_compression_level() -> i32 {
     DEFAULT_STATE_PARTS_COMPRESSION_LEVEL
-}
-
-/// Configures the external storage used by the archival node.
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct CloudStorageConfig {
-    /// The storage to persist the archival data.
-    pub storage: ExternalStorageLocation,
-    /// Location of a json file with credentials allowing access to the bucket.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub credentials_file: Option<PathBuf>,
-}
-
-/// Configuration for a cloud-based archival reader.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct CloudArchivalReaderConfig {
-    /// Configures the external storage used by the archival node.
-    pub cloud_storage: CloudStorageConfig,
 }
 
 pub fn default_archival_writer_polling_interval() -> Duration {
@@ -254,9 +244,6 @@ pub fn default_archival_writer_polling_interval() -> Duration {
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CloudArchivalWriterConfig {
-    /// Configures the external storage used by the archival node.
-    pub cloud_storage: CloudStorageConfig,
-
     /// Determines whether block-related data should be written to cloud storage.
     #[serde(default)]
     pub archive_block_data: bool,
@@ -268,13 +255,22 @@ pub struct CloudArchivalWriterConfig {
     pub polling_interval: Duration,
 }
 
-// A handle that allows the main process to interrupt cloud archival actor if needed.
-#[derive(Clone)]
-pub struct CloudArchivalHandle {
+impl Default for CloudArchivalWriterConfig {
+    fn default() -> Self {
+        Self {
+            archive_block_data: false,
+            polling_interval: default_archival_writer_polling_interval(),
+        }
+    }
+}
+
+/// A handle that allows the main process to interrupt other.
+#[derive(Clone, Debug)]
+pub struct InterruptHandle {
     keep_going: Arc<AtomicBool>,
 }
 
-impl CloudArchivalHandle {
+impl InterruptHandle {
     pub fn new() -> Self {
         Self { keep_going: Arc::new(AtomicBool::new(true)) }
     }
@@ -411,7 +407,7 @@ impl StateSyncConfig {
     pub fn gcs_with_bucket(bucket: String) -> Self {
         Self {
             sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
-                location: GCS { bucket },
+                location: ExternalStorageLocation::GCS { bucket },
                 num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
                 num_concurrent_requests_during_catchup:
                     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
@@ -467,25 +463,11 @@ impl Default for EpochSyncConfig {
 // A handle that allows the main process to interrupt resharding if needed.
 // This typically happens when the main process is interrupted.
 #[derive(Clone, Debug)]
-pub struct ReshardingHandle {
-    keep_going: Arc<AtomicBool>,
-}
+pub struct ReshardingHandle(pub InterruptHandle);
 
 impl ReshardingHandle {
     pub fn new() -> Self {
-        Self { keep_going: Arc::new(AtomicBool::new(true)) }
-    }
-
-    pub fn get(&self) -> bool {
-        self.keep_going.load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    pub fn stop(&self) -> () {
-        self.keep_going.store(false, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    pub fn is_cancelled(&self) -> bool {
-        !self.get()
+        Self(InterruptHandle::new())
     }
 }
 
@@ -676,6 +658,19 @@ pub fn default_orphan_state_witness_max_size() -> ByteSize {
     ByteSize::mb(40)
 }
 
+/// Returns the default value for `enable_early_prepare_transactions`.
+/// Enabled on nightly as it remains disabled in production builds, and CI will run both with
+/// this enabled and disabled.
+pub fn default_enable_early_prepare_transactions() -> bool {
+    cfg!(feature = "nightly")
+}
+
+/// Returns the default value for `chunks_cache_height_horizon`.
+/// A chunk is out of rear horizon if its height + chunks_cache_height_horizon < largest_seen_height.
+pub fn default_chunks_cache_height_horizon() -> BlockHeightDelta {
+    128
+}
+
 /// Config for the Chunk Distribution Network feature.
 /// This allows nodes to push and pull chunks from a central stream.
 /// The two benefits of this approach are: (1) less request/response traffic
@@ -802,8 +797,6 @@ pub struct ClientConfig {
     pub tracked_shards_config: TrackedShardsConfig,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
-    /// Configuration for a cloud-based archival reader.
-    pub cloud_archival_reader: Option<CloudArchivalReaderConfig>,
     /// Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and
     /// writes chunk-related data based on the tracked shards.
     pub cloud_archival_writer: Option<CloudArchivalWriterConfig>,
@@ -814,6 +807,8 @@ pub struct ClientConfig {
     pub save_trie_changes: bool,
     /// Whether to persist transaction outcomes to disk or not.
     pub save_tx_outcomes: bool,
+    /// Whether to persist state changes on disk or not.
+    pub save_state_changes: bool,
     /// Whether to persist partial chunk parts for untracked shards or not.
     pub save_untracked_partial_chunks_parts: bool,
     /// Number of threads for ViewClientActor pool.
@@ -857,6 +852,8 @@ pub struct ClientConfig {
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
+    /// If true, the node won't forward transactions to next the chunk producers.
+    pub disable_tx_routing: bool,
     /// Limit the time of adding transactions to a chunk.
     /// A node produces a chunk by adding transactions from the transaction pool until
     /// some limit is reached. This time limit ensures that adding transactions won't take
@@ -890,13 +887,15 @@ pub struct ClientConfig {
     /// Determines whether client should exit if the protocol version is not supported
     /// for the next or next next epoch.
     pub protocol_version_check: ProtocolVersionCheckConfig,
-}
-
-impl ClientConfig {
-    /// Whether the node is configured as cloud reader or cloud writer archival node.
-    pub fn is_cloud_archive(&self) -> bool {
-        self.cloud_archival_reader.is_some() || self.cloud_archival_writer.is_some()
-    }
+    /// If true, transactions for the next chunk will be prepared early, right after the previous chunk's
+    /// post-state is ready. This can help produce chunks faster, for high-throughput chains.
+    /// The current implementation increases latency on low-load chains, which will be fixed in the future.
+    /// The default is disabled.
+    pub enable_early_prepare_transactions: bool,
+    /// Height horizon for the chunk cache. A chunk is removed from the cache
+    /// if its height + chunks_cache_height_horizon < largest_seen_height.
+    /// The default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.
+    pub chunks_cache_height_horizon: BlockHeightDelta,
 }
 
 #[cfg(feature = "schemars")]

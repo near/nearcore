@@ -202,7 +202,7 @@ expression: config_view
     "discard_custom_sections": true,
     "global_contract_host_fns": true,
     "reftypes_bulk_memory": true,
-    "deterministic_account_ids": false,
+    "deterministic_account_ids": true,
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
@@ -234,7 +234,7 @@ expression: config_view
       "max_locals_per_contract": 1000000,
       "max_tables_per_contract": 1,
       "max_elements_per_contract_table": 10000,
-      "account_id_validity_rules_version": 1,
+      "account_id_validity_rules_version": 2,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
       "per_receipt_storage_proof_size_limit": 4000000
@@ -262,5 +262,11 @@ expression: config_view
     "main_storage_proof_size_soft_limit": 4000000,
     "combined_transactions_size_limit": 4194304,
     "new_transactions_validation_state_size_soft_limit": 572864
+  },
+  "dynamic_resharding_config": {
+    "memory_usage_threshold": 999999999999999,
+    "min_child_memory_usage": 999999999999999,
+    "max_number_of_shards": 999999999999999,
+    "min_epochs_between_resharding": 999999999999999
   }
 }

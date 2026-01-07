@@ -32,9 +32,9 @@ impl DelayedReceiptTracker {
     pub(crate) fn push(&mut self, target_shard_idx: ShardIndex, index: u64) {
         if !self.indices[target_shard_idx].insert(index) {
             tracing::warn!(
-                "two delayed receipts with index {} found in shard {}",
-                index,
-                self.source_shard_uid,
+                %index,
+                shard = ?self.source_shard_uid,
+                "two delayed receipts with same index found in shard"
             );
         };
     }
@@ -72,9 +72,9 @@ fn read_delayed_receipt(
         Some(r) => Some(r.into_receipt()),
         None => {
             tracing::warn!(
-                "Expected delayed receipt with index {} in shard {} not found",
-                index,
-                source_shard_uid,
+                %index,
+                ?source_shard_uid,
+                "expected delayed receipt not found"
             );
             None
         }

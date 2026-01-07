@@ -73,13 +73,27 @@ following steps when creating a PR:
    repository.
 5. Feel free to submit draft PRs to get early feedback and to make sure you are
    on the right track.
-6. The PR name should follow the template: `<type>: <name>`.  Where `type` is:
-   - `fix` for bug fixes;
-   - `feat` for new features;
-   - `refactor` for changes that reorganize code without adding new content;
-   - `doc` for changes that change documentation or comments;
-   - `test` for changes that introduce new tests;
-   - `chore` for grunt tasks like updating dependencies.
+6. The PR title should follow the template: `<type>: <title>` or `<type>(<project>): <title>`.
+   - `type` should be one of:
+      - `fix` for bug fixes.
+      - `feat` for new features.
+      - `refactor` for changes that reorganize code without adding new content.
+      - `doc` for changes that change documentation or comments.
+      - `test` for changes that introduce new tests.
+      - `chore` for grunt tasks like updating dependencies.
+      - `perf` for performance-related changes and benchmarks.
+   - `project` is a short non-capitalized project or area name such as `spice`, `resharding`, `state-sync`, `ci`, etc.
+   - `title` should not be capitalized.
+   - examples:
+     - correct:
+       - `test: add delayed receipt example`
+       - `feat(spice): add catchup logic`
+       - `fix(state-sync): properly validate header`
+     - incorrect:
+       - `[perf] optimistic witness` - `[..]` should not be used.
+       - `fix(State-Sync): ...` - project name should not be capitalized.
+       - `test(resharding) epoch boundary` - missing `:`.
+       - `doc: Update validator reward calculation` - title should not be capitalized.
 7. The PR should also contain a description when appropriate to provide
    additional information to help the reviewer inspect the proposed change.
 8. If your PR introduces a user-observable change (e.g. a new protocol feature,

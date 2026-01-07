@@ -11,6 +11,8 @@ use near_primitives::types::{AccountId, Balance, ShardId};
 
 /// Test that processing chunks with invalid transactions does not lead to panics
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_invalid_transactions_no_panic() {
     let accounts =
         vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];
@@ -92,7 +94,7 @@ fn test_invalid_transactions_no_panic() {
                 create_chunk(client, transactions);
             let shard_chunk = chunk.to_shard_chunk().clone();
             client
-                .persist_and_distribute_encoded_chunk(
+                .distribute_and_persist_encoded_chunk(
                     chunk,
                     encoded_chunk_parts_paths,
                     receipts,
@@ -141,6 +143,8 @@ fn test_invalid_transactions_no_panic() {
 /// Tests the `RelaxedChunkValidation` feature.
 #[test]
 #[cfg(feature = "nightly")]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_invalid_transactions_dont_invalidate_chunk() {
     near_o11y::testonly::init_test_logger();
     let accounts =
@@ -213,7 +217,7 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
     let shard_chunk = chunk.to_shard_chunk().clone();
 
     client
-        .persist_and_distribute_encoded_chunk(
+        .distribute_and_persist_encoded_chunk(
             chunk,
             encoded_chunk_parts_paths,
             receipts,
@@ -265,7 +269,7 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
         let head = client.chain.get_head_block().unwrap();
         let chunks = head.chunks();
         let chunk_hash = chunks[0].chunk_hash();
-        let Ok(chunk) = client.chain.mut_chain_store().get_chunk(chunk_hash) else {
+        let Ok(chunk) = client.chain.get_chunk(chunk_hash) else {
             continue;
         };
         receipts.extend(chunk.prev_outgoing_receipts().into_iter().map(|r| *r.receipt_id()));

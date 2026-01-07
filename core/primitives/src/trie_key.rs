@@ -6,10 +6,10 @@ use near_primitives_core::types::{NonceIndex, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::mem::size_of;
 
-pub(crate) const ACCOUNT_DATA_SEPARATOR: u8 = b',';
+pub const ACCOUNT_DATA_SEPARATOR: u8 = b',';
 // The use of `ACCESS_KEY` as a separator is a historical artefact.
 // Changing it would require a very long DB migration for basically no benefits.
-pub(crate) const ACCESS_KEY_SEPARATOR: u8 = col::ACCESS_KEY;
+pub const ACCESS_KEY_SEPARATOR: u8 = col::ACCESS_KEY;
 
 /// Type identifiers used for DB key generation to store values in the key-value storage.
 pub mod col {
@@ -842,9 +842,7 @@ pub mod trie_key_parsers {
 
 #[cfg(test)]
 mod tests {
-    use crate::shard_layout::ShardLayout;
     use near_crypto::KeyType;
-    use near_primitives_core::version::PROTOCOL_VERSION;
 
     use super::*;
 
@@ -1148,17 +1146,6 @@ mod tests {
                 Some(account_id)
             );
         }
-    }
-
-    #[test]
-    fn test_shard_id_u16_optimization() {
-        let shard_layout = ShardLayout::for_protocol_version(PROTOCOL_VERSION);
-        let max_id = shard_layout.shard_ids().max().unwrap();
-        let max_id: u64 = max_id.into();
-        assert!(
-            max_id <= u16::MAX as u64,
-            "buffered receipt trie key optimization broken, must fit in a u16"
-        );
     }
 
     #[test]

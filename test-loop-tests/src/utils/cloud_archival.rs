@@ -1,45 +1,47 @@
+use std::collections::HashSet;
+use std::sync::Arc;
+
+use borsh::BorshDeserialize;
+
+use itertools::Itertools;
+use near_async::messaging::Handler;
 use near_chain::types::Tip;
-use near_client::archive::cloud_archival_actor::CloudArchivalActor;
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta};
+use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
+use near_client::{Client, GetBlock};
+use near_primitives::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::AGGREGATOR_KEY;
+use near_primitives::sharding::ChunkHash;
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockHeightDelta, BlockId, BlockReference, EpochHeight, EpochId,
+};
 use near_store::adapter::StoreAdapter;
-use near_store::{COLD_HEAD_KEY, DBCol};
+use near_store::archive::cloud_storage::CloudStorage;
+use near_store::db::CLOUD_HEAD_KEY;
+use near_store::{COLD_HEAD_KEY, DBCol, Store};
 
 use crate::setup::env::TestLoopEnv;
 use crate::utils::node::TestLoopNode;
-
-/// Stops a node and restarts it with a new identifier `<old>-restart`.
-pub fn stop_and_restart_node(env: &mut TestLoopEnv, node_identifier: &str) {
-    let node_state = env.kill_node(node_identifier);
-    let new_identifier = format!("{}-restart", node_identifier);
-    env.restart_node(&new_identifier, node_state);
-}
-
-/// Returns the cloud archival actor for `archival_id`.
-pub fn get_cloud_writer<'a>(
-    env: &'a TestLoopEnv,
-    archival_id: &AccountId,
-) -> &'a CloudArchivalActor {
-    let archival_node = TestLoopNode::for_account(&env.node_datas, archival_id);
-    let writer_testloop_handle =
-        archival_node.data().cloud_archival_sender.as_ref().unwrap().actor_handle();
-    env.test_loop.data.get(&writer_testloop_handle)
-}
 
 pub fn run_node_until(env: &mut TestLoopEnv, account_id: &AccountId, target_height: BlockHeight) {
     let node = TestLoopNode::for_account(&env.node_datas, account_id);
     node.run_until_head_height(&mut env.test_loop, target_height);
 }
 
+fn execute_future<F: Future>(fut: F) -> F::Output {
+    // If this causes issues, use the testloop future spawner and wait for 0 blocks so the
+    // event loop can run it.
+    futures::executor::block_on(fut)
+}
+
 /// Sanity checks: heads alignment, GC tail bounds, and optional minimum GC progress.
 pub fn gc_and_heads_sanity_checks(
     env: &TestLoopEnv,
-    archival_id: &AccountId,
+    writer_id: &AccountId,
     split_store_enabled: bool,
     num_gced_blocks: Option<BlockHeightDelta>,
 ) {
-    let cloud_head = get_cloud_writer(&env, &archival_id).get_cloud_head();
-    let archival_node = TestLoopNode::for_account(&env.node_datas, &archival_id);
-    let client = archival_node.client(env.test_loop_data());
+    let cloud_head = get_cloud_head(&env, &writer_id);
+    let client = get_client(env, writer_id);
     let chain_store = client.chain.chain_store();
     let epoch_store = chain_store.epoch_store();
 
@@ -67,26 +69,122 @@ pub fn pause_and_resume_writer_with_sanity_checks(
     mut env: &mut TestLoopEnv,
     resume_height: BlockHeight,
     epoch_length: BlockHeightDelta,
-    archival_id: &AccountId,
+    writer_id: &AccountId,
     split_store_enabled: bool,
 ) {
     // Run the node so that the cloud head advances a bit, but remains within the first epoch.
-    run_node_until(&mut env, &archival_id, epoch_length);
-    let cloud_head = get_cloud_writer(&env, &archival_id).get_cloud_head();
+    run_node_until(&mut env, &writer_id, epoch_length);
+    let cloud_head = get_cloud_head(&env, &writer_id);
     assert!(2 < cloud_head && cloud_head + 1 < epoch_length);
 
     // Stop the writer and let the node reach `resume_height` while the writer is paused.
-    get_cloud_writer(&env, &archival_id).get_handle().stop();
+    get_writer_handle(&env, &writer_id).0.stop();
     let node_identifier = {
-        let archival_node = TestLoopNode::for_account(&env.node_datas, &archival_id);
+        let archival_node = TestLoopNode::for_account(&env.node_datas, &writer_id);
         archival_node.run_until_head_height(&mut env.test_loop, resume_height);
         archival_node.data().identifier.clone()
     };
 
     // Run sanity checks.
-    gc_and_heads_sanity_checks(&env, &archival_id, split_store_enabled, None);
+    gc_and_heads_sanity_checks(&env, &writer_id, split_store_enabled, None);
 
     // Resume the writer and restart the node.
-    get_cloud_writer(&env, &archival_id).get_handle().resume();
+    get_writer_handle(&env, &writer_id).0.resume();
     stop_and_restart_node(&mut env, node_identifier.as_str());
+}
+
+/// Stops a node and restarts it with a new identifier `<old>-restart`.
+fn stop_and_restart_node(env: &mut TestLoopEnv, node_identifier: &str) {
+    let node_state = env.kill_node(node_identifier);
+    let new_identifier = format!("{}-restart", node_identifier);
+    env.restart_node(&new_identifier, node_state);
+}
+
+fn get_client<'a>(env: &'a TestLoopEnv, account_id: &'a AccountId) -> &'a Client {
+    let archival_node = TestLoopNode::for_account(&env.node_datas, &account_id);
+    archival_node.client(env.test_loop_data())
+}
+
+/// Returns the cloud archival writer handle for `archival_id`.
+fn get_writer_handle<'a>(
+    env: &'a TestLoopEnv,
+    writer_id: &AccountId,
+) -> &'a CloudArchivalWriterHandle {
+    let archival_node = TestLoopNode::for_account(&env.node_datas, writer_id);
+    let writer_handle = &archival_node.data().cloud_archival_writer_handle;
+    env.test_loop.data.get(writer_handle).as_ref().unwrap()
+}
+
+fn get_hot_store(env: &TestLoopEnv, account_id: &AccountId) -> Store {
+    let node = TestLoopNode::for_account(&env.node_datas, account_id);
+    node.client(env.test_loop_data()).chain.chain_store().store()
+}
+
+fn get_cloud_storage(env: &TestLoopEnv, archival_id: &AccountId) -> Arc<CloudStorage> {
+    let archival_node = TestLoopNode::for_account(&env.node_datas, archival_id);
+    let cloud_storage_handle = &archival_node.data().cloud_storage_sender;
+    let cloud_storage = env.test_loop.data.get(&cloud_storage_handle);
+    cloud_storage.clone().unwrap()
+}
+
+fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
+    let hot_store = get_hot_store(env, writer_id);
+    hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY).unwrap().unwrap().height
+}
+
+/// Runs tests verifying view client behavior at the given block height.
+pub fn test_view_client(env: &mut TestLoopEnv, archival_id: &AccountId, height: BlockHeight) {
+    let archival_node = TestLoopNode::for_account(&env.node_datas, archival_id);
+    let view_client_handle = archival_node.data().view_client_sender.actor_handle();
+    let view_client = env.test_loop.data.get_mut(&view_client_handle);
+    let block_reference = BlockReference::BlockId(BlockId::Height(height));
+    let block = view_client.handle(GetBlock(block_reference)).unwrap();
+    for chunk_header in block.chunks {
+        let _chunk_hash = ChunkHash(chunk_header.chunk_hash);
+        // TODO(cloud_archival) Implement shard data retrieval from cloud archive
+        //let _chunk = view_client.handle(GetChunk::ChunkHash(chunk_hash)).unwrap();
+    }
+}
+
+/// Checks that each epoch (except the final one) has a state header uploaded for each
+/// shards. Panics if headers are missing for some shards within an epoch.
+pub fn snapshots_sanity_check(
+    env: &TestLoopEnv,
+    archival_id: &AccountId,
+    final_epoch_height: EpochHeight,
+) {
+    let store = get_hot_store(env, archival_id);
+    let cloud_storage = get_cloud_storage(env, archival_id);
+    let client = get_client(env, archival_id);
+    let mut epoch_heights_with_snapshot = HashSet::<EpochHeight>::new();
+    for (epoch_id, epoch_info) in store.iter(DBCol::EpochInfo) {
+        if epoch_id.as_ref() == AGGREGATOR_KEY {
+            continue;
+        }
+        let epoch_id = EpochId::try_from_slice(epoch_id.as_ref()).unwrap();
+        let epoch_info = EpochInfo::try_from_slice(epoch_info.as_ref()).unwrap();
+        let epoch_height = epoch_info.epoch_height();
+        let shards =
+            client.epoch_manager.get_shard_layout(&epoch_id).unwrap().shard_ids().collect_vec();
+        let mut num_shards_with_snapshot = 0;
+        for shard_id in &shards {
+            let fut = cloud_storage.retrieve_state_header(epoch_height, epoch_id, *shard_id);
+            let state_header = execute_future(fut);
+            if state_header.is_ok() {
+                num_shards_with_snapshot += 1;
+            }
+        }
+        if num_shards_with_snapshot == shards.len() {
+            epoch_heights_with_snapshot.insert(epoch_height);
+        } else if num_shards_with_snapshot > 0 {
+            panic!(
+                "Missing snapshots for some shards at epoch height {} (uploaded {} of {})",
+                epoch_height,
+                num_shards_with_snapshot,
+                shards.len(),
+            )
+        }
+    }
+    // Snapshots for the most recent epoch have not been uploaded yet.
+    assert_eq!(epoch_heights_with_snapshot, HashSet::from_iter(1..final_epoch_height));
 }

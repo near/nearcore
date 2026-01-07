@@ -3,12 +3,13 @@ use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::RuntimeAdapter;
-use near_chain::{Block, ChainGenesis};
+use near_chain::{ApplyChunksIterationMode, Block, ChainGenesis};
 use near_chain_configs::{
     Genesis, GenesisConfig, MutableConfigValue, ProtocolVersionCheckConfig, TrackedShardsConfig,
 };
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
-use near_client::{ChunkValidationActorInner, Client};
+use near_client::chunk_executor_actor::testonly::TestonlySyncChunkExecutorActor;
+use near_client::{ChunkValidationActor, Client};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -519,7 +520,7 @@ impl TestEnvBuilder {
             })
             .collect_vec();
         let actor_system = ActorSystem::new();
-        let (clients, chunk_validation_actors): (Vec<Client>, Vec<ChunkValidationActorInner>) =
+        let (clients, chunk_validation_actors): (Vec<Client>, Vec<ChunkValidationActor>) =
             (0..num_clients)
                 .map(|i| {
                     let account_id = client_accounts[i].clone();
@@ -567,7 +568,6 @@ impl TestEnvBuilder {
                         runtime,
                         rng_seed,
                         self.enable_split_store,
-                        self.save_trie_changes,
                         self.save_tx_outcomes,
                         self.protocol_version_check,
                         Some(snapshot_callbacks),
@@ -591,6 +591,21 @@ impl TestEnvBuilder {
             })
             .collect();
 
+        let spice_chunk_executors = (0..num_clients)
+            .map(|i| {
+                TestonlySyncChunkExecutorActor::new(
+                    clients[i].runtime_adapter.store().clone(),
+                    &chain_genesis,
+                    clients[i].runtime_adapter.clone(),
+                    clients[i].epoch_manager.clone(),
+                    clients[i].shard_tracker.clone(),
+                    network_adapters[i].as_multi_sender(),
+                    validator_signers[i].clone(),
+                    ApplyChunksIterationMode::default(),
+                )
+            })
+            .collect();
+
         TestEnv {
             clock,
             actor_system,
@@ -603,6 +618,7 @@ impl TestEnvBuilder {
             clients,
             chunk_validation_actors,
             rpc_handlers: tx_request_handlers,
+            spice_chunk_executors,
             account_indices: AccountIndices(
                 self.clients
                     .into_iter()
@@ -613,7 +629,6 @@ impl TestEnvBuilder {
             paused_blocks: Default::default(),
             seeds,
             enable_split_store: self.enable_split_store,
-            save_trie_changes: self.save_trie_changes,
             save_tx_outcomes: self.save_tx_outcomes,
             protocol_version_check: self.protocol_version_check,
         }

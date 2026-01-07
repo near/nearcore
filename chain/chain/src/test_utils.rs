@@ -5,7 +5,6 @@ use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::{ApplyChunksIterationMode, Chain};
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::runtime::NightshadeRuntime;
-use crate::spice_core::CoreStatementsProcessor;
 use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::{ApplyChunksSpawner, DoomslugThresholdMode};
@@ -28,11 +27,9 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
-use near_store::adapter::StoreAdapter as _;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
-use tracing::debug;
 
 use near_async::messaging::{IntoMultiSender, noop};
 
@@ -70,15 +67,11 @@ pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
     let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = NightshadeRuntime::test(
-        tempdir.path(),
-        store.clone(),
-        &genesis.config,
-        epoch_manager.clone(),
-    );
+    let runtime =
+        NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
     Chain::new(
         clock,
-        epoch_manager.clone(),
+        epoch_manager,
         shard_tracker,
         runtime,
         &chain_genesis,
@@ -89,7 +82,6 @@ pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
         ApplyChunksIterationMode::Sequential,
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
-        CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager),
         None,
     )
     .unwrap()
@@ -165,12 +157,8 @@ pub fn setup_with_tx_validity_period(
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = NightshadeRuntime::test(
-        tempdir.path(),
-        store.clone(),
-        &genesis.config,
-        epoch_manager.clone(),
-    );
+    let runtime =
+        NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
     let chain = Chain::new(
         clock,
         epoch_manager.clone(),
@@ -184,7 +172,6 @@ pub fn setup_with_tx_validity_period(
         ApplyChunksIterationMode::Sequential,
         MutableConfigValue::new(None, "validator_signer"),
         noop().into_multi_sender(),
-        CoreStatementsProcessor::new_with_noop_senders(store.chain_store(), epoch_manager.clone()),
         None,
     )
     .unwrap();
@@ -204,15 +191,15 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
     let epoch_manager = chain.epoch_manager.clone();
     let chain_store = chain.mut_chain_store();
     let head = chain_store.head().unwrap();
-    debug!(
-        "{:?} Chain head ({}): {} / {}",
-        me,
-        if tail { "tail" } else { "full" },
-        head.height,
-        head.last_block_hash
+    tracing::debug!(
+        ?me,
+        mode = if tail { "tail" } else { "full" },
+        height = %head.height,
+        last_block_hash = %head.last_block_hash,
+        "chain head"
     );
     let mut headers = vec![];
-    for (key, _) in chain_store.store().iter(DBCol::BlockHeader).map(Result::unwrap) {
+    for (key, _) in chain_store.store().iter(DBCol::BlockHeader) {
         let header = chain_store
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()
@@ -227,25 +214,25 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
     for header in headers {
         if header.is_genesis() {
             // Genesis block.
-            debug!("{: >3} {}", header.height(), format_hash(*header.hash()));
+            tracing::debug!(height = %header.height(), hash = %format_hash(*header.hash()));
         } else {
             let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap().clone();
             let maybe_block = chain_store.get_block(header.hash()).ok();
             let epoch_id = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
             let block_producer =
                 epoch_manager.get_block_producer(&epoch_id, header.height()).unwrap();
-            debug!(
-                "{: >3} {} | {: >10} | parent: {: >3} {} | {}",
-                header.height(),
-                format_hash(*header.hash()),
-                block_producer,
-                parent_header.height(),
-                format_hash(*parent_header.hash()),
-                if let Some(block) = &maybe_block {
-                    format!("chunks: {}", block.chunks().len())
+            tracing::debug!(
+                height = %header.height(),
+                hash = %format_hash(*header.hash()),
+                %block_producer,
+                parent_height = %parent_header.height(),
+                parent_hash = %format_hash(*parent_header.hash()),
+                chunks = %if let Some(block) = &maybe_block {
+                    block.chunks().len().to_string()
                 } else {
                     "-".to_string()
-                }
+                },
+                "block"
             );
             if let Some(block) = maybe_block {
                 for chunk_header in block.chunks().iter() {
@@ -258,30 +245,29 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                         .unwrap()
                         .take_account_id();
                     if let Ok(chunk) = chain_store.get_chunk(&chunk_header.chunk_hash()) {
-                        debug!(
-                            "    {: >3} {} | {} | {: >10} | tx = {: >2}, receipts = {: >2}",
-                            chunk_header.height_created(),
-                            format_hash(chunk_header.chunk_hash().0),
-                            chunk_header.shard_id(),
-                            chunk_producer,
-                            chunk.to_transactions().len(),
-                            chunk.prev_outgoing_receipts().len()
+                        tracing::debug!(
+                            height = %chunk_header.height_created(),
+                            hash = %format_hash(chunk_header.chunk_hash().0),
+                            shard_id = %chunk_header.shard_id(),
+                            %chunk_producer,
+                            tx_count = %chunk.to_transactions().len(),
+                            receipts_count = %chunk.prev_outgoing_receipts().len(),
                         );
                     } else if let Ok(partial_chunk) =
                         chain_store.get_partial_chunk(&chunk_header.chunk_hash())
                     {
-                        debug!(
-                            "    {: >3} {} | {} | {: >10} | parts = {:?} receipts = {:?}",
-                            chunk_header.height_created(),
-                            format_hash(chunk_header.chunk_hash().0),
-                            chunk_header.shard_id(),
-                            chunk_producer,
-                            partial_chunk.parts().iter().map(|x| x.part_ord).collect::<Vec<_>>(),
-                            partial_chunk
+                        tracing::debug!(
+                            height = %chunk_header.height_created(),
+                            hash = %format_hash(chunk_header.chunk_hash().0),
+                            shard_id = %chunk_header.shard_id(),
+                            %chunk_producer,
+                            parts = ?partial_chunk.parts().iter().map(|x| x.part_ord).collect::<Vec<_>>(),
+                            receipts = ?partial_chunk
                                 .prev_outgoing_receipts()
                                 .iter()
                                 .map(|x| format!("{} => {}", x.0.len(), x.1.to_shard_id))
                                 .collect::<Vec<_>>(),
+                            "partial chunk",
                         );
                     }
                 }
@@ -299,25 +285,39 @@ pub fn get_fake_next_block_chunk_headers(
         shard_id: ShardId,
         prev_block_hash: CryptoHash,
         signer: &ValidatorSigner,
+        is_spice_block: bool,
     ) -> ShardChunkHeader {
-        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            prev_block_hash,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            height,
-            shard_id,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            CongestionInfo::default(),
-            BandwidthRequests::empty(),
-            signer,
-        ))
+        if is_spice_block {
+            ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
+                prev_block_hash,
+                Default::default(),
+                Default::default(),
+                height,
+                shard_id,
+                Default::default(),
+                Default::default(),
+                signer,
+            ))
+        } else {
+            ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+                prev_block_hash,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                height,
+                shard_id,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                CongestionInfo::default(),
+                BandwidthRequests::empty(),
+                signer,
+            ))
+        }
     }
 
     let mut chunks = Vec::new();
@@ -332,7 +332,8 @@ pub fn get_fake_next_block_chunk_headers(
             })
             .unwrap();
         let signer = create_test_signer(chunk_producer.account_id().as_str());
-        let mut chunk_header = chunk_header(height, shard_id, *block.hash(), &signer);
+        let mut chunk_header =
+            chunk_header(height, shard_id, *block.hash(), &signer, block.is_spice_block());
         *chunk_header.height_included_mut() = height;
         chunks.push(chunk_header);
     }

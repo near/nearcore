@@ -2,7 +2,7 @@ use crate::approval_verification::verify_approvals_and_threshold_orphan;
 use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
-use crate::spice_core::CoreStatementsProcessor;
+use crate::spice_core::record_uncertified_chunks_for_block;
 use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
@@ -26,11 +26,10 @@ use near_primitives::sharding::{ReceiptProof, ShardChunk};
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::LightClientBlockView;
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
-use tracing::{debug, warn};
 
 /// Chain update helper, contains information that is needed to process block
 /// and decide to accept it or reject it.
@@ -41,7 +40,6 @@ pub struct ChainUpdate<'a> {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a>,
     doomslug_threshold_mode: DoomslugThresholdMode,
-    spice_core_processor: CoreStatementsProcessor,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -50,16 +48,9 @@ impl<'a> ChainUpdate<'a> {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
-        spice_core_processor: CoreStatementsProcessor,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = chain_store.store_update();
-        Self::new_impl(
-            epoch_manager,
-            runtime_adapter,
-            doomslug_threshold_mode,
-            chain_store_update,
-            spice_core_processor,
-        )
+        Self::new_impl(epoch_manager, runtime_adapter, doomslug_threshold_mode, chain_store_update)
     }
 
     fn new_impl(
@@ -67,15 +58,8 @@ impl<'a> ChainUpdate<'a> {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_store_update: ChainStoreUpdate<'a>,
-        spice_core_processor: CoreStatementsProcessor,
     ) -> Self {
-        ChainUpdate {
-            epoch_manager,
-            runtime_adapter,
-            chain_store_update,
-            doomslug_threshold_mode,
-            spice_core_processor,
-        }
+        ChainUpdate { epoch_manager, runtime_adapter, chain_store_update, doomslug_threshold_mode }
     }
 
     pub fn check_protocol_version(
@@ -133,21 +117,12 @@ impl<'a> ChainUpdate<'a> {
         let height = block.header().height();
         match result {
             ShardUpdateResult::NewChunk(NewChunkResult { gas_limit, shard_uid, apply_result }) => {
-                let (outcome_root, outcome_paths) =
+                let (_, outcome_paths) =
                     ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
 
                 // Save state root after applying transactions.
-                let chunk_extra = ChunkExtra::new(
-                    &apply_result.new_root,
-                    outcome_root,
-                    apply_result.validator_proposals,
-                    apply_result.total_gas_burnt,
-                    gas_limit,
-                    apply_result.total_balance_burnt,
-                    apply_result.congestion_info,
-                    apply_result.bandwidth_requests,
-                );
+                let chunk_extra = apply_result.to_chunk_extra(gas_limit);
                 self.chain_store_update.save_chunk_extra(
                     block_hash,
                     &shard_uid,
@@ -275,7 +250,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|(shard_id, x)| {
             if let Err(err) = &x {
-                warn!(target: "chain", %shard_id, hash = %block.hash(), %err, "Error in applying chunk for block");
+                tracing::warn!(target: "chain", %shard_id, hash = %block.hash(), %err, "error in applying chunk for block");
             }
             x
         }).collect::<Result<Vec<_>, Error>>()?;
@@ -285,7 +260,7 @@ impl<'a> ChainUpdate<'a> {
             block_preprocess_info;
 
         if !is_caught_up {
-            debug!(target: "chain", %prev_hash, hash = %*block.hash(), "Add block to catch up");
+            tracing::debug!(target: "chain", %prev_hash, hash = %*block.hash(), "add block to catch up");
             self.chain_store_update.add_block_to_catchup(*prev_hash, *block.hash());
         }
 
@@ -311,14 +286,20 @@ impl<'a> ChainUpdate<'a> {
             BlockInfo::from_header(block.header(), last_finalized_height),
             *block.header().random_value(),
         )?;
-        self.chain_store_update.merge(epoch_manager_update);
+        self.chain_store_update.merge(epoch_manager_update.into());
 
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(Arc::clone(&block));
         self.chain_store_update.inc_block_refcount(prev_hash)?;
 
-        if cfg!(feature = "protocol_feature_spice") {
-            self.chain_store_update.merge(self.spice_core_processor.record_block(&block)?);
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+        if ProtocolFeature::Spice.enabled(protocol_version) {
+            record_uncertified_chunks_for_block(
+                &mut self.chain_store_update,
+                self.epoch_manager.as_ref(),
+                &block,
+            )?;
         }
 
         // Update the chain head if it's the new tip
@@ -405,7 +386,7 @@ impl<'a> ChainUpdate<'a> {
         if header.height() > header_head.height {
             let tip = Tip::from_header(header);
             self.chain_store_update.save_header_head(&tip)?;
-            debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
+            tracing::debug!(target: "chain", last_block_hash = ?tip.last_block_hash, height = %tip.height, "header head updated");
             metrics::HEADER_HEAD_HEIGHT.set(tip.height as i64);
 
             Ok(Some(tip))
@@ -444,7 +425,7 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.save_body_head(&tip)?;
             metrics::BLOCK_HEIGHT_HEAD.set(tip.height as i64);
             metrics::BLOCK_ORDINAL_HEAD.set(header.block_ordinal() as i64);
-            debug!(target: "chain", "Head updated to {} at {}", tip.last_block_hash, tip.height);
+            tracing::debug!(target: "chain", last_block_hash = ?tip.last_block_hash, height = %tip.height, "head updated");
             Ok(Some(tip))
         } else {
             Ok(None)
@@ -539,8 +520,7 @@ impl<'a> ChainUpdate<'a> {
             transactions,
         )?;
 
-        let (outcome_root, outcome_proofs) =
-            ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
+        let (_, outcome_proofs) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
 
         self.chain_store_update.save_chunk(chunk);
 
@@ -556,18 +536,10 @@ impl<'a> ChainUpdate<'a> {
         )?;
         self.chain_store_update.merge(store_update.into());
 
+        let chunk_extra = apply_result.to_chunk_extra(gas_limit);
+
         self.chain_store_update.save_trie_changes(*block_header.hash(), apply_result.trie_changes);
 
-        let chunk_extra = ChunkExtra::new(
-            &apply_result.new_root,
-            outcome_root,
-            apply_result.validator_proposals,
-            apply_result.total_gas_burnt,
-            gas_limit,
-            apply_result.total_balance_burnt,
-            apply_result.congestion_info,
-            apply_result.bandwidth_requests,
-        );
         self.chain_store_update.save_chunk_extra(
             block_header.hash(),
             &shard_uid,
@@ -675,5 +647,38 @@ impl<'a> ChainUpdate<'a> {
             new_chunk_extra.into(),
         );
         Ok(true)
+    }
+
+    /// Updates spice final execution head based on last executed block and returns new spice final
+    /// execution head.
+    pub fn update_spice_final_execution_head(
+        &mut self,
+        block: &Block,
+    ) -> Result<Option<Arc<Tip>>, Error> {
+        let mut final_execution_head = match self.chain_store_update.spice_final_execution_head() {
+            Ok(head) => Some(head),
+            Err(Error::DBNotFoundErr(_)) => None,
+            Err(err) => return Err(err),
+        };
+        if block.header().last_final_block() == &CryptoHash::default() {
+            return Ok(final_execution_head);
+        }
+        let last_final_block_header =
+            self.chain_store_update.get_block_header(block.header().last_final_block()).unwrap();
+
+        if final_execution_head.is_none()
+            || final_execution_head.as_ref().unwrap().height < last_final_block_header.height()
+        {
+            let tip = Arc::new(Tip::from_header(&last_final_block_header));
+            self.chain_store_update.save_spice_final_execution_head(&tip)?;
+            final_execution_head = Some(tip);
+        }
+        Ok(final_execution_head)
+    }
+
+    /// Sets new spice execution head.
+    pub fn save_spice_execution_head(&mut self, header: &BlockHeader) -> Result<(), Error> {
+        let tip = Tip::from_header(&header);
+        self.chain_store_update.save_spice_execution_head(tip)
     }
 }

@@ -44,6 +44,12 @@ fn create_thread_nodes_rpc() -> Vec<ThreadNode> {
 /// Macro for running testnet tests using ThreadNode and RPCUser.
 macro_rules! run_testnet_test {
     ($f:expr) => {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .expect("Failed to create Tokio runtime");
+        let _guard = rt.enter();
         let mut nodes = create_thread_nodes_rpc();
         let node = nodes.remove(0);
         $f(node);
@@ -53,11 +59,15 @@ macro_rules! run_testnet_test {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_smart_contract_simple_testnet() {
     run_testnet_test!(test_smart_contract_simple);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_smart_contract_self_call_testnet() {
     run_testnet_test!(test_smart_contract_self_call);
 }
@@ -68,21 +78,29 @@ fn ultra_slow_test_smart_contract_bad_method_name_testnet() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_smart_contract_empty_method_name_with_no_tokens_testnet() {
     run_testnet_test!(test_smart_contract_empty_method_name_with_no_tokens);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_smart_contract_empty_method_name_with_tokens_testnet() {
     run_testnet_test!(test_smart_contract_empty_method_name_with_tokens);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_smart_contract_with_args_testnet() {
     run_testnet_test!(test_smart_contract_with_args);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_nonce_update_when_deploying_contract_testnet() {
     run_testnet_test!(test_nonce_update_when_deploying_contract);
 }
@@ -98,16 +116,22 @@ fn slow_test_regression_nonce_update_with_mixed_transactions_testnet() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_upload_contract_testnet() {
     run_testnet_test!(test_upload_contract);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_redeploy_contract_testnet() {
     run_testnet_test!(test_redeploy_contract);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_send_money_testnet() {
     run_testnet_test!(test_send_money);
 }
@@ -123,66 +147,92 @@ fn slow_test_send_money_over_balance_testnet() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_refund_on_send_money_to_non_existent_account_testnet() {
     run_testnet_test!(test_refund_on_send_money_to_non_existent_account);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_create_account_testnet() {
     run_testnet_test!(test_create_account);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_create_account_again_testnet() {
     run_testnet_test!(test_create_account_again);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_create_account_failure_already_exists_testnet() {
     run_testnet_test!(test_create_account_failure_already_exists);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_swap_key_testnet() {
     run_testnet_test!(test_swap_key);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_add_access_key_function_call_testnet() {
     run_testnet_test!(test_add_access_key_function_call);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_add_existing_key_testnet() {
     run_testnet_test!(test_add_existing_key);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_delete_key_testnet() {
     run_testnet_test!(test_delete_key);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_delete_key_not_owned_testnet() {
     run_testnet_test!(test_delete_key_not_owned);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_delete_key_last_testnet() {
     run_testnet_test!(test_delete_key_last);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_add_key_testnet() {
     run_testnet_test!(test_add_key);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_delete_access_key_testnet() {
     run_testnet_test!(test_delete_access_key);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_add_access_key_with_allowance_testnet() {
     run_testnet_test!(test_add_access_key_with_allowance);
 }

@@ -32,10 +32,10 @@ use crate::env::test_env::TestEnv;
 
 fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) {
     let pretty_key = near_fmt::StorageKey(key);
-    tracing::debug!("Checking {:?} {:?}", col, pretty_key);
+    tracing::debug!(?col, ?pretty_key, "checking");
 
-    let first_res = first_store.get(col, key).unwrap();
-    let second_res = second_store.get(col, key).unwrap();
+    let first_res = first_store.get(col, key);
+    let second_res = second_store.get(col, key);
 
     assert_eq!(first_res, second_res, "col: {:?} key: {:?}", col, pretty_key);
 }
@@ -47,7 +47,7 @@ fn check_iter(
     no_check_rules: &Vec<Box<dyn Fn(DBCol, &Box<[u8]>, &Box<[u8]>) -> bool>>,
 ) -> u64 {
     let mut num_checks = 0;
-    for (key, value) in first_store.iter(col).map(Result::unwrap) {
+    for (key, value) in first_store.iter(col) {
         let mut check = true;
         for no_check in no_check_rules {
             if no_check(col, &key, &value) {
@@ -113,6 +113,8 @@ fn create_tx_function_call(
 /// After 4 epochs we check that everything, that exists in cold columns
 /// of the storage of the client also exists in the database to which we were writing.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_storage_after_commit_of_cold_update() {
     init_test_logger();
 
@@ -266,6 +268,8 @@ fn test_cold_db_head_update() {
 /// Here we are testing that `update_cold_db` handles itself correctly
 /// if some heights are not present in blockchain.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cold_db_copy_with_height_skips() {
     init_test_logger();
 
@@ -435,16 +439,22 @@ fn test_initial_copy_to_cold(batch_size: usize) {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_initial_copy_to_cold_small_batch() {
     test_initial_copy_to_cold(0);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_initial_copy_to_cold_huge_batch() {
     test_initial_copy_to_cold(usize::MAX);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_initial_copy_to_cold_medium_batch() {
     test_initial_copy_to_cold(5000);
 }

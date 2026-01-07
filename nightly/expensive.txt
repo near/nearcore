@@ -1,81 +1,110 @@
 # catchup tests
 expensive test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync
 expensive test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync --features nightly
+expensive test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync --features nightly,protocol_feature_spice
 expensive test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_skip_24
 expensive test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_skip_24 --features nightly
+expensive test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_skip_24 --features nightly,protocol_feature_spice
 expensive test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_send_24
 expensive test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_send_24 --features nightly
+expensive test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_send_24 --features nightly,protocol_feature_spice
 expensive test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts
 expensive test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts --features nightly
+expensive test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts --features nightly,protocol_feature_spice
 expensive test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_9
 expensive test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_9 --features nightly
+expensive test-loop-tests test_loop_tests tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_9 --features nightly,protocol_feature_spice
 
 # cross-shard transactions tests
 expensive --timeout=10m test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx
 expensive --timeout=10m test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx --features nightly
+expensive --timeout=10m test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx --features nightly,protocol_feature_spice
 expensive --timeout=10m test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_drop_chunks
 expensive --timeout=10m test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_drop_chunks --features nightly
+expensive --timeout=10m test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_drop_chunks --features nightly,protocol_feature_spice
 expensive --timeout=10m test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation
 expensive --timeout=10m test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation --features nightly
+expensive --timeout=10m test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation --features nightly,protocol_feature_spice
 expensive --timeout=10m test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_drop_chunks
 expensive --timeout=10m test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_drop_chunks --features nightly
+expensive --timeout=10m test-loop-tests test_loop_tests tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_drop_chunks --features nightly,protocol_feature_spice
 
 # consensus tests
 expensive --timeout=10m near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety
 expensive --timeout=10m near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety --features nightly
+expensive --timeout=10m near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety --features nightly,protocol_feature_spice
 expensive --timeout=10m test-loop-tests test_loop_tests tests::consensus::ultra_slow_test_consensus_with_epoch_switches
 expensive --timeout=10m test-loop-tests test_loop_tests tests::consensus::ultra_slow_test_consensus_with_epoch_switches --features nightly
+expensive --timeout=10m test-loop-tests test_loop_tests tests::consensus::ultra_slow_test_consensus_with_epoch_switches --features nightly,protocol_feature_spice
 
 expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_access_key_smart_contract_testnet
 expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_access_key_smart_contract_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_access_key_smart_contract_testnet --features nightly,protocol_feature_spice
 expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_delete_access_key_with_allowance_testnet
 expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_delete_access_key_with_allowance_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_delete_access_key_with_allowance_testnet --features nightly,protocol_feature_spice
 expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_smart_contract_bad_method_name_testnet
 expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_smart_contract_bad_method_name_testnet --features nightly
+expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_smart_contract_bad_method_name_testnet --features nightly,protocol_feature_spice
 
 # GC tests
 expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_remove_fork_large
 expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_remove_fork_large --features nightly
+expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_remove_fork_large --features nightly,protocol_feature_spice
 expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_not_remove_fork_large
 expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_not_remove_fork_large --features nightly
+expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_not_remove_fork_large --features nightly,protocol_feature_spice
 expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_boundaries_large
 expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_boundaries_large --features nightly
+expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_boundaries_large --features nightly,protocol_feature_spice
 expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_random_large
 expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_random_large --features nightly
+expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_random_large --features nightly,protocol_feature_spice
 expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_pine
 expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_pine --features nightly
+expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_pine --features nightly,protocol_feature_spice
 expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_star_large
 expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_star_large --features nightly
+expensive --timeout=10m near-chain near_chain tests::garbage_collection::ultra_slow_test_gc_star_large --features nightly,protocol_feature_spice
 
 expensive --timeout=10m integration-tests integration_tests tests::client::block_corruption::ultra_slow_test_check_process_flipped_block_fails
 expensive --timeout=10m integration-tests integration_tests tests::client::block_corruption::ultra_slow_test_check_process_flipped_block_fails --features nightly
+expensive --timeout=10m integration-tests integration_tests tests::client::block_corruption::ultra_slow_test_check_process_flipped_block_fails --features nightly,protocol_feature_spice
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_dump
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_dump --features nightly
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_dump --features nightly,protocol_feature_spice
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes_multishard
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes_multishard --features nightly
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes_multishard --features nightly,protocol_feature_spice
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_dump_epoch_missing_chunk_in_last_block
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_dump_epoch_missing_chunk_in_last_block --features nightly
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_dump_epoch_missing_chunk_in_last_block --features nightly,protocol_feature_spice
 
 expensive integration-tests integration_tests tests::nearcore::sync_nodes::ultra_slow_test_sync_state_stake_change
 expensive integration-tests integration_tests tests::nearcore::sync_nodes::ultra_slow_test_sync_state_stake_change --features nightly
+expensive integration-tests integration_tests tests::nearcore::sync_nodes::ultra_slow_test_sync_state_stake_change --features nightly,protocol_feature_spice
 
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_get_execution_outcome_tx_success
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_get_execution_outcome_tx_success --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_get_execution_outcome_tx_success --features nightly,protocol_feature_spice
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_get_execution_outcome_tx_failure
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_get_execution_outcome_tx_failure --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_get_execution_outcome_tx_failure --features nightly,protocol_feature_spice
 expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_1
 expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_1 --features nightly
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_1 --features nightly,protocol_feature_spice
 expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_2
 expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_2 --features nightly
+expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_2 --features nightly,protocol_feature_spice
 
 expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_join
 expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_join --features nightly
+expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_join --features nightly,protocol_feature_spice
 
 # TestLoop tests
 expensive --timeout=10m test-loop-tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts
 expensive --timeout=10m test-loop-tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts --features nightly
+expensive --timeout=10m test-loop-tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts --features nightly,protocol_feature_spice
 expensive test-loop-tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks
 expensive test-loop-tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks --features nightly
-
-# Estimator Warehouse (set timeout as 30 min)
-expensive --timeout=30m estimator-warehouse estimator_warehouse tests::ultra_slow_test_full_estimator
+expensive test-loop-tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks --features nightly,protocol_feature_spice
