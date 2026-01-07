@@ -178,6 +178,9 @@ pub struct Client {
     chunk_producer_accounts_cache: Option<(EpochId, Arc<Vec<AccountId>>)>,
     /// Reed-Solomon encoder for shadow chunk validation.
     shadow_validation_reed_solomon: OnceLock<Arc<ReedSolomon>>,
+    /// watch::Sender used to notify watchers about new postprocessed blocks.
+    pub block_notification_watch_sender:
+        tokio::sync::watch::Sender<Option<BlockNotificationMessage>>,
 }
 
 impl AsRef<Client> for Client {
@@ -421,6 +424,7 @@ impl Client {
             last_optimistic_block_produced: None,
             chunk_producer_accounts_cache: None,
             shadow_validation_reed_solomon: OnceLock::new(),
+            block_notification_watch_sender: tokio::sync::watch::channel(None).0,
         })
     }
 
@@ -1669,7 +1673,10 @@ impl Client {
 
         // Notify chunk validation actor about the new block for orphan witness processing
         let block_notification = BlockNotificationMessage { block: block.clone() };
-        self.chunk_validation_sender.block_notification.send(block_notification);
+        self.chunk_validation_sender.block_notification.send(block_notification.clone());
+
+        // Notify all subscribed watchers about the new block.
+        self.block_notification_watch_sender.send_replace(Some(block_notification));
     }
 
     /// Reconcile the transaction pool after processing a block.

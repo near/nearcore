@@ -994,7 +994,7 @@ pub enum SandboxResponse {
 }
 
 /// Notification that a new block has been postprocessed by Client.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlockNotificationMessage {
     pub block: Arc<Block>,
 }
