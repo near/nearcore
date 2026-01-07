@@ -217,7 +217,6 @@ fix_contract_loading_cost               false
 vm_kind                                 Wasmtime
 eth_implicit_accounts                   true
 discard_custom_sections                 true
-saturating_float_to_int                 true
 reftypes_bulk_memory                    true
 max_congestion_incoming_gas             400_000_000_000_000_000
 max_congestion_outgoing_gas             10_000_000_000_000_000

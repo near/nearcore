@@ -14,7 +14,6 @@ use near_primitives::sharding::{EncodedShardChunkBody, ShardChunk, ShardChunkHea
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_primitives::version::ProtocolFeature;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
 /// Gas limit cannot be adjusted for more than 0.1% at a time.
@@ -117,24 +116,18 @@ pub fn validate_chunk_with_chunk_extra_and_roots(
         chunk_header,
     )?;
 
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-    if ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
-        let (tx_root, _) = merklize(new_transactions);
-        if &tx_root != chunk_header.tx_root() {
-            return Err(Error::InvalidTxRoot);
-        }
-
-        validate_chunk_with_encoded_merkle_root(
-            chunk_header,
-            &outgoing_receipts,
-            new_transactions,
-            rs,
-            chunk_header.shard_id(),
-        )
-    } else {
-        Ok(())
+    let (tx_root, _) = merklize(new_transactions);
+    if &tx_root != chunk_header.tx_root() {
+        return Err(Error::InvalidTxRoot);
     }
+
+    validate_chunk_with_encoded_merkle_root(
+        chunk_header,
+        &outgoing_receipts,
+        new_transactions,
+        rs,
+        chunk_header.shard_id(),
+    )
 }
 
 /// Validate that all next chunk information matches previous chunk extra.

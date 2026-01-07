@@ -21079,10 +21079,6 @@
             "minimum": 0,
             "type": "integer"
           },
-          "saturating_float_to_int": {
-            "description": "See [VMConfig::saturating_float_to_int](crate::vm::Config::saturating_float_to_int).",
-            "type": "boolean"
-          },
           "storage_get_mode": {
             "allOf": [
               {
