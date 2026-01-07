@@ -87,18 +87,17 @@ fn copy_block_headers_to_cold_db(hot_store: &Store, cold_db: &ColdDB) -> anyhow:
 
     let mut count = 0;
     let mut transaction = DBTransaction::new();
-    for t in hot_store.iter_raw_bytes(DBCol::BlockHeader) {
-        let (key, value) = t?;
+    for (key, value) in hot_store.iter_raw_bytes(DBCol::BlockHeader) {
         transaction.set(DBCol::BlockHeader, key.into_vec(), value.into_vec());
         count += 1;
         if count % BATCH_SIZE == 0 {
-            cold_db.write(transaction)?;
+            cold_db.write(transaction);
             transaction = DBTransaction::new();
             let percent_complete = (count as f64 / approx_num_blocks as f64) * 100.0;
             tracing::info!(target: "migrations", ?count, ?approx_num_blocks, ?percent_complete, "copied block headers to cold db");
         }
     }
-    cold_db.write(transaction)?;
+    cold_db.write(transaction);
     tracing::info!(target: "migrations", ?count, ?approx_num_blocks, "completed copying block headers to cold db");
 
     Ok(())

@@ -254,7 +254,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
                 let (block1, _, _) = states1[i as usize].clone();
                 // Make sure that blocks were removed.
                 assert_eq!(
-                    chain1.block_exists(block1.hash()).unwrap(),
+                    chain1.block_exists(block1.hash()),
                     false,
                     "Block {:?}@{} should have been removed - as it belongs to removed fork.",
                     block1.hash(),
@@ -269,7 +269,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
             let state_root1 = state_root1[shard_to_check_trie as usize];
             if block1.header().height() > gc_height || i == gc_height {
                 assert_eq!(
-                    chain1.block_exists(block1.hash()).unwrap(),
+                    chain1.block_exists(block1.hash()),
                     true,
                     "Block {:?}@{} should exist",
                     block1.hash(),
@@ -291,7 +291,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
             } else {
                 // Make sure that blocks were removed.
                 assert_eq!(
-                    chain1.block_exists(block1.hash()).unwrap(),
+                    chain1.block_exists(block1.hash()),
                     false,
                     "Block {:?}@{} should have been removed.",
                     block1.hash(),
@@ -634,7 +634,7 @@ fn test_fork_far_away_from_epoch_end() {
     for i in 1..5 {
         let (block, _, _) = states[i as usize].clone();
         assert_eq!(
-            chain.block_exists(block.hash()).unwrap(),
+            chain.block_exists(block.hash()),
             false,
             "Block {:?}@{} should have been removed.",
             block.hash(),
@@ -645,7 +645,7 @@ fn test_fork_far_away_from_epoch_end() {
     for i in 5..7 {
         let (block, _, _) = states[i as usize].clone();
         assert_eq!(
-            chain.block_exists(block.hash()).unwrap(),
+            chain.block_exists(block.hash()),
             true,
             "Block {:?}@{} should NOT be removed.",
             block.hash(),
@@ -674,7 +674,7 @@ fn test_fork_far_away_from_epoch_end() {
     for i in 6..50 {
         let (block, _, _) = states[i as usize].clone();
         assert_eq!(
-            chain.block_exists(block.hash()).unwrap(),
+            chain.block_exists(block.hash()),
             false,
             "Block {:?}@{} should have been removed.",
             block.hash(),
