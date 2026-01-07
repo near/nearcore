@@ -416,7 +416,7 @@ jobs:
           persist-credentials: false
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
         with:
-          tool: cargo-audit
+          tool: cargo-audit@0.22.0
       - run: cargo audit -D warnings
 
   generate_coverage:
