@@ -210,11 +210,10 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
             "received receipts",
         );
         self.pending_unverified_receipts.entry(block_hash).or_default().push(receipts);
-        // Some additional receipts can arrive after we have already started executing the block. (For
-        // example when we are tracking several shards for which we aren't chunk producer or we get
-        // receipts from different peers with different commitments in which case data distributor
-        // wouldn't know which is right.) In this case we want to make sure we process pending
-        // receipts to make sure don't leak memory by storing unverified receipts indefinitely.
+        // Some additional receipts can arrive after we have already started executing the block.
+        // (For example receiving receipts from push/pull code paths.) In this case we want to make
+        // sure we process pending receipts to make sure don't leak memory by storing unverified
+        // receipts indefinitely.
         if let Err(err) = self.try_process_pending_unverified_receipts(&block_hash) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed while trying to save pending unverified receipts");
         }
