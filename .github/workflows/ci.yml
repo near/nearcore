@@ -36,9 +36,9 @@ jobs:
             id: linux-spice
             os: warp-ubuntu-2204-x64-16x
             type: spice
-            # We disable coverage because it causes Github runners to run out of space.
+            # We disable profraws upload because it causes Github runners to run out of space.
             upload_profraws: false
-            run_on_pr: false
+            run_on_pr: true
           - name: Linux Nightly
             id: linux-nightly
             os: warp-ubuntu-2204-x64-16x
@@ -495,6 +495,11 @@ jobs:
       - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7
         with:
           files: unit-linux-nightly.json
+          fail_ci_if_error: false
+          flags: unittests-nightly
+      - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7
+        with:
+          files: unit-linux-spice.json
           fail_ci_if_error: false
           flags: unittests-nightly
       - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7
