@@ -235,6 +235,73 @@ impl JsonRpcClient {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_split_storage_info", request)
     }
 
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_view_account(
+        &self,
+        request: near_jsonrpc_primitives::types::view_account::RpcViewAccountRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::view_account::RpcViewAccountResponse> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_view_account", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_view_code(
+        &self,
+        request: near_jsonrpc_primitives::types::view_code::RpcViewCodeRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::view_code::RpcViewCodeResponse> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_view_code", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_view_state(
+        &self,
+        request: near_jsonrpc_primitives::types::view_state::RpcViewStateRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::view_state::RpcViewStateResponse> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_view_state", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_view_access_key(
+        &self,
+        request: near_jsonrpc_primitives::types::view_access_key::RpcViewAccessKeyRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::view_access_key::RpcViewAccessKeyResponse> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_view_access_key", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_view_access_key_list(
+        &self,
+        request: near_jsonrpc_primitives::types::view_access_key_list::RpcViewAccessKeyListRequest,
+    ) -> RpcRequest<
+        near_jsonrpc_primitives::types::view_access_key_list::RpcViewAccessKeyListResponse,
+    > {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_view_access_key_list", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_call_function(
+        &self,
+        request: near_jsonrpc_primitives::types::call_function::RpcCallFunctionRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::call_function::RpcCallFunctionResponse> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_call_function", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_view_gas_key(
+        &self,
+        request: near_jsonrpc_primitives::types::view_gas_key::RpcViewGasKeyRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::view_gas_key::RpcViewGasKeyResponse> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_view_gas_key", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_view_gas_key_list(
+        &self,
+        request: near_jsonrpc_primitives::types::view_gas_key_list::RpcViewGasKeyListRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::view_gas_key_list::RpcViewGasKeyListResponse>
+    {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_view_gas_key_list", request)
+    }
+
     pub fn validators(
         &self,
         epoch_id_or_block_id: Option<EpochReference>,

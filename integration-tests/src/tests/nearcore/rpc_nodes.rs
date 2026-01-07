@@ -26,8 +26,6 @@ use std::ops::ControlFlow;
 use std::time::Duration;
 
 #[tokio::test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_get_validator_info_rpc() {
     init_integration_logger();
 

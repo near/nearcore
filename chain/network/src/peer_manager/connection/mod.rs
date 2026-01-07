@@ -3,7 +3,7 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
     PeerInfo, PeerMessage, SignedAccountData, SignedOwnedAccount, SnapshotHostInfo,
-    SyncAccountsData, SyncSnapshotHosts, T2MessageBody, TieredMessageBody,
+    SyncAccountsData, SyncSnapshotHosts, TieredMessageBody,
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
@@ -70,10 +70,7 @@ impl tcp::Tier {
     pub(crate) fn is_allowed_receive_routed(self, body: &TieredMessageBody) -> bool {
         match body {
             TieredMessageBody::T1(_) => true,
-            TieredMessageBody::T2(body) => match body.as_ref() {
-                T2MessageBody::PartialEncodedChunkForward(_) => true,
-                _ => self == tcp::Tier::T2,
-            },
+            TieredMessageBody::T2(_) => self == tcp::Tier::T2,
         }
     }
 

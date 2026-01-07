@@ -806,7 +806,7 @@ impl ForkNetworkCommand {
     ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId, ShardLayout)> {
         let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY)?.unwrap());
         let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH")?.unwrap();
-        let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT")?.unwrap();
+        let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT").unwrap();
         let block_height = u64::from_le_bytes(block_height.as_slice().try_into().unwrap());
 
         let flat_head = BlockInfo {
@@ -823,8 +823,9 @@ impl ForkNetworkCommand {
             .with_context(|| format!("Failed getting shard layout for epoch {}", &epoch_id.0))?;
 
         let mut state_roots = HashMap::new();
-        for item in store.iter_prefix(DBCol::Misc, LEGACY_FORKED_ROOTS_KEY_PREFIX.as_bytes()) {
-            let (key, value) = item?;
+        for (key, value) in
+            store.iter_prefix(DBCol::Misc, LEGACY_FORKED_ROOTS_KEY_PREFIX.as_bytes())
+        {
             let shard_id = parse_legacy_state_roots_key(&key)?;
             let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
             let state_root: StateRoot = borsh::from_slice(&value)?;
@@ -854,8 +855,7 @@ impl ForkNetworkCommand {
         let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY)?.unwrap());
         let shard_layout = store.get_ser(DBCol::Misc, SHARD_LAYOUT_KEY)?.unwrap();
         let mut state_roots = HashMap::new();
-        for item in store.iter_prefix(DBCol::Misc, FORKED_ROOTS_KEY_PREFIX) {
-            let (key, value) = item?;
+        for (key, value) in store.iter_prefix(DBCol::Misc, FORKED_ROOTS_KEY_PREFIX) {
             let shard_uid = parse_state_roots_key(&key)?;
             let state_root: StateRoot = borsh::from_slice(&value)?;
 

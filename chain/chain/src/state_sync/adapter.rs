@@ -296,7 +296,7 @@ impl ChainStateSyncAdapter {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         // Check cache
         let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
-        if let Ok(Some(bytes)) = self.chain_store.store_ref().get(DBCol::StateParts, &key) {
+        if let Some(bytes) = self.chain_store.store_ref().get(DBCol::StateParts, &key) {
             metrics::STATE_PART_CACHE_HIT.inc();
             let state_part = StatePart::from_bytes(bytes.to_vec(), protocol_version)?;
             return Ok(state_part);

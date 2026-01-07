@@ -34,8 +34,8 @@ fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) 
     let pretty_key = near_fmt::StorageKey(key);
     tracing::debug!(?col, ?pretty_key, "checking");
 
-    let first_res = first_store.get(col, key).unwrap();
-    let second_res = second_store.get(col, key).unwrap();
+    let first_res = first_store.get(col, key);
+    let second_res = second_store.get(col, key);
 
     assert_eq!(first_res, second_res, "col: {:?} key: {:?}", col, pretty_key);
 }
@@ -47,7 +47,7 @@ fn check_iter(
     no_check_rules: &Vec<Box<dyn Fn(DBCol, &Box<[u8]>, &Box<[u8]>) -> bool>>,
 ) -> u64 {
     let mut num_checks = 0;
-    for (key, value) in first_store.iter(col).map(Result::unwrap) {
+    for (key, value) in first_store.iter(col) {
         let mut check = true;
         for no_check in no_check_rules {
             if no_check(col, &key, &value) {
@@ -468,8 +468,6 @@ fn test_initial_copy_to_cold_medium_batch() {
 /// - Wait 10 seconds.
 /// - Check that cold head progressed.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cold_loop_on_gc_boundary() {
     init_test_logger();
 

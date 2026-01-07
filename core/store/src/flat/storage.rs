@@ -334,7 +334,7 @@ impl FlatStorage {
             };
         }
 
-        Ok(guard.store.exists(guard.shard_uid, key)?)
+        Ok(guard.store.exists(guard.shard_uid, key))
     }
 
     // TODO(#11601): Direct call is DEPRECATED, consider removing non-strict mode.

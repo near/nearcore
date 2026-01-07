@@ -5,7 +5,7 @@ use opentelemetry::trace::{SpanContext, SpanId, TraceContextExt, TraceFlags, Tra
 use protobuf::{EnumOrUnknown, MessageField};
 
 /// Lowest available value.
-/// 0x01 is reserved for `SAMPLED`: https://docs.rs/opentelemetry/latest/opentelemetry/trace/struct.TraceFlags.html#associatedconstant.SAMPLED
+/// 0x01 is reserved for `SAMPLED`: https://docs.rs/opentelemetry/latest/opentelemetry/struct.TraceFlags.html#associatedconstant.SAMPLED
 const TRACE_FLAG_DEFERRED: TraceFlags = TraceFlags::new(0x02);
 
 #[derive(Debug, thiserror::Error)]

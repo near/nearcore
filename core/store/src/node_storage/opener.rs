@@ -759,7 +759,7 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
             <&str>::from(DbKind::RPC).as_bytes().to_vec(),
         );
 
-        node_storage.hot_storage.write(transaction)?;
+        node_storage.hot_storage.write(transaction);
     }
 
     Ok(node_storage)
@@ -804,7 +804,7 @@ mod tests {
 
     fn check_keys_existence(store: &Store, column: &DBCol, keys: &Vec<Vec<u8>>, expected: bool) {
         for key in keys {
-            assert_eq!(store.exists(*column, &key).unwrap(), expected, "Column {:?}", column);
+            assert_eq!(store.exists(*column, &key), expected, "Column {:?}", column);
         }
     }
 

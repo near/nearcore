@@ -518,7 +518,6 @@ mod tests {
     use near_epoch_manager::EpochManager;
     use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
     use near_primitives::trie_key::TrieKey;
-    use near_primitives::types::{Balance, Gas};
     use near_store::Trie;
     use near_store::test_utils::{
         TestTriesBuilder, create_test_store, simplify_changes, test_populate_trie,
@@ -529,8 +528,6 @@ mod tests {
     use crate::types::ChainConfig;
 
     use super::*;
-    use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::state::FlatStateValue;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
@@ -679,16 +676,7 @@ mod tests {
 
             // Fourth, create ChunkExtra for the flat storage head so load_memtrie can find the state root.
             let mut chain_store_update = runtime.store().store_update();
-            let chunk_extra = ChunkExtra::new(
-                &parent_root,
-                CryptoHash::default(),
-                Vec::new(),
-                Gas::ZERO,
-                Gas::ZERO,
-                Balance::ZERO,
-                Some(CongestionInfo::default()),
-                BandwidthRequests::empty(),
-            );
+            let chunk_extra = ChunkExtra::new_with_only_state_root(&parent_root);
             let block_shard_uid = get_block_shard_uid(&parent_root, &parent_shard);
             chain_store_update
                 .set_ser(near_store::DBCol::ChunkExtra, &block_shard_uid, &chunk_extra)

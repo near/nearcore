@@ -27,7 +27,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::cli::StorageSource;
-use crate::util::{check_apply_block_result, resulting_chunk_extra};
+use crate::util::check_apply_block_result;
 
 // `get_incoming_receipts_for_shard` implementation for the case when we don't
 // know of a block containing the target chunk
@@ -303,8 +303,7 @@ fn apply_tx_in_chunk(
     let head = chain_store.head()?.height;
     let mut chunk_hashes = vec![];
 
-    for item in store.iter(DBCol::ChunkHashesByHeight) {
-        let (k, v) = item.context("scanning ChunkHashesByHeight column")?;
+    for (k, v) in store.iter(DBCol::ChunkHashesByHeight) {
         let height = BlockHeight::from_le_bytes(k[..].try_into().unwrap());
         if height > head {
             let hashes = HashSet::<ChunkHash>::try_from_slice(&v).unwrap();
@@ -341,7 +340,7 @@ fn apply_tx_in_chunk(
         );
         let (apply_result, gas_limit) =
             apply_chunk(epoch_manager, runtime, chain_store, &chunk_hash, None, None, storage)?;
-        println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(&apply_result, gas_limit));
+        println!("resulting chunk extra:\n{:?}", apply_result.to_chunk_extra(gas_limit));
         results.push(apply_result);
     }
     Ok(results)
@@ -439,8 +438,7 @@ fn apply_receipt_in_chunk(
     let mut to_apply = HashSet::new();
     let mut non_applied_chunks = HashMap::new();
 
-    for item in store.iter(DBCol::ChunkHashesByHeight) {
-        let (k, v) = item.context("scanning ChunkHashesByHeight column")?;
+    for (k, v) in store.iter(DBCol::ChunkHashesByHeight) {
         let height = BlockHeight::from_le_bytes(k[..].try_into().unwrap());
         if height > head {
             let hashes = HashSet::<ChunkHash>::try_from_slice(&v).unwrap();
@@ -496,7 +494,7 @@ fn apply_receipt_in_chunk(
         );
         let (apply_result, gas_limit) =
             apply_chunk(epoch_manager, runtime, chain_store, chunk_hash, None, None, storage)?;
-        let chunk_extra = resulting_chunk_extra(&apply_result, gas_limit);
+        let chunk_extra = apply_result.to_chunk_extra(gas_limit);
         println!("resulting chunk extra:\n{:?}", chunk_extra);
         results.push(apply_result);
     }

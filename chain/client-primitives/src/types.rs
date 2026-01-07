@@ -409,6 +409,7 @@ pub enum QueryError {
     #[error("Function call returned an error: {vm_error}")]
     ContractExecutionError {
         vm_error: String,
+        error: near_primitives::errors::FunctionCallError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },

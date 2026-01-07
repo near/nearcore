@@ -36,14 +36,38 @@ pub use near_jsonrpc_primitives as primitives;
 use near_jsonrpc_primitives::errors::{RpcError, RpcErrorKind};
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::blocks::RpcBlockRequest;
+use near_jsonrpc_primitives::types::call_function::{
+    RpcCallFunctionError, RpcCallFunctionRequest, RpcCallFunctionResponse,
+};
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigResponse};
 use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQueryWithParams};
-use near_jsonrpc_primitives::types::query::RpcQueryRequest;
+use near_jsonrpc_primitives::types::query::{RpcQueryError, RpcQueryRequest};
 use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
 };
 use near_jsonrpc_primitives::types::transactions::{
     RpcSendTransactionRequest, RpcTransactionResponse,
+};
+use near_jsonrpc_primitives::types::view_access_key::{
+    RpcViewAccessKeyError, RpcViewAccessKeyRequest, RpcViewAccessKeyResponse,
+};
+use near_jsonrpc_primitives::types::view_access_key_list::{
+    RpcViewAccessKeyListError, RpcViewAccessKeyListRequest, RpcViewAccessKeyListResponse,
+};
+use near_jsonrpc_primitives::types::view_account::{
+    RpcViewAccountError, RpcViewAccountRequest, RpcViewAccountResponse,
+};
+use near_jsonrpc_primitives::types::view_code::{
+    RpcViewCodeError, RpcViewCodeRequest, RpcViewCodeResponse,
+};
+use near_jsonrpc_primitives::types::view_gas_key::{
+    RpcViewGasKeyError, RpcViewGasKeyRequest, RpcViewGasKeyResponse,
+};
+use near_jsonrpc_primitives::types::view_gas_key_list::{
+    RpcViewGasKeyListError, RpcViewGasKeyListRequest, RpcViewGasKeyListResponse,
+};
+use near_jsonrpc_primitives::types::view_state::{
+    RpcViewStateError, RpcViewStateRequest, RpcViewStateResponse,
 };
 use near_network::debug::GetDebugStatus;
 use near_network::tcp::{self, ListenerAddr};
@@ -81,7 +105,7 @@ pub struct RpcPollingConfig {
 impl Default for RpcPollingConfig {
     fn default() -> Self {
         Self {
-            polling_interval: Duration::from_millis(500),
+            polling_interval: Duration::from_millis(200),
             polling_timeout: Duration::from_secs(10),
         }
     }
@@ -199,6 +223,7 @@ fn process_query_response(
         Err(err) => match err {
             near_jsonrpc_primitives::types::query::RpcQueryError::ContractExecutionError {
                 vm_error,
+                error: _,
                 block_height,
                 block_hash,
             } => Ok(json!({
@@ -451,6 +476,30 @@ impl JsonRpcHandler {
             "validators" => process_method_call(request, |params| self.validators(params)).await,
             "client_config" => {
                 process_method_call(request, |_params: ()| self.client_config()).await
+            }
+            "EXPERIMENTAL_view_account" => {
+                process_method_call(request, |params| self.view_account(params)).await
+            }
+            "EXPERIMENTAL_view_code" => {
+                process_method_call(request, |params| self.view_code(params)).await
+            }
+            "EXPERIMENTAL_view_state" => {
+                process_method_call(request, |params| self.view_state(params)).await
+            }
+            "EXPERIMENTAL_view_access_key" => {
+                process_method_call(request, |params| self.view_access_key(params)).await
+            }
+            "EXPERIMENTAL_view_access_key_list" => {
+                process_method_call(request, |params| self.view_access_key_list(params)).await
+            }
+            "EXPERIMENTAL_call_function" => {
+                process_method_call(request, |params| self.call_function(params)).await
+            }
+            "EXPERIMENTAL_view_gas_key" => {
+                process_method_call(request, |params| self.view_gas_key(params)).await
+            }
+            "EXPERIMENTAL_view_gas_key_list" => {
+                process_method_call(request, |params| self.view_gas_key_list(params)).await
             }
             "EXPERIMENTAL_congestion_level" => {
                 process_method_call(request, |params| self.congestion_level(params)).await
@@ -960,6 +1009,254 @@ impl JsonRpcHandler {
             .view_client_send(ClientQuery::new(request_data.block_reference, request_data.request))
             .await?;
         Ok(query_response.rpc_into())
+    }
+
+    async fn view_account(
+        &self,
+        request_data: RpcViewAccountRequest,
+    ) -> Result<RpcViewAccountResponse, RpcViewAccountError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewAccount { account_id: request_data.account_id },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewAccountError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::ViewAccount(account) => {
+                Ok(RpcViewAccountResponse {
+                    account,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: ViewAccount, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_code(
+        &self,
+        request_data: RpcViewCodeRequest,
+    ) -> Result<RpcViewCodeResponse, RpcViewCodeError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewCode { account_id: request_data.account_id },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewCodeError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::ViewCode(code) => Ok(RpcViewCodeResponse {
+                code,
+                block_height: query_response.block_height,
+                block_hash: query_response.block_hash,
+            }),
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: ViewCode, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_state(
+        &self,
+        request_data: RpcViewStateRequest,
+    ) -> Result<RpcViewStateResponse, RpcViewStateError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewState {
+                    account_id: request_data.account_id,
+                    prefix: request_data.prefix,
+                    include_proof: request_data.include_proof,
+                },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewStateError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::ViewState(state) => {
+                Ok(RpcViewStateResponse {
+                    state,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: ViewState, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_access_key(
+        &self,
+        request_data: RpcViewAccessKeyRequest,
+    ) -> Result<RpcViewAccessKeyResponse, RpcViewAccessKeyError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewAccessKey {
+                    account_id: request_data.account_id,
+                    public_key: request_data.public_key,
+                },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewAccessKeyError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::AccessKey(access_key) => {
+                Ok(RpcViewAccessKeyResponse {
+                    access_key,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: AccessKey, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_access_key_list(
+        &self,
+        request_data: RpcViewAccessKeyListRequest,
+    ) -> Result<RpcViewAccessKeyListResponse, RpcViewAccessKeyListError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewAccessKeyList { account_id: request_data.account_id },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewAccessKeyListError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::AccessKeyList(access_key_list) => {
+                Ok(RpcViewAccessKeyListResponse {
+                    access_key_list,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!("Unexpected response kind from near client. Expected: AccessKeyList, found: {:?}", query_response.kind),
+            }
+            .into()),
+        }
+    }
+
+    async fn call_function(
+        &self,
+        request_data: RpcCallFunctionRequest,
+    ) -> Result<RpcCallFunctionResponse, RpcCallFunctionError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::CallFunction {
+                    account_id: request_data.account_id,
+                    method_name: request_data.method_name,
+                    args: request_data.args,
+                },
+            ))
+            .await;
+        let query_response = result.map_err(<RpcQueryError as Into<RpcCallFunctionError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::CallResult(result) => {
+                Ok(RpcCallFunctionResponse {
+                    result,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: CallResult, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_gas_key(
+        &self,
+        request_data: RpcViewGasKeyRequest,
+    ) -> Result<RpcViewGasKeyResponse, RpcViewGasKeyError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewGasKey {
+                    account_id: request_data.account_id,
+                    public_key: request_data.public_key,
+                },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewGasKeyError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::GasKey(gas_key) => {
+                Ok(RpcViewGasKeyResponse {
+                    gas_key,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: GasKey, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_gas_key_list(
+        &self,
+        request_data: RpcViewGasKeyListRequest,
+    ) -> Result<RpcViewGasKeyListResponse, RpcViewGasKeyListError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewGasKeyList { account_id: request_data.account_id },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewGasKeyListError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::GasKeyList(gas_key_list) => {
+                Ok(RpcViewGasKeyListResponse {
+                    gas_key_list,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: GasKeyList, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
     }
 
     async fn tx_status_common(
@@ -1588,13 +1885,6 @@ async fn deprecated_debug_block_status_handler(
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct DebugRpcEpochInfoRequest {
-    #[serde(flatten)]
-    pub epoch_id: near_primitives::types::EpochId,
-}
-
 async fn debug_epoch_info_handler(
     State(handler): State<Arc<JsonRpcHandler>>,
     Path(epoch_id_str): Path<String>,

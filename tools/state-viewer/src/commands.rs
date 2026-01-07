@@ -7,10 +7,7 @@ use crate::epoch_info::iterate_and_filter;
 use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
-use crate::util::{
-    LoadTrieMode, check_apply_block_result, load_trie, load_trie_stop_at_height,
-    resulting_chunk_extra,
-};
+use crate::util::{LoadTrieMode, check_apply_block_result, load_trie, load_trie_stop_at_height};
 use crate::{apply_chunk, epoch_info};
 use anyhow::Context;
 use bytesize::ByteSize;
@@ -235,7 +232,7 @@ pub(crate) fn apply_chunk(
         None,
         storage,
     )?;
-    println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(&apply_result, gas_limit));
+    println!("resulting chunk extra:\n{:?}", apply_result.to_chunk_extra(gas_limit));
     Ok(())
 }
 

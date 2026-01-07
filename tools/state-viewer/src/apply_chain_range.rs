@@ -434,17 +434,7 @@ fn apply_block_from_range(
     let apply_result = apply_chunk_from_input(input, &*runtime_adapter);
 
     // Process application outcome
-    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
-    let chunk_extra = ChunkExtra::new(
-        &apply_result.new_root,
-        outcome_root,
-        apply_result.validator_proposals.clone(),
-        apply_result.total_gas_burnt,
-        genesis.config.gas_limit,
-        apply_result.total_balance_burnt,
-        apply_result.congestion_info,
-        apply_result.bandwidth_requests.clone(),
-    );
+    let chunk_extra = apply_result.to_chunk_extra(genesis.config.gas_limit);
 
     let state_update =
         runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());

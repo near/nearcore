@@ -9,6 +9,7 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::types::Tip;
 use near_chain::{Block, BlockHeader};
+use near_client::client_actor::ClientActor;
 use near_client::{Client, ProcessTxRequest};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_primitives::errors::InvalidTxError;
@@ -73,6 +74,11 @@ impl<'a> TestLoopNode<'a> {
     pub fn client<'b>(&self, test_loop_data: &'b TestLoopData) -> &'b Client {
         let client_handle = self.data().client_sender.actor_handle();
         &test_loop_data.get(&client_handle).client
+    }
+
+    pub fn client_actor<'b>(&self, test_loop_data: &'b mut TestLoopData) -> &'b mut ClientActor {
+        let client_handle = self.data().client_sender.actor_handle();
+        test_loop_data.get_mut(&client_handle)
     }
 
     pub fn tail(&self, test_loop_data: &TestLoopData) -> BlockHeight {
@@ -157,6 +163,18 @@ impl<'a> TestLoopNode<'a> {
                 current_height >= initial_head_height + num_blocks as u64
             },
             maximum_duration,
+        );
+    }
+
+    pub fn run_until_new_epoch(&self, test_loop: &mut TestLoopV2) {
+        let curr_epoch_id = self.head(&test_loop.data).epoch_id;
+        let epoch_length = self.client(&test_loop.data).config.epoch_length as usize;
+        test_loop.run_until(
+            |test_loop_data| {
+                let head = self.head(test_loop_data);
+                head.epoch_id != curr_epoch_id
+            },
+            self.calculate_block_distance_timeout(&test_loop.data, epoch_length + 1),
         );
     }
 

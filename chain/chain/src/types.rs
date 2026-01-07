@@ -33,6 +33,8 @@ use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
+use near_primitives::trie_split::TrieSplit;
+use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, ShardId,
@@ -134,6 +136,8 @@ pub struct ApplyChunkResult {
     pub contract_updates: ContractUpdates,
     /// Extra information gathered during chunk application.
     pub stats: ChunkApplyStatsV0,
+    /// Proposed split of this shard (dynamic resharding).
+    pub proposed_split: Option<TrieSplit>,
 }
 
 impl ApplyChunkResult {
@@ -149,6 +153,25 @@ impl ApplyChunkResult {
             result.push(outcome_with_id.to_hashes());
         }
         merklize(&result)
+    }
+
+    pub fn outcome_root(&self) -> MerkleHash {
+        let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&self.outcomes);
+        outcome_root
+    }
+
+    pub fn to_chunk_extra(&self, gas_limit: Gas) -> ChunkExtra {
+        ChunkExtra::new(
+            &self.new_root,
+            self.outcome_root(),
+            self.validator_proposals.clone(),
+            self.total_gas_burnt,
+            gas_limit,
+            self.total_balance_burnt,
+            self.congestion_info,
+            self.bandwidth_requests.clone(),
+            self.proposed_split.clone(),
+        )
     }
 }
 

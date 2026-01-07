@@ -1,7 +1,6 @@
 use crate::{DBCol, deserialized_column};
 use near_fmt::{AbbrBytes, StorageKey};
 use std::collections::HashSet;
-use std::io;
 use std::sync::Arc;
 
 mod colddb;
@@ -47,6 +46,9 @@ pub const CLOUD_HEAD_KEY: &[u8] = b"CLOUD_HEAD";
 pub const TRIE_STATE_RESHARDING_STATUS_KEY: &[u8] = b"TRIE_STATE_RESHARDING_STATUS";
 pub const LATEST_WITNESSES_INFO: &[u8] = b"LATEST_WITNESSES_INFO";
 pub const INVALID_WITNESSES_INFO: &[u8] = b"INVALID_WITNESSES_INFO";
+
+// `DBCol::EpochSyncProof` keys
+pub const COMPRESSED_EPOCH_SYNC_PROOF_KEY: &[u8] = b"COMPRESSED_EPOCH_SYNC_PROOF";
 
 #[derive(Default, Debug)]
 pub struct DBTransaction {
@@ -171,7 +173,7 @@ impl DBTransaction {
     }
 }
 
-pub type DBIteratorItem = io::Result<(Box<[u8]>, Box<[u8]>)>;
+pub type DBIteratorItem = (Box<[u8]>, Box<[u8]>);
 pub type DBIterator<'a> = Box<dyn Iterator<Item = DBIteratorItem> + 'a>;
 
 pub trait Database: Sync + Send {
@@ -184,14 +186,14 @@ pub trait Database: Sync + Send {
     ///
     /// You most likely will want to use [`Self::get_with_rc_stripped`] to
     /// properly handle reference-counted columns.
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>>;
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>>;
 
     /// Returns value for given `key` forcing a reference count decoding.
     ///
     /// **Panics** if the column is not reference counted.
-    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
         assert!(col.is_rc());
-        Ok(self.get_raw_bytes(col, key)?.and_then(DBSlice::strip_refcount))
+        self.get_raw_bytes(col, key).and_then(DBSlice::strip_refcount)
     }
 
     /// Iterate over all items in given column in lexicographical order sorted
@@ -237,18 +239,18 @@ pub trait Database: Sync + Send {
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a>;
 
     /// Atomically apply all operations in given batch at once.
-    fn write(&self, batch: DBTransaction) -> io::Result<()>;
+    fn write(&self, batch: DBTransaction);
 
     /// Flush all in-memory data to disk.
     ///
     /// This is a no-op for in-memory databases.
-    fn flush(&self) -> io::Result<()>;
+    fn flush(&self);
 
     /// Compact database representation.
     ///
     /// If the database supports it a form of compaction, calling this function
     /// is blocking until compaction finishes. Otherwise, this is a no-op.
-    fn compact(&self) -> io::Result<()>;
+    fn compact(&self);
 
     /// Returns statistics about the database if available.
     fn get_store_statistics(&self) -> Option<StoreStatistics>;

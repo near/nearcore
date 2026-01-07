@@ -183,8 +183,8 @@ fn assert_old_chunks_are_cleared(
     let final_block_height = chain_store.final_head().unwrap().height;
     let store = chain_store.store().store();
     let mut stored_shards = HashSet::<ShardUId>::default();
-    for res in store.iter(DBCol::ChunkExtra) {
-        let (block_hash, shard_uid) = get_block_shard_uid_rev(&res.unwrap().0).unwrap();
+    for (key, _) in store.iter(DBCol::ChunkExtra) {
+        let (block_hash, shard_uid) = get_block_shard_uid_rev(&key).unwrap();
         let block_height = chain_store.get_block_height(&block_hash).unwrap();
         stored_shards.insert(shard_uid);
         assert!(
@@ -208,7 +208,6 @@ fn assert_new_chunks_exist(chain_store: &ChainStoreAdapter, tracked_shards: &Has
             assert!(
                 store
                     .get(DBCol::ChunkExtra, &get_block_shard_uid(&block_hash, shard_uid))
-                    .unwrap()
                     .is_some(),
                 "ChunkExtra missing for ShardUId {shard_uid} and height {height}",
             );

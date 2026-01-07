@@ -364,6 +364,27 @@ impl ChunkProducer {
                 &*validator_signer,
                 &mut self.reed_solomon_encoder,
             )
+        } else if ProtocolFeature::DynamicResharding.enabled(protocol_version) {
+            ShardChunkWithEncoding::new_for_dynamic_resharding(
+                prev_block_hash,
+                *chunk_extra.state_root(),
+                *chunk_extra.outcome_root(),
+                next_height,
+                shard_id,
+                gas_used,
+                chunk_extra.gas_limit(),
+                chunk_extra.balance_burnt(),
+                chunk_extra.validator_proposals().collect(),
+                prepared_transactions.transactions,
+                outgoing_receipts.clone(),
+                outgoing_receipts_root,
+                tx_root,
+                congestion_info,
+                bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
+                chunk_extra.proposed_split().cloned(),
+                &*validator_signer,
+                &mut self.reed_solomon_encoder,
+            )
         } else {
             ShardChunkWithEncoding::new(
                 prev_block_hash,
@@ -580,7 +601,13 @@ impl ChunkProducer {
         prev_chunk_tx_hashes: HashSet<CryptoHash>,
         tx_validity_period_check: impl Fn(&SignedTransaction) -> bool + Send + 'static,
     ) {
-        if cfg!(feature = "protocol_feature_spice") {
+        // next_epoch_id is epoch_id of the current block (block for which height we are preparing
+        // transactions).
+        let protocol_version = self
+            .epoch_manager
+            .get_epoch_protocol_version(&prev_block_context.next_epoch_id)
+            .unwrap();
+        if ProtocolFeature::Spice.enabled(protocol_version) {
             return;
         }
 

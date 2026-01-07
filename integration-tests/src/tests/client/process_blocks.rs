@@ -54,7 +54,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumBlocks};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_primitives_core::num_rational::Ratio;
 use near_store::NodeStorage;
@@ -156,8 +156,6 @@ async fn receive_network_block() {
 
 /// Include approvals to the next block in newly produced block.
 #[tokio::test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn produce_block_with_approvals() {
     init_test_logger();
     let actor_system = ActorSystem::new();
@@ -372,8 +370,6 @@ async fn invalid_blocks_common(is_requested: bool) {
 }
 
 #[tokio::test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_invalid_blocks_not_requested() {
     invalid_blocks_common(false).await;
 }
@@ -1051,8 +1047,6 @@ fn test_archival_gc_common(
 /// date on the hot -> cold block copying is correctly garbage collecting
 /// blocks older than 5 epochs.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_archival_gc_migration() {
     // Split storage in the middle of migration has hot store kind set to archive.
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
@@ -1068,8 +1062,6 @@ fn test_archival_gc_migration() {
 /// date on the hot -> cold block copying is correctly garbage collecting
 /// blocks older than 5 epochs.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_archival_gc_split_storage_current() {
     // Fully migrated split storage has each store configured with kind = temperature.
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
@@ -1085,8 +1077,6 @@ fn test_archival_gc_split_storage_current() {
 /// on the hot -> cold block copying is correctly garbage collecting blocks
 /// older than the cold head.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_archival_gc_split_storage_behind() {
     // Fully migrated split storage has each store configured with kind = temperature.
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
@@ -1139,8 +1129,6 @@ fn test_gc_chunk_tail() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_gc_execution_outcome() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -1171,8 +1159,6 @@ fn test_gc_execution_outcome() {
 }
 
 #[test]
-// TODO(spice): Enable after implementing state sync for spice.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_gc_after_state_sync() {
     let epoch_length = 1024;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -1844,7 +1830,7 @@ fn test_block_height_processed_orphan() {
     let block_height = orphan_block.header().height();
     let res = env.clients[0].process_block_test(orphan_block.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::Orphan);
-    assert!(env.clients[0].chain.mut_chain_store().is_height_processed(block_height).unwrap());
+    assert!(env.clients[0].chain.mut_chain_store().is_height_processed(block_height));
 }
 
 #[test]
@@ -2140,7 +2126,7 @@ fn slow_test_catchup_gas_price_change() {
             env.clients[1].epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         for part_id in 0..num_parts {
             let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
-            let bytes = store.get(DBCol::StateParts, &key).unwrap().unwrap();
+            let bytes = store.get(DBCol::StateParts, &key).unwrap();
             let part = StatePart::from_bytes(bytes.to_vec(), protocol_version).unwrap();
             env.clients[1]
                 .runtime_adapter
@@ -2168,8 +2154,6 @@ fn slow_test_catchup_gas_price_change() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_block_execution_outcomes() {
     init_test_logger();
 
@@ -2253,6 +2237,10 @@ fn test_block_execution_outcomes() {
 
 #[test]
 fn test_save_tx_outcomes_false() {
+    // TODO(spice): Once save_tx_outcomes is used by chunk executor re-enable the test for spice.
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        return;
+    }
     init_test_logger();
 
     let epoch_length = 5;
@@ -2296,8 +2284,6 @@ fn test_save_tx_outcomes_false() {
 // This test verifies that gas consumed for processing refund receipts is taken into account
 // for the purpose of limiting the size of the chunk.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_refund_receipts_processing() {
     init_test_logger();
 
@@ -2372,8 +2358,6 @@ fn test_refund_receipts_processing() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_execution_metadata() {
     // Prepare TestEnv with a very simple WASM contract.
     let wasm_code = wat::parse_str(
@@ -3177,8 +3161,6 @@ fn test_block_ordinal() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_congestion_receipt_execution() {
     let (mut env, tx_hashes) = prepare_env_with_congestion(PROTOCOL_VERSION, None, 3);
 
