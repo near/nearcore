@@ -170,7 +170,7 @@ fn test_bad_shard_id() {
     chunks[0] = ShardChunkHeader::V3(modified_chunk);
     let mut_block = Arc::make_mut(&mut block);
     mut_block.set_chunks(chunks.clone());
-    mut_block.realign_fields_derived_from_chunks();
+    mut_block.recompute_fields_derived_from_chunks();
     mut_block.mut_header().resign(&validator_signer);
 
     let err = env.clients[0]

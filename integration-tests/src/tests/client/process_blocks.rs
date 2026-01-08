@@ -780,7 +780,7 @@ fn test_bad_chunk_mask() {
             chunk_headers[0] = chunk_header;
             let mut_block = Arc::make_mut(&mut block);
             mut_block.set_chunks(chunk_headers.clone());
-            mut_block.realign_fields_derived_from_chunks();
+            mut_block.recompute_fields_derived_from_chunks();
             assert_eq!(mut_block.header().chunk_mask(), vec![true, false]);
             let mess_with_chunk_mask = height == 4;
             if mess_with_chunk_mask {
@@ -1906,7 +1906,7 @@ fn test_validate_chunk_extra() {
         let chunk_headers = vec![chunk_header.clone()];
         let mut_block = Arc::make_mut(block);
         mut_block.set_chunks(chunk_headers.clone());
-        mut_block.realign_fields_derived_from_chunks();
+        mut_block.recompute_fields_derived_from_chunks();
 
         assert_eq!(mut_block.header().chunk_mask(), vec![true]);
         mut_block
@@ -2867,7 +2867,7 @@ fn test_fork_receipt_ids() {
         let chunk_headers = vec![chunk_header];
         let mut_block = Arc::make_mut(block);
         mut_block.set_chunks(chunk_headers.clone());
-        mut_block.realign_fields_derived_from_chunks();
+        mut_block.recompute_fields_derived_from_chunks();
         assert_eq!(mut_block.header().chunk_mask(), vec![true]);
         mut_block.mut_header().resign(&validator_signer);
         env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
@@ -2920,7 +2920,7 @@ fn test_fork_execution_outcome() {
         let chunk_headers = vec![chunk_header];
         let mut_block = Arc::make_mut(block);
         mut_block.set_chunks(chunk_headers.clone());
-        mut_block.realign_fields_derived_from_chunks();
+        mut_block.recompute_fields_derived_from_chunks();
         assert_eq!(mut_block.header().chunk_mask(), vec![true]);
         mut_block.mut_header().resign(&validator_signer);
         env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();

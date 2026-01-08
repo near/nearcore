@@ -1056,7 +1056,7 @@ impl Block {
         };
     }
 
-    pub fn realign_fields_derived_from_chunks(&mut self) {
+    pub fn recompute_fields_derived_from_chunks(&mut self) {
         let chunks = self.chunks();
         let headers_root = chunks.compute_chunk_headers_root().0;
         let tx_root = chunks.compute_chunk_tx_root();
