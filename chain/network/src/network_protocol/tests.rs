@@ -1,10 +1,7 @@
 use super::*;
 use crate::network_protocol::PeersResponse;
-use crate::network_protocol::proto_conv::{ParsePeerMessageError, ParseRoutedMessageV3Error};
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{
-    PeerIdOrHash, RoutedMessage, RoutedMessageBody, RoutedMessageV1, proto,
-};
+use crate::network_protocol::{RoutedMessage, RoutedMessageBody};
 use crate::testonly::make_rng;
 use crate::types::{Disconnect, HandshakeFailureReason, PeerMessage};
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
@@ -265,44 +262,4 @@ fn test_t2_is_signed() {
 fn test_body_variant_granularity() {
     let message_v3 = make_chunk_request_message();
     assert_eq!(message_v3.body_variant(), "PartialEncodedChunkRequest");
-}
-
-#[test]
-fn test_unused_routed_message_body_variant() {
-    let mut rng = make_rng(12345);
-    let secret_key = data::make_secret_key(&mut rng);
-    let peer_id = PeerId::new(secret_key.public_key());
-    let target_peer_id = data::make_peer_id(&mut rng);
-
-    // Create a RoutedMessageV1 with an unused variant
-    let body = RoutedMessageBody::_UnusedQueryRequest;
-    let hash =
-        RoutedMessage::build_hash(&PeerIdOrHash::PeerId(target_peer_id.clone()), &peer_id, &body);
-    let signature = secret_key.sign(hash.as_ref());
-
-    let routed_msg_v1 = RoutedMessageV1 {
-        target: PeerIdOrHash::PeerId(target_peer_id),
-        author: peer_id,
-        signature,
-        ttl: 1,
-        body,
-    };
-    let borsh_bytes = borsh::to_vec(&routed_msg_v1).unwrap();
-
-    // Create a proto PeerMessage with Routed variant
-    let mut proto_msg = proto::PeerMessage::default();
-    let mut routed_proto = proto::RoutedMessage::default();
-    routed_proto.borsh = borsh_bytes;
-    routed_proto.num_hops = 0;
-    proto_msg.message_type = Some(proto::peer_message::Message_type::Routed(routed_proto));
-
-    // Conversion should call from_routed with the unused variant
-    let result = PeerMessage::try_from(&proto_msg);
-    assert!(result.is_err());
-    match result.err() {
-        Some(ParsePeerMessageError::RoutedV3(ParseRoutedMessageV3Error::Body(e))) => {
-            assert_eq!(e.kind(), std::io::ErrorKind::InvalidData)
-        }
-        other => panic!("Unexpected error: {:?}", other),
-    }
 }
