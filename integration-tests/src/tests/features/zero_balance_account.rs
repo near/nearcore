@@ -22,11 +22,15 @@ use crate::env::test_env::TestEnv;
 fn assert_zero_balance_account(env: &TestEnv, account_id: &AccountId) {
     let head = env.clients[0].chain.head().unwrap();
     let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+    let prev_chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(head_block.header().prev_hash(), &ShardUId::single_shard())
+        .unwrap();
     let response = env.clients[0]
         .runtime_adapter
         .query(
             ShardUId::single_shard(),
-            &head_block.chunks()[0].prev_state_root(),
+            prev_chunk_extra.state_root(),
             head.height,
             0,
             &head.prev_block_hash,
@@ -47,8 +51,6 @@ fn assert_zero_balance_account(env: &TestEnv, account_id: &AccountId) {
 /// Test 2 things: 1) a valid zero balance account can be created and 2) a nonzero balance account
 /// (one with a nontrivial contract deployed) cannot be created without maintaining an initial balance
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_zero_balance_account_creation() {
     let epoch_length = 1000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);

@@ -1061,7 +1061,11 @@ impl Block {
         let headers_root = chunks.compute_chunk_headers_root().0;
         let tx_root = chunks.compute_chunk_tx_root();
         let prev_outgoing_receipts_root = chunks.compute_chunk_prev_outgoing_receipts_root();
-        let prev_state_root = chunks.compute_state_root();
+        let prev_state_root = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            CryptoHash::default()
+        } else {
+            chunks.compute_state_root()
+        };
         let chunk_mask = chunks
             .iter_raw()
             .map(|chunk| chunk.height_included() == self.header().height())
