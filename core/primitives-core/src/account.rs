@@ -1,5 +1,5 @@
 use crate::hash::CryptoHash;
-use crate::types::{Balance, Nonce, StorageUsage};
+use crate::types::{Balance, Nonce, NonceIndex, StorageUsage};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use near_account_id as id;
 use near_account_id::AccountId;
@@ -477,6 +477,23 @@ impl AccessKey {
         Self { nonce: 0, permission: AccessKeyPermission::FullAccess }
     }
 }
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Hash,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct GasKeyInfo {
+    pub balance: Balance,
+    pub num_nonces: NonceIndex,
+}
 
 /// Defines permissions for AccessKey
 #[derive(
@@ -494,10 +511,15 @@ impl AccessKey {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AccessKeyPermission {
     FunctionCall(FunctionCallPermission),
-
     /// Grants full access to the account.
     /// NOTE: It's used to replace account-level public keys.
     FullAccess,
+    /// Gas key with limited permission to make transactions with FunctionCallActions
+    /// Gas keys are a kind of access keys with a prepaid balance to pay for gas.
+    GasKeyFunctionCall(GasKeyInfo, FunctionCallPermission),
+    /// Gas key with full access to the account.
+    /// Gas keys are a kind of access keys with a prepaid balance to pay for gas.
+    GasKeyFullAccess(GasKeyInfo),
 }
 
 /// Grants limited permission to make transactions with FunctionCallActions
