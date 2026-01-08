@@ -352,6 +352,9 @@ pub fn remove_account(
         .collect::<Result<Vec<(PublicKey, Option<NonceIndex>)>, _>>()?;
     drop(lock);
 
+    // TODO(gas-keys): fail remove account if there are gas keys, per design decision.
+    // This avoids deleting gas keys (which may have balance) silently, and ensures the user
+    // properly pays deletion cost for gas key nonces.
     for (public_key, nonce_index) in public_keys {
         if let Some(nonce_index) = nonce_index {
             state_update.remove(TrieKey::GasKeyNonce {
