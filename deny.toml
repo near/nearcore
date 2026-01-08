@@ -78,6 +78,9 @@ skip = [
     { name = "hashbrown", version = "0.15.2" },
     { name = "zerocopy", version = "^0.7" },
 
+    # Hashbrown 0.15.2 depends on this.
+    { name = "foldhash", version = "0.1.3" },
+
     # Bolero requires a newer version and the rest of the ecosystem hasn't caught up yet.
     { name = "bitflags", version = "=1.3.2" },
     { name = "indexmap", version = "=1.9.2" },
