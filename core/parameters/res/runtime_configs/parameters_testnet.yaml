@@ -315,3 +315,5 @@ memory_usage_threshold: 999_999_999_999_999
 min_child_memory_usage: 999_999_999_999_999
 max_number_of_shards: 999_999_999_999_999
 min_epochs_between_resharding: 999_999_999_999_999
+force_split_shards: [ ]
+block_split_shards: [ ]
