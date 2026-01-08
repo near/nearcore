@@ -2,7 +2,7 @@ use crate::types::AccountId;
 use crate::{action::GlobalContractIdentifier, hash::CryptoHash};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives_core::types::ShardId;
+use near_primitives_core::types::{NonceIndex, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::mem::size_of;
 
@@ -239,6 +239,15 @@ pub enum TrieKey {
     GlobalContractCode {
         identifier: GlobalContractCodeIdentifier,
     } = col::GLOBAL_CONTRACT_CODE,
+    /// Represents a single nonce for a gas key. Stored under `col::ACCESS_KEY`
+    /// with a special key format: If an access key is used as a gas key, the
+    /// keys used to store its nonces extend the access key trie key with a
+    /// `NonceIndex` suffix.
+    GasKeyNonce {
+        account_id: AccountId,
+        public_key: PublicKey,
+        index: NonceIndex,
+    } = 19,
 }
 
 /// Provides `len` function.
@@ -328,6 +337,12 @@ impl TrieKey {
             }
             TrieKey::GlobalContractCode { identifier } => {
                 col::GLOBAL_CONTRACT_CODE.len() + identifier.len()
+            }
+            TrieKey::GasKeyNonce { account_id, public_key, index: _nonce_index } => {
+                col::ACCESS_KEY.len() * 2
+                    + account_id.len()
+                    + public_key.len()
+                    + size_of::<NonceIndex>()
             }
         }
     }
@@ -426,6 +441,13 @@ impl TrieKey {
                 buf.push(col::GLOBAL_CONTRACT_CODE);
                 identifier.append_into(buf);
             }
+            TrieKey::GasKeyNonce { account_id, public_key, index: nonce_index } => {
+                buf.push(col::ACCESS_KEY);
+                buf.extend(account_id.as_bytes());
+                buf.push(ACCESS_KEY_SEPARATOR);
+                borsh::to_writer(buf.borsh_writer(), &public_key).unwrap();
+                buf.extend(&nonce_index.to_le_bytes());
+            }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -442,6 +464,7 @@ impl TrieKey {
             TrieKey::Account { account_id, .. } => Some(account_id.clone()),
             TrieKey::ContractCode { account_id, .. } => Some(account_id.clone()),
             TrieKey::AccessKey { account_id, .. } => Some(account_id.clone()),
+            TrieKey::GasKeyNonce { account_id, .. } => Some(account_id.clone()),
             TrieKey::ReceivedData { receiver_id, .. } => Some(receiver_id.clone()),
             TrieKey::PostponedReceiptId { receiver_id, .. } => Some(receiver_id.clone()),
             TrieKey::PendingDataCount { receiver_id, .. } => Some(receiver_id.clone()),
@@ -535,7 +558,21 @@ pub mod trie_key_parsers {
                 "raw key is too short for TrieKey::AccessKey",
             ));
         }
-        PublicKey::try_from_slice(&raw_key[prefix_len..])
+        let mut buf = &raw_key[prefix_len..];
+        PublicKey::deserialize(&mut buf)
+    }
+
+    pub fn parse_nonce_index_from_gas_key_key(
+        raw_key: &[u8],
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<Option<NonceIndex>, std::io::Error> {
+        let prefix_len =
+            col::ACCESS_KEY.len() + account_id.len() + col::ACCESS_KEY.len() + public_key.len();
+        if raw_key.len() <= prefix_len {
+            return Ok(None);
+        }
+        NonceIndex::try_from_slice(&raw_key[prefix_len..]).map(Some)
     }
 
     pub fn parse_data_key_from_contract_data_key<'a>(

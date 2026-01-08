@@ -52,6 +52,7 @@ use near_primitives_core::account::AccountContract;
 use near_primitives_core::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
+use near_primitives_core::types::NonceIndex;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use serde_with::base64::Base64;
@@ -2707,6 +2708,12 @@ pub enum StateChangeValueView {
         account_id: AccountId,
         public_key: PublicKey,
     },
+    GasKeyNonceUpdate {
+        account_id: AccountId,
+        public_key: PublicKey,
+        nonce_index: NonceIndex,
+        nonce_value: u64,
+    },
     DataUpdate {
         account_id: AccountId,
         #[serde(rename = "key_base64")]
@@ -2746,6 +2753,12 @@ impl From<StateChangeValue> for StateChangeValueView {
             StateChangeValue::AccessKeyDeletion { account_id, public_key } => {
                 Self::AccessKeyDeletion { account_id, public_key }
             }
+            StateChangeValue::GasKeyNonceUpdate {
+                account_id,
+                public_key,
+                index: nonce_index,
+                nonce_value,
+            } => Self::GasKeyNonceUpdate { account_id, public_key, nonce_index, nonce_value },
             StateChangeValue::DataUpdate { account_id, key, value } => {
                 Self::DataUpdate { account_id, key, value }
             }
