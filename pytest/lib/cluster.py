@@ -1125,10 +1125,10 @@ def update_transaction_validity_period_in_genesis(
     """ Function to override the transaction_validity_period to epoch_length * 2 """
     epoch_length = None
     has_transaction_validity_period = False
-    for [config, value] in genesis_config_changes:
-        if config == "epoch_length":
-            epoch_length = value
-        if config == "transaction_validity_period":
+    for config in genesis_config_changes:
+        if config[0] == "epoch_length":
+            epoch_length = config[1]
+        if config[0] == "transaction_validity_period":
             has_transaction_validity_period = True
     if epoch_length is not None and not has_transaction_validity_period:
         # Set transaction_validity_period to be equal to epoch_length

@@ -35,8 +35,6 @@ time.sleep(2)
 nodes[1].kill()
 logger.info('node1 is killed')
 
-block_hash = nodes[0].get_latest_block().hash_bytes
-
 num_new_accounts = 10
 balance = 50000000000000000000000000000000
 account_keys = []
@@ -44,6 +42,7 @@ for i in range(num_new_accounts):
     account_name = f'test_account{i}.test0'
     signer_key = Key(account_name, nodes[0].signer_key.pk,
                      nodes[0].signer_key.sk)
+    block_hash = nodes[0].get_latest_block().hash_bytes
     create_account_tx = sign_create_account_with_full_access_key_and_balance_tx(
         nodes[0].signer_key, account_name, signer_key,
         balance // num_new_accounts, i + 1, block_hash)
