@@ -50,11 +50,12 @@ for i in range(num_new_accounts):
     res = nodes[0].send_tx_and_wait(create_account_tx, timeout=15)
     assert 'error' not in res, res
 
-latest_block = utils.wait_for_blocks(nodes[0], target=50)
-cur_height = latest_block.height
-block_hash = latest_block.hash_bytes
+utils.wait_for_blocks(nodes[0], target=50)
 
 for signer_key in account_keys:
+    latest_block = nodes[0].get_latest_block()
+    block_hash = latest_block.hash_bytes
+    cur_height = latest_block.height
     staking_tx = sign_staking_tx(signer_key, nodes[0].validator_key,
                                  balance // (num_new_accounts * 2),
                                  cur_height * 1_000_000 - 1, block_hash)
