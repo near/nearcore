@@ -254,6 +254,7 @@ fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {
     builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
+        .gc_num_epochs_to_keep(100)
         .clients(clients)
         .build()
         .warmup()

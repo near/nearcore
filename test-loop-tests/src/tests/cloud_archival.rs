@@ -169,6 +169,7 @@ fn test_cloud_archival_resume() {
 // TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_read_block() {
+    // TODO: Need to check this. Why Some(MIN_EPOCH_LENGTH / 2)?
     let block_height = Some(MIN_EPOCH_LENGTH / 2);
     test_cloud_archival_base(
         TestCloudArchivalParametersBuilder::default()

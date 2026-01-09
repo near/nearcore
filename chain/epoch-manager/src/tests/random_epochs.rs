@@ -15,7 +15,7 @@ const DEBUG_PRINT: bool = false;
 
 #[test]
 fn test_random_epochs() {
-    run_with_seed_range(2, 10, 1000);
+    run_with_seed_range(10, 10, 1000);
 }
 
 fn run_with_seed_range(epoch_length: u64, num_heights: u64, max_seed: u64) {

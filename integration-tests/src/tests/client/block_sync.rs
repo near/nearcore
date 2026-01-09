@@ -149,6 +149,7 @@ fn test_block_sync() {
     assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);
 }
 
+// here: DBNotFoundErr("BLOCK ORDINAL: 7")
 #[test]
 fn test_block_sync_archival() {
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());

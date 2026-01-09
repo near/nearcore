@@ -22,6 +22,7 @@ use near_primitives::types::{
     EpochInfoProvider, ProtocolVersion, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
+#[allow(unused)]
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
@@ -819,11 +820,11 @@ impl EpochManager {
                     self.finalize_epoch(&mut store_update, &block_info, &current_hash, rng_seed)?;
                 }
 
-                if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-                    if self.is_next_block_in_next_epoch(&prev_block_info)? {
-                        self.update_epoch_sync_proof(&block_info)?;
-                    }
-                }
+                // if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+                //     if self.is_next_block_in_next_epoch(&prev_block_info)? {
+                //         self.update_epoch_sync_proof(&block_info)?;
+                //     }
+                // }
             }
         }
         Ok(store_update)
@@ -839,6 +840,7 @@ impl EpochManager {
     ///
     /// In the future, if `transaction_validity_period` were to increase, we would need to update
     /// this function.
+    #[allow(dead_code)]
     fn update_epoch_sync_proof(&self, first_block_info: &BlockInfo) -> Result<(), EpochError> {
         // pe -> previous_epoch
         // ppe -> previous_previous_epoch

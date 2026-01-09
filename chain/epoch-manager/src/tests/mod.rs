@@ -177,6 +177,7 @@ fn test_validator_change_of_stake() {
     }
 }
 
+// here: DBNotFoundErr("BLOCK HEADER: ....")
 /// Test handling forks across the epoch finalization.
 /// Fork with where one BP produces blocks in one chain and 2 BPs are in another chain.
 ///     |   | /--1---4------|--7---10------|---13---
@@ -365,6 +366,7 @@ fn test_validator_kickout() {
     );
 }
 
+// here
 #[test]
 fn test_validator_unstake() {
     let store = create_test_store().epoch_store();
@@ -471,6 +473,7 @@ fn test_all_validators_unstake() {
     );
 }
 
+// here
 #[test]
 fn test_validator_reward_one_validator() {
     let stake_amount = Balance::from_yoctonear(1_000_000);
@@ -1033,6 +1036,7 @@ fn update_tracker(
     }
 }
 
+// here
 #[test]
 fn test_rewards_with_kickouts() {
     let stake_amount = Balance::from_yoctonear(1_000_000);
@@ -1478,6 +1482,7 @@ fn test_num_missing_blocks() {
     );
 }
 
+// here
 /// Test when blocks are all produced, not producing chunks leads to chunk
 /// producer kickout.
 #[test]
@@ -1553,6 +1558,7 @@ fn test_chunk_producer_kickout() {
     );
 }
 
+// here
 /// Test when all blocks are produced and all chunks are skipped, chunk
 /// validator is not kicked out.
 #[test]
@@ -1639,6 +1645,7 @@ fn test_chunk_validator_kickout_using_production_stats() {
     );
 }
 
+// here
 /// Similar to test_chunk_validator_kickout_using_production_stats, however all chunks are produced but
 /// but some validators miss chunks and got kicked out.
 #[test]
@@ -2009,6 +2016,7 @@ fn test_epoch_height_increase() {
     assert_ne!(epoch_info2.epoch_height(), epoch_info3.epoch_height());
 }
 
+// here
 #[test]
 fn test_all_kickout_edge_case() {
     let stake_amount = Balance::from_yoctonear(1_000);
@@ -2142,6 +2150,7 @@ fn test_protocol_version_switch() {
     );
 }
 
+// here
 #[test]
 fn test_protocol_version_switch_with_shard_layout_change() {
     let store = create_test_store().epoch_store();
@@ -2199,6 +2208,7 @@ fn test_protocol_version_switch_with_shard_layout_change() {
     assert_eq!(epoch_manager.will_shard_layout_change(&h[6]).unwrap(), false);
 }
 
+// here
 #[test]
 fn test_protocol_version_switch_with_many_seats() {
     let store = create_test_store().epoch_store();
@@ -3236,6 +3246,7 @@ fn test_verify_partial_witness_signature() {
     assert!(!bad_partial_witness.verify(chunk_producer.public_key()));
 }
 
+// here
 /// Simulate the blockchain over a few epochs and verify that possible_epochs_of_height_around_tip()
 /// gives the correct results at each step.
 /// Some of the blocks are missing to make the test more interesting.

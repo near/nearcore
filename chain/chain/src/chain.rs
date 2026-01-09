@@ -53,6 +53,7 @@ use near_chain_configs::{MutableValidatorSigner, ProtocolVersionCheckConfig};
 use near_chain_primitives::ApplyChunksMode;
 use near_chain_primitives::error::{BlockKnownError, Error};
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::epoch_sync::extend_epoch_sync_proof;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
@@ -1493,6 +1494,7 @@ impl Chain {
             }
 
             self.validate_header(header, &Provenance::SYNC)?;
+            let epoch_store = self.chain_store.epoch_store();
             let mut chain_store_update = self.chain_store.store_update();
             chain_store_update.save_block_header(BlockHeader::clone(&header))?;
 
@@ -1503,7 +1505,25 @@ impl Chain {
                 BlockInfo::from_header(header, last_finalized_height),
                 *header.random_value(),
             )?;
+
             chain_store_update.merge(epoch_manager_update.into());
+
+            // here update proof
+            if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+                if self.epoch_manager.is_next_block_epoch_start(header.prev_hash())? {
+                    let first_block_info = self.epoch_manager.get_block_info(header.hash())?;
+                    let last_block_hash_in_pe = first_block_info.prev_hash();
+                    let last_block_info_in_pe =
+                        self.epoch_manager.get_block_info(last_block_hash_in_pe)?;
+                    let first_block_hash_in_ppe = last_block_info_in_pe.epoch_first_block();
+                    let first_block_info_in_ppe =
+                        self.epoch_manager.get_block_info(first_block_hash_in_ppe)?;
+                    let last_block_hash_in_ppe = first_block_info_in_ppe.prev_hash();
+
+                    extend_epoch_sync_proof(&epoch_store, last_block_hash_in_ppe)?;
+                }
+            }
+
             chain_store_update.commit()?;
         }
 

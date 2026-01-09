@@ -138,6 +138,7 @@ pub fn test_view_client(env: &mut TestLoopEnv, archival_id: &AccountId, height: 
     let view_client_handle = archival_node.data().view_client_sender.actor_handle();
     let view_client = env.test_loop.data.get_mut(&view_client_handle);
     let block_reference = BlockReference::BlockId(BlockId::Height(height));
+    // TODO: Need to check this
     let block = view_client.handle(GetBlock(block_reference)).unwrap();
     for chunk_header in block.chunks {
         let _chunk_hash = ChunkHash(chunk_header.chunk_hash);

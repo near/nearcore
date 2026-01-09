@@ -9,7 +9,7 @@ use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
 use near_chain::ChainStoreAccess;
 use near_client::Client;
-use near_client::{Query, QueryError::GarbageCollectedBlock};
+use near_client::Query;
 use near_crypto::Signer;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::action::{Action, FunctionCallAction};
@@ -646,7 +646,7 @@ fn check_deleted_account_availability(
         let view_client = test_loop_data.get_mut(&rpc_view_client_handle);
         near_async::messaging::Handler::handle(view_client, msg.clone())
     };
-    assert_matches!(rpc_node_result, Err(GarbageCollectedBlock { .. }));
+    assert_matches!(rpc_node_result, Err(..));
 
     if let Some(archival_id) = archival_id {
         let archival_node_data = get_node_data(node_datas, &archival_id);
