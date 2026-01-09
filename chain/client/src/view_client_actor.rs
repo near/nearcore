@@ -460,6 +460,7 @@ impl ViewClientActor {
             | QueryRequest::ViewState { account_id, .. }
             | QueryRequest::ViewAccessKey { account_id, .. }
             | QueryRequest::ViewAccessKeyList { account_id, .. }
+            | QueryRequest::ViewGasKeyNonces { account_id, .. }
             | QueryRequest::CallFunction { account_id, .. }
             | QueryRequest::ViewCode { account_id, .. } => {
                 account_id_to_shard_id(self.epoch_manager.as_ref(), account_id, &epoch_id)

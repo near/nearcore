@@ -442,7 +442,11 @@ pub fn validate_action(
         Action::Transfer(_) => Ok(()),
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
+        Action::AddGasKey(a) => {
+            validate_add_gas_key_action(limit_config, a, current_protocol_version)
+        }
         Action::DeleteKey(_) => Ok(()),
+        Action::DeleteGasKey(_) => validate_delete_gas_key_action(current_protocol_version),
         Action::DeleteAccount(a) => validate_delete_action(a),
         Action::Delegate(a) => {
             validate_delegate_action(limit_config, a, receiver, current_protocol_version)
@@ -545,7 +549,13 @@ fn validate_add_key_action(
     limit_config: &LimitConfig,
     action: &AddKeyAction,
 ) -> Result<(), ActionsValidationError> {
-    validate_access_key_permission(limit_config, &action.access_key.permission)
+    validate_access_key_permission(limit_config, &action.access_key.permission)?;
+    if action.access_key.gas_key_info().is_some() {
+        return Err(ActionsValidationError::KeyPermissionInvalid {
+            permission: action.access_key.permission.clone().into(),
+        });
+    }
+    Ok(())
 }
 
 /// Validates `AccessKeyPermission`. If the access key permission is `FunctionCall`, checks that the
@@ -555,7 +565,7 @@ fn validate_access_key_permission(
     limit_config: &LimitConfig,
     permission: &AccessKeyPermission,
 ) -> Result<(), ActionsValidationError> {
-    if let AccessKeyPermission::FunctionCall(fc) = permission {
+    if let Some(fc) = permission.function_call_permission() {
         // Check whether `receiver_id` is a valid account_id. Historically, we
         // allowed arbitrary strings there!
         match limit_config.account_id_validity_rules_version {
@@ -659,6 +669,51 @@ fn validate_deterministic_state_init(
     Ok(())
 }
 
+/// Validates `AddGasKey` action. Checks validity of the access key permission. Additionally,
+/// - if the permission is a `FunctionCallPermission`, the allowance must be `None`.
+/// - verifies the number of nonces is within limits.
+fn validate_add_gas_key_action(
+    limit_config: &LimitConfig,
+    action: &AddKeyAction,
+    current_protocol_version: u32,
+) -> Result<(), ActionsValidationError> {
+    require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
+    validate_access_key_permission(limit_config, &action.access_key.permission)?;
+    if let Some(fc) = action.access_key.permission.function_call_permission() {
+        if fc.allowance.is_some() {
+            return Err(ActionsValidationError::KeyPermissionInvalid {
+                permission: action.access_key.permission.clone().into(),
+            });
+        }
+    }
+    let Some(gas_key_info) = action.access_key.gas_key_info() else {
+        return Err(ActionsValidationError::KeyPermissionInvalid {
+            permission: action.access_key.permission.clone().into(),
+        });
+    };
+    // TODO(gas-keys): consider making 0 nonces invalid.
+    if gas_key_info.num_nonces > AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY {
+        return Err(ActionsValidationError::GasKeyTooManyNoncesRequested {
+            requested_nonces: gas_key_info.num_nonces,
+            limit: AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY,
+        });
+    }
+    if gas_key_info.balance != Balance::ZERO {
+        return Err(ActionsValidationError::AddGasKeyWithNonZeroBalance {
+            balance: gas_key_info.balance,
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_delete_gas_key_action(
+    current_protocol_version: u32,
+) -> Result<(), ActionsValidationError> {
+    require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
+    Ok(())
+}
+
 fn validate_global_contract_identifier(
     identifier: &GlobalContractIdentifier,
 ) -> Result<(), ActionsValidationError> {
@@ -694,8 +749,8 @@ mod tests {
     use crate::near_primitives::trie_key::TrieKey;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
-    use near_primitives::action::GlobalContractIdentifier;
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
+    use near_primitives::action::{DeleteGasKeyAction, GlobalContractIdentifier};
     use near_primitives::deterministic_account_id::{
         DeterministicAccountStateInit, DeterministicAccountStateInitV1,
     };
@@ -2052,6 +2107,25 @@ mod tests {
             PROTOCOL_VERSION,
         )
         .expect("valid action");
+    }
+
+    #[test]
+    fn test_validate_action_invalid_add_key_gas_key() {
+        let num_nonces = 10; // Arbitrary number of nonces for testing
+        let gas_key = AccessKey::gas_key_full_access(num_nonces);
+        assert_eq!(
+            validate_action(
+                &test_limit_config(),
+                &Action::AddKey(Box::new(AddKeyAction {
+                    public_key: PublicKey::empty(KeyType::ED25519),
+                    access_key: gas_key.clone(),
+                })),
+                &"alice.near".parse().unwrap(),
+                ProtocolFeature::GasKeys.protocol_version(),
+            )
+            .expect_err("expected an error"),
+            ActionsValidationError::KeyPermissionInvalid { permission: gas_key.permission.into() }
+        );
     }
 
     #[test]

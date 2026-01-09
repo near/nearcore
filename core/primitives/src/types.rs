@@ -258,24 +258,49 @@ pub enum StateChangesRequest {
     AllAccessKeyChanges { account_ids: Vec<AccountId> },
     ContractCodeChanges { account_ids: Vec<AccountId> },
     DataChanges { account_ids: Vec<AccountId>, key_prefix: StoreKey },
+    // TODO(gas-keys): Add state changes request for gas key nonces.
 }
 
 #[derive(Debug)]
 pub enum StateChangeValue {
-    AccountUpdate { account_id: AccountId, account: Account },
-    AccountDeletion { account_id: AccountId },
-    AccessKeyUpdate { account_id: AccountId, public_key: PublicKey, access_key: AccessKey },
-    AccessKeyDeletion { account_id: AccountId, public_key: PublicKey },
+    AccountUpdate {
+        account_id: AccountId,
+        account: Account,
+    },
+    AccountDeletion {
+        account_id: AccountId,
+    },
+    AccessKeyUpdate {
+        account_id: AccountId,
+        public_key: PublicKey,
+        access_key: AccessKey,
+    },
+    AccessKeyDeletion {
+        account_id: AccountId,
+        public_key: PublicKey,
+    },
     GasKeyNonceUpdate {
         account_id: AccountId,
         public_key: PublicKey,
         index: NonceIndex,
-        nonce_value: Nonce,
+        nonce: Nonce,
     },
-    DataUpdate { account_id: AccountId, key: StoreKey, value: StoreValue },
-    DataDeletion { account_id: AccountId, key: StoreKey },
-    ContractCodeUpdate { account_id: AccountId, code: Vec<u8> },
-    ContractCodeDeletion { account_id: AccountId },
+    DataUpdate {
+        account_id: AccountId,
+        key: StoreKey,
+        value: StoreValue,
+    },
+    DataDeletion {
+        account_id: AccountId,
+        key: StoreKey,
+    },
+    ContractCodeUpdate {
+        account_id: AccountId,
+        code: Vec<u8>,
+    },
+    ContractCodeDeletion {
+        account_id: AccountId,
+    },
 }
 
 impl StateChangeValue {
@@ -357,7 +382,7 @@ impl StateChanges {
                                     account_id: account_id.clone(),
                                     public_key: public_key.clone(),
                                     index,
-                                    nonce_value: u64::try_from_slice(&change_data)
+                                    nonce: <_>::try_from_slice(&change_data)
                                         .expect("Failed to parse internally stored gas key nonce"),
                                 },
                             })

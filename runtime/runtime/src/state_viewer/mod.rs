@@ -4,26 +4,28 @@ use crate::ext::RuntimeExt;
 use crate::global_contracts::{AccountContractAccessExt, GlobalContractAccessExt};
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
+use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
-use near_primitives::borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, Receipt, ReceiptEnum, ReceiptV1, VersionedActionReceipt,
 };
 use near_primitives::transaction::FunctionCallAction;
-use near_primitives::trie_key::trie_key_parsers::{self};
+use near_primitives::trie_key::trie_key_parsers::{
+    self, parse_gas_key_nonce_index_from_access_key_key, parse_public_key_from_access_key_key,
+};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, ShardId,
+    AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce, ShardId,
 };
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
-use near_store::{TrieUpdate, get_access_key, get_account};
+use near_store::{TrieUpdate, get_access_key, get_account, get_gas_key_nonce};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::{str, sync::Arc, time::Instant};
@@ -127,28 +129,66 @@ impl TrieViewer {
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, errors::ViewAccessKeyError> {
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
-        let raw_prefix: &[u8] = prefix.as_ref();
         let access_keys =
             state_update
                 .iter(&prefix)?
                 .map(|key| {
                     let key = key?;
-                    let public_key = &key[raw_prefix.len()..];
-                    let access_key = near_store::get_access_key_raw(state_update, &key)?
-                        .ok_or_else(|| errors::ViewAccessKeyError::InternalError {
-                            error_message: "Unexpected missing key from iterator".to_string(),
-                        })?;
-                    PublicKey::try_from_slice(public_key)
+                    let public_key = parse_public_key_from_access_key_key(&key, account_id)
                         .map_err(|_| errors::ViewAccessKeyError::InternalError {
-                            error_message: format!(
-                                "Unexpected invalid public key {:?} received from store",
-                                public_key
-                            ),
-                        })
-                        .map(|key| (key, access_key))
+                            error_message: "Unexpected invalid access key from iterator"
+                                .to_string(),
+                        })?;
+                    if let Some(_index) =
+                        parse_gas_key_nonce_index_from_access_key_key(&key, account_id, &public_key)
+                            .map_err(|_| errors::ViewAccessKeyError::InternalError {
+                                error_message: "could not parse nonce index".to_string(),
+                            })?
+                    {
+                        // This is a gas key nonce, skip it.
+                        return Ok(None);
+                    }
+                    let access_key = get_access_key(state_update, account_id, &public_key)?
+                        .ok_or_else(|| errors::ViewAccessKeyError::AccessKeyDoesNotExist {
+                            public_key: public_key.clone(),
+                        })?;
+
+                    Ok(Some((public_key, access_key)))
                 })
+                .filter_map_ok(|x| x)
                 .collect::<Result<Vec<_>, errors::ViewAccessKeyError>>();
         access_keys
+    }
+
+    pub fn view_gas_key_nonces(
+        &self,
+        state_update: &TrieUpdate,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<Vec<Nonce>, errors::ViewAccessKeyError> {
+        // TODO(gas-keys): Optimize this by iterating with a prefix instead of querying individually.
+        let access_key =
+            get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
+                errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
+            })?;
+        // If the access key is not a gas key, treat as not found.
+        let Some(gas_key_info) = access_key.gas_key_info() else {
+            return Err(errors::ViewAccessKeyError::AccessKeyDoesNotExist {
+                public_key: public_key.clone(),
+            });
+        };
+        (0..gas_key_info.num_nonces)
+            .map(|index| {
+                get_gas_key_nonce(state_update, account_id, public_key, index)?.ok_or_else(|| {
+                errors::ViewAccessKeyError::InternalError {
+                    error_message: format!(
+                        "gas key nonce at index {} does not exist for account {} and public key {}",
+                        index, account_id, public_key
+                    ),
+                }
+            })
+            })
+            .collect()
     }
 
     pub fn view_state(

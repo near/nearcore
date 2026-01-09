@@ -6,8 +6,8 @@ use crate::trie_key::trie_key_parsers::{
     parse_account_id_from_access_key_key, parse_account_id_from_account_key,
     parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
     parse_account_id_from_received_data_key, parse_data_id_from_received_data_key,
-    parse_data_key_from_contract_data_key, parse_index_from_delayed_receipt_key,
-    parse_nonce_index_from_gas_key_key, parse_public_key_from_access_key_key,
+    parse_data_key_from_contract_data_key, parse_gas_key_nonce_index_from_access_key_key,
+    parse_index_from_delayed_receipt_key, parse_public_key_from_access_key_key,
 };
 use crate::trie_key::{TrieKey, col};
 use crate::types::{AccountId, StoreKey, StoreValue};
@@ -98,7 +98,8 @@ impl StateRecord {
                 let access_key = AccessKey::try_from_slice(&value)?;
                 let account_id = parse_account_id_from_access_key_key(key)?;
                 let public_key = parse_public_key_from_access_key_key(key, &account_id)?;
-                let index = parse_nonce_index_from_gas_key_key(key, &account_id, &public_key)?;
+                let index =
+                    parse_gas_key_nonce_index_from_access_key_key(key, &account_id, &public_key)?;
                 if let Some(index) = index {
                     let nonce = u64::try_from_slice(&value)?;
                     Some(StateRecord::GasKeyNonce { account_id, public_key, index, nonce })
@@ -144,10 +145,10 @@ impl StateRecord {
             StateRecord::Data { .. } => "Data",
             StateRecord::Contract { .. } => "Contract",
             StateRecord::AccessKey { .. } => "AccessKey",
+            StateRecord::GasKeyNonce { .. } => "GasKeyNonce",
             StateRecord::PostponedReceipt { .. } => "PostponedReceipt",
             StateRecord::ReceivedData { .. } => "ReceivedData",
             StateRecord::DelayedReceipt { .. } => "DelayedReceipt",
-            StateRecord::GasKeyNonce { .. } => "GasKeyNonce",
         }
         .to_string()
     }
@@ -182,7 +183,7 @@ impl Display for StateRecord {
             StateRecord::PostponedReceipt(receipt) => write!(f, "Postponed receipt {:?}", receipt),
             StateRecord::DelayedReceipt(receipt) => write!(f, "Delayed receipt {:?}", receipt),
             StateRecord::GasKeyNonce { account_id, public_key, index, nonce } => {
-                write!(f, "GasKeyNonce {:?},{:?},{}: {}", account_id, public_key, index, nonce)
+                write!(f, "Gas key nonce {:?},{:?}[{}]: {}", account_id, public_key, index, nonce)
             }
         }
     }
