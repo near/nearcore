@@ -103,11 +103,11 @@ keys = [''.join(random.choices(string.ascii_lowercase, k=3)) for _ in range(20)]
 key_to_block_hash = {}
 nonce = 1
 time.sleep(1)
-block_id = nodes[1].get_latest_block(check_storage=False)
 
 # insert all accounts
 for key in keys:
     print(f"inserting {key}")
+    block_id = nodes[1].get_latest_block(check_storage=False)
     tx = sign_create_account_with_full_access_key_and_balance_tx(
         nodes[0].signer_key, f"{key}.{nodes[0].signer_key.account_id}",
         nodes[0].signer_key, NEAR_BASE, nonce, block_id.hash_bytes)
