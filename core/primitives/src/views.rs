@@ -6,8 +6,8 @@
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::action::{
-    DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, UseGlobalContractAction,
+    DeleteGasKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
+    GlobalContractDeployMode, GlobalContractIdentifier, UseGlobalContractAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -48,10 +48,11 @@ use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
-use near_primitives_core::account::AccountContract;
+use near_primitives_core::account::{AccountContract, GasKeyInfo};
 use near_primitives_core::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
+use near_primitives_core::types::NonceIndex;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use serde_with::base64::Base64;
@@ -152,8 +153,23 @@ impl From<AccountView> for Account {
 #[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AccessKeyPermissionView {
-    FunctionCall { allowance: Option<Balance>, receiver_id: String, method_names: Vec<String> } = 0,
+    FunctionCall {
+        allowance: Option<Balance>,
+        receiver_id: String,
+        method_names: Vec<String>,
+    } = 0,
     FullAccess = 1,
+    GasKeyFunctionCall {
+        balance: Balance,
+        num_nonces: NonceIndex,
+        allowance: Option<Balance>,
+        receiver_id: String,
+        method_names: Vec<String>,
+    } = 2,
+    GasKeyFullAccess {
+        balance: Balance,
+        num_nonces: NonceIndex,
+    } = 3,
 }
 
 impl From<AccessKeyPermission> for AccessKeyPermissionView {
@@ -165,6 +181,21 @@ impl From<AccessKeyPermission> for AccessKeyPermissionView {
                 method_names: func_call.method_names,
             },
             AccessKeyPermission::FullAccess => AccessKeyPermissionView::FullAccess,
+            AccessKeyPermission::GasKeyFunctionCall(gas_key_info, func_call) => {
+                AccessKeyPermissionView::GasKeyFunctionCall {
+                    balance: gas_key_info.balance,
+                    num_nonces: gas_key_info.num_nonces,
+                    allowance: func_call.allowance,
+                    receiver_id: func_call.receiver_id,
+                    method_names: func_call.method_names,
+                }
+            }
+            AccessKeyPermission::GasKeyFullAccess(gas_key_info) => {
+                AccessKeyPermissionView::GasKeyFullAccess {
+                    balance: gas_key_info.balance,
+                    num_nonces: gas_key_info.num_nonces,
+                }
+            }
         }
     }
 }
@@ -180,6 +211,19 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
                 })
             }
             AccessKeyPermissionView::FullAccess => AccessKeyPermission::FullAccess,
+            AccessKeyPermissionView::GasKeyFunctionCall {
+                balance,
+                num_nonces,
+                allowance,
+                receiver_id,
+                method_names,
+            } => AccessKeyPermission::GasKeyFunctionCall(
+                GasKeyInfo { balance, num_nonces },
+                FunctionCallPermission { allowance, receiver_id, method_names },
+            ),
+            AccessKeyPermissionView::GasKeyFullAccess { balance, num_nonces } => {
+                AccessKeyPermission::GasKeyFullAccess(GasKeyInfo { balance, num_nonces })
+            }
         }
     }
 }
@@ -310,6 +354,7 @@ pub enum QueryResponseKind {
     CallResult(CallResult),
     AccessKey(AccessKeyView),
     AccessKeyList(AccessKeyList),
+    GasKeyNonces(Vec<Nonce>),
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -335,6 +380,10 @@ pub enum QueryRequest {
     },
     ViewAccessKeyList {
         account_id: AccountId,
+    },
+    ViewGasKeyNonces {
+        account_id: AccountId,
+        public_key: PublicKey,
     },
     CallFunction {
         account_id: AccountId,
@@ -1392,6 +1441,14 @@ pub enum ActionView {
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: Balance,
     } = 13,
+    AddGasKey {
+        public_key: PublicKey,
+        access_key: AccessKeyView,
+    } = 14,
+    DeleteGasKey {
+        public_key: PublicKey,
+        num_nonces: NonceIndex,
+    } = 15,
 }
 
 impl From<Action> for ActionView {
@@ -1450,6 +1507,14 @@ impl From<Action> for ActionView {
                     deposit: action.deposit,
                 }
             }
+            Action::AddGasKey(action) => ActionView::AddGasKey {
+                public_key: action.public_key,
+                access_key: action.access_key.into(),
+            },
+            Action::DeleteGasKey(action) => ActionView::DeleteGasKey {
+                public_key: action.public_key,
+                num_nonces: action.num_nonces,
+            },
         }
     }
 }
@@ -1517,6 +1582,15 @@ impl TryFrom<ActionView> for Action {
                     ),
                     deposit,
                 }))
+            }
+            ActionView::AddGasKey { public_key, access_key } => {
+                Action::AddGasKey(Box::new(AddKeyAction {
+                    public_key,
+                    access_key: access_key.into(),
+                }))
+            }
+            ActionView::DeleteGasKey { public_key, num_nonces } => {
+                Action::DeleteGasKey(Box::new(DeleteGasKeyAction { public_key, num_nonces }))
             }
         })
     }
@@ -2707,6 +2781,12 @@ pub enum StateChangeValueView {
         account_id: AccountId,
         public_key: PublicKey,
     },
+    GasKeyNonceUpdate {
+        account_id: AccountId,
+        public_key: PublicKey,
+        index: NonceIndex,
+        nonce: Nonce,
+    },
     DataUpdate {
         account_id: AccountId,
         #[serde(rename = "key_base64")]
@@ -2745,6 +2825,9 @@ impl From<StateChangeValue> for StateChangeValueView {
             }
             StateChangeValue::AccessKeyDeletion { account_id, public_key } => {
                 Self::AccessKeyDeletion { account_id, public_key }
+            }
+            StateChangeValue::GasKeyNonceUpdate { account_id, public_key, index, nonce } => {
+                Self::GasKeyNonceUpdate { account_id, public_key, index, nonce }
             }
             StateChangeValue::DataUpdate { account_id, key, value } => {
                 Self::DataUpdate { account_id, key, value }
