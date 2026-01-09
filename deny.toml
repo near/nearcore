@@ -78,6 +78,10 @@ skip = [
     { name = "hashbrown", version = "0.15.2" },
     { name = "zerocopy", version = "^0.7" },
 
+    # foldhash
+    { name = "foldhash", version = "=0.2.0" },
+    { name = "foldhash", version = "=0.1.3" },
+
     # Bolero requires a newer version and the rest of the ecosystem hasn't caught up yet.
     { name = "bitflags", version = "=1.3.2" },
     { name = "indexmap", version = "=1.9.2" },
@@ -120,7 +124,7 @@ skip = [
     { name = "base64", version = "^0.21" },
 
     # okApi uses mostly schemars 0.8 for now, though it's not necessary
-    { name = "schemars" , version = "^0.8" },
+    { name = "schemars", version = "^0.8" },
     { name = "schemars_derive", version = "^0.8" },
 
     # Bolero depends on outdated versions of these
