@@ -1,4 +1,5 @@
 use near_o11y::metrics::{HistogramVec, IntCounter, IntCounterVec, exponential_buckets};
+use near_primitives::views::TxExecutionStatus;
 use std::sync::LazyLock;
 
 pub static RPC_PROCESSING_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
@@ -55,3 +56,21 @@ pub static RPC_UNREACHABLE_ERROR_COUNT: LazyLock<IntCounterVec> = LazyLock::new(
     )
     .unwrap()
 });
+pub static RPC_WAIT_UNTIL_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    near_o11y::metrics::try_create_int_counter_vec(
+        "near_rpc_wait_until_count",
+        "Tracks number of RPC calls using each wait_until transaction finality variant",
+        &["method", "wait_until"],
+    )
+    .unwrap()
+});
+
+pub(crate) fn report_wait_until_metric(method: &str, wait_until: &TxExecutionStatus) {
+    // Serialize wait until as a json value (json string), then remove the quotation marks around it
+    // to get the string itself.
+    let wait_until_string = serde_json::to_string(wait_until)
+        .expect("Serde serialization of a simple enum shouldn't fail")
+        .replace("\"", "");
+
+    RPC_WAIT_UNTIL_COUNT.with_label_values(&[method, &wait_until_string]).inc();
+}
