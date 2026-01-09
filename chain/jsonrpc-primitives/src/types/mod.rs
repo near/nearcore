@@ -21,6 +21,4 @@ pub mod view_access_key;
 pub mod view_access_key_list;
 pub mod view_account;
 pub mod view_code;
-pub mod view_gas_key;
-pub mod view_gas_key_list;
 pub mod view_state;
