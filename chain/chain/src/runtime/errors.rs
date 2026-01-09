@@ -105,24 +105,6 @@ impl QueryError {
         }
     }
 
-    pub fn from_view_gas_key_error(
-        error: node_runtime::state_viewer::errors::ViewGasKeyError,
-        block_height: near_primitives::types::BlockHeight,
-        block_hash: near_primitives::hash::CryptoHash,
-    ) -> Self {
-        match error {
-            node_runtime::state_viewer::errors::ViewGasKeyError::InvalidAccountId {
-                requested_account_id,
-            } => Self::InvalidAccount { requested_account_id, block_height, block_hash },
-            node_runtime::state_viewer::errors::ViewGasKeyError::GasKeyDoesNotExist {
-                public_key,
-            } => Self::UnknownGasKey { public_key, block_height, block_hash },
-            node_runtime::state_viewer::errors::ViewGasKeyError::InternalError {
-                error_message,
-            } => Self::InternalError { error_message, block_height, block_hash },
-        }
-    }
-
     pub fn from_epoch_error(
         error: near_primitives::errors::EpochError,
         block_height: near_primitives::types::BlockHeight,

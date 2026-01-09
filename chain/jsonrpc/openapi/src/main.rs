@@ -45,10 +45,6 @@ use near_jsonrpc_primitives::types::{
     },
     view_account::{RpcViewAccountError, RpcViewAccountRequest, RpcViewAccountResponse},
     view_code::{RpcViewCodeError, RpcViewCodeRequest, RpcViewCodeResponse},
-    view_gas_key::{RpcViewGasKeyError, RpcViewGasKeyRequest, RpcViewGasKeyResponse},
-    view_gas_key_list::{
-        RpcViewGasKeyListError, RpcViewGasKeyListRequest, RpcViewGasKeyListResponse,
-    },
     view_state::{RpcViewStateError, RpcViewStateRequest, RpcViewStateResponse},
 };
 use near_jsonrpc_primitives::{
@@ -926,18 +922,6 @@ The `QueryRequest` enum provides multiple variants for performing the following 
         &mut all_paths,
         "EXPERIMENTAL_call_function".to_string(),
         "Calls a view function on a contract and returns the result.".to_string(),
-    );
-    add_spec_for_path::<RpcViewGasKeyRequest, RpcViewGasKeyResponse, RpcViewGasKeyError>(
-        &mut all_schemas,
-        &mut all_paths,
-        "EXPERIMENTAL_view_gas_key".to_string(),
-        "Returns information about a single gas key for given account.".to_string(),
-    );
-    add_spec_for_path::<RpcViewGasKeyListRequest, RpcViewGasKeyListResponse, RpcViewGasKeyListError>(
-        &mut all_schemas,
-        &mut all_paths,
-        "EXPERIMENTAL_view_gas_key_list".to_string(),
-        "Returns all gas keys for a given account.".to_string(),
     );
 
     let path_schema = whole_spec(all_schemas, all_paths);
