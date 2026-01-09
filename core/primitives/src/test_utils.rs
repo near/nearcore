@@ -30,7 +30,6 @@ use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
-#[cfg(feature = "clock")]
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
@@ -936,8 +935,6 @@ impl TestBlockBuilder {
     }
 
     pub fn build(self) -> Arc<Block> {
-        use crate::version::PROTOCOL_VERSION;
-
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
         let last_certified_block_execution_results = BlockExecutionResults(
             self.chunks
