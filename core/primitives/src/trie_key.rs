@@ -343,8 +343,11 @@ impl TrieKey {
             TrieKey::GlobalContractCode { identifier } => {
                 col::GLOBAL_CONTRACT_CODE.len() + identifier.len()
             }
-            TrieKey::GasKeyNonce { account_id, public_key, index: _nonce_index } => {
-                access_key_key_len(account_id, public_key) + size_of::<NonceIndex>()
+            TrieKey::GasKeyNonce { account_id, public_key, index: _index } => {
+                col::ACCESS_KEY.len() * 2
+                    + account_id.len()
+                    + public_key.len()
+                    + size_of::<NonceIndex>()
             }
         }
     }
@@ -697,14 +700,6 @@ pub mod trie_key_parsers {
         parse_account_id_from_slice(account_id, "ContractCode")
     }
 
-    pub fn parse_trie_key_access_key_from_raw_key(
-        raw_key: &[u8],
-    ) -> Result<TrieKey, std::io::Error> {
-        let account_id = parse_account_id_from_access_key_key(raw_key)?;
-        let public_key = parse_public_key_from_access_key_key(raw_key, &account_id)?;
-        Ok(TrieKey::AccessKey { account_id, public_key })
-    }
-
     pub fn parse_account_id_from_raw_key(
         raw_key: &[u8],
     ) -> Result<Option<AccountId>, std::io::Error> {
@@ -849,10 +844,6 @@ mod tests {
             };
             let raw_key = key.to_vec();
             assert_eq!(raw_key.len(), key.len());
-            assert_eq!(
-                trie_key_parsers::parse_trie_key_access_key_from_raw_key(&raw_key).unwrap(),
-                key
-            );
             assert_eq!(
                 trie_key_parsers::parse_account_id_from_access_key_key(&raw_key).unwrap(),
                 account_id

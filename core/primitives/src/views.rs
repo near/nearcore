@@ -6,8 +6,8 @@
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::action::{
-    DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, UseGlobalContractAction,
+    DeleteGasKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
+    GlobalContractDeployMode, GlobalContractIdentifier, UseGlobalContractAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -354,6 +354,7 @@ pub enum QueryResponseKind {
     CallResult(CallResult),
     AccessKey(AccessKeyView),
     AccessKeyList(AccessKeyList),
+    GasKeyNonces(Vec<Nonce>),
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -379,6 +380,10 @@ pub enum QueryRequest {
     },
     ViewAccessKeyList {
         account_id: AccountId,
+    },
+    ViewGasKeyNonces {
+        account_id: AccountId,
+        public_key: PublicKey,
     },
     CallFunction {
         account_id: AccountId,
@@ -1436,6 +1441,14 @@ pub enum ActionView {
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: Balance,
     } = 13,
+    AddGasKey {
+        public_key: PublicKey,
+        access_key: AccessKeyView,
+    } = 14,
+    DeleteGasKey {
+        public_key: PublicKey,
+        num_nonces: NonceIndex,
+    } = 15,
 }
 
 impl From<Action> for ActionView {
@@ -1494,6 +1507,14 @@ impl From<Action> for ActionView {
                     deposit: action.deposit,
                 }
             }
+            Action::AddGasKey(action) => ActionView::AddGasKey {
+                public_key: action.public_key,
+                access_key: action.access_key.into(),
+            },
+            Action::DeleteGasKey(action) => ActionView::DeleteGasKey {
+                public_key: action.public_key,
+                num_nonces: action.num_nonces,
+            },
         }
     }
 }
@@ -1561,6 +1582,15 @@ impl TryFrom<ActionView> for Action {
                     ),
                     deposit,
                 }))
+            }
+            ActionView::AddGasKey { public_key, access_key } => {
+                Action::AddGasKey(Box::new(AddKeyAction {
+                    public_key,
+                    access_key: access_key.into(),
+                }))
+            }
+            ActionView::DeleteGasKey { public_key, num_nonces } => {
+                Action::DeleteGasKey(Box::new(DeleteGasKeyAction { public_key, num_nonces }))
             }
         })
     }
@@ -2754,8 +2784,8 @@ pub enum StateChangeValueView {
     GasKeyNonceUpdate {
         account_id: AccountId,
         public_key: PublicKey,
-        nonce_index: NonceIndex,
-        nonce_value: Nonce,
+        index: NonceIndex,
+        nonce: Nonce,
     },
     DataUpdate {
         account_id: AccountId,
@@ -2796,12 +2826,9 @@ impl From<StateChangeValue> for StateChangeValueView {
             StateChangeValue::AccessKeyDeletion { account_id, public_key } => {
                 Self::AccessKeyDeletion { account_id, public_key }
             }
-            StateChangeValue::GasKeyNonceUpdate {
-                account_id,
-                public_key,
-                index: nonce_index,
-                nonce_value,
-            } => Self::GasKeyNonceUpdate { account_id, public_key, nonce_index, nonce_value },
+            StateChangeValue::GasKeyNonceUpdate { account_id, public_key, index, nonce } => {
+                Self::GasKeyNonceUpdate { account_id, public_key, index, nonce }
+            }
             StateChangeValue::DataUpdate { account_id, key, value } => {
                 Self::DataUpdate { account_id, key, value }
             }

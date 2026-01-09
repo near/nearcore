@@ -718,6 +718,17 @@ pub(crate) fn clear_account_contract_storage_usage(
     Ok(())
 }
 
+pub(crate) fn access_key_storage_usage(
+    fee_config: &RuntimeFeesConfig,
+    public_key: &PublicKey,
+    access_key: &AccessKey,
+) -> StorageUsage {
+    let storage_usage_config = &fee_config.storage_usage_config;
+    borsh::object_length(public_key).unwrap() as u64
+        + borsh::object_length(access_key).unwrap() as u64
+        + storage_usage_config.num_extra_bytes_record
+}
+
 pub(crate) fn action_delete_key(
     fee_config: &RuntimeFeesConfig,
     state_update: &mut TrieUpdate,
@@ -729,10 +740,8 @@ pub(crate) fn action_delete_key(
     // TODO(gas-keys): need to verify that a gas key is not being deleted here
     let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
     if let Some(access_key) = access_key {
-        let storage_usage_config = &fee_config.storage_usage_config;
-        let storage_usage = borsh::object_length(&delete_key.public_key).unwrap() as u64
-            + borsh::object_length(&access_key).unwrap() as u64
-            + storage_usage_config.num_extra_bytes_record;
+        let storage_usage =
+            access_key_storage_usage(fee_config, &delete_key.public_key, &access_key);
         // Remove access key
         remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
         account.set_storage_usage(account.storage_usage().saturating_sub(storage_usage));
@@ -775,15 +784,11 @@ pub(crate) fn action_add_key(
     access_key.nonce = initial_nonce_value(apply_state.block_height);
     set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
 
-    let storage_config = &apply_state.config.fees.storage_usage_config;
+    let fee_config = &apply_state.config.fees;
     account.set_storage_usage(
         account
             .storage_usage()
-            .checked_add(
-                borsh::object_length(&add_key.public_key).unwrap() as u64
-                    + borsh::object_length(&add_key.access_key).unwrap() as u64
-                    + storage_config.num_extra_bytes_record,
-            )
+            .checked_add(access_key_storage_usage(fee_config, &add_key.public_key, &access_key))
             .ok_or_else(|| {
                 StorageError::StorageInconsistentState(format!(
                     "Storage usage integer overflow for account {}",
@@ -1023,7 +1028,9 @@ pub(crate) fn check_actor_permissions(
         | Action::AddKey(_)
         | Action::DeleteKey(_)
         | Action::DeployGlobalContract(_)
-        | Action::UseGlobalContract(_) => {
+        | Action::UseGlobalContract(_)
+        | Action::AddGasKey(_)
+        | Action::DeleteGasKey(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
                     account_id: account_id.clone(),
@@ -1110,7 +1117,9 @@ pub(crate) fn check_account_existence(
         | Action::DeleteAccount(_)
         | Action::Delegate(_)
         | Action::DeployGlobalContract(_)
-        | Action::UseGlobalContract(_) => {
+        | Action::UseGlobalContract(_)
+        | Action::AddGasKey(_)
+        | Action::DeleteGasKey(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),
