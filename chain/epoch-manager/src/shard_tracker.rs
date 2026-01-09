@@ -680,6 +680,7 @@ mod tests {
             .collect()
     }
 
+    // here: we are recording only blocks at epoch end
     /// Tests that arbitrary shard tracking works correctly across multiple reshardings. Verifies
     /// that tracked shards are properly propagated to their descendants after splits, and that
     /// untracked shards are not erroneously included after layout changes.

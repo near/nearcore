@@ -352,6 +352,7 @@ fn ultra_slow_test_gc_remove_fork_large() {
     test_gc_remove_fork_common(20)
 }
 
+// here
 #[test]
 fn test_gc_remove_fork_fail_often() {
     for _tries in 0..10 {
@@ -388,6 +389,7 @@ fn test_gc_not_remove_fork_common(max_changes_limit: usize) {
     }
 }
 
+// here
 #[test]
 fn test_gc_not_remove_fork_small() {
     test_gc_not_remove_fork_common(1)
@@ -398,6 +400,7 @@ fn ultra_slow_test_gc_not_remove_fork_large() {
     test_gc_not_remove_fork_common(20)
 }
 
+// here
 // Creates simple longer fork and NOT GCs it
 #[test]
 fn test_gc_not_remove_longer_fork() {
@@ -511,6 +514,7 @@ fn ultra_slow_test_gc_random_large() {
     test_gc_random_common(25);
 }
 
+// here
 #[test]
 fn test_gc_pine_small() {
     let mut chains = vec![SimpleChain { from: 0, length: 101, is_removed: false }];
@@ -565,6 +569,7 @@ fn test_gc_star_common(max_changes_limit: usize) {
     }
 }
 
+// here
 #[test]
 fn test_gc_star_small() {
     test_gc_star_common(1)
@@ -683,6 +688,7 @@ fn test_fork_far_away_from_epoch_end() {
     }
 }
 
+/// here
 /// Test that garbage collection works properly. The blocks behind gc head should be garbage
 /// collected while the blocks that are ahead of it should not.
 #[test]
@@ -765,6 +771,7 @@ fn add_block(
     *prev_block = block.clone();
 }
 
+// here
 #[test]
 fn test_clear_old_data_fixed_height() {
     let mut chain = get_chain(Clock::real());

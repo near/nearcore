@@ -419,6 +419,7 @@ impl TestEnv {
     }
 }
 
+// here
 /// Start with 2 validators with default stake X.
 /// 1. Validator 0 stakes 2 * X
 /// 2. Validator 0 creates new account Validator 2 with 3 * X in balance
@@ -519,6 +520,7 @@ fn test_validator_rotation() {
     );
 }
 
+// here
 /// One validator tries to decrease their stake in epoch T. Make sure that the stake return happens in epoch T+3.
 #[test]
 fn test_validator_stake_change() {
@@ -554,6 +556,7 @@ fn test_validator_stake_change() {
     assert_eq!(account.locked, desired_stake);
 }
 
+// here
 #[test]
 fn test_validator_stake_change_multiple_times() {
     init_test_logger();
@@ -716,6 +719,7 @@ fn test_validator_stake_change_multiple_times() {
     assert_eq!(account.locked, TESTING_INIT_STAKE.checked_sub(Balance::from_yoctonear(1)).unwrap());
 }
 
+// here
 #[test]
 fn test_stake_in_last_block_of_an_epoch() {
     init_test_logger();
@@ -1136,6 +1140,7 @@ fn test_get_validator_info() {
     assert_eq!(response.epoch_start_height, 3);
 }
 
+/// here
 /// Run 4 validators. Two of them first change their stake to below validator threshold but above
 /// fishermen threshold. Make sure their balance is correct. Then one fisherman increases their
 /// stake to become a validator again while the other one decreases to below fishermen threshold.
@@ -1203,6 +1208,7 @@ fn test_fishermen_stake() {
     assert!(response.current_fishermen.is_empty());
 }
 
+// here
 /// Test that when fishermen unstake they get their tokens back.
 #[test]
 fn test_fishermen_unstake() {
@@ -1289,6 +1295,7 @@ fn test_validator_reward() {
     );
 }
 
+// here
 #[test]
 fn test_delete_account_after_unstake() {
     init_test_logger();

@@ -170,7 +170,7 @@ fn slow_test_sync_from_archival_node() {
     let validators_spec = ValidatorsSpec::desired_roles(&block_producers, &[]);
     let num_shards = 4;
     let shard_layout = ShardLayout::multi_shard(num_shards, 3);
-    let epoch_length = 4;
+    let epoch_length = 6;
     let block_prod_time = Duration::milliseconds(100);
 
     let genesis = TestLoopBuilder::new_genesis_builder()
