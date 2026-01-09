@@ -246,7 +246,9 @@ impl ReceiptPreparationPipeline {
                 | Action::AddKey(_)
                 | Action::DeleteKey(_)
                 | Action::DeleteAccount(_)
-                | Action::DeployGlobalContract(_) => {}
+                | Action::DeployGlobalContract(_)
+                | Action::AddGasKey(_)
+                | Action::DeleteGasKey(_) => {}
             }
         }
         return any_function_calls;

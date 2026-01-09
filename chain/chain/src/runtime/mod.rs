@@ -30,7 +30,7 @@ use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    ShardId, StateRoot, StateRootNode,
+    Nonce, ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
@@ -1229,6 +1229,22 @@ impl RuntimeAdapter for NightshadeRuntime {
                     block_hash: *block_hash,
                 })
             }
+            QueryRequest::ViewGasKeyNonces { account_id, public_key } => {
+                let gas_key_nonces = self
+                    .view_gas_key_nonces(&shard_uid, *state_root, account_id, public_key)
+                    .map_err(|err| {
+                        crate::near_chain_primitives::error::QueryError::from_view_access_key_error(
+                            err,
+                            block_height,
+                            *block_hash,
+                        )
+                    })?;
+                Ok(QueryResponse {
+                    kind: QueryResponseKind::GasKeyNonces(gas_key_nonces),
+                    block_height,
+                    block_hash: *block_hash,
+                })
+            }
             QueryRequest::ViewGlobalContractCode { code_hash } => self
                 .query_view_global_contract_code(
                     GlobalContractIdentifier::CodeHash(*code_hash),
@@ -1589,6 +1605,17 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_access_keys(&state_update, account_id)
+    }
+
+    fn view_gas_key_nonces(
+        &self,
+        shard_uid: &ShardUId,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<Vec<Nonce>, node_runtime::state_viewer::errors::ViewAccessKeyError> {
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
+        self.trie_viewer.view_gas_key_nonces(&state_update, account_id, public_key)
     }
 
     fn view_state(

@@ -251,10 +251,10 @@ pub fn set_gas_key_nonce(
     state_update: &mut TrieUpdate,
     account_id: AccountId,
     public_key: PublicKey,
-    nonce_index: NonceIndex,
+    index: NonceIndex,
     nonce: Nonce,
 ) {
-    set(state_update, TrieKey::GasKeyNonce { account_id, public_key, index: nonce_index }, &nonce);
+    set(state_update, TrieKey::GasKeyNonce { account_id, public_key, index }, &nonce);
 }
 
 pub fn remove_access_key(
@@ -289,26 +289,15 @@ pub fn get_gas_key_nonce(
     trie: &dyn TrieAccess,
     account_id: &AccountId,
     public_key: &PublicKey,
-    nonce_index: NonceIndex,
+    index: NonceIndex,
 ) -> Result<Option<Nonce>, StorageError> {
     get(
         trie,
         &TrieKey::GasKeyNonce {
             account_id: account_id.clone(),
             public_key: public_key.clone(),
-            index: nonce_index,
+            index,
         },
-    )
-}
-
-pub fn get_access_key_raw(
-    trie: &dyn TrieAccess,
-    raw_key: &[u8],
-) -> Result<Option<AccessKey>, StorageError> {
-    get(
-        trie,
-        &trie_key_parsers::parse_trie_key_access_key_from_raw_key(raw_key)
-            .expect("access key in the state should be correct"),
     )
 }
 
@@ -335,7 +324,7 @@ pub fn remove_account(
                     });
 
             public_key.map(|public_key| {
-                let nonce_index = trie_key_parsers::parse_nonce_index_from_gas_key_key(
+                let nonce_index = trie_key_parsers::parse_gas_key_nonce_index_from_access_key_key(
                     &raw_key,
                     account_id,
                     &public_key,
