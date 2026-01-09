@@ -15,6 +15,7 @@ use crate::{DoomslugThresholdMode, metrics};
 use near_chain_configs::ProtocolVersionCheckConfig;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::epoch_sync::extend_epoch_sync_proof;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, Tip};
@@ -28,6 +29,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::LightClientBlockView;
+use near_store::adapter::StoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
 
@@ -287,6 +289,23 @@ impl<'a> ChainUpdate<'a> {
             *block.header().random_value(),
         )?;
         self.chain_store_update.merge(epoch_manager_update.into());
+
+        // here update proof
+        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+            if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
+                let first_block_info = self.epoch_manager.get_block_info(block.header().hash())?;
+                let last_block_hash_in_pe = first_block_info.prev_hash();
+                let last_block_info_in_pe =
+                    self.epoch_manager.get_block_info(last_block_hash_in_pe)?;
+                let first_block_hash_in_ppe = last_block_info_in_pe.epoch_first_block();
+                let first_block_info_in_ppe =
+                    self.epoch_manager.get_block_info(first_block_hash_in_ppe)?;
+                let last_block_hash_in_ppe = first_block_info_in_ppe.prev_hash();
+
+                let epoch_store = self.chain_store_update.store().epoch_store();
+                extend_epoch_sync_proof(&epoch_store, last_block_hash_in_ppe)?;
+            }
+        }
 
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(Arc::clone(&block));

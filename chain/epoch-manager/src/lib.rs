@@ -819,11 +819,11 @@ impl EpochManager {
                     self.finalize_epoch(&mut store_update, &block_info, &current_hash, rng_seed)?;
                 }
 
-                if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-                    if self.is_next_block_in_next_epoch(&prev_block_info)? {
-                        self.update_epoch_sync_proof(&block_info)?;
-                    }
-                }
+                // if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+                //     if self.is_next_block_in_next_epoch(&prev_block_info)? {
+                //         self.update_epoch_sync_proof(&block_info)?;
+                //     }
+                // }
             }
         }
         Ok(store_update)
