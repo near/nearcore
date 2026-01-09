@@ -171,6 +171,9 @@ impl RpcFrom<near_primitives::views::QueryResponseKind>
             near_primitives::views::QueryResponseKind::AccessKeyList(access_key_list) => {
                 Self::AccessKeyList(access_key_list)
             }
+            near_primitives::views::QueryResponseKind::GasKeyNonces(nonces) => {
+                Self::GasKeyNonces(nonces)
+            }
         }
     }
 }

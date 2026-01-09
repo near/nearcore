@@ -408,6 +408,13 @@ pub enum ActionsValidationError {
     KeyPermissionInvalid {
         permission: Box<AccessKeyPermission>,
     } = 17,
+    GasKeyTooManyNoncesRequested {
+        requested_nonces: u32,
+        limit: u32,
+    } = 18,
+    AddGasKeyWithNonZeroBalance {
+        balance: Balance,
+    } = 19,
 }
 
 /// Describes the error for validating a receipt.
@@ -588,6 +595,20 @@ impl Display for ActionsValidationError {
             }
             ActionsValidationError::KeyPermissionInvalid { permission } => {
                 write!(f, "Specified key permission is invalid: {:?}", permission)
+            }
+            ActionsValidationError::GasKeyTooManyNoncesRequested { requested_nonces, limit } => {
+                write!(
+                    f,
+                    "Gas key requested too many nonces: {} requested, but limit is {}",
+                    requested_nonces, limit
+                )
+            }
+            ActionsValidationError::AddGasKeyWithNonZeroBalance { balance } => {
+                write!(
+                    f,
+                    "Adding a gas key with non-zero balance is not allowed: balance = {}",
+                    balance
+                )
             }
         }
     }
