@@ -10,7 +10,8 @@ use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, BlockHeight, ShardIndex, StateChangeCause, StateRoot, StoreKey, StoreValue,
+    AccountId, BlockHeight, Nonce, NonceIndex, ShardIndex, StateChangeCause, StateRoot, StoreKey,
+    StoreValue,
 };
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::flat_store::FlatStoreAdapter;
@@ -252,6 +253,36 @@ impl StorageMutator {
             shard_idx,
             TrieKey::AccessKey { account_id, public_key },
             borsh::to_vec(&access_key)?,
+        )
+    }
+
+    pub(crate) fn remove_gas_key_nonce(
+        &mut self,
+        source_shard_uid: ShardUId,
+        account_id: AccountId,
+        public_key: PublicKey,
+        index: NonceIndex,
+    ) -> anyhow::Result<()> {
+        if self.target_shards.contains(&source_shard_uid) {
+            let shard_idx =
+                self.target_shard_layout.get_shard_index(source_shard_uid.shard_id()).unwrap();
+            self.remove(shard_idx, TrieKey::GasKeyNonce { account_id, public_key, index })?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn set_gas_key_nonce(
+        &mut self,
+        shard_idx: ShardIndex,
+        account_id: AccountId,
+        public_key: PublicKey,
+        index: NonceIndex,
+        nonce: Nonce,
+    ) -> anyhow::Result<()> {
+        self.set(
+            shard_idx,
+            TrieKey::GasKeyNonce { account_id, public_key, index },
+            borsh::to_vec(&nonce)?,
         )
     }
 
