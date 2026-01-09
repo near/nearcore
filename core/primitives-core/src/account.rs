@@ -476,6 +476,37 @@ impl AccessKey {
     pub fn full_access() -> Self {
         Self { nonce: 0, permission: AccessKeyPermission::FullAccess }
     }
+
+    pub fn gas_key_full_access(num_nonces: NonceIndex) -> Self {
+        Self {
+            nonce: 0,
+            permission: AccessKeyPermission::GasKeyFullAccess(GasKeyInfo {
+                balance: Balance::from_yoctonear(0),
+                num_nonces,
+            }),
+        }
+    }
+
+    pub fn gas_key_function_call(
+        num_nonces: NonceIndex,
+        function_call_permission: FunctionCallPermission,
+    ) -> Self {
+        Self {
+            nonce: 0,
+            permission: AccessKeyPermission::GasKeyFunctionCall(
+                GasKeyInfo { balance: Balance::from_yoctonear(0), num_nonces },
+                function_call_permission,
+            ),
+        }
+    }
+
+    pub fn gas_key_info(&self) -> Option<&GasKeyInfo> {
+        match &self.permission {
+            AccessKeyPermission::GasKeyFunctionCall(gas_key_info, _) => Some(gas_key_info),
+            AccessKeyPermission::GasKeyFullAccess(gas_key_info) => Some(gas_key_info),
+            _ => None,
+        }
+    }
 }
 #[derive(
     BorshSerialize,
@@ -520,6 +551,18 @@ pub enum AccessKeyPermission {
     /// Gas key with full access to the account.
     /// Gas keys are a kind of access keys with a prepaid balance to pay for gas.
     GasKeyFullAccess(GasKeyInfo),
+}
+
+impl AccessKeyPermission {
+    pub const MAX_NONCES_FOR_GAS_KEY: u32 = 1024;
+
+    pub fn function_call_permission(&self) -> Option<&FunctionCallPermission> {
+        match self {
+            AccessKeyPermission::FunctionCall(permission) => Some(permission),
+            AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
+            _ => None,
+        }
+    }
 }
 
 /// Grants limited permission to make transactions with FunctionCallActions
