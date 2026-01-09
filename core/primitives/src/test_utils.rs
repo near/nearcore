@@ -24,12 +24,12 @@ use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::types::{BlockExecutionResults, ChunkExecutionResult, StateRoot};
 use crate::validator_signer::ValidatorSigner;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
+use itertools::Itertools;
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
-#[cfg(feature = "clock")]
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
@@ -935,8 +935,6 @@ impl TestBlockBuilder {
     }
 
     pub fn build(self) -> Arc<Block> {
-        use crate::version::PROTOCOL_VERSION;
-
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
         let last_certified_block_execution_results = BlockExecutionResults(
             self.chunks
@@ -1053,6 +1051,32 @@ impl Block {
                 body.body.set_chunk_endorsements(chunk_endorsements);
             }
         };
+    }
+
+    pub fn recompute_fields_derived_from_chunks(&mut self) {
+        let chunks = self.chunks();
+        let headers_root = chunks.compute_chunk_headers_root().0;
+        let tx_root = chunks.compute_chunk_tx_root();
+        let prev_outgoing_receipts_root = chunks.compute_chunk_prev_outgoing_receipts_root();
+        let prev_state_root = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            CryptoHash::default()
+        } else {
+            chunks.compute_state_root()
+        };
+        let chunk_mask = chunks
+            .iter_raw()
+            .map(|chunk| chunk.height_included() == self.header().height())
+            .collect_vec();
+        let prev_outcome_root = chunks.compute_outcome_root();
+        let body_hash = self.compute_block_body_hash().unwrap();
+
+        self.mut_header().set_chunk_headers_root(headers_root);
+        self.mut_header().set_chunk_tx_root(tx_root);
+        self.mut_header().set_prev_chunk_outgoing_receipts_root(prev_outgoing_receipts_root);
+        self.mut_header().set_prev_state_root(prev_state_root);
+        self.mut_header().set_chunk_mask(chunk_mask);
+        self.mut_header().set_prev_outcome_root(prev_outcome_root);
+        self.mut_header().set_block_body_hash(body_hash);
     }
 }
 
