@@ -221,7 +221,7 @@ itertools = "0.14.0"
 itoa = "1.0"
 json_comments = "0.2.1"
 libc = "0.2.81"
-lru = "0.12.3"
+lru = "0.16.3"
 memoffset = "0.8"
 merlin = { version = "3", default-features = false }
 more-asserts = "0.2"
