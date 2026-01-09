@@ -57,6 +57,7 @@ async fn init_test_staking(
     let mut genesis =
         Genesis::test(seeds.iter().map(|s| s.parse().unwrap()).collect(), num_validator_seats);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.num_block_producer_seats = num_node_seats;
     genesis.config.block_producer_kickout_threshold = 20;
     genesis.config.chunk_producer_kickout_threshold = 20;

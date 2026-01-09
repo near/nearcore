@@ -68,6 +68,7 @@ fn test_cap_max_gas_price() {
     genesis.config.max_gas_price = Balance::from_yoctonear(1_000_000);
     genesis.config.protocol_version = PROTOCOL_VERSION;
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     for i in 1..epoch_length {

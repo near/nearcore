@@ -68,7 +68,6 @@ fn test_spice_chain() {
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, INITIAL_BALANCE)
         .genesis_height(10000)
-        .transaction_validity_period(1000)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder

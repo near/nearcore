@@ -33,6 +33,7 @@ fn test_storage_proof_size_limit() {
     let mut env = {
         let mut genesis = Genesis::test(vec![contract_account.clone(), user_account.clone()], 1);
         genesis.config.epoch_length = epoch_length;
+        genesis.config.transaction_validity_period = epoch_length * 2;
         genesis.config.protocol_version = PROTOCOL_VERSION;
         TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config_store])

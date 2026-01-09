@@ -596,6 +596,7 @@ fn test_invalid_height_too_large() {
 fn test_invalid_height_too_old() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
+    genesis.config.transaction_validity_period = 10;
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
     let unprocessed_height = 6;
     for i in 1..unprocessed_height {
@@ -825,6 +826,7 @@ fn test_minimum_gas_price() {
 fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let mut blocks = vec![];
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -891,6 +893,7 @@ fn test_archival_save_trie_changes() {
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.total_supply = Balance::from_yoctonear(1_000_000_000);
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -961,6 +964,7 @@ fn test_archival_gc_common(
 ) {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
 
     let hot_store = &storage.get_hot_store();
     let mut env = TestEnv::builder(&genesis.config)
@@ -1086,6 +1090,7 @@ fn test_archival_gc_split_storage_behind() {
 fn test_gc_block_skips() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
+    genesis.config.transaction_validity_period = 10;
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
     for i in 1..=1000 {
         if i % 2 == 0 {
@@ -1112,6 +1117,7 @@ fn test_gc_chunk_tail() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let epoch_length = 100;
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
     let mut chunk_tail = 0;
     for i in (1..10).chain(101..epoch_length * 6) {
@@ -1127,6 +1133,7 @@ fn test_gc_execution_outcome() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
@@ -1157,6 +1164,7 @@ fn slow_test_gc_after_state_sync() {
     let epoch_length = 1024;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env =
         TestEnv::builder(&genesis.config).clients_count(2).nightshade_runtimes(&genesis).build();
     for i in 1..epoch_length * 4 + 2 {
@@ -1192,6 +1200,7 @@ fn slow_test_process_block_after_state_sync() {
         vec![1],
     );
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
 
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(1)
@@ -1263,6 +1272,7 @@ fn test_gc_fork_tail() {
     let epoch_length = 101;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env =
         TestEnv::builder(&genesis.config).clients_count(2).nightshade_runtimes(&genesis).build();
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
@@ -1298,6 +1308,7 @@ fn test_gc_fork_tail() {
 fn test_tx_forwarding() {
     let mut genesis = Genesis::test(TestEnvBuilder::make_accounts(50), 50);
     genesis.config.epoch_length = 100;
+    genesis.config.transaction_validity_period = 200;
     let mut env =
         TestEnv::builder_from_genesis(&genesis).clients_count(50).validator_seats(50).build();
 
@@ -1321,6 +1332,7 @@ fn test_tx_forwarding() {
 fn test_tx_forwarding_no_double_forwarding() {
     let mut genesis = Genesis::test(TestEnvBuilder::make_accounts(50), 50);
     genesis.config.epoch_length = 100;
+    genesis.config.transaction_validity_period = 200;
     let mut env =
         TestEnv::builder_from_genesis(&genesis).clients_count(50).validator_seats(50).build();
 
@@ -1344,6 +1356,7 @@ fn test_tx_forward_around_epoch_boundary() {
     genesis.config.num_block_producer_seats = 2;
     genesis.config.num_block_producer_seats_per_shard = vec![2];
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(3)
         .validator_seats(2)
@@ -1401,6 +1414,7 @@ fn test_not_resync_old_blocks() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 5;
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let mut blocks = vec![];
     for i in 1..=epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1) {
@@ -1422,6 +1436,7 @@ fn test_reject_block_headers_during_epoch_sync() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 2;
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env =
         TestEnv::builder(&genesis.config).clients_count(2).nightshade_runtimes(&genesis).build();
 
@@ -1473,6 +1488,7 @@ fn test_gc_tail_update() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 2;
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env =
         TestEnv::builder(&genesis.config).clients_count(2).nightshade_runtimes(&genesis).build();
     let mut blocks = vec![];
@@ -1584,8 +1600,8 @@ fn test_gas_price_overflow() {
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = Gas::from_gas(gas_limit);
     genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
-    genesis.config.transaction_validity_period = 100000;
     genesis.config.epoch_length = 43200;
+    genesis.config.transaction_validity_period = 43200 * 2;
     genesis.config.max_gas_price = max_gas_price;
 
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
@@ -1722,6 +1738,7 @@ fn test_data_reset_before_state_sync() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let epoch_length = 5;
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -1778,6 +1795,7 @@ fn test_sync_hash_validity() {
     let epoch_length = 8;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let mut height = 1;
 
@@ -1836,6 +1854,7 @@ fn test_validate_chunk_extra() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.min_gas_price = Balance::ZERO;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -1997,6 +2016,7 @@ fn slow_test_catchup_gas_price_change() {
     let min_gas_price = Balance::from_yoctonear(10000);
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = Gas::from_teragas(1);
 
@@ -2149,6 +2169,7 @@ fn test_block_execution_outcomes() {
     let min_gas_price = Balance::from_yoctonear(10000);
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = Gas::from_teragas(1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
@@ -2235,6 +2256,7 @@ fn test_save_tx_outcomes_false() {
     let min_gas_price = Balance::from_yoctonear(10000);
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = Gas::from_teragas(1);
     let mut env = TestEnv::builder(&genesis.config)
@@ -2283,6 +2305,7 @@ fn test_refund_receipts_processing() {
         vec![1],
     );
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.min_gas_price = min_gas_price;
     // Set gas limit to be small enough to produce some delayed receipts, but large enough for
     // transactions to get through.
@@ -2365,6 +2388,7 @@ fn test_execution_metadata() {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
+        genesis.config.transaction_validity_period = epoch_length * 2;
         let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
         deploy_test_contract(&mut env, "test0".parse().unwrap(), &wasm_code, epoch_length, 1);
@@ -2453,6 +2477,7 @@ fn test_epoch_protocol_version_change() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.protocol_version = PROTOCOL_VERSION - 1;
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(2)
@@ -2523,6 +2548,7 @@ fn test_epoch_multi_protocol_version_change() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.protocol_version = v0;
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(2)
@@ -2597,6 +2623,7 @@ fn slow_test_epoch_multi_protocol_version_change_epoch_overlap() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.protocol_version = v0;
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(2)
@@ -2767,6 +2794,7 @@ fn test_query_final_state() {
     let epoch_length = 10;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
@@ -2958,6 +2986,7 @@ fn prepare_env_with_transaction() -> (TestEnv, CryptoHash) {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
@@ -2980,6 +3009,7 @@ fn test_not_broadcast_block_on_accept() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(2)
@@ -3056,6 +3086,7 @@ fn run_with_version_upgrade_scheduled_in_next_next_epoch(
 ) {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes(&genesis)
         .protocol_version_check(epoch_to_check)
@@ -3078,6 +3109,7 @@ fn test_block_ordinal() {
     let epoch_length = 200;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     assert_eq!(genesis_block.header().block_ordinal(), 1);
@@ -3192,6 +3224,7 @@ fn test_validator_stake_host_function() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let block_height = deploy_test_contract(
@@ -3232,6 +3265,7 @@ fn test_catchup_no_sharding_change() {
     init_integration_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
+    genesis.config.transaction_validity_period = 10;
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(1)
         .validator_seats(1)
@@ -3303,6 +3337,7 @@ mod contract_precompilation_tests {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
+        genesis.config.transaction_validity_period = EPOCH_LENGTH * 2;
         let mut caches: Vec<FilesystemContractRuntimeCache> =
             (0..num_clients).map(|_| FilesystemContractRuntimeCache::test().unwrap()).collect();
         let mut env = TestEnv::builder(&genesis.config)
@@ -3398,6 +3433,7 @@ mod contract_precompilation_tests {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
+        genesis.config.transaction_validity_period = EPOCH_LENGTH * 2;
 
         let caches: Vec<FilesystemContractRuntimeCache> =
             (0..num_clients).map(|_| FilesystemContractRuntimeCache::test().unwrap()).collect();
@@ -3476,6 +3512,7 @@ mod contract_precompilation_tests {
             1,
         );
         genesis.config.epoch_length = EPOCH_LENGTH;
+        genesis.config.transaction_validity_period = EPOCH_LENGTH * 2;
         let caches: Vec<FilesystemContractRuntimeCache> =
             (0..num_clients).map(|_| FilesystemContractRuntimeCache::test().unwrap()).collect();
         let mut env = TestEnv::builder(&genesis.config)
