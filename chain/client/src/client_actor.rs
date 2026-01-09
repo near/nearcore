@@ -52,8 +52,8 @@ use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::{ShardedTransactionPool, ShardsManagerResponse};
 use near_client_primitives::types::{
-    Error, GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse,
-    StateSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
+    BlockNotificationMessage, Error, GetClientConfig, GetClientConfigError, GetNetworkInfo,
+    NetworkInfoResponse, StateSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -2058,5 +2058,25 @@ impl Handler<SpanWrapped<ChainFinalizationRequest>, Result<(), near_chain::Error
     ) -> Result<(), near_chain::Error> {
         let msg = msg.span_unwrap();
         self.client.chain.set_state_finalize(msg.shard_id, msg.sync_hash)
+    }
+}
+
+/// A request to watch `BlockNotification` events, which are emitted by `Client` after
+/// postprocessing each block.
+#[derive(Debug)]
+pub struct WatchBlockNotificationsRequest;
+
+/// Response to `WatchBlockNotificationsRequest`, contains a `watch::Receiver` that can be used to
+/// watch the `BlockNotification` events.
+#[derive(Debug)]
+pub struct WatchBlockNotificationsResponse {
+    pub watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
+}
+
+impl Handler<WatchBlockNotificationsRequest, WatchBlockNotificationsResponse> for ClientActor {
+    fn handle(&mut self, _msg: WatchBlockNotificationsRequest) -> WatchBlockNotificationsResponse {
+        WatchBlockNotificationsResponse {
+            watcher: self.client.block_notification_watch_sender.subscribe(),
+        }
     }
 }

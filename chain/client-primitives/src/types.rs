@@ -1,3 +1,4 @@
+use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::network::PeerId;
@@ -13,6 +14,7 @@ use near_primitives::views::{
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use near_time::Duration;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -989,4 +991,10 @@ pub enum SandboxResponse {
     SandboxFastForwardFinished(bool),
     SandboxFastForwardFailed(String),
     SandboxNoResponse,
+}
+
+/// Notification that a new block has been postprocessed by Client.
+#[derive(Debug, Clone)]
+pub struct BlockNotificationMessage {
+    pub block: Arc<Block>,
 }

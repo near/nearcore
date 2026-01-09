@@ -7,7 +7,7 @@
 * The contract runtime now allows for bulk memory instructions in Wasm code.
 
 ### Non-protocol Changes
-**No Changes**
+* Replace polling for transaction status with event notifications to improve jsonrpc response latency
 
 ## [2.10.0]
 
