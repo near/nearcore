@@ -56,7 +56,7 @@ pub static RPC_UNREACHABLE_ERROR_COUNT: LazyLock<IntCounterVec> = LazyLock::new(
     )
     .unwrap()
 });
-pub static RPC_TX_STATUS_WAIT_UNTIL_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
+pub static RPC_WAIT_UNTIL_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     near_o11y::metrics::try_create_int_counter_vec(
         "near_rpc_wait_until_count",
         "Tracks number of RPC calls using each wait_until transaction finality variant",
@@ -72,5 +72,5 @@ pub(crate) fn report_wait_until_metric(method: &str, wait_until: &TxExecutionSta
         .expect("Serde serialization of a simple enum shouldn't fail")
         .replace("\"", "");
 
-    RPC_TX_STATUS_WAIT_UNTIL_COUNT.with_label_values(&[method, &wait_until_string]).inc();
+    RPC_WAIT_UNTIL_COUNT.with_label_values(&[method, &wait_until_string]).inc();
 }
