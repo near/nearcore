@@ -726,6 +726,7 @@ pub(crate) fn action_delete_key(
     account_id: &AccountId,
     delete_key: &DeleteKeyAction,
 ) -> Result<(), StorageError> {
+    // TODO(gas-keys): need to verify that a gas key is not being deleted here
     let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
     if let Some(access_key) = access_key {
         let storage_usage_config = &fee_config.storage_usage_config;
@@ -753,6 +754,7 @@ pub(crate) fn action_add_key(
     account_id: &AccountId,
     add_key: &AddKeyAction,
 ) -> Result<(), StorageError> {
+    // TODO(gas-keys): need to verify that a gas key is not being added here
     if get_access_key(state_update, account_id, &add_key.public_key)?.is_some() {
         result.result = Err(ActionErrorKind::AddKeyAlreadyExists {
             account_id: account_id.to_owned(),
