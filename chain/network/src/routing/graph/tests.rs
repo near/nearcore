@@ -1,6 +1,7 @@
 use super::{Graph, GraphConfig};
 use crate::network_protocol::Edge;
 use crate::network_protocol::testonly as data;
+use crate::peer_manager::network_state::EdgesWithSource;
 use crate::testonly::make_rng;
 use near_async::time;
 use near_crypto::SecretKey;
@@ -11,6 +12,7 @@ use std::sync::Arc;
 
 impl Graph {
     async fn simple_update(self: &Arc<Self>, edges: Vec<Edge>) {
+        let edges = EdgesWithSource::Local(edges);
         assert_eq!(vec![true], self.update(vec![edges]).await.1);
     }
 
