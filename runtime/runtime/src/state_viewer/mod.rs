@@ -16,14 +16,17 @@ use near_primitives::receipt::{
     ActionReceipt, Receipt, ReceiptEnum, ReceiptV1, VersionedActionReceipt,
 };
 use near_primitives::transaction::FunctionCallAction;
-use near_primitives::trie_key::trie_key_parsers::{self, parse_trie_key_gas_key_from_raw_key};
+use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::trie_key_parsers::{
+    self, parse_nonce_index_from_gas_key_key, parse_public_key_from_access_key_key,
+};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce, ShardId,
 };
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{GasKeyView, StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
-use near_store::{TrieUpdate, get_access_key, get_account, get_gas_key, get_gas_key_nonce};
+use near_store::{TrieUpdate, get_access_key, get_account, get_gas_key_nonce};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::{str, sync::Arc, time::Instant};
@@ -157,12 +160,23 @@ impl TrieViewer {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<GasKeyView, errors::ViewGasKeyError> {
-        let gas_key = get_gas_key(state_update, account_id, public_key)?.ok_or_else(|| {
+        let gas_key = get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
             errors::ViewGasKeyError::GasKeyDoesNotExist { public_key: public_key.clone() }
         })?;
+        let Some(num_nonces) = gas_key.num_nonces() else {
+            return Err(errors::ViewGasKeyError::GasKeyDoesNotExist {
+                public_key: public_key.clone(),
+            });
+        };
+        let Some(balance) = gas_key.permission.gas_balance() else {
+            return Err(errors::ViewGasKeyError::GasKeyDoesNotExist {
+                public_key: public_key.clone(),
+            });
+        };
+
         // TODO(gas-keys): Consider using iterator with get_raw_prefix_for_gas_key here.
         let mut nonces = Vec::new();
-        for nonce_index in 0..gas_key.num_nonces {
+        for nonce_index in 0..num_nonces {
             let nonce = get_gas_key_nonce(state_update, account_id, public_key, nonce_index)?
                 .ok_or_else(|| errors::ViewGasKeyError::InternalError {
                     error_message: format!(
@@ -173,8 +187,8 @@ impl TrieViewer {
             nonces.push(nonce);
         }
         Ok(near_primitives::views::GasKeyView {
-            num_nonces: gas_key.num_nonces,
-            balance: gas_key.balance,
+            num_nonces,
+            balance: *balance,
             permission: gas_key.permission.into(),
             nonces,
         })
@@ -185,29 +199,36 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
     ) -> Result<Vec<near_primitives::views::GasKeyInfoView>, errors::ViewGasKeyError> {
-        let prefix = trie_key_parsers::get_raw_prefix_for_gas_keys(account_id);
+        let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
         let mut result: Vec<near_primitives::views::GasKeyInfoView> = Vec::new();
         for raw_key in state_update.iter(&prefix)? {
             let raw_key = raw_key?;
-            let trie_key = parse_trie_key_gas_key_from_raw_key(&raw_key).map_err(|err| {
-                errors::ViewGasKeyError::InternalError {
-                    error_message: format!("Failed to parse gas key from raw key: {:?}", err),
-                }
-            })?;
-            let near_primitives::trie_key::TrieKey::GasKey { public_key, index, .. } = &trie_key
-            else {
-                return Err(errors::ViewGasKeyError::InternalError {
-                    error_message: format!("Unexpected trie key type for gas key: {:?}", trie_key),
-                });
-            };
-            if index.is_some() {
+
+            let public_key =
+                parse_public_key_from_access_key_key(&raw_key, account_id).map_err(|_err| {
+                    errors::ViewGasKeyError::InternalError {
+                        error_message: format!(
+                            "Failed to parse public key from access key: {:?}",
+                            raw_key
+                        ),
+                    }
+                })?;
+            let nonce_index = parse_nonce_index_from_gas_key_key(&raw_key, account_id, &public_key)
+                .map_err(|_err| errors::ViewGasKeyError::InternalError {
+                    error_message: format!(
+                        "Failed to parse nonce index from gas key key: {:?}",
+                        raw_key
+                    ),
+                })?;
+
+            if nonce_index.is_some() {
                 // This is a gas key nonce.
                 let last_gas_key =
                     result.last_mut().ok_or_else(|| errors::ViewGasKeyError::InternalError {
                         error_message: "Unexpected gas key nonce without gas key".to_string(),
                     })?;
                 // Sanity check the nonce should be for the last gas key that we've parsed.
-                if &last_gas_key.public_key != public_key {
+                if last_gas_key.public_key != public_key {
                     return Err(errors::ViewGasKeyError::InternalError {
                         error_message: format!(
                             "Gas key nonce's public key {:?} does not match the last gas key's public key {:?}",
@@ -215,6 +236,11 @@ impl TrieViewer {
                         ),
                     });
                 }
+                let trie_key = TrieKey::GasKey {
+                    account_id: account_id.clone(),
+                    public_key: public_key.clone(),
+                    index: nonce_index.unwrap(),
+                };
                 let value =
                     near_store::get::<Nonce>(state_update, &trie_key)?.ok_or_else(|| {
                         errors::ViewGasKeyError::InternalError {
@@ -224,15 +250,28 @@ impl TrieViewer {
                     })?;
                 last_gas_key.gas_key.nonces.push(value);
             } else {
-                // This is a new gas key.
+                // This is a new access key / gas key.
+                let trie_key = TrieKey::AccessKey {
+                    account_id: account_id.clone(),
+                    public_key: public_key.clone(),
+                };
                 let value =
-                    near_store::get::<GasKey>(state_update, &trie_key)?.ok_or_else(|| {
+                    near_store::get::<AccessKey>(state_update, &trie_key)?.ok_or_else(|| {
                         errors::ViewGasKeyError::InternalError {
                             error_message: "Unexpected missing trie value from iterator"
                                 .to_string(),
                         }
                     })?;
-                let gas_key_view = GasKeyView::new(value, Vec::new());
+                let Some(gas_key_info) = value.permission.gas_key_info() else {
+                    // Not a gas key, skip.
+                    continue;
+                };
+                let gas_key = GasKey {
+                    num_nonces: gas_key_info.num_nonces,
+                    permission: value.permission.clone(),
+                    balance: gas_key_info.balance,
+                };
+                let gas_key_view = GasKeyView::new(gas_key, Vec::new());
                 result.push(near_primitives::views::GasKeyInfoView {
                     public_key: public_key.clone(),
                     gas_key: gas_key_view,
