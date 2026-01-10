@@ -7,6 +7,7 @@ use near_chain::stateless_validation::state_witness::CreateWitnessResult;
 use near_chain_primitives::Error;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::types::EpochId;
+use near_primitives::version::ProtocolFeature;
 
 impl Client {
     /// Distributes the chunk state witness to chunk validators that are
@@ -18,6 +19,11 @@ impl Client {
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
     ) -> Result<(), Error> {
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+        if ProtocolFeature::Spice.enabled(protocol_version) {
+            return Ok(());
+        }
+
         let chunk_header = chunk.cloned_header();
         let shard_id = chunk_header.shard_id();
         let height = chunk_header.height_created();

@@ -20,6 +20,7 @@ use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountInfo, Balance, EpochId, Gas, ShardId};
 use near_primitives::utils::derive_eth_implicit_account_id;
+use near_primitives::version::ProtocolFeature;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
@@ -387,8 +388,6 @@ fn test_chunk_state_witness_bad_shard_id() {
 
 /// Tests that eth-implicit accounts still work with stateless validation.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_eth_implicit_accounts() {
     let accounts =
         vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];
@@ -556,6 +555,9 @@ fn produce_block(env: &mut TestEnv) {
         let blocks_processed =
             env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
         assert_eq!(blocks_processed, vec![*block.hash()]);
+        if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            env.spice_execute_block(i, *block.hash());
+        }
     }
 
     env.process_partial_encoded_chunks();
