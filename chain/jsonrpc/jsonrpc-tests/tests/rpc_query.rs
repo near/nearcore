@@ -17,8 +17,6 @@ use near_jsonrpc_primitives::types::view_access_key::RpcViewAccessKeyRequest;
 use near_jsonrpc_primitives::types::view_access_key_list::RpcViewAccessKeyListRequest;
 use near_jsonrpc_primitives::types::view_account::RpcViewAccountRequest;
 use near_jsonrpc_primitives::types::view_code::RpcViewCodeRequest;
-use near_jsonrpc_primitives::types::view_gas_key::RpcViewGasKeyRequest;
-use near_jsonrpc_primitives::types::view_gas_key_list::RpcViewGasKeyListRequest;
 use near_jsonrpc_primitives::types::view_state::RpcViewStateRequest;
 use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_test_logger;
@@ -1181,51 +1179,4 @@ async fn test_experimental_call_function_nonexisting_method() {
         "MethodNotFound",
         "Expected MethodNotFound error when calling missing method"
     );
-}
-
-/// Test EXPERIMENTAL_view_gas_key method - expects error since test account has no gas keys
-#[tokio::test]
-async fn test_experimental_view_gas_key_not_found() {
-    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
-    let client = new_client(&setup.server_addr);
-
-    let account: AccountId = "test1".parse().unwrap();
-    let signer = InMemorySigner::test_signer(&account);
-
-    let result = client
-        .EXPERIMENTAL_view_gas_key(RpcViewGasKeyRequest {
-            block_reference: BlockReference::latest(),
-            account_id: account,
-            public_key: signer.public_key(),
-        })
-        .await;
-
-    // Gas keys don't exist for test accounts, so this should return an error
-    let err = result.expect_err("expected missing gas key error");
-    let (name, info) = error_name_and_info(&err);
-    assert_eq!(name, "UNKNOWN_GAS_KEY");
-    let public_key = info.get("public_key").and_then(|v| v.as_str()).unwrap_or_default();
-    assert_eq!(public_key, signer.public_key().to_string(), "Error must mention missing gas key");
-}
-
-/// Test EXPERIMENTAL_view_gas_key_list method - expects empty list since test account has no gas keys
-#[tokio::test]
-async fn test_experimental_view_gas_key_list() {
-    let setup = create_test_setup_with_node_type(NodeType::NonValidator);
-    let client = new_client(&setup.server_addr);
-
-    let account: AccountId = "test1".parse().unwrap();
-
-    let response = client
-        .EXPERIMENTAL_view_gas_key_list(RpcViewGasKeyListRequest {
-            block_reference: BlockReference::latest(),
-            account_id: account,
-        })
-        .await
-        .unwrap();
-
-    assert!(response.block_height < 100);
-    assert_ne!(response.block_hash, CryptoHash::default());
-    // Test accounts don't have gas keys by default, so list should be empty
-    assert_eq!(response.gas_key_list.keys.len(), 0);
 }

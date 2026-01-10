@@ -37,12 +37,6 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Gas key for public key {public_key} does not exist while viewing")]
-    UnknownGasKey {
-        public_key: near_crypto::PublicKey,
-        block_height: near_primitives::types::BlockHeight,
-        block_hash: near_primitives::hash::CryptoHash,
-    },
     #[error("Internal error occurred: {error_message}")]
     InternalError {
         error_message: String,

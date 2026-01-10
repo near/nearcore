@@ -60,12 +60,6 @@ use near_jsonrpc_primitives::types::view_account::{
 use near_jsonrpc_primitives::types::view_code::{
     RpcViewCodeError, RpcViewCodeRequest, RpcViewCodeResponse,
 };
-use near_jsonrpc_primitives::types::view_gas_key::{
-    RpcViewGasKeyError, RpcViewGasKeyRequest, RpcViewGasKeyResponse,
-};
-use near_jsonrpc_primitives::types::view_gas_key_list::{
-    RpcViewGasKeyListError, RpcViewGasKeyListRequest, RpcViewGasKeyListResponse,
-};
 use near_jsonrpc_primitives::types::view_state::{
     RpcViewStateError, RpcViewStateRequest, RpcViewStateResponse,
 };
@@ -404,8 +398,6 @@ impl JsonRpcHandler {
                     }
                     QueryRequest::ViewAccessKey { .. } => "query_view_access_key",
                     QueryRequest::ViewAccessKeyList { .. } => "query_view_access_key_list",
-                    QueryRequest::ViewGasKey { .. } => "query_view_gas_key",
-                    QueryRequest::ViewGasKeyList { .. } => "query_view_gas_key_list",
                     QueryRequest::CallFunction { .. } => "query_call_function",
                     QueryRequest::ViewGlobalContractCode { .. } => {
                         "query_view_global_contract_code"
@@ -494,12 +486,6 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_call_function" => {
                 process_method_call(request, |params| self.call_function(params)).await
-            }
-            "EXPERIMENTAL_view_gas_key" => {
-                process_method_call(request, |params| self.view_gas_key(params)).await
-            }
-            "EXPERIMENTAL_view_gas_key_list" => {
-                process_method_call(request, |params| self.view_gas_key_list(params)).await
             }
             "EXPERIMENTAL_congestion_level" => {
                 process_method_call(request, |params| self.congestion_level(params)).await
@@ -1189,69 +1175,6 @@ impl JsonRpcHandler {
             _ => Err(RpcQueryError::InternalError {
                 error_message: format!(
                     "Unexpected response kind from near client. Expected: CallResult, found: {:?}",
-                    query_response.kind
-                ),
-            }
-            .into()),
-        }
-    }
-
-    async fn view_gas_key(
-        &self,
-        request_data: RpcViewGasKeyRequest,
-    ) -> Result<RpcViewGasKeyResponse, RpcViewGasKeyError> {
-        let result = self
-            .view_client_send(ClientQuery::new(
-                request_data.block_reference,
-                QueryRequest::ViewGasKey {
-                    account_id: request_data.account_id,
-                    public_key: request_data.public_key,
-                },
-            ))
-            .await;
-        let query_response: QueryResponse =
-            result.map_err(<RpcQueryError as Into<RpcViewGasKeyError>>::into)?;
-        match query_response.kind {
-            near_primitives::views::QueryResponseKind::GasKey(gas_key) => {
-                Ok(RpcViewGasKeyResponse {
-                    gas_key,
-                    block_height: query_response.block_height,
-                    block_hash: query_response.block_hash,
-                })
-            }
-            _ => Err(RpcQueryError::InternalError {
-                error_message: format!(
-                    "Unexpected response kind from near client. Expected: GasKey, found: {:?}",
-                    query_response.kind
-                ),
-            }
-            .into()),
-        }
-    }
-
-    async fn view_gas_key_list(
-        &self,
-        request_data: RpcViewGasKeyListRequest,
-    ) -> Result<RpcViewGasKeyListResponse, RpcViewGasKeyListError> {
-        let result = self
-            .view_client_send(ClientQuery::new(
-                request_data.block_reference,
-                QueryRequest::ViewGasKeyList { account_id: request_data.account_id },
-            ))
-            .await;
-        let query_response: QueryResponse =
-            result.map_err(<RpcQueryError as Into<RpcViewGasKeyListError>>::into)?;
-        match query_response.kind {
-            near_primitives::views::QueryResponseKind::GasKeyList(gas_key_list) => {
-                Ok(RpcViewGasKeyListResponse {
-                    gas_key_list,
-                    block_height: query_response.block_height,
-                    block_hash: query_response.block_hash,
-                })
-            }
-            _ => Err(RpcQueryError::InternalError {
-                error_message: format!(
-                    "Unexpected response kind from near client. Expected: GasKeyList, found: {:?}",
                     query_response.kind
                 ),
             }

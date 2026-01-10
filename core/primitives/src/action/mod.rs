@@ -9,8 +9,8 @@ use crate::{
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives_core::account::{AccessKey, AccessKeyPermission};
-use near_primitives_core::types::{AccountId, Balance, Gas, NonceIndex};
+use near_primitives_core::account::AccessKey;
+use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -294,57 +294,6 @@ pub struct TransferAction {
     BorshDeserialize,
     PartialEq,
     Eq,
-    Clone,
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-    ProtocolSchema,
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct AddGasKeyAction {
-    pub public_key: PublicKey,
-    pub num_nonces: NonceIndex,
-    pub permission: AccessKeyPermission,
-}
-
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    PartialEq,
-    Eq,
-    Clone,
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-    ProtocolSchema,
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct DeleteGasKeyAction {
-    pub public_key: PublicKey,
-}
-
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    PartialEq,
-    Eq,
-    Clone,
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-    ProtocolSchema,
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct TransferToGasKeyAction {
-    pub public_key: PublicKey,
-    pub deposit: Balance,
-}
-
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    PartialEq,
-    Eq,
     Debug,
     Clone,
     serde::Serialize,
@@ -372,9 +321,6 @@ pub enum Action {
     DeployGlobalContract(DeployGlobalContractAction) = 9,
     UseGlobalContract(Box<UseGlobalContractAction>) = 10,
     DeterministicStateInit(Box<DeterministicStateInitAction>) = 11,
-    AddGasKey(Box<AddGasKeyAction>) = 12,
-    DeleteGasKey(Box<DeleteGasKeyAction>) = 13,
-    TransferToGasKey(Box<TransferToGasKeyAction>) = 14,
 }
 
 const _: () = assert!(
@@ -396,7 +342,6 @@ impl Action {
         match self {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
-            Action::TransferToGasKey(a) => a.deposit,
             Action::DeterministicStateInit(a) => a.deposit,
             _ => Balance::ZERO,
         }

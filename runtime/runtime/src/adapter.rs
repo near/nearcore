@@ -7,7 +7,7 @@ use near_primitives::types::{
     AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, MerkleHash,
 };
 use near_primitives::version::ProtocolVersion;
-use near_primitives::views::{GasKeyInfoView, GasKeyView, ViewStateResult};
+use near_primitives::views::ViewStateResult;
 use near_vm_runner::ContractCode;
 
 /// Adapter for querying runtime.
@@ -57,21 +57,6 @@ pub trait ViewRuntimeAdapter {
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, crate::state_viewer::errors::ViewAccessKeyError>;
-
-    fn view_gas_key(
-        &self,
-        shard_uid: &ShardUId,
-        state_root: MerkleHash,
-        account_id: &AccountId,
-        public_key: &PublicKey,
-    ) -> Result<GasKeyView, crate::state_viewer::errors::ViewGasKeyError>;
-
-    fn view_gas_keys(
-        &self,
-        shard_uid: &ShardUId,
-        state_root: MerkleHash,
-        account_id: &AccountId,
-    ) -> Result<Vec<GasKeyInfoView>, crate::state_viewer::errors::ViewGasKeyError>;
 
     fn view_state(
         &self,

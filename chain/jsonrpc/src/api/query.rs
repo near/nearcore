@@ -118,9 +118,6 @@ impl RpcFrom<QueryError> for RpcQueryError {
             QueryError::UnknownAccessKey { public_key, block_height, block_hash } => {
                 Self::UnknownAccessKey { public_key, block_height, block_hash }
             }
-            QueryError::UnknownGasKey { public_key, block_height, block_hash } => {
-                Self::UnknownGasKey { public_key, block_height, block_hash }
-            }
             QueryError::ContractExecutionError { vm_error, error, block_height, block_hash } => {
                 Self::ContractExecutionError { vm_error, error, block_height, block_hash }
             }
@@ -173,12 +170,6 @@ impl RpcFrom<near_primitives::views::QueryResponseKind>
             }
             near_primitives::views::QueryResponseKind::AccessKeyList(access_key_list) => {
                 Self::AccessKeyList(access_key_list)
-            }
-            near_primitives::views::QueryResponseKind::GasKey(gas_key_view) => {
-                Self::GasKey(gas_key_view)
-            }
-            near_primitives::views::QueryResponseKind::GasKeyList(gas_key_list) => {
-                Self::GasKeyList(gas_key_list)
             }
         }
     }
