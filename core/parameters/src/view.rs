@@ -1,8 +1,8 @@
 use crate::config::{CongestionControlConfig, DynamicReshardingConfig, WitnessConfig};
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost};
 use near_account_id::AccountId;
-use near_primitives_core::types::Balance;
 use near_primitives_core::types::Gas;
+use near_primitives_core::types::{Balance, ShardId};
 use num_rational::Rational32;
 
 /// View that preserves JSON format of the runtime config.
@@ -834,25 +834,22 @@ impl From<CongestionControlConfigView> for CongestionControlConfig {
 }
 
 /// Configuration for dynamic resharding feature
+/// See [`CongestionControlConfig`] for more details.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct DynamicReshardingConfigView {
     /// Memory threshold over which a shard is marked for a split.
-    ///
-    /// See [`CongestionControlConfig`] for more details.
     pub memory_usage_threshold: u64,
     /// Minimum memory usage of a child shard.
-    ///
-    /// See [`CongestionControlConfig`] for more details.
     pub min_child_memory_usage: u64,
     /// Maximum number of shards in the network.
-    ///
-    /// See [`CongestionControlConfig`] for more details.
     pub max_number_of_shards: u64,
     /// Minimum number of epochs until next resharding can be scheduled.
-    ///
-    /// See [`CongestionControlConfig`] for more details.
     pub min_epochs_between_resharding: u64,
+    /// Shards that should be split even when they don't meet the regular split criteria
+    pub force_split_shards: Vec<ShardId>,
+    /// Shards that should **not** be split even when they meet the regular split criteria
+    pub block_split_shards: Vec<ShardId>,
 }
 
 // For backwards compatibility
@@ -863,6 +860,8 @@ impl Default for DynamicReshardingConfigView {
             min_child_memory_usage: 999_999_999_999_999,
             max_number_of_shards: 999_999_999_999_999,
             min_epochs_between_resharding: 999_999_999_999_999,
+            force_split_shards: vec![],
+            block_split_shards: vec![],
         }
     }
 }
@@ -874,6 +873,8 @@ impl From<DynamicReshardingConfig> for DynamicReshardingConfigView {
             min_child_memory_usage: config.min_child_memory_usage,
             max_number_of_shards: config.max_number_of_shards,
             min_epochs_between_resharding: config.min_epochs_between_resharding,
+            force_split_shards: config.force_split_shards,
+            block_split_shards: config.block_split_shards,
         }
     }
 }
@@ -885,6 +886,8 @@ impl From<DynamicReshardingConfigView> for DynamicReshardingConfig {
             min_child_memory_usage: view.min_child_memory_usage,
             max_number_of_shards: view.max_number_of_shards,
             min_epochs_between_resharding: view.min_epochs_between_resharding,
+            force_split_shards: view.force_split_shards,
+            block_split_shards: view.block_split_shards,
         }
     }
 }

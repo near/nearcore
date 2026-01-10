@@ -4,6 +4,10 @@ storage_num_extra_bytes_record: { old: 40, new: 77 }
 wasm_regular_op_cost: { old: 3_856_371, new: 0 }
 max_memory_pages: { new: 512 }
 burnt_gas_reward: {
-    old: { numerator: 2_000_000, denominator: 500 },
-    new: { numerator: 3_000_000, denominator: 800 },
+  old: { numerator: 2_000_000, denominator: 500 },
+  new: { numerator: 3_000_000, denominator: 800 },
+}
+force_split_shards: {
+  old: [ 3, 4 ],
+  new: [ ],
 }

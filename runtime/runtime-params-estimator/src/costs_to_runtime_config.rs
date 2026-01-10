@@ -41,7 +41,7 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
         congestion_control_config: latest_runtime_config.congestion_control_config,
         witness_config: latest_runtime_config.witness_config,
         bandwidth_scheduler_config: latest_runtime_config.bandwidth_scheduler_config,
-        dynamic_resharding_config: latest_runtime_config.dynamic_resharding_config,
+        dynamic_resharding_config: latest_runtime_config.dynamic_resharding_config.clone(),
         use_state_stored_receipt: latest_runtime_config.use_state_stored_receipt,
     };
     Ok(res)

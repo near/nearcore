@@ -249,6 +249,8 @@ pub enum Parameter {
     MinChildMemoryUsage,
     MaxNumberOfShards,
     MinEpochsBetweenResharding,
+    ForceSplitShards,
+    BlockSplitShards,
 }
 
 #[derive(

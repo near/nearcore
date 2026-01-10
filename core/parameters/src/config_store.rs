@@ -162,7 +162,7 @@ impl RuntimeConfigStore {
                     congestion_control_config: runtime_config.congestion_control_config,
                     witness_config: runtime_config.witness_config,
                     bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
-                    dynamic_resharding_config: runtime_config.dynamic_resharding_config,
+                    dynamic_resharding_config: runtime_config.dynamic_resharding_config.clone(),
                     use_state_stored_receipt: runtime_config.use_state_stored_receipt,
                 }),
             );
