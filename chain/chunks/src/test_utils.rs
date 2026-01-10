@@ -23,7 +23,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, Balance, EpochId, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::set_genesis_height;
@@ -149,39 +149,27 @@ impl ChunkTestFixture {
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let receipts_hashes = Chain::build_receipts_hashes(&[], &shard_layout).unwrap();
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
-        let (mock_chunk, mock_merkle_paths) = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-            ShardChunkWithEncoding::new_for_spice(
-                mock_parent_hash,
-                mock_height,
-                mock_shard_id,
-                Vec::new(),
-                vec![],
-                receipts_root,
-                MerkleHash::default(),
-                &signer,
-                &rs,
-            )
-        } else {
-            ShardChunkWithEncoding::new(
-                mock_parent_hash,
-                Default::default(),
-                Default::default(),
-                mock_height,
-                mock_shard_id,
-                Gas::ZERO,
-                Gas::from_gas(1000),
-                Balance::ZERO,
-                Vec::new(),
-                Vec::new(),
-                vec![],
-                receipts_root,
-                MerkleHash::default(),
-                Default::default(),
-                BandwidthRequests::empty(),
-                &signer,
-                &rs,
-            )
-        };
+        let (mock_chunk, mock_merkle_paths) = ShardChunkWithEncoding::new(
+            mock_parent_hash,
+            Default::default(),
+            Default::default(),
+            mock_height,
+            mock_shard_id,
+            Gas::ZERO,
+            Gas::from_gas(1000),
+            Balance::ZERO,
+            Vec::new(),
+            Vec::new(),
+            vec![],
+            receipts_root,
+            MerkleHash::default(),
+            Default::default(),
+            BandwidthRequests::empty(),
+            None,
+            &signer,
+            &rs,
+            PROTOCOL_VERSION,
+        );
 
         let mock_encoded_chunk = mock_chunk.into_parts().1;
 
