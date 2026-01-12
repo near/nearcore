@@ -711,8 +711,6 @@ fn test_bad_orphan() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_bad_chunk_mask() {
     init_test_logger();
 
@@ -1732,8 +1730,6 @@ fn test_block_merkle_proof_same_hash() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_data_reset_before_state_sync() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let epoch_length = 5;
@@ -1759,11 +1755,15 @@ fn test_data_reset_before_state_sync() {
     // check that the new account exists
     let head = env.clients[0].chain.head().unwrap();
     let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+    let prev_chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(head_block.header().prev_hash(), &ShardUId::single_shard())
+        .unwrap();
     let response = env.clients[0]
         .runtime_adapter
         .query(
             ShardUId::single_shard(),
-            &head_block.chunks()[0].prev_state_root(),
+            prev_chunk_extra.state_root(),
             head.height,
             0,
             &head.prev_block_hash,
@@ -1777,7 +1777,7 @@ fn test_data_reset_before_state_sync() {
     // account should not exist after clearing state
     let response = env.clients[0].runtime_adapter.query(
         ShardUId::single_shard(),
-        &head_block.chunks()[0].prev_state_root(),
+        prev_chunk_extra.state_root(),
         head.height,
         0,
         &head.prev_block_hash,
@@ -1846,9 +1846,12 @@ fn test_block_height_processed_orphan() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_validate_chunk_extra() {
+    // With spice there is no need to test validate_chunk_with_chunk_extra since chunks no longer
+    // contain data from chunk extra.
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        return;
+    }
     let mut capture = near_o11y::testonly::TracingCapture::enable();
 
     let epoch_length = 5;
@@ -2788,8 +2791,6 @@ fn test_discard_non_finalizable_block() {
 ///                      \------h+1
 /// even though from the perspective of h+2 the last final block is h-2.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_query_final_state() {
     let epoch_length = 10;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -2821,10 +2822,13 @@ fn test_query_final_state() {
         |chain: &mut near_chain::Chain, runtime: Arc<dyn RuntimeAdapter>, account_id: AccountId| {
             let final_head = chain.chain_store().final_head().unwrap();
             let last_final_block = chain.get_block(&final_head.last_block_hash).unwrap();
+            let prev_chunk_extra = chain
+                .get_chunk_extra(&last_final_block.header().prev_hash(), &ShardUId::single_shard())
+                .unwrap();
             let response = runtime
                 .query(
                     ShardUId::single_shard(),
-                    &last_final_block.chunks()[0].prev_state_root(),
+                    &prev_chunk_extra.state_root(),
                     last_final_block.header().height(),
                     last_final_block.header().raw_timestamp(),
                     &final_head.prev_block_hash,
