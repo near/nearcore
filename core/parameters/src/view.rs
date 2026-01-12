@@ -846,9 +846,9 @@ pub struct DynamicReshardingConfigView {
     pub max_number_of_shards: u64,
     /// Minimum number of epochs until next resharding can be scheduled.
     pub min_epochs_between_resharding: u64,
-    /// Shards that should be split even when they don't meet the regular split criteria
+    /// Shards that should be split even when they don't meet the regular split criteria.
     pub force_split_shards: Vec<ShardId>,
-    /// Shards that should **not** be split even when they meet the regular split criteria
+    /// Shards that should **not** be split even when they meet the regular split criteria.
     pub block_split_shards: Vec<ShardId>,
 }
 

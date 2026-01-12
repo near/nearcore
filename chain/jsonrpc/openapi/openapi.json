@@ -4316,14 +4316,14 @@
         "description": "Configuration for dynamic resharding feature\nSee [`DynamicReshardingConfig`] for more details.",
         "properties": {
           "block_split_shards": {
-            "description": "Shards that should **not** be split even when they meet the regular split criteria",
+            "description": "Shards that should **not** be split even when they meet the regular split criteria.",
             "items": {
               "$ref": "#/components/schemas/ShardId"
             },
             "type": "array"
           },
           "force_split_shards": {
-            "description": "Shards that should be split even when they don't meet the regular split criteria",
+            "description": "Shards that should be split even when they don't meet the regular split criteria.",
             "items": {
               "$ref": "#/components/schemas/ShardId"
             },
