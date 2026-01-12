@@ -3638,7 +3638,9 @@ impl Chain {
     /// Gets a block from the current chain by height.
     #[inline]
     pub fn get_block_by_height(&self, height: BlockHeight) -> Result<Arc<Block>, Error> {
+        println!("HERE get hash {height}");
         let hash = self.chain_store.get_block_hash_by_height(height)?;
+        println!("HERE hash: {hash}");
         self.chain_store.get_block(&hash)
     }
 

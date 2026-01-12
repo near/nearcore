@@ -8,8 +8,7 @@ use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::cloud_archival::{
-    gc_and_heads_sanity_checks, pause_and_resume_writer_with_sanity_checks, run_node_until,
-    snapshots_sanity_check, test_view_client,
+    bootstrap_reader_at_height, gc_and_heads_sanity_checks, pause_and_resume_writer_with_sanity_checks, run_node_until, snapshots_sanity_check, test_view_client
 };
 
 const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
@@ -33,6 +32,7 @@ struct TestCloudArchivalParameters {
     pause_writer_until_height: Option<BlockHeight>,
     /// If set, runs tests against the `view_client` at the given block height.
     test_view_client_at_height: Option<BlockHeight>,
+    bootstrap_reader_at_height: Option<BlockHeight>,
 }
 
 impl TestCloudArchivalParametersBuilder {
@@ -50,6 +50,7 @@ impl TestCloudArchivalParametersBuilder {
             pause_writer_until_height,
             num_epochs_to_wait,
             test_view_client_at_height: self.test_view_client_at_height.unwrap_or(None),
+            bootstrap_reader_at_height: self.bootstrap_reader_at_height.unwrap_or(None),
         }
     }
 }
@@ -122,6 +123,12 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
     }
     snapshots_sanity_check(&mut env, &archival_id, params.num_epochs_to_wait);
 
+    let reader_id: AccountId = "reader".parse().unwrap();
+    if let Some(block_height) = params.bootstrap_reader_at_height {
+        bootstrap_reader_at_height(&mut env, &reader_id, block_height);
+    }
+    env.test_loop.run_for(Duration::seconds(5));
+
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
@@ -173,6 +180,20 @@ fn test_cloud_archival_read_block() {
     test_cloud_archival_base(
         TestCloudArchivalParametersBuilder::default()
             .test_view_client_at_height(block_height)
+            .build(),
+    );
+}
+
+#[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_use_snapshot() {
+    let epochs_num = 3 + MIN_GC_NUM_EPOCHS_TO_KEEP;
+    let block_height = Some(MIN_EPOCH_LENGTH  + MIN_EPOCH_LENGTH / 2);
+    test_cloud_archival_base(
+        TestCloudArchivalParametersBuilder::default()
+            .num_epochs_to_wait(epochs_num)
+            .bootstrap_reader_at_height(block_height)
             .build(),
     );
 }

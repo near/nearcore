@@ -10,15 +10,17 @@ use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_client::{Client, GetBlock};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
-use near_primitives::sharding::ChunkHash;
+use near_primitives::sharding::{ChunkHash, StateSyncInfo};
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, BlockId, BlockReference, EpochHeight, EpochId,
 };
+use near_primitives::views::BlockView;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::db::CLOUD_HEAD_KEY;
 use near_store::{COLD_HEAD_KEY, DBCol, Store};
 
+use crate::setup::builder::NodeStateBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::node::TestLoopNode;
 
@@ -132,13 +134,23 @@ fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY).unwrap().unwrap().height
 }
 
-/// Runs tests verifying view client behavior at the given block height.
-pub fn test_view_client(env: &mut TestLoopEnv, archival_id: &AccountId, height: BlockHeight) {
-    let archival_node = TestLoopNode::for_account(&env.node_datas, archival_id);
-    let view_client_handle = archival_node.data().view_client_sender.actor_handle();
+// Retrieves block from cloud storage via the view_client interface.
+fn get_block_from_cloud_storage(
+    env: &mut TestLoopEnv,
+    node_id: &AccountId,
+    height: BlockHeight,
+) -> BlockView {
+    let node = TestLoopNode::for_account(&env.node_datas, node_id);
+    let view_client_handle = node.data().view_client_sender.actor_handle();
     let view_client = env.test_loop.data.get_mut(&view_client_handle);
     let block_reference = BlockReference::BlockId(BlockId::Height(height));
     let block = view_client.handle(GetBlock(block_reference)).unwrap();
+    block
+}
+
+/// Runs tests verifying view client behavior at the given block height.
+pub fn test_view_client(env: &mut TestLoopEnv, archival_id: &AccountId, height: BlockHeight) {
+    let block = get_block_from_cloud_storage(env, archival_id, height);
     for chunk_header in block.chunks {
         let _chunk_hash = ChunkHash(chunk_header.chunk_hash);
         // TODO(cloud_archival) Implement shard data retrieval from cloud archive
@@ -187,4 +199,47 @@ pub fn snapshots_sanity_check(
     }
     // Snapshots for the most recent epoch have not been uploaded yet.
     assert_eq!(epoch_heights_with_snapshot, HashSet::from_iter(1..final_epoch_height));
+}
+
+pub fn bootstrap_reader_at_height(
+    env: &mut TestLoopEnv,
+    reader_id: &AccountId,
+    height: BlockHeight,
+) {
+    let genesis = env.shared_state.genesis.clone();
+    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
+    let node_state = NodeStateBuilder::new(genesis, tempdir_path)
+        .account_id(reader_id.clone())
+        .cloud_storage(true)
+        .build();
+    env.add_node(&reader_id.to_string(), node_state);
+    let block = get_block_from_cloud_storage(env, reader_id, height);
+    //let cloud_storage = get_cloud_storage(env, archival_id);
+    let (shards, epoch_first_block_height) = {
+        let reader_node = TestLoopNode::for_account(&env.node_datas, reader_id);
+        let client = reader_node.client(env.test_loop_data());
+        let epoch_id = EpochId(block.header.epoch_id);
+        //let epoch_info = client.epoch_manager.get_epoch_info(&epoch_id).unwrap();
+        //let epoch_height = epoch_info.epoch_height();
+        let shards =
+            client.epoch_manager.get_shard_layout(&epoch_id).unwrap().shard_ids().collect_vec();
+        // for shard_id in &shards {
+        //     let fut = cloud_storage.retrieve_state_header(epoch_height, epoch_id, *shard_id);
+        //     let state_header = execute_future(fut).unwrap();
+            
+        // }
+        let epoch_first_block_height = client.chain.chain_store.epoch_store().get_epoch_start(&epoch_id).unwrap();
+        (shards, epoch_first_block_height)
+    };
+    let epoch_first_block = get_block_from_cloud_storage(env, reader_id, epoch_first_block_height);
+    let state_sync_info = StateSyncInfo::new(epoch_first_block.header.hash, shards);
+    let reader_node = TestLoopNode::for_account(&env.node_datas, reader_id);
+    let client = reader_node.client(env.test_loop_data());
+    let mut store_update = client.chain.chain_store.store().store_update();
+    store_update.set_ser(
+        DBCol::StateDlInfos,
+        state_sync_info.epoch_first_block().as_ref(),
+        &state_sync_info,
+    ).unwrap();
+    store_update.commit().unwrap();
 }
