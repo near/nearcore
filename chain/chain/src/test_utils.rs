@@ -57,6 +57,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         vec![1; num_shards as usize],
     );
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     get_chain_with_genesis(clock, genesis)
 }
 

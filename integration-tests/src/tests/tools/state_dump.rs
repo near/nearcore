@@ -36,6 +36,7 @@ fn setup(
     genesis.config.num_block_producer_seats = 2;
     genesis.config.num_block_producer_seats_per_shard = vec![2];
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.protocol_version = protocol_version;
     genesis.config.use_production_config = test_resharding;
 
@@ -339,6 +340,7 @@ fn test_dump_state_not_track_shard() {
     genesis.config.num_block_producer_seats = 2;
     genesis.config.num_block_producer_seats_per_shard = vec![2];
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let store1 = create_test_store();
     let store2 = create_test_store();
     initialize_genesis_state(store1.clone(), &genesis, None);
@@ -430,6 +432,7 @@ fn test_dump_state_with_delayed_receipt() {
     genesis.config.num_block_producer_seats = 2;
     genesis.config.num_block_producer_seats_per_shard = vec![2];
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let store = create_test_store();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
