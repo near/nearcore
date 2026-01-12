@@ -9,3 +9,6 @@ burnt_gas_reward: {
   denominator: 300,
 }
 wasm_storage_read_base: { gas: 50_000_000_000, compute: 100_000_000_000 }
+force_split_shards:
+  - 1
+  - 2

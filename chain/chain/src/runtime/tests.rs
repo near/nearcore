@@ -1916,3 +1916,125 @@ fn stake(
         0,
     )
 }
+
+mod check_dynamic_resharding {
+    use near_parameters::config::DynamicReshardingConfig;
+    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::trie_key::TrieKey;
+    use near_primitives::types::ShardId;
+    use near_store::test_utils::{TestTriesBuilder, test_populate_trie};
+    use near_store::{ShardUId, Trie};
+
+    use crate::runtime::check_dynamic_resharding;
+
+    fn get_config(
+        memory_usage_threshold: u64,
+        min_child_memory_usage: u64,
+        max_number_of_shards: u64,
+        force_split_shards: Vec<ShardId>,
+        block_split_shards: Vec<ShardId>,
+    ) -> DynamicReshardingConfig {
+        DynamicReshardingConfig {
+            memory_usage_threshold,
+            min_child_memory_usage,
+            max_number_of_shards,
+            min_epochs_between_resharding: 0,
+            force_split_shards,
+            block_split_shards,
+        }
+    }
+
+    fn make_trie_with_accounts(accounts: &[(&str, usize)]) -> Trie {
+        let tries = TestTriesBuilder::new().with_flat_storage(true).build();
+        let shard_uid = ShardUId::single_shard();
+
+        let changes = accounts
+            .iter()
+            .map(|(acc, size)| {
+                let key = TrieKey::Account { account_id: acc.parse().unwrap() };
+                (key.to_vec(), Some(vec![0u8; *size]))
+            })
+            .collect();
+
+        let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, changes);
+        tries.get_trie_for_shard(shard_uid, root)
+    }
+
+    #[test]
+    fn max_shards_reached() {
+        let trie = make_trie_with_accounts(&[("aa", 100), ("bb", 100)]);
+        let shard_layout = ShardLayout::single_shard();
+        let shard_id = ShardId::new(0);
+
+        let config = get_config(0, 0, 1, vec![], vec![]);
+        let result = check_dynamic_resharding(&trie, shard_id, shard_layout, &config);
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn block_split_shards() {
+        let trie = make_trie_with_accounts(&[("aa", 100), ("bb", 100)]);
+        let shard_layout = ShardLayout::single_shard();
+        let shard_id = ShardId::new(0);
+
+        let config = get_config(0, 0, 100, vec![], vec![shard_id]);
+        let result = check_dynamic_resharding(&trie, shard_id, shard_layout, &config);
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn force_split_shards() {
+        let trie = make_trie_with_accounts(&[("aa", 100), ("bb", 100)]);
+        let shard_layout = ShardLayout::single_shard();
+        let shard_id = ShardId::new(0);
+
+        // shard_id is in force_split_shards, should split regardless of memory
+        let config = get_config(u64::MAX, u64::MAX, 100, vec![shard_id], vec![]);
+        let result = check_dynamic_resharding(&trie, shard_id, shard_layout, &config);
+        assert!(result.unwrap().is_some());
+    }
+
+    #[test]
+    fn below_memory_threshold() {
+        let trie = make_trie_with_accounts(&[("aa", 100), ("bb", 100)]);
+        let shard_layout = ShardLayout::single_shard();
+        let shard_id = ShardId::new(0);
+
+        let config = get_config(u64::MAX, 0, 100, vec![], vec![]);
+        let result = check_dynamic_resharding(&trie, shard_id, shard_layout, &config);
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn left_child_too_small() {
+        let trie = make_trie_with_accounts(&[("aa", 100), ("bb", 100_000)]);
+        let shard_layout = ShardLayout::single_shard();
+        let shard_id = ShardId::new(0);
+
+        let config = get_config(0, 1000, 100, vec![], vec![]);
+        let result = check_dynamic_resharding(&trie, shard_id, shard_layout, &config);
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn right_child_too_small() {
+        let trie = make_trie_with_accounts(&[("bb", 100_000), ("cc", 100)]);
+        let shard_layout = ShardLayout::single_shard();
+        let shard_id = ShardId::new(0);
+
+        let config = get_config(0, 1000, 100, vec![], vec![]);
+        let result = check_dynamic_resharding(&trie, shard_id, shard_layout, &config);
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn split_approved() {
+        let trie = make_trie_with_accounts(&[("aa", 100), ("bb", 100)]);
+        let shard_layout = ShardLayout::single_shard();
+        let shard_id = ShardId::new(0);
+
+        let config = get_config(0, 0, 100, vec![], vec![]);
+        let result = check_dynamic_resharding(&trie, shard_id, shard_layout, &config);
+        assert!(result.unwrap().is_some());
+    }
+}

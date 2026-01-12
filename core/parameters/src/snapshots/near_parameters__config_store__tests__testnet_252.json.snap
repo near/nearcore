@@ -267,6 +267,8 @@ expression: config_view
     "memory_usage_threshold": 40000000000,
     "min_child_memory_usage": 10000000000,
     "max_number_of_shards": 16,
-    "min_epochs_between_resharding": 2
+    "min_epochs_between_resharding": 2,
+    "force_split_shards": [],
+    "block_split_shards": []
   }
 }
