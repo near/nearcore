@@ -33,6 +33,8 @@ use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
+use near_primitives::trie_split::TrieSplit;
+use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, ShardId,
@@ -85,6 +87,18 @@ pub enum Provenance {
     PRODUCED,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum StatePartValidationResult {
+    Valid,
+    Invalid,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum StateRootNodeValidationResult {
+    Valid,
+    Invalid,
+}
+
 /// Information about processed block.
 #[derive(Debug, Clone)]
 pub struct AcceptedBlock {
@@ -122,6 +136,8 @@ pub struct ApplyChunkResult {
     pub contract_updates: ContractUpdates,
     /// Extra information gathered during chunk application.
     pub stats: ChunkApplyStatsV0,
+    /// Proposed split of this shard (dynamic resharding).
+    pub proposed_split: Option<TrieSplit>,
 }
 
 impl ApplyChunkResult {
@@ -137,6 +153,25 @@ impl ApplyChunkResult {
             result.push(outcome_with_id.to_hashes());
         }
         merklize(&result)
+    }
+
+    pub fn outcome_root(&self) -> MerkleHash {
+        let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&self.outcomes);
+        outcome_root
+    }
+
+    pub fn to_chunk_extra(&self, gas_limit: Gas) -> ChunkExtra {
+        ChunkExtra::new(
+            &self.new_root,
+            self.outcome_root(),
+            self.validator_proposals.clone(),
+            self.total_gas_burnt,
+            gas_limit,
+            self.total_balance_burnt,
+            self.congestion_info,
+            self.bandwidth_requests.clone(),
+            self.proposed_split.clone(),
+        )
     }
 }
 
@@ -211,6 +246,8 @@ pub struct ChainConfig {
     pub save_trie_changes: bool,
     /// Whether to persist transaction outcomes on disk or not.
     pub save_tx_outcomes: bool,
+    /// Whether to persist state changes on disk or not.
+    pub save_state_changes: bool,
     /// Number of threads to execute background migration work.
     /// Currently used for flat storage background creation.
     pub background_migration_threads: usize,
@@ -225,6 +262,7 @@ impl ChainConfig {
         Self {
             save_trie_changes: true,
             save_tx_outcomes: true,
+            save_state_changes: true,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::test(),
@@ -361,8 +399,17 @@ pub struct ApplyChunkShardContext<'a> {
 pub struct PreparedTransactions {
     /// Prepared transactions
     pub transactions: Vec<ValidatedTransaction>,
-    /// Describes which limit was hit when preparing the transactions.
-    pub limited_by: Option<PrepareTransactionsLimit>,
+    /// Describes what limited the number of prepared transactions.
+    pub limited_by: PrepareTransactionsLimit,
+}
+
+impl PreparedTransactions {
+    pub fn new() -> PreparedTransactions {
+        PreparedTransactions {
+            transactions: Vec::new(),
+            limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
+        }
+    }
 }
 
 /// Transactions that were taken out of the pool in prepare_transactions,
@@ -375,11 +422,17 @@ pub struct SkippedTransactions(pub Vec<ValidatedTransaction>);
 /// This enum describes which limit was hit when preparing transactions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::AsRefStr)]
 pub enum PrepareTransactionsLimit {
+    /// No more transactions to pick from the transaction pool.
+    NoMoreTxsInPool,
+    /// Gas limit hit.
     Gas,
+    /// Total transactions size limit hit.
     Size,
+    /// Time limit hit.
     Time,
-    ReceiptCount,
+    /// Recorded storage size limit hit.
     StorageProofSize,
+    /// Transaction preparation was cancelled.
     Cancelled,
 }
 
@@ -553,7 +606,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
         part_id: PartId,
         part: &StatePart,
-    ) -> bool;
+    ) -> StatePartValidationResult;
 
     /// Should be executed after accepting all the parts to set up a new state.
     fn apply_state_part(
@@ -581,7 +634,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         state_root_node: &StateRootNode,
         state_root: &StateRoot,
-    ) -> bool;
+    ) -> StateRootNodeValidationResult;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 
@@ -643,13 +696,14 @@ mod tests {
             &genesis_bps,
         );
         let signer = Arc::new(create_test_signer("other"));
-        let b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
+        let b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build();
         assert!(b1.header().verify_block_producer(&signer.public_key()));
         let other_signer = create_test_signer("other2");
         let approvals =
             vec![Some(Box::new(Approval::new(*b1.hash(), 1, 2, &other_signer).signature))];
-        let b2 =
-            TestBlockBuilder::new(Clock::real(), &b1, signer.clone()).approvals(approvals).build();
+        let b2 = TestBlockBuilder::from_prev_block(Clock::real(), &b1, signer.clone())
+            .approvals(approvals)
+            .build();
         b2.header().verify_block_producer(&signer.public_key());
     }
 

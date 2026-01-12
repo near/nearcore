@@ -328,13 +328,18 @@ pub enum ProtocolFeature {
     IncreaseMaxCongestionMissedChunks,
 
     Wasmtime,
-    SaturatingFloatToInt,
-    ChunkPartChecks,
+    #[deprecated]
+    _DeprecatedSaturatingFloatToInt,
+    #[deprecated]
+    _DeprecatedChunkPartChecks,
     StatePartsCompression,
     /// NEP: https://github.com/near/NEPs/pull/616
     DeterministicAccountIds,
     InvalidTxGenerateOutcomes,
     DynamicResharding,
+    GasKeys,
+    Spice,
+    ContinuousEpochSync,
 }
 
 impl ProtocolFeature {
@@ -428,8 +433,8 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedProduceOptimisticBlock => 77,
             ProtocolFeature::_DeprecatedSimpleNightshadeV6
             | ProtocolFeature::_DeprecatedVersionedStateWitness
-            | ProtocolFeature::ChunkPartChecks
-            | ProtocolFeature::SaturatingFloatToInt
+            | ProtocolFeature::_DeprecatedChunkPartChecks
+            | ProtocolFeature::_DeprecatedSaturatingFloatToInt
             | ProtocolFeature::_DeprecatedReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
             ProtocolFeature::StatePartsCompression | ProtocolFeature::DeterministicAccountIds => 82,
@@ -442,12 +447,21 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
+            ProtocolFeature::GasKeys => 149,
+
+            // Spice is setup to include nightly, but not be part of it for now so that features
+            // that are released before spice can be tested properly.
+            ProtocolFeature::Spice => 180,
+
             // Place features that are not yet in Nightly below this line.
-            ProtocolFeature::DynamicResharding => 152,
+            ProtocolFeature::ContinuousEpochSync => 201,
+            // TODO(dynamic_resharding): This should be 152, but some resharding tests bump
+            //     protocol version to trigger resharding and accidentally turn on this feature
+            ProtocolFeature::DynamicResharding => 252,
         }
     }
 
-    pub fn enabled(&self, protocol_version: ProtocolVersion) -> bool {
+    pub const fn enabled(&self, protocol_version: ProtocolVersion) -> bool {
         protocol_version >= self.protocol_version()
     }
 }
@@ -464,6 +478,17 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
 
+// TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
+// time cargo feature for spice should be removed as well.
+// For spice we want to include all nightly features, but for now we don't want nightly to run with
+// spice.
+const SPICE_PROTOCOL_VERSION: ProtocolVersion = 200;
+
 /// Largest protocol version supported by the current binary.
-pub const PROTOCOL_VERSION: ProtocolVersion =
-    if cfg!(feature = "nightly") { NIGHTLY_PROTOCOL_VERSION } else { STABLE_PROTOCOL_VERSION };
+pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "protocol_feature_spice") {
+    SPICE_PROTOCOL_VERSION
+} else if cfg!(feature = "nightly") {
+    NIGHTLY_PROTOCOL_VERSION
+} else {
+    STABLE_PROTOCOL_VERSION
+};

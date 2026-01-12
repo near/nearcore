@@ -43,7 +43,7 @@ fn map_action(
                 map_delegate_action(delegate, secret, default_key)
             } else {
                 // This should not happen, but we handle the case here defensively
-                tracing::warn!(target: "mirror", "a delegate action was contained inside another delegate action: {:?}", delegate);
+                tracing::warn!(target: "mirror", ?delegate, "a delegate action was contained inside another delegate action");
                 None
             }
         }

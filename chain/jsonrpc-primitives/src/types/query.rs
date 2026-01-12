@@ -58,9 +58,16 @@ pub enum RpcQueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Function call returned an error: {vm_error}")]
+    #[error("Gas key for public key {public_key} has never been observed on the node")]
+    UnknownGasKey {
+        public_key: near_crypto::PublicKey,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("Function call returned an error: {vm_error:?}")]
     ContractExecutionError {
         vm_error: String,
+        error: near_primitives::errors::FunctionCallError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
@@ -95,6 +102,8 @@ pub enum QueryResponseKind {
     CallResult(near_primitives::views::CallResult),
     AccessKey(near_primitives::views::AccessKeyView),
     AccessKeyList(near_primitives::views::AccessKeyList),
+    GasKey(near_primitives::views::GasKeyView),
+    GasKeyList(near_primitives::views::GasKeyList),
 }
 
 impl From<RpcQueryError> for crate::errors::RpcError {

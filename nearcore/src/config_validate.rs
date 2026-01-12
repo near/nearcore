@@ -11,7 +11,7 @@ use crate::config::Config;
 pub fn validate_config(config: &Config) -> Result<(), ValidationError> {
     let mut validation_errors = ValidationErrors::new();
     let mut config_validator = ConfigValidator::new(config, &mut validation_errors);
-    tracing::info!(target: "config", "Validating Config, extracted from config.json...");
+    tracing::info!(target: "config", "validating config, extracted from config.json");
     config_validator.validate()
 }
 
@@ -233,6 +233,13 @@ impl<'a> ConfigValidator<'a> {
             }
             return;
         };
+        if self.config.state_sync.is_some() || self.config.state_sync_enabled {
+            let error_message =
+                "State sync/dump cannot be configured when cloud archive is enabled; \
+                dump settings are derived from the cloud archival config."
+                    .to_string();
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
         if !CloudStorageOpener::is_storage_location_supported(&cloud_archival_config.location) {
             let error_message = format!(
                 "{} is not supported cloud storage location.",
@@ -461,6 +468,28 @@ mod tests {
         cloud_archival_config.location =
             ExternalStorageLocation::S3 { bucket: "".into(), region: "".into() };
         config.cloud_archival = Some(cloud_archival_config);
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: State sync/dump cannot be configured when cloud archive is enabled; dump settings are derived from the cloud archival config."
+    )]
+    fn test_cloud_archival_with_state_sync_enabled() {
+        let mut config = Config::default();
+        config.cloud_archival = Some(test_cloud_archival_config(""));
+        config.state_sync_enabled = true;
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: State sync/dump cannot be configured when cloud archive is enabled; dump settings are derived from the cloud archival config."
+    )]
+    fn test_cloud_archival_with_state_sync_configured() {
+        let mut config = Config::default();
+        config.cloud_archival = Some(test_cloud_archival_config(""));
+        config.state_sync = Some(Default::default());
         validate_config(&config).unwrap();
     }
 }

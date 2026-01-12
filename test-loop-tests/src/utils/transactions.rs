@@ -13,7 +13,7 @@ use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::Error;
-use near_client::{Client, ProcessTxResponse, RpcHandler};
+use near_client::{Client, ProcessTxResponse, RpcHandlerActor};
 use near_crypto::Signer;
 use near_network::client::ProcessTxRequest;
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
@@ -182,7 +182,7 @@ pub fn do_create_account(
     new_account_id: &AccountId,
     amount: Balance,
 ) {
-    tracing::info!(target: "test", "Creating account.");
+    tracing::info!(target: "test", "creating account");
     let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, originator);
     let tx = create_account(env, rpc_id, originator, new_account_id, amount, nonce);
     env.test_loop.run_for(Duration::seconds(5));
@@ -195,7 +195,7 @@ pub fn do_delete_account(
     account_id: &AccountId,
     beneficiary_id: &AccountId,
 ) {
-    tracing::info!(target: "test", "Deleting account.");
+    tracing::info!(target: "test", "deleting account");
     let tx =
         delete_account(&env.test_loop.data, &env.node_datas, rpc_id, account_id, beneficiary_id);
     env.test_loop.run_for(Duration::seconds(5));
@@ -208,7 +208,7 @@ pub fn do_deploy_contract(
     contract_id: &AccountId,
     code: Vec<u8>,
 ) {
-    tracing::info!(target: "test", "Deploying contract.");
+    tracing::info!(target: "test", "deploying contract");
     let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
     let tx = deploy_contract(&mut env.test_loop, &env.node_datas, rpc_id, contract_id, code, nonce);
     env.test_loop.run_for(Duration::seconds(3));
@@ -223,7 +223,7 @@ pub fn do_call_contract(
     method_name: String,
     args: Vec<u8>,
 ) {
-    tracing::info!(target: "test", "Calling contract.");
+    tracing::info!(target: "test", "calling contract");
     let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
     let tx = call_contract(
         &mut env.test_loop,
@@ -632,7 +632,7 @@ impl TransactionRunner {
     /// It's meant to be called in `run_until`.
     pub fn poll(
         &mut self,
-        client_sender: &TestLoopSender<RpcHandler>,
+        client_sender: &TestLoopSender<RpcHandlerActor>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
     ) -> Poll<Result<FinalExecutionOutcomeView, InvalidTxError>> {
@@ -681,7 +681,7 @@ impl TransactionRunner {
     /// Useful for tests where the transaction is expected to be executed successfully.
     pub fn poll_assert_success(
         &mut self,
-        client_sender: &TestLoopSender<RpcHandler>,
+        client_sender: &TestLoopSender<RpcHandlerActor>,
         client: &Client,
         future_spawner: &TestLoopFutureSpawner,
     ) -> Poll<Vec<u8>> {
@@ -700,7 +700,7 @@ impl TransactionRunner {
     /// Send the transaction to the network.
     fn send_tx(
         &mut self,
-        client_sender: &TestLoopSender<RpcHandler>,
+        client_sender: &TestLoopSender<RpcHandlerActor>,
         future_spawner: &TestLoopFutureSpawner,
     ) {
         let process_tx_request = ProcessTxRequest {
@@ -728,8 +728,8 @@ impl TransactionRunner {
             | Err(AsyncSendError::Timeout)
             | Err(AsyncSendError::Dropped) => {
                 tracing::warn!(
-                    "TransactionRunner::get_tx_processing_res - got error: {:?}",
-                    processing_response_res
+                    ?processing_response_res,
+                    "transaction runner get_tx_processing_res got error"
                 );
                 return None;
             }

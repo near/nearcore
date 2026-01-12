@@ -16,15 +16,21 @@ use crate::transaction::{
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
     TransactionV0, TransactionV1, TransferAction,
 };
+#[cfg(feature = "clock")]
+use crate::types::chunk_extra::ChunkExtra;
 use crate::types::validator_stake::ValidatorStake;
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
+#[cfg(feature = "clock")]
+use crate::types::{BlockExecutionResults, ChunkExecutionResult, StateRoot};
 use crate::validator_signer::ValidatorSigner;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
+use itertools::Itertools;
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
+use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
 use std::sync::Arc;
@@ -771,7 +777,9 @@ impl BlockBody {
         match self {
             BlockBody::V1(_) => unreachable!("old body should not appear in tests"),
             BlockBody::V2(body) => body.chunk_endorsements = chunk_endorsements,
-            BlockBody::V3(_) => unreachable!("block body for spice should not appear in tests"),
+            // We treat it as a noop since chunk endorsements aren't part of the block anymore but
+            // some tests still use it.
+            BlockBody::V3(_) => {}
         }
     }
 }
@@ -785,43 +793,85 @@ impl BlockBody {
 #[cfg(feature = "clock")]
 pub struct TestBlockBuilder {
     clock: near_time::Clock,
-    prev: Block,
+    prev_header: BlockHeader,
     signer: Arc<ValidatorSigner>,
     height: u64,
     epoch_id: EpochId,
     next_epoch_id: EpochId,
     next_bp_hash: CryptoHash,
     approvals: Vec<Option<Box<near_crypto::Signature>>>,
+    max_gas_price: Balance,
     block_merkle_root: CryptoHash,
     chunks: Vec<ShardChunkHeader>,
+    chunk_endorsements: Vec<ChunkEndorsementSignatures>,
+    // TODO(spice): Once spice is released remove Option.
     /// Iff `Some` spice block will be created.
     spice_core_statements: Option<Vec<crate::block_body::SpiceCoreStatement>>,
 }
 
 #[cfg(feature = "clock")]
 impl TestBlockBuilder {
-    pub fn new(clock: near_time::Clock, prev: &Block, signer: Arc<ValidatorSigner>) -> Self {
+    fn new(
+        clock: near_time::Clock,
+        signer: Arc<ValidatorSigner>,
+        prev_header: BlockHeader,
+        prev_chunks: Vec<ShardChunkHeader>,
+    ) -> Self {
         let mut tree = crate::merkle::PartialMerkleTree::default();
-        tree.insert(*prev.hash());
-        let next_epoch_id = if prev.header().is_genesis() {
-            EpochId(*prev.hash())
+        tree.insert(*prev_header.hash());
+        let next_epoch_id = if prev_header.is_genesis() {
+            EpochId(*prev_header.hash())
         } else {
-            *prev.header().next_epoch_id()
+            *prev_header.next_epoch_id()
         };
+        let chunks_len = prev_chunks.len();
         Self {
             clock,
-            prev: Block::clone(prev),
             signer,
-            height: prev.header().height() + 1,
-            epoch_id: *prev.header().epoch_id(),
+            height: prev_header.height() + 1,
+            epoch_id: *prev_header.epoch_id(),
             next_epoch_id,
-            next_bp_hash: *prev.header().next_bp_hash(),
+            next_bp_hash: *prev_header.next_bp_hash(),
             approvals: vec![],
+            max_gas_price: Balance::ZERO,
             block_merkle_root: tree.root(),
-            chunks: prev.chunks().iter_raw().cloned().collect(),
-            spice_core_statements: None,
+            chunks: prev_chunks,
+            chunk_endorsements: vec![vec![]; chunks_len],
+            prev_header,
+            spice_core_statements: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+                Some(vec![])
+            } else {
+                None
+            },
         }
     }
+
+    pub fn from_prev_block_view(
+        clock: near_time::Clock,
+        prev_block_view: &crate::views::BlockView,
+        signer: Arc<ValidatorSigner>,
+    ) -> Self {
+        Self::new(
+            clock,
+            signer,
+            prev_block_view.header.clone().into(),
+            prev_block_view.chunks.iter().cloned().map(Into::into).collect(),
+        )
+    }
+
+    pub fn from_prev_block(
+        clock: near_time::Clock,
+        prev_block: &Block,
+        signer: Arc<ValidatorSigner>,
+    ) -> Self {
+        Self::new(
+            clock,
+            signer,
+            prev_block.header().clone(),
+            prev_block.chunks().iter_raw().cloned().collect(),
+        )
+    }
+
     pub fn height(mut self, height: u64) -> Self {
         self.height = height;
         self
@@ -843,18 +893,28 @@ impl TestBlockBuilder {
         self
     }
 
+    pub fn max_gas_price(mut self, max_gas_price: Balance) -> Self {
+        self.max_gas_price = max_gas_price;
+        self
+    }
+
     /// Updates the merkle tree by adding the previous hash, and updates the new block's merkle_root.
     pub fn block_merkle_tree(
         mut self,
         block_merkle_tree: &mut crate::merkle::PartialMerkleTree,
     ) -> Self {
-        block_merkle_tree.insert(*self.prev.hash());
+        block_merkle_tree.insert(*self.prev_header.hash());
         self.block_merkle_root = block_merkle_tree.root();
         self
     }
 
     pub fn chunks(mut self, chunks: Vec<ShardChunkHeader>) -> Self {
         self.chunks = chunks;
+        self
+    }
+
+    pub fn non_spice_block(mut self) -> Self {
+        self.spice_core_statements = None;
         self
     }
 
@@ -866,25 +926,44 @@ impl TestBlockBuilder {
         self
     }
 
-    pub fn build(self) -> Arc<Block> {
-        use crate::version::PROTOCOL_VERSION;
+    pub fn chunk_endorsements(
+        mut self,
+        chunk_endorsements: Vec<ChunkEndorsementSignatures>,
+    ) -> Self {
+        self.chunk_endorsements = chunk_endorsements;
+        self
+    }
 
+    pub fn build(self) -> Arc<Block> {
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
-        let chunks_len = self.chunks.len();
+        let last_certified_block_execution_results = BlockExecutionResults(
+            self.chunks
+                .iter()
+                .map(|chunk| {
+                    (
+                        chunk.shard_id(),
+                        Arc::new(ChunkExecutionResult {
+                            chunk_extra: ChunkExtra::new_with_only_state_root(&StateRoot::new()),
+                            outgoing_receipts_root: CryptoHash::default(),
+                        }),
+                    )
+                })
+                .collect(),
+        );
         Arc::new(Block::produce(
             PROTOCOL_VERSION,
-            self.prev.header(),
+            &self.prev_header,
             self.height,
-            self.prev.header().block_ordinal() + 1,
+            self.prev_header.block_ordinal() + 1,
             self.chunks,
-            vec![vec![]; chunks_len],
+            self.chunk_endorsements,
             self.epoch_id,
             self.next_epoch_id,
             None,
             self.approvals,
             num_rational::Ratio::new(0, 1),
             Balance::ZERO,
-            Balance::ZERO,
+            self.max_gas_price,
             Some(Balance::ZERO),
             self.signer.as_ref(),
             self.next_bp_hash,
@@ -892,7 +971,12 @@ impl TestBlockBuilder {
             self.clock,
             None,
             None,
-            self.spice_core_statements,
+            self.spice_core_statements.map(|core_statements| {
+                crate::block::SpiceNewBlockProductionInfo {
+                    core_statements,
+                    last_certified_block_execution_results,
+                }
+            }),
         ))
     }
 }
@@ -967,6 +1051,32 @@ impl Block {
                 body.body.set_chunk_endorsements(chunk_endorsements);
             }
         };
+    }
+
+    pub fn recompute_fields_derived_from_chunks(&mut self) {
+        let chunks = self.chunks();
+        let headers_root = chunks.compute_chunk_headers_root().0;
+        let tx_root = chunks.compute_chunk_tx_root();
+        let prev_outgoing_receipts_root = chunks.compute_chunk_prev_outgoing_receipts_root();
+        let prev_state_root = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            CryptoHash::default()
+        } else {
+            chunks.compute_state_root()
+        };
+        let chunk_mask = chunks
+            .iter_raw()
+            .map(|chunk| chunk.height_included() == self.header().height())
+            .collect_vec();
+        let prev_outcome_root = chunks.compute_outcome_root();
+        let body_hash = self.compute_block_body_hash().unwrap();
+
+        self.mut_header().set_chunk_headers_root(headers_root);
+        self.mut_header().set_chunk_tx_root(tx_root);
+        self.mut_header().set_prev_chunk_outgoing_receipts_root(prev_outgoing_receipts_root);
+        self.mut_header().set_prev_state_root(prev_state_root);
+        self.mut_header().set_chunk_mask(chunk_mask);
+        self.mut_header().set_prev_outcome_root(prev_outcome_root);
+        self.mut_header().set_block_body_hash(body_hash);
     }
 }
 

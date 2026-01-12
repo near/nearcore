@@ -4,7 +4,7 @@ use crate::utils::process_blocks::produce_blocks_from_height;
 use assert_matches::assert_matches;
 use near_async::messaging::CanSend;
 use near_chain::orphan::NUM_ORPHAN_ANCESTORS_CHECK;
-use near_chain::{Error, Provenance};
+use near_chain::{ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::create_chunk;
@@ -26,7 +26,6 @@ use near_primitives::views::FinalExecutionStatus;
 use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
 use std::collections::HashSet;
-use tracing::debug;
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
 /// Return height of the next block.
@@ -46,10 +45,13 @@ fn check_tx_processing(
 
 /// Test that duplicate transactions are properly rejected.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_hash_collision() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
@@ -119,6 +121,7 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
     let epoch_length = 100;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.protocol_version = protocol_version;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -193,6 +196,8 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
 
 /// Test that duplicate transactions from NEAR-implicit accounts are properly rejected.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_hash_collision_for_near_implicit_account_fail() {
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
     let public_key = secret_key.public_key();
@@ -214,6 +219,7 @@ fn test_chunk_transaction_validity() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.min_gas_price = Balance::ZERO;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -255,10 +261,13 @@ fn test_chunk_transaction_validity() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_nonce_too_large() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
@@ -317,6 +326,7 @@ fn test_request_chunks_for_orphan() {
         (0..num_clients).map(|i| format!("test{}", i).parse().unwrap()).collect();
     let mut genesis = Genesis::test(accounts, num_validators);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     // make the blockchain to 4 shards
     genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
     genesis.config.num_block_producer_seats_per_shard =
@@ -456,6 +466,7 @@ fn test_processing_chunks_sanity() {
         (0..num_clients).map(|i| format!("test{}", i).parse().unwrap()).collect();
     let mut genesis = Genesis::test(accounts, num_validators);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     // make the blockchain to 4 shards
     genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
     genesis.config.num_block_producer_seats_per_shard =
@@ -476,7 +487,7 @@ fn test_processing_chunks_sanity() {
             .iter()
             .map(|chunk| format!("{:?}", chunk.chunk_hash()))
             .collect::<Vec<_>>();
-        debug!(target: "chunks", "Block #{} has chunks {:?}", i, chunks.join(", "));
+        tracing::debug!(target: "chunks", block = %i, chunks = %chunks.join(", "));
         blocks.push(block.clone());
         env.process_block(0, block, Provenance::PRODUCED);
     }
@@ -549,6 +560,7 @@ impl ChunkForwardingOptimizationTestData {
         {
             let config = &mut genesis.config;
             config.epoch_length = epoch_length;
+            config.transaction_validity_period = epoch_length * 2;
             config.shard_layout = ShardLayout::multi_shard(4, 3);
             config.num_block_producer_seats_per_shard = vec![
                 num_block_producers as u64,
@@ -596,13 +608,13 @@ impl ChunkForwardingOptimizationTestData {
                         part_ord,
                     );
                 }
-                debug!(
+                tracing::debug!(
                     target: "test",
-                    "chunk request from {} to {:?} for chunk {} with part_ords {:?}",
-                    client_id,
-                    target,
-                    hex::encode(&request.chunk_hash.as_bytes()[..4]),
-                    request.part_ords
+                    %client_id,
+                    ?target,
+                    chunk_hash_hex = %hex::encode(&request.chunk_hash.as_bytes()[..4]),
+                    ?request.part_ords,
+                    "chunk request from to for chunk with part_ords"
                 );
                 self.num_part_ords_requested += request.part_ords.len();
                 self.env.process_partial_encoded_chunk_request(
@@ -612,15 +624,15 @@ impl ChunkForwardingOptimizationTestData {
                 None
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
-                debug!(
+                tracing::debug!(
                     target: "test",
-                    "chunk msg from {} to {} height {} hash {} shard {} parts {:?}",
-                    client_id,
-                    account_id,
-                    partial_encoded_chunk.header.height_created(),
-                    hex::encode(&partial_encoded_chunk.header.chunk_hash().as_bytes()[..4]),
-                    partial_encoded_chunk.header.shard_id(),
-                    partial_encoded_chunk.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>()
+                    %client_id,
+                    %account_id,
+                    height = %partial_encoded_chunk.header.height_created(),
+                    hash = %hex::encode(&partial_encoded_chunk.header.chunk_hash().as_bytes()[..4]),
+                    shard_id = %partial_encoded_chunk.header.shard_id(),
+                    parts = ?partial_encoded_chunk.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>(),
+                    "chunk msg from to height hash shard parts"
                 );
                 for part in &partial_encoded_chunk.parts {
                     self.chunk_parts_that_must_be_known.insert((
@@ -639,13 +651,13 @@ impl ChunkForwardingOptimizationTestData {
                 None
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
-                debug!(
+                tracing::debug!(
                     target: "test",
-                    "chunk forward from {} to {} hash {} parts {:?}",
-                    client_id,
-                    account_id,
-                    hex::encode(&forward.chunk_hash.as_bytes()[..4]),
-                    forward.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>()
+                    %client_id,
+                    %account_id,
+                    hash = %hex::encode(&forward.chunk_hash.as_bytes()[..4]),
+                    parts = ?forward.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>(),
+                    "chunk forward from to hash parts"
                 );
                 for part_ord in &forward.parts {
                     self.chunk_parts_that_must_be_known.insert((
@@ -700,7 +712,7 @@ fn test_chunk_forwarding_optimization() {
         if height >= 31 {
             break;
         }
-        debug!(target: "test", "======= Height {} ======", height + 1);
+        tracing::debug!(target: "test", height = %(height + 1), "======= height ======");
         let block = test.env.clients[0].produce_block(height + 1).unwrap().unwrap();
         if block.header().height() > 1 {
             // For any block except the first, the previous block's application at each
@@ -714,7 +726,7 @@ fn test_chunk_forwarding_optimization() {
         }
         // The block producer of course has the complete block so we can process that.
         for i in 0..test.num_validators {
-            debug!(target: "test", "Processing block {} as validator #{}", block.header().height(), i);
+            tracing::debug!(target: "test", height = %block.header().height(), %i, "processing block as validator");
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
@@ -745,16 +757,12 @@ fn test_chunk_forwarding_optimization() {
         test.env.propagate_chunk_state_witnesses_and_endorsements(false);
     }
 
-    debug!(target: "test",
-        "Counters for debugging:
-                num_part_ords_requested: {}
-                num_part_ords_sent_as_partial_encoded_chunk: {}
-                num_part_ords_forwarded: {}
-                num_forwards_with_missing_chunk_header: {}",
-        test.num_part_ords_requested,
-        test.num_part_ords_sent_as_partial_encoded_chunk,
-        test.num_part_ords_forwarded,
-        PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER.get(),
+    tracing::debug!(target: "test",
+        num_part_ords_requested = %test.num_part_ords_requested,
+        num_part_ords_sent_as_partial_encoded_chunk = %test.num_part_ords_sent_as_partial_encoded_chunk,
+        num_part_ords_forwarded = %test.num_part_ords_forwarded,
+        num_forwards_with_missing_chunk_header = %PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER.get(),
+        "counters for debugging"
     );
 }
 
@@ -773,6 +781,7 @@ fn test_processing_blocks_async() {
         (0..num_clients).map(|i| format!("test{}", i).parse().unwrap()).collect();
     let mut genesis = Genesis::test(accounts, num_validators);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     // make the blockchain to 4 shards
     genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
     genesis.config.num_block_producer_seats_per_shard =

@@ -71,6 +71,8 @@ fn test_contract_distribution_single_account(wait_cache_populate: bool, clear_ca
 
 /// Tests a simple scenario where we deploy and call a contract.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_contract_distribution_deploy_and_call_single_account() {
     test_contract_distribution_single_account(false, false);
 }
@@ -78,6 +80,8 @@ fn test_contract_distribution_deploy_and_call_single_account() {
 /// Tests a simple scenario where we deploy and call a contract.
 /// Waits for deploy action to take effect in contract cache before issuing the call actions.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_contract_distribution_wait_cache_populate_single_account() {
     test_contract_distribution_single_account(true, false);
 }
@@ -86,6 +90,8 @@ fn test_contract_distribution_wait_cache_populate_single_account() {
 /// then clear the compiled contract cache and finally call the deployed contract call.
 #[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_contract_distribution_call_after_clear_single_account() {
     test_contract_distribution_single_account(true, true);
 }
@@ -140,6 +146,8 @@ fn test_contract_distribution_different_accounts(wait_cache_populate: bool, clea
 
 /// Tests a simple scenario where we deploy and call a contract on two different accounts.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_contract_distribution_deploy_and_call_different_accounts() {
     test_contract_distribution_different_accounts(false, false);
 }
@@ -147,6 +155,8 @@ fn test_contract_distribution_deploy_and_call_different_accounts() {
 /// Tests a simple scenario where we deploy and call a contract on two different accounts.
 /// Waits for deploy action to take effect in contract cache before issuing the call actions.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_contract_distribution_wait_cache_populate_different_accounts() {
     test_contract_distribution_different_accounts(false, false);
 }
@@ -155,12 +165,16 @@ fn test_contract_distribution_wait_cache_populate_different_accounts() {
 /// then clear the compiled contract cache and finally call the deployed contract on the two accounts.
 #[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_contract_distribution_call_after_clear_different_accounts() {
     test_contract_distribution_different_accounts(true, true);
 }
 
 /// Executes a test that deploys and calls different contracts to the same account.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_contract_distribution_deploy_and_call_multiple_contracts() {
     init_test_logger();
     // We need 1 more non-validator account to create, deploy-contract, and delete.
@@ -232,7 +246,6 @@ fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(GENESIS_HEIGHT)
-        .transaction_validity_period(1000)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)

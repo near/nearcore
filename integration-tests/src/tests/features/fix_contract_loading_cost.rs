@@ -17,6 +17,7 @@ fn prepare_env_with_contract(
 ) -> TestEnv {
     let mut genesis = Genesis::test(vec![account.clone()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.protocol_version = protocol_version;
     let runtime_config = near_parameters::RuntimeConfigStore::new(None);
     let mut env = TestEnv::builder(&genesis.config)
@@ -28,6 +29,8 @@ fn prepare_env_with_contract(
 
 /// Check that normal execution has the same gas cost after FixContractLoadingCost.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn unchanged_gas_cost() {
     if !ProtocolFeature::FixContractLoadingCost.enabled(PROTOCOL_VERSION) {
         return;
@@ -59,6 +62,8 @@ fn unchanged_gas_cost() {
 
 /// Check that execution that fails during contract preparation has the updated gas cost after the update.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn preparation_error_gas_cost() {
     if !ProtocolFeature::FixContractLoadingCost.enabled(PROTOCOL_VERSION) {
         return;

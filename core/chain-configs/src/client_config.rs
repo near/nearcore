@@ -665,6 +665,12 @@ pub fn default_enable_early_prepare_transactions() -> bool {
     cfg!(feature = "nightly")
 }
 
+/// Returns the default value for `chunks_cache_height_horizon`.
+/// A chunk is out of rear horizon if its height + chunks_cache_height_horizon < largest_seen_height.
+pub fn default_chunks_cache_height_horizon() -> BlockHeightDelta {
+    128
+}
+
 /// Config for the Chunk Distribution Network feature.
 /// This allows nodes to push and pull chunks from a central stream.
 /// The two benefits of this approach are: (1) less request/response traffic
@@ -801,6 +807,8 @@ pub struct ClientConfig {
     pub save_trie_changes: bool,
     /// Whether to persist transaction outcomes to disk or not.
     pub save_tx_outcomes: bool,
+    /// Whether to persist state changes on disk or not.
+    pub save_state_changes: bool,
     /// Whether to persist partial chunk parts for untracked shards or not.
     pub save_untracked_partial_chunks_parts: bool,
     /// Number of threads for ViewClientActor pool.
@@ -844,6 +852,8 @@ pub struct ClientConfig {
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
+    /// If true, the node won't forward transactions to next the chunk producers.
+    pub disable_tx_routing: bool,
     /// Limit the time of adding transactions to a chunk.
     /// A node produces a chunk by adding transactions from the transaction pool until
     /// some limit is reached. This time limit ensures that adding transactions won't take
@@ -882,9 +892,10 @@ pub struct ClientConfig {
     /// The current implementation increases latency on low-load chains, which will be fixed in the future.
     /// The default is disabled.
     pub enable_early_prepare_transactions: bool,
-    /// If true, the runtime will do a dynamic resharding 'dry run' at the last block of each epoch.
-    /// This means calculating tentative boundary accounts for splitting the tracked shards.
-    pub dynamic_resharding_dry_run: bool,
+    /// Height horizon for the chunk cache. A chunk is removed from the cache
+    /// if its height + chunks_cache_height_horizon < largest_seen_height.
+    /// The default value is DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON.
+    pub chunks_cache_height_horizon: BlockHeightDelta,
 }
 
 #[cfg(feature = "schemars")]

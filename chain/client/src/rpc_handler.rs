@@ -21,6 +21,7 @@ use near_primitives::types::BlockHeightDelta;
 use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
 use near_primitives::unwrap_or_return;
+use near_primitives::version::ProtocolFeature;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::Mutex;
@@ -30,20 +31,20 @@ use std::sync::Arc;
 use crate::metrics;
 use near_async::multithread::MultithreadRuntimeHandle;
 
-impl Handler<ProcessTxRequest> for RpcHandler {
+impl Handler<ProcessTxRequest> for RpcHandlerActor {
     fn handle(&mut self, msg: ProcessTxRequest) {
         Handler::<ProcessTxRequest, ProcessTxResponse>::handle(self, msg);
     }
 }
 
-impl Handler<ProcessTxRequest, ProcessTxResponse> for RpcHandler {
+impl Handler<ProcessTxRequest, ProcessTxResponse> for RpcHandlerActor {
     fn handle(&mut self, msg: ProcessTxRequest) -> ProcessTxResponse {
         let ProcessTxRequest { transaction, is_forwarded, check_only } = msg;
         self.process_tx(transaction, is_forwarded, check_only)
     }
 }
 
-impl messaging::Actor for RpcHandler {}
+impl messaging::Actor for RpcHandlerActor {}
 
 pub fn spawn_rpc_handler_actor(
     actor_system: ActorSystem,
@@ -54,8 +55,8 @@ pub fn spawn_rpc_handler_actor(
     validator_signer: MutableValidatorSigner,
     runtime: Arc<dyn RuntimeAdapter>,
     network_adapter: PeerManagerAdapter,
-) -> MultithreadRuntimeHandle<RpcHandler> {
-    let actor = RpcHandler::new(
+) -> MultithreadRuntimeHandle<RpcHandlerActor> {
+    let actor = RpcHandlerActor::new(
         config.clone(),
         tx_pool,
         epoch_manager,
@@ -71,6 +72,7 @@ pub fn spawn_rpc_handler_actor(
 pub struct RpcHandlerConfig {
     pub handler_threads: usize,
     pub tx_routing_height_horizon: u64,
+    pub disable_tx_routing: bool,
     pub epoch_length: u64,
     pub transaction_validity_period: BlockHeightDelta,
 }
@@ -80,7 +82,7 @@ pub struct RpcHandlerConfig {
 /// Supposed to run multithreaded.
 /// Connects to the Client actor via (thread-safe) queues and pools to pass the data for consumption.
 #[derive(Clone)]
-pub struct RpcHandler {
+pub struct RpcHandlerActor {
     config: RpcHandlerConfig,
 
     tx_pool: Arc<Mutex<ShardedTransactionPool>>,
@@ -93,7 +95,7 @@ pub struct RpcHandler {
     network_adapter: PeerManagerAdapter,
 }
 
-impl RpcHandler {
+impl RpcHandlerActor {
     pub fn new(
         config: RpcHandlerConfig,
         tx_pool: Arc<Mutex<ShardedTransactionPool>>,
@@ -130,7 +132,7 @@ impl RpcHandler {
         unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded, check_only), {
             let signer = self.validator_signer.get();
             let me = signer.as_ref().map(|signer| signer.validator_id());
-            tracing::debug!(target: "client", ?me, ?tx, "Dropping tx");
+            tracing::debug!(target: "client", ?me, ?tx, "dropping tx");
             ProcessTxResponse::NoResponse
         })
     }
@@ -156,7 +158,7 @@ impl RpcHandler {
             signed_tx.transaction.block_hash(),
             self.config.transaction_validity_period,
         ) {
-            tracing::debug!(target: "client", ?signed_tx, "Invalid tx: expired or from a different fork");
+            tracing::debug!(target: "client", ?signed_tx, "invalid tx: expired or from a different fork");
             return Ok(ProcessTxResponse::InvalidTx(e));
         }
         let gas_price = cur_block_header.next_gas_price();
@@ -177,7 +179,7 @@ impl RpcHandler {
         ) {
             Ok(validated_tx) => validated_tx,
             Err((err, signed_tx)) => {
-                tracing::debug!(target: "client", tx_hash = ?signed_tx.get_hash(), ?err, "Invalid tx during basic validation");
+                tracing::debug!(target: "client", tx_hash = ?signed_tx.get_hash(), ?err, "invalid tx during basic validation");
                 return Ok(ProcessTxResponse::InvalidTx(err));
             }
         };
@@ -187,9 +189,10 @@ impl RpcHandler {
 
         if self.shard_tracker.cares_about_shard_this_or_next_epoch(&head.last_block_hash, shard_id)
         {
-            if !cfg!(feature = "protocol_feature_spice") {
+            if !ProtocolFeature::Spice.enabled(protocol_version) {
+                let chunk_store = self.chain_store.chunk_store();
                 let state_root =
-                    match self.chain_store.get_chunk_extra(&head.last_block_hash, &shard_uid) {
+                    match chunk_store.get_chunk_extra(&head.last_block_hash, &shard_uid) {
                         Ok(chunk_extra) => *chunk_extra.state_root(),
                         Err(_) => {
                             // Not being able to fetch a state root most likely implies that we haven't
@@ -211,7 +214,7 @@ impl RpcHandler {
                     &validated_tx,
                     protocol_version,
                 ) {
-                    tracing::debug!(target: "client", ?err, "Invalid tx");
+                    tracing::debug!(target: "client", ?err, "invalid tx");
                     return Ok(ProcessTxResponse::InvalidTx(err));
                 }
             }
@@ -223,17 +226,17 @@ impl RpcHandler {
                 let mut pool = self.tx_pool.lock();
                 match pool.insert_transaction(shard_uid, validated_tx) {
                     InsertTransactionResult::Success => {
-                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "Recorded a transaction.");
+                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "recorded a transaction");
                     }
                     InsertTransactionResult::Duplicate => {
-                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "Duplicate transaction, not forwarding it.");
+                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "duplicate transaction, not forwarding it");
                         return Ok(ProcessTxResponse::ValidTx);
                     }
                     InsertTransactionResult::NoSpaceLeft => {
                         if is_forwarded {
-                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "Transaction pool is full, dropping the transaction.");
+                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, dropping the transaction");
                         } else {
-                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "Transaction pool is full, trying to forward the transaction.");
+                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, trying to forward the transaction");
                         }
                     }
                 }
@@ -245,21 +248,26 @@ impl RpcHandler {
             //   forward to current epoch validators,
             //   possibly forward to next epoch validators
             if self.active_validator(shard_id)? {
-                tracing::trace!(target: "client", account = ?me, %shard_id, tx_hash = ?signed_tx.get_hash(), is_forwarded, "Recording a transaction.");
+                tracing::trace!(target: "client", account = ?me, %shard_id, tx_hash = ?signed_tx.get_hash(), is_forwarded, "recording a transaction");
                 metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
 
-                if !is_forwarded {
+                if !is_forwarded && !self.config.disable_tx_routing {
                     self.possibly_forward_tx_to_next_epoch(signed_tx)?;
                 }
                 return Ok(ProcessTxResponse::ValidTx);
             }
             if !is_forwarded {
-                tracing::trace!(target: "client", %shard_id, tx_hash = ?signed_tx.get_hash(), "Forwarding a transaction.");
+                tracing::trace!(target: "client", %shard_id, tx_hash = ?signed_tx.get_hash(), "forwarding a transaction");
                 metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
+                // Only skip forwarding if we're a validator node.
+                if self.config.disable_tx_routing && me.is_some() {
+                    tracing::trace!(target: "client", %shard_id, tx_hash = ?signed_tx.get_hash(), "Tx routing disabled.");
+                    return Ok(ProcessTxResponse::ValidTx);
+                }
                 self.forward_tx(&epoch_id, signed_tx)?;
                 return Ok(ProcessTxResponse::RequestRouted);
             }
-            tracing::trace!(target: "client", %shard_id, tx_hash = ?signed_tx.get_hash(), "Non-validator received a forwarded transaction, dropping it.");
+            tracing::trace!(target: "client", %shard_id, tx_hash = ?signed_tx.get_hash(), "non-validator received a forwarded transaction, dropping it");
             metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
             return Ok(ProcessTxResponse::NoResponse);
         }
@@ -269,7 +277,7 @@ impl RpcHandler {
         }
         if is_forwarded {
             // Received forwarded transaction but we are not tracking the shard
-            tracing::debug!(target: "client", ?me, %shard_id, tx_hash = ?signed_tx.get_hash(), "Received forwarded transaction but no tracking shard");
+            tracing::debug!(target: "client", ?me, %shard_id, tx_hash = ?signed_tx.get_hash(), "received forwarded transaction but no tracking shard");
             return Ok(ProcessTxResponse::NoResponse);
         }
         // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
@@ -330,7 +338,7 @@ impl RpcHandler {
         }
         for validator in validators {
             let tx_hash = tx.get_hash();
-            tracing::trace!(target: "client", me = ?signer.as_ref().map(|bp| bp.validator_id()), ?tx_hash, ?validator, %shard_id, "Routing a transaction");
+            tracing::trace!(target: "client", me = ?signer.as_ref().map(|bp| bp.validator_id()), ?tx_hash, ?validator, %shard_id, "routing a transaction");
 
             // Send message to network to actually forward transaction.
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -161,6 +162,11 @@ struct DistributionData {
 
 impl near_async::messaging::Actor for SpiceDataDistributorActor {
     fn start_actor(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
+        if !cfg!(feature = "protocol_feature_spice") {
+            return;
+        }
+        self.start_waiting_on_missing_data()
+            .expect("we should be able to figure out missing data on startup");
         self.schedule_data_fetching(ctx);
     }
 }
@@ -280,6 +286,7 @@ impl SpiceDataDistributorActor {
         chain_store: ChainStoreAdapter,
         validator_signer: MutableValidatorSigner,
         shard_tracker: ShardTracker,
+        core_reader: SpiceCoreReader,
         network_adapter: PeerManagerAdapter,
         executor_sender: Sender<ExecutorIncomingUnverifiedReceipts>,
         witness_validator_sender: Sender<SpanWrapped<SpiceChunkStateWitnessMessage>>,
@@ -287,7 +294,6 @@ impl SpiceDataDistributorActor {
         const RECENTLY_DECODED_DATA_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(100).unwrap();
         const DATA_PARTS_RATIO: f64 = 0.6;
         const PENDING_PARTIAL_DATA_CAP: NonZeroUsize = NonZeroUsize::new(10).unwrap();
-        let core_reader = SpiceCoreReader::new(chain_store.clone(), epoch_manager.clone());
         Self {
             // TODO(spice): Evaluate whether the same data parts ratio makes sense for all data
             // distributed.
@@ -604,12 +610,7 @@ impl SpiceDataDistributorActor {
         Ok(())
     }
 
-    fn is_data_known(
-        &self,
-        me: &AccountId,
-        block: &Block,
-        id: &SpiceDataIdentifier,
-    ) -> Result<bool, Error> {
+    fn is_data_known(&self, me: &AccountId, block: &Block, id: &SpiceDataIdentifier) -> bool {
         match id {
             SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } => {
                 debug_assert_eq!(block_hash, block.hash());
@@ -618,24 +619,18 @@ impl SpiceDataDistributorActor {
                     block_hash,
                     *to_shard_id,
                     *from_shard_id,
-                )
-                .map_err(near_chain::Error::from)?
-                {
-                    return Ok(true);
+                ) {
+                    return true;
                 }
             }
             SpiceDataIdentifier::Witness { block_hash, shard_id } => {
                 debug_assert_eq!(block_hash, block.hash());
-                if self
-                    .core_reader
-                    .endorsement_exists(block_hash, *shard_id, me)
-                    .map_err(near_chain::Error::from)?
-                {
-                    return Ok(true);
+                if self.core_reader.endorsement_exists(block_hash, *shard_id, me) {
+                    return true;
                 }
             }
         }
-        Ok(false)
+        false
     }
 
     fn verify_data_id(&self, id: &SpiceDataIdentifier, block: &Block) -> Result<(), Error> {
@@ -682,7 +677,7 @@ impl SpiceDataDistributorActor {
     }
 
     fn possible_epoch_ids(&self, block_hash: &CryptoHash) -> Result<Vec<EpochId>, Error> {
-        let possible_epoch_ids = if self.chain_store.block_exists(block_hash)? {
+        let possible_epoch_ids = if self.chain_store.block_exists(block_hash) {
             let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
             vec![epoch_id]
         } else {
@@ -779,7 +774,6 @@ impl SpiceDataDistributorActor {
         self.pending_partial_data.len()
     }
 
-    // TODO(spice): Do not request data we already decoded.
     // TODO(spice): Implement a state machine to track all the data we produce or may need. This
     // would help make sure that we cannot have and request data at the same time.
     fn start_waiting_on_data(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
@@ -797,8 +791,7 @@ impl SpiceDataDistributorActor {
         let shards_we_apply: HashSet<ShardId> = shard_layout
             .shard_ids()
             .filter(|shard_id| {
-                // We need a receipts from a block only if we would want to apply a block after.
-                let prev_hash = block.hash();
+                let prev_hash = block.header().prev_hash();
                 self.shard_tracker.should_apply_chunk(
                     ApplyChunksMode::IsCaughtUp,
                     prev_hash,
@@ -826,11 +819,25 @@ impl SpiceDataDistributorActor {
             }
         }
 
+        let shards_we_apply_in_next_block: HashSet<ShardId> = shard_layout
+            .shard_ids()
+            .filter(|shard_id| {
+                let prev_hash = block.hash();
+                self.shard_tracker.should_apply_chunk(
+                    ApplyChunksMode::IsCaughtUp,
+                    prev_hash,
+                    *shard_id,
+                )
+            })
+            .collect();
+
         for from_shard_id in shard_layout.shard_ids() {
+            // We need a receipts from a block only if we would want to apply a block after.
             if shards_we_apply.contains(&from_shard_id) {
                 continue;
             }
-            for to_shard_id in shards_we_apply.iter().copied() {
+            // TODO(spice-resharding): Handle resharding
+            for to_shard_id in shards_we_apply_in_next_block.iter().copied() {
                 new_ids.push(SpiceDataIdentifier::ReceiptProof {
                     block_hash: *block_hash,
                     from_shard_id,
@@ -840,13 +847,16 @@ impl SpiceDataDistributorActor {
         }
 
         for id in new_ids {
+            let (_recipients, producers) = self.recipients_and_producers(&id, &block)?;
+            assert!(!producers.contains(me));
+
             if self.waiting_on_data.contains_key(&id) {
                 continue;
             }
             if self.recently_decoded_data.contains(&id) {
                 continue;
             }
-            if self.is_data_known(me, &block, &id)? {
+            if self.is_data_known(me, &block, &id) {
                 tracing::debug!(target: "spice_data_distribution", ?id, "data is known; will not start waiting on it");
                 continue;
             }
@@ -961,6 +971,30 @@ impl SpiceDataDistributorActor {
                 recipients,
             },
         ));
+        Ok(())
+    }
+
+    fn start_waiting_on_missing_data(&mut self) -> Result<(), Error> {
+        let start_block = match self.chain_store.spice_final_execution_head() {
+            Ok(final_execution_head) => final_execution_head.last_block_hash,
+            Err(near_chain::Error::DBNotFoundErr(_)) => {
+                let final_head_hash = self.chain_store.final_head()?.last_block_hash;
+                let mut header = self.chain_store.get_block_header(&final_head_hash)?;
+                // TODO(spice): Stop searching on the first non-spice block.
+                while !header.is_genesis() {
+                    header = self.chain_store.get_block_header(header.prev_hash())?;
+                }
+                *header.hash()
+            }
+            Err(err) => return Err(err.into()),
+        };
+
+        let mut next_block_hashes: VecDeque<_> =
+            self.chain_store.get_all_next_block_hashes(&start_block)?.into();
+        while let Some(block_hash) = next_block_hashes.pop_front() {
+            self.start_waiting_on_data(&block_hash)?;
+            next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash)?);
+        }
         Ok(())
     }
 }

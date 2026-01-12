@@ -8,6 +8,7 @@ use near_crypto::Signature;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::block_body::SpiceCoreStatement;
+use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
@@ -24,6 +25,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
+use crate::spice_core::SpiceCoreReader;
 use crate::spice_core_writer_actor::{
     ExecutionResultEndorsed, InvalidSpiceEndorsementError, ProcessChunkError, SpiceCoreWriterActor,
 };
@@ -37,7 +39,7 @@ use crate::{BlockProcessingArtifact, Chain, Provenance};
 fn test_process_chunk_endorsement_with_execution_result_already_present() {
     let (mut chain, core_writer_actor) = setup();
     let genesis = chain.genesis_block();
-    let block = build_non_spice_block(&mut chain, &genesis);
+    let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
 
     let chunks = block.chunks();
@@ -47,7 +49,7 @@ fn test_process_chunk_endorsement_with_execution_result_already_present() {
         core_writer_actor.process_chunk_endorsement(endorsement).unwrap();
     }
     let execution_results =
-        core_writer_actor.core_reader.get_execution_results_by_shard_id(&block).unwrap();
+        core_writer_actor.core_reader.get_execution_results_by_shard_id(block.header()).unwrap();
     assert!(execution_results.contains_key(&chunk_header.shard_id()));
 
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
@@ -80,7 +82,7 @@ fn test_process_chunk_endorsement_does_not_record_result_without_enough_endorsem
     core_writer_actor.process_chunk_endorsement(endorsement).unwrap();
 
     let execution_results =
-        core_writer_actor.core_reader.get_execution_results_by_shard_id(&block).unwrap();
+        core_writer_actor.core_reader.get_execution_results_by_shard_id(block.header()).unwrap();
     assert!(!execution_results.contains_key(&chunk_header.shard_id()));
 }
 
@@ -100,7 +102,7 @@ fn test_process_chunk_endorsement_does_not_record_result_with_enough_endorsement
     }
 
     let execution_results =
-        core_writer_actor.core_reader.get_execution_results_by_shard_id(&block).unwrap();
+        core_writer_actor.core_reader.get_execution_results_by_shard_id(block.header()).unwrap();
     assert!(execution_results.contains_key(&chunk_header.shard_id()));
 }
 
@@ -170,16 +172,11 @@ fn test_process_chunk_endorsement_fails_with_irrelevant_endorsement() {
             InvalidSpiceEndorsementError::EndorsementIsNotRelevant
         ))
     );
-    assert!(
-        !core_writer_actor
-            .core_reader
-            .endorsement_exists(
-                block.hash(),
-                chunk_header.shard_id(),
-                &AccountId::from_str(&irrelevant_validator).unwrap()
-            )
-            .unwrap()
-    );
+    assert!(!core_writer_actor.core_reader.endorsement_exists(
+        block.hash(),
+        chunk_header.shard_id(),
+        &AccountId::from_str(&irrelevant_validator).unwrap()
+    ));
 }
 
 #[test]
@@ -361,14 +358,18 @@ fn test_handle_processed_block_for_block_with_endorsements() {
     core_writer_actor.handle_processed_block(*next_block.hash()).unwrap();
 
     assert!(
-        core_writer_actor.core_reader.get_execution_results_by_shard_id(&block).unwrap().is_empty()
+        core_writer_actor
+            .core_reader
+            .get_execution_results_by_shard_id(block.header())
+            .unwrap()
+            .is_empty()
     );
     for validator in in_core_validators {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
         core_writer_actor.process_chunk_endorsement(endorsement).unwrap();
     }
     let execution_results =
-        core_writer_actor.core_reader.get_execution_results_by_shard_id(&block).unwrap();
+        core_writer_actor.core_reader.get_execution_results_by_shard_id(block.header()).unwrap();
     assert!(execution_results.contains_key(&chunk_header.shard_id()));
 }
 
@@ -392,7 +393,11 @@ fn test_handle_processed_block_for_block_with_final_endorsement_and_no_execution
         core_writer_actor.process_chunk_endorsement(endorsement).unwrap();
     }
     assert!(
-        core_writer_actor.core_reader.get_execution_results_by_shard_id(&block).unwrap().is_empty()
+        core_writer_actor
+            .core_reader
+            .get_execution_results_by_shard_id(block.header())
+            .unwrap()
+            .is_empty()
     );
 
     let block_core_statements = in_block_validators
@@ -408,7 +413,7 @@ fn test_handle_processed_block_for_block_with_final_endorsement_and_no_execution
     core_writer_actor.handle_processed_block(*next_block.hash()).unwrap();
 
     let execution_results =
-        core_writer_actor.core_reader.get_execution_results_by_shard_id(&block).unwrap();
+        core_writer_actor.core_reader.get_execution_results_by_shard_id(block.header()).unwrap();
     assert!(execution_results.contains_key(&chunk_header.shard_id()));
 }
 
@@ -440,7 +445,7 @@ fn test_handle_processed_block_for_block_with_execution_results() {
     process_block(&mut chain, next_block.clone());
     core_writer_actor.handle_processed_block(*next_block.hash()).unwrap();
     let execution_results =
-        core_writer_actor.core_reader.get_execution_results_by_shard_id(&block).unwrap();
+        core_writer_actor.core_reader.get_execution_results_by_shard_id(block.header()).unwrap();
     assert_eq!(execution_results.get(&chunk_header.shard_id()), Some(&Arc::new(execution_result)));
 }
 
@@ -459,13 +464,17 @@ fn test_handle_processed_block_processes_pending_endorsements() {
     }
 
     assert!(
-        core_writer_actor.core_reader.get_execution_results_by_shard_id(&block).unwrap().is_empty()
+        core_writer_actor
+            .core_reader
+            .get_execution_results_by_shard_id(block.header())
+            .unwrap()
+            .is_empty()
     );
     process_block(&mut chain, block.clone());
     core_writer_actor.handle_processed_block(*block.hash()).unwrap();
 
     let execution_results =
-        core_writer_actor.core_reader.get_execution_results_by_shard_id(&block).unwrap();
+        core_writer_actor.core_reader.get_execution_results_by_shard_id(block.header()).unwrap();
     assert_eq!(
         execution_results.get(&chunk_header.shard_id()),
         Some(&Arc::new(test_execution_result_for_chunk(&chunk_header)))
@@ -499,13 +508,17 @@ fn test_handle_processed_block_processes_pending_endorsements_with_invalid_endor
     }
 
     assert!(
-        core_writer_actor.core_reader.get_execution_results_by_shard_id(&block).unwrap().is_empty()
+        core_writer_actor
+            .core_reader
+            .get_execution_results_by_shard_id(block.header())
+            .unwrap()
+            .is_empty()
     );
     process_block(&mut chain, block.clone());
     core_writer_actor.handle_processed_block(*block.hash()).unwrap();
 
     let execution_results =
-        core_writer_actor.core_reader.get_execution_results_by_shard_id(&block).unwrap();
+        core_writer_actor.core_reader.get_execution_results_by_shard_id(block.header()).unwrap();
     assert_eq!(
         execution_results.get(&chunk_header.shard_id()),
         Some(&Arc::new(test_execution_result_for_chunk(&chunk_header)))
@@ -513,16 +526,11 @@ fn test_handle_processed_block_processes_pending_endorsements_with_invalid_endor
 
     let irrelevant_validator =
         find_irrelevant_validator(&validators, chain, &block, chunk_header.shard_id());
-    assert!(
-        !core_writer_actor
-            .core_reader
-            .endorsement_exists(
-                block.hash(),
-                chunk_header.shard_id(),
-                &AccountId::from_str(&irrelevant_validator).unwrap()
-            )
-            .unwrap()
-    )
+    assert!(!core_writer_actor.core_reader.endorsement_exists(
+        block.hash(),
+        chunk_header.shard_id(),
+        &AccountId::from_str(&irrelevant_validator).unwrap()
+    ))
 }
 
 #[test]
@@ -656,12 +664,12 @@ fn block_builder(chain: &Chain, prev_block: &Block) -> TestBlockBuilder {
         .get_block_producer_info(prev_block.header().epoch_id(), prev_block.header().height() + 1)
         .unwrap();
     let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
-    TestBlockBuilder::new(Clock::real(), prev_block, signer)
+    TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
         .chunks(get_fake_next_block_chunk_headers(&prev_block, chain.epoch_manager.as_ref()))
 }
 
 fn build_non_spice_block(chain: &Chain, prev_block: &Block) -> Arc<Block> {
-    block_builder(chain, prev_block).build()
+    block_builder(chain, prev_block).non_spice_block().build()
 }
 
 fn build_block(
@@ -697,6 +705,14 @@ fn setup() -> (Chain, SpiceCoreWriterActor) {
     setup_with_senders(noop().into_sender(), noop().into_sender())
 }
 
+fn core_reader(chain: &Chain) -> SpiceCoreReader {
+    SpiceCoreReader::new(
+        chain.chain_store().chain_store(),
+        chain.epoch_manager.clone(),
+        Gas::from_teragas(100),
+    )
+}
+
 fn setup_with_senders(
     chunk_executor_sender: Sender<ExecutionResultEndorsed>,
     spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
@@ -721,6 +737,7 @@ fn setup_with_senders(
     let core_writer_actor = SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
+        core_reader(&chain),
         chunk_executor_sender,
         spice_chunk_validator_sender,
     );
@@ -732,6 +749,7 @@ fn setup_with_genesis(genesis: Genesis) -> (Chain, SpiceCoreWriterActor) {
     let core_writer_actor = SpiceCoreWriterActor::new(
         chain.chain_store().chain_store(),
         chain.epoch_manager.clone(),
+        core_reader(&chain),
         noop().into_sender(),
         noop().into_sender(),
     );

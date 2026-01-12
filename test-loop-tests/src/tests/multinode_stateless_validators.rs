@@ -4,7 +4,7 @@ use itertools::Itertools;
 use near_async::messaging::Handler;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::{GetValidatorInfo, ViewClientActorInner};
+use near_client::{GetValidatorInfo, ViewClientActor};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, EpochId, EpochReference};
@@ -23,6 +23,8 @@ const NUM_CHUNK_VALIDATORS_ONLY: usize = 4;
 const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATORS_ONLY;
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_stateless_validators_with_multi_test_loop() {
     init_test_logger();
     let builder = TestLoopBuilder::new();
@@ -51,7 +53,6 @@ fn slow_test_stateless_validators_with_multi_test_loop() {
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
-        .transaction_validity_period(1000)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)
@@ -101,7 +102,7 @@ fn slow_test_stateless_validators_with_multi_test_loop() {
 
 /// Returns the CurrentEpochValidatorInfo for each validator account for the given epoch id.
 fn get_validator_info(
-    view_client: &mut ViewClientActorInner,
+    view_client: &mut ViewClientActor,
     epoch_id: EpochId,
 ) -> HashMap<AccountId, CurrentEpochValidatorInfo> {
     let validator_info: EpochValidatorInfo = view_client
@@ -116,7 +117,7 @@ fn get_validator_info(
 /// 3. Stake of both the block/chunk producers and chunk validators increase (due to rewards).
 /// TODO: Assert on the specific reward amount, currently it only checks that some amount is rewarded.
 fn assert_validator_info(
-    view_client: &mut ViewClientActorInner,
+    view_client: &mut ViewClientActor,
     epoch_id: EpochId,
     initial_epoch_id: EpochId,
     accounts: Vec<AccountId>,

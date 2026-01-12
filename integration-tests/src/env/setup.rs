@@ -21,19 +21,20 @@ use near_chain_configs::{
     MutableValidatorSigner, ProtocolVersionCheckConfig, ReshardingConfig, ReshardingHandle,
     TrackedShardsConfig,
 };
+use near_chunks::DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
-use near_client::client_actor::{ClientActorInner, SpiceClientConfig};
+use near_client::client_actor::{ClientActor, SpiceClientConfig};
 use near_client::{
-    AsyncComputationMultiSpawner, ChunkValidationActorInner, ChunkValidationSender,
+    AsyncComputationMultiSpawner, ChunkValidationActor, ChunkValidationSender,
     ChunkValidationSenderForPartialWitness, Client, PartialWitnessActor,
-    PartialWitnessSenderForClient, RpcHandler, RpcHandlerConfig, StartClientResult, SyncStatus,
-    ViewClientActorInner, spawn_chunk_endorsement_handler_actor, start_client,
+    PartialWitnessSenderForClient, RpcHandlerActor, RpcHandlerConfig, StartClientResult,
+    SyncStatus, ViewClientActor, spawn_chunk_endorsement_handler_actor, start_client,
 };
-use near_client::{ChunkEndorsementHandler, spawn_rpc_handler_actor};
+use near_client::{ChunkEndorsementHandlerActor, spawn_rpc_handler_actor};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
@@ -46,7 +47,7 @@ use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats};
+use near_primitives::types::{AccountId, Balance, BlockHeightDelta, Gas, NumSeats};
 use near_primitives::validator_signer::EmptyValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
 use near_store::adapter::StoreAdapter;
@@ -77,14 +78,13 @@ fn setup(
     enable_doomslug: bool,
     state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
-    transaction_validity_period: NumBlocks,
     genesis_time: Utc,
     chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
 ) -> (
-    TokioRuntimeHandle<ClientActorInner>,
-    MultithreadRuntimeHandle<ViewClientActorInner>,
-    MultithreadRuntimeHandle<RpcHandler>,
-    MultithreadRuntimeHandle<ChunkEndorsementHandler>,
+    TokioRuntimeHandle<ClientActor>,
+    MultithreadRuntimeHandle<ViewClientActor>,
+    MultithreadRuntimeHandle<RpcHandlerActor>,
+    MultithreadRuntimeHandle<ChunkEndorsementHandlerActor>,
     ShardsManagerAdapterForTest,
     PartialWitnessSenderForNetwork,
     tempfile::TempDir,
@@ -104,8 +104,10 @@ fn setup(
         }
     }
 
+    let transaction_validity_period = epoch_length * 2;
     let mut genesis = Genesis::test(validators, num_validator_seats);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = transaction_validity_period;
     initialize_genesis_state(store.clone(), &genesis, None);
 
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
@@ -157,7 +159,7 @@ fn setup(
 
     let adv = Controls::default();
 
-    let view_client_addr = ViewClientActorInner::spawn_multithread_actor(
+    let view_client_addr = ViewClientActor::spawn_multithread_actor(
         clock.clone(),
         actor_system.clone(),
         chain_genesis.clone(),
@@ -236,6 +238,7 @@ fn setup(
         tx_routing_height_horizon: config.tx_routing_height_horizon,
         epoch_length: config.epoch_length,
         transaction_validity_period,
+        disable_tx_routing: config.disable_tx_routing,
     };
 
     let rpc_handler_addr = spawn_rpc_handler_actor(
@@ -262,6 +265,7 @@ fn setup(
         MutableConfigValue::new(validator_signer, "validator_signer"),
         store,
         config.chunk_request_retry_period,
+        config.chunks_cache_height_horizon,
     );
     shards_manager_adapter_for_client.bind(shards_manager_adapter.clone());
 
@@ -291,8 +295,8 @@ pub fn setup_mock(
     peer_manager_mock: Box<
         dyn FnMut(
                 &PeerManagerMessageRequest,
-                TokioRuntimeHandle<ClientActorInner>,
-                MultithreadRuntimeHandle<ChunkEndorsementHandler>,
+                TokioRuntimeHandle<ClientActor>,
+                MultithreadRuntimeHandle<ChunkEndorsementHandlerActor>,
             ) -> PeerManagerMessageResponse
             + Send,
     >,
@@ -305,11 +309,10 @@ pub fn setup_mock(
         skip_sync_wait,
         enable_doomslug,
         peer_manager_mock,
-        100,
     )
 }
 
-pub fn setup_mock_with_validity_period(
+fn setup_mock_with_validity_period(
     clock: Clock,
     actor_system: ActorSystem,
     validators: Vec<AccountId>,
@@ -319,12 +322,11 @@ pub fn setup_mock_with_validity_period(
     mut peermanager_mock: Box<
         dyn FnMut(
                 &PeerManagerMessageRequest,
-                TokioRuntimeHandle<ClientActorInner>,
-                MultithreadRuntimeHandle<ChunkEndorsementHandler>,
+                TokioRuntimeHandle<ClientActor>,
+                MultithreadRuntimeHandle<ChunkEndorsementHandlerActor>,
             ) -> PeerManagerMessageResponse
             + Send,
     >,
-    transaction_validity_period: NumBlocks,
 ) -> ActorHandlesForTesting {
     let network_adapter = LateBoundSender::new();
     let (
@@ -347,7 +349,6 @@ pub fn setup_mock_with_validity_period(
         enable_doomslug,
         true,
         network_adapter.as_multi_sender(),
-        transaction_validity_period,
         clock.now_utc(),
         None,
     );
@@ -370,9 +371,9 @@ pub fn setup_mock_with_validity_period(
 
 #[derive(Clone)]
 pub struct ActorHandlesForTesting {
-    pub client_actor: TokioRuntimeHandle<ClientActorInner>,
-    pub view_client_actor: MultithreadRuntimeHandle<ViewClientActorInner>,
-    pub rpc_handler_actor: MultithreadRuntimeHandle<RpcHandler>,
+    pub client_actor: TokioRuntimeHandle<ClientActor>,
+    pub view_client_actor: MultithreadRuntimeHandle<ViewClientActor>,
+    pub rpc_handler_actor: MultithreadRuntimeHandle<RpcHandlerActor>,
     pub shards_manager_adapter: ShardsManagerAdapterForTest,
     pub partial_witness_sender: PartialWitnessSenderForNetwork,
     // If testing something with runtime that needs runtime home dir users should make sure that
@@ -396,18 +397,16 @@ pub fn setup_no_network(
         validators,
         account_id,
         skip_sync_wait,
-        100,
         enable_doomslug,
     )
 }
 
-pub fn setup_no_network_with_validity_period(
+fn setup_no_network_with_validity_period(
     clock: Clock,
     actor_system: ActorSystem,
     validators: Vec<AccountId>,
     account_id: AccountId,
     skip_sync_wait: bool,
-    transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
 ) -> ActorHandlesForTesting {
     let my_account_id = account_id.clone();
@@ -434,7 +433,6 @@ pub fn setup_no_network_with_validity_period(
             };
             PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
         }),
-        transaction_validity_period,
     )
 }
 
@@ -457,7 +455,7 @@ pub fn setup_client_with_runtime(
     partial_witness_adapter: PartialWitnessSenderForClient,
     validator_signer: MutableValidatorSigner,
     resharding_sender: ReshardingSender,
-) -> (Client, ChunkValidationActorInner) {
+) -> (Client, ChunkValidationActor) {
     let mut config = ClientConfig::test(TestClientConfigParams {
         skip_sync_wait: true,
         min_block_prod_time: 10,
@@ -509,7 +507,7 @@ pub fn setup_client_with_runtime(
     // Create chunk validation actor to use it later for SW validation
     let chain_store = client.chain.chain_store().clone();
     let genesis_block = client.chain.genesis_block();
-    let chunk_validation_inner = ChunkValidationActorInner::new(
+    let chunk_validation_inner = ChunkValidationActor::new(
         chain_store,
         genesis_block,
         epoch_manager,
@@ -552,6 +550,7 @@ pub fn setup_synchronous_shards_manager(
         ChainConfig {
             save_trie_changes: true,
             save_tx_outcomes: true,
+            save_state_changes: true,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),
@@ -582,6 +581,7 @@ pub fn setup_synchronous_shards_manager(
         <_>::clone(&chain_head),
         <_>::clone(&chain_header_head),
         Duration::hours(1),
+        DEFAULT_CHUNKS_CACHE_HEIGHT_HORIZON,
     );
     SynchronousShardsManagerAdapter::new(shards_manager)
 }
@@ -593,7 +593,7 @@ pub fn setup_tx_request_handler(
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     network_adapter: PeerManagerAdapter,
-) -> RpcHandler {
+) -> RpcHandlerActor {
     let client_config = ClientConfig::test(TestClientConfigParams {
         skip_sync_wait: true,
         min_block_prod_time: 10,
@@ -607,9 +607,10 @@ pub fn setup_tx_request_handler(
         tx_routing_height_horizon: client_config.tx_routing_height_horizon,
         epoch_length: chain_genesis.epoch_length,
         transaction_validity_period: chain_genesis.transaction_validity_period,
+        disable_tx_routing: client_config.disable_tx_routing,
     };
 
-    RpcHandler::new(
+    RpcHandlerActor::new(
         config,
         client.chunk_producer.sharded_tx_pool.clone(),
         epoch_manager,

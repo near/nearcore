@@ -9,7 +9,7 @@ use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_client::adversarial::Controls;
 use near_client::client_actor::SpiceClientConfig;
-use near_client::{RpcHandlerConfig, ViewClientActorInner, spawn_rpc_handler_actor, start_client};
+use near_client::{RpcHandlerConfig, ViewClientActor, spawn_rpc_handler_actor, start_client};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::{EpochManager, shard_tracker::ShardTracker};
 use near_jsonrpc::{RpcConfig, create_jsonrpc_app};
@@ -87,6 +87,7 @@ pub fn create_test_setup_with_accounts_and_validity(
     // Create genesis with all specified accounts
     let mut genesis = Genesis::test(all_accounts, num_validator_seats);
     genesis.config.epoch_length = 10; // Short epochs for faster tests
+    genesis.config.transaction_validity_period = 10 * 2;
 
     initialize_genesis_state(store.clone(), &genesis, None);
 
@@ -122,7 +123,7 @@ pub fn create_test_setup_with_accounts_and_validity(
 
     // 6. Create ViewClientActor
     let adv = Controls::default();
-    let view_client_actor = ViewClientActorInner::spawn_multithread_actor(
+    let view_client_actor = ViewClientActor::spawn_multithread_actor(
         Clock::real(),
         actor_system.clone(),
         chain_genesis.clone(),
@@ -172,6 +173,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         tx_routing_height_horizon: client_config.tx_routing_height_horizon,
         epoch_length: client_config.epoch_length,
         transaction_validity_period,
+        disable_tx_routing: client_config.disable_tx_routing,
     };
 
     let rpc_handler_actor = spawn_rpc_handler_actor(
@@ -209,7 +211,7 @@ pub fn create_test_setup_with_accounts_and_validity(
     );
 
     // 10. Create TestServer with real HTTP transport to get an address
-    let test_server = TestServer::builder()
+    let test_server: TestServer = TestServer::builder()
         .http_transport()
         .build(app.clone())
         .expect("Failed to create TestServer");

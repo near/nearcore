@@ -1,4 +1,4 @@
-use super::config::{AccountCreationConfig, RuntimeConfig};
+use super::config::{AccountCreationConfig, DynamicReshardingConfig, RuntimeConfig};
 use crate::config::{BandwidthSchedulerConfig, CongestionControlConfig, WitnessConfig};
 use crate::cost::{
     ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, StorageUsageConfig,
@@ -7,7 +7,7 @@ use crate::parameter::{FeeParameter, Parameter};
 use crate::vm::VMKind;
 use crate::vm::{Config, StorageGetMode};
 use near_primitives_core::account::id::ParseAccountError;
-use near_primitives_core::types::{AccountId, Balance, Gas};
+use near_primitives_core::types::{AccountId, Balance, Gas, ShardId};
 use num_rational::Rational32;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -25,6 +25,7 @@ pub(crate) enum ParameterValue {
     // `canonicalize_yaml_string`).
     String(String),
     Flag(bool),
+    Vec(Vec<ParameterValue>),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -167,7 +168,7 @@ impl TryFrom<&ParameterValue> for Fee {
     fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
         match value {
             &ParameterValue::Fee { send_sir, send_not_sir, execution } => {
-                Ok(Fee { send_sir: send_sir, send_not_sir: send_not_sir, execution: execution })
+                Ok(Fee { send_sir, send_not_sir, execution })
             }
             _ => Err(ValueConversionError::ParseType(std::any::type_name::<Fee>(), value.clone())),
         }
@@ -212,6 +213,31 @@ impl TryFrom<&ParameterValue> for VMKind {
     }
 }
 
+impl TryFrom<&ParameterValue> for ShardId {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        let value = value.try_into()?;
+        Ok(ShardId::new(value))
+    }
+}
+
+impl<'a, T> TryFrom<&'a ParameterValue> for Vec<T>
+where
+    T: TryFrom<&'a ParameterValue, Error = ValueConversionError>,
+{
+    type Error = ValueConversionError;
+
+    fn try_from(value: &'a ParameterValue) -> Result<Self, Self::Error> {
+        match value {
+            ParameterValue::Vec(v) => v.iter().map(|v| T::try_from(v)).collect(),
+            _ => {
+                Err(ValueConversionError::ParseType(std::any::type_name::<Vec<T>>(), value.clone()))
+            }
+        }
+    }
+}
+
 fn format_number(mut n: u64) -> String {
     let mut parts = Vec::new();
     while n >= 1000 {
@@ -247,6 +273,7 @@ impl core::fmt::Display for ParameterValue {
             }
             ParameterValue::String(v) => write!(f, "{v}"),
             ParameterValue::Flag(b) => write!(f, "{b:?}"),
+            ParameterValue::Vec(v) => write!(f, "{v:?}"),
         }
     }
 }
@@ -348,7 +375,6 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 linear_op_base_cost: params.get(Parameter::WasmLinearOpBaseCost)?,
                 linear_op_unit_cost: params.get(Parameter::WasmLinearOpUnitCost)?,
                 discard_custom_sections: params.get(Parameter::DiscardCustomSections)?,
-                saturating_float_to_int: params.get(Parameter::SaturatingFloatToInt)?,
                 reftypes_bulk_memory: params.get(Parameter::ReftypesBulkMemory)?,
                 limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits()))
                     .map_err(InvalidConfigError::InvalidYaml)?,
@@ -357,7 +383,6 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     true => StorageGetMode::FlatStorage,
                     false => StorageGetMode::Trie,
                 },
-                implicit_account_creation: params.get(Parameter::ImplicitAccountCreation)?,
                 eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
                 global_contract_host_fns: params.get(Parameter::GlobalContractHostFns)?,
                 deterministic_account_ids: params.get(Parameter::DeterministicAccountIds)?,
@@ -381,6 +406,14 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 max_single_grant: params.get(Parameter::MaxSingleGrant)?,
                 max_allowance: params.get(Parameter::MaxAllowance)?,
                 max_base_bandwidth: params.get(Parameter::MaxBaseBandwidth)?,
+            },
+            dynamic_resharding_config: DynamicReshardingConfig {
+                memory_usage_threshold: params.get(Parameter::MemoryUsageThreshold)?,
+                min_child_memory_usage: params.get(Parameter::MinChildMemoryUsage)?,
+                max_number_of_shards: params.get(Parameter::MaxNumberOfShards)?,
+                min_epochs_between_resharding: params.get(Parameter::MinEpochsBetweenResharding)?,
+                force_split_shards: params.get(Parameter::ForceSplitShards)?,
+                block_split_shards: params.get(Parameter::BlockSplitShards)?,
             },
             use_state_stored_receipt: params.get(Parameter::UseStateStoredReceipt)?,
         })
@@ -639,6 +672,7 @@ mod tests {
                     Parameter::WasmStorageReadBase,
                     "{ gas: 50_000_000_000, compute: 100_000_000_000 }",
                 ),
+                (Parameter::ForceSplitShards, "[1, 2]"),
             ],
         );
     }
@@ -655,6 +689,7 @@ mod tests {
                 (Parameter::StorageAmountPerByte, "\"0.0001 N\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
+                (Parameter::ForceSplitShards, "[1, 2]"),
             ],
         );
     }
@@ -677,6 +712,7 @@ mod tests {
                     Parameter::WasmStorageReadBase,
                     "{ gas: 50_000_000_000, compute: 200_000_000_000 }",
                 ),
+                (Parameter::ForceSplitShards, "[3, 4]"),
             ],
         );
     }
@@ -700,6 +736,7 @@ mod tests {
                     Parameter::WasmStorageReadBase,
                     "{ gas: 50_000_000_000, compute: 200_000_000_000 }",
                 ),
+                (Parameter::ForceSplitShards, "[]"),
             ],
         );
     }
@@ -720,6 +757,7 @@ mod tests {
                     Parameter::WasmStorageReadBase,
                     "{ gas: 50_000_000_000, compute: 100_000_000_000 }",
                 ),
+                (Parameter::ForceSplitShards, "[1, 2]"),
             ],
         );
     }
@@ -835,6 +873,7 @@ mod tests {
                 Parameter::StorageNumExtraBytesRecord,
                 Parameter::BurntGasReward,
                 Parameter::WasmStorageReadBase,
+                Parameter::ForceSplitShards,
             ]
             .iter(),
         );

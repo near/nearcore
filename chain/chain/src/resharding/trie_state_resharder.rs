@@ -264,7 +264,7 @@ impl TrieStateResharder {
 
         // Get state root from the chunk extra of the child shard.
         let block_hash = event.resharding_block.hash;
-        let store = self.runtime.store().chain_store();
+        let store = self.runtime.store().chunk_store();
         let left_state_root =
             *store.get_chunk_extra(&block_hash, &event.left_child_shard)?.state_root();
         let right_state_root =
@@ -279,10 +279,10 @@ impl TrieStateResharder {
             ?left_state_root,
             ?right_state_root,
             ?parent_state_root,
-            ?event.left_child_shard,
-            ?event.right_child_shard,
-            ?event.parent_shard,
-            "TrieStateResharding: child and parent state roots"
+            left_child_shard = ?event.left_child_shard,
+            right_child_shard = ?event.right_child_shard,
+            parent_shard = ?event.parent_shard,
+            "trie state resharding: child and parent state roots"
         );
 
         // If the child shard_uid mapping doesn't exist, it means we are not tracking the child shard.
@@ -337,7 +337,7 @@ impl TrieStateResharder {
     /// Resume an interrupted resharding operation.
     pub fn resume(&self, parent_shard_uid: ShardUId) -> Result<(), Error> {
         let Some(status) = self.load_status()? else {
-            tracing::info!(target: "resharding", "Resharding status not found, nothing to resume.");
+            tracing::info!(target: "resharding", "resharding status not found, nothing to resume");
             return Ok(());
         };
 
@@ -391,7 +391,7 @@ impl TrieStateResharder {
                 target: "resharding",
                 ?parent_shard_uid,
                 parent_state_root = ?status.parent_state_root,
-                "Parent memtrie not loaded, loading it now"
+                "parent memtrie not loaded, loading it now"
             );
             tries.load_memtrie(&parent_shard_uid, None, true).map_err(|e| {
                 Error::Other(format!(
@@ -419,7 +419,7 @@ impl TrieStateResharder {
                 ?boundary_account,
                 ?retain_mode,
                 ?block_height,
-                "Recreating child memtrie from parent"
+                "recreating child memtrie from parent"
             );
 
             // Perform the shard split operation.
@@ -432,7 +432,7 @@ impl TrieStateResharder {
                 target: "resharding",
                 ?child_shard_uid,
                 new_root = ?trie_changes.new_root,
-                "Successfully recreated child memtrie from parent"
+                "successfully recreated child memtrie from parent"
             );
         }
 
@@ -466,7 +466,7 @@ impl TrieStateResharder {
         tracing::info!(
             target: "resharding",
             ?parent_shard_uid,
-            "Trie state resharding complete, cleaning up parent flat storage"
+            "trie state resharding complete, cleaning up parent flat storage"
         );
 
         let flat_store = self.runtime.store().flat_store();
@@ -518,7 +518,6 @@ mod tests {
     use near_epoch_manager::EpochManager;
     use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
     use near_primitives::trie_key::TrieKey;
-    use near_primitives::types::{Balance, Gas};
     use near_store::Trie;
     use near_store::test_utils::{
         TestTriesBuilder, create_test_store, simplify_changes, test_populate_trie,
@@ -529,8 +528,6 @@ mod tests {
     use crate::types::ChainConfig;
 
     use super::*;
-    use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::state::FlatStateValue;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
@@ -679,16 +676,7 @@ mod tests {
 
             // Fourth, create ChunkExtra for the flat storage head so load_memtrie can find the state root.
             let mut chain_store_update = runtime.store().store_update();
-            let chunk_extra = ChunkExtra::new(
-                &parent_root,
-                CryptoHash::default(),
-                Vec::new(),
-                Gas::ZERO,
-                Gas::ZERO,
-                Balance::ZERO,
-                Some(CongestionInfo::default()),
-                BandwidthRequests::empty(),
-            );
+            let chunk_extra = ChunkExtra::new_with_only_state_root(&parent_root);
             let block_shard_uid = get_block_shard_uid(&parent_root, &parent_shard);
             chain_store_update
                 .set_ser(near_store::DBCol::ChunkExtra, &block_shard_uid, &chunk_extra)

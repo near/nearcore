@@ -4,6 +4,7 @@ import copy
 import json
 import os
 import pathlib
+import re
 from typing import Optional
 
 import rc
@@ -1033,8 +1034,9 @@ def init_cluster(
     out, err = process.communicate()
     assert 0 == process.returncode, err
 
+    # TODO(logging): checking if /test is a part of the log isn't the most reliable way to get the node dirs
     node_dirs = [
-        line.split()[-1]
+        re.split(r'=|\s', line)[-1]
         for line in err.decode('utf8').split('\n')
         if '/test' in line
     ]
@@ -1118,8 +1120,25 @@ def configure_cold_storage_for_archival_node(node_dir: str):
         json.dump(config_json, fd, indent=2)
 
 
+def update_transaction_validity_period_in_genesis(
+        genesis_config_changes: GenesisConfigChanges):
+    """ Function to override the transaction_validity_period to epoch_length * 2 """
+    epoch_length = None
+    has_transaction_validity_period = False
+    for config in genesis_config_changes:
+        if config[0] == "epoch_length":
+            epoch_length = config[1]
+        if config[0] == "transaction_validity_period":
+            has_transaction_validity_period = True
+    if epoch_length is not None and not has_transaction_validity_period:
+        # Set transaction_validity_period to be equal to epoch_length
+        genesis_config_changes.append(
+            ["transaction_validity_period", epoch_length * 2])
+
+
 def apply_genesis_changes(node_dir: str,
                           genesis_config_changes: GenesisConfigChanges):
+    update_transaction_validity_period_in_genesis(genesis_config_changes)
     # apply genesis.json changes
     fname = os.path.join(node_dir, 'genesis.json')
     with open(fname) as fd:

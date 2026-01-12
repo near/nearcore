@@ -9,8 +9,8 @@ use nearcore::{load_test_config, start_with_config};
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, shutdown_all_actors};
-use near_client::ViewClientActorInner;
-use near_client::client_actor::ClientActorInner;
+use near_client::ViewClientActor;
+use near_client::client_actor::ClientActor;
 use near_store::db::RocksDB;
 
 async fn start_nodes(
@@ -25,7 +25,7 @@ async fn start_nodes(
 ) -> (
     Genesis,
     Vec<String>,
-    Vec<(TokioRuntimeHandle<ClientActorInner>, MultithreadRuntimeHandle<ViewClientActorInner>)>,
+    Vec<(TokioRuntimeHandle<ClientActor>, MultithreadRuntimeHandle<ViewClientActor>)>,
 ) {
     init_integration_logger();
 
@@ -37,6 +37,7 @@ async fn start_nodes(
         (0..num_shards).map(|_| num_validator_seats).collect(),
     );
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.genesis_height = genesis_height;
 
     let validators = (0..num_validator_seats).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
@@ -130,10 +131,7 @@ impl NodeCluster {
         F: FnOnce(
                 near_chain_configs::Genesis,
                 Vec<String>,
-                Vec<(
-                    TokioRuntimeHandle<ClientActorInner>,
-                    MultithreadRuntimeHandle<ViewClientActorInner>,
-                )>,
+                Vec<(TokioRuntimeHandle<ClientActor>, MultithreadRuntimeHandle<ViewClientActor>)>,
             ) -> R
             + 'static,
     {

@@ -19,20 +19,25 @@
 * Controlling balance refunds: The new host function `promise_set_refund_to` allows smart contracts to redirect balance refunds of outgoing receipts to other accounts. [#14285](https://github.com/near/nearcore/pull/14285)
 * Querying refund receivers: The new host function `refund_to_account_id` returns the receiver of balance refunds, which is either `predecessor_id` or the refund receiver set by the predecessor using `promise_set_refund_to`. [#14372](https://github.com/near/nearcore/pull/14372)
 * Gas optimization: Calls to the existing host functions `input` and `promise_result` no longer charge gas per byte (`wasm_write_memory_byte`), thanks to an optimization that eliminates unnecessary data copying. [#14405](https://github.com/near/nearcore/pull/14405)
+* Introduce versioned StatePart in state sync and update protocol messages to support compressed state parts. [#14013](https://github.com/near/nearcore/pull/14013)
+* Reduce gas cost for `wasm_touching_trie_node` (from `16_101_955_926` to `2_280_000_000`) and increase the compute cost of `wasm_read_cached_trie_node` (from `0` to `4_000_000_000`), making them equal so they can be interchangeable in the future, enabling potential performance optimizations. [#14046](https://github.com/near/nearcore/pull/14046)
 
 ### Non-protocol Changes
 
 * Indexer changes, including breaking changes in the API. See the [indexer changelog](https://github.com/near/nearcore/blob/master/chain/indexer/CHANGELOG.md) for details.
+* Stabilize `EXPERIMENTAL_changes_in_block`, `EXPERIMENTAL_genesis_config`, and `EXPERIMENTAL_maintenance_windows` RPC methods and rename them to `block_effects`, `genesis_config` and `maintenance_windows` respectively. https://github.com/near/nearcore/pull/13763
+* Batch ed25519 signature verification for transaction processing. [#14196](https://github.com/near/nearcore/pull/14196)
+* New `/actors` page in debug-ui, showing utilization of actors and dequeue time of recently processed messages. [#14452](https://github.com/near/nearcore/pull/14452)
+* Fix to avoid re-applying state parts in case state sync was interrupted and resumed. [#14232](https://github.com/near/nearcore/pull/14232)
+* Moved Tier1 configuration from experimental to top level config. No action is necessary as the default values are the recommended ones. ([#13575](https://github.com/near/nearcore/pull/13575))
+* Add a new configuration option `save_tx_outcomes` ([#13610](https://github.com/near/nearcore/pull/13610)). When set to `false`, per-transaction outcomes are not written to the db to improve validator throughput. Disabling this config means transactions processed by the node will not be queryable by transaction hash, however this is not needed for validators to perform their duties. The default for archive and RPC nodes is `true`.
+* Updated the recommended operating system network settings for running `neard` ([#14012](https://github.com/near/nearcore/pull/14012)).
 
 ## [2.9.0]
 
 ### Protocol Changes
-**No Changes**
-
-### Non-protocol Changes
-* Moved Tier1 configuration from experimental to top level config. No action is necessary as the default values are the recommended ones. ([#13575](https://github.com/near/nearcore/pull/13575))
-* Add a new configuration option `save_tx_outcomes` ([#13610](https://github.com/near/nearcore/pull/13610)). When set to `false`, per-transaction outcomes are not written to the db to improve validator throughput. Disabling this config means transactions processed by the node will not be queryable by transaction hash, however this is not needed for validators to perform their duties. The default for archive and RPC nodes is `true`.
-* Updated the recommended operating system network settings for running `neard` ([#14012](https://github.com/near/nearcore/pull/14012)).
+* Maximum inflation rate moved to epoch config
+* Inflation rate reduction from 5% to 2.5%
 
 ## [2.8.0]
 

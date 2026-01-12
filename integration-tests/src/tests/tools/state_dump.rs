@@ -21,9 +21,9 @@ use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::account::id::AccountIdRef;
 use near_state_viewer::state_dump;
-use near_store::Store;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
+use near_store::{ShardUId, Store};
 use nearcore::NightshadeRuntime;
 use nearcore::config::{Config, NearConfig};
 
@@ -36,6 +36,7 @@ fn setup(
     genesis.config.num_block_producer_seats = 2;
     genesis.config.num_block_producer_seats_per_shard = vec![2];
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.protocol_version = protocol_version;
     genesis.config.use_production_config = test_resharding;
 
@@ -95,6 +96,8 @@ fn safe_produce_blocks(
 
 /// Test that we preserve the validators from the epoch of the state dump.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_preserve_validators() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
@@ -144,6 +147,8 @@ fn test_dump_state_preserve_validators() {
 
 /// Test that we respect the specified account ID list in dump_state.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_respect_select_account_ids() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
@@ -227,6 +232,8 @@ fn test_dump_state_respect_select_account_ids() {
 
 /// Test that we preserve the validators from the epoch of the state dump.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_preserve_validators_in_memory() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
@@ -295,8 +302,12 @@ fn test_dump_state_return_locked() {
 
     let head = env.clients[0].chain.head().unwrap();
     let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
-    let state_roots: Vec<CryptoHash> =
-        last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+    assert_eq!(last_block.chunks().len(), 1);
+    let chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(last_block.header().prev_hash(), &ShardUId::single_shard())
+        .unwrap();
+    let state_roots = vec![*chunk_extra.state_root()];
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime =
@@ -329,6 +340,7 @@ fn test_dump_state_not_track_shard() {
     genesis.config.num_block_producer_seats = 2;
     genesis.config.num_block_producer_seats_per_shard = vec![2];
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let store1 = create_test_store();
     let store2 = create_test_store();
     initialize_genesis_state(store1.clone(), &genesis, None);
@@ -394,8 +406,12 @@ fn test_dump_state_not_track_shard() {
     .unwrap();
 
     let last_block = blocks.pop().unwrap();
-    let state_roots =
-        last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<_>>();
+    assert_eq!(last_block.chunks().len(), 1);
+    let chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(last_block.header().prev_hash(), &ShardUId::single_shard())
+        .unwrap();
+    let state_roots = vec![*chunk_extra.state_root()];
 
     let records_file = tempfile::NamedTempFile::new().unwrap();
     let _ = state_dump(
@@ -410,6 +426,8 @@ fn test_dump_state_not_track_shard() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_with_delayed_receipt() {
     init_test_logger();
 
@@ -418,6 +436,7 @@ fn test_dump_state_with_delayed_receipt() {
     genesis.config.num_block_producer_seats = 2;
     genesis.config.num_block_producer_seats_per_shard = vec![2];
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let store = create_test_store();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
@@ -496,6 +515,8 @@ fn test_dump_state_with_delayed_receipt() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_respect_select_whitelist_validators() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);

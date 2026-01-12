@@ -7,7 +7,6 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::BlockHeight;
 use parking_lot::RwLock;
-use tracing::{debug, warn};
 
 use crate::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
 use crate::flat::BlockInfo;
@@ -127,13 +126,13 @@ impl FlatStorageInner {
             first_height.map(|height| height - flat_head.height),
         );
         if blocks.len() >= Self::HOPS_LIMIT {
-            warn!(
+            tracing::warn!(
                 target: "chain",
                 shard_id = %self.shard_uid.shard_id(),
                 flat_head_height = flat_head.height,
                 cached_deltas = self.deltas.len(),
                 num_hops = blocks.len(),
-                "Flat storage needs too many hops to access a block");
+                "flat storage needs too many hops to access a block");
         }
 
         Ok(blocks)
@@ -157,13 +156,13 @@ impl FlatStorageInner {
 
         let cached_changes_size_bytes = bytesize::ByteSize(cached_changes_size);
         if cached_changes_size_bytes >= Self::CACHED_CHANGES_SIZE_LIMIT {
-            warn!(
+            tracing::warn!(
                 target: "chain",
                 shard_id = %self.shard_uid.shard_id(),
                 flat_head_height = self.flat_head.height,
                 cached_deltas,
                 %cached_changes_size_bytes,
-                "Flat storage total size of cached deltas exceeded expected limits");
+                "flat storage total size of cached deltas exceeded expected limits");
         }
     }
 
@@ -335,7 +334,7 @@ impl FlatStorage {
             };
         }
 
-        Ok(guard.store.exists(guard.shard_uid, key)?)
+        Ok(guard.store.exists(guard.shard_uid, key))
     }
 
     // TODO(#11601): Direct call is DEPRECATED, consider removing non-strict mode.
@@ -374,14 +373,14 @@ impl FlatStorage {
 
         let new_head = guard.get_new_flat_head(*block_hash, strict)?;
         if new_head == guard.flat_head.hash {
-            tracing::debug!(target: "store", "update_flat_head, shard id {}, flat head already at block {}", guard.shard_uid.shard_id(), guard.flat_head.height);
+            tracing::debug!(target: "store", shard_id = %guard.shard_uid.shard_id(), height = %guard.flat_head.height, "update_flat_head, flat head already at block");
             return Ok(());
         }
 
         let shard_uid = guard.shard_uid;
         let shard_id = shard_uid.shard_id();
 
-        tracing::debug!(target: "store", flat_head = ?guard.flat_head.hash, ?new_head, %shard_id, "Moving flat head");
+        tracing::debug!(target: "store", flat_head = ?guard.flat_head.hash, ?new_head, %shard_id, "moving flat head");
         let blocks = guard.get_blocks_to_head(&new_head)?;
 
         for block_hash in blocks.into_iter().rev() {
@@ -427,7 +426,7 @@ impl FlatStorage {
             }
 
             store_update.commit().unwrap();
-            debug!(target: "store", %shard_id, %block_hash, %block_height, "Moved flat storage head");
+            tracing::debug!(target: "store", %shard_id, %block_hash, %block_height, "moved flat storage head");
         }
         guard.update_delta_metrics();
 
@@ -456,7 +455,7 @@ impl FlatStorage {
         let block = &delta.metadata.block;
         let block_hash = block.hash;
         let block_height = block.height;
-        debug!(target: "store", %shard_uid, %block_hash, %block_height, "Adding block to flat storage");
+        tracing::debug!(target: "store", %shard_uid, %block_hash, %block_height, "adding block to flat storage");
         if block.prev_hash != guard.flat_head.hash && !guard.deltas.contains_key(&block.prev_hash) {
             return Err(guard.create_block_not_supported_error(&block_hash));
         }
@@ -1040,7 +1039,7 @@ mod tests {
 
         // Case 1. Each block has flat state changes.
         {
-            tracing::info!("Case 1");
+            tracing::info!("case 1");
             let num_blocks = 10;
             let chain = MockChain::linear_chain(num_blocks);
             let store = create_test_store().flat_store();
@@ -1090,7 +1089,7 @@ mod tests {
 
         // Case 2. Even-numbered blocks have flat changes
         {
-            tracing::info!("Case 2");
+            tracing::info!("case 2");
             let num_blocks = 20;
             let chain = MockChain::linear_chain(num_blocks);
             let store = create_test_store().flat_store();
@@ -1175,7 +1174,7 @@ mod tests {
 
         // Case 3. Triplets of blocks: HasChanges, NoChanges, HasChanges.
         {
-            tracing::info!("Case 3");
+            tracing::info!("case 3");
             let num_blocks = 20;
             let chain = MockChain::linear_chain(num_blocks);
             let store = create_test_store().flat_store();

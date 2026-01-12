@@ -11,10 +11,10 @@ use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValu
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::client_actor::SpiceClientConfig;
-use near_client::{ChunkValidationActorInner, spawn_chunk_endorsement_handler_actor};
+use near_client::{ChunkValidationActor, spawn_chunk_endorsement_handler_actor};
 use near_client::{
-    PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActor,
-    ViewClientActorInner, spawn_rpc_handler_actor, start_client,
+    PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor,
+    spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -42,7 +42,6 @@ use std::iter::Iterator;
 use std::net::{Ipv6Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
-use tracing::debug;
 
 pub(crate) type ControlFlow = std::ops::ControlFlow<()>;
 pub(crate) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
@@ -62,6 +61,7 @@ fn setup_network_node(
 
     let mut genesis = Genesis::test(validators, 1);
     genesis.config.epoch_length = 5;
+    genesis.config.transaction_validity_period = 10;
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(node_storage.get_hot_store(), &genesis, Some(tempdir.path()));
     let epoch_manager =
@@ -137,7 +137,7 @@ fn setup_network_node(
             spice_core_writer_sender: noop().into_sender(),
         },
     );
-    let view_client_addr = ViewClientActorInner::spawn_multithread_actor(
+    let view_client_addr = ViewClientActor::spawn_multithread_actor(
         Clock::real(),
         actor_system.clone(),
         chain_genesis,
@@ -162,6 +162,7 @@ fn setup_network_node(
         tx_routing_height_horizon: client_config.tx_routing_height_horizon,
         epoch_length: client_config.epoch_length,
         transaction_validity_period: genesis.config.transaction_validity_period,
+        disable_tx_routing: client_config.disable_tx_routing,
     };
     let rpc_handler = spawn_rpc_handler_actor(
         actor_system.clone(),
@@ -185,10 +186,11 @@ fn setup_network_node(
         validator_signer.clone(),
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
+        client_config.chunks_cache_height_horizon,
     );
     let chain_store =
         ChainStore::new(runtime.store().clone(), false, genesis.config.genesis_height);
-    let chunk_validation_actor = ChunkValidationActorInner::spawn_multithread_actor(
+    let chunk_validation_actor = ChunkValidationActor::spawn_multithread_actor(
         actor_system.clone(),
         chain_store,
         Arc::new(genesis_block),
@@ -299,7 +301,7 @@ impl StateMachine {
         match action {
             Action::AddEdge { from, to, force } => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
-                    debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    tracing::debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: action");
                     let pm = info.get_node(from)?.actor.clone();
                     let peer_info = info.runner.test_config[to].peer_info();
                     match tcp::Stream::connect(&peer_info, tcp::Tier::T2, &config::SocketOptions::default()).await {
@@ -328,14 +330,14 @@ impl StateMachine {
             }
             Action::Stop(source) => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
-                    debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    tracing::debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: action");
                     info.stop_node(source);
                     Ok(ControlFlow::Break(()))
                 })));
             }
             Action::Wait(t) => {
                 self.actions.push(Box::new(move |_info: &mut RunningInfo| Box::pin(async move {
-                    debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
+                    tracing::debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: action");
                     tokio::time::sleep(t.try_into().unwrap()).await;
                     Ok(ControlFlow::Break(()))
                 })));
@@ -499,7 +501,7 @@ impl Runner {
     }
 
     fn setup_node(&self, node_id: usize) -> anyhow::Result<NodeHandle> {
-        tracing::debug!("starting {node_id}");
+        tracing::debug!(%node_id, "starting");
         let config = &self.test_config[node_id];
 
         let boot_nodes =
@@ -577,7 +579,7 @@ pub(crate) fn start_test(runner: Runner) -> anyhow::Result<()> {
         let step = tokio::time::Duration::from_millis(10);
         let start = tokio::time::Instant::now();
         for (i, a) in actions.into_iter().enumerate() {
-            tracing::debug!(target: "test", "[starting action {i}]");
+            tracing::debug!(target: "test", %i, "starting action");
             loop {
                 let done =
                     tokio::time::timeout_at(start + timeout, a(&mut info)).await.with_context(
@@ -603,7 +605,7 @@ impl RunningInfo {
         self.nodes[node_id].as_ref().ok_or_else(|| anyhow!("node is down"))
     }
     fn stop_node(&mut self, node_id: usize) {
-        tracing::debug!("stopping {node_id}");
+        tracing::debug!(%node_id, "stopping");
         self.nodes[node_id].take();
     }
 
@@ -648,7 +650,7 @@ pub(crate) fn check_expected_connections(
 ) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         Box::pin(async move {
-            debug!(target: "test", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
+            tracing::debug!(target: "test", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
             let pm = &info.get_node(node_id)?.actor;
             let res = pm.send_async(GetInfo {}).await?;
             if expected_connections_lo.is_some_and(|l| l > res.num_connected_peers) {
@@ -666,7 +668,7 @@ pub(crate) fn check_expected_connections(
 pub(crate) fn restart(node_id: usize) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         Box::pin(async move {
-            debug!(target: "test", ?node_id, "runner.rs: restart");
+            tracing::debug!(target: "test", ?node_id, "runner.rs: restart");
             info.start_node(node_id)?;
             Ok(ControlFlow::Break(()))
         })

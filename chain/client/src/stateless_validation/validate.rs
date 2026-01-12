@@ -239,7 +239,7 @@ fn validate_chunk_relevant(
         tracing::error!(
             target: "stateless_validation",
             ?chunk_production_key,
-            "ShardId is not in the shard layout of the epoch",
+            "shard id is not in the shard layout of the epoch"
         );
         return Err(Error::InvalidShardId(shard_id));
     }
@@ -260,7 +260,7 @@ fn validate_chunk_relevant(
                 target: "stateless_validation",
                 ?chunk_production_key,
                 final_head_height = final_head.height,
-                "Skipping because height created is not greater than final head height",
+                "skipping because height created is not greater than final head height",
             );
             return Ok(ChunkRelevance::TooLate);
         }
@@ -271,8 +271,8 @@ fn validate_chunk_relevant(
                 target: "stateless_validation",
                 ?chunk_production_key,
                 head_height = head.height,
-                "Skipping because height created is more than {} blocks ahead of head height",
-                MAX_HEIGHTS_AHEAD
+                %MAX_HEIGHTS_AHEAD,
+                "skipping because height created is more than max heights ahead blocks ahead of head height"
             );
             return Ok(ChunkRelevance::TooEarly);
         }
@@ -289,7 +289,7 @@ fn validate_chunk_relevant(
                 target: "stateless_validation",
                 ?chunk_production_key,
                 ?possible_epochs,
-                "Skipping because EpochId is not in the possible list of epochs",
+                "skipping because epoch id is not in the possible list of epochs"
             );
             return Ok(ChunkRelevance::UnknownEpochId);
         }

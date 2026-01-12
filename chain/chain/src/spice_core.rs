@@ -4,6 +4,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
+use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::spice_chunk_endorsement::{
     SpiceEndorsementCoreStatement, SpiceStoredVerifiedEndorsement,
@@ -25,20 +26,22 @@ use crate::{Chain, ChainStoreAccess, ChainStoreUpdate};
 pub struct SpiceCoreReader {
     chain_store: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
+    genesis_gas_limit: Gas,
 }
 
 impl SpiceCoreReader {
     pub fn new(
         chain_store: ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
+        genesis_gas_limit: Gas,
     ) -> Self {
-        Self { chain_store, epoch_manager }
+        Self { chain_store, epoch_manager, genesis_gas_limit }
     }
 
-    pub fn all_execution_results_exist(&self, block: &Block) -> Result<bool, Error> {
-        let shard_layout = self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
+    pub fn all_execution_results_exist(&self, block_header: &BlockHeader) -> Result<bool, Error> {
+        let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
         for shard_id in shard_layout.shard_ids() {
-            if self.get_execution_result(block, shard_id)?.is_none() {
+            if self.get_execution_result(block_header, shard_id)?.is_none() {
                 return Ok(false);
             }
         }
@@ -50,7 +53,7 @@ impl SpiceCoreReader {
         block_hash: &CryptoHash,
         shard_id: ShardId,
         account_id: &AccountId,
-    ) -> Result<bool, std::io::Error> {
+    ) -> bool {
         self.chain_store
             .store()
             .exists(DBCol::endorsements(), &get_endorsements_key(block_hash, shard_id, account_id))
@@ -70,23 +73,23 @@ impl SpiceCoreReader {
 
     fn get_execution_result(
         &self,
-        block: &Block,
+        block_header: &BlockHeader,
         shard_id: ShardId,
     ) -> Result<Option<Arc<ChunkExecutionResult>>, Error> {
-        if block.header().is_genesis() {
-            let shard_layout = self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
+        if block_header.is_genesis() {
+            let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
             let chunk_extra = Chain::build_genesis_chunk_extra(
                 self.chain_store.store_ref(),
                 &shard_layout,
                 shard_id,
-                &block,
+                self.genesis_gas_limit,
             )?;
             Ok(Some(Arc::new(ChunkExecutionResult {
                 chunk_extra,
                 outgoing_receipts_root: CryptoHash::default(),
             })))
         } else {
-            Ok(self.get_execution_result_from_store(block.hash(), shard_id)?)
+            Ok(self.get_execution_result_from_store(block_header.hash(), shard_id)?)
         }
     }
 
@@ -108,15 +111,15 @@ impl SpiceCoreReader {
 
     pub fn get_execution_results_by_shard_id(
         &self,
-        block: &Block,
+        block_header: &BlockHeader,
     ) -> Result<HashMap<ShardId, Arc<ChunkExecutionResult>>, Error> {
         assert!(cfg!(feature = "protocol_feature_spice"));
 
         let mut results = HashMap::new();
 
-        let shard_layout = self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
+        let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
         for shard_id in shard_layout.shard_ids() {
-            let Some(result) = self.get_execution_result(block, shard_id)? else {
+            let Some(result) = self.get_execution_result(block_header, shard_id)? else {
                 continue;
             };
             results.insert(shard_id, result.clone());
@@ -128,15 +131,15 @@ impl SpiceCoreReader {
     /// missing;
     pub fn get_block_execution_results(
         &self,
-        block: &Block,
+        block_header: &BlockHeader,
     ) -> Result<Option<BlockExecutionResults>, Error> {
         assert!(cfg!(feature = "protocol_feature_spice"));
 
         let mut results = HashMap::new();
 
-        let shard_layout = self.epoch_manager.get_shard_layout(block.header().epoch_id())?;
+        let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
         for shard_id in shard_layout.shard_ids() {
-            let Some(result) = self.get_execution_result(block, shard_id)? else {
+            let Some(result) = self.get_execution_result(block_header, shard_id)? else {
                 return Ok(None);
             };
             results.insert(shard_id, result.clone());
@@ -370,6 +373,53 @@ impl SpiceCoreReader {
         }
         Ok(())
     }
+
+    pub fn get_last_certified_execution_results_for_next_block(
+        &self,
+        block_header: &BlockHeader,
+        core_statements_for_next_block: &[SpiceCoreStatement],
+    ) -> Result<BlockExecutionResults, Error> {
+        let new_execution_results: HashMap<_, _> = core_statements_for_next_block
+            .iter()
+            .filter_map(|core_statement| match core_statement {
+                SpiceCoreStatement::ChunkExecutionResult { execution_result, chunk_id } => {
+                    Some((chunk_id, execution_result))
+                }
+                _ => None,
+            })
+            .collect();
+
+        let mut uncertified_chunks =
+            get_uncertified_chunks(&self.chain_store, block_header.hash())?;
+        uncertified_chunks
+            .retain(|chunk_info| !new_execution_results.contains_key(&chunk_info.chunk_id));
+        let oldest_uncertified_block_header =
+            find_oldest_uncertified_block_header(&self.chain_store, uncertified_chunks)?;
+        let last_certified_block_header =
+            if let Some(oldest_uncertified_block_header) = oldest_uncertified_block_header {
+                &self.chain_store.get_block_header(oldest_uncertified_block_header.prev_hash())?
+            } else {
+                // If there are no uncertified blocks it means block with block_header is last certified.
+                block_header
+            };
+
+        let mut execution_results =
+            self.get_execution_results_by_shard_id(last_certified_block_header)?;
+
+        for shard_id in self.epoch_manager.shard_ids(block_header.epoch_id())? {
+            if execution_results.contains_key(&shard_id) {
+                continue;
+            }
+            let execution_result = new_execution_results
+            .get(&SpiceChunkId { block_hash: *last_certified_block_header.hash(), shard_id })
+            .expect(
+                "for certified block we should have execution either in store or core statements",
+            );
+            execution_results.insert(shard_id, Arc::new((*execution_result).clone()));
+        }
+
+        Ok(BlockExecutionResults(execution_results))
+    }
 }
 
 fn get_uncertified_chunks(
@@ -488,4 +538,18 @@ pub fn record_uncertified_chunks_for_block(
     )?;
     chain_store_update.merge(store_update);
     Ok(())
+}
+
+fn find_oldest_uncertified_block_header(
+    chain_store: &ChainStoreAdapter,
+    uncertified_chunks: Vec<SpiceUncertifiedChunkInfo>,
+) -> Result<Option<Arc<BlockHeader>>, Error> {
+    let uncertified_block_hashes: HashSet<_> =
+        uncertified_chunks.into_iter().map(|chunk_info| chunk_info.chunk_id.block_hash).collect();
+    let uncertified_block_headers: Vec<_> = uncertified_block_hashes
+        .iter()
+        // If this needs to be optimized SpiceUncertifiedChunkInfo can contain block height.
+        .map(|block_hash| chain_store.get_block_header(block_hash))
+        .collect::<Result<Vec<_>, Error>>()?;
+    Ok(uncertified_block_headers.into_iter().min_by_key(|header| header.height()))
 }

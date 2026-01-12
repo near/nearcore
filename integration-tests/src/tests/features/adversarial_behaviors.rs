@@ -14,7 +14,6 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::utils::from_timestamp;
 use std::collections::HashSet;
-use tracing::log::debug;
 
 struct AdversarialBehaviorTestData {
     num_validators: usize,
@@ -39,6 +38,7 @@ impl AdversarialBehaviorTestData {
             let config = &mut genesis.config;
             config.genesis_time = from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64);
             config.epoch_length = epoch_length;
+            config.transaction_validity_period = epoch_length * 2;
             config.shard_layout = ShardLayout::multi_shard(4, 3);
             config.num_block_producer_seats_per_shard = vec![
                 num_block_producers as u64,
@@ -133,7 +133,7 @@ fn slow_test_non_adversarial_case() {
     let mut test = AdversarialBehaviorTestData::new();
     let epoch_manager = test.env.clients[0].epoch_manager.clone();
     for height in 1..=EPOCH_LENGTH * 4 + 5 {
-        debug!(target: "test", "======= Height {} ======", height);
+        tracing::debug!(target: "test", %height, "======= height ======");
         test.process_all_actor_messages();
         let epoch_id = epoch_manager
             .get_epoch_id_from_prev_block(
@@ -162,7 +162,7 @@ fn slow_test_non_adversarial_case() {
         }
 
         for i in 0..test.num_validators {
-            debug!(target: "test", "Processing block {} as validator #{}", height, i);
+            tracing::debug!(target: "test", %height, %i, "processing block as validator");
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
@@ -215,7 +215,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
     let mut epochs_seen_invalid_chunk: HashSet<EpochId> = HashSet::new();
     let mut last_block_skipped = false;
     for height in 1..=EPOCH_LENGTH * 4 + 5 {
-        debug!(target: "test", "======= Height {} ======", height);
+        tracing::debug!(target: "test", %height, "======= height ======");
         test.process_all_actor_messages();
         let epoch_id = epoch_manager
             .get_epoch_id_from_prev_block(
@@ -265,8 +265,8 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
                 }
             }
         }
-        debug!(target: "test", "Epoch id of new block: {:?}", epoch_id);
-        debug!(target: "test", "Block should be skipped: false; previous block skipped: {}", last_block_skipped);
+        tracing::debug!(target: "test", ?epoch_id, "epoch id of new block");
+        tracing::debug!(target: "test", %last_block_skipped, "block should be skipped: false, previous block skipped");
 
         if height > 1 {
             let prev_block =
@@ -295,7 +295,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
 
         // The block producer of course has the complete block so we can process that.
         for i in 0..test.num_validators {
-            debug!(target: "test", "Processing block {} as validator #{}", height, i);
+            tracing::debug!(target: "test", %height, %i, "processing block as validator");
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
@@ -340,6 +340,8 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
 
 #[test]
 #[cfg(feature = "test_features")]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_banning_chunk_producer_when_seeing_invalid_chunk() {
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();

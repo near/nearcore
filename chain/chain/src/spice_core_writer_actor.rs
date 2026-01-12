@@ -58,7 +58,7 @@ impl near_async::messaging::Actor for SpiceCoreWriterActor {}
 impl Handler<ProcessedBlock> for SpiceCoreWriterActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         if let Err(err) = self.handle_processed_block(block_hash) {
-            tracing::error!(target: "spice_core_writer", ?err, "Error handling processed block");
+            tracing::error!(target: "spice_core_writer", ?err, "error handling processed block");
         }
     }
 }
@@ -66,7 +66,7 @@ impl Handler<ProcessedBlock> for SpiceCoreWriterActor {
 impl Handler<SpiceChunkEndorsementMessage> for SpiceCoreWriterActor {
     fn handle(&mut self, msg: SpiceChunkEndorsementMessage) {
         if let Err(err) = self.process_chunk_endorsement(msg.0) {
-            tracing::error!(target: "spice_core_writer", ?err, "Error processing spice chunk endorsement");
+            tracing::error!(target: "spice_core_writer", ?err, "error processing spice chunk endorsement");
         }
     }
 }
@@ -75,12 +75,13 @@ impl SpiceCoreWriterActor {
     pub fn new(
         chain_store: ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
+        core_reader: SpiceCoreReader,
         chunk_executor_sender: Sender<ExecutionResultEndorsed>,
         spice_chunk_validator_sender: Sender<ExecutionResultEndorsed>,
     ) -> Self {
         const PENDING_ENDORSEMENT_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(100).unwrap();
         Self {
-            core_reader: SpiceCoreReader::new(chain_store.clone(), epoch_manager.clone()),
+            core_reader,
             chain_store,
             epoch_manager,
             chunk_executor_sender,
@@ -125,15 +126,15 @@ impl SpiceCoreWriterActor {
     }
 
     fn try_sending_execution_result_endorsed(&self, block_hash: &CryptoHash) -> Result<(), Error> {
-        let block = match self.chain_store.get_block(block_hash) {
-            Ok(block) => block,
+        let block_header = match self.chain_store.get_block_header(block_hash) {
+            Ok(header) => header,
             Err(Error::DBNotFoundErr(_)) => return Ok(()),
             Err(err) => return Err(err),
         };
 
-        if self.core_reader.all_execution_results_exist(&block)? {
+        if self.core_reader.all_execution_results_exist(&block_header)? {
             let result_endorsed_message =
-                ExecutionResultEndorsed { block_hash: *block.header().hash() };
+                ExecutionResultEndorsed { block_hash: *block_header.hash() };
             self.chunk_executor_sender.send(result_endorsed_message.clone());
             self.spice_chunk_validator_sender.send(result_endorsed_message);
         }

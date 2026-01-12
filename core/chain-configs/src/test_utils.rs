@@ -17,8 +17,9 @@ use crate::{
     GenesisConfig, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE, MIN_GAS_PRICE,
     MutableConfigValue, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE, PROTOCOL_TREASURY_ACCOUNT,
     ReshardingConfig, StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
-    default_enable_early_prepare_transactions, default_orphan_state_witness_max_size,
-    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
+    default_chunks_cache_height_horizon, default_enable_early_prepare_transactions,
+    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
+    default_produce_chunk_add_transactions_time_limit,
 };
 
 /// Returns the default value for the thread count associated with rpc-handler actor (currently
@@ -105,8 +106,11 @@ impl Genesis {
             );
         }
         add_protocol_account(&mut records);
-        let epoch_config =
-            Genesis::test_epoch_config(num_validator_seats, shard_layout, FAST_EPOCH_LENGTH);
+        let epoch_config = Genesis::test_epoch_config(
+            num_validator_seats,
+            shard_layout.clone(),
+            FAST_EPOCH_LENGTH,
+        );
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
             genesis_time,
@@ -134,7 +138,7 @@ impl Genesis {
             chunk_validator_only_kickout_threshold: epoch_config
                 .chunk_validator_only_kickout_threshold,
             fishermen_threshold: epoch_config.fishermen_threshold,
-            shard_layout: epoch_config.shard_layout,
+            shard_layout,
             target_validator_mandates_per_shard: epoch_config.target_validator_mandates_per_shard,
             max_kickout_stake_perc: epoch_config.validator_max_kickout_stake_perc,
             online_min_threshold: epoch_config.online_min_threshold,
@@ -308,6 +312,7 @@ impl ClientConfig {
             save_trie_changes: true,
             save_untracked_partial_chunks_parts: true,
             save_tx_outcomes: true,
+            save_state_changes: true,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
             chunk_validation_threads: 1,
@@ -340,7 +345,8 @@ impl ClientConfig {
             transaction_request_handler_threads: default_rpc_handler_thread_count(),
             protocol_version_check: Default::default(),
             enable_early_prepare_transactions: default_enable_early_prepare_transactions(),
-            dynamic_resharding_dry_run: false,
+            chunks_cache_height_horizon: default_chunks_cache_height_horizon(),
+            disable_tx_routing: false,
         }
     }
 }

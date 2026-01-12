@@ -828,15 +828,15 @@ pub struct ValidatorStakeV1 {
 }
 
 pub mod chunk_extra {
+    pub use super::ChunkExtraV1;
     use crate::bandwidth_scheduler::BandwidthRequests;
     use crate::congestion_info::CongestionInfo;
+    use crate::trie_split::TrieSplit;
     use crate::types::StateRoot;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{Balance, Gas};
-
-    pub use super::ChunkExtraV1;
 
     /// Information after chunk was processed, used to produce or check next chunk.
     #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, serde::Serialize)]
@@ -847,6 +847,7 @@ pub mod chunk_extra {
         V2(ChunkExtraV2) = 1,
         V3(ChunkExtraV3) = 2,
         V4(ChunkExtraV4) = 3,
+        V5(ChunkExtraV5) = 4,
     }
 
     #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, serde::Serialize)]
@@ -905,6 +906,29 @@ pub mod chunk_extra {
         pub bandwidth_requests: BandwidthRequests,
     }
 
+    /// V4 -> V5: add proposed_split (dynamic resharding)
+    #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq, serde::Serialize)]
+    pub struct ChunkExtraV5 {
+        /// Post state root after applying give chunk.
+        pub state_root: StateRoot,
+        /// Root of merklizing results of receipts (transactions) execution.
+        pub outcome_root: CryptoHash,
+        /// Validator proposals produced by given chunk.
+        pub validator_proposals: Vec<ValidatorStake>,
+        /// Actually how much gas were used.
+        pub gas_used: Gas,
+        /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
+        pub gas_limit: Gas,
+        /// Total balance burnt after processing the current chunk.
+        pub balance_burnt: Balance,
+        /// Congestion info about this shard after the chunk was applied.
+        congestion_info: CongestionInfo,
+        /// Requests for bandwidth to send receipts to other shards.
+        pub bandwidth_requests: BandwidthRequests,
+        /// Proposed split of this shard (dynamic resharding).
+        pub proposed_split: Option<TrieSplit>,
+    }
+
     impl ChunkExtra {
         /// This method creates a slimmed down and invalid ChunkExtra. It's used
         /// for resharding where we only need the state root. This should not be
@@ -921,6 +945,7 @@ pub mod chunk_extra {
                 Balance::ZERO,
                 congestion_control,
                 BandwidthRequests::empty(),
+                None,
             )
         }
 
@@ -933,8 +958,9 @@ pub mod chunk_extra {
             balance_burnt: Balance,
             congestion_info: Option<CongestionInfo>,
             bandwidth_requests: BandwidthRequests,
+            proposed_split: Option<TrieSplit>,
         ) -> Self {
-            Self::V4(ChunkExtraV4 {
+            Self::V5(ChunkExtraV5 {
                 state_root: *state_root,
                 outcome_root,
                 validator_proposals,
@@ -943,6 +969,7 @@ pub mod chunk_extra {
                 balance_burnt,
                 congestion_info: congestion_info.unwrap(),
                 bandwidth_requests,
+                proposed_split,
             })
         }
 
@@ -953,6 +980,7 @@ pub mod chunk_extra {
                 Self::V2(v2) => &v2.outcome_root,
                 Self::V3(v3) => &v3.outcome_root,
                 Self::V4(v4) => &v4.outcome_root,
+                Self::V5(v5) => &v5.outcome_root,
             }
         }
 
@@ -963,6 +991,7 @@ pub mod chunk_extra {
                 Self::V2(v2) => &v2.state_root,
                 Self::V3(v3) => &v3.state_root,
                 Self::V4(v4) => &v4.state_root,
+                Self::V5(v5) => &v5.state_root,
             }
         }
 
@@ -973,6 +1002,7 @@ pub mod chunk_extra {
                 Self::V2(v2) => &mut v2.state_root,
                 Self::V3(v3) => &mut v3.state_root,
                 Self::V4(v4) => &mut v4.state_root,
+                Self::V5(v5) => &mut v5.state_root,
             }
         }
 
@@ -983,6 +1013,7 @@ pub mod chunk_extra {
                 Self::V2(v2) => ValidatorStakeIter::new(&v2.validator_proposals),
                 Self::V3(v3) => ValidatorStakeIter::new(&v3.validator_proposals),
                 Self::V4(v4) => ValidatorStakeIter::new(&v4.validator_proposals),
+                Self::V5(v5) => ValidatorStakeIter::new(&v5.validator_proposals),
             }
         }
 
@@ -993,6 +1024,7 @@ pub mod chunk_extra {
                 Self::V2(v2) => v2.gas_limit,
                 Self::V3(v3) => v3.gas_limit,
                 Self::V4(v4) => v4.gas_limit,
+                Self::V5(v5) => v5.gas_limit,
             }
         }
 
@@ -1003,6 +1035,7 @@ pub mod chunk_extra {
                 Self::V2(v2) => v2.gas_used,
                 Self::V3(v3) => v3.gas_used,
                 Self::V4(v4) => v4.gas_used,
+                Self::V5(v5) => v5.gas_used,
             }
         }
 
@@ -1013,6 +1046,7 @@ pub mod chunk_extra {
                 Self::V2(v2) => v2.balance_burnt,
                 Self::V3(v3) => v3.balance_burnt,
                 Self::V4(v4) => v4.balance_burnt,
+                Self::V5(v5) => v5.balance_burnt,
             }
         }
 
@@ -1025,6 +1059,7 @@ pub mod chunk_extra {
                 }
                 Self::V3(v3) => v3.congestion_info,
                 Self::V4(v4) => v4.congestion_info,
+                Self::V5(v5) => v5.congestion_info,
             }
         }
 
@@ -1034,6 +1069,7 @@ pub mod chunk_extra {
                 Self::V1(_) | Self::V2(_) => panic!("Calling congestion_info_mut on V1 or V2"),
                 Self::V3(v3) => &mut v3.congestion_info,
                 Self::V4(v4) => &mut v4.congestion_info,
+                Self::V5(v5) => &mut v5.congestion_info,
             }
         }
 
@@ -1041,7 +1077,16 @@ pub mod chunk_extra {
         pub fn bandwidth_requests(&self) -> Option<&BandwidthRequests> {
             match self {
                 Self::V1(_) | Self::V2(_) | Self::V3(_) => None,
-                Self::V4(extra) => Some(&extra.bandwidth_requests),
+                Self::V4(v4) => Some(&v4.bandwidth_requests),
+                Self::V5(v5) => Some(&v5.bandwidth_requests),
+            }
+        }
+
+        #[inline]
+        pub fn proposed_split(&self) -> Option<&TrieSplit> {
+            match self {
+                Self::V1(_) | Self::V2(_) | Self::V3(_) | Self::V4(_) => None,
+                ChunkExtra::V5(v5) => v5.proposed_split.as_ref(),
             }
         }
     }
@@ -1296,7 +1341,16 @@ pub struct ChunkExecutionResult {
 }
 
 /// Execution results for all shards in the block.
+#[derive(Debug, Clone, PartialEq)]
 pub struct BlockExecutionResults(pub HashMap<ShardId, Arc<ChunkExecutionResult>>);
+
+impl BlockExecutionResults {
+    pub fn compute_gas_limit(&self) -> Gas {
+        self.0.iter().fold(Gas::ZERO, |acc, (_shard_id, execution_result)| {
+            acc.checked_add(execution_result.chunk_extra.gas_limit()).unwrap()
+        })
+    }
+}
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ChunkExecutionResultHash(pub CryptoHash);

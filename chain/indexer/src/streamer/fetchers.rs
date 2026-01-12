@@ -160,7 +160,7 @@ impl IndexerViewClientFetcher {
                             target: INDEXER,
                             ?err,
                             outcome_id = ?outcome.id,
-                            "unable to fetch Receipt by outcome id, skipping it in ExecutionOutcome",
+                            "unable to fetch receipt by outcome id, skipping it in execution outcome",
                         );
                         None
                     }

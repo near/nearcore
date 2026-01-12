@@ -9,7 +9,7 @@ use near_epoch_manager::{
 };
 use near_primitives::{
     errors::EpochError,
-    types::{BlockHeight, Gas, ShardId, StateRoot, chunk_extra::ChunkExtra},
+    types::{BlockHeight, ShardId, StateRoot, chunk_extra::ChunkExtra},
 };
 use near_store::{ShardUId, Store};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
@@ -110,12 +110,15 @@ fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
         (ChunkExtra::V2(l), ChunkExtra::V2(r)) => return l == r,
         (ChunkExtra::V3(l), ChunkExtra::V3(r)) => return l == r,
         (ChunkExtra::V4(l), ChunkExtra::V4(r)) => return l == r,
+        (ChunkExtra::V5(l), ChunkExtra::V5(r)) => return l == r,
         (ChunkExtra::V1(_), ChunkExtra::V2(_))
         | (ChunkExtra::V2(_), ChunkExtra::V1(_))
         | (_, ChunkExtra::V3(_))
         | (ChunkExtra::V3(_), _)
         | (_, ChunkExtra::V4(_))
-        | (ChunkExtra::V4(_), _) => {}
+        | (ChunkExtra::V4(_), _)
+        | (_, ChunkExtra::V5(_))
+        | (ChunkExtra::V5(_), _) => {}
     };
     if l.state_root() != r.state_root() {
         return false;
@@ -138,21 +141,10 @@ fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
     if l.bandwidth_requests() != r.bandwidth_requests() {
         return false;
     }
+    if l.proposed_split() != r.proposed_split() {
+        return false;
+    }
     l.validator_proposals().collect::<Vec<_>>() == r.validator_proposals().collect::<Vec<_>>()
-}
-
-pub fn resulting_chunk_extra(result: &ApplyChunkResult, gas_limit: Gas) -> ChunkExtra {
-    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&result.outcomes);
-    ChunkExtra::new(
-        &result.new_root,
-        outcome_root,
-        result.validator_proposals.clone(),
-        result.total_gas_burnt,
-        gas_limit,
-        result.total_balance_burnt,
-        result.congestion_info,
-        result.bandwidth_requests.clone(),
-    )
 }
 
 pub fn check_apply_block_result(
@@ -165,15 +157,15 @@ pub fn check_apply_block_result(
     let height = block.header().height();
     let block_hash = block.header().hash();
     let epoch_id = block.header().epoch_id();
-    let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
+    let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
     let shard_index = shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
-    let new_chunk_extra =
-        resulting_chunk_extra(apply_result, block.chunks()[shard_index].gas_limit());
+    let gas_limit = block.chunks()[shard_index].gas_limit();
+    let new_chunk_extra = apply_result.to_chunk_extra(gas_limit);
     println!(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
         shard_id, height, &new_chunk_extra,
     );
-    let shard_uid = shard_id_to_uid(epoch_manager, shard_id, block.header().epoch_id()).unwrap();
+    let shard_uid = shard_id_to_uid(epoch_manager, shard_id, block.header().epoch_id())?;
     if block.chunks()[shard_index].height_included() == height {
         if let Ok(old_chunk_extra) = chain_store.get_chunk_extra(block_hash, &shard_uid) {
             if chunk_extras_equal(&new_chunk_extra, old_chunk_extra.as_ref()) {
@@ -190,7 +182,7 @@ pub fn check_apply_block_result(
             Err(anyhow::anyhow!("No existing chunk extra available"))
         }
     } else {
-        tracing::warn!("No existing chunk extra available");
+        tracing::warn!("no existing chunk extra available");
         Ok(())
     }
 }

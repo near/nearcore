@@ -163,7 +163,7 @@ blst = { version = "0.3.11", features = ["portable"] }
 bn = { package = "zeropool-bn", version = "0.5.11", default-features = false }
 # TODO: remove this override when https://github.com/camshaft/bolero/issues/196 is fixed upstream
 # Currently the changes here are: https://github.com/camshaft/bolero/compare/master...Ekleog-NEAR:bolero:reduce-list-tests-run
-bolero = { version = "0.10.0", git = "https://github.com/Ekleog-NEAR/bolero", rev = "c37993bd70dcf5b1778b03daf29f686225e9a504", features = [
+bolero = { version = "0.10.0", git = "https://github.com/near/bolero", rev = "c37993bd70dcf5b1778b03daf29f686225e9a504", features = [
     "arbitrary",
 ] }
 borsh = { version = "1.0.0", features = ["derive", "rc"] }
@@ -213,7 +213,7 @@ hex-literal = "0.2"
 hkdf = "0.12.3"
 im = "15"
 indexmap = "2"
-indicatif = { version = "0.17.0", features = ["rayon"] }
+indicatif = { version = "0.18.3", features = ["rayon"] }
 insta = { version = "1.41.0", features = ["json", "yaml", "redactions"] }
 integration-tests = { path = "integration-tests" }
 inventory = "0.3.15"
@@ -221,7 +221,7 @@ itertools = "0.14.0"
 itoa = "1.0"
 json_comments = "0.2.1"
 libc = "0.2.81"
-lru = "0.12.3"
+lru = "0.16.3"
 memoffset = "0.8"
 merlin = { version = "3", default-features = false }
 more-asserts = "0.2"
@@ -269,8 +269,6 @@ near-mirror = { path = "tools/mirror" }
 near-network = { path = "chain/network" }
 near-o11y = { path = "core/o11y" }
 near-parameters = { path = "core/parameters" }
-near-performance-metrics = { path = "utils/near-performance-metrics" }
-near-performance-metrics-macros = { path = "utils/near-performance-metrics-macros" }
 near-ping = { path = "tools/ping" }
 near-pool = { path = "chain/pool" }
 near-primitives = { path = "core/primitives" }
@@ -343,7 +341,7 @@ regex = "1.7.1"
 region = "3.0"
 reqwest = { version = "0.12.0", features = ["blocking", "native-tls-vendored"] }
 ripemd = "0.1.1"
-rkyv = "0.8.0"
+rkyv = "0.8.13"
 rlimit = "0.7"
 rlp = "0.5.2"
 rocksdb = { version = "0.21.0", default-features = false }
@@ -359,7 +357,7 @@ serde_json = "1.0.68"
 serde_repr = "0.1.8"
 serde_with = { version = "3.0", features = ["base64"] }
 serde_yaml = "0.9"
-schemars = { version = "1.0.3", features = ["chrono04"]}
+schemars = { version = "1.0.3", features = ["chrono04"] }
 sha2 = "0.10"
 sha3 = "0.10"
 smallvec = "1.6"
@@ -399,7 +397,7 @@ trybuild = "1.0.11"
 turn = "0.9"
 url = "2.5.0"
 utoipa = "5.4"
-utoipa-swagger-ui = "9"
+utoipa-swagger-ui = {version = "9", features = ["vendored"]}
 wasm-encoder = "0.236"
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmparser-236 = { package = "wasmparser", version = "0.236" }

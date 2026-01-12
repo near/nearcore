@@ -20,6 +20,7 @@ use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountInfo, Balance, EpochId, Gas, ShardId};
 use near_primitives::utils::derive_eth_implicit_account_id;
+use near_primitives::version::ProtocolFeature;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
@@ -68,6 +69,7 @@ fn run_chunk_validation_test(
             .collect(),
         // Ensures 4 epoch transitions.
         epoch_length: 10,
+        transaction_validity_period: 20,
         // The genesis requires this, so set it to something arbitrary.
         protocol_treasury_account: accounts[num_validators].clone(),
         // Simply make all validators block producers.
@@ -79,7 +81,6 @@ fn run_chunk_validation_test(
         // or else the genesis fails validation.
         num_block_producer_seats_per_shard: vec![8; num_shards],
         gas_limit: Gas::from_teragas(1000),
-        transaction_validity_period: 120,
         // Needed to completely avoid validator kickouts as we want to test
         // missing chunks functionality.
         block_producer_kickout_threshold: 0,
@@ -174,7 +175,7 @@ fn run_chunk_validation_test(
         let block_producer = env.get_block_producer_at_offset(&tip, height_offset);
         tracing::debug!(
             target: "client",
-            "Producing block at height {} by {}", height, block_producer
+            %height, %block_producer, "producing block at height by block producer"
         );
         let block = env.client(&block_producer).produce_block(height).unwrap().unwrap();
 
@@ -183,7 +184,7 @@ fn run_chunk_validation_test(
             let validator_id = env.get_client_id(i);
             tracing::debug!(
                 target: "client",
-                "Applying block at height {} at {}", block.header().height(), validator_id
+                height = %block.header().height(), %validator_id, "applying block at height at validator"
             );
             let blocks_processed = if rng.gen_bool(prob_missing_chunk) {
                 env.clients[i]
@@ -249,16 +250,22 @@ fn run_chunk_validation_test(
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunk_validation_no_missing_chunks() {
     run_chunk_validation_test(42, 0.0, 0.0, PROTOCOL_VERSION);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_chunk_validation_low_missing_chunks() {
     run_chunk_validation_test(43, 0.3, 0.0, PROTOCOL_VERSION);
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_chunk_validation_high_missing_chunks() {
     run_chunk_validation_test(44, 0.81, 0.0, PROTOCOL_VERSION);
 }
@@ -344,7 +351,7 @@ fn test_chunk_state_witness_bad_shard_id() {
     // Run the client for a few blocks
     let upper_height = 6;
     for height in 1..upper_height {
-        tracing::info!(target: "test", "Producing block at height: {height}");
+        tracing::info!(target: "test", %height, "producing block at height");
         let block = env.clients[0].produce_block(height).unwrap().unwrap();
         env.process_block(0, block, Provenance::PRODUCED);
     }
@@ -356,7 +363,7 @@ fn test_chunk_state_witness_bad_shard_id() {
     let witness_size = borsh::object_length(&witness).unwrap();
 
     // Test chunk validation actor rejects witness with invalid shard ID
-    tracing::info!(target: "test", "Processing invalid ChunkStateWitness");
+    tracing::info!(target: "test", "processing invalid chunk state witness");
     let witness_message = ChunkStateWitnessMessage {
         witness,
         raw_witness_size: witness_size,
@@ -543,11 +550,14 @@ fn produce_block(env: &mut TestEnv) {
         let validator_id = env.get_client_id(i);
         tracing::debug!(
             target: "client",
-            "Applying block at height {} at {}", block.header().height(), validator_id
+            height = %block.header().height(), %validator_id, "applying block at height at validator"
         );
         let blocks_processed =
             env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
         assert_eq!(blocks_processed, vec![*block.hash()]);
+        if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            env.spice_execute_block(i, *block.hash());
+        }
     }
 
     env.process_partial_encoded_chunks();

@@ -30,7 +30,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, Gas, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
 use rand::prelude::SliceRandom;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -115,24 +115,37 @@ fn create_benchmark_receipts() -> Vec<Receipt> {
 }
 
 fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
-    ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        1,
-        height,
-        shard_id,
-        Gas::ZERO,
-        Gas::ZERO,
-        Balance::ZERO,
-        CryptoHash::default(),
-        CryptoHash::default(),
-        vec![],
-        Default::default(),
-        BandwidthRequests::empty(),
-        &validator_signer(),
-    ))
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
+            CryptoHash::default(),
+            CryptoHash::default(),
+            1,
+            height,
+            shard_id,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            &validator_signer(),
+        ))
+    } else {
+        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            CryptoHash::default(),
+            CryptoHash::default(),
+            CryptoHash::default(),
+            CryptoHash::default(),
+            1,
+            height,
+            shard_id,
+            Gas::ZERO,
+            Gas::ZERO,
+            Balance::ZERO,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            vec![],
+            Default::default(),
+            BandwidthRequests::empty(),
+            &validator_signer(),
+        ))
+    }
 }
 
 fn create_action_receipt(
@@ -184,25 +197,39 @@ fn create_encoded_shard_chunk(
 ) -> (ShardChunkWithEncoding, Vec<Vec<MerklePathItem>>) {
     let rs = ReedSolomon::new(33, 67).unwrap();
 
-    ShardChunkWithEncoding::new(
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        ShardId::new(0),
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        validated_txs,
-        receipts,
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        BandwidthRequests::empty(),
-        &validator_signer(),
-        &rs,
-    )
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        ShardChunkWithEncoding::new_for_spice(
+            Default::default(),
+            Default::default(),
+            ShardId::new(0),
+            validated_txs,
+            receipts,
+            Default::default(),
+            Default::default(),
+            &validator_signer(),
+            &rs,
+        )
+    } else {
+        ShardChunkWithEncoding::new(
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            ShardId::new(0),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            validated_txs,
+            receipts,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            BandwidthRequests::empty(),
+            &validator_signer(),
+            &rs,
+        )
+    }
 }
 
 fn encoded_chunk_to_partial_encoded_chunk(
@@ -214,7 +241,7 @@ fn encoded_chunk_to_partial_encoded_chunk(
     let shard_id = header.shard_id();
 
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let shard_layout = epoch_config_store.get_config(PROTOCOL_VERSION).shard_layout.clone();
+    let shard_layout = epoch_config_store.get_config(PROTOCOL_VERSION).legacy_shard_layout();
 
     let hashes = Chain::build_receipts_hashes(&receipts, &shard_layout).unwrap();
     let (_root, proofs) = merklize(&hashes);

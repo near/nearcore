@@ -338,6 +338,8 @@ async fn test_query_rpc_account_view_account_does_not_exist_must_return_error() 
 }
 
 #[tokio::test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn slow_test_tx_not_enough_balance_must_return_error() {
     init_integration_logger();
 

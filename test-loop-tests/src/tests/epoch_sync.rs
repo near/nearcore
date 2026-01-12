@@ -6,12 +6,13 @@ use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::sync::epoch::EpochSync;
+use near_epoch_manager::epoch_sync::{
+    derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
+};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta};
-use near_primitives::utils::compression::CompressedData;
 use near_store::adapter::StoreAdapter;
 
 use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
@@ -59,7 +60,7 @@ fn setup_initial_blockchain(transaction_validity_period: BlockHeightDelta) -> Te
             .collect_vec();
         clients.tracked_shards_for_each_client()
     };
-    tracing::info!("First epoch tracked shards: {:?}", first_epoch_tracked_shards);
+    tracing::info!(?first_epoch_tracked_shards, "first epoch tracked shards");
 
     if transaction_validity_period <= 1 {
         // If we're testing handling expired transactions, the money transfers should fail at the end when checking
@@ -124,10 +125,10 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
             let header_head_height = client.chain.header_head().unwrap().height;
             let head_height = client.chain.head().unwrap().height;
             tracing::info!(
-                "New node sync status: {:?}, header head height: {:?}, head height: {:?}",
-                client.sync_handler.sync_status,
-                header_head_height,
-                head_height
+                ?client.sync_handler.sync_status,
+                ?header_head_height,
+                ?head_height,
+                "new node sync status"
             );
             let sync_status = client.sync_handler.sync_status.as_variant_name();
             let mut history = sync_status_history.borrow_mut();
@@ -189,6 +190,8 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
 // Test that a new node that only has genesis can use Epoch Sync to bring itself
 // up to date.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_from_genesis() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
@@ -199,6 +202,8 @@ fn slow_test_epoch_sync_from_genesis() {
 // Tests that after epoch syncing, we can use the new node to bootstrap another
 // node via epoch sync.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_from_another_epoch_synced_node() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
@@ -208,6 +213,8 @@ fn slow_test_epoch_sync_from_another_epoch_synced_node() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_transaction_validity_period_one_epoch() {
     init_test_logger();
     let env = setup_initial_blockchain(10);
@@ -217,6 +224,8 @@ fn slow_test_epoch_sync_transaction_validity_period_one_epoch() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_with_expired_transactions() {
     init_test_logger();
     let env = setup_initial_blockchain(1);
@@ -229,15 +238,11 @@ impl TestLoopEnv {
     fn derive_epoch_sync_proof(&self, node_index: usize) -> EpochSyncProof {
         let client_handle = self.node_datas[node_index].client_sender.actor_handle();
         let store = self.test_loop.data.get(&client_handle).client.chain.chain_store.store();
-        EpochSync::derive_epoch_sync_proof(
-            store,
-            self.shared_state.genesis.config.transaction_validity_period,
-            Default::default(),
-        )
-        .unwrap()
-        .decode()
-        .unwrap()
-        .0
+        let tx_validity_period = self.shared_state.genesis.config.transaction_validity_period;
+        let last_block_hash =
+            find_target_epoch_to_produce_proof_for(&store, tx_validity_period).unwrap();
+        derive_epoch_sync_proof_from_last_block(&store.epoch_store(), &last_block_hash, true)
+            .unwrap()
     }
 
     fn chain_final_head_height(&self, node_index: usize) -> u64 {
@@ -301,6 +306,8 @@ fn sanity_check_epoch_sync_proof(
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_initial_epoch_sync_proof_sanity() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
@@ -315,6 +322,8 @@ fn slow_test_initial_epoch_sync_proof_sanity() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_proof_sanity_from_epoch_synced_node() {
     init_test_logger();
     let env = setup_initial_blockchain(20);
@@ -345,6 +354,8 @@ fn slow_test_epoch_sync_proof_sanity_from_epoch_synced_node() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_proof_sanity_shorter_transaction_validity_period() {
     init_test_logger();
     let env = setup_initial_blockchain(10);
@@ -355,6 +366,8 @@ fn slow_test_epoch_sync_proof_sanity_shorter_transaction_validity_period() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_proof_sanity_zero_transaction_validity_period() {
     init_test_logger();
     let env = setup_initial_blockchain(0);

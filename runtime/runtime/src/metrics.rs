@@ -27,6 +27,9 @@ pub(crate) struct ActionCalledCountMetric {
     pub(crate) stake: IntCounter,
     pub(crate) delete_key: IntCounter,
     pub(crate) delete_account: IntCounter,
+    pub(crate) add_gas_key: IntCounter,
+    pub(crate) delete_gas_key: IntCounter,
+    pub(crate) transfer_to_gas_key: IntCounter,
 }
 
 pub(crate) static ACTION_CALLED_COUNT: LazyLock<ActionCalledCountMetric> = LazyLock::new(|| {
@@ -49,6 +52,9 @@ pub(crate) static ACTION_CALLED_COUNT: LazyLock<ActionCalledCountMetric> = LazyL
         stake: vec.with_label_values(&["Stake"]),
         delete_key: vec.with_label_values(&["DeleteKey"]),
         delete_account: vec.with_label_values(&["DeleteAccount"]),
+        add_gas_key: vec.with_label_values(&["AddGasKey"]),
+        delete_gas_key: vec.with_label_values(&["DeleteGasKey"]),
+        transfer_to_gas_key: vec.with_label_values(&["TransferToGasKey"]),
     }
 });
 
@@ -93,6 +99,15 @@ pub static INCOMING_RECEIPT_PROCESSED_TOTAL: LazyLock<IntCounterVec> = LazyLock:
         "near_incoming_receipt_processed_total",
         "The number of incoming receipts processed since starting this node",
         &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static OUTGOING_RECEIPT_GENERATED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_outgoing_receipts_generated_total",
+        "Number of outgoing receipts generated since starting this node",
+        &["sender_shard_id", "receiver_shard_id"],
     )
     .unwrap()
 });
@@ -175,6 +190,7 @@ pub static TRANSACTION_PROCESSED_FAILED_TOTAL: LazyLock<IntCounter> = LazyLock::
     )
     .unwrap()
 });
+
 pub static PREFETCH_ENQUEUED: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_prefetch_enqueued",
@@ -323,6 +339,7 @@ static CHUNK_INC_RECEIPTS_TGAS: LazyLock<HistogramVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+
 static CHUNK_YIELD_TIMEOUTS_COMPUTE: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_chunk_yield_timeouts_compute",

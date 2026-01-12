@@ -8,9 +8,7 @@ use near_chain::stateless_validation::processing_tracker::{
 use near_chain::{Block, Provenance};
 use near_chain_configs::Genesis;
 use near_chain_configs::default_orphan_state_witness_max_size;
-use near_client::{
-    BlockNotificationMessage, ChunkValidationActorInner, HandleOrphanWitnessOutcome,
-};
+use near_client::{BlockNotificationMessage, ChunkValidationActor, HandleOrphanWitnessOutcome};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
@@ -49,7 +47,7 @@ struct OrphanWitnessTestEnv {
     witness: ChunkStateWitness,
     excluded_validator: AccountId,
     excluded_validator_idx: usize,
-    chunk_validation_actor: ChunkValidationActorInner,
+    chunk_validation_actor: ChunkValidationActor,
 }
 
 /// This function prepares a scenario in which an orphaned chunk witness will occur.
@@ -70,9 +68,9 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         // Produce the next block
         let tip = env.clients[0].chain.head().unwrap();
         let block_producer = env.get_block_producer_at_offset(&tip, 1);
-        tracing::info!(target: "test", "Producing block at height: {height} by {block_producer}");
+        tracing::info!(target: "test", %height, %block_producer, "producing block at height by block producer");
         let block = env.client(&block_producer).produce_block(tip.height + 1).unwrap().unwrap();
-        tracing::info!(target: "test", "Block produced at height {} has chunk {:?}", height, block.chunks()[0].chunk_hash());
+        tracing::info!(target: "test", %height, chunk_hash = ?block.chunks()[0].chunk_hash(), "block produced at height has chunk");
 
         // The first block after genesis doesn't have any chunks, but all other blocks should have a new chunk inside.
         if height > 1 {
@@ -130,7 +128,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
     let clients_without_excluded =
         (0..env.clients.len()).filter(|idx| *idx != excluded_validator_idx);
 
-    tracing::info!(target:"test", "Producing block1 at height {}", tip.height + 1);
+    tracing::info!(target:"test", height = %(tip.height + 1), "producing block1 at height");
     let block1 = env.client(&block1_producer).produce_block(tip.height + 1).unwrap().unwrap();
     assert_eq!(
         block1.chunks()[0].height_created(),
@@ -161,7 +159,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
 
     // Trigger chunk production for block2 by producing the block first
     let block2 = env.client(&block2_producer).produce_block(tip.height + 2).unwrap().unwrap();
-    tracing::info!(target:"test", "Producing block2 at height {}", tip.height + 2);
+    tracing::info!(target:"test", height = %(tip.height + 2), "producing block2 at height");
     assert_eq!(
         block2.chunks()[0].height_created(),
         block2.header().height(),
@@ -238,6 +236,8 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
 
 /// Test that a valid orphan witness is correctly processed once the required block arrives.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_orphan_witness_valid() {
     init_integration_logger();
 
@@ -278,6 +278,8 @@ fn test_orphan_witness_valid() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_orphan_witness_too_large() {
     init_integration_logger();
 
@@ -293,6 +295,8 @@ fn test_orphan_witness_too_large() {
 
 /// Witnesses which are too far from the chain head should not be saved to the orphan pool
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_orphan_witness_far_from_head() {
     init_integration_logger();
 
@@ -306,6 +310,7 @@ fn test_orphan_witness_far_from_head() {
         ShardChunkHeaderInner::V3(inner) => inner.height_created = bad_height,
         ShardChunkHeaderInner::V4(inner) => inner.height_created = bad_height,
         ShardChunkHeaderInner::V5(inner) => inner.height_created = bad_height,
+        ShardChunkHeaderInner::V6(inner) => inner.height_created = bad_height,
     });
 
     let outcome = chunk_validation_actor.handle_orphan_witness(witness, 2000).unwrap();
@@ -322,6 +327,8 @@ fn test_orphan_witness_far_from_head() {
 // `source_receipt_proofs` will be accepted and saved into the pool, as there's no way to validate
 // this field without the previous block.
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_orphan_witness_not_fully_validated() {
     init_integration_logger();
 

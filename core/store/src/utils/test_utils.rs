@@ -11,15 +11,13 @@ use crate::{
 };
 use itertools::Itertools;
 use near_primitives::account::id::AccountId;
-use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, ReceiptEnum, ReceiptV1};
 use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::TrieKey;
+use near_primitives::types::StateRoot;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{Balance, StateRoot};
 use rand::Rng;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
@@ -56,12 +54,16 @@ fn create_test_node_storage_archive(
     version: DbVersion,
     hot_kind: DbKind,
     home_dir: Option<PathBuf>,
+    chain_id: Option<String>,
 ) -> (NodeStorage, Arc<TestDB>, Option<Arc<TestDB>>) {
     let hot = TestDB::new();
     let cold = if cold_enabled { Some(TestDB::new()) } else { None };
     let cold_db = cold.as_ref().map(|cold| cold.clone() as Arc<dyn Database>);
-    let cloud =
-        if cloud_enabled { Some(create_test_cloud_storage(home_dir.unwrap())) } else { None };
+    let cloud = if cloud_enabled {
+        Some(create_test_cloud_storage(home_dir.unwrap(), chain_id.unwrap()))
+    } else {
+        None
+    };
     let storage = NodeStorage::new_archive(hot.clone(), cold_db, cloud);
 
     let hot_store = storage.get_hot_store();
@@ -80,7 +82,7 @@ pub fn create_test_node_storage_with_cold(
     hot_kind: DbKind,
 ) -> (NodeStorage, Arc<TestDB>, Arc<TestDB>) {
     let (storage, hot, cold) =
-        create_test_node_storage_archive(true, false, version, hot_kind, None);
+        create_test_node_storage_archive(true, false, version, hot_kind, None, None);
     (storage, hot, cold.unwrap())
 }
 
@@ -97,6 +99,7 @@ pub fn create_test_node_storage(
     cold_enabled: bool,
     cloud_enabled: bool,
     home_dir: Option<PathBuf>,
+    chain_id: Option<String>,
 ) -> TestNodeStorage {
     if !cold_enabled && !cloud_enabled {
         return TestNodeStorage {
@@ -113,6 +116,7 @@ pub fn create_test_node_storage(
         DB_VERSION,
         hot_kind,
         home_dir,
+        chain_id,
     );
     TestNodeStorage {
         hot_store: storage.get_hot_store(),
@@ -199,17 +203,7 @@ impl TestTriesBuilder {
         }
         if self.enable_in_memory_tries {
             // ChunkExtra is needed for in-memory trie loading code to query state roots.
-            let congestion_info = Some(CongestionInfo::default());
-            let chunk_extra = ChunkExtra::new(
-                &Trie::EMPTY_ROOT,
-                CryptoHash::default(),
-                Vec::new(),
-                near_primitives::types::Gas::ZERO,
-                near_primitives::types::Gas::ZERO,
-                Balance::ZERO,
-                congestion_info,
-                BandwidthRequests::empty(),
-            );
+            let chunk_extra = ChunkExtra::new_with_only_state_root(&Trie::EMPTY_ROOT);
             let mut update_for_chunk_extra = store.store_update();
             for shard_uid in &shard_uids {
                 update_for_chunk_extra

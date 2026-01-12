@@ -251,12 +251,10 @@ yield_timeout_length_in_blocks: 200
 max_yield_payload_size: 1_024 # kiB
 
 flat_storage_reads: false
-implicit_account_creation: false
 fix_contract_loading_cost: false
 vm_kind: Wasmer0
 eth_implicit_accounts: false
 discard_custom_sections: false
-saturating_float_to_int: false
 global_contract_host_fns: false
 reftypes_bulk_memory: false
 deterministic_account_ids: false
@@ -310,3 +308,12 @@ action_use_global_contract_per_identifier_byte: {
   send_not_sir: 999_999_999_999_999,
   execution: 999_999_999_999_999,
 }
+
+# Dynamic resharding
+
+memory_usage_threshold: 999_999_999_999_999
+min_child_memory_usage: 999_999_999_999_999
+max_number_of_shards: 999_999_999_999_999
+min_epochs_between_resharding: 999_999_999_999_999
+force_split_shards: [ ]
+block_split_shards: [ ]

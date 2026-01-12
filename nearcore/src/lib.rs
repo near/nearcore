@@ -11,6 +11,7 @@ use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
+use near_chain::spice_core::SpiceCoreReader;
 use near_chain::spice_core_writer_actor::SpiceCoreWriterActor;
 use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
@@ -32,8 +33,8 @@ use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
 use near_client::{
-    ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandler,
-    RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActorInner,
+    ChunkValidationSenderForPartialWitness, ConfigUpdater, PartialWitnessActor, RpcHandlerActor,
+    RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor,
     spawn_chunk_endorsement_handler_actor, spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
@@ -72,9 +73,9 @@ use near_async::ActorSystem;
 use near_async::futures::FutureSpawner;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_async::tokio::TokioRuntimeHandle;
-use near_client::client_actor::{ClientActorInner, SpiceClientConfig};
+use near_client::client_actor::{ClientActor, SpiceClientConfig};
 #[cfg(feature = "tx_generator")]
-use near_transactions_generator::actor::GeneratorActorImpl;
+use near_transactions_generator::actor::GeneratorActor;
 
 pub fn get_default_home() -> PathBuf {
     if let Ok(near_home) = std::env::var("NEAR_HOME") {
@@ -101,7 +102,7 @@ pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result
         home_dir,
         &near_config.config.store,
         near_config.config.cold_store.as_ref(),
-        near_config.config.cloud_storage_config(),
+        near_config.cloud_storage_context(),
     )
     .with_migrator(&migrator);
     let storage = match opener.open() {
@@ -268,9 +269,15 @@ fn spawn_spice_actors(
     >,
     spice_core_writer_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<SpiceCoreWriterActor>>>,
 ) {
+    let spice_core_reader = SpiceCoreReader::new(
+        runtime.store().chain_store(),
+        epoch_manager.clone(),
+        chain_genesis.gas_limit,
+    );
     let spice_core_writer_actor = SpiceCoreWriterActor::new(
         runtime.store().chain_store(),
         epoch_manager.clone(),
+        spice_core_reader.clone(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
     );
@@ -282,6 +289,7 @@ fn spawn_spice_actors(
         runtime.store().chain_store(),
         validator_signer.clone(),
         shard_tracker.clone(),
+        spice_core_reader,
         network_adapter.clone(),
         chunk_executor_adapter.as_sender(),
         spice_chunk_validator_adapter.as_sender(),
@@ -324,14 +332,14 @@ fn spawn_spice_actors(
 }
 
 pub struct NearNode {
-    pub client: TokioRuntimeHandle<ClientActorInner>,
-    pub view_client: MultithreadRuntimeHandle<ViewClientActorInner>,
+    pub client: TokioRuntimeHandle<ClientActor>,
+    pub view_client: MultithreadRuntimeHandle<ViewClientActor>,
     // TODO(darioush): Remove once we migrate `slow_test_state_sync_headers` and
     // `slow_test_state_sync_headers_no_tracked_shards` to testloop.
     pub state_request_client: MultithreadRuntimeHandle<StateRequestActor>,
-    pub rpc_handler: MultithreadRuntimeHandle<RpcHandler>,
+    pub rpc_handler: MultithreadRuntimeHandle<RpcHandlerActor>,
     #[cfg(feature = "tx_generator")]
-    pub tx_generator: TokioRuntimeHandle<GeneratorActorImpl>,
+    pub tx_generator: TokioRuntimeHandle<GeneratorActor>,
     /// The cold_store_loop_handle will only be set if the cold store is configured.
     /// It's a handle to control the cold store actor that copies data from the hot store to the cold store.
     pub cold_store_loop_handle: Option<Arc<AtomicBool>>,
@@ -391,7 +399,8 @@ pub async fn start_with_config_and_synchronization_impl(
         Some(home_dir),
     );
 
-    let genesis_epoch_config = epoch_manager.get_epoch_config(&EpochId::default())?;
+    let epoch_id = EpochId::default();
+    let genesis_epoch_config = epoch_manager.get_epoch_config(&epoch_id)?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.
     // This sets up genesis_state_roots and genesis_hash in store.
@@ -475,6 +484,8 @@ pub async fn start_with_config_and_synchronization_impl(
         runtime.clone(),
         storage.get_hot_store(),
         storage.get_cloud_storage(),
+        shard_tracker.clone(),
+        epoch_manager.clone(),
     )?;
 
     let telemetry =
@@ -500,7 +511,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
-    let view_client_addr = ViewClientActorInner::spawn_multithread_actor(
+    let view_client_addr = ViewClientActor::spawn_multithread_actor(
         Clock::real(),
         actor_system.clone(),
         chain_genesis.clone(),
@@ -580,7 +591,7 @@ pub async fn start_with_config_and_synchronization_impl(
     ));
 
     let state_sync_spawner: Arc<dyn FutureSpawner> =
-        actor_system.new_future_spawner("state sync").into();
+        actor_system.new_multi_threaded_future_spawner("state sync").into();
 
     let chunk_executor_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
@@ -653,12 +664,14 @@ pub async fn start_with_config_and_synchronization_impl(
         config.validator_signer.clone(),
         split_store.unwrap_or_else(|| storage.get_hot_store()),
         config.client_config.chunk_request_retry_period,
+        config.client_config.chunks_cache_height_horizon,
     );
     shards_manager_adapter.bind(shards_manager_actor);
 
     let rpc_handler_config = RpcHandlerConfig {
         handler_threads: config.client_config.transaction_request_handler_threads,
         tx_routing_height_horizon: config.client_config.tx_routing_height_horizon,
+        disable_tx_routing: config.client_config.disable_tx_routing,
         epoch_length: config.client_config.epoch_length,
         transaction_validity_period: config.genesis.config.transaction_validity_period,
     };
@@ -755,7 +768,7 @@ pub async fn start_with_config_and_synchronization_impl(
         );
     }
 
-    tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
+    tracing::trace!(target: "diagnostic", key = "log", "starting NEAR node with diagnostic activated");
 
     #[cfg(feature = "tx_generator")]
     let tx_generator = near_transactions_generator::actor::start_tx_generator(

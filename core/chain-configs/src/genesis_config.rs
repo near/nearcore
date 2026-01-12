@@ -14,7 +14,7 @@ use near_config_utils::ValidationError;
 #[cfg(feature = "schemars")]
 use near_parameters::view::Rational32SchemarsProvider;
 use near_parameters::{RuntimeConfig, RuntimeConfigView};
-use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::{EpochConfig, EpochConfigBuilder};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::StateRoot;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -37,7 +37,6 @@ use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
-use tracing::warn;
 
 const MAX_GAS_PRICE: Balance = Balance::from_millinear(10);
 
@@ -257,34 +256,36 @@ impl GenesisConfig {
 
 impl From<&GenesisConfig> for EpochConfig {
     fn from(config: &GenesisConfig) -> Self {
-        EpochConfig {
-            epoch_length: config.epoch_length,
-            num_block_producer_seats: config.num_block_producer_seats,
-            num_block_producer_seats_per_shard: config.num_block_producer_seats_per_shard.clone(),
-            avg_hidden_validator_seats_per_shard: config
-                .avg_hidden_validator_seats_per_shard
-                .clone(),
-            block_producer_kickout_threshold: config.block_producer_kickout_threshold,
-            chunk_producer_kickout_threshold: config.chunk_producer_kickout_threshold,
-            chunk_validator_only_kickout_threshold: config.chunk_validator_only_kickout_threshold,
-            target_validator_mandates_per_shard: config.target_validator_mandates_per_shard,
-            fishermen_threshold: config.fishermen_threshold,
-            online_min_threshold: config.online_min_threshold,
-            online_max_threshold: config.online_max_threshold,
-            protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
-            minimum_stake_divisor: config.minimum_stake_divisor,
-            shard_layout: config.shard_layout.clone(),
-            num_chunk_producer_seats: config.num_chunk_producer_seats,
-            num_chunk_validator_seats: config.num_chunk_validator_seats,
-            num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
-            minimum_validators_per_shard: config.minimum_validators_per_shard,
-            minimum_stake_ratio: config.minimum_stake_ratio,
-            chunk_producer_assignment_changes_limit: config.chunk_producer_assignment_changes_limit,
-            shuffle_shard_assignment_for_chunk_producers: config
-                .shuffle_shard_assignment_for_chunk_producers,
-            validator_max_kickout_stake_perc: config.max_kickout_stake_perc,
-            max_inflation_rate: config.max_inflation_rate,
-        }
+        EpochConfigBuilder::default()
+            .epoch_length(config.epoch_length)
+            .shard_layout(config.shard_layout.clone())
+            .num_block_producer_seats(config.num_block_producer_seats)
+            .num_chunk_producer_seats(config.num_chunk_producer_seats)
+            .num_chunk_validator_seats(config.num_chunk_validator_seats)
+            .num_chunk_only_producer_seats(config.num_chunk_only_producer_seats)
+            .target_validator_mandates_per_shard(config.target_validator_mandates_per_shard)
+            .avg_hidden_validator_seats_per_shard(
+                config.avg_hidden_validator_seats_per_shard.clone(),
+            )
+            .minimum_validators_per_shard(config.minimum_validators_per_shard)
+            .block_producer_kickout_threshold(config.block_producer_kickout_threshold)
+            .chunk_producer_kickout_threshold(config.chunk_producer_kickout_threshold)
+            .chunk_validator_only_kickout_threshold(config.chunk_validator_only_kickout_threshold)
+            .validator_max_kickout_stake_perc(config.max_kickout_stake_perc)
+            .online_min_threshold(config.online_min_threshold)
+            .online_max_threshold(config.online_max_threshold)
+            .fishermen_threshold(config.fishermen_threshold)
+            .protocol_upgrade_stake_threshold(config.protocol_upgrade_stake_threshold)
+            .minimum_stake_divisor(config.minimum_stake_divisor)
+            .minimum_stake_ratio(config.minimum_stake_ratio)
+            .chunk_producer_assignment_changes_limit(config.chunk_producer_assignment_changes_limit)
+            .shuffle_shard_assignment_for_chunk_producers(
+                config.shuffle_shard_assignment_for_chunk_producers,
+            )
+            .num_block_producer_seats_per_shard(config.num_block_producer_seats_per_shard.clone())
+            .max_inflation_rate(config.max_inflation_rate)
+            .build()
+            .expect("field init missing")
     }
 }
 
@@ -677,7 +678,7 @@ impl Genesis {
         match genesis_validation {
             GenesisValidationMode::Full => validate_genesis(self),
             GenesisValidationMode::UnsafeFast => {
-                warn!(target: "genesis", "Skipped genesis validation");
+                tracing::warn!(target: "genesis", "skipped genesis validation");
                 Ok(())
             }
         }

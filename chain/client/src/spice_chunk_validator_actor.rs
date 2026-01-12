@@ -17,7 +17,6 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrapped;
-use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
@@ -62,7 +61,8 @@ impl SpiceChunkValidatorActor {
         core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         validation_spawner: ApplyChunksSpawner,
     ) -> Self {
-        let core_reader = SpiceCoreReader::new(store.chain_store(), epoch_manager.clone());
+        let core_reader =
+            SpiceCoreReader::new(store.chain_store(), epoch_manager.clone(), genesis.gas_limit);
         // TODO(spice): Assess if this limit still makes sense for spice.
         // See ChunkValidator::new in c/c/s/s/chunk_validator/mod.rs for rationale used currently.
         let validation_thread_limit =
@@ -126,16 +126,15 @@ pub struct SpiceChunkValidatorWitnessSender {
 }
 
 impl Handler<SpanWrapped<SpiceChunkStateWitnessMessage>> for SpiceChunkValidatorActor {
-    #[perf]
     fn handle(&mut self, msg: SpanWrapped<SpiceChunkStateWitnessMessage>) {
         let msg = msg.span_unwrap();
         let SpiceChunkStateWitnessMessage { witness, raw_witness_size, .. } = msg;
         let Some(signer) = self.validator_signer.get() else {
-            tracing::error!(target: "spice_chunk_validator", ?witness, "Received a chunk state witness but this is not a validator node.");
+            tracing::error!(target: "spice_chunk_validator", ?witness, "received a chunk state witness but this is not a validator node");
             return;
         };
         if let Err(err) = self.process_chunk_state_witness(witness, raw_witness_size, signer) {
-            tracing::error!(target: "spice_chunk_validator", ?err, "Error processing chunk state witness");
+            tracing::error!(target: "spice_chunk_validator", ?err, "error processing chunk state witness");
         }
     }
 }
@@ -190,7 +189,7 @@ impl SpiceChunkValidatorActor {
         let prev_block = self.chain_store.get_block(block.header().prev_hash())?;
 
         let Some(prev_block_execution_results) =
-            self.core_reader.get_block_execution_results(&prev_block)?
+            self.core_reader.get_block_execution_results(prev_block.header())?
         else {
             tracing::debug!(
                 target: "spice_chunk_validator",
@@ -215,7 +214,7 @@ impl SpiceChunkValidatorActor {
         let prev_hash = *block.header().prev_hash();
         let prev_block = self.chain_store.get_block(&prev_hash)?;
         let Some(prev_block_execution_results) =
-            self.core_reader.get_block_execution_results(&prev_block)?
+            self.core_reader.get_block_execution_results(prev_block.header())?
         else {
             tracing::debug!(
                 target: "spice_chunk_validator",
@@ -295,7 +294,7 @@ impl SpiceChunkValidatorActor {
                         ?err,
                         ?chunk_id,
                         ?block_height,
-                        "Failed to validate chunk"
+                        "failed to validate chunk"
                     );
                     return;
                 }

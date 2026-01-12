@@ -39,6 +39,7 @@ fn change_shard_id_to_invalid() {
     let epoch_length = 5000000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -77,6 +78,7 @@ fn change_shard_id_to_invalid() {
                 ShardChunkHeaderInner::V3(inner) => inner.shard_id = bad_shard_id,
                 ShardChunkHeaderInner::V4(inner) => inner.shard_id = bad_shard_id,
                 ShardChunkHeaderInner::V5(inner) => inner.shard_id = bad_shard_id,
+                ShardChunkHeaderInner::V6(inner) => inner.shard_id = bad_shard_id,
             },
         };
         new_chunks.push(new_chunk);
@@ -261,6 +263,7 @@ fn ultra_slow_test_check_process_flipped_block_fails() {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = 5000000;
+        genesis.config.transaction_validity_period = 10000000;
         TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build()
     };
 
@@ -288,14 +291,14 @@ fn ultra_slow_test_check_process_flipped_block_fails() {
         }
         corrupted_bit_idx += 1;
     }
-    tracing::info!("All of the Errors:");
+    tracing::info!("all of the errors:");
     for err in &errs {
-        tracing::info!("{:?}", err);
+        tracing::info!(?err, "error");
     }
     tracing::info!("{}", ["-"; 100].concat());
-    tracing::info!("All of the Oks:");
+    tracing::info!("all of the oks:");
     for ok in &oks {
-        tracing::info!("{:?}", ok);
+        tracing::info!(?ok, "ok");
     }
     assert!(errs.is_empty());
     assert!(

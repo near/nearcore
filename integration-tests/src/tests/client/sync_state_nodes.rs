@@ -33,6 +33,8 @@ use near_store::db::RocksDB;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[tokio::test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn slow_test_sync_state_nodes() {
     init_integration_logger();
 
@@ -137,6 +139,7 @@ async fn ultra_slow_test_sync_state_nodes_multishard() {
         vec![2, 2],
     );
     genesis.config.epoch_length = 150; // so that by the time test2 joins it is not kicked out yet
+    genesis.config.transaction_validity_period = 300;
 
     let _dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
     let dir1 = _dir1.clone();
@@ -282,6 +285,7 @@ async fn ultra_slow_test_sync_state_dump() {
     // Needs to be long enough to give enough time to the second node to
     // start, sync headers and find a dump of state.
     genesis.config.epoch_length = 70;
+    genesis.config.transaction_validity_period = 140;
 
     let _dump_dir = Arc::new(tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap());
     let dump_dir = _dump_dir.clone();
@@ -361,7 +365,7 @@ async fn ultra_slow_test_sync_state_dump() {
                     }
                 }
                 Ok(Ok(b)) if b.header.height <= state_sync_horizon => {
-                    tracing::info!("FIRST STAGE {}", b.header.height);
+                    tracing::info!(height = %b.header.height, "first stage");
                 }
                 Err(_) => {}
                 _ => {}
@@ -375,13 +379,13 @@ async fn ultra_slow_test_sync_state_dump() {
                     return ControlFlow::Break(());
                 }
                 Ok(Ok(b)) if b.header.height < 40 => {
-                    tracing::info!("SECOND STAGE {}", b.header.height)
+                    tracing::info!(height = %b.header.height, "second stage")
                 }
                 Ok(Err(e)) => {
-                    tracing::info!("SECOND STAGE ERROR1: {:?}", e);
+                    tracing::info!(?e, "second stage error1");
                 }
                 Err(e) => {
-                    tracing::info!("SECOND STAGE ERROR2: {:?}", e);
+                    tracing::info!(?e, "second stage error2");
                 }
                 _ => {
                     assert!(false);
@@ -421,6 +425,7 @@ async fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
+        genesis.config.transaction_validity_period = epoch_length * 2;
         let mut env = TestEnv::builder(&genesis.config)
             .clients_count(2)
             .use_state_snapshots()
@@ -464,12 +469,11 @@ async fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                         Provenance::PRODUCED,
                     )
                     .unwrap();
-                tracing::info!("Block {i}: {:?} -- produced no chunk", block.header().epoch_id());
+                tracing::info!(%i, epoch_id = ?block.header().epoch_id(), "block -- produced no chunk");
             } else {
                 env.process_block(0, block.clone(), Provenance::PRODUCED);
                 tracing::info!(
-                    "Block {i}: {:?} -- also produced a chunk",
-                    block.header().epoch_id()
+                    %i, epoch_id = ?block.header().epoch_id(), "block -- also produced a chunk"
                 );
             }
             env.process_block(1, block, Provenance::NONE);
@@ -575,7 +579,7 @@ async fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                 env.clients[1].epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
             for part_id in 0..num_parts {
                 let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
-                let bytes = store.get(DBCol::StateParts, &key).unwrap().unwrap();
+                let bytes = store.get(DBCol::StateParts, &key).unwrap();
                 let part = StatePart::from_bytes(bytes.to_vec(), protocol_version).unwrap();
                 env.clients[1]
                     .runtime_adapter
@@ -626,6 +630,8 @@ async fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
 
 #[tokio::test]
 // Tests StateRequestHeader and StateRequestPart.
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn slow_test_state_sync_headers() {
     init_test_logger();
 
@@ -636,6 +642,7 @@ async fn slow_test_state_sync_headers() {
     let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
     // Increase epoch_length if the test is flaky.
     genesis.config.epoch_length = 100;
+    genesis.config.transaction_validity_period = 200;
 
     let mut near1 =
         load_test_config("test1", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
@@ -757,6 +764,8 @@ async fn slow_test_state_sync_headers() {
 
 #[tokio::test]
 // Tests StateRequestHeader and StateRequestPart.
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn slow_test_state_sync_headers_no_tracked_shards() {
     // Huh. The compiler complains about type system cycle if this async move is stripped.
     Box::pin(async move {
@@ -781,6 +790,7 @@ async fn slow_test_state_sync_headers_no_tracked_shards() {
         // Increase epoch_length if the test is flaky.
         let epoch_length = 100;
         genesis.config.epoch_length = epoch_length;
+        genesis.config.transaction_validity_period = epoch_length * 2;
 
         let port1 = tcp::ListenerAddr::reserve_for_test();
         let mut near1 = load_test_config("test1", port1, genesis.clone());

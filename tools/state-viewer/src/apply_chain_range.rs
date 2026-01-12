@@ -26,7 +26,6 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, ShardId};
 use near_primitives::utils::get_block_shard_id;
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
@@ -416,9 +415,9 @@ fn apply_block_from_range(
     let mut existing_chunk_extra = None;
     let mut prev_chunk_extra = None;
 
+    let chunk_store = read_store.chunk_store();
     if chunk_present {
-        let res_existing_chunk_extra =
-            ChainStoreAdapter::new(read_store.clone()).get_chunk_extra(&block_hash, &shard_uid);
+        let res_existing_chunk_extra = chunk_store.get_chunk_extra(&block_hash, &shard_uid);
         assert!(
             res_existing_chunk_extra.is_ok(),
             "Can't get existing chunk extra for block #{}",
@@ -426,9 +425,8 @@ fn apply_block_from_range(
         );
         existing_chunk_extra = Some(res_existing_chunk_extra.unwrap());
     } else {
-        let chunk_extra = ChainStoreAdapter::new(read_store.clone())
-            .get_chunk_extra(input.block.header().prev_hash(), &shard_uid)
-            .unwrap();
+        let chunk_extra =
+            chunk_store.get_chunk_extra(input.block.header().prev_hash(), &shard_uid).unwrap();
         prev_chunk_extra = Some(chunk_extra);
     }
 
@@ -436,17 +434,7 @@ fn apply_block_from_range(
     let apply_result = apply_chunk_from_input(input, &*runtime_adapter);
 
     // Process application outcome
-    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
-    let chunk_extra = ChunkExtra::new(
-        &apply_result.new_root,
-        outcome_root,
-        apply_result.validator_proposals.clone(),
-        apply_result.total_gas_burnt,
-        genesis.config.gas_limit,
-        apply_result.total_balance_burnt,
-        apply_result.congestion_info,
-        apply_result.bandwidth_requests.clone(),
-    );
+    let chunk_extra = apply_result.to_chunk_extra(genesis.config.gas_limit);
 
     let state_update =
         runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());

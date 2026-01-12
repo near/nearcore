@@ -162,6 +162,8 @@ fn test_ban_peer_for_ill_formed_block() {
 }
 
 #[test]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_produce_block_with_approvals_arrived_early() {
     init_test_logger();
 

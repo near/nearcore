@@ -7,9 +7,11 @@
 use crate::concurrency;
 use crate::network_protocol::SnapshotHostInfo;
 use crate::network_protocol::SnapshotHostInfoVerificationError;
+use itertools::Itertools;
 use lru::LruCache;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 use parking_lot::Mutex;
 use rand::prelude::IteratorRandom;
@@ -22,6 +24,9 @@ use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
+
+/// The number of older epochs to retain snapshot host infos for.
+pub const STATE_SNAPSHOT_INFO_RETENTION_WINDOW: EpochHeight = 1;
 
 #[derive(thiserror::Error, Debug, PartialEq, Eq, Clone)]
 pub(crate) enum SnapshotHostInfoError {
@@ -131,18 +136,31 @@ impl PartPeerSelector {
 struct Inner {
     /// The latest known SnapshotHostInfo for each node in the network
     hosts: LruCache<PeerId, Arc<SnapshotHostInfo>>,
-    /// The hash for the most recent active state sync, inferred from part requests
-    sync_hash: Option<CryptoHash>,
+    /// The current sync hash being actively synced by this node. Used to reset peer selectors when changed.
+    /// Updated only by locally-produced sync requests.
+    current_state_sync_hash: Option<CryptoHash>,
+    /// Minimum epoch height to keep in the snapshot host cache. Snapshot infos below this are discarded.
+    /// Updated based on chain head progression.
+    discard_snapshot_infos_below_epoch_height: Option<EpochHeight>,
     /// Available hosts for the active state sync, by shard
     hosts_for_shard: HashMap<ShardId, HashSet<PeerId>>,
     /// Local data structures used to distribute state part requests among known hosts
     peer_selector: HashMap<(ShardId, u64), PartPeerSelector>,
     /// Batch size for populating the peer_selector from the hosts
     part_selection_cache_batch_size: usize,
+    /// Epoch retention window
+    epoch_retention_window: EpochHeight,
 }
 
 impl Inner {
     fn is_new(&self, h: &SnapshotHostInfo) -> bool {
+        // Discard snapshot infos below the epoch height threshold set by chain progression
+        if self
+            .discard_snapshot_infos_below_epoch_height
+            .is_some_and(|min_epoch| min_epoch > h.epoch_height)
+        {
+            return false;
+        }
         match self.hosts.peek(&h.peer_id) {
             Some(old) if old.epoch_height >= h.epoch_height => false,
             _ => true,
@@ -156,8 +174,15 @@ impl Inner {
         if !self.is_new(&d) {
             return None;
         }
+        self.insert(&d);
+        Some(d)
+    }
 
-        if self.sync_hash == Some(d.sync_hash) {
+    /// Ingests a new SnapshotHostInfo into the cache
+    /// assumes that the SnapshotHostInfo is valid and new
+    fn insert(&mut self, d: &Arc<SnapshotHostInfo>) {
+        // If we have an active state sync and this info matches its sync hash, add it to the shard-specific caches
+        if self.current_state_sync_hash.as_ref() == Some(&d.sync_hash) {
             for shard_id in &d.shards {
                 self.hosts_for_shard
                     .entry(*shard_id)
@@ -166,28 +191,53 @@ impl Inner {
             }
         }
         self.hosts.push(d.peer_id.clone(), d.clone());
-
-        Some(d)
     }
 
-    /// Clears internal state if the sync hash has changed.
-    fn maybe_update_sync_hash(&mut self, sync_hash: &CryptoHash) {
-        if self.sync_hash != Some(*sync_hash) {
-            self.sync_hash = Some(*sync_hash);
-            self.hosts_for_shard.clear();
-            self.peer_selector.clear();
+    /// Updates the current state sync hash. This is called when a local state sync request is initiated.
+    /// Resets peer selectors if the sync hash has changed.
+    fn update_current_state_sync_hash(&mut self, sync_hash: &CryptoHash) {
+        if self.current_state_sync_hash == Some(*sync_hash) {
+            return;
+        }
 
-            for (peer_id, info) in &self.hosts {
-                if info.sync_hash == *sync_hash {
-                    for shard_id in &info.shards {
-                        self.hosts_for_shard
-                            .entry(*shard_id)
-                            .or_insert(HashSet::default())
-                            .insert(peer_id.clone());
-                    }
+        self.current_state_sync_hash = Some(*sync_hash);
+        // Reset peer selectors and shard-specific caches for the new sync hash
+        self.hosts_for_shard.clear();
+        self.peer_selector.clear();
+
+        // Rebuild the shard-specific caches with hosts that match the new sync hash
+        for (_, info) in &self.hosts {
+            if info.sync_hash == *sync_hash {
+                for shard_id in &info.shards {
+                    self.hosts_for_shard
+                        .entry(*shard_id)
+                        .or_insert(HashSet::default())
+                        .insert(info.peer_id.clone());
                 }
             }
         }
+    }
+
+    /// Updates the minimum epoch height to keep in the cache. This is called based on chain progression.
+    /// Discards snapshot infos that are too old.
+    fn update_discard_epoch_threshold(&mut self, epoch_height: EpochHeight) {
+        let min_epoch_to_keep = epoch_height.saturating_sub(self.epoch_retention_window);
+        if self.discard_snapshot_infos_below_epoch_height == Some(min_epoch_to_keep) {
+            return;
+        }
+
+        self.discard_snapshot_infos_below_epoch_height = Some(min_epoch_to_keep);
+
+        // Remove snapshot infos that are now below the retention window
+        let mut new_hosts = LruCache::new(NonZeroUsize::new(self.hosts.cap().get()).unwrap());
+
+        loop {
+            let Some((peer_id, info)) = self.hosts.pop_lru() else { break };
+            if info.epoch_height >= min_epoch_to_keep {
+                new_hosts.push(peer_id, info);
+            }
+        }
+        self.hosts = new_hosts;
     }
 
     /// Given a state header request produced by the local node,
@@ -197,8 +247,7 @@ impl Inner {
         sync_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Option<PeerId> {
-        self.maybe_update_sync_hash(sync_hash);
-
+        self.update_current_state_sync_hash(sync_hash);
         self.hosts_for_shard.get(&shard_id)?.iter().choose(&mut thread_rng()).cloned()
     }
 
@@ -210,7 +259,7 @@ impl Inner {
         shard_id: ShardId,
         part_id: u64,
     ) -> Option<PeerId> {
-        self.maybe_update_sync_hash(sync_hash);
+        self.update_current_state_sync_hash(sync_hash);
 
         let selector =
             self.peer_selector.entry((shard_id, part_id)).or_insert(PartPeerSelector::default());
@@ -252,15 +301,30 @@ pub(crate) struct SnapshotHostsCache(Mutex<Inner>);
 
 impl SnapshotHostsCache {
     pub fn new(config: Config) -> Self {
+        Self::new_with_epoch_retention_window(config, STATE_SNAPSHOT_INFO_RETENTION_WINDOW)
+    }
+
+    pub fn new_with_epoch_retention_window(
+        config: Config,
+        epoch_retention_window: EpochHeight,
+    ) -> Self {
         Self(Mutex::new(Inner {
             hosts: LruCache::new(
                 NonZeroUsize::new(config.snapshot_hosts_cache_size as usize).unwrap(),
             ),
-            sync_hash: None,
+            current_state_sync_hash: None,
+            discard_snapshot_infos_below_epoch_height: None,
             hosts_for_shard: HashMap::new(),
             peer_selector: HashMap::new(),
             part_selection_cache_batch_size: config.part_selection_cache_batch_size as usize,
+            epoch_retention_window,
         }))
+    }
+
+    /// Updates the minimum epoch height to keep based on chain progression.
+    /// Snapshot infos older than STATE_SNAPSHOT_INFO_RETENTION_WINDOW epochs from the given epoch height will be discarded.
+    pub fn set_current_epoch_height(&self, epoch_height: EpochHeight) {
+        self.0.lock().update_discard_epoch_threshold(epoch_height);
     }
 
     /// Selects new data and verifies the signatures.
@@ -270,28 +334,18 @@ impl SnapshotHostsCache {
         &self,
         data: Vec<Arc<SnapshotHostInfo>>,
     ) -> (Vec<Arc<SnapshotHostInfo>>, Option<SnapshotHostInfoError>) {
-        // Filter out any data which is outdated or which we already have.
-        let mut new_data = HashMap::new();
-        {
-            let inner = self.0.lock();
-            for d in data {
-                // Sharing multiple entries for the same peer is considered malicious,
-                // since all but one are obviously outdated.
-                if new_data.contains_key(&d.peer_id) {
-                    return (vec![], Some(SnapshotHostInfoError::DuplicatePeerId));
-                }
-                // It is fine to broadcast data we already know about.
-                // It is fine to broadcast data which we know to be outdated.
-                if inner.is_new(&d) {
-                    new_data.insert(d.peer_id.clone(), d);
-                }
-            }
+        // Filter out any data which is invalid, outdated or which we already have.
+        if data.iter().map(|d| d.peer_id.clone()).collect::<HashSet<_>>().len() != data.len() {
+            return (vec![], Some(SnapshotHostInfoError::DuplicatePeerId));
         }
-
+        let new_data = {
+            let inner = self.0.lock();
+            data.into_iter().filter(|d| !d.shards.is_empty() && inner.is_new(d)).collect_vec()
+        };
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
         let (data, verification_result) = concurrency::rayon::run(move || {
-            concurrency::rayon::try_map_result(new_data.into_values().par_bridge(), |d| {
+            concurrency::rayon::try_map_result(new_data.into_iter().par_bridge(), |d| {
                 match d.verify() {
                     Ok(()) => Ok(d),
                     Err(err) => Err(err),
@@ -314,16 +368,13 @@ impl SnapshotHostsCache {
     ) -> (Vec<Arc<SnapshotHostInfo>>, Option<SnapshotHostInfoError>) {
         // Execute verification on the rayon threadpool.
         let (data, err) = self.verify(data).await;
-        // Insert the successfully verified data, even if an error has been encountered.
-        let mut newly_inserted_data: Vec<Arc<SnapshotHostInfo>> = vec![];
-        let mut inner = self.0.lock();
-        for d in data {
-            if let Some(inserted) = inner.try_insert(d) {
-                newly_inserted_data.push(inserted);
-            }
+        if data.is_empty() {
+            return (vec![], err);
         }
-        // Return the inserted data.
-        (newly_inserted_data, err)
+        // Insert the successfully verified data.
+        let mut inner = self.0.lock();
+        data.iter().for_each(|d| inner.insert(d));
+        (data, err)
     }
 
     /// Skips signature verification. Used only for the local node's own information.
