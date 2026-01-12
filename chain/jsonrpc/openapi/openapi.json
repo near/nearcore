@@ -4313,7 +4313,7 @@
         "type": "object"
       },
       "DynamicReshardingConfigView": {
-        "description": "Configuration for dynamic resharding feature\nSee [`CongestionControlConfig`] for more details.",
+        "description": "Configuration for dynamic resharding feature\nSee [`DynamicReshardingConfig`] for more details.",
         "properties": {
           "block_split_shards": {
             "description": "Shards that should **not** be split even when they meet the regular split criteria",

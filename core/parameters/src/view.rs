@@ -834,7 +834,7 @@ impl From<CongestionControlConfigView> for CongestionControlConfig {
 }
 
 /// Configuration for dynamic resharding feature
-/// See [`CongestionControlConfig`] for more details.
+/// See [`DynamicReshardingConfig`] for more details.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct DynamicReshardingConfigView {

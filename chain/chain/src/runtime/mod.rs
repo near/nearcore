@@ -1527,6 +1527,7 @@ fn check_dynamic_resharding(
     if shard_layout.num_shards() >= config.max_number_of_shards {
         return Ok(None);
     }
+    // maximum number of shards takes precedence over force-split – DO NOT REORDER
     if config.force_split_shards.contains(&shard_id) {
         return Ok(Some(find_trie_split(shard_trie)?));
     }
