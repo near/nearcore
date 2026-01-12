@@ -39,6 +39,7 @@ fn change_shard_id_to_invalid() {
     let epoch_length = 5000000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -262,6 +263,7 @@ fn ultra_slow_test_check_process_flipped_block_fails() {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = 5000000;
+        genesis.config.transaction_validity_period = 10000000;
         TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build()
     };
 

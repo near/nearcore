@@ -20,6 +20,7 @@ use primitive_types::U256;
 fn build_genesis() -> Genesis {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = 2;
+    genesis.config.transaction_validity_period = 4;
     genesis.config.num_blocks_per_year = 2;
     genesis.config.protocol_reward_rate = Ratio::new_raw(1, 10);
     genesis.config.max_inflation_rate = Ratio::new_raw(1, 10);

@@ -69,6 +69,7 @@ fn run_chunk_validation_test(
             .collect(),
         // Ensures 4 epoch transitions.
         epoch_length: 10,
+        transaction_validity_period: 20,
         // The genesis requires this, so set it to something arbitrary.
         protocol_treasury_account: accounts[num_validators].clone(),
         // Simply make all validators block producers.
@@ -80,7 +81,6 @@ fn run_chunk_validation_test(
         // or else the genesis fails validation.
         num_block_producer_seats_per_shard: vec![8; num_shards],
         gas_limit: Gas::from_teragas(1000),
-        transaction_validity_period: 120,
         // Needed to completely avoid validator kickouts as we want to test
         // missing chunks functionality.
         block_producer_kickout_threshold: 0,
