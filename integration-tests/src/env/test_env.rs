@@ -500,6 +500,8 @@ impl TestEnv {
 
     pub fn propagate_chunk_state_witnesses_and_endorsements(&mut self, allow_errors: bool) {
         if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            // State witnesses with spice follow completely different code paths compared to before
+            // spice.
             return;
         }
         self.propagate_chunk_state_witnesses(allow_errors);
