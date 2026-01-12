@@ -142,14 +142,9 @@ fn test_invalid_transactions_no_panic() {
 /// Tests the `RelaxedChunkValidation` feature.
 #[test]
 #[cfg(feature = "nightly")]
+// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_invalid_transactions_dont_invalidate_chunk() {
-    if near_primitives::version::ProtocolFeature::Spice
-        .enabled(near_primitives::version::PROTOCOL_VERSION)
-    {
-        // With spice we many not have state in chunk producers so transaction validity wouldn't
-        // influence inclusion in chunks.
-        return;
-    }
     near_o11y::testonly::init_test_logger();
     let accounts =
         vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];
@@ -247,12 +242,11 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
     }
     env.propagate_chunk_state_witnesses_and_endorsements(true);
     let block = env.client(&block_producer).produce_block(1).unwrap().unwrap();
-    for i in 0..env.clients.len() {
-        env.clients[i].start_process_block(block.clone().into(), Provenance::NONE, None).unwrap();
-        near_chain::test_utils::wait_for_all_blocks_in_processing(&mut env.clients[i].chain);
-        let (accepted_blocks, _errors) = env.clients[i].postprocess_ready_blocks(None, true);
+    for client in &mut env.clients {
+        client.start_process_block(block.clone().into(), Provenance::NONE, None).unwrap();
+        near_chain::test_utils::wait_for_all_blocks_in_processing(&mut client.chain);
+        let (accepted_blocks, _errors) = client.postprocess_ready_blocks(None, true);
         assert_eq!(accepted_blocks.len(), 1);
-        env.spice_execute_block(i, *block.hash());
     }
 
     env.process_partial_encoded_chunks();
@@ -261,12 +255,11 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
     }
     env.propagate_chunk_state_witnesses_and_endorsements(true);
     let block = env.client(&block_producer).produce_block(2).unwrap().unwrap();
-    for i in 0..env.clients.len() {
-        env.clients[i].start_process_block(block.clone().into(), Provenance::NONE, None).unwrap();
-        near_chain::test_utils::wait_for_all_blocks_in_processing(&mut env.clients[i].chain);
-        let (accepted_blocks, _errors) = env.clients[i].postprocess_ready_blocks(None, true);
+    for client in &mut env.clients {
+        client.start_process_block(block.clone().into(), Provenance::NONE, None).unwrap();
+        near_chain::test_utils::wait_for_all_blocks_in_processing(&mut client.chain);
+        let (accepted_blocks, _errors) = client.postprocess_ready_blocks(None, true);
         assert_eq!(accepted_blocks.len(), 1);
-        env.spice_execute_block(i, *block.hash());
     }
     env.propagate_chunk_state_witnesses_and_endorsements(true);
 
