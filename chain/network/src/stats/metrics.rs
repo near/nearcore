@@ -431,13 +431,12 @@ fn record_routed_msg_latency(
     tier: tcp::Tier,
     fastest: bool,
 ) {
-    if let Some(created_at) = msg.created_at() {
-        let now = clock.now_utc().unix_timestamp();
-        let duration = now - created_at;
-        NETWORK_ROUTED_MSG_LATENCY
-            .with_label_values(&[msg.body_variant(), tier.as_ref(), bool_to_str(fastest)])
-            .observe(duration as f64);
-    }
+    let Some(created_at) = msg.created_at() else { return; };
+    let now = clock.now_utc().unix_timestamp();
+    let Some(duration) = now.checked_sub(created_at) else { return; };
+    NETWORK_ROUTED_MSG_LATENCY
+        .with_label_values(&[msg.body_variant(), tier.as_ref(), bool_to_str(fastest)])
+        .observe(duration as f64);
 }
 
 // The routed message reached its destination. If the number of hops is known, then update the

@@ -1462,7 +1462,8 @@ impl PeerActor {
                     }
                 } else {
                     if msg.decrease_ttl() {
-                        *msg.num_hops_mut() += 1;
+                        let num_hops = msg.num_hops_mut();
+                        *num_hops = num_hops.saturating_add(1);
                         self.network_state.send_message_to_peer(&self.clock, conn.tier, msg);
                     } else {
                         #[cfg(test)]
