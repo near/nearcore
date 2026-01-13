@@ -1,8 +1,8 @@
-use crate::config::{CongestionControlConfig, DynamicReshardingConfig, WitnessConfig};
+use crate::config::{CongestionControlConfig, WitnessConfig};
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost};
 use near_account_id::AccountId;
+use near_primitives_core::types::Balance;
 use near_primitives_core::types::Gas;
-use near_primitives_core::types::{Balance, ShardId};
 use num_rational::Rational32;
 
 /// View that preserves JSON format of the runtime config.
@@ -23,9 +23,6 @@ pub struct RuntimeConfigView {
     pub congestion_control_config: CongestionControlConfigView,
     /// Configuration specific to ChunkStateWitness.
     pub witness_config: WitnessConfigView,
-    /// Configuration for dynamic resharding feature.
-    #[serde(default)]
-    pub dynamic_resharding_config: DynamicReshardingConfigView,
 }
 
 /// Describes different fees for the runtime
@@ -209,9 +206,6 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                 config.congestion_control_config,
             ),
             witness_config: WitnessConfigView::from(config.witness_config),
-            dynamic_resharding_config: DynamicReshardingConfigView::from(
-                config.dynamic_resharding_config,
-            ),
         }
     }
 }
@@ -829,65 +823,6 @@ impl From<CongestionControlConfigView> for CongestionControlConfig {
             reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
             outgoing_receipts_usual_size_limit: other.outgoing_receipts_usual_size_limit,
             outgoing_receipts_big_size_limit: other.outgoing_receipts_big_size_limit,
-        }
-    }
-}
-
-/// Configuration for dynamic resharding feature
-/// See [`DynamicReshardingConfig`] for more details.
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct DynamicReshardingConfigView {
-    /// Memory threshold over which a shard is marked for a split.
-    pub memory_usage_threshold: u64,
-    /// Minimum memory usage of a child shard.
-    pub min_child_memory_usage: u64,
-    /// Maximum number of shards in the network.
-    pub max_number_of_shards: u64,
-    /// Minimum number of epochs until next resharding can be scheduled.
-    pub min_epochs_between_resharding: u64,
-    /// Shards that should be split even when they don't meet the regular split criteria.
-    pub force_split_shards: Vec<ShardId>,
-    /// Shards that should **not** be split even when they meet the regular split criteria.
-    pub block_split_shards: Vec<ShardId>,
-}
-
-// For backwards compatibility
-impl Default for DynamicReshardingConfigView {
-    fn default() -> Self {
-        Self {
-            memory_usage_threshold: 999_999_999_999_999,
-            min_child_memory_usage: 999_999_999_999_999,
-            max_number_of_shards: 999_999_999_999_999,
-            min_epochs_between_resharding: 999_999_999_999_999,
-            force_split_shards: vec![],
-            block_split_shards: vec![],
-        }
-    }
-}
-
-impl From<DynamicReshardingConfig> for DynamicReshardingConfigView {
-    fn from(config: DynamicReshardingConfig) -> Self {
-        Self {
-            memory_usage_threshold: config.memory_usage_threshold,
-            min_child_memory_usage: config.min_child_memory_usage,
-            max_number_of_shards: config.max_number_of_shards,
-            min_epochs_between_resharding: config.min_epochs_between_resharding,
-            force_split_shards: config.force_split_shards,
-            block_split_shards: config.block_split_shards,
-        }
-    }
-}
-
-impl From<DynamicReshardingConfigView> for DynamicReshardingConfig {
-    fn from(view: DynamicReshardingConfigView) -> Self {
-        Self {
-            memory_usage_threshold: view.memory_usage_threshold,
-            min_child_memory_usage: view.min_child_memory_usage,
-            max_number_of_shards: view.max_number_of_shards,
-            min_epochs_between_resharding: view.min_epochs_between_resharding,
-            force_split_shards: view.force_split_shards,
-            block_split_shards: view.block_split_shards,
         }
     }
 }

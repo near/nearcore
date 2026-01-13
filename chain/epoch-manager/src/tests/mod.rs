@@ -3641,7 +3641,7 @@ fn test_get_shard_uids_pending_resharding_none() {
 #[test]
 fn test_get_shard_uids_pending_resharding_simple_nightshade() {
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let shard_layout = epoch_config_store.get_config(PROTOCOL_VERSION).legacy_shard_layout();
+    let shard_layout = epoch_config_store.get_config(PROTOCOL_VERSION).static_shard_layout();
     let shard_uids =
         test_get_shard_uids_pending_resharding_base(&[shard_layout.clone(), shard_layout]);
     assert_eq!(shard_uids.len(), 0);

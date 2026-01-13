@@ -1037,7 +1037,7 @@ pub(crate) fn print_epoch_analysis(
         let next_epoch_id = epoch_heights_to_ids.get(&next_epoch_info.epoch_height()).unwrap();
         epoch_manager.get_shard_layout(&next_epoch_id).unwrap().num_shards() as usize
     } else {
-        next_next_epoch_config.legacy_shard_layout().num_shards() as usize
+        next_next_epoch_config.static_shard_layout().num_shards() as usize
     };
 
     // Print data header.
@@ -1080,7 +1080,7 @@ pub(crate) fn print_epoch_analysis(
                 // TODO(dynamic_resharding): adjust layout if a shard was marked for splitting
                 next_shard_layout.clone()
             } else {
-                next_next_epoch_config.legacy_shard_layout()
+                next_next_epoch_config.static_shard_layout()
             };
 
         match mode {
@@ -1265,7 +1265,7 @@ pub(crate) fn contract_accounts(
 
     let tries = state_roots.iter().enumerate().map(|(shard_index, &state_root)| {
         let epoch_config_store = EpochConfigStore::for_chain_id(MAINNET, None).unwrap();
-        let shard_layout = &epoch_config_store.get_config(PROTOCOL_VERSION).legacy_shard_layout();
+        let shard_layout = &epoch_config_store.get_config(PROTOCOL_VERSION).static_shard_layout();
         let shard_uid = shard_layout.get_shard_uid(shard_index).unwrap();
         // Use simple non-caching storage, we don't expect many duplicate lookups while iterating.
         let storage = TrieDBStorage::new(store.trie_store(), shard_uid);

@@ -11,7 +11,6 @@ use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfi
 use near_crypto::PublicKey;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use near_parameters::config::DynamicReshardingConfig;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -20,6 +19,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::congestion_info::{
     CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
 };
+use near_primitives::epoch_manager::{DynamicReshardingConfig, EpochConfig};
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
@@ -243,12 +243,13 @@ impl NightshadeRuntime {
         let is_first_block_of_version = current_protocol_version != prev_block_protocol_version;
 
         let config = self.runtime_config_store.get_config(current_protocol_version);
+        let epoch_config = self.epoch_manager.get_epoch_config(&epoch_id)?;
         let proposed_split = self.check_dynamic_resharding(
             &trie,
             shard_id,
             &epoch_id,
             current_protocol_version,
-            &config.dynamic_resharding_config,
+            &epoch_config,
             &prev_block_hash,
         )?;
 
@@ -272,7 +273,7 @@ impl NightshadeRuntime {
             gas_limit: Some(gas_limit),
             random_seed,
             current_protocol_version,
-            config: self.runtime_config_store.get_config(current_protocol_version).clone(),
+            config: config.clone(),
             cache: Some(self.compiled_contract_cache.handle()),
             is_new_chunk,
             congestion_info,
@@ -524,7 +525,7 @@ impl NightshadeRuntime {
         shard_id: ShardId,
         epoch_id: &EpochId,
         protocol_version: ProtocolVersion,
-        config: &DynamicReshardingConfig,
+        epoch_config: &EpochConfig,
         prev_block_hash: &CryptoHash,
     ) -> Result<Option<TrieSplit>, Error> {
         if !ProtocolFeature::DynamicResharding.enabled(protocol_version) {
@@ -536,6 +537,11 @@ impl NightshadeRuntime {
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
 
         // TODO(dynamic_resharding): Check how many epochs since last resharding
+
+        let Some(config) = epoch_config.dynamic_resharding_config() else {
+            tracing::error!(target: "runtime", "dynamic resharding config missing");
+            return Ok(None);
+        };
         match check_dynamic_resharding(shard_trie, shard_id, shard_layout, config) {
             Err(FindSplitError::Storage(err)) => Err(err)?,
             Err(err) => {

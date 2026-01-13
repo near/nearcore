@@ -1918,7 +1918,7 @@ fn stake(
 }
 
 mod check_dynamic_resharding {
-    use near_parameters::config::DynamicReshardingConfig;
+    use near_primitives::epoch_manager::DynamicReshardingConfig;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::ShardId;
