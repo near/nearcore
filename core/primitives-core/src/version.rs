@@ -473,16 +473,16 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 
 /// Current protocol version used on the mainnet with all stable features.
-pub const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
 
 // On nightly, pick big enough version to support all features.
-pub const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.
 // For spice we want to include all nightly features, but for now we don't want nightly to run with
 // spice.
-pub const SPICE_PROTOCOL_VERSION: ProtocolVersion = 200;
+const SPICE_PROTOCOL_VERSION: ProtocolVersion = 200;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "protocol_feature_spice") {

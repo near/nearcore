@@ -135,32 +135,39 @@ fn test_bad_shard_id() {
     let chunk = chunks.get(0).unwrap();
     let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
     let congestion_info = CongestionInfo::default();
-    // This is needed because calling prev_state_root() or gas_limit() on spice header causes panic
-    let (prev_state_root, gas_limit) = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        (Default::default(), Gas::ZERO)
+    let mut modified_chunk = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        ShardChunkHeaderV3::new_for_spice(
+            *chunk.prev_block_hash(),
+            *chunk.encoded_merkle_root(),
+            chunk.encoded_length(),
+            2,
+            ShardId::new(1),
+            *outgoing_receipts_root,
+            *chunk.tx_root(),
+            &validator_signer,
+        )
     } else {
-        (chunk.prev_state_root(), chunk.gas_limit())
+        ShardChunkHeaderV3::new(
+            *chunk.prev_block_hash(),
+            chunk.prev_state_root(),
+            *chunk.prev_outcome_root(),
+            *chunk.encoded_merkle_root(),
+            chunk.encoded_length(),
+            2,
+            ShardId::new(1),
+            chunk.prev_gas_used(),
+            chunk.gas_limit(),
+            chunk.prev_balance_burnt(),
+            *outgoing_receipts_root,
+            *chunk.tx_root(),
+            chunk.prev_validator_proposals().collect(),
+            congestion_info,
+            chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
+            None,
+            &validator_signer,
+            PROTOCOL_VERSION,
+        )
     };
-    let mut modified_chunk = ShardChunkHeaderV3::new(
-        *chunk.prev_block_hash(),
-        prev_state_root,
-        *chunk.prev_outcome_root(),
-        *chunk.encoded_merkle_root(),
-        chunk.encoded_length(),
-        2,
-        ShardId::new(1),
-        chunk.prev_gas_used(),
-        gas_limit,
-        chunk.prev_balance_burnt(),
-        *outgoing_receipts_root,
-        *chunk.tx_root(),
-        chunk.prev_validator_proposals().collect(),
-        congestion_info,
-        chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
-        None,
-        &validator_signer,
-        PROTOCOL_VERSION,
-    );
     modified_chunk.height_included = 2;
     chunks[0] = ShardChunkHeader::V3(modified_chunk);
     let mut_block = Arc::make_mut(&mut block);

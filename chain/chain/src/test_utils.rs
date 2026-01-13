@@ -25,9 +25,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, NumBlocks, NumShards, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{
-    NIGHTLY_PROTOCOL_VERSION, PROTOCOL_VERSION, SPICE_PROTOCOL_VERSION, STABLE_PROTOCOL_VERSION,
-};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
@@ -290,33 +288,39 @@ pub fn get_fake_next_block_chunk_headers(
         signer: &ValidatorSigner,
         is_spice_block: bool,
     ) -> ShardChunkHeader {
-        let protocol_version = if is_spice_block {
-            SPICE_PROTOCOL_VERSION
-        } else if cfg!(feature = "nightly") {
-            NIGHTLY_PROTOCOL_VERSION
+        if is_spice_block {
+            ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
+                prev_block_hash,
+                Default::default(),
+                Default::default(),
+                height,
+                shard_id,
+                Default::default(),
+                Default::default(),
+                signer,
+            ))
         } else {
-            STABLE_PROTOCOL_VERSION
-        };
-        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            prev_block_hash,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            height,
-            shard_id,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            CongestionInfo::default(),
-            BandwidthRequests::empty(),
-            None,
-            signer,
-            protocol_version,
-        ))
+            ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+                prev_block_hash,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                height,
+                shard_id,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                CongestionInfo::default(),
+                BandwidthRequests::empty(),
+                None,
+                signer,
+                PROTOCOL_VERSION,
+            ))
+        }
     }
 
     let mut chunks = Vec::new();

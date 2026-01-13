@@ -330,14 +330,9 @@ mod tests {
     use near_primitives::types::Balance;
     use std::str::FromStr as _;
 
-    use crate::store::ChainStoreAccess;
-    use crate::test_utils::{get_chain_with_genesis, process_block_sync};
-    use crate::{BlockProcessingArtifact, Provenance};
     use near_async::time::Clock;
     use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::ReceiptPriority;
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
@@ -353,9 +348,12 @@ mod tests {
         AccountId, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash, SpiceChunkId,
     };
     use near_primitives::validator_signer::ValidatorSigner;
-    use near_primitives::version::SPICE_PROTOCOL_VERSION;
     use near_store::get_genesis_state_roots;
     use tracing::Span;
+
+    use crate::store::ChainStoreAccess;
+    use crate::test_utils::{get_chain_with_genesis, process_block_sync};
+    use crate::{BlockProcessingArtifact, Provenance};
 
     use super::*;
 
@@ -780,25 +778,15 @@ mod tests {
         signer: &ValidatorSigner,
         tx_root: CryptoHash,
     ) -> ShardChunkHeader {
-        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
             prev_block_hash,
-            Default::default(),
-            Default::default(),
             Default::default(),
             Default::default(),
             height,
             shard_id,
             Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
             tx_root,
-            Default::default(),
-            CongestionInfo::default(),
-            BandwidthRequests::empty(),
-            None,
             signer,
-            SPICE_PROTOCOL_VERSION,
         ))
     }
 

@@ -30,7 +30,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, Gas, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
 use rand::prelude::SliceRandom;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -115,26 +115,39 @@ fn create_benchmark_receipts() -> Vec<Receipt> {
 }
 
 fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
-    ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        CryptoHash::default(),
-        1,
-        height,
-        shard_id,
-        Gas::ZERO,
-        Gas::ZERO,
-        Balance::ZERO,
-        CryptoHash::default(),
-        CryptoHash::default(),
-        vec![],
-        Default::default(),
-        BandwidthRequests::empty(),
-        None,
-        &validator_signer(),
-        PROTOCOL_VERSION,
-    ))
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
+            CryptoHash::default(),
+            CryptoHash::default(),
+            1,
+            height,
+            shard_id,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            &validator_signer(),
+        ))
+    } else {
+        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            CryptoHash::default(),
+            CryptoHash::default(),
+            CryptoHash::default(),
+            CryptoHash::default(),
+            1,
+            height,
+            shard_id,
+            Gas::ZERO,
+            Gas::ZERO,
+            Balance::ZERO,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            vec![],
+            Default::default(),
+            BandwidthRequests::empty(),
+            None,
+            &validator_signer(),
+            PROTOCOL_VERSION,
+        ))
+    }
 }
 
 fn create_action_receipt(
@@ -185,27 +198,42 @@ fn create_encoded_shard_chunk(
     receipts: Vec<Receipt>,
 ) -> (ShardChunkWithEncoding, Vec<Vec<MerklePathItem>>) {
     let rs = ReedSolomon::new(33, 67).unwrap();
-    ShardChunkWithEncoding::new(
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        ShardId::new(0),
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        validated_txs,
-        receipts,
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        BandwidthRequests::empty(),
-        None,
-        &validator_signer(),
-        &rs,
-        PROTOCOL_VERSION,
-    )
+
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        ShardChunkWithEncoding::new_for_spice(
+            Default::default(),
+            Default::default(),
+            ShardId::new(0),
+            validated_txs,
+            receipts,
+            Default::default(),
+            Default::default(),
+            &validator_signer(),
+            &rs,
+        )
+    } else {
+        ShardChunkWithEncoding::new(
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            ShardId::new(0),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            validated_txs,
+            receipts,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            BandwidthRequests::empty(),
+            None,
+            &validator_signer(),
+            &rs,
+            PROTOCOL_VERSION,
+        )
+    }
 }
 
 fn encoded_chunk_to_partial_encoded_chunk(
