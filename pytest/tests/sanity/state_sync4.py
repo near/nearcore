@@ -35,8 +35,6 @@ time.sleep(2)
 nodes[1].kill()
 logger.info('node1 is killed')
 
-block_hash = nodes[0].get_latest_block().hash_bytes
-
 num_new_accounts = 10
 balance = 50000000000000000000000000000000
 account_keys = []
@@ -44,6 +42,7 @@ for i in range(num_new_accounts):
     account_name = f'test_account{i}.test0'
     signer_key = Key(account_name, nodes[0].signer_key.pk,
                      nodes[0].signer_key.sk)
+    block_hash = nodes[0].get_latest_block().hash_bytes
     create_account_tx = sign_create_account_with_full_access_key_and_balance_tx(
         nodes[0].signer_key, account_name, signer_key,
         balance // num_new_accounts, i + 1, block_hash)
@@ -51,11 +50,12 @@ for i in range(num_new_accounts):
     res = nodes[0].send_tx_and_wait(create_account_tx, timeout=15)
     assert 'error' not in res, res
 
-latest_block = utils.wait_for_blocks(nodes[0], target=50)
-cur_height = latest_block.height
-block_hash = latest_block.hash_bytes
+utils.wait_for_blocks(nodes[0], target=50)
 
 for signer_key in account_keys:
+    latest_block = nodes[0].get_latest_block()
+    block_hash = latest_block.hash_bytes
+    cur_height = latest_block.height
     staking_tx = sign_staking_tx(signer_key, nodes[0].validator_key,
                                  balance // (num_new_accounts * 2),
                                  cur_height * 1_000_000 - 1, block_hash)

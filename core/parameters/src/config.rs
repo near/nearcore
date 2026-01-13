@@ -4,7 +4,7 @@ use crate::config_store::INITIAL_TESTNET_CONFIG;
 use crate::cost::RuntimeFeesConfig;
 use crate::parameter_table::ParameterTable;
 use near_account_id::AccountId;
-use near_primitives_core::types::{Balance, EpochHeight, Gas, NumShards, ProtocolVersion};
+use near_primitives_core::types::{Balance, EpochHeight, Gas, NumShards, ProtocolVersion, ShardId};
 use near_primitives_core::version::PROTOCOL_VERSION;
 use std::sync::Arc;
 
@@ -71,7 +71,7 @@ impl RuntimeConfig {
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,
             bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
-            dynamic_resharding_config: runtime_config.dynamic_resharding_config,
+            dynamic_resharding_config: runtime_config.dynamic_resharding_config.clone(),
             use_state_stored_receipt: runtime_config.use_state_stored_receipt,
         }
     }
@@ -90,7 +90,7 @@ impl RuntimeConfig {
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,
             bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
-            dynamic_resharding_config: runtime_config.dynamic_resharding_config,
+            dynamic_resharding_config: runtime_config.dynamic_resharding_config.clone(),
             use_state_stored_receipt: runtime_config.use_state_stored_receipt,
         }
     }
@@ -303,7 +303,7 @@ impl BandwidthSchedulerConfig {
 }
 
 /// Configuration for dynamic resharding feature
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DynamicReshardingConfig {
     /// Memory threshold over which a shard is marked for a split. This is an artificial value,
     /// calculated using `TRIE_COSTS`. It is roughly equal to *double* of the actual RAM usage
@@ -318,4 +318,11 @@ pub struct DynamicReshardingConfig {
     /// Minimum number of epochs until next resharding can be scheduled.
     /// The value of `0` means that resharding can happen every epoch.
     pub min_epochs_between_resharding: EpochHeight,
+    /// Shards that should be split even when they don't meet the regular split criteria
+    /// (i.e. `memory_usage_threshold` and `min_child_memory_usage`).
+    /// Keep in mind that `max_number_of_shards` still applies here.
+    pub force_split_shards: Vec<ShardId>,
+    /// Shards that should **not** be split even when they meet the regular split criteria
+    /// (i.e. `memory_usage_threshold` and `min_child_memory_usage`).
+    pub block_split_shards: Vec<ShardId>,
 }
