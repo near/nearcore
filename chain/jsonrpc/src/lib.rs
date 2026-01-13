@@ -1893,7 +1893,9 @@ async fn debug_epoch_info_handler(
     State(handler): State<Arc<JsonRpcHandler>>,
     Path(epoch_id_str): Path<String>,
 ) -> Response {
-    let epoch_id: near_primitives::types::EpochId = epoch_id_str.parse().unwrap();
+    let Ok(epoch_id) = epoch_id_str.parse::<near_primitives::types::EpochId>() else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
     match handler.debug_epoch_info(Some(epoch_id)).await {
         Ok(Some(value)) => (StatusCode::OK, Json(value)).into_response(),
         Ok(None) => StatusCode::METHOD_NOT_ALLOWED.into_response(),
