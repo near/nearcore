@@ -28,7 +28,7 @@ use near_primitives::types::ValidatorKickoutReason::{
 };
 use near_primitives::types::{AccountInfo, Balance, Gas};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::ShardUId;
 use near_store::test_utils::create_test_store;
 use num_rational::{Ratio, Rational32};
@@ -3176,7 +3176,9 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
             vec![],
             Default::default(),
             BandwidthRequests::empty(),
+            None,
             signer,
+            PROTOCOL_VERSION,
         ))
     }
 }

@@ -163,7 +163,9 @@ fn test_bad_shard_id() {
             chunk.prev_validator_proposals().collect(),
             congestion_info,
             chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
+            None,
             &validator_signer,
+            PROTOCOL_VERSION,
         )
     };
     modified_chunk.height_included = 2;
@@ -177,7 +179,7 @@ fn test_bad_shard_id() {
         .process_block_test(MaybeValidated::from(block), Provenance::NONE)
         .unwrap_err();
     if let near_chain::Error::InvalidShardId(shard_id) = err {
-        assert!(shard_id == ShardId::new(1));
+        assert_eq!(shard_id, ShardId::new(1));
     } else {
         panic!("Expected InvalidShardId error, got {:?}", err);
     }
@@ -305,7 +307,9 @@ fn test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(mode: BadConges
         chunk.prev_validator_proposals().collect(),
         congestion_info,
         chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
+        None,
         &validator_signer,
+        PROTOCOL_VERSION,
     );
     modified_chunk_header.height_included = 2;
 
