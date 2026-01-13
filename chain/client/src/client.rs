@@ -932,6 +932,21 @@ impl Client {
             None
         };
 
+        // Compute shard_split if this is the last block of the epoch
+        let shard_split = if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
+            // Collect proposed splits from chunk headers
+            let proposed_splits = chunk_headers
+                .iter()
+                .filter_map(|header| {
+                    header.proposed_split().map(|split| (header.shard_id(), split.clone()))
+                })
+                .collect();
+
+            self.epoch_manager.get_upcoming_shard_split(&prev_hash, &proposed_splits)?
+        } else {
+            None
+        };
+
         let next_epoch_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
@@ -974,7 +989,7 @@ impl Client {
             self.clock.clone(),
             sandbox_delta_time,
             optimistic_block,
-            None,
+            shard_split,
             spice_info,
         ));
 

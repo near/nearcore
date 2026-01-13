@@ -629,6 +629,7 @@ mod tests {
                     protocol_version,
                     height * 10u64.pow(9),
                     None,
+                    None,
                 ),
                 [0; 32],
             )
