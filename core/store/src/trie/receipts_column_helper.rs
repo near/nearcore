@@ -183,8 +183,8 @@ pub trait TrieQueue {
         Ok(())
     }
 
-    /// Remove up to `n` values from the end of the queue and return how many
-    /// were actually remove.
+    /// Remove up to `n` values from the front of the queue and return how many
+    /// were actually removed.
     ///
     /// Unlike `pop`, this method does not return the actual items or even
     /// check if they existed in state.
@@ -206,7 +206,7 @@ pub trait TrieQueue {
             self.indices_mut().first_index = indices
                 .first_index
                 .checked_add(to_remove)
-                .expect("first_index + to_remove should be < next_available_index");
+                .expect("first_index + to_remove should be <= next_available_index");
             self.write_indices(state_update);
         }
         Ok(to_remove)
