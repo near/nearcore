@@ -17,23 +17,54 @@ use near_primitives::version::BLOCK_HEADER_V3_PROTOCOL_VERSION;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_store::adapter::epoch_store::EpochStoreAdapter;
+use near_store::adapter::epoch_store::{EpochStoreAdapter, EpochStoreUpdateAdapter};
 use near_store::merkle_proof::MerkleProofAccess;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use tracing::instrument;
+
+/// We call this function on the first block of epoch T. We update the epoch sync proof to that
+/// of epoch T-2. We pass the last_block_hash of epoch T-2 to extend the epoch sync proof.
+///
+/// Any new node doing epoch sync needs to have at least `transaction_validity_period` number of
+/// block headers to validate transactions.
+/// Currently, `transaction_validity_period` is set to ~2 epochs worth of blocks, which is why
+/// we update the epoch sync proof to that of epoch T-2 here.
+///
+/// In the future, if `transaction_validity_period` were to increase, we would need to update
+/// this function.
+pub fn update_epoch_sync_proof(
+    store: &EpochStoreAdapter,
+    hash: CryptoHash,
+) -> Result<EpochStoreUpdateAdapter<'static>, Error> {
+    // e -> epoch
+    // pe -> previous_epoch
+    // ppe -> previous_previous_epoch
+    let block_info = store.get_block_info(&hash)?;
+    let first_block_hash_in_e = block_info.epoch_first_block();
+    let first_block_info_in_e = store.get_block_info(&first_block_hash_in_e)?;
+    let last_block_hash_in_pe = first_block_info_in_e.prev_hash();
+    let last_block_info_in_pe = store.get_block_info(last_block_hash_in_pe)?;
+    let first_block_hash_in_ppe = last_block_info_in_pe.epoch_first_block();
+    let first_block_info_in_ppe = store.get_block_info(first_block_hash_in_ppe)?;
+    let last_block_hash_in_ppe = first_block_info_in_ppe.prev_hash();
+
+    let store_update = extend_epoch_sync_proof(&store, last_block_hash_in_ppe)?;
+    Ok(store_update)
+}
 
 /// Function to extend epoch sync proof by one epoch.
 /// - Retrieve the existing epoch sync proof from the store
 /// - Create and append the new epoch data to the existing proof.
 /// - Updated proof back to the store.
-pub fn extend_epoch_sync_proof(
+fn extend_epoch_sync_proof(
     store: &EpochStoreAdapter,
     last_block_hash: &CryptoHash,
-) -> Result<(), Error> {
+) -> Result<EpochStoreUpdateAdapter<'static>, Error> {
+    let mut store_update = store.store_update();
     let last_block_info = store.get_block_info(&last_block_hash)?;
     if last_block_info.epoch_id() == &EpochId::default() {
         // Genesis epoch, nothing to do.
-        return Ok(());
+        return Ok(store_update);
     }
 
     let proof = store.get_epoch_sync_proof()?;
@@ -41,15 +72,13 @@ pub fn extend_epoch_sync_proof(
         let prev_proof_first_block_hash = proof.current_epoch.first_block_header_in_epoch.hash();
         if prev_proof_first_block_hash == last_block_info.epoch_first_block() {
             // Proof is already up-to-date. This can happen if we are processing forks
-            return Ok(());
+            return Ok(store_update);
         }
     }
 
     let new_proof = create_epoch_sync_proof_from_prev_proof(store, last_block_hash, proof)?;
-    let mut store_update = store.store_update();
     store_update.set_epoch_sync_proof(&new_proof);
-    store_update.commit()?;
-    Ok(())
+    Ok(store_update)
 }
 
 fn create_epoch_sync_proof_from_prev_proof(

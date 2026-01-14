@@ -53,6 +53,7 @@ use near_chain_configs::{MutableValidatorSigner, ProtocolVersionCheckConfig};
 use near_chain_primitives::ApplyChunksMode;
 use near_chain_primitives::error::{BlockKnownError, Error};
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::epoch_sync::update_epoch_sync_proof;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
@@ -1493,6 +1494,7 @@ impl Chain {
             }
 
             self.validate_header(header, &Provenance::SYNC)?;
+            let epoch_store = self.chain_store.epoch_store();
             let mut chain_store_update = self.chain_store.store_update();
             chain_store_update.save_block_header(BlockHeader::clone(&header))?;
 
@@ -1504,6 +1506,17 @@ impl Chain {
                 *header.random_value(),
             )?;
             chain_store_update.merge(epoch_manager_update.into());
+
+            if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+                // If this is the first block of the epoch, update epoch sync proof.
+                // See update_epoch_sync_proof for more details.
+                if self.epoch_manager.is_next_block_epoch_start(header.prev_hash())? {
+                    let epoch_manager_update =
+                        update_epoch_sync_proof(&epoch_store, *header.hash())?;
+                    chain_store_update.merge(epoch_manager_update.into());
+                }
+            }
+
             chain_store_update.commit()?;
         }
 
