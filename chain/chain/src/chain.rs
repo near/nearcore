@@ -1512,7 +1512,7 @@ impl Chain {
                 // See update_epoch_sync_proof for more details.
                 if self.epoch_manager.is_next_block_epoch_start(header.prev_hash())? {
                     let epoch_manager_update =
-                        update_epoch_sync_proof(&epoch_store, *header.hash())?;
+                        update_epoch_sync_proof(&epoch_store, header.prev_hash())?;
                     chain_store_update.merge(epoch_manager_update.into());
                 }
             }

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use itertools::Itertools;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block::BlockHeader;
@@ -24,6 +25,7 @@ use tracing::instrument;
 
 /// We call this function on the first block of epoch T. We update the epoch sync proof to that
 /// of epoch T-2. We pass the last_block_hash of epoch T-2 to extend the epoch sync proof.
+/// Note that for the parameter, we actually pass in the last block hash of epoch T-1,
 ///
 /// Any new node doing epoch sync needs to have at least `transaction_validity_period` number of
 /// block headers to validate transactions.
@@ -34,15 +36,10 @@ use tracing::instrument;
 /// this function.
 pub fn update_epoch_sync_proof(
     store: &EpochStoreAdapter,
-    hash: CryptoHash,
+    last_block_hash_in_pe: &CryptoHash,
 ) -> Result<EpochStoreUpdateAdapter<'static>, Error> {
-    // e -> epoch
     // pe -> previous_epoch
     // ppe -> previous_previous_epoch
-    let block_info = store.get_block_info(&hash)?;
-    let first_block_hash_in_e = block_info.epoch_first_block();
-    let first_block_info_in_e = store.get_block_info(&first_block_hash_in_e)?;
-    let last_block_hash_in_pe = first_block_info_in_e.prev_hash();
     let last_block_info_in_pe = store.get_block_info(last_block_hash_in_pe)?;
     let first_block_hash_in_ppe = last_block_info_in_pe.epoch_first_block();
     let first_block_info_in_ppe = store.get_block_info(first_block_hash_in_ppe)?;
@@ -69,11 +66,17 @@ fn extend_epoch_sync_proof(
 
     let proof = store.get_epoch_sync_proof()?;
     if let Some(proof) = &proof {
-        let prev_proof_first_block_hash = proof.current_epoch.first_block_header_in_epoch.hash();
-        if prev_proof_first_block_hash == last_block_info.epoch_first_block() {
-            // Proof is already up-to-date. This can happen if we are processing forks
+        let first_block_info = store.get_block_info(last_block_info.epoch_first_block())?;
+        if first_block_info.height() <= proof.current_epoch.first_block_header_in_epoch.height() {
+            // Proof is already up-to-date. This can happen if we are processing forks or catching up after epoch sync.
             return Ok(store_update);
         }
+
+        // let prev_proof_first_block_hash = proof.current_epoch.first_block_header_in_epoch.hash();
+        // if prev_proof_first_block_hash == last_block_info.epoch_first_block() {
+        //     // Proof is already up-to-date. This can happen if we are processing forks
+        //     return Ok(store_update);
+        // }
     }
 
     let new_proof = create_epoch_sync_proof_from_prev_proof(store, last_block_hash, proof)?;
@@ -288,16 +291,15 @@ fn derive_all_epochs_data(
         &third_last_block_header,
         second_last_block_header.approvals().to_vec(),
     )?;
-    if all_epochs_since_last_proof.len() < 2 {
-        return Err(Error::Other("Not enough epochs after genesis to epoch sync".to_string()));
-    }
 
     let all_epochs_including_old_proof = existing_epoch_sync_proof
         .map(|proof| proof.all_epochs)
         .unwrap_or_else(Vec::new)
         .into_iter()
         .chain(all_epochs_since_last_proof.into_iter())
-        .collect();
+        .collect_vec();
+
+    assert!(!all_epochs_including_old_proof.is_empty(), "not enough epochs to epoch sync");
 
     Ok(all_epochs_including_old_proof)
 }

@@ -295,7 +295,8 @@ impl<'a> ChainUpdate<'a> {
             // See update_epoch_sync_proof for more details.
             if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
                 let epoch_store = self.chain_store_update.store().epoch_store();
-                let epoch_manager_update = update_epoch_sync_proof(&epoch_store, *block.hash())?;
+                let epoch_manager_update =
+                    update_epoch_sync_proof(&epoch_store, block.header().prev_hash())?;
                 self.chain_store_update.merge(epoch_manager_update.into());
             }
         }
