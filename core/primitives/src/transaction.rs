@@ -135,7 +135,7 @@ impl Transaction {
 
     pub fn nonce(&self) -> TransactionNonce {
         match self {
-            Transaction::V0(tx) => TransactionNonce::Nonce { nonce: tx.nonce },
+            Transaction::V0(tx) => TransactionNonce::from_nonce(tx.nonce),
             Transaction::V1(tx) => tx.nonce,
         }
     }
