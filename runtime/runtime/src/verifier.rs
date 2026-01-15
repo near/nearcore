@@ -1296,7 +1296,6 @@ mod tests {
                 &*signer,
                 vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
                 CryptoHash::default(),
-                1,
             ),
             InvalidTxError::InvalidTransactionVersion,
             ProtocolFeature::GasKeys.protocol_version() - 1,

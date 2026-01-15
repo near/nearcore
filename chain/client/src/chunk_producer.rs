@@ -202,7 +202,6 @@ impl ChunkProducer {
                     "other".parse().unwrap(),
                     3,
                     prev_block_hash,
-                    0,
                 ),
             );
             let validated_tx =

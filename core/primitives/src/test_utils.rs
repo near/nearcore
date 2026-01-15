@@ -68,7 +68,6 @@ impl Transaction {
         receiver_id: AccountId,
         nonce: Nonce,
         block_hash: CryptoHash,
-        priority_fee: u64,
     ) -> Self {
         Transaction::V1(TransactionV1 {
             signer_id,
@@ -77,7 +76,6 @@ impl Transaction {
             receiver_id,
             block_hash,
             actions: vec![],
-            priority_fee,
         })
     }
 
@@ -185,7 +183,6 @@ impl SignedTransaction {
         signer: &Signer,
         actions: Vec<Action>,
         block_hash: CryptoHash,
-        priority_fee: u64,
     ) -> Self {
         Transaction::V1(TransactionV1 {
             nonce,
@@ -194,7 +191,6 @@ impl SignedTransaction {
             receiver_id,
             block_hash,
             actions,
-            priority_fee,
         })
         .sign(signer)
     }

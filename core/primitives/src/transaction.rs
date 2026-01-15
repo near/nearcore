@@ -95,8 +95,6 @@ pub struct TransactionV1 {
     pub block_hash: CryptoHash,
     /// A list of actions to be applied
     pub actions: Vec<Action>,
-    /// Priority fee. Unit is 10^12 yoctoNEAR
-    pub priority_fee: u64,
 }
 
 impl Transaction {
@@ -160,13 +158,6 @@ impl Transaction {
         match self {
             Transaction::V0(tx) => &tx.block_hash,
             Transaction::V1(tx) => &tx.block_hash,
-        }
-    }
-
-    pub fn priority_fee(&self) -> Option<u64> {
-        match self {
-            Transaction::V0(_) => None,
-            Transaction::V1(tx) => Some(tx.priority_fee),
         }
     }
 }
@@ -234,7 +225,6 @@ impl BorshDeserialize for Transaction {
             let receiver_id = AccountId::deserialize_reader(reader)?;
             let block_hash = CryptoHash::deserialize_reader(reader)?;
             let actions = Vec::<Action>::deserialize_reader(reader)?;
-            let priority_fee = u64::deserialize_reader(reader)?;
             Ok(Transaction::V1(TransactionV1 {
                 signer_id,
                 public_key,
@@ -242,7 +232,6 @@ impl BorshDeserialize for Transaction {
                 receiver_id,
                 block_hash,
                 actions,
-                priority_fee,
             }))
         }
     }
@@ -769,7 +758,6 @@ mod tests {
                     beneficiary_id: "123".parse().unwrap(),
                 }),
             ],
-            priority_fee: 1,
         }
     }
 
