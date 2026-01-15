@@ -1,4 +1,5 @@
 use near_async::time::Clock;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::trie::AccessOptions;
 use rand::Rng;
 use std::sync::Arc;
@@ -812,8 +813,12 @@ fn test_clear_old_data_fixed_height() {
     assert!(chain.get_block(blocks[4].hash()).is_err());
     assert!(chain.get_block(blocks[5].hash()).is_ok());
     assert!(chain.get_block(blocks[6].hash()).is_ok());
-    // block header should be available
-    assert!(chain.get_block_header(blocks[4].hash()).is_ok());
+    // block header should be available before continuous epoch sync
+    if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+        assert!(chain.get_block_header(blocks[4].hash()).is_err());
+    } else {
+        assert!(chain.get_block_header(blocks[4].hash()).is_ok());
+    }
     assert!(chain.get_block_header(blocks[5].hash()).is_ok());
     assert!(chain.get_block_header(blocks[6].hash()).is_ok());
     assert!(chain.mut_chain_store().get_all_block_hashes_by_height(4).unwrap().is_empty());

@@ -166,9 +166,9 @@ fn test_cloud_archival_resume() {
 
 /// Verifies that block data can be read from the cloud.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[ignore = "TODO(cloud_archival): test a different block which is in GC range"]
 fn test_cloud_archival_read_block() {
+    // TODO(cloud_archival): test a different block which is in GC range
     let block_height = Some(MIN_EPOCH_LENGTH / 2);
     test_cloud_archival_base(
         TestCloudArchivalParametersBuilder::default()
