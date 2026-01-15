@@ -1639,9 +1639,6 @@ impl<'a> ChainStoreUpdate<'a> {
         block_merkle_tree: PartialMerkleTree,
     ) {
         self.chain_store_cache_update
-            .block_ordinal_to_hash
-            .insert(block_merkle_tree.size(), block_hash);
-        self.chain_store_cache_update
             .block_merkle_tree
             .insert(block_hash, Arc::new(block_merkle_tree));
     }
