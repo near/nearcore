@@ -26,7 +26,7 @@ jobs:
       matrix:
         include:
           - name: Intel Linux Ubuntu
-            os: warp-ubuntu-latest-x64-16x
+            os: warp-ubuntu-2204-x64-16x
           - name: ARM Linux Ubuntu
             os: warp-ubuntu-2404-arm64-16x
           
@@ -107,7 +107,7 @@ jobs:
 
   docker-release:
     name: "Build and publish nearcore Docker image"
-    runs-on: warp-ubuntu-latest-x64-2x
+    runs-on: warp-ubuntu-2204-x64-2x
     environment: deploy
     steps:
       - name: Checkout ${{ github.event.inputs.branch }} branch
