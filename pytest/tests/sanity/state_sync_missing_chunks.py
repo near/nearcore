@@ -31,6 +31,7 @@ class StateSyncMissingChunks(unittest.TestCase):
         # Get the state sync configs and decrease fetch horizons to trigger
         # state sync earlier.
         (config_dump, config_sync) = get_state_sync_configs_pair()
+        config_dump["gc_num_epochs_to_keep"] = 100
         config_sync["consensus"] = {
             "block_fetch_horizon": epoch_length,
             "block_header_fetch_horizon": epoch_length,

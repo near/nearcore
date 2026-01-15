@@ -36,6 +36,7 @@ TIMEOUT = 100 + START_AT_BLOCK * 2
 
 config = load_config()
 node_config = state_sync_lib.get_state_sync_config_combined()
+node_config["gc_num_epochs_to_keep"] = 100
 
 near_root, node_dirs = init_cluster(
     2, 3, 1,

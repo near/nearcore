@@ -23,6 +23,7 @@ EPOCH_LENGTH = 10
 
 (node_config_dump,
  node_config_sync) = state_sync_lib.get_state_sync_configs_pair()
+node_config_dump["gc_num_epochs_to_keep"] = 100
 
 nodes = start_cluster(
     1, 1, 1, None,
