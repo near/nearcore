@@ -177,7 +177,8 @@ fn assert_no_duplicates(chain_txs: &ChainTxs) {
 }
 
 fn assert_all_included(chain_txs: &ChainTxs, nonce_counter: u64) {
-    let mut observed_nonces = chain_txs.txs.iter().map(|tx| tx.transaction.nonce()).collect_vec();
+    let mut observed_nonces =
+        chain_txs.txs.iter().map(|tx| tx.transaction.nonce().nonce()).collect_vec();
     observed_nonces.sort();
     for i in 1..nonce_counter {
         if observed_nonces[(i - 1) as usize] != i {

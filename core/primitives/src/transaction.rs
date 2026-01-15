@@ -12,7 +12,8 @@ use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::RuntimeConfig;
 use near_primitives_core::serialize::{from_base64, to_base64};
-use near_primitives_core::types::Compute;
+use near_primitives_core::types::{Compute, NonceIndex, ProtocolVersion};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 #[cfg(feature = "schemars")]
 use schemars::json_schema;
@@ -45,6 +46,38 @@ pub struct TransactionV0 {
     pub actions: Vec<Action>,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, Copy, ProtocolSchema)]
+pub enum TransactionNonce {
+    /// Simple nonce without index, used by ordinary access keys
+    Nonce { nonce: Nonce },
+    /// Nonce with index, used by gas keys
+    NonceAndIndex { nonce: Nonce, nonce_index: NonceIndex },
+}
+
+impl TransactionNonce {
+    pub fn from_nonce(nonce: Nonce) -> Self {
+        TransactionNonce::Nonce { nonce }
+    }
+
+    pub fn from_nonce_and_index(nonce: Nonce, nonce_index: NonceIndex) -> Self {
+        TransactionNonce::NonceAndIndex { nonce, nonce_index }
+    }
+
+    pub fn nonce(&self) -> Nonce {
+        match self {
+            TransactionNonce::Nonce { nonce } => *nonce,
+            TransactionNonce::NonceAndIndex { nonce, .. } => *nonce,
+        }
+    }
+
+    pub fn nonce_index(&self) -> Option<NonceIndex> {
+        match self {
+            TransactionNonce::Nonce { .. } => None,
+            TransactionNonce::NonceAndIndex { nonce_index, .. } => Some(*nonce_index),
+        }
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, ProtocolSchema)]
 pub struct TransactionV1 {
     /// An account on which behalf transaction is signed
@@ -53,8 +86,9 @@ pub struct TransactionV1 {
     /// Access key holds permissions for calling certain kinds of actions.
     pub public_key: PublicKey,
     /// Nonce is used to determine order of transaction in the pool.
-    /// It increments for a combination of `signer_id` and `public_key`
-    pub nonce: Nonce,
+    /// It increments for a combination of `signer_id` and `public_key`,
+    /// and for gas key it also includes a `nonce_index`.
+    pub nonce: TransactionNonce,
     /// Receiver account for this transaction
     pub receiver_id: AccountId,
     /// The hash of the block in the blockchain on top of which the given transaction is valid
@@ -101,9 +135,9 @@ impl Transaction {
         }
     }
 
-    pub fn nonce(&self) -> Nonce {
+    pub fn nonce(&self) -> TransactionNonce {
         match self {
-            Transaction::V0(tx) => tx.nonce,
+            Transaction::V0(tx) => TransactionNonce::Nonce { nonce: tx.nonce },
             Transaction::V1(tx) => tx.nonce,
         }
     }
@@ -196,7 +230,7 @@ impl BorshDeserialize for Transaction {
             let u5 = u8::deserialize_reader(reader)?;
             let signer_id = read_signer_id([u2, u3, u4, u5], reader)?;
             let public_key = PublicKey::deserialize_reader(reader)?;
-            let nonce = Nonce::deserialize_reader(reader)?;
+            let nonce = TransactionNonce::deserialize_reader(reader)?;
             let receiver_id = AccountId::deserialize_reader(reader)?;
             let block_hash = CryptoHash::deserialize_reader(reader)?;
             let actions = Vec::<Action>::deserialize_reader(reader)?;
@@ -226,8 +260,9 @@ impl ValidatedTransaction {
     pub fn new(
         config: &RuntimeConfig,
         signed_tx: SignedTransaction,
+        protocol_version: ProtocolVersion,
     ) -> Result<Self, (InvalidTxError, SignedTransaction)> {
-        match Self::check_valid_for_config(config, &signed_tx) {
+        match Self::check_valid_for_config(config, &signed_tx, protocol_version) {
             Ok(()) => {}
             Err(err) => return Err((err, signed_tx)),
         }
@@ -246,9 +281,11 @@ impl ValidatedTransaction {
     pub fn check_valid_for_config(
         config: &RuntimeConfig,
         signed_tx: &SignedTransaction,
+        protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
-        // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
-        if matches!(signed_tx.transaction, Transaction::V1(_)) {
+        if !ProtocolFeature::GasKeys.enabled(protocol_version)
+            && matches!(signed_tx.transaction, Transaction::V1(_))
+        {
             return Err(InvalidTxError::InvalidTransactionVersion);
         }
         let tx_size = signed_tx.get_size();
@@ -298,7 +335,7 @@ impl ValidatedTransaction {
         self.to_tx().receiver_id()
     }
 
-    pub fn nonce(&self) -> Nonce {
+    pub fn nonce(&self) -> TransactionNonce {
         self.to_tx().nonce()
     }
 
@@ -699,7 +736,7 @@ mod tests {
         TransactionV1 {
             signer_id: "test.near".parse().unwrap(),
             public_key: public_key.clone(),
-            nonce: 1,
+            nonce: TransactionNonce::from_nonce(1),
             receiver_id: "123".parse().unwrap(),
             block_hash: Default::default(),
             actions: vec![
