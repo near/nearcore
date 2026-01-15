@@ -214,6 +214,24 @@ impl SignedTransaction {
         )
     }
 
+    pub fn send_money_v1(
+        nonce: TransactionNonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        signer: &Signer,
+        deposit: Balance,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self::from_actions_v1(
+            nonce,
+            signer_id,
+            receiver_id,
+            signer,
+            vec![Action::Transfer(TransferAction { deposit })],
+            block_hash,
+        )
+    }
+
     pub fn stake(
         nonce: Nonce,
         signer_id: AccountId,
