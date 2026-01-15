@@ -323,8 +323,12 @@ impl ChainStore {
             tracing::debug_span!(target: "garbage_collection", "clear_state_transition_data")
                 .entered();
 
-        let final_block_hash =
-            *self.get_block_header(&self.head()?.last_block_hash)?.last_final_block();
+        let Ok(last_block_header) = self.get_block_header(&self.head()?.last_block_hash) else {
+            // This can happen if the node just did state sync.
+            tracing::debug!(head = ?self.head()?, "could not get head header");
+            return Ok(());
+        };
+        let final_block_hash = *last_block_header.last_final_block();
         if final_block_hash == CryptoHash::default() {
             return Ok(());
         }
