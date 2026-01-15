@@ -1,0 +1,20 @@
+pytest sanity/garbage_collection_intense.py --features nightly
+pytest sanity/congestion_control_genesis_bootstrap.py --features nightly
+pytest sanity/split_storage.py --features nightly
+pytest sanity/catchup_flat_storage_deletions.py --features nightly
+pytest sanity/replay_chain_from_archive.py --features nightly
+pytest sanity/garbage_collection_archival.py --features nightly
+pytest --timeout=10m sanity/state_sync4.py --features nightly
+pytest --timeout=10m sanity/state_sync.py manytx 265 --features nightly
+pytest --timeout=10m sanity/state_sync.py onetx 265 --features nightly
+pytest sanity/state_sync_missing_chunks.py --features nightly
+pytest sanity/transactions.py --features nightly
+pytest sanity/garbage_collection1.py --features nightly
+pytest --timeout=10m sanity/state_sync_routed.py manytx 115 --features nightly
+pytest --timeout=10m sanity/block_sync_archival.py --features nightly
+pytest --timeout=5m sanity/gc_sync_after_sync.py --features nightly
+pytest sanity/state_sync_epoch_boundary.py --features nightly
+pytest --timeout=5m sanity/gc_after_sync1.py --features nightly
+pytest sanity/epoch_switches.py --features nightly
+pytest sanity/state_sync_then_catchup.py --features nightly
+pytest sanity/garbage_collection.py --features nightly
