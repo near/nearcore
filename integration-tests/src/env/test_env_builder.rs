@@ -604,6 +604,7 @@ impl TestEnvBuilder {
                     validator_signers[i].clone(),
                     ApplyChunksIterationMode::default(),
                     ChunkExecutorConfig {
+                        save_trie_changes: self.save_trie_changes,
                         save_tx_outcomes: self.save_tx_outcomes,
                         ..Default::default()
                     },

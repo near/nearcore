@@ -77,13 +77,14 @@ use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
 
 #[derive(Clone, Debug)]
 pub struct ChunkExecutorConfig {
+    pub save_trie_changes: bool,
     pub save_tx_outcomes: bool,
     pub save_state_changes: bool,
 }
 
 impl Default for ChunkExecutorConfig {
     fn default() -> Self {
-        Self { save_tx_outcomes: true, save_state_changes: true }
+        Self { save_trie_changes: true, save_tx_outcomes: true, save_state_changes: true }
     }
 }
 
@@ -124,9 +125,10 @@ impl ChunkExecutorActor {
     ) -> Self {
         let core_reader =
             SpiceCoreReader::new(store.chain_store(), epoch_manager.clone(), genesis.gas_limit);
-        let chain_store = ChainStore::new(store, true, genesis.transaction_validity_period)
-            .with_save_tx_outcomes(config.save_tx_outcomes)
-            .with_save_state_changes(config.save_state_changes);
+        let chain_store =
+            ChainStore::new(store, config.save_trie_changes, genesis.transaction_validity_period)
+                .with_save_tx_outcomes(config.save_tx_outcomes)
+                .with_save_state_changes(config.save_state_changes);
         Self {
             chain_store,
             runtime_adapter,

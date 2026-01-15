@@ -650,6 +650,7 @@ pub async fn start_with_config_and_synchronization_impl(
             runtime.clone(),
             network_adapter.as_multi_sender(),
             ChunkExecutorConfig {
+                save_trie_changes: config.client_config.save_trie_changes,
                 save_tx_outcomes: config.client_config.save_tx_outcomes,
                 save_state_changes: config.client_config.save_state_changes,
             },
