@@ -201,8 +201,7 @@ pub(crate) fn block_height_validity(
     block: &Block,
 ) -> Result<(), StoreValidatorError> {
     let height = block.header().height();
-    let tail = sv.inner.tail;
-    if height <= tail && height != sv.config.genesis_height {
+    if sv.inner.is_height_below_tail(&height) {
         sv.inner.block_heights_less_tail.push(*block.hash());
     }
     let head = sv.inner.head;
@@ -478,6 +477,11 @@ pub(crate) fn canonical_header_validity(
     height: &BlockHeight,
     hash: &CryptoHash,
 ) -> Result<(), StoreValidatorError> {
+    // We don't expect canonical headers below tail to be present
+    if sv.inner.is_height_below_tail(height) {
+        return Ok(());
+    }
+
     let header = unwrap_or_err_db!(
         sv.store.get_ser::<BlockHeader>(DBCol::BlockHeader, hash.as_ref()),
         "Can't get Block Header {:?} from DBCol::BlockHeader",
@@ -661,6 +665,11 @@ pub(crate) fn header_hash_of_height_exists(
     height: &BlockHeight,
     header_hashes: &HashSet<CryptoHash>,
 ) -> Result<(), StoreValidatorError> {
+    // We don't expect canonical headers below tail to be present
+    if sv.inner.is_height_below_tail(height) {
+        return Ok(());
+    }
+
     for hash in header_hashes {
         let header = unwrap_or_err_db!(
             sv.store.get_ser::<BlockHeader>(DBCol::BlockHeader, hash.as_ref()),

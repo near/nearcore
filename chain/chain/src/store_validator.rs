@@ -39,10 +39,11 @@ pub struct StoreValidatorCache {
     receipt_refcount: HashMap<CryptoHash, u64>,
     block_refcount: HashMap<CryptoHash, u64>,
     genesis_blocks: Vec<CryptoHash>,
+    genesis_height: BlockHeight,
 }
 
 impl StoreValidatorCache {
-    fn new() -> Self {
+    fn new(config: &GenesisConfig) -> Self {
         Self {
             head: 0,
             header_head: 0,
@@ -53,7 +54,12 @@ impl StoreValidatorCache {
             receipt_refcount: HashMap::new(),
             block_refcount: HashMap::new(),
             genesis_blocks: vec![],
+            genesis_height: config.genesis_height,
         }
+    }
+
+    pub fn is_height_below_tail(&self, height: &BlockHeight) -> bool {
+        height <= &self.tail && height != &self.genesis_height
     }
 }
 
@@ -95,13 +101,14 @@ impl StoreValidator {
             store.epoch_store().get_epoch_sync_proof().unwrap().map(|epoch_sync_proof| {
                 epoch_sync_proof.current_epoch.first_block_header_in_epoch.height()
             });
+        let inner = StoreValidatorCache::new(&config);
         StoreValidator {
             config,
             epoch_manager,
             shard_tracker,
             runtime,
             store,
-            inner: StoreValidatorCache::new(),
+            inner,
             timeout: None,
             start_time: Clock::real().now(),
             is_archival,
