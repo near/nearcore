@@ -754,11 +754,19 @@ pub(crate) fn action_add_key(
     account_id: &AccountId,
     add_key: &AddKeyAction,
 ) -> Result<(), StorageError> {
-    // TODO(gas-keys): need to verify that a gas key is not being added here
     if get_access_key(state_update, account_id, &add_key.public_key)?.is_some() {
         result.result = Err(ActionErrorKind::AddKeyAlreadyExists {
             account_id: account_id.to_owned(),
             public_key: add_key.public_key.clone().into(),
+        }
+        .into());
+        return Ok(());
+    }
+    if add_key.access_key.gas_key_info().is_some() {
+        // Adding a gas key via AddKey action is not allowed, must use AddGasKey.
+        // This is checked in verify, but we double check here to be safe.
+        result.result = Err(ActionErrorKind::KeyPermissionInvalid {
+            permission: Box::new(add_key.access_key.permission.clone()),
         }
         .into());
         return Ok(());

@@ -545,7 +545,13 @@ fn validate_add_key_action(
     limit_config: &LimitConfig,
     action: &AddKeyAction,
 ) -> Result<(), ActionsValidationError> {
-    validate_access_key_permission(limit_config, &action.access_key.permission)
+    validate_access_key_permission(limit_config, &action.access_key.permission)?;
+    if action.access_key.gas_key_info().is_some() {
+        return Err(ActionsValidationError::KeyPermissionInvalid {
+            permission: action.access_key.permission.clone().into(),
+        });
+    }
+    Ok(())
 }
 
 /// Validates `AccessKeyPermission`. If the access key permission is `FunctionCall`, checks that the
@@ -2052,6 +2058,25 @@ mod tests {
             PROTOCOL_VERSION,
         )
         .expect("valid action");
+    }
+
+    #[test]
+    fn test_validate_action_invalid_add_key_gas_key() {
+        let num_nonces = 10; // Arbitrary number of nonces for testing
+        let gas_key = AccessKey::gas_key_full_access(num_nonces);
+        assert_eq!(
+            validate_action(
+                &test_limit_config(),
+                &Action::AddKey(Box::new(AddKeyAction {
+                    public_key: PublicKey::empty(KeyType::ED25519),
+                    access_key: gas_key.clone(),
+                })),
+                &"alice.near".parse().unwrap(),
+                ProtocolFeature::GasKeys.protocol_version(),
+            )
+            .expect_err("expected an error"),
+            ActionsValidationError::KeyPermissionInvalid { permission: gas_key.permission.into() }
+        );
     }
 
     #[test]
