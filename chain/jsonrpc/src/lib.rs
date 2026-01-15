@@ -784,6 +784,8 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
+        metrics::report_wait_until_metric("send_tx", &request_data.wait_until);
+
         if request_data.wait_until == TxExecutionStatus::None {
             self.send_tx_async(request_data);
             return Ok(RpcTransactionResponse {
@@ -1278,6 +1280,8 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
+        metrics::report_wait_until_metric("tx_status", &request_data.wait_until);
+
         let tx_status = self
             .tx_status_fetch(request_data.transaction_info, request_data.wait_until, fetch_receipt)
             .await?;

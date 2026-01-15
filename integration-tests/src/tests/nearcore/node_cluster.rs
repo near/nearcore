@@ -37,6 +37,7 @@ async fn start_nodes(
         (0..num_shards).map(|_| num_validator_seats).collect(),
     );
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.genesis_height = genesis_height;
 
     let validators = (0..num_validator_seats).map(|i| format!("near.{}", i)).collect::<Vec<_>>();

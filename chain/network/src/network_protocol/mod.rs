@@ -623,19 +623,6 @@ impl TieredMessageBody {
             RoutedMessageBody::SpicePartialDataRequest(request) => {
                 T1MessageBody::SpicePartialDataRequest(request).into()
             }
-            RoutedMessageBody::_UnusedQueryRequest
-            | RoutedMessageBody::_UnusedQueryResponse
-            | RoutedMessageBody::_UnusedReceiptOutcomeRequest(_)
-            | RoutedMessageBody::_UnusedReceiptOutcomeResponse
-            | RoutedMessageBody::_UnusedStateRequestHeader
-            | RoutedMessageBody::_UnusedStateRequestPart
-            | RoutedMessageBody::_UnusedStateResponse
-            | RoutedMessageBody::_UnusedPartialEncodedChunk
-            | RoutedMessageBody::_UnusedVersionedStateResponse
-            | RoutedMessageBody::_UnusedChunkStateWitness
-            | RoutedMessageBody::_UnusedChunkEndorsement
-            | RoutedMessageBody::_UnusedEpochSyncRequest
-            | RoutedMessageBody::_UnusedEpochSyncResponse(_) => unreachable!(),
         }
     }
 }
@@ -759,32 +746,17 @@ pub enum RoutedMessageBody {
     ForwardTx(SignedTransaction) = 1,
     TxStatusRequest(AccountId, CryptoHash) = 2,
     TxStatusResponse(FinalExecutionOutcomeView) = 3,
-    /// Not used, but needed for borsh backward compatibility.
-    _UnusedQueryRequest = 4,
-    _UnusedQueryResponse = 5,
-    _UnusedReceiptOutcomeRequest(CryptoHash) = 6,
-    _UnusedReceiptOutcomeResponse = 7,
-    _UnusedStateRequestHeader = 8,
-    _UnusedStateRequestPart = 9,
-    _UnusedStateResponse = 10,
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg) = 11,
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg) = 12,
-    _UnusedPartialEncodedChunk = 13,
     /// Ping/Pong used for testing networking and routing.
     Ping(Ping) = 14,
     Pong(Pong) = 15,
     VersionedPartialEncodedChunk(PartialEncodedChunk) = 16,
-    _UnusedVersionedStateResponse = 17,
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg) = 18,
-    _UnusedChunkStateWitness = 19,
-    _UnusedChunkEndorsement = 20,
     ChunkStateWitnessAck(ChunkStateWitnessAck) = 21,
     PartialEncodedStateWitness(PartialEncodedStateWitness) = 22,
     PartialEncodedStateWitnessForward(PartialEncodedStateWitness) = 23,
     VersionedChunkEndorsement(ChunkEndorsement) = 24,
-    /// Not used, but needed for borsh backward compatibility.
-    _UnusedEpochSyncRequest = 25,
-    _UnusedEpochSyncResponse(CompressedEpochSyncProof) = 26,
     StatePartRequest(StatePartRequest) = 27,
     ChunkContractAccesses(ChunkContractAccesses) = 28,
     ContractCodeRequest(ContractCodeRequest) = 29,
@@ -841,48 +813,6 @@ impl RoutedMessageBody {
             _ => false,
         }
     }
-
-    pub fn is_used(&self) -> bool {
-        match self {
-            RoutedMessageBody::_UnusedQueryRequest
-            | RoutedMessageBody::_UnusedQueryResponse
-            | RoutedMessageBody::_UnusedReceiptOutcomeRequest(_)
-            | RoutedMessageBody::_UnusedReceiptOutcomeResponse
-            | RoutedMessageBody::_UnusedStateRequestHeader
-            | RoutedMessageBody::_UnusedStateRequestPart
-            | RoutedMessageBody::_UnusedStateResponse
-            | RoutedMessageBody::_UnusedPartialEncodedChunk
-            | RoutedMessageBody::_UnusedVersionedStateResponse
-            | RoutedMessageBody::_UnusedChunkStateWitness
-            | RoutedMessageBody::_UnusedChunkEndorsement
-            | RoutedMessageBody::_UnusedEpochSyncRequest
-            | RoutedMessageBody::_UnusedEpochSyncResponse(_) => false,
-            RoutedMessageBody::BlockApproval(_)
-            | RoutedMessageBody::ForwardTx(_)
-            | RoutedMessageBody::TxStatusRequest(_, _)
-            | RoutedMessageBody::TxStatusResponse(_)
-            | RoutedMessageBody::PartialEncodedChunkRequest(_)
-            | RoutedMessageBody::PartialEncodedChunkResponse(_)
-            | RoutedMessageBody::Ping(_)
-            | RoutedMessageBody::Pong(_)
-            | RoutedMessageBody::VersionedPartialEncodedChunk(_)
-            | RoutedMessageBody::PartialEncodedChunkForward(_)
-            | RoutedMessageBody::ChunkStateWitnessAck(_)
-            | RoutedMessageBody::PartialEncodedStateWitness(_)
-            | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
-            | RoutedMessageBody::VersionedChunkEndorsement(_)
-            | RoutedMessageBody::StatePartRequest(_)
-            | RoutedMessageBody::ChunkContractAccesses(_)
-            | RoutedMessageBody::ContractCodeRequest(_)
-            | RoutedMessageBody::ContractCodeResponse(_)
-            | RoutedMessageBody::PartialEncodedContractDeploys(_)
-            | RoutedMessageBody::StateHeaderRequest(_)
-            | RoutedMessageBody::SpicePartialData(_)
-            | RoutedMessageBody::StateRequestAck(_)
-            | RoutedMessageBody::SpiceChunkEndorsement(_)
-            | RoutedMessageBody::SpicePartialDataRequest(_) => true,
-        }
-    }
 }
 
 impl fmt::Debug for RoutedMessageBody {
@@ -900,13 +830,6 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::TxStatusResponse(response) => {
                 write!(f, "TxStatusResponse({})", response.transaction.hash)
             }
-            RoutedMessageBody::_UnusedQueryRequest => write!(f, "QueryRequest"),
-            RoutedMessageBody::_UnusedQueryResponse => write!(f, "QueryResponse"),
-            RoutedMessageBody::_UnusedReceiptOutcomeRequest(_) => write!(f, "ReceiptRequest"),
-            RoutedMessageBody::_UnusedReceiptOutcomeResponse => write!(f, "ReceiptResponse"),
-            RoutedMessageBody::_UnusedStateRequestHeader => write!(f, "StateRequestHeader"),
-            RoutedMessageBody::_UnusedStateRequestPart => write!(f, "StateRequestPart"),
-            RoutedMessageBody::_UnusedStateResponse => write!(f, "StateResponse"),
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
                 write!(f, "PartialChunkRequest({:?}, {:?})", request.chunk_hash, request.part_ords)
             }
@@ -916,7 +839,6 @@ impl fmt::Debug for RoutedMessageBody {
                 response.chunk_hash,
                 response.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>()
             ),
-            RoutedMessageBody::_UnusedPartialEncodedChunk => write!(f, "PartialEncodedChunk"),
             RoutedMessageBody::VersionedPartialEncodedChunk(_) => {
                 write!(f, "VersionedPartialEncodedChunk(?)")
             }
@@ -928,9 +850,6 @@ impl fmt::Debug for RoutedMessageBody {
             ),
             RoutedMessageBody::Ping(_) => write!(f, "Ping"),
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
-            RoutedMessageBody::_UnusedVersionedStateResponse => write!(f, "VersionedStateResponse"),
-            RoutedMessageBody::_UnusedChunkStateWitness => write!(f, "ChunkStateWitness"),
-            RoutedMessageBody::_UnusedChunkEndorsement => write!(f, "ChunkEndorsement"),
             RoutedMessageBody::ChunkStateWitnessAck(ack, ..) => {
                 f.debug_tuple("ChunkStateWitnessAck").field(&ack.chunk_hash).finish()
             }
@@ -942,10 +861,6 @@ impl fmt::Debug for RoutedMessageBody {
             }
             RoutedMessageBody::VersionedChunkEndorsement(_) => {
                 write!(f, "VersionedChunkEndorsement")
-            }
-            RoutedMessageBody::_UnusedEpochSyncRequest => write!(f, "EpochSyncRequest"),
-            RoutedMessageBody::_UnusedEpochSyncResponse(_) => {
-                write!(f, "EpochSyncResponse")
             }
             RoutedMessageBody::StatePartRequest(request) => write!(
                 f,

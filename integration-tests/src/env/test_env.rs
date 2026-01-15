@@ -39,7 +39,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumSeats, ShardId};
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::ProtocolFeature;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind,
     StateItem,
@@ -499,6 +499,11 @@ impl TestEnv {
     }
 
     pub fn propagate_chunk_state_witnesses_and_endorsements(&mut self, allow_errors: bool) {
+        if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            // State witnesses with spice follow completely different code paths compared to before
+            // spice.
+            return;
+        }
         self.propagate_chunk_state_witnesses(allow_errors);
         self.propagate_chunk_endorsements(allow_errors);
     }
@@ -907,6 +912,10 @@ impl TestEnv {
     }
 
     pub fn spice_execute_block(&mut self, id: usize, block_hash: CryptoHash) {
+        if !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+
         assert_matches::assert_matches!(
             self.spice_chunk_executors[id].handle_processed_block(ProcessedBlock { block_hash }),
             TryApplyChunksOutcome::Scheduled

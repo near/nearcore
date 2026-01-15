@@ -11,8 +11,6 @@ use near_primitives::types::{AccountId, Balance, ShardId};
 
 /// Test that processing chunks with invalid transactions does not lead to panics
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_invalid_transactions_no_panic() {
     let accounts =
         vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];
@@ -124,13 +122,14 @@ fn test_invalid_transactions_no_panic() {
             }
             env.propagate_chunk_state_witnesses_and_endorsements(true);
             let block = env.client(&block_producer).produce_block(height).unwrap().unwrap();
-            for client in &mut env.clients {
-                client
+            for i in 0..env.clients.len() {
+                env.clients[i]
                     .process_block_test_no_produce_chunk_allow_errors(
                         block.clone().into(),
                         Provenance::NONE,
                     )
                     .unwrap();
+                env.spice_execute_block(i, *block.hash());
             }
         }
         start_height += 3;
