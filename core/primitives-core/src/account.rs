@@ -502,12 +502,13 @@ impl AccessKey {
 
     pub fn gas_key_info(&self) -> Option<&GasKeyInfo> {
         match &self.permission {
-            AccessKeyPermission::GasKeyFunctionCall(gas_key_info, _) => Some(gas_key_info),
-            AccessKeyPermission::GasKeyFullAccess(gas_key_info) => Some(gas_key_info),
+            AccessKeyPermission::GasKeyFunctionCall(gas_key_info, _)
+            | AccessKeyPermission::GasKeyFullAccess(gas_key_info) => Some(gas_key_info),
             _ => None,
         }
     }
 }
+
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -558,8 +559,8 @@ impl AccessKeyPermission {
 
     pub fn function_call_permission(&self) -> Option<&FunctionCallPermission> {
         match self {
-            AccessKeyPermission::FunctionCall(permission) => Some(permission),
-            AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
+            AccessKeyPermission::FunctionCall(permission)
+            | AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
             _ => None,
         }
     }
