@@ -369,7 +369,8 @@ impl ChainStore {
                 continue;
             };
 
-            let block_height = self.get_block_height(&block_hash)?;
+            // If we are unable to find block_height in store, it is likely the block is already GC'd
+            let block_height = self.get_block_height(&block_hash).unwrap_or_default();
             if block_height < *final_block_height {
                 store_update.delete(DBCol::StateTransitionData, &key);
                 entries_cleared += 1;
