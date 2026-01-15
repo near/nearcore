@@ -275,7 +275,7 @@ pub fn verify_and_charge_tx_ephemeral(
         }
     };
 
-    access_key.nonce = tx.nonce().nonce();
+    access_key.nonce = tx_nonce;
     signer.set_amount(new_amount);
     Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
 }
