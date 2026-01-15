@@ -2249,10 +2249,6 @@ fn test_block_execution_outcomes() {
 
 #[test]
 fn test_save_tx_outcomes_false() {
-    // TODO(spice): Once save_tx_outcomes is used by chunk executor re-enable the test for spice.
-    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     init_test_logger();
 
     let epoch_length = 5;

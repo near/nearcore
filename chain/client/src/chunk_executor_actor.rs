@@ -75,6 +75,18 @@ use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
 
+#[derive(Clone, Debug)]
+pub struct ChunkExecutorConfig {
+    pub save_tx_outcomes: bool,
+    pub save_state_changes: bool,
+}
+
+impl Default for ChunkExecutorConfig {
+    fn default() -> Self {
+        Self { save_tx_outcomes: true, save_state_changes: true }
+    }
+}
+
 pub struct ChunkExecutorActor {
     pub(crate) chain_store: ChainStore,
     pub(crate) runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -108,11 +120,15 @@ impl ChunkExecutorActor {
         myself_sender: Sender<ExecutorApplyChunksDone>,
         core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
+        config: ChunkExecutorConfig,
     ) -> Self {
         let core_reader =
             SpiceCoreReader::new(store.chain_store(), epoch_manager.clone(), genesis.gas_limit);
+        let chain_store = ChainStore::new(store, true, genesis.transaction_validity_period)
+            .with_save_tx_outcomes(config.save_tx_outcomes)
+            .with_save_state_changes(config.save_state_changes);
         Self {
-            chain_store: ChainStore::new(store, true, genesis.transaction_validity_period),
+            chain_store,
             runtime_adapter,
             epoch_manager,
             shard_tracker,
@@ -1164,6 +1180,7 @@ pub mod testonly {
             network_adapter: PeerManagerAdapter,
             validator_signer: MutableValidatorSigner,
             apply_chunks_iteration_mode: ApplyChunksIterationMode,
+            chunk_executor_config: ChunkExecutorConfig,
         ) -> Self {
             let (actor_sc, actor_rc) = unbounded();
             let myself_sender = Sender::from_fn(move |event: ExecutorApplyChunksDone| {
@@ -1210,6 +1227,7 @@ pub mod testonly {
                     myself_sender,
                     core_writer_sender,
                     data_distributor_adapter,
+                    chunk_executor_config,
                 ),
                 actor_rc,
                 tasks_rc,
