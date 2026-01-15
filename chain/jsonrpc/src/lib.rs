@@ -630,7 +630,10 @@ impl JsonRpcHandler {
         signer_account_id: &AccountId,
     ) -> Result<bool, near_jsonrpc_primitives::types::transactions::RpcTransactionError> {
         timeout(self.polling_config.polling_timeout, async {
+            // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
             let mut new_block_watcher = self.block_notification_watcher.clone();
+            new_block_watcher.mark_unchanged();
+
             loop {
                 // TODO(optimization): Introduce a view_client method to only get transaction
                 // status without the information about execution outcomes.
@@ -686,7 +689,10 @@ impl JsonRpcHandler {
         let mut tx_status_result =
             Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError);
         timeout(self.polling_config.polling_timeout, async {
+            // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
             let mut new_block_watcher = self.block_notification_watcher.clone();
+            new_block_watcher.mark_unchanged();
+
             loop {
                 tx_status_result = self.view_client_send( TxStatus {
                     tx_hash,
