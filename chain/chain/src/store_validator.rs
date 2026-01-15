@@ -39,11 +39,14 @@ pub struct StoreValidatorCache {
     receipt_refcount: HashMap<CryptoHash, u64>,
     block_refcount: HashMap<CryptoHash, u64>,
     genesis_blocks: Vec<CryptoHash>,
-    genesis_height: BlockHeight,
+
+    // If present, the node was bootstrapped with epoch sync, and this block height
+    // represents the first block of the target epoch that we epoch synced to.
+    epoch_sync_boundary: Option<BlockHeight>,
 }
 
 impl StoreValidatorCache {
-    fn new(config: &GenesisConfig) -> Self {
+    fn new(epoch_sync_boundary: Option<BlockHeight>) -> Self {
         Self {
             head: 0,
             header_head: 0,
@@ -54,12 +57,12 @@ impl StoreValidatorCache {
             receipt_refcount: HashMap::new(),
             block_refcount: HashMap::new(),
             genesis_blocks: vec![],
-            genesis_height: config.genesis_height,
+            epoch_sync_boundary,
         }
     }
 
-    pub fn is_height_below_tail(&self, height: &BlockHeight) -> bool {
-        height <= &self.tail && height != &self.genesis_height
+    pub fn is_height_below_epoch_sync_boundary(&self, height: &BlockHeight) -> bool {
+        if let Some(boundary) = self.epoch_sync_boundary { height < &boundary } else { false }
     }
 }
 
@@ -80,10 +83,6 @@ pub struct StoreValidator {
     timeout: Option<i64>,
     start_time: Instant,
     pub is_archival: bool,
-    // If present, the node was bootstrapped with epoch sync, and this block height
-    // represents the first block of the target epoch that we epoch synced to.
-    epoch_sync_boundary: Option<BlockHeight>,
-
     pub errors: Vec<ErrorMessage>,
     tests: u64,
 }
@@ -101,18 +100,16 @@ impl StoreValidator {
             store.epoch_store().get_epoch_sync_proof().unwrap().map(|epoch_sync_proof| {
                 epoch_sync_proof.current_epoch.first_block_header_in_epoch.height()
             });
-        let inner = StoreValidatorCache::new(&config);
         StoreValidator {
             config,
             epoch_manager,
             shard_tracker,
             runtime,
             store,
-            inner,
+            inner: StoreValidatorCache::new(epoch_sync_boundary),
             timeout: None,
             start_time: Clock::real().now(),
             is_archival,
-            epoch_sync_boundary,
             errors: vec![],
             tests: 0,
         }

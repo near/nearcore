@@ -201,7 +201,8 @@ pub(crate) fn block_height_validity(
     block: &Block,
 ) -> Result<(), StoreValidatorError> {
     let height = block.header().height();
-    if sv.inner.is_height_below_tail(&height) {
+    let tail = sv.inner.tail;
+    if height <= tail && height != sv.config.genesis_height {
         sv.inner.block_heights_less_tail.push(*block.hash());
     }
     let head = sv.inner.head;
@@ -477,8 +478,8 @@ pub(crate) fn canonical_header_validity(
     height: &BlockHeight,
     hash: &CryptoHash,
 ) -> Result<(), StoreValidatorError> {
-    // We don't expect canonical headers below tail to be present
-    if sv.inner.is_height_below_tail(height) {
+    // We don't expect canonical headers below epoch sync boundary to be present
+    if sv.inner.is_height_below_epoch_sync_boundary(height) {
         return Ok(());
     }
 
@@ -498,12 +499,10 @@ pub(crate) fn canonical_prev_block_validity(
     height: &BlockHeight,
     hash: &CryptoHash,
 ) -> Result<(), StoreValidatorError> {
-    if let Some(epoch_sync_boundary) = &sv.epoch_sync_boundary {
-        // Headers that are below the epoch_sync_boundary are not expected to be present,
-        // so skip the check in that case.
-        if height <= epoch_sync_boundary {
-            return Ok(());
-        }
+    // Headers that are below the epoch_sync_boundary are not expected to be present,
+    // so skip the check in that case.
+    if sv.inner.is_height_below_epoch_sync_boundary(height) {
+        return Ok(());
     }
     if *height != sv.config.genesis_height {
         let header = unwrap_or_err_db!(
@@ -665,8 +664,8 @@ pub(crate) fn header_hash_of_height_exists(
     height: &BlockHeight,
     header_hashes: &HashSet<CryptoHash>,
 ) -> Result<(), StoreValidatorError> {
-    // We don't expect canonical headers below tail to be present
-    if sv.inner.is_height_below_tail(height) {
+    // We don't expect canonical headers below epoch sync boundary to be present
+    if sv.inner.is_height_below_epoch_sync_boundary(height) {
         return Ok(());
     }
 
@@ -797,12 +796,10 @@ pub(crate) fn block_info_block_header_exists(
     if *block_hash == CryptoHash::default() {
         return Ok(());
     }
-    if let Some(epoch_sync_boundary) = &sv.epoch_sync_boundary {
-        // BlockInfo before the epoch sync boundary is not guaranteed to have a
-        // corresponding header.
-        if block_info.height() < *epoch_sync_boundary {
-            return Ok(());
-        }
+    // BlockInfo before the epoch sync boundary is not guaranteed to have a
+    // corresponding header.
+    if sv.inner.is_height_below_epoch_sync_boundary(&block_info.height()) {
+        return Ok(());
     }
     unwrap_or_err_db!(
         sv.store.get_ser::<BlockHeader>(DBCol::BlockHeader, block_hash.as_ref()),
