@@ -96,7 +96,7 @@ fn safe_produce_blocks(
 
 /// Test that we preserve the validators from the epoch of the state dump.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_preserve_validators() {
     let epoch_length = 4;
@@ -147,7 +147,7 @@ fn test_dump_state_preserve_validators() {
 
 /// Test that we respect the specified account ID list in dump_state.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_respect_select_account_ids() {
     let epoch_length = 4;
@@ -232,7 +232,7 @@ fn test_dump_state_respect_select_account_ids() {
 
 /// Test that we preserve the validators from the epoch of the state dump.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_preserve_validators_in_memory() {
     let epoch_length = 4;
@@ -426,7 +426,7 @@ fn test_dump_state_not_track_shard() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_with_delayed_receipt() {
     init_test_logger();
@@ -515,7 +515,7 @@ fn test_dump_state_with_delayed_receipt() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_respect_select_whitelist_validators() {
     let epoch_length = 4;

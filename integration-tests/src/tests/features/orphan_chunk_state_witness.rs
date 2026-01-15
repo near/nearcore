@@ -236,7 +236,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
 
 /// Test that a valid orphan witness is correctly processed once the required block arrives.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_orphan_witness_valid() {
     init_integration_logger();
@@ -278,7 +278,7 @@ fn test_orphan_witness_valid() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_orphan_witness_too_large() {
     init_integration_logger();
@@ -295,7 +295,7 @@ fn test_orphan_witness_too_large() {
 
 /// Witnesses which are too far from the chain head should not be saved to the orphan pool
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_orphan_witness_far_from_head() {
     init_integration_logger();
@@ -327,7 +327,7 @@ fn test_orphan_witness_far_from_head() {
 // `source_receipt_proofs` will be accepted and saved into the pool, as there's no way to validate
 // this field without the previous block.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_orphan_witness_not_fully_validated() {
     init_integration_logger();
