@@ -157,6 +157,7 @@ pub fn start_client(
     enable_doomslug: bool,
     seed: Option<RngSeed>,
     resharding_sender: ReshardingSender,
+    block_notification_watch_sender: tokio::sync::watch::Sender<Option<BlockNotificationMessage>>,
     spice_client_config: SpiceClientConfig,
 ) -> StartClientResult {
     wait_until_genesis(&chain_genesis.time);
@@ -190,6 +191,7 @@ pub fn start_client(
         chain_sender_for_state_sync.as_multi_sender(),
         client_sender_for_client.as_multi_sender(),
         chunk_validation_adapter.as_multi_sender(),
+        block_notification_watch_sender,
         protocol_upgrade_schedule,
     )
     .unwrap();
@@ -2058,25 +2060,5 @@ impl Handler<SpanWrapped<ChainFinalizationRequest>, Result<(), near_chain::Error
     ) -> Result<(), near_chain::Error> {
         let msg = msg.span_unwrap();
         self.client.chain.set_state_finalize(msg.shard_id, msg.sync_hash)
-    }
-}
-
-/// A request to watch `BlockNotification` events, which are emitted by `Client` after
-/// postprocessing each block.
-#[derive(Debug)]
-pub struct WatchBlockNotificationsRequest;
-
-/// Response to `WatchBlockNotificationsRequest`, contains a `watch::Receiver` that can be used to
-/// watch the `BlockNotification` events.
-#[derive(Debug)]
-pub struct WatchBlockNotificationsResponse {
-    pub watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
-}
-
-impl Handler<WatchBlockNotificationsRequest, WatchBlockNotificationsResponse> for ClientActor {
-    fn handle(&mut self, _msg: WatchBlockNotificationsRequest) -> WatchBlockNotificationsResponse {
-        WatchBlockNotificationsResponse {
-            watcher: self.client.block_notification_watch_sender.subscribe(),
-        }
     }
 }

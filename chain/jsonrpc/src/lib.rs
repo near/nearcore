@@ -13,7 +13,6 @@ use near_async::instrumentation::all_actor_instrumentations_view;
 use near_async::messaging::{AsyncSendError, AsyncSender, CanSend, CanSendAsync, Sender};
 use near_async::time::Clock;
 use near_chain_configs::{ClientConfig, GenesisConfig, ProtocolConfigView};
-use near_client::client_actor::{WatchBlockNotificationsRequest, WatchBlockNotificationsResponse};
 use near_client::{
     DebugStatus, GetBlock, GetBlockProof, GetBlockProofResponse, GetChunk, GetClientConfig,
     GetExecutionOutcome, GetExecutionOutcomeResponse, GetGasPrice, GetMaintenanceWindows,
@@ -90,7 +89,6 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock as AsyncRwLock;
 #[cfg(feature = "sandbox")]
 use tokio::time::sleep;
 use tokio::time::timeout;
@@ -286,7 +284,6 @@ pub struct ClientSenderForRpc(
     AsyncSender<SpanWrapped<GetClientConfig>, Result<ClientConfig, GetClientConfigError>>,
     AsyncSender<SpanWrapped<GetNetworkInfo>, Result<NetworkInfoResponse, String>>,
     AsyncSender<SpanWrapped<Status>, Result<StatusResponse, StatusError>>,
-    AsyncSender<WatchBlockNotificationsRequest, WatchBlockNotificationsResponse>,
     #[cfg(feature = "test_features")] Sender<near_client::NetworkAdversarialMessage>,
     #[cfg(feature = "test_features")]
     AsyncSender<near_client::NetworkAdversarialMessage, Option<u64>>,
@@ -340,8 +337,7 @@ struct JsonRpcHandler {
     enable_debug_rpc: bool,
     debug_pages_src_path: Option<PathBuf>,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
-    block_notification_watcher:
-        AsyncRwLock<Option<tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>>>,
+    block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
 }
 
 impl JsonRpcHandler {
@@ -628,42 +624,13 @@ impl JsonRpcHandler {
         hash
     }
 
-    /// Get `tokio::sync::watch::Receiver` which receives notifications when Client processes a new block.
-    /// On first call it will send a subscription request to Client, subsequent calls will clone the
-    /// first subscribed receiver.
-    async fn get_block_notification_watcher(
-        &self,
-    ) -> Result<tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>, AsyncSendError>
-    {
-        // Happy path - already subscribed, grab the watcher.
-        let read_guard = self.block_notification_watcher.read().await;
-        if let Some(watcher) = &*read_guard {
-            return Ok(watcher.clone());
-        }
-
-        // Watcher doesn't exist yet, need to write-lock and create it.
-        std::mem::drop(read_guard);
-        let mut write_guard = self.block_notification_watcher.write().await;
-
-        // Check if watcher exists.
-        if let Some(watcher) = &*write_guard {
-            return Ok(watcher.clone());
-        }
-
-        // If not, subscribe to watch BlockNotifications from Client and save the subscribed watcher.
-        let watcher = self.client_sender.send_async(WatchBlockNotificationsRequest).await?.watcher;
-        let result = watcher.clone();
-        *write_guard = Some(watcher);
-        return Ok(result);
-    }
-
     async fn tx_exists(
         &self,
         tx_hash: CryptoHash,
         signer_account_id: &AccountId,
     ) -> Result<bool, near_jsonrpc_primitives::types::transactions::RpcTransactionError> {
         timeout(self.polling_config.polling_timeout, async {
-            let mut new_block_watcher = self.get_block_notification_watcher().await.map_err(RpcFrom::rpc_from)?;
+            let mut new_block_watcher = self.block_notification_watcher.clone();
             loop {
                 // TODO(optimization): Introduce a view_client method to only get transaction
                 // status without the information about execution outcomes.
@@ -719,7 +686,7 @@ impl JsonRpcHandler {
         let mut tx_status_result =
             Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError);
         timeout(self.polling_config.polling_timeout, async {
-            let mut new_block_watcher = self.get_block_notification_watcher().await.map_err(RpcFrom::rpc_from)?;
+            let mut new_block_watcher = self.block_notification_watcher.clone();
             loop {
                 tx_status_result = self.view_client_send( TxStatus {
                     tx_hash,
@@ -2049,6 +2016,7 @@ pub fn create_jsonrpc_app(
     view_client_sender: ViewClientSenderForRpc,
     process_tx_sender: ProcessTxSenderForRpc,
     peer_manager_sender: PeerManagerSenderForRpc,
+    block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
 ) -> Router {
@@ -2074,7 +2042,7 @@ pub fn create_jsonrpc_app(
         entity_debug_handler,
         #[cfg(feature = "test_features")]
         gc_sender,
-        block_notification_watcher: AsyncRwLock::new(None),
+        block_notification_watcher,
     });
 
     // Build router
@@ -2123,6 +2091,7 @@ pub async fn start_http(
     view_client_sender: ViewClientSenderForRpc,
     process_tx_sender: ProcessTxSenderForRpc,
     peer_manager_sender: PeerManagerSenderForRpc,
+    block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
     future_spawner: &dyn FutureSpawner,
@@ -2140,6 +2109,7 @@ pub async fn start_http(
         view_client_sender,
         process_tx_sender,
         peer_manager_sender,
+        block_notification_watcher,
         #[cfg(feature = "test_features")]
         gc_sender,
         entity_debug_handler,

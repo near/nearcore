@@ -195,6 +195,9 @@ fn setup(
         config.resharding_config.clone(),
     ));
 
+    let (block_notification_watch_sender, _block_notification_watch_receiver) =
+        tokio::sync::watch::channel(None);
+
     let shards_manager_adapter_for_client = LateBoundSender::new();
     let StartClientResult {
         client_actor,
@@ -224,6 +227,7 @@ fn setup(
         enable_doomslug,
         Some(TEST_SEED),
         resharding_sender.into_multi_sender(),
+        block_notification_watch_sender,
         SpiceClientConfig {
             chunk_executor_sender: noop().into_sender(),
             spice_chunk_validator_sender: noop().into_sender(),
@@ -483,6 +487,8 @@ pub fn setup_client_with_runtime(
         chunk_state_witness: noop().into_sender(),
         block_notification: noop().into_sender(),
     };
+    let (block_notification_watch_sender, _block_notification_watch_receiver) =
+        tokio::sync::watch::channel(None);
     let mut client = Client::new(
         clock,
         config,
@@ -504,6 +510,7 @@ pub fn setup_client_with_runtime(
         noop().into_multi_sender(), // state sync ignored for these tests
         noop().into_multi_sender(), // apply chunks ping not necessary for these tests
         chunk_validation_sender,
+        block_notification_watch_sender,
         protocol_upgrade_schedule,
     )
     .unwrap();

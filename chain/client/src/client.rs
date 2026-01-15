@@ -277,6 +277,9 @@ impl Client {
         chain_sender_for_state_sync: ChainSenderForStateSync,
         myself_sender: ClientSenderForClient,
         chunk_validation_sender: ChunkValidationSender,
+        block_notification_watch_sender: tokio::sync::watch::Sender<
+            Option<BlockNotificationMessage>,
+        >,
         upgrade_schedule: ProtocolUpgradeVotingSchedule,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
@@ -424,7 +427,7 @@ impl Client {
             last_optimistic_block_produced: None,
             chunk_producer_accounts_cache: None,
             shadow_validation_reed_solomon: OnceLock::new(),
-            block_notification_watch_sender: tokio::sync::watch::channel(None).0,
+            block_notification_watch_sender,
         })
     }
 
