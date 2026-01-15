@@ -5,6 +5,7 @@ use crate::sharding::ChunkHash;
 use crate::types::{AccountId, Balance, EpochId, Nonce, SpiceChunkId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
+use near_primitives_core::account::AccessKeyPermission;
 pub use near_primitives_core::errors::IntegerOverflowError;
 use near_primitives_core::types::Gas;
 use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
@@ -404,6 +405,9 @@ pub enum ActionsValidationError {
         length: u64,
         limit: u64,
     } = 16,
+    KeyPermissionInvalid {
+        permission: Box<AccessKeyPermission>,
+    } = 17,
 }
 
 /// Describes the error for validating a receipt.
@@ -582,6 +586,9 @@ impl Display for ActionsValidationError {
                     "DeterministicStateInit contains value of length {length} but at most {limit} is allowed",
                 )
             }
+            ActionsValidationError::KeyPermissionInvalid { permission } => {
+                write!(f, "Specified key permission is invalid: {:?}", permission)
+            }
         }
     }
 }
@@ -731,6 +738,9 @@ pub enum ActionErrorKind {
     GlobalContractDoesNotExist {
         identifier: GlobalContractIdentifier,
     } = 22,
+    KeyPermissionInvalid {
+        permission: Box<AccessKeyPermission>,
+    } = 23,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1008,6 +1018,9 @@ impl Display for ActionErrorKind {
             ),
             ActionErrorKind::GlobalContractDoesNotExist { identifier } => {
                 write!(f, "Global contract identifier {:?} not found", identifier)
+            }
+            ActionErrorKind::KeyPermissionInvalid { permission } => {
+                write!(f, "Specified key permission is invalid: {:?}", permission)
             }
         }
     }
