@@ -749,8 +749,8 @@ mod tests {
     use crate::near_primitives::trie_key::TrieKey;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
+    use near_primitives::action::GlobalContractIdentifier;
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
-    use near_primitives::action::{DeleteGasKeyAction, GlobalContractIdentifier};
     use near_primitives::deterministic_account_id::{
         DeterministicAccountStateInit, DeterministicAccountStateInitV1,
     };
