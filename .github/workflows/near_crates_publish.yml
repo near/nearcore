@@ -15,7 +15,7 @@ on:
 jobs:
   publish-cargo-crates:
     name: "Publish near-workspaces on crates.io https://crates.io/crates/near-workspaces"
-    runs-on: warp-ubuntu-2204-x64-16x
+    runs-on: warp-ubuntu-latest-x64-16x
     environment: deploy
     permissions:
       contents: write # required for crates push
