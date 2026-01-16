@@ -262,20 +262,44 @@ pub enum StateChangesRequest {
 
 #[derive(Debug)]
 pub enum StateChangeValue {
-    AccountUpdate { account_id: AccountId, account: Account },
-    AccountDeletion { account_id: AccountId },
-    AccessKeyUpdate { account_id: AccountId, public_key: PublicKey, access_key: AccessKey },
-    AccessKeyDeletion { account_id: AccountId, public_key: PublicKey },
+    AccountUpdate {
+        account_id: AccountId,
+        account: Account,
+    },
+    AccountDeletion {
+        account_id: AccountId,
+    },
+    AccessKeyUpdate {
+        account_id: AccountId,
+        public_key: PublicKey,
+        access_key: AccessKey,
+    },
+    AccessKeyDeletion {
+        account_id: AccountId,
+        public_key: PublicKey,
+    },
     GasKeyNonceUpdate {
         account_id: AccountId,
         public_key: PublicKey,
         index: NonceIndex,
         nonce_value: Nonce,
     },
-    DataUpdate { account_id: AccountId, key: StoreKey, value: StoreValue },
-    DataDeletion { account_id: AccountId, key: StoreKey },
-    ContractCodeUpdate { account_id: AccountId, code: Vec<u8> },
-    ContractCodeDeletion { account_id: AccountId },
+    DataUpdate {
+        account_id: AccountId,
+        key: StoreKey,
+        value: StoreValue,
+    },
+    DataDeletion {
+        account_id: AccountId,
+        key: StoreKey,
+    },
+    ContractCodeUpdate {
+        account_id: AccountId,
+        code: Vec<u8>,
+    },
+    ContractCodeDeletion {
+        account_id: AccountId,
+    },
 }
 
 impl StateChangeValue {
@@ -349,23 +373,19 @@ impl StateChanges {
                     ))
                 }
                 TrieKey::GasKeyNonce { account_id, public_key, index } => state_changes.extend(
+                    // Deletion of a nonce can only be done with a corresponding
+                    // deletion of the gas key, so we don't need to report these.
                     changes.into_iter().filter_map(|RawStateChange { cause, data }| {
-                        if let Some(change_data) = data {
-                            Some(StateChangeWithCause {
-                                cause,
-                                value: StateChangeValue::GasKeyNonceUpdate {
-                                    account_id: account_id.clone(),
-                                    public_key: public_key.clone(),
-                                    index,
-                                    nonce_value: u64::try_from_slice(&change_data)
-                                        .expect("Failed to parse internally stored gas key nonce"),
-                                },
-                            })
-                        } else {
-                            // Deletion of a nonce can only be done with a corresponding
-                            // deletion of the gas key, so we don't need to report these.
-                            None
-                        }
+                        data.map(|change_data| StateChangeWithCause {
+                            cause,
+                            value: StateChangeValue::GasKeyNonceUpdate {
+                                account_id: account_id.clone(),
+                                public_key: public_key.clone(),
+                                index,
+                                nonce_value: u64::try_from_slice(&change_data)
+                                    .expect("Failed to parse internally stored gas key nonce"),
+                            },
+                        })
                     }),
                 ),
                 TrieKey::ContractCode { account_id } => {

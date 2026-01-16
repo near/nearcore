@@ -2712,7 +2712,7 @@ pub enum StateChangeValueView {
         account_id: AccountId,
         public_key: PublicKey,
         nonce_index: NonceIndex,
-        nonce_value: u64,
+        nonce_value: Nonce,
     },
     DataUpdate {
         account_id: AccountId,
