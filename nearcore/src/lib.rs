@@ -593,6 +593,9 @@ pub async fn start_with_config_and_synchronization_impl(
     let state_sync_spawner: Arc<dyn FutureSpawner> =
         actor_system.new_multi_threaded_future_spawner("state sync").into();
 
+    let (block_notification_watch_sender, block_notification_watch_receiver) =
+        tokio::sync::watch::channel(None);
+
     let chunk_executor_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
     let spice_data_distributor_adapter = LateBoundSender::new();
@@ -631,6 +634,7 @@ pub async fn start_with_config_and_synchronization_impl(
         true,
         None,
         resharding_sender.into_multi_sender(),
+        block_notification_watch_sender,
         spice_client_config,
     );
     client_adapter_for_shards_manager.bind(client_actor.clone());
@@ -747,6 +751,7 @@ pub async fn start_with_config_and_synchronization_impl(
             view_client_addr.clone().into_multi_sender(),
             rpc_handler.clone().into_multi_sender(),
             network_actor.into_multi_sender(),
+            block_notification_watch_receiver,
             #[cfg(feature = "test_features")]
             _gc_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),

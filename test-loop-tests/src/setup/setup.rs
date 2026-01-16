@@ -140,6 +140,9 @@ pub fn setup_client(
         chunks_storage: chunks_storage.clone(),
     });
 
+    let (block_notification_watch_sender, _block_notification_watch_receiver) =
+        tokio::sync::watch::channel(None);
+
     // Generate a PeerId. This is used to identify the client in the network.
     // Make sure this is the same as the account_id of the client to redirect the network messages properly.
     let peer_id = PeerId::new(create_test_signer(account_id.as_str()).public_key());
@@ -171,6 +174,7 @@ pub fn setup_client(
         client_adapter.as_multi_sender(),
         client_adapter.as_multi_sender(),
         chunk_validation_client_sender.as_multi_sender(),
+        block_notification_watch_sender,
         upgrade_schedule.clone(),
     )
     .unwrap();
