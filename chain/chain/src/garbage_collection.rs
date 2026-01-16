@@ -323,12 +323,16 @@ impl ChainStore {
             tracing::debug_span!(target: "garbage_collection", "clear_state_transition_data")
                 .entered();
 
-        let final_block_hash =
-            *self.get_block_header(&self.head()?.last_block_hash)?.last_final_block();
-        if final_block_hash == CryptoHash::default() {
+        let Ok(last_block_header) = self.get_block_header(&self.head()?.last_block_hash) else {
+            // This can happen if the node just did state sync.
+            tracing::debug!(head = ?self.head()?, "could not get head header");
+            return Ok(());
+        };
+        let final_block_hash = last_block_header.last_final_block();
+        if final_block_hash == &CryptoHash::default() {
             return Ok(());
         }
-        let Ok(final_block) = self.get_block(&final_block_hash) else {
+        let Ok(final_block) = self.get_block(final_block_hash) else {
             // This can happen if the node just did state sync.
             tracing::debug!(target: "garbage_collection", ?final_block_hash, "could not get final block");
             return Ok(());
@@ -369,7 +373,8 @@ impl ChainStore {
                 continue;
             };
 
-            let block_height = self.get_block_height(&block_hash)?;
+            // If we are unable to find block_height in store, it is likely the block is already GC'd
+            let block_height = self.get_block_height(&block_hash).unwrap_or_default();
             if block_height < *final_block_height {
                 store_update.delete(DBCol::StateTransitionData, &key);
                 entries_cleared += 1;
