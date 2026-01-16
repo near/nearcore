@@ -355,7 +355,6 @@ pub fn remove_account(
             });
         }
     }
-
     drop(lock);
 
     // TODO(gas-keys): fail remove account if there are gas keys, per design decision.
