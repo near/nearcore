@@ -268,13 +268,18 @@ impl Byte for u8 {
 /// Convenience common alias for storage of encoded `TrieKey`s in `SmallVec`s.
 pub type SmallKeyVec = smallvec::SmallVec<[u8; 64]>;
 
+/// Returns the length of the trie key for an access key.
+fn access_key_key_len(account_id: &AccountId, public_key: &PublicKey) -> usize {
+    col::ACCESS_KEY.len() * 2 + account_id.len() + public_key.len()
+}
+
 impl TrieKey {
     pub fn len(&self) -> usize {
         match self {
             TrieKey::Account { account_id } => col::ACCOUNT.len() + account_id.len(),
             TrieKey::ContractCode { account_id } => col::CONTRACT_CODE.len() + account_id.len(),
             TrieKey::AccessKey { account_id, public_key } => {
-                col::ACCESS_KEY.len() * 2 + account_id.len() + public_key.len()
+                access_key_key_len(account_id, public_key)
             }
             TrieKey::ReceivedData { receiver_id, data_id } => {
                 col::RECEIVED_DATA.len()
@@ -339,10 +344,7 @@ impl TrieKey {
                 col::GLOBAL_CONTRACT_CODE.len() + identifier.len()
             }
             TrieKey::GasKeyNonce { account_id, public_key, index: _nonce_index } => {
-                col::ACCESS_KEY.len() * 2
-                    + account_id.len()
-                    + public_key.len()
-                    + size_of::<NonceIndex>()
+                access_key_key_len(account_id, public_key) + size_of::<NonceIndex>()
             }
         }
     }
@@ -562,14 +564,20 @@ pub mod trie_key_parsers {
         PublicKey::deserialize(&mut buf)
     }
 
+    /// Parses the nonce index from a gas key raw key. Note that each nonce gas key
+    /// extends the corresponding access key trie key with a `NonceIndex` suffix.
     pub fn parse_nonce_index_from_gas_key_key(
         raw_key: &[u8],
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Option<NonceIndex>, std::io::Error> {
-        let prefix_len =
-            col::ACCESS_KEY.len() + account_id.len() + col::ACCESS_KEY.len() + public_key.len();
-        if raw_key.len() <= prefix_len {
+        let prefix_len = access_key_key_len(account_id, public_key);
+        if raw_key.len() < prefix_len {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key is too short for TrieKey::GasKeyNonce",
+            ));
+        } else if raw_key.len() == prefix_len {
             return Ok(None);
         }
         NonceIndex::try_from_slice(&raw_key[prefix_len..]).map(Some)
