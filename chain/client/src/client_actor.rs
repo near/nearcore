@@ -52,8 +52,8 @@ use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::{ShardedTransactionPool, ShardsManagerResponse};
 use near_client_primitives::types::{
-    Error, GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse,
-    StateSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
+    BlockNotificationMessage, Error, GetClientConfig, GetClientConfigError, GetNetworkInfo,
+    NetworkInfoResponse, StateSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -157,6 +157,7 @@ pub fn start_client(
     enable_doomslug: bool,
     seed: Option<RngSeed>,
     resharding_sender: ReshardingSender,
+    block_notification_watch_sender: tokio::sync::watch::Sender<Option<BlockNotificationMessage>>,
     spice_client_config: SpiceClientConfig,
 ) -> StartClientResult {
     wait_until_genesis(&chain_genesis.time);
@@ -190,6 +191,7 @@ pub fn start_client(
         chain_sender_for_state_sync.as_multi_sender(),
         client_sender_for_client.as_multi_sender(),
         chunk_validation_adapter.as_multi_sender(),
+        block_notification_watch_sender,
         protocol_upgrade_schedule,
     )
     .unwrap();
