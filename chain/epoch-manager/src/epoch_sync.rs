@@ -75,12 +75,6 @@ fn extend_epoch_sync_proof(
             tracing::debug!("proof is already up-to-date, no need to extend");
             return Ok(store_update);
         }
-
-        // let prev_proof_first_block_hash = proof.current_epoch.first_block_header_in_epoch.hash();
-        // if prev_proof_first_block_hash == last_block_info.epoch_first_block() {
-        //     // Proof is already up-to-date. This can happen if we are processing forks
-        //     return Ok(store_update);
-        // }
     }
 
     let new_proof = create_epoch_sync_proof_from_prev_proof(store, last_block_hash, proof)?;
