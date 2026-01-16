@@ -560,6 +560,7 @@ impl EpochInfo {
         height: BlockHeight,
         blacklist: Option<HashSet<ValidatorId>>,
     ) -> Option<ValidatorId> {
+        // TODO: Better way of sampling filtered producers
         let blacklist = blacklist.unwrap_or_default();
 
         let shard_index = shard_layout.get_shard_index(shard_id).ok()?;
@@ -608,42 +609,6 @@ impl EpochInfo {
                 let seed = Self::chunk_produce_seed(&v5.rng_seed, height, shard_id);
                 let start_index = v5.chunk_producers_sampler.get(shard_index)?.sample(seed);
                 select_from_settlement(shard_cps, start_index)
-            }
-        }
-    }
-
-    fn _sample_chunk_producer_no_exclusions(
-        &self,
-        shard_layout: &ShardLayout,
-        shard_id: ShardId,
-        height: BlockHeight,
-    ) -> Option<ValidatorId> {
-        let shard_index = shard_layout.get_shard_index(shard_id).ok()?;
-        match &self {
-            Self::V1(v1) => {
-                let cp_settlement = &v1.chunk_producers_settlement;
-                let shard_cps = cp_settlement.get(shard_index)?;
-                shard_cps.get((height as u64 % (shard_cps.len() as u64)) as usize).copied()
-            }
-            Self::V2(v2) => {
-                let cp_settlement = &v2.chunk_producers_settlement;
-                let shard_cps = cp_settlement.get(shard_index)?;
-                shard_cps.get((height as u64 % (shard_cps.len() as u64)) as usize).copied()
-            }
-            Self::V3(v3) => {
-                let seed = Self::chunk_produce_seed(&v3.rng_seed, height, shard_id);
-                let sample = v3.chunk_producers_sampler.get(shard_index)?.sample(seed);
-                v3.chunk_producers_settlement.get(shard_index)?.get(sample).copied()
-            }
-            Self::V4(v4) => {
-                let seed = Self::chunk_produce_seed(&v4.rng_seed, height, shard_id);
-                let sample = v4.chunk_producers_sampler.get(shard_index)?.sample(seed);
-                v4.chunk_producers_settlement.get(shard_index)?.get(sample).copied()
-            }
-            Self::V5(v5) => {
-                let seed = Self::chunk_produce_seed(&v5.rng_seed, height, shard_id);
-                let sample = v5.chunk_producers_sampler.get(shard_index)?.sample(seed);
-                v5.chunk_producers_settlement.get(shard_index)?.get(sample).copied()
             }
         }
     }
