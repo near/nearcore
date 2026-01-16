@@ -157,7 +157,7 @@ pytest sanity/validator_switch.py
 pytest sanity/validator_switch.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/validator_switch.py --features nightly,protocol_feature_spice
-# TODO: tests are flaky and broken. They are passing locally
+# TODO(epoch_sync): tests are flaky and broken. They are passing locally
 # pytest sanity/rpc_state_changes.py
 # pytest sanity/rpc_state_changes.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
