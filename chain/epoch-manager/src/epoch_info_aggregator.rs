@@ -51,9 +51,9 @@ impl EpochInfoAggregator {
     /// in the current epoch.
     pub fn get_excluded_chunk_producers_for_shard(
         &self,
-        shard_id: ShardId,
+        shard_id: &ShardId,
     ) -> Option<&HashSet<ValidatorId>> {
-        self.excluded_chunk_producers.get(&shard_id)
+        self.excluded_chunk_producers.get(shard_id)
     }
 
     pub fn blacklist_chunk_producer(
@@ -145,8 +145,9 @@ impl EpochInfoAggregator {
 
         for (shard_index, mask) in block_info.chunk_mask().iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
+            let blacklist = self.get_excluded_chunk_producers_for_shard(&shard_id);
             let chunk_producer_id = epoch_info
-                .sample_chunk_producer(shard_layout, shard_id, prev_block_height + 1)
+                .sample_chunk_producer(shard_layout, shard_id, prev_block_height + 1, blacklist)
                 .unwrap();
             let tracker = self.shard_tracker.entry(shard_id).or_insert_with(HashMap::new);
             tracker

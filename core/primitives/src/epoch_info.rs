@@ -558,9 +558,66 @@ impl EpochInfo {
         shard_layout: &ShardLayout,
         shard_id: ShardId,
         height: BlockHeight,
-        // blacklist: &HashSet<ValidatorId>,
+        blacklist: Option<HashSet<ValidatorId>>,
     ) -> Option<ValidatorId> {
-        // let _ = blacklist;
+        let blacklist = blacklist.unwrap_or_default();
+
+        let shard_index = shard_layout.get_shard_index(shard_id).ok()?;
+
+        let select_from_settlement = |shard_cps: &[ValidatorId], start_index: usize| {
+            if shard_cps.is_empty() {
+                return None;
+            }
+
+            for offset in 0..shard_cps.len() {
+                let index = (start_index + offset) % shard_cps.len();
+                let candidate = shard_cps[index];
+                if !blacklist.contains(&candidate) {
+                    return Some(candidate);
+                }
+            }
+
+            None
+        };
+
+        match &self {
+            Self::V1(v1) => {
+                let shard_cps = v1.chunk_producers_settlement.get(shard_index)?;
+                let start_index = (height as u64 % (shard_cps.len() as u64)) as usize;
+                select_from_settlement(shard_cps, start_index)
+            }
+            Self::V2(v2) => {
+                let shard_cps = v2.chunk_producers_settlement.get(shard_index)?;
+                let start_index = (height as u64 % (shard_cps.len() as u64)) as usize;
+                select_from_settlement(shard_cps, start_index)
+            }
+            Self::V3(v3) => {
+                let shard_cps = v3.chunk_producers_settlement.get(shard_index)?;
+                let seed = Self::chunk_produce_seed(&v3.rng_seed, height, shard_id);
+                let start_index = v3.chunk_producers_sampler.get(shard_index)?.sample(seed);
+                select_from_settlement(shard_cps, start_index)
+            }
+            Self::V4(v4) => {
+                let shard_cps = v4.chunk_producers_settlement.get(shard_index)?;
+                let seed = Self::chunk_produce_seed(&v4.rng_seed, height, shard_id);
+                let start_index = v4.chunk_producers_sampler.get(shard_index)?.sample(seed);
+                select_from_settlement(shard_cps, start_index)
+            }
+            Self::V5(v5) => {
+                let shard_cps = v5.chunk_producers_settlement.get(shard_index)?;
+                let seed = Self::chunk_produce_seed(&v5.rng_seed, height, shard_id);
+                let start_index = v5.chunk_producers_sampler.get(shard_index)?.sample(seed);
+                select_from_settlement(shard_cps, start_index)
+            }
+        }
+    }
+
+    fn _sample_chunk_producer_no_exclusions(
+        &self,
+        shard_layout: &ShardLayout,
+        shard_id: ShardId,
+        height: BlockHeight,
+    ) -> Option<ValidatorId> {
         let shard_index = shard_layout.get_shard_index(shard_id).ok()?;
         match &self {
             Self::V1(v1) => {
