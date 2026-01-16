@@ -11,15 +11,13 @@ use crate::{
 };
 use itertools::Itertools;
 use near_primitives::account::id::AccountId;
-use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, ReceiptEnum, ReceiptV1};
 use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::TrieKey;
+use near_primitives::types::StateRoot;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{Balance, StateRoot};
 use rand::Rng;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
@@ -205,17 +203,7 @@ impl TestTriesBuilder {
         }
         if self.enable_in_memory_tries {
             // ChunkExtra is needed for in-memory trie loading code to query state roots.
-            let congestion_info = Some(CongestionInfo::default());
-            let chunk_extra = ChunkExtra::new(
-                &Trie::EMPTY_ROOT,
-                CryptoHash::default(),
-                Vec::new(),
-                near_primitives::types::Gas::ZERO,
-                near_primitives::types::Gas::ZERO,
-                Balance::ZERO,
-                congestion_info,
-                BandwidthRequests::empty(),
-            );
+            let chunk_extra = ChunkExtra::new_with_only_state_root(&Trie::EMPTY_ROOT);
             let mut update_for_chunk_extra = store.store_update();
             for shard_uid in &shard_uids {
                 update_for_chunk_extra

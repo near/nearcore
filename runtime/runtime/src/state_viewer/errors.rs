@@ -63,7 +63,7 @@ pub enum CallFunctionError {
     #[error("Internal error: #{error_message}")]
     InternalError { error_message: String },
     #[error("VM error occurred: #{error_message}")]
-    VMError { error_message: String },
+    VMError { error: near_primitives::errors::FunctionCallError, error_message: String },
 }
 
 impl From<ViewAccountError> for ViewContractCodeError {

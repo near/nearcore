@@ -33,7 +33,6 @@ impl NightshadeRuntime {
             StateSnapshotConfig::enabled(home_dir.join("data")),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
             false,
-            false,
         )
     }
 
@@ -61,7 +60,6 @@ impl NightshadeRuntime {
             StateSnapshotConfig::enabled(home_dir.join("data")),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
             is_cloud_archival_writer,
-            false,
         )
     }
 

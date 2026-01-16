@@ -208,7 +208,6 @@ pub enum Parameter {
     VmKind,
     EthImplicitAccounts,
     DiscardCustomSections,
-    SaturatingFloatToInt,
     ReftypesBulkMemory,
 
     // Congestion Control
@@ -250,6 +249,8 @@ pub enum Parameter {
     MinChildMemoryUsage,
     MaxNumberOfShards,
     MinEpochsBetweenResharding,
+    ForceSplitShards,
+    BlockSplitShards,
 }
 
 #[derive(

@@ -217,7 +217,6 @@ fix_contract_loading_cost               false
 vm_kind                                 Wasmtime
 eth_implicit_accounts                   true
 discard_custom_sections                 true
-saturating_float_to_int                 true
 reftypes_bulk_memory                    true
 max_congestion_incoming_gas             400_000_000_000_000_000
 max_congestion_outgoing_gas             10_000_000_000_000_000
@@ -257,3 +256,5 @@ memory_usage_threshold                   999_999_999_999_999
 min_child_memory_usage                   999_999_999_999_999
 max_number_of_shards                     999_999_999_999_999
 min_epochs_between_resharding            999_999_999_999_999
+force_split_shards                      []
+block_split_shards                      []

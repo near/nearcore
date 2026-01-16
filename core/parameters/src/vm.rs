@@ -178,9 +178,6 @@ pub struct Config {
     /// Whether to discard custom sections.
     pub discard_custom_sections: bool,
 
-    /// Whether to enable saturating float-to-integer wasm operators.
-    pub saturating_float_to_int: bool,
-
     /// Whether to enable global contract related host functions.
     pub global_contract_host_fns: bool,
 

@@ -57,6 +57,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         vec![1; num_shards as usize],
     );
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     get_chain_with_genesis(clock, genesis)
 }
 
@@ -199,7 +200,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         "chain head"
     );
     let mut headers = vec![];
-    for (key, _) in chain_store.store().iter(DBCol::BlockHeader).map(Result::unwrap) {
+    for (key, _) in chain_store.store().iter(DBCol::BlockHeader) {
         let header = chain_store
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()
@@ -315,7 +316,9 @@ pub fn get_fake_next_block_chunk_headers(
                 Default::default(),
                 CongestionInfo::default(),
                 BandwidthRequests::empty(),
+                None,
                 signer,
+                PROTOCOL_VERSION,
             ))
         }
     }

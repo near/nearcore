@@ -97,8 +97,7 @@ def test_tx_status(nodes, *, nonce_offset: int = 0):
 def start_cluster(*, archive: bool = False):
     num_nodes = 4
     genesis_changes = [["epoch_length", 1000],
-                       ["block_producer_kickout_threshold", 80],
-                       ["transaction_validity_period", 10000]]
+                       ["block_producer_kickout_threshold", 80]]
     config_changes = dict.fromkeys(range(num_nodes), {'archive': archive})
     return cluster.start_cluster(num_nodes=num_nodes,
                                  num_observers=0,

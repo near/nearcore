@@ -38,7 +38,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
-use near_primitives::sharding::ShardChunk;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardProof;
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
@@ -49,7 +49,6 @@ use near_primitives::types::BlockExecutionResults;
 use near_primitives::types::BlockHeight;
 use near_primitives::types::ChunkExecutionResult;
 use near_primitives::types::ChunkExecutionResultHash;
-use near_primitives::types::EpochId;
 use near_primitives::types::SpiceChunkId;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{Gas, ShardId};
@@ -58,6 +57,7 @@ use near_primitives::utils::get_receipt_proof_target_shard_prefix;
 use near_primitives::utils::get_witnesses_key;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::DBCol;
+use near_store::ShardUId;
 use near_store::Store;
 use near_store::StoreUpdate;
 use near_store::TrieDBStorage;
@@ -74,6 +74,19 @@ use crate::spice_chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
+
+#[derive(Clone, Debug)]
+pub struct ChunkExecutorConfig {
+    pub save_trie_changes: bool,
+    pub save_tx_outcomes: bool,
+    pub save_state_changes: bool,
+}
+
+impl Default for ChunkExecutorConfig {
+    fn default() -> Self {
+        Self { save_trie_changes: true, save_tx_outcomes: true, save_state_changes: true }
+    }
+}
 
 pub struct ChunkExecutorActor {
     pub(crate) chain_store: ChainStore,
@@ -108,11 +121,16 @@ impl ChunkExecutorActor {
         myself_sender: Sender<ExecutorApplyChunksDone>,
         core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
+        config: ChunkExecutorConfig,
     ) -> Self {
         let core_reader =
             SpiceCoreReader::new(store.chain_store(), epoch_manager.clone(), genesis.gas_limit);
+        let chain_store =
+            ChainStore::new(store, config.save_trie_changes, genesis.transaction_validity_period)
+                .with_save_tx_outcomes(config.save_tx_outcomes)
+                .with_save_state_changes(config.save_state_changes);
         Self {
-            chain_store: ChainStore::new(store, true, genesis.transaction_validity_period),
+            chain_store,
             runtime_adapter,
             epoch_manager,
             shard_tracker,
@@ -223,6 +241,13 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
             "received receipts",
         );
         self.pending_unverified_receipts.entry(block_hash).or_default().push(receipts);
+        // Some additional receipts can arrive after we have already started executing the block.
+        // (For example receiving receipts from push/pull code paths.) In this case we want to make
+        // sure we process pending receipts to make sure don't leak memory by storing unverified
+        // receipts indefinitely.
+        if let Err(err) = self.try_process_pending_unverified_receipts(&block_hash) {
+            tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed while trying to save pending unverified receipts");
+        }
 
         if let Err(err) = self.try_process_next_blocks(&block_hash) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to process next blocks");
@@ -354,6 +379,13 @@ impl TryApplyChunksOutcome {
     }
 }
 
+struct ChunkApplicationContext<'a> {
+    incoming_receipts: Vec<ReceiptProof>,
+    shard_uid: ShardUId,
+    prev_chunk_chunk_extra: Arc<ChunkExtra>,
+    chunk_header: &'a ShardChunkHeader,
+}
+
 impl ChunkExecutorActor {
     #[instrument(target = "chunk_executor", level = "debug", skip_all, fields(%block_hash))]
     fn try_apply_chunks(
@@ -374,6 +406,7 @@ impl ChunkExecutorActor {
             return Ok(TryApplyChunksOutcome::BlockIrrelevant);
         }
 
+        let block_chunk_headers = block.chunks();
         let header = block.header();
         let prev_block_hash = header.prev_hash();
         let prev_block = self.chain_store.get_block(&prev_block_hash)?;
@@ -395,36 +428,40 @@ impl ChunkExecutorActor {
             return Err(err);
         }
 
-        let mut all_receipts: HashMap<ShardId, Vec<ReceiptProof>> = HashMap::new();
+        let mut chunk_contexts = Vec::new();
         let prev_block_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
         let prev_block_shard_ids = self.epoch_manager.shard_ids(&prev_block_epoch_id)?;
+        let current_block_shard_layout =
+            self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
         for &prev_block_shard_id in &prev_block_shard_ids {
             // TODO(spice-resharding): convert `prev_block_shard_id` into `shard_id` for
             // the current shard layout
             let current_block_shard_id = prev_block_shard_id;
-            if self.shard_tracker.should_apply_chunk(
+            if !self.shard_tracker.should_apply_chunk(
                 ApplyChunksMode::IsCaughtUp,
                 prev_block_hash,
                 current_block_shard_id,
             ) {
-                // Existing chunk extra means that the chunk for that shard was already applied
-                if self.chunk_extra_exists(block_hash, current_block_shard_id)? {
-                    return Ok(TryApplyChunksOutcome::BlockAlreadyAccepted);
-                }
+                continue;
+            }
+            // Existing chunk extra means that the chunk for that shard was already applied
+            if self.chunk_extra_exists(block_hash, current_block_shard_id)? {
+                return Ok(TryApplyChunksOutcome::BlockAlreadyAccepted);
+            }
 
+            let Some(prev_chunk_chunk_extra) =
+                self.get_chunk_extra(prev_block_hash, prev_block_shard_id)?
+            else {
+                return Ok(TryApplyChunksOutcome::previous_block_is_not_executed(
+                    *prev_block_hash,
+                    prev_block_shard_id,
+                ));
+            };
+
+            let incoming_receipts = if prev_block.header().is_genesis() {
                 // Genesis block has no outgoing receipts.
-                if prev_block.header().is_genesis() {
-                    all_receipts.insert(prev_block_shard_id, vec![]);
-                    continue;
-                }
-
-                if !self.chunk_extra_exists(prev_block_hash, prev_block_shard_id)? {
-                    return Ok(TryApplyChunksOutcome::previous_block_is_not_executed(
-                        *prev_block_hash,
-                        prev_block_shard_id,
-                    ));
-                }
-
+                vec![]
+            } else {
                 let proofs =
                     get_receipt_proofs_for_shard(&store, prev_block_hash, prev_block_shard_id)?;
                 if proofs.len() != prev_block_shard_ids.len() {
@@ -436,13 +473,30 @@ impl ChunkExecutorActor {
                         &prev_block_shard_ids,
                     ));
                 }
-                all_receipts.insert(prev_block_shard_id, proofs);
-            }
+                proofs
+            };
+
+            let shard_index = current_block_shard_layout.get_shard_index(current_block_shard_id)?;
+            let chunk_header = block_chunk_headers
+                .get(shard_index)
+                .ok_or(Error::InvalidShardId(current_block_shard_id))?;
+
+            let shard_uid = ShardUId::from_shard_id_and_layout(
+                current_block_shard_id,
+                &current_block_shard_layout,
+            );
+            chunk_contexts.push(ChunkApplicationContext {
+                incoming_receipts,
+                prev_chunk_chunk_extra,
+                shard_uid,
+                chunk_header,
+            });
         }
         self.schedule_apply_chunks(
-            block,
-            all_receipts,
+            &block,
+            chunk_contexts,
             prev_block_execution_results,
+            // TODO(spice): add support for sandbox state patching or remove.
             SandboxStatePatch::default(),
         )?;
         self.blocks_in_execution.insert(*block_hash);
@@ -470,83 +524,58 @@ impl ChunkExecutorActor {
 
     fn schedule_apply_chunks(
         &self,
-        block: Arc<Block>,
-        mut incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
+        block: &Block,
+        chunk_contexts: Vec<ChunkApplicationContext>,
         prev_block_execution_results: BlockExecutionResults,
         mut state_patch: SandboxStatePatch,
     ) -> Result<(), Error> {
         let prev_hash = block.header().prev_hash();
-        let prev_block = self.chain_store.get_block(prev_hash)?;
-        let shard_layout = self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
-        let chunk_headers = block.chunks();
+        let prev_block_header = self.chain_store.get_block_header(prev_hash)?;
+
         let receipts_shuffle_salt = get_receipts_shuffle_salt(&block);
 
-        let mut jobs = Vec::new();
-        // TODO(spice-resharding): Make sure shard logic is correct with resharding.
-        for shard_id in shard_layout.shard_ids() {
-            // XXX: This is a bit questionable -- sandbox state patching works
-            // only for a single shard. This so far has been enough.
-            let state_patch = state_patch.take();
-            // If we don't care about shard we wouldn't have relevant incoming receipts.
-            if !self.shard_tracker.should_apply_chunk(
-                ApplyChunksMode::IsCaughtUp,
-                prev_hash,
-                shard_id,
-            ) {
-                continue;
-            }
-
+        let block_contexts = {
             let block_context = build_spice_apply_chunk_block_context(
                 block.header(),
                 &prev_block_execution_results,
                 self.epoch_manager.as_ref(),
             )?;
+            std::iter::repeat_n(block_context, chunk_contexts.len())
+        };
+        // TODO(spice-resharding): Make sure shard logic is correct with resharding.
+        let jobs = chunk_contexts
+            .into_iter()
+            .zip(block_contexts)
+            .map(|(mut chunk_context, block_context)| {
+                // XXX: This is a bit questionable -- sandbox state patching works
+                // only for a single shard. This so far has been enough.
+                let state_patch = state_patch.take();
 
-            // TODO(spice-resharding): We may need to take resharding into account here.
-            let mut receipt_proofs = incoming_receipts
-                .remove(&shard_id)
-                .expect("expected receipts for all tracked shards");
-            shuffle_receipt_proofs(&mut receipt_proofs, receipts_shuffle_salt);
+                // TODO(spice-resharding): We may need to take resharding into account here.
+                shuffle_receipt_proofs(&mut chunk_context.incoming_receipts, receipts_shuffle_salt);
 
-            let storage_context =
-                StorageContext { storage_data_source: StorageDataSource::Db, state_patch };
-
-            let shard_index = shard_layout.get_shard_index(shard_id)?;
-            let chunk_header =
-                chunk_headers.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
-
-            let chunk = if chunk_header.is_new_chunk(block.header().height()) {
-                Some(get_chunk_clone_from_header(&self.chain_store.chunk_store(), chunk_header)?)
-            } else {
-                None
-            };
-            let job = self.get_update_shard_job(
-                block_context,
-                shard_id,
-                chunk,
-                &prev_block,
-                ApplyChunksMode::IsCaughtUp,
-                &receipt_proofs,
-                storage_context,
-            );
-            match job {
-                Ok(Some(job)) => jobs.push(job),
-                Ok(None) => {}
-                Err(e) => panic!("{e:?}"),
-            }
-        }
+                let storage_context =
+                    StorageContext { storage_data_source: StorageDataSource::Db, state_patch };
+                self.get_update_shard_job(
+                    block_context,
+                    chunk_context,
+                    &prev_block_header,
+                    storage_context,
+                )
+            })
+            .collect::<Result<_, _>>()?;
 
         let apply_done_sender = self.myself_sender.clone();
         let iteration_mode = self.apply_chunks_iteration_mode;
+        let block_hash = *block.hash();
+        let block_height = block.header().height();
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
-            let block_hash = *block.hash();
-            let apply_results =
-                do_apply_chunks(iteration_mode, &block_hash, block.header().height(), jobs)
-                    .into_iter()
-                    .map(|(shard_id, result)| {
-                        result.map_err(|err| FailedToApplyChunkError { shard_id, err })
-                    })
-                    .collect();
+            let apply_results = do_apply_chunks(iteration_mode, &block_hash, block_height, jobs)
+                .into_iter()
+                .map(|(shard_id, result)| {
+                    result.map_err(|err| FailedToApplyChunkError { shard_id, err })
+                })
+                .collect();
             apply_done_sender.send(ExecutorApplyChunksDone { block_hash, apply_results });
         });
         Ok(())
@@ -640,7 +669,7 @@ impl ChunkExecutorActor {
         let shard_id = shard_uid.shard_id();
 
         let execution_result =
-            new_execution_result(gas_limit, apply_result, outgoing_receipts_root);
+            new_execution_result(*gas_limit, apply_result, outgoing_receipts_root);
         let execution_result_hash = execution_result.compute_hash();
         if self
             .epoch_manager
@@ -743,84 +772,63 @@ impl ChunkExecutorActor {
         Ok(state_witness)
     }
 
+    #[instrument(
+        level = "debug",
+        target = "chunk_executor",
+        skip_all,
+        fields(
+            block_height=%block_context.height,
+            prev_block_hash=?prev_block_header.hash(),
+        )
+    )]
     fn get_update_shard_job(
         &self,
-        block: ApplyChunkBlockContext,
-        shard_id: ShardId,
-        chunk: Option<ShardChunk>,
-        prev_block: &Block,
-        mode: ApplyChunksMode,
-        incoming_receipts: &[ReceiptProof],
+        block_context: ApplyChunkBlockContext,
+        chunk_context: ChunkApplicationContext,
+        prev_block_header: &BlockHeader,
         storage_context: StorageContext,
-    ) -> Result<Option<UpdateShardJob>, Error> {
-        let prev_block_hash = prev_block.hash();
-        let block_height = block.height;
-        let _span =
-            tracing::debug_span!(target: "chunk_executor", "get_update_shard_job", ?prev_block_hash, block_height)
-                .entered();
-
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-        let shard_context = self.get_shard_context(prev_block_hash, &epoch_id, shard_id, mode)?;
-
-        if !shard_context.should_apply_chunk {
-            return Ok(None);
-        }
-
-        let shard_update_reason = {
-            let receipts = collect_receipts(incoming_receipts);
-            let shard_uid = &shard_context.shard_uid;
-            let prev_chunk_chunk_extra =
-                self.chain_store.get_chunk_extra(prev_block_hash, shard_uid)?;
-
-            let (transactions, chunk_hash) = if let Some(chunk) = chunk {
-                let chunk_hash = chunk.chunk_hash().clone();
-                let tx_valid_list =
-                    self.chain_store.compute_transaction_validity(prev_block.header(), &chunk);
-                (
-                    SignedValidPeriodTransactions::new(chunk.into_transactions(), tx_valid_list),
-                    Some(chunk_hash),
-                )
-            } else {
-                (SignedValidPeriodTransactions::new(vec![], vec![]), None)
-            };
-
-            ShardUpdateReason::NewChunk(NewChunkData {
-                gas_limit: prev_chunk_chunk_extra.gas_limit(),
-                prev_state_root: *prev_chunk_chunk_extra.state_root(),
-                prev_validator_proposals: prev_chunk_chunk_extra.validator_proposals().collect(),
-                chunk_hash,
-                transactions,
-                receipts,
-                block,
-                storage_context,
-            })
+    ) -> Result<UpdateShardJob, Error> {
+        let receipts = collect_receipts(&chunk_context.incoming_receipts);
+        let chunk_header = chunk_context.chunk_header;
+        let (transactions, chunk_hash) = if chunk_header.is_new_chunk(block_context.height) {
+            let chunk = get_chunk_clone_from_header(&self.chain_store.chunk_store(), chunk_header)?;
+            let chunk_hash = chunk.chunk_hash().clone();
+            let tx_valid_list =
+                self.chain_store.compute_transaction_validity(prev_block_header, &chunk);
+            (
+                SignedValidPeriodTransactions::new(chunk.into_transactions(), tx_valid_list),
+                Some(chunk_hash),
+            )
+        } else {
+            (SignedValidPeriodTransactions::new(vec![], vec![]), None)
         };
 
+        let prev_chunk_chunk_extra = chunk_context.prev_chunk_chunk_extra;
+        let shard_update_reason = ShardUpdateReason::NewChunk(NewChunkData {
+            gas_limit: prev_chunk_chunk_extra.gas_limit(),
+            prev_state_root: *prev_chunk_chunk_extra.state_root(),
+            prev_validator_proposals: prev_chunk_chunk_extra.validator_proposals().collect(),
+            chunk_hash,
+            transactions,
+            receipts,
+            block: block_context,
+            storage_context,
+        });
+
         let runtime = self.runtime_adapter.clone();
-        Ok(Some((
-            shard_id,
+        let shard_uid = chunk_context.shard_uid;
+        Ok((
+            shard_uid.shard_id(),
             Box::new(move |parent_span| -> Result<ShardUpdateResult, Error> {
                 Ok(process_shard_update(
                     parent_span,
                     runtime.as_ref(),
                     shard_update_reason,
-                    shard_context,
+                    ShardContext { shard_uid, should_apply_chunk: true },
                     None,
                 )?)
             }),
-        )))
-    }
-
-    fn get_shard_context(
-        &self,
-        prev_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-        mode: ApplyChunksMode,
-    ) -> Result<ShardContext, Error> {
-        let should_apply_chunk = self.shard_tracker.should_apply_chunk(mode, prev_hash, shard_id);
-        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
-        Ok(ShardContext { shard_uid, should_apply_chunk })
+        ))
     }
 
     pub(crate) fn get_chunk_extra(
@@ -988,24 +996,19 @@ impl ChunkExecutorActor {
 
         Ok(())
     }
+
+    #[cfg(test)]
+    pub fn pending_receipts_count(&self) -> usize {
+        self.pending_unverified_receipts.len()
+    }
 }
 
 fn new_execution_result(
-    gas_limit: &Gas,
+    gas_limit: Gas,
     apply_result: &ApplyChunkResult,
     outgoing_receipts_root: CryptoHash,
 ) -> ChunkExecutionResult {
-    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
-    let chunk_extra = ChunkExtra::new(
-        &apply_result.new_root,
-        outcome_root,
-        apply_result.validator_proposals.clone(),
-        apply_result.total_gas_burnt,
-        *gas_limit,
-        apply_result.total_balance_burnt,
-        apply_result.congestion_info,
-        apply_result.bandwidth_requests.clone(),
-    );
+    let chunk_extra = apply_result.to_chunk_extra(gas_limit);
     ChunkExecutionResult { chunk_extra, outgoing_receipts_root }
 }
 
@@ -1073,7 +1076,7 @@ pub fn receipt_proof_exists(
     block_hash: &CryptoHash,
     to_shard_id: ShardId,
     from_shard_id: ShardId,
-) -> Result<bool, std::io::Error> {
+) -> bool {
     let key = get_receipt_proof_key(block_hash, from_shard_id, to_shard_id);
     store.exists(DBCol::receipt_proofs(), &key)
 }
@@ -1179,6 +1182,7 @@ pub mod testonly {
             network_adapter: PeerManagerAdapter,
             validator_signer: MutableValidatorSigner,
             apply_chunks_iteration_mode: ApplyChunksIterationMode,
+            chunk_executor_config: ChunkExecutorConfig,
         ) -> Self {
             let (actor_sc, actor_rc) = unbounded();
             let myself_sender = Sender::from_fn(move |event: ExecutorApplyChunksDone| {
@@ -1225,6 +1229,7 @@ pub mod testonly {
                     myself_sender,
                     core_writer_sender,
                     data_distributor_adapter,
+                    chunk_executor_config,
                 ),
                 actor_rc,
                 tasks_rc,

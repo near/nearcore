@@ -20,12 +20,12 @@ pub struct RecoveryDB {
 
 impl Database for RecoveryDB {
     /// Returns raw bytes for given `key` ignoring any reference count decoding if any.
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
         self.cold.get_raw_bytes(col, key)
     }
 
     /// Returns value for given `key` forcing a reference count decoding.
-    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
+    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
         self.cold.get_with_rc_stripped(col, key)
     }
 
@@ -56,21 +56,19 @@ impl Database for RecoveryDB {
 
     /// Atomically applies operations in given transaction. Also filters out `DBOp`s which are
     /// either modifying a column different from `State` or overwriting the same data.
-    fn write(&self, mut transaction: DBTransaction) -> std::io::Result<()> {
+    fn write(&self, mut transaction: DBTransaction) {
         self.filter_db_ops(&mut transaction);
         if !transaction.ops.is_empty() {
             self.ops_written.fetch_add(transaction.ops.len() as i64, Ordering::Relaxed);
             self.cold.write(transaction)
-        } else {
-            Ok(())
         }
     }
 
-    fn compact(&self) -> std::io::Result<()> {
+    fn compact(&self) {
         self.cold.compact()
     }
 
-    fn flush(&self) -> std::io::Result<()> {
+    fn flush(&self) {
         self.cold.flush()
     }
 
@@ -129,12 +127,12 @@ impl RecoveryDB {
     /// The reference count is ignored, when applicable.
     fn overwrites_same_data(&self, col: &DBCol, key: &Vec<u8>, value: &Vec<u8>) -> bool {
         if col.is_rc() {
-            if self.get_raw_bytes(*col, &key).is_ok_and(|inner| inner.is_some()) {
+            if self.get_raw_bytes(*col, &key).is_some() {
                 // If the key exists we know the value is present, because the key is a hash of the value.
                 return true;
             }
         } else {
-            if let Ok(Some(old_value)) = self.get_raw_bytes(*col, &key) {
+            if let Some(old_value) = self.get_raw_bytes(*col, &key) {
                 if *old_value == *value {
                     return true;
                 }
@@ -162,8 +160,8 @@ mod test {
 
     fn assert_op_writes_only_once(generate_op: impl Fn() -> DBOp, db: RecoveryDB, col: DBCol) {
         // The first time the operation is allowed.
-        db.write(DBTransaction { ops: vec![generate_op()] }).unwrap();
-        let got = db.cold.get_raw_bytes(col, HASH).unwrap();
+        db.write(DBTransaction { ops: vec![generate_op()] });
+        let got = db.cold.get_raw_bytes(col, HASH);
         assert_eq!(got.as_deref(), Some([VALUE, ONE].concat().as_slice()));
 
         // Repeat the same operation: DB write should get dropped.

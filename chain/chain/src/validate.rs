@@ -5,14 +5,15 @@ use borsh::BorshSerialize;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::congestion_info::CongestionInfo;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunkBody, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_primitives::version::ProtocolFeature;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
 /// Gas limit cannot be adjusted for more than 0.1% at a time.
@@ -115,24 +116,18 @@ pub fn validate_chunk_with_chunk_extra_and_roots(
         chunk_header,
     )?;
 
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-    if ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
-        let (tx_root, _) = merklize(new_transactions);
-        if &tx_root != chunk_header.tx_root() {
-            return Err(Error::InvalidTxRoot);
-        }
-
-        validate_chunk_with_encoded_merkle_root(
-            chunk_header,
-            &outgoing_receipts,
-            new_transactions,
-            rs,
-            chunk_header.shard_id(),
-        )
-    } else {
-        Ok(())
+    let (tx_root, _) = merklize(new_transactions);
+    if &tx_root != chunk_header.tx_root() {
+        return Err(Error::InvalidTxRoot);
     }
+
+    validate_chunk_with_encoded_merkle_root(
+        chunk_header,
+        &outgoing_receipts,
+        new_transactions,
+        rs,
+        chunk_header.shard_id(),
+    )
 }
 
 /// Validate that all next chunk information matches previous chunk extra.
@@ -262,6 +257,45 @@ fn validate_bandwidth_requests(
     }
 
     Ok(())
+}
+
+/// Validate whether Optimistic Block is relevant to be processed,
+/// even if its epoch id is not known yet.
+pub fn validate_optimistic_block_relevant(
+    epoch_manager_adapter: &dyn EpochManagerAdapter,
+    block: &OptimisticBlock,
+    store: &ChainStore,
+) -> Result<bool, Error> {
+    let head = store.head()?;
+    if block.height() <= head.height {
+        return Err(Error::InvalidBlockHeight(block.height()));
+    }
+
+    // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
+    // overflow-related problems
+    let epoch_config = epoch_manager_adapter.get_epoch_config(&head.epoch_id)?;
+    if block.height() > head.height + epoch_config.epoch_length * 20 {
+        return Err(Error::InvalidBlockHeight(block.height()));
+    }
+
+    // A heuristic to check signature of the block even if prev block hash is not saved yet
+    let epoch_ids =
+        match epoch_manager_adapter.get_epoch_id_from_prev_block(&block.prev_block_hash()) {
+            Ok(epoch_id) => vec![epoch_id],
+            Err(EpochError::MissingBlock(_)) => {
+                epoch_manager_adapter.possible_epochs_of_height_around_tip(&head, block.height())?
+            }
+            Err(err) => return Err(err.into()),
+        };
+
+    for epoch_id in epoch_ids {
+        let validator = epoch_manager_adapter.get_block_producer_info(&epoch_id, block.height())?;
+        if block.signature.verify(block.hash().as_bytes(), validator.public_key()) {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }
 
 #[cfg(test)]

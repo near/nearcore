@@ -8,5 +8,5 @@ min_allowed_top_level_account_length: 32
 # due to not fitting into u64 type.
 storage_amount_per_byte: "0.0001 N"
 storage_num_bytes_account: 100
-storage_num_extra_bytes_record   :   40  
-
+storage_num_extra_bytes_record: 40
+force_split_shards: [ 1,2 ]

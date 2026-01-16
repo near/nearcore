@@ -77,25 +77,41 @@ class TestSetup:
     def __init__(self, args):
         self.args = args
         # The forknet image height.
-        self.args.start_height = None
-        self.start_height = None
+        self.start_height = args.start_height
         # The unique id of the forknet.
         self.unique_id = args.unique_id
-
+        # The genesis protocol version.
+        self.genesis_protocol_version = getattr(args,
+                                                'genesis_protocol_version',
+                                                None)
         self.has_archival = False
         self.has_state_dumper = False
         self.tracing_server = False
         # The GCP regions to be used for the nodes.
         self.regions = None
         # Hardware configuration for validators
-        self.node_hardware_config = NodeHardware.SameConfig(
-            num_chunk_producer_seats=0, num_chunk_validator_seats=0)
+        self.node_hardware_config = None
         # The base binary url to be used for the nodes.
-        self.neard_binary_url = getattr(args, 'neard_binary_url', '')
+        self.neard_binary_url = getattr(args, 'neard_binary_url', None)
         self.upgrade_delay_minutes = 0
         # The new binary url to be used for the nodes.
         self.neard_upgrade_binary_url = getattr(args,
-                                                'neard_upgrade_binary_url', '')
+                                                'neard_upgrade_binary_url',
+                                                None)
+
+    def fail_if_args_not_set(self):
+        """
+        Fail if the required arguments are not set.
+        """
+        if self.start_height is None:
+            raise ValueError("Start height is not set")
+        if self.genesis_protocol_version is None:
+            raise ValueError("Genesis protocol version is not set")
+        if self.neard_binary_url is None:
+            raise ValueError("Neard binary url is not set")
+        if self.node_hardware_config is None:
+            raise ValueError("Node hardware config is not set")
+        return self
 
     def _needs_upgrade(self):
         """

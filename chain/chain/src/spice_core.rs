@@ -53,7 +53,7 @@ impl SpiceCoreReader {
         block_hash: &CryptoHash,
         shard_id: ShardId,
         account_id: &AccountId,
-    ) -> Result<bool, std::io::Error> {
+    ) -> bool {
         self.chain_store
             .store()
             .exists(DBCol::endorsements(), &get_endorsements_key(block_hash, shard_id, account_id))

@@ -14,7 +14,6 @@ use near_store::{COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY};
 use near_store::{DBCol, NodeStorage, Store, StoreOpener};
 use nearcore::NearConfig;
 use rand::seq::SliceRandom;
-use std::io::Result;
 use std::path::Path;
 use strum::IntoEnumIterator;
 
@@ -308,7 +307,7 @@ fn check_iter(
     col: DBCol,
 ) -> u64 {
     let mut num_checks = 0;
-    for (key, _value) in first_store.iter(col).map(Result::unwrap) {
+    for (key, _value) in first_store.iter(col) {
         check_key(first_store, second_store, col, &key);
         num_checks += 1;
     }
@@ -492,7 +491,7 @@ impl StateRootSelector {
                     let height_key = height.to_le_bytes();
                     storage
                         .get_hot_store()
-                        .get(DBCol::BlockHeight, &height_key)?
+                        .get(DBCol::BlockHeight, &height_key)
                         .ok_or_else(|| {
                             anyhow::anyhow!("Failed to find block hash for height {:?}", height)
                         })?
@@ -661,7 +660,7 @@ impl CheckStateRootCmd {
     ) -> std::io::Result<Option<near_store::db::DBSlice<'a>>> {
         // As cold db strips shard_uid at the beginning of State key, we can add any 8 u8s as prefix.
         let cold_state_key = [&[1; 8], trie_key.as_ref()].concat();
-        store.get(DBCol::State, &cold_state_key)
+        Ok(store.get(DBCol::State, &cold_state_key))
     }
 }
 

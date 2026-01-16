@@ -82,6 +82,7 @@ impl Cache {
                 | DBCol::StateShardUIdMapping => ColumnCache::with_none_values(
                     ColumnCache::new(32),
                 ),
+                | DBCol::EpochSyncProof => ColumnCache::with_none_values(ColumnCache::new(1)),
                 _ => ColumnCache::disabled(),
             },
         }

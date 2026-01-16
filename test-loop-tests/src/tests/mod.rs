@@ -9,6 +9,7 @@ mod cloud_archival;
 mod congestion_control;
 mod congestion_control_genesis_bootstrap;
 mod consensus;
+mod continuous_epoch_sync;
 mod contract_distribution_cross_shard;
 mod contract_distribution_simple;
 mod create_delete_account;

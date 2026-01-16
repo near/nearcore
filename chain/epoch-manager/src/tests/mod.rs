@@ -28,7 +28,7 @@ use near_primitives::types::ValidatorKickoutReason::{
 };
 use near_primitives::types::{AccountInfo, Balance, Gas};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::ShardUId;
 use near_store::test_utils::create_test_store;
 use num_rational::{Ratio, Rational32};
@@ -1556,7 +1556,7 @@ fn test_chunk_producer_kickout() {
 /// Test when all blocks are produced and all chunks are skipped, chunk
 /// validator is not kicked out.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_chunk_validator_kickout_using_production_stats() {
     let stake_amount = Balance::from_yoctonear(1_000_000);
@@ -1642,7 +1642,7 @@ fn test_chunk_validator_kickout_using_production_stats() {
 /// Similar to test_chunk_validator_kickout_using_production_stats, however all chunks are produced but
 /// but some validators miss chunks and got kicked out.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_chunk_validator_kickout_using_endorsement_stats() {
     let stake_amount = Balance::from_yoctonear(1_000_000);
@@ -3176,7 +3176,9 @@ fn test_chunk_header(h: &[CryptoHash], signer: &ValidatorSigner) -> ShardChunkHe
             vec![],
             Default::default(),
             BandwidthRequests::empty(),
+            None,
             signer,
+            PROTOCOL_VERSION,
         ))
     }
 }

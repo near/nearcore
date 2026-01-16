@@ -6,12 +6,13 @@ use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::sync::epoch::EpochSync;
+use near_epoch_manager::epoch_sync::{
+    derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
+};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta};
-use near_primitives::utils::compression::CompressedData;
 use near_store::adapter::StoreAdapter;
 
 use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
@@ -189,7 +190,7 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
 // Test that a new node that only has genesis can use Epoch Sync to bring itself
 // up to date.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_from_genesis() {
     init_test_logger();
@@ -201,7 +202,7 @@ fn slow_test_epoch_sync_from_genesis() {
 // Tests that after epoch syncing, we can use the new node to bootstrap another
 // node via epoch sync.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_from_another_epoch_synced_node() {
     init_test_logger();
@@ -212,7 +213,7 @@ fn slow_test_epoch_sync_from_another_epoch_synced_node() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_transaction_validity_period_one_epoch() {
     init_test_logger();
@@ -223,7 +224,7 @@ fn slow_test_epoch_sync_transaction_validity_period_one_epoch() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_with_expired_transactions() {
     init_test_logger();
@@ -237,15 +238,11 @@ impl TestLoopEnv {
     fn derive_epoch_sync_proof(&self, node_index: usize) -> EpochSyncProof {
         let client_handle = self.node_datas[node_index].client_sender.actor_handle();
         let store = self.test_loop.data.get(&client_handle).client.chain.chain_store.store();
-        EpochSync::derive_epoch_sync_proof(
-            store,
-            self.shared_state.genesis.config.transaction_validity_period,
-            Default::default(),
-        )
-        .unwrap()
-        .decode()
-        .unwrap()
-        .0
+        let tx_validity_period = self.shared_state.genesis.config.transaction_validity_period;
+        let last_block_hash =
+            find_target_epoch_to_produce_proof_for(&store, tx_validity_period).unwrap();
+        derive_epoch_sync_proof_from_last_block(&store.epoch_store(), &last_block_hash, true)
+            .unwrap()
     }
 
     fn chain_final_head_height(&self, node_index: usize) -> u64 {
@@ -309,7 +306,7 @@ fn sanity_check_epoch_sync_proof(
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_initial_epoch_sync_proof_sanity() {
     init_test_logger();
@@ -325,7 +322,7 @@ fn slow_test_initial_epoch_sync_proof_sanity() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_proof_sanity_from_epoch_synced_node() {
     init_test_logger();
@@ -357,7 +354,7 @@ fn slow_test_epoch_sync_proof_sanity_from_epoch_synced_node() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_proof_sanity_shorter_transaction_validity_period() {
     init_test_logger();
@@ -369,7 +366,7 @@ fn slow_test_epoch_sync_proof_sanity_shorter_transaction_validity_period() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_epoch_sync_proof_sanity_zero_transaction_validity_period() {
     init_test_logger();

@@ -381,8 +381,10 @@ impl ChunkProducer {
                 tx_root,
                 congestion_info,
                 bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
+                chunk_extra.proposed_split().cloned(),
                 &*validator_signer,
                 &mut self.reed_solomon_encoder,
+                protocol_version,
             )
         };
 

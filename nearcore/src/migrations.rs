@@ -1,6 +1,6 @@
 use near_chain::{Error, LatestKnown};
 use near_epoch_manager::epoch_sync::{
-    derive_epoch_sync_proof_from_last_final_block, find_target_epoch_to_produce_proof_for,
+    derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
 };
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::types::BlockHeightDelta;
@@ -87,18 +87,17 @@ fn copy_block_headers_to_cold_db(hot_store: &Store, cold_db: &ColdDB) -> anyhow:
 
     let mut count = 0;
     let mut transaction = DBTransaction::new();
-    for t in hot_store.iter_raw_bytes(DBCol::BlockHeader) {
-        let (key, value) = t?;
+    for (key, value) in hot_store.iter_raw_bytes(DBCol::BlockHeader) {
         transaction.set(DBCol::BlockHeader, key.into_vec(), value.into_vec());
         count += 1;
         if count % BATCH_SIZE == 0 {
-            cold_db.write(transaction)?;
+            cold_db.write(transaction);
             transaction = DBTransaction::new();
             let percent_complete = (count as f64 / approx_num_blocks as f64) * 100.0;
             tracing::info!(target: "migrations", ?count, ?approx_num_blocks, ?percent_complete, "copied block headers to cold db");
         }
     }
-    cold_db.write(transaction)?;
+    cold_db.write(transaction);
     tracing::info!(target: "migrations", ?count, ?approx_num_blocks, "completed copying block headers to cold db");
 
     Ok(())
@@ -109,7 +108,6 @@ fn update_epoch_sync_proof(
     transaction_validity_period: BlockHeightDelta,
 ) -> anyhow::Result<()> {
     let epoch_store = store.epoch_store();
-    let chain_store = store.chain_store();
 
     tracing::info!(target: "migrations", "updating existing epoch sync proof to compressed format");
 
@@ -127,11 +125,9 @@ fn update_epoch_sync_proof(
     tracing::info!(target: "migrations", "generating latest epoch sync proof");
     let last_block_hash =
         find_target_epoch_to_produce_proof_for(&store, transaction_validity_period)?;
-    let last_block_header = chain_store.get_block_header(&last_block_hash)?;
-    let second_last_block_header = chain_store.get_block_header(last_block_header.prev_hash())?;
 
     tracing::info!(target: "migrations", ?last_block_hash, "deriving epoch sync proof from last final block");
-    let proof = derive_epoch_sync_proof_from_last_final_block(store, &second_last_block_header)?;
+    let proof = derive_epoch_sync_proof_from_last_block(&epoch_store, &last_block_hash, true)?;
 
     tracing::info!(target: "migrations", "storing latest epoch sync proof");
     let mut store_update = epoch_store.store_update();

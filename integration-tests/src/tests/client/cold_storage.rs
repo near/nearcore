@@ -34,8 +34,8 @@ fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) 
     let pretty_key = near_fmt::StorageKey(key);
     tracing::debug!(?col, ?pretty_key, "checking");
 
-    let first_res = first_store.get(col, key).unwrap();
-    let second_res = second_store.get(col, key).unwrap();
+    let first_res = first_store.get(col, key);
+    let second_res = second_store.get(col, key);
 
     assert_eq!(first_res, second_res, "col: {:?} key: {:?}", col, pretty_key);
 }
@@ -47,7 +47,7 @@ fn check_iter(
     no_check_rules: &Vec<Box<dyn Fn(DBCol, &Box<[u8]>, &Box<[u8]>) -> bool>>,
 ) -> u64 {
     let mut num_checks = 0;
-    for (key, value) in first_store.iter(col).map(Result::unwrap) {
+    for (key, value) in first_store.iter(col) {
         let mut check = true;
         for no_check in no_check_rules {
             if no_check(col, &key, &value) {
@@ -113,7 +113,7 @@ fn create_tx_function_call(
 /// After 4 epochs we check that everything, that exists in cold columns
 /// of the storage of the client also exists in the database to which we were writing.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_storage_after_commit_of_cold_update() {
     init_test_logger();
@@ -123,6 +123,7 @@ fn test_storage_after_commit_of_cold_update() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.min_gas_price = Balance::ZERO;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
@@ -240,6 +241,7 @@ fn test_cold_db_head_update() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &storage.get_hot_store();
     let cold_store = &storage.get_cold_store().unwrap();
@@ -268,7 +270,7 @@ fn test_cold_db_head_update() {
 /// Here we are testing that `update_cold_db` handles itself correctly
 /// if some heights are not present in blockchain.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cold_db_copy_with_height_skips() {
     init_test_logger();
@@ -280,6 +282,7 @@ fn test_cold_db_copy_with_height_skips() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     genesis.config.min_gas_price = Balance::ZERO;
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes_congestion_control_disabled(&genesis)
@@ -389,6 +392,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
@@ -439,21 +443,21 @@ fn test_initial_copy_to_cold(batch_size: usize) {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_initial_copy_to_cold_small_batch() {
     test_initial_copy_to_cold(0);
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_initial_copy_to_cold_huge_batch() {
     test_initial_copy_to_cold(usize::MAX);
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_initial_copy_to_cold_medium_batch() {
     test_initial_copy_to_cold(5000);
@@ -475,6 +479,7 @@ fn test_cold_loop_on_gc_boundary() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &storage.get_hot_store();
