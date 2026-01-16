@@ -139,8 +139,6 @@ pub(crate) enum ActionType {
     DeployGlobalContract,
     UseGlobalContract,
     DeterministicStateInit,
-    AddGasKey,
-    DeleteGasKey,
 }
 
 impl ContractAccount {
@@ -371,8 +369,6 @@ fn map_action(action: &Action) -> ActionType {
         Action::DeployGlobalContract(_) => ActionType::DeployGlobalContract,
         Action::UseGlobalContract(_) => ActionType::UseGlobalContract,
         Action::DeterministicStateInit(_) => ActionType::DeterministicStateInit,
-        Action::AddGasKey(_) => ActionType::AddGasKey,
-        Action::DeleteGasKey(_) => ActionType::DeleteGasKey,
     }
 }
 
