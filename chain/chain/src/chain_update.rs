@@ -15,6 +15,7 @@ use crate::{DoomslugThresholdMode, metrics};
 use near_chain_configs::ProtocolVersionCheckConfig;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::epoch_sync::update_epoch_sync_proof;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, Tip};
@@ -28,6 +29,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::LightClientBlockView;
+use near_store::adapter::StoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
 
@@ -287,6 +289,19 @@ impl<'a> ChainUpdate<'a> {
             *block.header().random_value(),
         )?;
         self.chain_store_update.merge(epoch_manager_update.into());
+
+        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+            // If this is the first block of the epoch, update epoch sync proof.
+            // We pass the prev_hash, i.e. the hash of last block of prev epoch to update_epoch_sync_proof.
+            // See update_epoch_sync_proof for more details.
+            let last_final_block = block.header().last_final_block();
+            if self.epoch_manager.is_next_block_epoch_start(last_final_block)? {
+                tracing::debug!(block_hash = ?block.hash(), "updating epoch sync proof");
+                let epoch_store = self.chain_store_update.store().epoch_store();
+                let epoch_manager_update = update_epoch_sync_proof(&epoch_store, last_final_block)?;
+                self.chain_store_update.merge(epoch_manager_update.into());
+            }
+        }
 
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(Arc::clone(&block));
