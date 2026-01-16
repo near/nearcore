@@ -1913,8 +1913,6 @@ impl Chain {
             self.runtime_adapter.get_tries().retain_memtries(&shards_cares_this_or_next_epoch);
         }
 
-        self.pending_state_patch.clear();
-
         if let Some(tip) = &new_head {
             // TODO: move this logic of tracking validators metrics to EpochManager
             let mut block_producers_count = 0;
