@@ -140,6 +140,10 @@ def check_and_setup(nodocker,
             url = (
                 "https://s3-us-west-1.amazonaws.com/testnet.nearprotocol.com/testnet_genesis_records_%s.json"
                 % testnet_genesis_hash)
+            # Basic scheme check to ensure we only fetch via http/https
+            if not url.startswith(("http://", "https://")):
+                print("Error: Invalid genesis URL scheme.")
+                exit(1)
             urllib.urlretrieve(url, testnet_genesis_records)
         init_flags.extend([
             "--genesis-config",
