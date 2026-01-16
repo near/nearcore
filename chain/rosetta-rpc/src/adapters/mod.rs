@@ -488,10 +488,6 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                 near_primitives::transaction::Action::DeterministicStateInit(_) => {
                     // TODO(#14073): Implement rosetta adapter, probably first requires global contracts, too
                 }
-                near_primitives::action::Action::AddGasKey(_)
-                | near_primitives::action::Action::DeleteGasKey(_) => {
-                    // TODO(gas-keys): Implement rosetta adapter, ignored for now.
-                }
             }
         }
         operations

@@ -90,15 +90,7 @@ pub fn total_send_fees(
                 fees,
                 sender_is_receiver,
             ),
-            AddGasKey(_add_key_action) => {
-                // TODO(gas-keys): properly handle GasKey fees
-                Gas::ZERO
-            }
             DeleteKey(_) => fees.fee(ActionCosts::delete_key).send_fee(sender_is_receiver),
-            DeleteGasKey(_delete_gas_key_action) => {
-                // TODO(gas-keys): properly handle GasKey fees
-                Gas::ZERO
-            }
             DeleteAccount(_) => fees.fee(ActionCosts::delete_account).send_fee(sender_is_receiver),
             Delegate(signed_delegate_action) => {
                 let delegate_cost = fees.fee(ActionCosts::delegate).send_fee(sender_is_receiver);
@@ -250,15 +242,7 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
         }
         Stake(_) => fees.fee(ActionCosts::stake).exec_fee(),
         AddKey(add_key_action) => permission_exec_fees(&add_key_action.access_key.permission, fees),
-        AddGasKey(_add_key_action) => {
-            // TODO(gas-keys): properly handle GasKey fees
-            Gas::ZERO
-        }
         DeleteKey(_) => fees.fee(ActionCosts::delete_key).exec_fee(),
-        DeleteGasKey(_delete_gas_key_action) => {
-            // TODO(gas-keys): properly handle GasKey fees
-            Gas::ZERO
-        }
         DeleteAccount(_) => fees.fee(ActionCosts::delete_account).exec_fee(),
         Delegate(_) => fees.fee(ActionCosts::delegate).exec_fee(),
         DeployGlobalContract(DeployGlobalContractAction { code, .. }) => {

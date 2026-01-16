@@ -6,7 +6,6 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
-use crate::gas_keys::{action_add_gas_key, action_delete_gas_key};
 use crate::metrics::{
     TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL,
     TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL,
@@ -514,17 +513,6 @@ impl Runtime {
                     add_key,
                 )?;
             }
-            Action::AddGasKey(add_gas_key) => {
-                metrics::ACTION_CALLED_COUNT.add_gas_key.inc();
-                action_add_gas_key(
-                    apply_state,
-                    state_update,
-                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
-                    &mut result,
-                    account_id,
-                    add_gas_key,
-                )?;
-            }
             Action::DeleteKey(delete_key) => {
                 metrics::ACTION_CALLED_COUNT.delete_key.inc();
                 action_delete_key(
@@ -534,17 +522,6 @@ impl Runtime {
                     &mut result,
                     account_id,
                     delete_key,
-                )?;
-            }
-            Action::DeleteGasKey(delete_gas_key) => {
-                metrics::ACTION_CALLED_COUNT.delete_gas_key.inc();
-                action_delete_gas_key(
-                    &apply_state.config.fees,
-                    state_update,
-                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
-                    &mut result,
-                    account_id,
-                    delete_gas_key,
                 )?;
             }
             Action::DeleteAccount(delete_account) => {

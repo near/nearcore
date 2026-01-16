@@ -10,7 +10,7 @@ use crate::{
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::account::AccessKey;
-use near_primitives_core::types::{AccountId, Balance, Gas, NonceIndex};
+use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -294,25 +294,6 @@ pub struct TransferAction {
     BorshDeserialize,
     PartialEq,
     Eq,
-    Clone,
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-    ProtocolSchema,
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct DeleteGasKeyAction {
-    /// A public key associated with the access_key to be deleted.
-    pub public_key: PublicKey,
-    /// Number of nonces used by this gas key.
-    pub num_nonces: NonceIndex,
-}
-
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    PartialEq,
-    Eq,
     Debug,
     Clone,
     serde::Serialize,
@@ -340,8 +321,6 @@ pub enum Action {
     DeployGlobalContract(DeployGlobalContractAction) = 9,
     UseGlobalContract(Box<UseGlobalContractAction>) = 10,
     DeterministicStateInit(Box<DeterministicStateInitAction>) = 11,
-    AddGasKey(Box<AddKeyAction>) = 12,
-    DeleteGasKey(Box<DeleteGasKeyAction>) = 13,
 }
 
 const _: () = assert!(
