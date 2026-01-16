@@ -320,51 +320,49 @@ pub fn remove_account(
     state_update.remove(TrieKey::Account { account_id: account_id.clone() });
     state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
 
-    // Removing access keys
+    // Removing access keys and gas key nonces
     let lock = state_update.trie().lock_for_iter();
-    let public_keys = state_update
+    let mut keys_to_remove: Vec<TrieKey> = Vec::new();
+    for raw_key in state_update
         .locked_iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id), &lock)?
-        .map(|raw_key| {
-            let raw_key = raw_key?;
-            let public_key =
-                trie_key_parsers::parse_public_key_from_access_key_key(&raw_key, account_id)
-                    .map_err(|_e| {
-                        StorageError::StorageInconsistentState(
-                            "Can't parse public key from raw key for AccessKey".to_string(),
-                        )
-                    });
-
-            public_key.map(|public_key| {
-                let nonce_index = trie_key_parsers::parse_nonce_index_from_gas_key_key(
-                    &raw_key,
-                    account_id,
-                    &public_key,
-                )
+    {
+        let raw_key = raw_key?;
+        let public_key = trie_key_parsers::parse_public_key_from_access_key_key(
+            &raw_key, account_id,
+        )
+        .map_err(|_e| {
+            StorageError::StorageInconsistentState(
+                "Can't parse public key from raw key for AccessKey".to_string(),
+            )
+        })?;
+        let nonce_index =
+            trie_key_parsers::parse_nonce_index_from_gas_key_key(&raw_key, account_id, &public_key)
                 .map_err(|_e| {
                     StorageError::StorageInconsistentState(
                         "Can't parse nonce index from raw key for AccessKey".to_string(),
                     )
                 })?;
+        if let Some(index) = nonce_index {
+            keys_to_remove.push(TrieKey::GasKeyNonce {
+                account_id: account_id.clone(),
+                public_key: public_key.clone(),
+                index,
+            });
+        } else {
+            keys_to_remove.push(TrieKey::AccessKey {
+                account_id: account_id.clone(),
+                public_key: public_key.clone(),
+            });
+        }
+    }
 
-                Ok::<(PublicKey, Option<NonceIndex>), StorageError>((public_key, nonce_index))
-            })?
-        })
-        .collect::<Result<Vec<(PublicKey, Option<NonceIndex>)>, _>>()?;
     drop(lock);
 
     // TODO(gas-keys): fail remove account if there are gas keys, per design decision.
     // This avoids deleting gas keys (which may have balance) silently, and ensures the user
     // properly pays deletion cost for gas key nonces.
-    for (public_key, nonce_index) in public_keys {
-        if let Some(nonce_index) = nonce_index {
-            state_update.remove(TrieKey::GasKeyNonce {
-                account_id: account_id.clone(),
-                public_key: public_key.clone(),
-                index: nonce_index,
-            });
-        } else {
-            state_update.remove(TrieKey::AccessKey { account_id: account_id.clone(), public_key });
-        }
+    for trie_key in keys_to_remove {
+        state_update.remove(trie_key);
     }
 
     // Removing contract data
