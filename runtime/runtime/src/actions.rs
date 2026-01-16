@@ -1013,9 +1013,7 @@ pub(crate) fn check_actor_permissions(
         | Action::AddKey(_)
         | Action::DeleteKey(_)
         | Action::DeployGlobalContract(_)
-        | Action::UseGlobalContract(_)
-        | Action::AddGasKey(_)
-        | Action::DeleteGasKey(_) => {
+        | Action::UseGlobalContract(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
                     account_id: account_id.clone(),
@@ -1043,7 +1041,6 @@ pub(crate) fn check_actor_permissions(
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
         Action::Delegate(_) => (),
         Action::DeterministicStateInit(_) => (),
-        Action::TransferToGasKey(_) => (),
     };
     Ok(())
 }
@@ -1103,10 +1100,7 @@ pub(crate) fn check_account_existence(
         | Action::DeleteAccount(_)
         | Action::Delegate(_)
         | Action::DeployGlobalContract(_)
-        | Action::UseGlobalContract(_)
-        | Action::AddGasKey(_)
-        | Action::DeleteGasKey(_)
-        | Action::TransferToGasKey(_) => {
+        | Action::UseGlobalContract(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),
