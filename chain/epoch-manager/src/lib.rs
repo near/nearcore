@@ -1606,7 +1606,8 @@ impl EpochManager {
 
         let mut aggregator = EpochInfoAggregator::new(epoch_id, *block_hash);
         let mut cur_hash = *block_hash;
-        Ok(Some(loop {
+        let mut collected: Vec<(CryptoHash, BlockHeight)> = Vec::new();
+        let full_info = loop {
             #[cfg(test)]
             {
                 self.epoch_info_aggregator_loop_counter
@@ -1626,7 +1627,7 @@ impl EpochManager {
                 // belongs to different epoch or we’re on different fork (though
                 // the latter should never happen).  In either case, the
                 // aggregator contains full epoch information.
-                break (aggregator, true);
+                break true;
             }
 
             let prev_hash = *block_info.prev_hash();
@@ -1650,17 +1651,24 @@ impl EpochManager {
                 Err(e) => return Err(e),
             };
 
-            let block_info = self.get_block_info(&cur_hash)?;
-            aggregator.update_tail(&block_info, &epoch_info, &shard_layout, prev_height);
+            collected.push((cur_hash, prev_height));
 
             if prev_hash == self.epoch_info_aggregator.last_block_hash {
                 // We’ve reached sync point of the old aggregator.  If old
                 // aggregator was for a different epoch, we have full info in
                 // our aggregator; otherwise we don’t.
-                break (aggregator, epoch_id != prev_epoch);
+                break epoch_id != prev_epoch;
             }
 
             cur_hash = prev_hash;
-        }))
+        };
+
+        // Aggregate forward, not backwards, for the correctness of the blacklist
+        for (hash, prev_height) in collected.iter().rev() {
+            let block_info = self.get_block_info(hash)?;
+            aggregator.update_tail(&block_info, &epoch_info, &shard_layout, *prev_height);
+        }
+
+        Ok(Some((aggregator, full_info)))
     }
 }

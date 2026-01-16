@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::rand::StakeWeightedIndex;
 use crate::shard_layout::ShardLayout;
@@ -558,7 +558,9 @@ impl EpochInfo {
         shard_layout: &ShardLayout,
         shard_id: ShardId,
         height: BlockHeight,
+        // blacklist: &HashSet<ValidatorId>,
     ) -> Option<ValidatorId> {
+        // let _ = blacklist;
         let shard_index = shard_layout.get_shard_index(shard_id).ok()?;
         match &self {
             Self::V1(v1) => {
