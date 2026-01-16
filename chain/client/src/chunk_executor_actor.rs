@@ -1159,7 +1159,7 @@ pub mod testonly {
 
     impl TestonlySyncChunkExecutorActor {
         pub fn new(
-            store: Store,
+            chain_store: ChainStore,
             genesis: &ChainGenesis,
             runtime_adapter: Arc<dyn RuntimeAdapter>,
             epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -1199,10 +1199,9 @@ pub mod testonly {
                 }),
                 witness: noop().into_sender(),
             };
-            let save_trie_changes = true; // In tests this is hardcoded to true.
             Self {
                 actor: ChunkExecutorActor::new(
-                    ChainStore::new(store, save_trie_changes, genesis.transaction_validity_period),
+                    chain_store,
                     genesis.gas_limit,
                     runtime_adapter,
                     epoch_manager,

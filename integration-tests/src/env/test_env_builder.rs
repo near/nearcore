@@ -3,7 +3,7 @@ use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::RuntimeAdapter;
-use near_chain::{ApplyChunksIterationMode, Block, ChainGenesis};
+use near_chain::{ApplyChunksIterationMode, Block, ChainGenesis, ChainStore};
 use near_chain_configs::{
     Genesis, GenesisConfig, MutableConfigValue, ProtocolVersionCheckConfig, TrackedShardsConfig,
 };
@@ -593,8 +593,14 @@ impl TestEnvBuilder {
 
         let spice_chunk_executors = (0..num_clients)
             .map(|i| {
-                TestonlySyncChunkExecutorActor::new(
+                let chain_store = ChainStore::new(
                     clients[i].runtime_adapter.store().clone(),
+                    self.save_trie_changes,
+                    chain_genesis.transaction_validity_period,
+                )
+                .with_save_tx_outcomes(self.save_tx_outcomes);
+                TestonlySyncChunkExecutorActor::new(
+                    chain_store,
                     &chain_genesis,
                     clients[i].runtime_adapter.clone(),
                     clients[i].epoch_manager.clone(),
