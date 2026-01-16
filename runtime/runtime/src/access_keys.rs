@@ -430,7 +430,6 @@ mod tests {
             }
             .into())
         );
-        // TODO(gas-keys): Add a test that adding an access key with same public key as existing gas key fails.
     }
 
     #[test]
