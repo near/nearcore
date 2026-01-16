@@ -357,9 +357,6 @@ pub fn remove_account(
     }
     drop(lock);
 
-    // TODO(gas-keys): fail remove account if there are gas keys, per design decision.
-    // This avoids deleting gas keys (which may have balance) silently, and ensures the user
-    // properly pays deletion cost for gas key nonces.
     for trie_key in keys_to_remove {
         state_update.remove(trie_key);
     }
