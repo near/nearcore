@@ -28,7 +28,7 @@ use near_client::archive::cloud_archival_writer::{
     CloudArchivalWriterHandle, create_cloud_archival_writer,
 };
 use near_client::archive::cold_store_actor::create_cold_store_actor;
-use near_client::chunk_executor_actor::ChunkExecutorActor;
+use near_client::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
@@ -260,6 +260,7 @@ fn spawn_spice_actors(
     shard_tracker: ShardTracker,
     runtime: Arc<NightshadeRuntime>,
     network_adapter: PeerManagerAdapter,
+    chunk_executor_config: ChunkExecutorConfig,
     chunk_executor_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<ChunkExecutorActor>>>,
     spice_chunk_validator_adapter: &Arc<
         LateBoundSender<TokioRuntimeHandle<SpiceChunkValidatorActor>>,
@@ -313,6 +314,7 @@ fn spawn_spice_actors(
         chunk_executor_adapter.as_sender(),
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
+        chunk_executor_config,
     );
     let chunk_executor_addr = actor_system.spawn_tokio_actor(chunk_executor_actor);
     chunk_executor_adapter.bind(chunk_executor_addr);
@@ -651,6 +653,11 @@ pub async fn start_with_config_and_synchronization_impl(
             shard_tracker.clone(),
             runtime.clone(),
             network_adapter.as_multi_sender(),
+            ChunkExecutorConfig {
+                save_trie_changes: config.client_config.save_trie_changes,
+                save_tx_outcomes: config.client_config.save_tx_outcomes,
+                save_state_changes: config.client_config.save_state_changes,
+            },
             &chunk_executor_adapter,
             &spice_chunk_validator_adapter,
             &spice_data_distributor_adapter,

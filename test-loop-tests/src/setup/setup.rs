@@ -16,7 +16,7 @@ use near_chain_configs::{MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_writer::create_cloud_archival_writer;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
-use near_client::chunk_executor_actor::ChunkExecutorActor;
+use near_client::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
 use near_client::client_actor::ClientActor;
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
@@ -437,6 +437,11 @@ pub fn setup_client(
         chunk_executor_adapter.as_sender(),
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
+        ChunkExecutorConfig {
+            save_trie_changes: client_config.save_trie_changes,
+            save_tx_outcomes: client_config.save_tx_outcomes,
+            save_state_changes: client_config.save_state_changes,
+        },
     );
 
     let spice_data_distributor_sender = test_loop.data.register_actor(

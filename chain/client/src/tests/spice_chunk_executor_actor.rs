@@ -42,7 +42,9 @@ use std::str::FromStr as _;
 use std::sync::Arc;
 
 use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
-use crate::chunk_executor_actor::{ChunkExecutorActor, is_descendant_of_final_execution_head};
+use crate::chunk_executor_actor::{
+    ChunkExecutorActor, ChunkExecutorConfig, is_descendant_of_final_execution_head,
+};
 use crate::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
 use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
@@ -192,6 +194,7 @@ impl TestActor {
             chunk_executor_adapter,
             core_writer_sender,
             data_distributor_adapter,
+            ChunkExecutorConfig::default(),
         );
         TestActor { chain, actor, actor_rc, tasks_rc }
     }
