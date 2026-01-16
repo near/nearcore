@@ -63,6 +63,10 @@ impl EpochInfoAggregator {
         producers_count: usize,
     ) {
         let excluded = self.excluded_chunk_producers.entry(shard_id).or_insert_with(HashSet::new);
+        if excluded.contains(&chunk_producer_id) {
+            return;
+        }
+
         excluded.insert(chunk_producer_id);
 
         // If all producers are excluded, unban one
@@ -361,6 +365,20 @@ impl EpochInfoAggregator {
                     entry.extend(excluded.iter().copied());
                 })
                 .or_insert_with(|| excluded.clone());
+        }
+
+        // Re-check bans after merging chunk stats.
+        let mut to_ban: Vec<(ShardId, ValidatorId, usize)> = Vec::new();
+        for (shard_id, stats) in &self.shard_tracker {
+            let producers_count = stats.len();
+            for (chunk_producer_id, _) in stats {
+                if self.should_ban_chunk_producer(*shard_id, *chunk_producer_id) {
+                    to_ban.push((*shard_id, *chunk_producer_id, producers_count));
+                }
+            }
+        }
+        for (shard_id, chunk_producer_id, producers_count) in to_ban {
+            self.blacklist_chunk_producer(shard_id, chunk_producer_id, producers_count);
         }
     }
 }
