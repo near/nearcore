@@ -294,11 +294,11 @@ impl<'a> ChainUpdate<'a> {
             // If this is the first block of the epoch, update epoch sync proof.
             // We pass the prev_hash, i.e. the hash of last block of prev epoch to update_epoch_sync_proof.
             // See update_epoch_sync_proof for more details.
-            let prev_hash = block.header().prev_hash();
-            if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
+            let last_final_block = block.header().last_final_block();
+            if self.epoch_manager.is_next_block_epoch_start(last_final_block)? {
                 tracing::debug!(block_hash = ?block.hash(), "updating epoch sync proof");
                 let epoch_store = self.chain_store_update.store().epoch_store();
-                let epoch_manager_update = update_epoch_sync_proof(&epoch_store, prev_hash)?;
+                let epoch_manager_update = update_epoch_sync_proof(&epoch_store, last_final_block)?;
                 self.chain_store_update.merge(epoch_manager_update.into());
             }
         }
