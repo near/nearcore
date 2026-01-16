@@ -18,17 +18,17 @@ use near_chain::state_snapshot_actor::{
 };
 use near_chain::types::RuntimeAdapter;
 use near_chain::{
-    ApplyChunksSpawner, Chain, ChainGenesis, PartialWitnessValidationThreadPool,
+    ApplyChunksSpawner, Chain, ChainGenesis, ChainStore, PartialWitnessValidationThreadPool,
     WitnessCreationThreadPool,
 };
-use near_chain_configs::{MutableValidatorSigner, ReshardingHandle};
+use near_chain_configs::ReshardingHandle;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::archive::cloud_archival_writer::{
     CloudArchivalWriterHandle, create_cloud_archival_writer,
 };
 use near_client::archive::cold_store_actor::create_cold_store_actor;
-use near_client::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
+use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
@@ -254,13 +254,12 @@ fn new_spice_client_config(
 
 fn spawn_spice_actors(
     actor_system: &ActorSystem,
-    validator_signer: MutableValidatorSigner,
+    config: &NearConfig,
     chain_genesis: &ChainGenesis,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     runtime: Arc<NightshadeRuntime>,
     network_adapter: PeerManagerAdapter,
-    chunk_executor_config: ChunkExecutorConfig,
     chunk_executor_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<ChunkExecutorActor>>>,
     spice_chunk_validator_adapter: &Arc<
         LateBoundSender<TokioRuntimeHandle<SpiceChunkValidatorActor>>,
@@ -270,6 +269,7 @@ fn spawn_spice_actors(
     >,
     spice_core_writer_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<SpiceCoreWriterActor>>>,
 ) {
+    let validator_signer = config.validator_signer.clone();
     let spice_core_reader = SpiceCoreReader::new(
         runtime.store().chain_store(),
         epoch_manager.clone(),
@@ -298,9 +298,16 @@ fn spawn_spice_actors(
     let spice_data_distributor_addr = actor_system.spawn_tokio_actor(spice_data_distributor_actor);
     spice_data_distributor_adapter.bind(spice_data_distributor_addr);
 
-    let chunk_executor_actor = ChunkExecutorActor::new(
+    let chain_store = ChainStore::new(
         runtime.store().clone(),
-        chain_genesis,
+        config.client_config.save_trie_changes,
+        chain_genesis.transaction_validity_period,
+    )
+    .with_save_tx_outcomes(config.client_config.save_tx_outcomes)
+    .with_save_state_changes(config.client_config.save_state_changes);
+    let chunk_executor_actor = ChunkExecutorActor::new(
+        chain_store,
+        chain_genesis.gas_limit,
         runtime.clone(),
         epoch_manager.clone(),
         shard_tracker,
@@ -314,7 +321,6 @@ fn spawn_spice_actors(
         chunk_executor_adapter.as_sender(),
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
-        chunk_executor_config,
     );
     let chunk_executor_addr = actor_system.spawn_tokio_actor(chunk_executor_actor);
     chunk_executor_adapter.bind(chunk_executor_addr);
@@ -481,7 +487,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let cloud_archival_writer_handle = create_cloud_archival_writer(
         Clock::real(),
         actor_system.new_future_spawner("cloud archival").into(),
-        config.config.cloud_archival_writer,
+        config.config.cloud_archival_writer.clone(),
         config.genesis.config.genesis_height,
         runtime.clone(),
         storage.get_hot_store(),
@@ -643,17 +649,12 @@ pub async fn start_with_config_and_synchronization_impl(
     if cfg!(feature = "protocol_feature_spice") {
         spawn_spice_actors(
             &actor_system,
-            config.validator_signer.clone(),
+            &config,
             &chain_genesis,
             epoch_manager.clone(),
             shard_tracker.clone(),
             runtime.clone(),
             network_adapter.as_multi_sender(),
-            ChunkExecutorConfig {
-                save_trie_changes: config.client_config.save_trie_changes,
-                save_tx_outcomes: config.client_config.save_tx_outcomes,
-                save_state_changes: config.client_config.save_state_changes,
-            },
             &chunk_executor_adapter,
             &spice_chunk_validator_adapter,
             &spice_data_distributor_adapter,

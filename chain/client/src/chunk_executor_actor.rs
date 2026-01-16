@@ -75,19 +75,6 @@ use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice_data_distributor_actor::SpiceDistributorStateWitness;
 
-#[derive(Clone, Debug)]
-pub struct ChunkExecutorConfig {
-    pub save_trie_changes: bool,
-    pub save_tx_outcomes: bool,
-    pub save_state_changes: bool,
-}
-
-impl Default for ChunkExecutorConfig {
-    fn default() -> Self {
-        Self { save_trie_changes: true, save_tx_outcomes: true, save_state_changes: true }
-    }
-}
-
 pub struct ChunkExecutorActor {
     pub(crate) chain_store: ChainStore,
     pub(crate) runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -109,8 +96,8 @@ pub struct ChunkExecutorActor {
 
 impl ChunkExecutorActor {
     pub fn new(
-        store: Store,
-        genesis: &ChainGenesis,
+        chain_store: ChainStore,
+        genesis_gas_limit: Gas,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
@@ -121,14 +108,12 @@ impl ChunkExecutorActor {
         myself_sender: Sender<ExecutorApplyChunksDone>,
         core_writer_sender: Sender<SpiceChunkEndorsementMessage>,
         data_distributor_adapter: SpiceDataDistributorAdapter,
-        config: ChunkExecutorConfig,
     ) -> Self {
-        let core_reader =
-            SpiceCoreReader::new(store.chain_store(), epoch_manager.clone(), genesis.gas_limit);
-        let chain_store =
-            ChainStore::new(store, config.save_trie_changes, genesis.transaction_validity_period)
-                .with_save_tx_outcomes(config.save_tx_outcomes)
-                .with_save_state_changes(config.save_state_changes);
+        let core_reader = SpiceCoreReader::new(
+            chain_store.store().chain_store(),
+            epoch_manager.clone(),
+            genesis_gas_limit,
+        );
         Self {
             chain_store,
             runtime_adapter,
@@ -1182,7 +1167,6 @@ pub mod testonly {
             network_adapter: PeerManagerAdapter,
             validator_signer: MutableValidatorSigner,
             apply_chunks_iteration_mode: ApplyChunksIterationMode,
-            chunk_executor_config: ChunkExecutorConfig,
         ) -> Self {
             let (actor_sc, actor_rc) = unbounded();
             let myself_sender = Sender::from_fn(move |event: ExecutorApplyChunksDone| {
@@ -1215,10 +1199,11 @@ pub mod testonly {
                 }),
                 witness: noop().into_sender(),
             };
+            let save_trie_changes = true; // In tests this is hardcoded to true.
             Self {
                 actor: ChunkExecutorActor::new(
-                    store,
-                    genesis,
+                    ChainStore::new(store, save_trie_changes, genesis.transaction_validity_period),
+                    genesis.gas_limit,
                     runtime_adapter,
                     epoch_manager,
                     shard_tracker,
@@ -1229,7 +1214,6 @@ pub mod testonly {
                     myself_sender,
                     core_writer_sender,
                     data_distributor_adapter,
-                    chunk_executor_config,
                 ),
                 actor_rc,
                 tasks_rc,

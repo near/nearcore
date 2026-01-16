@@ -8,7 +8,6 @@ use near_chain_configs::{
     Genesis, GenesisConfig, MutableConfigValue, ProtocolVersionCheckConfig, TrackedShardsConfig,
 };
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
-use near_client::chunk_executor_actor::ChunkExecutorConfig;
 use near_client::chunk_executor_actor::testonly::TestonlySyncChunkExecutorActor;
 use near_client::{ChunkValidationActor, Client};
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -603,11 +602,6 @@ impl TestEnvBuilder {
                     network_adapters[i].as_multi_sender(),
                     validator_signers[i].clone(),
                     ApplyChunksIterationMode::default(),
-                    ChunkExecutorConfig {
-                        save_trie_changes: self.save_trie_changes,
-                        save_tx_outcomes: self.save_tx_outcomes,
-                        ..Default::default()
-                    },
                 )
             })
             .collect();

@@ -11,12 +11,12 @@ use near_chain::state_snapshot_actor::{
     SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
 use near_chain::types::RuntimeAdapter;
-use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner, ChainGenesis};
+use near_chain::{ApplyChunksIterationMode, ApplyChunksSpawner, ChainGenesis, ChainStore};
 use near_chain_configs::{MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_writer::create_cloud_archival_writer;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
-use near_client::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
+use near_client::chunk_executor_actor::ChunkExecutorActor;
 use near_client::client_actor::ClientActor;
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
@@ -420,9 +420,16 @@ pub fn setup_client(
     );
 
     let apply_chunks_iteration_mode = ApplyChunksIterationMode::Sequential;
-    let chunk_executor_actor = ChunkExecutorActor::new(
+    let chunk_executor_chain_store = ChainStore::new(
         runtime_adapter.store().clone(),
-        &chain_genesis,
+        client_config.save_trie_changes,
+        chain_genesis.transaction_validity_period,
+    )
+    .with_save_tx_outcomes(client_config.save_tx_outcomes)
+    .with_save_state_changes(client_config.save_state_changes);
+    let chunk_executor_actor = ChunkExecutorActor::new(
+        chunk_executor_chain_store,
+        chain_genesis.gas_limit,
         runtime_adapter.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
@@ -433,11 +440,6 @@ pub fn setup_client(
         chunk_executor_adapter.as_sender(),
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
-        ChunkExecutorConfig {
-            save_trie_changes: client_config.save_trie_changes,
-            save_tx_outcomes: client_config.save_tx_outcomes,
-            save_state_changes: client_config.save_state_changes,
-        },
     );
 
     let spice_data_distributor_sender = test_loop.data.register_actor(

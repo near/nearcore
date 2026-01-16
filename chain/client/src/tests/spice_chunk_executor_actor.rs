@@ -6,6 +6,7 @@ use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
 use near_chain::ApplyChunksIterationMode;
+use near_chain::ChainStore;
 use near_chain::ChainStoreAccess;
 use near_chain::spice_core::SpiceCoreReader;
 use near_chain::spice_core_writer_actor::ExecutionResultEndorsed;
@@ -42,9 +43,7 @@ use std::str::FromStr as _;
 use std::sync::Arc;
 
 use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
-use crate::chunk_executor_actor::{
-    ChunkExecutorActor, ChunkExecutorConfig, is_descendant_of_final_execution_head,
-};
+use crate::chunk_executor_actor::{ChunkExecutorActor, is_descendant_of_final_execution_head};
 use crate::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
 use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
@@ -181,9 +180,14 @@ impl TestActor {
         let core_writer_sender =
             Sender::from_fn(move |message| core_writer_actor.write().handle(message));
 
+        let save_trie_changes = true; // In tests this is hardcoded to true.
         let actor = ChunkExecutorActor::new(
-            runtime.store().clone(),
-            &chain_genesis,
+            ChainStore::new(
+                runtime.store().clone(),
+                save_trie_changes,
+                chain_genesis.transaction_validity_period,
+            ),
+            chain_genesis.gas_limit,
             runtime.clone(),
             epoch_manager,
             shard_tracker,
@@ -194,7 +198,6 @@ impl TestActor {
             chunk_executor_adapter,
             core_writer_sender,
             data_distributor_adapter,
-            ChunkExecutorConfig::default(),
         );
         TestActor { chain, actor, actor_rc, tasks_rc }
     }
