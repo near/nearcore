@@ -53,7 +53,6 @@ use near_chain_configs::{MutableValidatorSigner, ProtocolVersionCheckConfig};
 use near_chain_primitives::ApplyChunksMode;
 use near_chain_primitives::error::{BlockKnownError, Error};
 use near_epoch_manager::EpochManagerAdapter;
-use near_epoch_manager::epoch_sync::update_epoch_sync_proof;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
@@ -1487,7 +1486,6 @@ impl Chain {
         }
 
         // Validate header and then add to the chain.
-        let mut block_hashes_to_update_epoch_sync_proof = vec![];
         for header in &headers {
             match self.check_block_header_known(header) {
                 BlockKnowledge::Unknown => {}
@@ -1506,13 +1504,6 @@ impl Chain {
                 *header.random_value(),
             )?;
             chain_store_update.merge(epoch_manager_update.into());
-
-            // If this is the first block of the epoch, update epoch sync proof.
-            // See update_epoch_sync_proof for more details.
-            if self.epoch_manager.is_next_block_epoch_start(header.prev_hash())? {
-                block_hashes_to_update_epoch_sync_proof.push(*header.prev_hash());
-            }
-
             chain_store_update.commit()?;
         }
 
@@ -1521,20 +1512,7 @@ impl Chain {
             // Update header_head if it's the new tip
             chain_update.update_header_head(header)?;
         }
-        chain_update.commit()?;
-
-        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-            // We only update the epoch sync proof after updating the header head as that's when we
-            // update the block ordinals.
-            // Updating epoch sync proof requires block ordinals to be present.
-            let epoch_store = self.chain_store.epoch_store();
-            for block_hash in block_hashes_to_update_epoch_sync_proof {
-                let epoch_store_update = update_epoch_sync_proof(&epoch_store, &block_hash)?;
-                epoch_store_update.commit()?;
-            }
-        }
-
-        Ok(())
+        chain_update.commit()
     }
 
     /// Returns if given block header is on the current chain.
@@ -1934,8 +1912,6 @@ impl Chain {
             // Keep in memory only these tries that we care about this or next epoch.
             self.runtime_adapter.get_tries().retain_memtries(&shards_cares_this_or_next_epoch);
         }
-
-        self.pending_state_patch.clear();
 
         if let Some(tip) = &new_head {
             // TODO: move this logic of tracking validators metrics to EpochManager

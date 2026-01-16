@@ -161,7 +161,7 @@ fn slow_test_repro_1183() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_sync_from_archival_node() {
     init_test_logger();

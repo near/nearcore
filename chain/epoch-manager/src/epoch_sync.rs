@@ -57,6 +57,8 @@ fn extend_epoch_sync_proof(
     store: &EpochStoreAdapter,
     last_block_hash: &CryptoHash,
 ) -> Result<EpochStoreUpdateAdapter<'static>, Error> {
+    tracing::debug!(?last_block_hash, "extending epoch sync proof");
+
     let mut store_update = store.store_update();
     let last_block_info = store.get_block_info(&last_block_hash)?;
     if last_block_info.epoch_id() == &EpochId::default() {
@@ -66,9 +68,11 @@ fn extend_epoch_sync_proof(
 
     let proof = store.get_epoch_sync_proof()?;
     if let Some(proof) = &proof {
+        tracing::debug!(?last_block_info, ?proof.current_epoch, ?proof.last_epoch, "existing epoch sync proof");
         let first_block_info = store.get_block_info(last_block_info.epoch_first_block())?;
         if first_block_info.height() <= proof.current_epoch.first_block_header_in_epoch.height() {
             // Proof is already up-to-date. This can happen if we are processing forks or catching up after epoch sync.
+            tracing::debug!("proof is already up-to-date, no need to extend");
             return Ok(store_update);
         }
 
@@ -103,6 +107,7 @@ fn create_epoch_sync_proof_from_prev_proof(
     let current_epoch =
         get_epoch_sync_proof_current_epoch_data(&store.chain_store(), &last_block_info)?;
 
+    tracing::debug!(?last_epoch, ?current_epoch, "new epoch sync proof data");
     let proof = EpochSyncProofV1 { all_epochs, last_epoch, current_epoch };
     Ok(EpochSyncProof::V1(proof))
 }
@@ -134,6 +139,8 @@ fn get_epoch_sync_proof_epoch_data_to_extend_proof(
     store: &EpochStoreAdapter,
     last_block_info: &BlockInfo,
 ) -> Result<EpochSyncProofEpochData, Error> {
+    tracing::debug!(?last_block_info, "get_epoch_sync_proof_epoch_data_to_extend_proof");
+
     let chain_store = store.chain_store();
     let epoch_info = store.get_epoch_info(last_block_info.epoch_id())?;
 
@@ -311,6 +318,8 @@ fn get_epoch_sync_proof_last_epoch_data(
     store: &EpochStoreAdapter,
     last_block_hash: &CryptoHash,
 ) -> Result<EpochSyncProofLastEpochData, Error> {
+    tracing::debug!(?last_block_hash, "get_epoch_sync_proof_last_epoch_data");
+
     let last_block_in_epoch = store.get_block_info(last_block_hash)?;
     let second_last_block_hash = last_block_in_epoch.prev_hash();
     let second_last_block_in_epoch = store.get_block_info(second_last_block_hash)?;
@@ -339,6 +348,8 @@ fn get_epoch_sync_proof_current_epoch_data(
     store: &ChainStoreAdapter,
     last_block_info: &BlockInfo,
 ) -> Result<EpochSyncProofCurrentEpochData, Error> {
+    tracing::debug!(?last_block_info, "get_epoch_sync_proof_current_epoch_data");
+
     // Get necessary block headers
     let first_block_hash_in_epoch = last_block_info.epoch_first_block();
     let first_block_header_in_epoch = store.get_block_header(&first_block_hash_in_epoch)?;

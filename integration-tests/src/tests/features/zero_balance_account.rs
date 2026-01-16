@@ -119,7 +119,7 @@ fn test_zero_balance_account_creation() {
 /// it has to pay for storage cost of the account structure and the keys that
 /// it didn't have to pay while it was a zero balance account.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_zero_balance_account_add_key() {
     let epoch_length = 1000;

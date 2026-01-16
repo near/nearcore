@@ -16,7 +16,7 @@ use near_chain_configs::{MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_writer::create_cloud_archival_writer;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
-use near_client::chunk_executor_actor::ChunkExecutorActor;
+use near_client::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
 use near_client::client_actor::ClientActor;
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
@@ -140,6 +140,9 @@ pub fn setup_client(
         chunks_storage: chunks_storage.clone(),
     });
 
+    let (block_notification_watch_sender, _block_notification_watch_receiver) =
+        tokio::sync::watch::channel(None);
+
     // Generate a PeerId. This is used to identify the client in the network.
     // Make sure this is the same as the account_id of the client to redirect the network messages properly.
     let peer_id = PeerId::new(create_test_signer(account_id.as_str()).public_key());
@@ -171,6 +174,7 @@ pub fn setup_client(
         client_adapter.as_multi_sender(),
         client_adapter.as_multi_sender(),
         chunk_validation_client_sender.as_multi_sender(),
+        block_notification_watch_sender,
         upgrade_schedule.clone(),
     )
     .unwrap();
@@ -433,6 +437,11 @@ pub fn setup_client(
         chunk_executor_adapter.as_sender(),
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
+        ChunkExecutorConfig {
+            save_trie_changes: client_config.save_trie_changes,
+            save_tx_outcomes: client_config.save_tx_outcomes,
+            save_state_changes: client_config.save_state_changes,
+        },
     );
 
     let spice_data_distributor_sender = test_loop.data.register_actor(

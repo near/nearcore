@@ -25,8 +25,8 @@ use near_client_primitives::debug::{
     DebugBlockStatusQuery, DebugBlocksStartingMode, DebugStatusResponse,
 };
 use near_client_primitives::types::{
-    GetBlockError, GetBlockProofError, GetChunkError, GetClientConfigError,
-    GetExecutionOutcomeError, GetGasPriceError, GetMaintenanceWindowsError,
+    BlockNotificationMessage, GetBlockError, GetBlockProofError, GetChunkError,
+    GetClientConfigError, GetExecutionOutcomeError, GetGasPriceError, GetMaintenanceWindowsError,
     GetNextLightClientBlockError, GetProtocolConfigError, GetReceiptError, GetSplitStorageInfo,
     GetSplitStorageInfoError, GetStateChangesError, GetValidatorInfoError, NetworkInfoResponse,
     StatusError,
@@ -46,7 +46,7 @@ use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
 };
 use near_jsonrpc_primitives::types::transactions::{
-    RpcSendTransactionRequest, RpcTransactionResponse,
+    RpcSendTransactionRequest, RpcTransactionError, RpcTransactionResponse,
 };
 use near_jsonrpc_primitives::types::view_access_key::{
     RpcViewAccessKeyError, RpcViewAccessKeyRequest, RpcViewAccessKeyResponse,
@@ -89,7 +89,9 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::time::{sleep, timeout};
+#[cfg(feature = "sandbox")]
+use tokio::time::sleep;
+use tokio::time::timeout;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 
@@ -335,6 +337,7 @@ struct JsonRpcHandler {
     enable_debug_rpc: bool,
     debug_pages_src_path: Option<PathBuf>,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
+    block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
 }
 
 impl JsonRpcHandler {
@@ -627,6 +630,10 @@ impl JsonRpcHandler {
         signer_account_id: &AccountId,
     ) -> Result<bool, near_jsonrpc_primitives::types::transactions::RpcTransactionError> {
         timeout(self.polling_config.polling_timeout, async {
+            // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
+            let mut new_block_watcher = self.block_notification_watcher.clone();
+            new_block_watcher.mark_unchanged();
+
             loop {
                 // TODO(optimization): Introduce a view_client method to only get transaction
                 // status without the information about execution outcomes.
@@ -650,7 +657,7 @@ impl JsonRpcHandler {
                     }
                     _ => {}
                 }
-                sleep(self.polling_config.polling_interval).await;
+                new_block_watcher.changed().await.map_err(|_| RpcTransactionError::InternalError { debug_info: "Block notification channel closed".to_string() })?;
             }
         })
         .await
@@ -682,6 +689,10 @@ impl JsonRpcHandler {
         let mut tx_status_result =
             Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError);
         timeout(self.polling_config.polling_timeout, async {
+            // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
+            let mut new_block_watcher = self.block_notification_watcher.clone();
+            new_block_watcher.mark_unchanged();
+
             loop {
                 tx_status_result = self.view_client_send( TxStatus {
                     tx_hash,
@@ -716,7 +727,7 @@ impl JsonRpcHandler {
                     }
                     Err(err) => break Err(err),
                 }
-                sleep(self.polling_config.polling_interval).await;
+                new_block_watcher.changed().await.map_err(|_| RpcTransactionError::InternalError { debug_info: "Block notification channel closed".to_string() })?;
             }
         })
         .await
@@ -2015,6 +2026,7 @@ pub fn create_jsonrpc_app(
     view_client_sender: ViewClientSenderForRpc,
     process_tx_sender: ProcessTxSenderForRpc,
     peer_manager_sender: PeerManagerSenderForRpc,
+    block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
 ) -> Router {
@@ -2040,6 +2052,7 @@ pub fn create_jsonrpc_app(
         entity_debug_handler,
         #[cfg(feature = "test_features")]
         gc_sender,
+        block_notification_watcher,
     });
 
     // Build router
@@ -2088,6 +2101,7 @@ pub async fn start_http(
     view_client_sender: ViewClientSenderForRpc,
     process_tx_sender: ProcessTxSenderForRpc,
     peer_manager_sender: PeerManagerSenderForRpc,
+    block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
     future_spawner: &dyn FutureSpawner,
@@ -2105,6 +2119,7 @@ pub async fn start_http(
         view_client_sender,
         process_tx_sender,
         peer_manager_sender,
+        block_notification_watcher,
         #[cfg(feature = "test_features")]
         gc_sender,
         entity_debug_handler,
