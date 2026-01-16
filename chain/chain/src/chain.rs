@@ -1529,6 +1529,7 @@ impl Chain {
             // Updating epoch sync proof requires block ordinals to be present.
             let epoch_store = self.chain_store.epoch_store();
             for block_hash in block_hashes_to_update_epoch_sync_proof {
+                tracing::debug!(?block_hash, "updating epoch sync proof after syncing headers");
                 let epoch_store_update = update_epoch_sync_proof(&epoch_store, block_hash)?;
                 epoch_store_update.commit()?;
             }

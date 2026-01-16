@@ -294,6 +294,7 @@ impl<'a> ChainUpdate<'a> {
             // If this is the first block of the epoch, update epoch sync proof.
             // See update_epoch_sync_proof for more details.
             if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
+                tracing::debug!(block_hash = ?block.hash(), "updating epoch sync proof");
                 let epoch_store = self.chain_store_update.store().epoch_store();
                 let epoch_manager_update = update_epoch_sync_proof(&epoch_store, block.hash())?;
                 self.chain_store_update.merge(epoch_manager_update.into());
