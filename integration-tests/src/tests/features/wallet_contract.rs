@@ -142,7 +142,7 @@ fn test_eth_implicit_account_creation() {
 
 /// Test that transactions from ETH-implicit accounts are rejected.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_from_eth_implicit_account_fail() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);

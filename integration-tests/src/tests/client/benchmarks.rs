@@ -22,7 +22,7 @@ use near_primitives::transaction::{Action, DeployContractAction, SignedTransacti
 ///
 /// In ths benchmark, we construct a large with a bunch of deploy_code txes
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn benchmark_large_chunk_production_time() {
     let mb = 1024usize.pow(2);

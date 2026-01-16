@@ -1187,7 +1187,7 @@ fn slow_test_gc_after_state_sync() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_process_block_after_state_sync() {
     let epoch_length = 1024;
@@ -1346,7 +1346,7 @@ fn test_tx_forwarding_no_double_forwarding() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_tx_forward_around_epoch_boundary() {
     let epoch_length = 4;
@@ -1480,7 +1480,7 @@ fn test_reject_block_headers_during_epoch_sync() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_gc_tail_update() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -2011,7 +2011,7 @@ fn test_validate_chunk_extra() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_catchup_gas_price_change() {
     init_test_logger();
@@ -2875,7 +2875,7 @@ fn test_query_final_state() {
 // Check that if the same receipt is executed twice in forked chain, both outcomes are recorded
 // but child receipt ids are different.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_fork_receipt_ids() {
     let (mut env, tx_hash) = prepare_env_with_transaction();
@@ -2923,7 +2923,7 @@ fn test_fork_receipt_ids() {
 // outcomes are recorded, canonical chain outcome is correct and GC cleanups
 // all outcomes.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_fork_execution_outcome() {
     init_test_logger();
@@ -3333,7 +3333,7 @@ mod contract_precompilation_tests {
     }
 
     #[test]
-    // TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+    // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
     #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     fn slow_test_sync_and_call_cached_contract() {
         init_integration_logger();
@@ -3429,7 +3429,7 @@ mod contract_precompilation_tests {
     }
 
     #[test]
-    // TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+    // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
     #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     fn slow_test_two_deployments() {
         init_integration_logger();
@@ -3506,7 +3506,7 @@ mod contract_precompilation_tests {
     }
 
     #[test]
-    // TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+    // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
     #[cfg_attr(feature = "protocol_feature_spice", ignore)]
     fn slow_test_sync_after_delete_account() {
         init_test_logger();
