@@ -14,7 +14,7 @@ use near_primitives::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::download::CloudRetrievalError;
-use near_store::archive::cloud_storage::upload::CloudArchivingError;
+use near_store::archive::cloud_storage::archive::CloudArchivingError;
 use near_store::db::{CLOUD_HEAD_KEY, DBTransaction};
 use near_store::{DBCol, FINAL_HEAD_KEY, Store};
 use time::Duration;

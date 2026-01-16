@@ -4,7 +4,7 @@ pub mod config;
 pub mod download;
 pub mod get;
 pub mod opener;
-pub mod upload;
+pub mod archive;
 
 pub(super) mod block_data;
 pub(super) mod file_id;
