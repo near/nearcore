@@ -18760,6 +18760,48 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "nonce_index": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "nonce_value": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key",
+                  "nonce_index",
+                  "nonce_value"
+                ],
+                "type": "object"
+              },
+              "type": {
+                "enum": [
+                  "gas_key_nonce_update"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "change"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "change": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
                   "key_base64": {
                     "$ref": "#/components/schemas/StoreKey"
                   },
