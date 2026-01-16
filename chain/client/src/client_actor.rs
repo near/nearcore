@@ -737,16 +737,17 @@ impl
                 // Previously, we only checked fastforward_delta == 0, which caused
                 // the RPC to return success before blocks were actually produced.
                 // See: https://github.com/near/nearcore/issues/9690
-                let finished = if self.fastforward_delta > 0 {
-                    false
-                } else {
-                    match (
-                        self.client.chain.head(),
-                        self.client.chain.chain_store().get_latest_known(),
-                    ) {
-                        (Ok(head), Ok(latest_known)) => head.height >= latest_known.height,
-                        _ => false,
-                    }
+                let finished = match (
+                    self.fastforward_delta,
+                    self.client.chain.head(),
+                    self.client.chain.chain_store().get_latest_known(),
+                ) {
+                    // Still fast-forwarding: not finished yet.
+                    (delta, _, _) if delta > 0 => false,
+                    // Fast-forwarding done and we have both head and latest_known:
+                    (_, Ok(head), Ok(latest_known)) => head.height >= latest_known.height,
+                    // Any error or missing data: treat as not finished.
+                    _ => false,
                 };
                 near_client_primitives::types::SandboxResponse::SandboxFastForwardFinished(finished)
             }
