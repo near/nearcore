@@ -23,6 +23,10 @@ pub mod state_patch {
             self.records.is_empty()
         }
 
+        pub fn len(&self) -> usize {
+            self.records.len()
+        }
+
         pub fn clear(&mut self) {
             self.records.clear();
         }
@@ -57,6 +61,10 @@ pub mod state_patch {
         #[inline(always)]
         pub fn is_empty(&self) -> bool {
             true
+        }
+        #[inline(always)]
+        pub fn len(&self) -> usize {
+            0
         }
         #[inline(always)]
         pub fn clear(&self) {}

@@ -1582,6 +1582,15 @@ impl JsonRpcHandler {
             .await
             .map_err(RpcFrom::rpc_from)?;
 
+        {
+            use std::io::Write;
+            if let Ok(mut f) =
+                std::fs::OpenOptions::new().create(true).append(true).open("/tmp/sandbox_debug.log")
+            {
+                let _ = writeln!(f, "[RPC_WAIT_START] waiting for patch_state_in_progress=false");
+            }
+        }
+
         timeout(self.polling_config.polling_timeout, async {
             loop {
                 let patch_state_finished = self
@@ -1594,6 +1603,15 @@ impl JsonRpcHandler {
                     near_client_primitives::types::SandboxResponse::SandboxPatchStateFinished(true),
                 ) = patch_state_finished
                 {
+                    use std::io::Write;
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("/tmp/sandbox_debug.log")
+                    {
+                        let _ =
+                            writeln!(f, "[RPC_FINISHED] patch_state_in_progress=false, returning");
+                    }
                     break;
                 }
                 let _ = sleep(self.polling_config.polling_interval).await;

@@ -1633,6 +1633,21 @@ impl Chain {
         // 1) preprocess the block where we verify that the block is valid and ready to be processed
         //    No chain updates are applied at this step.
         let state_patch = self.pending_state_patch.take();
+        #[cfg(feature = "sandbox")]
+        {
+            use std::io::Write;
+            if let Ok(mut f) =
+                std::fs::OpenOptions::new().create(true).append(true).open("/tmp/sandbox_debug.log")
+            {
+                let _ = writeln!(
+                    f,
+                    "[PATCH_TAKEN] block_height={}, patch.len={}, pending_after_take={}",
+                    block_height,
+                    state_patch.len(),
+                    self.pending_state_patch.len()
+                );
+            }
+        }
         let preprocess_timer = metrics::BLOCK_PREPROCESSING_TIME.start_timer();
         let preprocess_res = self.preprocess_block(
             &block,
@@ -1913,6 +1928,28 @@ impl Chain {
             self.runtime_adapter.get_tries().retain_memtries(&shards_cares_this_or_next_epoch);
         }
 
+        #[cfg(feature = "sandbox")]
+        {
+            use std::io::Write;
+            let pending_len = self.pending_state_patch.len();
+            if pending_len > 0 {
+                // BUG DETECTION: We're about to clear a non-empty patch!
+                // This means a patch was submitted during block processing and will be lost.
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("/tmp/sandbox_debug.log")
+                {
+                    let _ = writeln!(
+                        f,
+                        "[BUG_PATCH_DROPPED] block_height={}, pending_len={}, new_head={}",
+                        block.header().height(),
+                        pending_len,
+                        new_head.is_some()
+                    );
+                }
+            }
+        }
         self.pending_state_patch.clear();
 
         if let Some(tip) = &new_head {
@@ -3901,6 +3938,20 @@ impl Chain {
     // NB: `SandboxStatePatch` can only be created in `#[cfg(feature =
     // "sandbox")]`, so we don't need extra cfg-gating here.
     pub fn patch_state(&mut self, patch: SandboxStatePatch) {
+        #[cfg(feature = "sandbox")]
+        {
+            use std::io::Write;
+            if let Ok(mut f) =
+                std::fs::OpenOptions::new().create(true).append(true).open("/tmp/sandbox_debug.log")
+            {
+                let _ = writeln!(
+                    f,
+                    "[PATCH_SUBMITTED] patch.len={}, pending_before={}",
+                    patch.len(),
+                    self.pending_state_patch.len()
+                );
+            }
+        }
         self.pending_state_patch.merge(patch);
     }
 

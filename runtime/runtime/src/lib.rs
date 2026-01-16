@@ -1464,6 +1464,14 @@ impl Runtime {
         if state_patch.is_empty() {
             return;
         }
+        {
+            use std::io::Write;
+            if let Ok(mut f) =
+                std::fs::OpenOptions::new().create(true).append(true).open("/tmp/sandbox_debug.log")
+            {
+                let _ = writeln!(f, "[PATCH_APPLIED] patch_len={}", state_patch.len());
+            }
+        }
         for record in state_patch {
             match record {
                 StateRecord::Account { account_id, account } => {
