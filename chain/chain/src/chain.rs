@@ -1487,6 +1487,7 @@ impl Chain {
         }
 
         // Validate header and then add to the chain.
+        let mut block_hashes_to_update_epoch_sync_proof = vec![];
         for header in &headers {
             match self.check_block_header_known(header) {
                 BlockKnowledge::Unknown => {}
@@ -1494,7 +1495,6 @@ impl Chain {
             }
 
             self.validate_header(header, &Provenance::SYNC)?;
-            let epoch_store = self.chain_store.epoch_store();
             let mut chain_store_update = self.chain_store.store_update();
             chain_store_update.save_block_header(BlockHeader::clone(&header))?;
 
@@ -1507,14 +1507,10 @@ impl Chain {
             )?;
             chain_store_update.merge(epoch_manager_update.into());
 
-            if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-                // If this is the first block of the epoch, update epoch sync proof.
-                // See update_epoch_sync_proof for more details.
-                if self.epoch_manager.is_next_block_epoch_start(header.prev_hash())? {
-                    let epoch_manager_update =
-                        update_epoch_sync_proof(&epoch_store, *header.hash())?;
-                    chain_store_update.merge(epoch_manager_update.into());
-                }
+            // If this is the first block of the epoch, update epoch sync proof.
+            // See update_epoch_sync_proof for more details.
+            if self.epoch_manager.is_next_block_epoch_start(header.prev_hash())? {
+                block_hashes_to_update_epoch_sync_proof.push(header.prev_hash());
             }
 
             chain_store_update.commit()?;
@@ -1525,7 +1521,20 @@ impl Chain {
             // Update header_head if it's the new tip
             chain_update.update_header_head(header)?;
         }
-        chain_update.commit()
+        chain_update.commit()?;
+
+        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+            // We only update the epoch sync proof after updating the header head as that's when we
+            // update the block ordinals.
+            // Updating epoch sync proof requires block ordinals to be present.
+            let epoch_store = self.chain_store.epoch_store();
+            for block_hash in block_hashes_to_update_epoch_sync_proof {
+                let epoch_store_update = update_epoch_sync_proof(&epoch_store, block_hash)?;
+                epoch_store_update.commit()?;
+            }
+        }
+
+        Ok(())
     }
 
     /// Returns if given block header is on the current chain.
