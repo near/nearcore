@@ -55,7 +55,7 @@ async fn test_peer_communication() -> anyhow::Result<()> {
     let want = PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
         &outbound.cfg.network.node_id(),
         &inbound.cfg.network.node_id(),
-        15,
+        clock.now_utc().unix_timestamp() as u64,
         &outbound.cfg.network.node_key,
     ));
     outbound.send(want.clone()).await;
