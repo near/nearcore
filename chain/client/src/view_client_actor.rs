@@ -316,12 +316,7 @@ impl ViewClientActor {
                     let blacklist =
                         self.epoch_manager.get_excluded_chunk_producers_for_shard(&shard_id);
                     let cp = epoch_info
-                        .sample_chunk_producer(
-                            &shard_layout,
-                            shard_id,
-                            block_height,
-                            blacklist.as_ref(),
-                        )
+                        .sample_chunk_producer(&shard_layout, shard_id, block_height, blacklist)
                         .unwrap();
                     let cp = epoch_info.get_validator(cp).account_id().clone();
                     cp

@@ -52,8 +52,8 @@ impl EpochInfoAggregator {
     pub fn get_excluded_chunk_producers_for_shard(
         &self,
         shard_id: &ShardId,
-    ) -> Option<&HashSet<ValidatorId>> {
-        self.excluded_chunk_producers.get(shard_id)
+    ) -> Option<HashSet<ValidatorId>> {
+        self.excluded_chunk_producers.get(shard_id).cloned()
     }
 
     pub fn blacklist_chunk_producer(

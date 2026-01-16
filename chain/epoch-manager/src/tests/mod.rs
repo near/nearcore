@@ -973,7 +973,7 @@ fn test_expected_chunks_prev_block_not_produced() {
         let prev_block_info = epoch_manager.get_block_info(&prev_block).unwrap();
         let prev_height = prev_block_info.height();
         let expected_chunk_producer = epoch_info
-            .sample_chunk_producer(&shard_layout, shard_id, prev_height + 1, blacklist.as_ref())
+            .sample_chunk_producer(&shard_layout, shard_id, prev_height + 1, blacklist)
             .unwrap();
         // test1 does not produce blocks during first epoch
         if block_producer == 0 && epoch_id == initial_epoch_id {
@@ -1518,7 +1518,7 @@ fn test_chunk_producer_kickout() {
                 let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
                 let blacklist = em.get_excluded_chunk_producers_for_shard(&shard_id);
                 let chunk_producer = epoch_info
-                    .sample_chunk_producer(&shard_layout, shard_id, height, blacklist.as_ref())
+                    .sample_chunk_producer(&shard_layout, shard_id, height, blacklist)
                     .unwrap();
                 // test1 skips chunks
                 if chunk_producer == 0 {

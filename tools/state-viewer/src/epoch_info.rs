@@ -100,12 +100,7 @@ fn display_block_and_chunk_producers(
             .map(|&shard_id| {
                 let blacklist = epoch_manager.get_excluded_chunk_producers_for_shard(&shard_id);
                 let cp = epoch_info
-                    .sample_chunk_producer(
-                        &shard_layout,
-                        shard_id,
-                        block_height,
-                        blacklist.as_ref(),
-                    )
+                    .sample_chunk_producer(&shard_layout, shard_id, block_height, blacklist)
                     .unwrap();
                 let cp = epoch_info.get_validator(cp).account_id().clone();
                 cp.as_str().to_string()
@@ -296,7 +291,7 @@ fn display_validator_info(
                             &shard_layout,
                             shard_id,
                             block_height,
-                            blacklist.as_ref(),
+                            blacklist,
                         ) == Some(*validator_id)
                     })
                     .collect::<Vec<(BlockHeight, ShardId)>>()

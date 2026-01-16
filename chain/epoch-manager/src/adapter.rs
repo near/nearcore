@@ -447,7 +447,7 @@ pub trait EpochManagerAdapter: Send + Sync {
             &shard_layout,
             key.shard_id,
             key.height_created,
-            blacklist.as_ref(),
+            blacklist,
         ) else {
             return Err(EpochError::ChunkProducerSelectionError(format!(
                 "Invalid shard {} for height {}",
@@ -939,9 +939,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         shard_id: &ShardId,
     ) -> Option<HashSet<ValidatorId>> {
         let epoch_manager = self.read();
-        epoch_manager
-            .epoch_info_aggregator
-            .get_excluded_chunk_producers_for_shard(shard_id)
-            .cloned()
+        epoch_manager.epoch_info_aggregator.get_excluded_chunk_producers_for_shard(shard_id)
     }
 }
