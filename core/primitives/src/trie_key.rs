@@ -1096,6 +1096,70 @@ mod tests {
     }
 
     #[test]
+    fn test_key_for_gas_key_nonce_consistency() {
+        let public_key = PublicKey::empty(KeyType::ED25519);
+        let nonce_index: NonceIndex = 2; // Arbitrary nonce index for testing.
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
+            let access_key = TrieKey::AccessKey {
+                account_id: account_id.clone(),
+                public_key: public_key.clone(),
+            };
+            let gas_key_nonce = TrieKey::GasKeyNonce {
+                account_id: account_id.clone(),
+                public_key: public_key.clone(),
+                index: nonce_index,
+            };
+            let raw_key = gas_key_nonce.to_vec();
+            assert_eq!(raw_key.len(), gas_key_nonce.len());
+
+            // Gas key nonce raw key extends access key raw key with a NonceIndex suffix.
+            let access_key_raw = access_key.to_vec();
+            assert!(raw_key.starts_with(&access_key_raw));
+            assert_eq!(raw_key.len(), access_key_raw.len() + size_of::<NonceIndex>());
+
+            // Parsing the account id from a gas key nonce raw key should work.
+            assert_eq!(
+                trie_key_parsers::parse_account_id_from_access_key_key(&raw_key).unwrap(),
+                account_id
+            );
+
+            // Parsing the public key from a gas key nonce raw key should work.
+            // This is important: the raw key has extra bytes (the nonce index)
+            // after the public key.
+            assert_eq!(
+                trie_key_parsers::parse_public_key_from_access_key_key(&raw_key, &account_id)
+                    .unwrap(),
+                public_key
+            );
+
+            // Parsing the nonce index from a gas key nonce raw key should work.
+            assert_eq!(
+                trie_key_parsers::parse_nonce_index_from_gas_key_key(
+                    &raw_key,
+                    &account_id,
+                    &public_key
+                )
+                .unwrap(),
+                Some(nonce_index)
+            );
+
+            // Parsing nonce index from an access key raw key should return None.
+            assert_eq!(
+                trie_key_parsers::parse_nonce_index_from_gas_key_key(
+                    &access_key_raw,
+                    &account_id,
+                    &public_key
+                )
+                .unwrap(),
+                None
+            );
+
+            // GasKeyNonce should return the account id.
+            assert_eq!(gas_key_nonce.get_account_id(), Some(account_id.clone()));
+        }
+    }
+
+    #[test]
     fn test_global_contract_code_identifier_len() {
         check_global_contract_code_identifier_len(GlobalContractCodeIdentifier::CodeHash(
             CryptoHash::hash_bytes(&[42]),
