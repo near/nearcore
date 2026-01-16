@@ -730,9 +730,25 @@ impl
                 near_client_primitives::types::SandboxResponse::SandboxNoResponse
             }
             near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus => {
-                near_client_primitives::types::SandboxResponse::SandboxFastForwardFinished(
-                    self.fastforward_delta == 0,
-                )
+                // Fast forward is only complete when:
+                // 1. fastforward_delta is 0 (no more blocks to skip)
+                // 2. head.height >= latest_known.height (blocks have been produced)
+                //
+                // Previously, we only checked fastforward_delta == 0, which caused
+                // the RPC to return success before blocks were actually produced.
+                // See: https://github.com/near/nearcore/issues/9690
+                let finished = if self.fastforward_delta > 0 {
+                    false
+                } else {
+                    match (
+                        self.client.chain.head(),
+                        self.client.chain.chain_store().get_latest_known(),
+                    ) {
+                        (Ok(head), Ok(latest_known)) => head.height >= latest_known.height,
+                        _ => false,
+                    }
+                };
+                near_client_primitives::types::SandboxResponse::SandboxFastForwardFinished(finished)
             }
         }
     }
