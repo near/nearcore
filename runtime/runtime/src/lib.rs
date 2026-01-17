@@ -1,5 +1,6 @@
 // cspell:ignore contractregistry
 
+use crate::access_keys::{action_add_key, action_delete_key};
 use crate::actions::*;
 use crate::config::{
     exec_fee, safe_add_balance, safe_add_compute, safe_gas_to_balance, total_deposit,
@@ -94,6 +95,7 @@ use std::sync::Arc;
 use tracing::instrument;
 use verifier::ValidateReceiptMode;
 
+mod access_keys;
 mod actions;
 #[cfg(test)]
 mod actions_test_utils;
@@ -104,7 +106,6 @@ mod congestion_control;
 mod conversions;
 mod deterministic_account_id;
 pub mod ext;
-mod gas_keys;
 mod global_contracts;
 pub mod metrics;
 mod pipelining;
