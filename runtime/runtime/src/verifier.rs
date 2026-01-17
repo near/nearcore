@@ -545,7 +545,7 @@ fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationEr
 fn validate_add_key_action(
     limit_config: &LimitConfig,
     action: &AddKeyAction,
-    current_protocol_version: u32,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     validate_access_key_permission(limit_config, &action.access_key.permission)?;
 
@@ -633,7 +633,7 @@ fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsVal
 fn require_protocol_feature(
     feature: ProtocolFeature,
     feature_name: &str,
-    current_protocol_version: u32,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     if !feature.enabled(current_protocol_version) {
         return Err(ActionsValidationError::UnsupportedProtocolFeature {
@@ -648,7 +648,7 @@ fn validate_deterministic_state_init(
     limit_config: &LimitConfig,
     action: &DeterministicStateInitAction,
     receiver_id: &AccountId,
-    current_protocol_version: u32,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     require_protocol_feature(
         ProtocolFeature::DeterministicAccountIds,
