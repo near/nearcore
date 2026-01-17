@@ -737,7 +737,7 @@ pub(crate) fn action_delete_key(
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_key: &DeleteKeyAction,
-) -> Result<(), StorageError> {
+) -> Result<(), RuntimeError> {
     let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
     if let Some(access_key) = access_key {
         // Check if this is a gas key and handle it appropriately
@@ -754,8 +754,7 @@ pub(crate) fn action_delete_key(
             let nonce_delete_compute_cost =
                 gas_key_nonce_delete_compute_cost() * gas_key_info.num_nonces as u64;
             result.compute_usage =
-                safe_add_compute(result.compute_usage, nonce_delete_compute_cost)
-                    .unwrap_or(result.compute_usage);
+                safe_add_compute(result.compute_usage, nonce_delete_compute_cost)?;
             remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
             account.set_storage_usage(account.storage_usage().saturating_sub(
                 gas_key_storage_cost(
