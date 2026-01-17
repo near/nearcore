@@ -344,10 +344,7 @@ impl TrieKey {
                 col::GLOBAL_CONTRACT_CODE.len() + identifier.len()
             }
             TrieKey::GasKeyNonce { account_id, public_key, index: _index } => {
-                col::ACCESS_KEY.len() * 2
-                    + account_id.len()
-                    + public_key.len()
-                    + size_of::<NonceIndex>()
+                access_key_key_len(account_id, public_key) + size_of::<NonceIndex>()
             }
         }
     }

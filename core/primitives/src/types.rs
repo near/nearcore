@@ -377,22 +377,16 @@ impl StateChanges {
                     // Deletion of a nonce can only be done with a corresponding
                     // deletion of the gas key, so we don't need to report these.
                     changes.into_iter().filter_map(|RawStateChange { cause, data }| {
-                        if let Some(change_data) = data {
-                            Some(StateChangeWithCause {
-                                cause,
-                                value: StateChangeValue::GasKeyNonceUpdate {
-                                    account_id: account_id.clone(),
-                                    public_key: public_key.clone(),
-                                    index,
-                                    nonce: <_>::try_from_slice(&change_data)
-                                        .expect("Failed to parse internally stored gas key nonce"),
-                                },
-                            })
-                        } else {
-                            // Deletion of a nonce can only be done with a corresponding
-                            // deletion of the gas key, so we don't need to report these.
-                            None
-                        }
+                        data.map(|change_data| StateChangeWithCause {
+                            cause,
+                            value: StateChangeValue::GasKeyNonceUpdate {
+                                account_id: account_id.clone(),
+                                public_key: public_key.clone(),
+                                index,
+                                nonce: Nonce::try_from_slice(&change_data)
+                                    .expect("Failed to parse internally stored gas key nonce"),
+                            },
+                        })
                     }),
                 ),
                 TrieKey::ContractCode { account_id } => {

@@ -2094,7 +2094,7 @@ mod tests {
                 &test_limit_config(),
                 &Action::AddKey(Box::new(AddKeyAction {
                     public_key: PublicKey::empty(KeyType::ED25519),
-                    access_key: gas_key.clone(),
+                    access_key: gas_key,
                 })),
                 &"alice.near".parse().unwrap(),
                 protocol_version,

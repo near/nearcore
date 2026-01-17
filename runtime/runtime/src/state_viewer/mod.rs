@@ -17,7 +17,7 @@ use near_primitives::receipt::{
 };
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::trie_key_parsers::{
-    self, parse_gas_key_nonce_index_from_access_key_key, parse_public_key_from_access_key_key,
+    self, parse_nonce_index_from_gas_key_key, parse_public_key_from_access_key_key,
 };
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce, ShardId,
@@ -140,10 +140,11 @@ impl TrieViewer {
                                 .to_string(),
                         })?;
                     if let Some(_index) =
-                        parse_gas_key_nonce_index_from_access_key_key(&key, account_id, &public_key)
-                            .map_err(|_| errors::ViewAccessKeyError::InternalError {
+                        parse_nonce_index_from_gas_key_key(&key, account_id, &public_key).map_err(
+                            |_| errors::ViewAccessKeyError::InternalError {
                                 error_message: "could not parse nonce index".to_string(),
-                            })?
+                            },
+                        )?
                     {
                         // This is a gas key nonce, skip it.
                         return Ok(None);
