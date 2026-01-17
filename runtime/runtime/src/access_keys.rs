@@ -314,8 +314,8 @@ mod tests {
             access_key: AccessKey::gas_key_full_access(TEST_NUM_NONCES),
         };
         action_add_key(&apply_state, state_update, account, &mut result, account_id, &action)
-            .expect("Expect ok");
-        assert!(result.result.is_ok(), "Result error: {:?}", result.result);
+            .unwrap();
+        assert!(result.result.is_ok(), "result error: {:?}", result.result);
 
         get_access_key(state_update, account_id, public_key)
             .expect("could not find gas key")
@@ -327,7 +327,7 @@ mod tests {
         let (account_id, public_key, access_key) = test_account_keys();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
         let mut account =
-            get_account(&state_update, &account_id).expect("Failed to get account").unwrap();
+            get_account(&state_update, &account_id).expect("failed to get account").unwrap();
         let storage_before = account.storage_usage();
 
         let gas_key_public_key =
@@ -362,8 +362,8 @@ mod tests {
         for i in 0..gas_key_info.num_nonces {
             let gas_key_nonce =
                 get_gas_key_nonce(&state_update, &account_id, &gas_key_public_key, i)
-                    .expect("Failed to get gas key nonce")
-                    .expect("Gas key nonce not found");
+                    .expect("failed to get gas key nonce")
+                    .expect("gas key nonce not found");
             assert_eq!(gas_key_nonce, expected_nonce);
         }
     }
@@ -373,7 +373,7 @@ mod tests {
         let (account_id, public_key, access_key) = test_account_keys();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
         let mut account =
-            get_account(&state_update, &account_id).expect("Failed to get account").unwrap();
+            get_account(&state_update, &account_id).expect("failed to get account").unwrap();
         let gas_key_public_key =
             InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "gas_key").public_key();
         add_gas_key_to_account(&mut state_update, &mut account, &account_id, &gas_key_public_key);
@@ -391,7 +391,7 @@ mod tests {
             &account_id,
             &action,
         )
-        .expect("Expect ok");
+        .unwrap();
         assert_eq!(
             result.result,
             Err(ActionErrorKind::AddKeyAlreadyExists {
@@ -407,7 +407,7 @@ mod tests {
         let (account_id, public_key, access_key) = test_account_keys();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
         let mut account =
-            get_account(&state_update, &account_id).expect("Failed to get account").unwrap();
+            get_account(&state_update, &account_id).expect("failed to get account").unwrap();
         let mut result = ActionResult::default();
         let action = AddKeyAction {
             public_key: public_key.clone(),
@@ -421,7 +421,7 @@ mod tests {
             &account_id,
             &action,
         )
-        .expect("Expect ok");
+        .unwrap();
         assert_eq!(
             result.result,
             Err(ActionErrorKind::AddKeyAlreadyExists {
@@ -437,7 +437,7 @@ mod tests {
         let (account_id, public_key, access_key) = test_account_keys();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
         let mut account =
-            get_account(&state_update, &account_id).expect("Failed to get account").unwrap();
+            get_account(&state_update, &account_id).expect("failed to get account").unwrap();
         let storage_before = account.storage_usage();
 
         let gas_key_public_key =
@@ -459,11 +459,11 @@ mod tests {
             &account_id,
             &action,
         )
-        .expect("Expect ok");
-        assert!(result.result.is_ok(), "Result error: {:?}", result.result);
+        .unwrap();
+        assert!(result.result.is_ok(), "result error: {:?}", result.result);
 
         let stored_gas_key = get_access_key(&state_update, &account_id, &gas_key_public_key)
-            .expect("Failed to get gas key");
+            .expect("failed to get gas key");
         assert!(stored_gas_key.is_none());
         assert_eq!(account.storage_usage(), storage_before);
 
@@ -475,7 +475,7 @@ mod tests {
         for i in 0..gas_key_info.num_nonces {
             let gas_key_nonce =
                 get_gas_key_nonce(&state_update, &account_id, &gas_key_public_key, i)
-                    .expect("Failed to get gas key nonce");
+                    .expect("failed to get gas key nonce");
             assert!(gas_key_nonce.is_none());
         }
     }
@@ -485,7 +485,7 @@ mod tests {
         let (account_id, public_key, access_key) = test_account_keys();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
         let mut account =
-            get_account(&state_update, &account_id).expect("Failed to get account").unwrap();
+            get_account(&state_update, &account_id).expect("failed to get account").unwrap();
 
         // Try to delete a key that doesn't exist
         let nonexistent_public_key =
@@ -501,7 +501,7 @@ mod tests {
             &account_id,
             &action,
         )
-        .expect("Expect ok");
+        .unwrap();
         assert_eq!(
             result.result,
             Err(ActionErrorKind::DeleteKeyDoesNotExist {
