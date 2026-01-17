@@ -730,6 +730,45 @@ pub(crate) fn access_key_storage_usage(
         + storage_usage_config.num_extra_bytes_record
 }
 
+fn delete_gas_key(
+    fee_config: &RuntimeFeesConfig,
+    state_update: &mut TrieUpdate,
+    account: &mut Account,
+    result: &mut ActionResult,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+    access_key: &AccessKey,
+    gas_key_info: &near_primitives::account::GasKeyInfo,
+) -> Result<(), RuntimeError> {
+    for i in 0..gas_key_info.num_nonces {
+        remove_gas_key_nonce(state_update, account_id.clone(), public_key.clone(), i);
+    }
+    let nonce_delete_compute_cost =
+        gas_key_nonce_delete_compute_cost() * gas_key_info.num_nonces as u64;
+    result.compute_usage = safe_add_compute(result.compute_usage, nonce_delete_compute_cost)?;
+    remove_access_key(state_update, account_id.clone(), public_key.clone());
+    account.set_storage_usage(account.storage_usage().saturating_sub(gas_key_storage_cost(
+        fee_config,
+        public_key,
+        access_key,
+        gas_key_info.num_nonces,
+    )));
+    Ok(())
+}
+
+fn delete_regular_key(
+    fee_config: &RuntimeFeesConfig,
+    state_update: &mut TrieUpdate,
+    account: &mut Account,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+    access_key: &AccessKey,
+) {
+    let storage_usage = access_key_storage_usage(fee_config, public_key, access_key);
+    remove_access_key(state_update, account_id.clone(), public_key.clone());
+    account.set_storage_usage(account.storage_usage().saturating_sub(storage_usage));
+}
+
 pub(crate) fn action_delete_key(
     fee_config: &RuntimeFeesConfig,
     state_update: &mut TrieUpdate,
@@ -740,37 +779,26 @@ pub(crate) fn action_delete_key(
 ) -> Result<(), RuntimeError> {
     let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
     if let Some(access_key) = access_key {
-        // Check if this is a gas key and handle it appropriately
         if let Some(gas_key_info) = access_key.gas_key_info() {
-            for i in 0..gas_key_info.num_nonces {
-                remove_gas_key_nonce(
-                    state_update,
-                    account_id.clone(),
-                    delete_key.public_key.clone(),
-                    i,
-                );
-            }
-            // Track compute cost for all nonce deletions
-            let nonce_delete_compute_cost =
-                gas_key_nonce_delete_compute_cost() * gas_key_info.num_nonces as u64;
-            result.compute_usage =
-                safe_add_compute(result.compute_usage, nonce_delete_compute_cost)?;
-            remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
-            account.set_storage_usage(account.storage_usage().saturating_sub(
-                gas_key_storage_cost(
-                    fee_config,
-                    &delete_key.public_key,
-                    &access_key,
-                    gas_key_info.num_nonces,
-                ),
-            ));
+            delete_gas_key(
+                fee_config,
+                state_update,
+                account,
+                result,
+                account_id,
+                &delete_key.public_key,
+                &access_key,
+                gas_key_info,
+            )?;
         } else {
-            // Regular access key
-            let storage_usage =
-                access_key_storage_usage(fee_config, &delete_key.public_key, &access_key);
-            // Remove access key
-            remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
-            account.set_storage_usage(account.storage_usage().saturating_sub(storage_usage));
+            delete_regular_key(
+                fee_config,
+                state_update,
+                account,
+                account_id,
+                &delete_key.public_key,
+                &access_key,
+            );
         }
     } else {
         result.result = Err(ActionErrorKind::DeleteKeyDoesNotExist {
@@ -779,6 +807,69 @@ pub(crate) fn action_delete_key(
         }
         .into());
     }
+    Ok(())
+}
+
+fn add_gas_key(
+    fee_config: &RuntimeFeesConfig,
+    state_update: &mut TrieUpdate,
+    account: &mut Account,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+    access_key: &AccessKey,
+    gas_key_info: &near_primitives::account::GasKeyInfo,
+    block_height: BlockHeight,
+) -> Result<(), StorageError> {
+    // For gas keys, nonce stored on access key is not used and should always be zero
+    let mut access_key = access_key.clone();
+    access_key.nonce = 0;
+    set_access_key(state_update, account_id.clone(), public_key.clone(), &access_key);
+
+    // Set up nonces for gas key
+    let num_nonces = gas_key_info.num_nonces;
+    let nonce = initial_nonce_value(block_height);
+    for i in 0..num_nonces {
+        set_gas_key_nonce(state_update, account_id.clone(), public_key.clone(), i, nonce);
+    }
+
+    account.set_storage_usage(
+        account
+            .storage_usage()
+            .checked_add(gas_key_storage_cost(fee_config, public_key, &access_key, num_nonces))
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "Storage usage integer overflow for account {}",
+                    account_id
+                ))
+            })?,
+    );
+    Ok(())
+}
+
+fn add_regular_key(
+    fee_config: &RuntimeFeesConfig,
+    state_update: &mut TrieUpdate,
+    account: &mut Account,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+    access_key: &AccessKey,
+    block_height: BlockHeight,
+) -> Result<(), StorageError> {
+    let mut access_key = access_key.clone();
+    access_key.nonce = initial_nonce_value(block_height);
+    set_access_key(state_update, account_id.clone(), public_key.clone(), &access_key);
+
+    account.set_storage_usage(
+        account
+            .storage_usage()
+            .checked_add(access_key_storage_usage(fee_config, public_key, &access_key))
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "Storage usage integer overflow for account {}",
+                    account_id
+                ))
+            })?,
+    );
     Ok(())
 }
 
@@ -801,59 +892,27 @@ pub(crate) fn action_add_key(
 
     let fee_config = &apply_state.config.fees;
 
-    // Check if this is a gas key
     if let Some(gas_key_info) = add_key.access_key.gas_key_info() {
-        // For gas keys, nonce stored on access key is not used and should always be zero
-        let mut access_key = add_key.access_key.clone();
-        access_key.nonce = 0;
-        set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
-
-        // Set up nonces for gas key
-        let num_nonces = gas_key_info.num_nonces;
-        let nonce = initial_nonce_value(apply_state.block_height);
-        for i in 0..num_nonces {
-            set_gas_key_nonce(
-                state_update,
-                account_id.clone(),
-                add_key.public_key.clone(),
-                i,
-                nonce,
-            );
-        }
-
-        account.set_storage_usage(
-            account
-                .storage_usage()
-                .checked_add(gas_key_storage_cost(
-                    fee_config,
-                    &add_key.public_key,
-                    &add_key.access_key,
-                    num_nonces,
-                ))
-                .ok_or_else(|| {
-                    StorageError::StorageInconsistentState(format!(
-                        "Storage usage integer overflow for account {}",
-                        account_id
-                    ))
-                })?,
-        );
+        add_gas_key(
+            fee_config,
+            state_update,
+            account,
+            account_id,
+            &add_key.public_key,
+            &add_key.access_key,
+            gas_key_info,
+            apply_state.block_height,
+        )?;
     } else {
-        // Regular (non-gas) key
-        let mut access_key = add_key.access_key.clone();
-        access_key.nonce = initial_nonce_value(apply_state.block_height);
-        set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
-
-        account.set_storage_usage(
-            account
-                .storage_usage()
-                .checked_add(access_key_storage_usage(fee_config, &add_key.public_key, &access_key))
-                .ok_or_else(|| {
-                    StorageError::StorageInconsistentState(format!(
-                        "Storage usage integer overflow for account {}",
-                        account_id
-                    ))
-                })?,
-        );
+        add_regular_key(
+            fee_config,
+            state_update,
+            account,
+            account_id,
+            &add_key.public_key,
+            &add_key.access_key,
+            apply_state.block_height,
+        )?;
     }
 
     Ok(())
