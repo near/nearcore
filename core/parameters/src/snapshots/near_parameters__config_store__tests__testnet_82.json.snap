@@ -262,13 +262,5 @@ expression: config_view
     "main_storage_proof_size_soft_limit": 4000000,
     "combined_transactions_size_limit": 4194304,
     "new_transactions_validation_state_size_soft_limit": 572864
-  },
-  "dynamic_resharding_config": {
-    "memory_usage_threshold": 999999999999999,
-    "min_child_memory_usage": 999999999999999,
-    "max_number_of_shards": 999999999999999,
-    "min_epochs_between_resharding": 999999999999999,
-    "force_split_shards": [],
-    "block_split_shards": []
   }
 }

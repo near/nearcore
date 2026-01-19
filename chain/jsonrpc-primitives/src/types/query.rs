@@ -102,8 +102,6 @@ pub enum QueryResponseKind {
     CallResult(near_primitives::views::CallResult),
     AccessKey(near_primitives::views::AccessKeyView),
     AccessKeyList(near_primitives::views::AccessKeyList),
-    GasKey(near_primitives::views::GasKeyView),
-    GasKeyList(near_primitives::views::GasKeyList),
 }
 
 impl From<RpcQueryError> for crate::errors::RpcError {

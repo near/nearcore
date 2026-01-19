@@ -11,7 +11,6 @@ use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfi
 use near_crypto::PublicKey;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use near_parameters::config::DynamicReshardingConfig;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -20,6 +19,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::congestion_info::{
     CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
 };
+use near_primitives::epoch_manager::{DynamicReshardingConfig, EpochConfig};
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
@@ -34,8 +34,8 @@ use near_primitives::types::{
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, ContractCodeView, GasKeyInfoView, GasKeyList, GasKeyView,
-    QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
+    AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
+    QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::CLOUD_HEAD_KEY;
@@ -243,12 +243,13 @@ impl NightshadeRuntime {
         let is_first_block_of_version = current_protocol_version != prev_block_protocol_version;
 
         let config = self.runtime_config_store.get_config(current_protocol_version);
+        let epoch_config = self.epoch_manager.get_epoch_config(&epoch_id)?;
         let proposed_split = self.check_dynamic_resharding(
             &trie,
             shard_id,
             &epoch_id,
             current_protocol_version,
-            &config.dynamic_resharding_config,
+            &epoch_config,
             &prev_block_hash,
         )?;
 
@@ -272,7 +273,7 @@ impl NightshadeRuntime {
             gas_limit: Some(gas_limit),
             random_seed,
             current_protocol_version,
-            config: self.runtime_config_store.get_config(current_protocol_version).clone(),
+            config: config.clone(),
             cache: Some(self.compiled_contract_cache.handle()),
             is_new_chunk,
             congestion_info,
@@ -524,7 +525,7 @@ impl NightshadeRuntime {
         shard_id: ShardId,
         epoch_id: &EpochId,
         protocol_version: ProtocolVersion,
-        config: &DynamicReshardingConfig,
+        epoch_config: &EpochConfig,
         prev_block_hash: &CryptoHash,
     ) -> Result<Option<TrieSplit>, Error> {
         if !ProtocolFeature::DynamicResharding.enabled(protocol_version) {
@@ -536,6 +537,11 @@ impl NightshadeRuntime {
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
 
         // TODO(dynamic_resharding): Check how many epochs since last resharding
+
+        let Some(config) = epoch_config.dynamic_resharding_config() else {
+            tracing::error!(target: "runtime", "dynamic resharding config missing");
+            return Ok(None);
+        };
         match check_dynamic_resharding(shard_trie, shard_id, shard_layout, config) {
             Err(FindSplitError::Storage(err)) => Err(err)?,
             Err(err) => {
@@ -1205,37 +1211,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                     block_hash: *block_hash,
                 })
             }
-            QueryRequest::ViewGasKeyList { account_id } => {
-                let gas_key_list =
-                    self.view_gas_keys(&shard_uid, *state_root, account_id).map_err(|err| {
-                        crate::near_chain_primitives::error::QueryError::from_view_gas_key_error(
-                            err,
-                            block_height,
-                            *block_hash,
-                        )
-                    })?;
-                Ok(QueryResponse {
-                    kind: QueryResponseKind::GasKeyList(GasKeyList { keys: gas_key_list }),
-                    block_height,
-                    block_hash: *block_hash,
-                })
-            }
-            QueryRequest::ViewGasKey { account_id, public_key } => {
-                let gas_key = self
-                    .view_gas_key(&shard_uid, *state_root, account_id, public_key)
-                    .map_err(|err| {
-                        crate::near_chain_primitives::error::QueryError::from_view_gas_key_error(
-                            err,
-                            block_height,
-                            *block_hash,
-                        )
-                    })?;
-                Ok(QueryResponse {
-                    kind: QueryResponseKind::GasKey(gas_key),
-                    block_height,
-                    block_hash: *block_hash,
-                })
-            }
             QueryRequest::ViewGlobalContractCode { code_hash } => self
                 .query_view_global_contract_code(
                     GlobalContractIdentifier::CodeHash(*code_hash),
@@ -1627,27 +1602,6 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_access_keys(&state_update, account_id)
-    }
-
-    fn view_gas_key(
-        &self,
-        shard_uid: &ShardUId,
-        state_root: MerkleHash,
-        account_id: &AccountId,
-        public_key: &PublicKey,
-    ) -> Result<GasKeyView, node_runtime::state_viewer::errors::ViewGasKeyError> {
-        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
-        self.trie_viewer.view_gas_key(&state_update, account_id, public_key)
-    }
-
-    fn view_gas_keys(
-        &self,
-        shard_uid: &ShardUId,
-        state_root: MerkleHash,
-        account_id: &AccountId,
-    ) -> Result<Vec<GasKeyInfoView>, node_runtime::state_viewer::errors::ViewGasKeyError> {
-        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
-        self.trie_viewer.view_gas_keys(&state_update, account_id)
     }
 
     fn view_state(

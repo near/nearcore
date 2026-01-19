@@ -1243,6 +1243,17 @@ impl PeerActor {
                 let clock = self.clock.clone();
                 let network_state = self.network_state.clone();
                 self.handle.spawn("handle request update nonce", async move {
+                    if let Err(err) = verify_nonce(&clock, edge_info.nonce) {
+                        tracing::debug!(
+                            target: "network",
+                            nonce = ?edge_info.nonce,
+                            peer_id = ?conn.peer_info.id,
+                            %err,
+                            "bad nonce, disconnecting"
+                        );
+                        conn.stop(Some(ReasonForBan::InvalidEdge));
+                        return;
+                    }
                     let peer_id = &conn.peer_info.id;
                     match network_state.graph.load().local_edges.get(peer_id) {
                         Some(cur_edge)
