@@ -14,7 +14,9 @@ use crate::num_rational::Rational32;
 #[cfg(feature = "clock")]
 use crate::optimistic_block::OptimisticBlock;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
-use crate::types::{AccountId, Balance, BlockExecutionResults, BlockHeight, EpochId, Gas};
+#[cfg(feature = "clock")]
+use crate::types::AccountId;
+use crate::types::{Balance, BlockExecutionResults, BlockHeight, EpochId, Gas};
 #[cfg(feature = "clock")]
 use crate::{
     stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
@@ -24,6 +26,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 #[cfg(feature = "clock")]
 use near_primitives_core::types::ProtocolVersion;
+#[cfg(feature = "clock")]
 use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
 use primitive_types::U256;
