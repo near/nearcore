@@ -354,6 +354,7 @@ pub enum QueryResponseKind {
     CallResult(CallResult),
     AccessKey(AccessKeyView),
     AccessKeyList(AccessKeyList),
+    GasKeyNonces(Vec<Nonce>),
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -379,6 +380,10 @@ pub enum QueryRequest {
     },
     ViewAccessKeyList {
         account_id: AccountId,
+    },
+    ViewGasKeyNonces {
+        account_id: AccountId,
+        public_key: PublicKey,
     },
     CallFunction {
         account_id: AccountId,
@@ -2754,8 +2759,8 @@ pub enum StateChangeValueView {
     GasKeyNonceUpdate {
         account_id: AccountId,
         public_key: PublicKey,
-        nonce_index: NonceIndex,
-        nonce_value: Nonce,
+        index: NonceIndex,
+        nonce: Nonce,
     },
     DataUpdate {
         account_id: AccountId,
@@ -2796,12 +2801,9 @@ impl From<StateChangeValue> for StateChangeValueView {
             StateChangeValue::AccessKeyDeletion { account_id, public_key } => {
                 Self::AccessKeyDeletion { account_id, public_key }
             }
-            StateChangeValue::GasKeyNonceUpdate {
-                account_id,
-                public_key,
-                index: nonce_index,
-                nonce_value,
-            } => Self::GasKeyNonceUpdate { account_id, public_key, nonce_index, nonce_value },
+            StateChangeValue::GasKeyNonceUpdate { account_id, public_key, index, nonce } => {
+                Self::GasKeyNonceUpdate { account_id, public_key, index, nonce }
+            }
             StateChangeValue::DataUpdate { account_id, key, value } => {
                 Self::DataUpdate { account_id, key, value }
             }

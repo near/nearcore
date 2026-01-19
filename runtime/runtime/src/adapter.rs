@@ -4,7 +4,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, MerkleHash,
+    AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, MerkleHash, Nonce,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::ViewStateResult;
@@ -57,6 +57,14 @@ pub trait ViewRuntimeAdapter {
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, crate::state_viewer::errors::ViewAccessKeyError>;
+
+    fn view_gas_key_nonces(
+        &self,
+        shard_uid: &ShardUId,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<Vec<Nonce>, crate::state_viewer::errors::ViewAccessKeyError>;
 
     fn view_state(
         &self,
