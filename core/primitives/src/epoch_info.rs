@@ -558,11 +558,9 @@ impl EpochInfo {
         shard_layout: &ShardLayout,
         shard_id: ShardId,
         height: BlockHeight,
-        blacklist: Option<HashSet<ValidatorId>>,
+        blacklist: HashSet<ValidatorId>,
     ) -> Option<ValidatorId> {
         // TODO: Better way of sampling filtered producers
-        let blacklist = blacklist.unwrap_or_default();
-
         let shard_index = shard_layout.get_shard_index(shard_id).ok()?;
 
         let select_from_settlement = |shard_cps: &[ValidatorId], start_index: usize| {
