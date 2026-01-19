@@ -16,7 +16,7 @@ use near_primitives::receipt::{
     Receipt, ReceivedData, VersionedReceiptEnum,
 };
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
-use near_primitives::types::{AccountId, BlockHeight, StateRoot};
+use near_primitives::types::{AccountId, BlockHeight, Nonce, NonceIndex, StateRoot};
 use std::io;
 
 /// Reads an object from Trie.
@@ -247,12 +247,31 @@ pub fn set_access_key(
     set(state_update, TrieKey::AccessKey { account_id, public_key }, access_key);
 }
 
+pub fn set_gas_key_nonce(
+    state_update: &mut TrieUpdate,
+    account_id: AccountId,
+    public_key: PublicKey,
+    nonce_index: NonceIndex,
+    nonce: Nonce,
+) {
+    set(state_update, TrieKey::GasKeyNonce { account_id, public_key, index: nonce_index }, &nonce);
+}
+
 pub fn remove_access_key(
     state_update: &mut TrieUpdate,
     account_id: AccountId,
     public_key: PublicKey,
 ) {
     state_update.remove(TrieKey::AccessKey { account_id, public_key });
+}
+
+pub fn remove_gas_key_nonce(
+    state_update: &mut TrieUpdate,
+    account_id: AccountId,
+    public_key: PublicKey,
+    nonce_index: NonceIndex,
+) {
+    state_update.remove(TrieKey::GasKeyNonce { account_id, public_key, index: nonce_index });
 }
 
 pub fn get_access_key(
@@ -263,6 +282,22 @@ pub fn get_access_key(
     get(
         trie,
         &TrieKey::AccessKey { account_id: account_id.clone(), public_key: public_key.clone() },
+    )
+}
+
+pub fn get_gas_key_nonce(
+    trie: &dyn TrieAccess,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+    nonce_index: NonceIndex,
+) -> Result<Option<Nonce>, StorageError> {
+    get(
+        trie,
+        &TrieKey::GasKeyNonce {
+            account_id: account_id.clone(),
+            public_key: public_key.clone(),
+            index: nonce_index,
+        },
     )
 }
 
@@ -285,24 +320,45 @@ pub fn remove_account(
     state_update.remove(TrieKey::Account { account_id: account_id.clone() });
     state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
 
-    // Removing access keys
+    // Removing access keys and gas key nonces
     let lock = state_update.trie().lock_for_iter();
-    let public_keys = state_update
+    let mut keys_to_remove: Vec<TrieKey> = Vec::new();
+    for raw_key in state_update
         .locked_iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id), &lock)?
-        .map(|raw_key| {
-            trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id).map_err(
-                |_e| {
-                    StorageError::StorageInconsistentState(
-                        "Can't parse public key from raw key for AccessKey".to_string(),
-                    )
-                },
+    {
+        let raw_key = raw_key?;
+        let public_key = trie_key_parsers::parse_public_key_from_access_key_key(
+            &raw_key, account_id,
+        )
+        .map_err(|_e| {
+            StorageError::StorageInconsistentState(
+                "Can't parse public key from raw key for AccessKey".to_string(),
             )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+        })?;
+        let nonce_index =
+            trie_key_parsers::parse_nonce_index_from_gas_key_key(&raw_key, account_id, &public_key)
+                .map_err(|_e| {
+                    StorageError::StorageInconsistentState(
+                        "Can't parse nonce index from raw key for AccessKey".to_string(),
+                    )
+                })?;
+        if let Some(index) = nonce_index {
+            keys_to_remove.push(TrieKey::GasKeyNonce {
+                account_id: account_id.clone(),
+                public_key: public_key.clone(),
+                index,
+            });
+        } else {
+            keys_to_remove.push(TrieKey::AccessKey {
+                account_id: account_id.clone(),
+                public_key: public_key.clone(),
+            });
+        }
+    }
     drop(lock);
 
-    for public_key in public_keys {
-        state_update.remove(TrieKey::AccessKey { account_id: account_id.clone(), public_key });
+    for trie_key in keys_to_remove {
+        state_update.remove(trie_key);
     }
 
     // Removing contract data

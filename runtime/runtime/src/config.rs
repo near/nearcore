@@ -173,6 +173,9 @@ fn permission_send_fees(
         AccessKeyPermission::FullAccess => {
             fees.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
         }
+        // TODO(gas-keys): properly handle GasKey fees
+        AccessKeyPermission::GasKeyFullAccess(_) => Gas::ZERO,
+        AccessKeyPermission::GasKeyFunctionCall(_, _) => Gas::ZERO,
     }
 }
 
@@ -289,6 +292,9 @@ fn permission_exec_fees(permission: &AccessKeyPermission, fees: &RuntimeFeesConf
             base_fee.checked_add(all_bytes_fee).unwrap()
         }
         AccessKeyPermission::FullAccess => fees.fee(ActionCosts::add_full_access_key).exec_fee(),
+        // TODO(gas-keys): properly handle GasKey fees
+        AccessKeyPermission::GasKeyFullAccess(_) => Gas::ZERO,
+        AccessKeyPermission::GasKeyFunctionCall(_, _) => Gas::ZERO,
     }
 }
 

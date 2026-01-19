@@ -1,5 +1,5 @@
 use crate::hash::CryptoHash;
-use crate::types::{Balance, Nonce, StorageUsage};
+use crate::types::{Balance, Nonce, NonceIndex, StorageUsage};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use near_account_id as id;
 use near_account_id::AccountId;
@@ -476,6 +476,55 @@ impl AccessKey {
     pub fn full_access() -> Self {
         Self { nonce: 0, permission: AccessKeyPermission::FullAccess }
     }
+
+    pub fn gas_key_full_access(num_nonces: NonceIndex) -> Self {
+        Self {
+            nonce: 0,
+            permission: AccessKeyPermission::GasKeyFullAccess(GasKeyInfo {
+                balance: Balance::from_yoctonear(0),
+                num_nonces,
+            }),
+        }
+    }
+
+    pub fn gas_key_function_call(
+        num_nonces: NonceIndex,
+        function_call_permission: FunctionCallPermission,
+    ) -> Self {
+        Self {
+            nonce: 0,
+            permission: AccessKeyPermission::GasKeyFunctionCall(
+                GasKeyInfo { balance: Balance::from_yoctonear(0), num_nonces },
+                function_call_permission,
+            ),
+        }
+    }
+
+    pub fn gas_key_info(&self) -> Option<&GasKeyInfo> {
+        match &self.permission {
+            AccessKeyPermission::GasKeyFunctionCall(gas_key_info, _)
+            | AccessKeyPermission::GasKeyFullAccess(gas_key_info) => Some(gas_key_info),
+            _ => None,
+        }
+    }
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Hash,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct GasKeyInfo {
+    pub balance: Balance,
+    pub num_nonces: NonceIndex,
 }
 
 /// Defines permissions for AccessKey
@@ -494,10 +543,27 @@ impl AccessKey {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AccessKeyPermission {
     FunctionCall(FunctionCallPermission),
-
     /// Grants full access to the account.
     /// NOTE: It's used to replace account-level public keys.
     FullAccess,
+    /// Gas key with limited permission to make transactions with FunctionCallActions
+    /// Gas keys are a kind of access keys with a prepaid balance to pay for gas.
+    GasKeyFunctionCall(GasKeyInfo, FunctionCallPermission),
+    /// Gas key with full access to the account.
+    /// Gas keys are a kind of access keys with a prepaid balance to pay for gas.
+    GasKeyFullAccess(GasKeyInfo),
+}
+
+impl AccessKeyPermission {
+    pub const MAX_NONCES_FOR_GAS_KEY: u32 = 1024;
+
+    pub fn function_call_permission(&self) -> Option<&FunctionCallPermission> {
+        match self {
+            AccessKeyPermission::FunctionCall(permission)
+            | AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
+            _ => None,
+        }
+    }
 }
 
 /// Grants limited permission to make transactions with FunctionCallActions
