@@ -34,7 +34,7 @@ pub fn initialize_sharded_genesis_state(
     genesis_epoch_config: &EpochConfig,
     home_dir: Option<&Path>,
 ) {
-    let shard_layout = genesis_epoch_config.legacy_shard_layout();
+    let shard_layout = genesis_epoch_config.static_shard_layout();
     let state_roots = if let Some(state_roots) =
         get_genesis_state_roots(&store).expect("Store failed on genesis initialization")
     {

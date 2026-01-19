@@ -245,7 +245,7 @@ fn encoded_chunk_to_partial_encoded_chunk(
     let shard_id = header.shard_id();
 
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let shard_layout = epoch_config_store.get_config(PROTOCOL_VERSION).legacy_shard_layout();
+    let shard_layout = epoch_config_store.get_config(PROTOCOL_VERSION).static_shard_layout();
 
     let hashes = Chain::build_receipts_hashes(&receipts, &shard_layout).unwrap();
     let (_root, proofs) = merklize(&hashes);
