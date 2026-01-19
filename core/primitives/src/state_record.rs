@@ -144,10 +144,10 @@ impl StateRecord {
             StateRecord::Data { .. } => "Data",
             StateRecord::Contract { .. } => "Contract",
             StateRecord::AccessKey { .. } => "AccessKey",
+            StateRecord::GasKeyNonce { .. } => "GasKeyNonce",
             StateRecord::PostponedReceipt { .. } => "PostponedReceipt",
             StateRecord::ReceivedData { .. } => "ReceivedData",
             StateRecord::DelayedReceipt { .. } => "DelayedReceipt",
-            StateRecord::GasKeyNonce { .. } => "GasKeyNonce",
         }
         .to_string()
     }
@@ -182,7 +182,7 @@ impl Display for StateRecord {
             StateRecord::PostponedReceipt(receipt) => write!(f, "Postponed receipt {:?}", receipt),
             StateRecord::DelayedReceipt(receipt) => write!(f, "Delayed receipt {:?}", receipt),
             StateRecord::GasKeyNonce { account_id, public_key, index, nonce } => {
-                write!(f, "GasKeyNonce {:?},{:?},{}: {}", account_id, public_key, index, nonce)
+                write!(f, "Gas key nonce {:?},{:?}[{}]: {}", account_id, public_key, index, nonce)
             }
         }
     }
