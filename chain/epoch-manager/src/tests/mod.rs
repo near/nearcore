@@ -1113,7 +1113,7 @@ fn test_blacklist_banned_producer_not_sampled_again() {
     let shard_id = ShardId::new(0);
     let faulty_account: AccountId = "test1".parse().unwrap();
     let epoch_id = epoch_manager.read().get_epoch_id(&hashes[0]).unwrap();
-    let epoch_info = epoch_manager.read().get_epoch_info(&epoch_id).unwrap().clone();
+    let epoch_info = epoch_manager.read().get_epoch_info(&epoch_id).unwrap();
     let shard_layout = epoch_manager.read().get_shard_layout(&epoch_id).unwrap();
     let faulty_id = *epoch_info.get_validator_id(&faulty_account).unwrap();
     let mut prev_hash = hashes[0];
@@ -1165,7 +1165,7 @@ fn test_blacklist_banned_producer_not_sampled_again() {
 }
 
 #[test]
-fn test_kickout_only_lasts_for_one_epoch() {
+fn test_blacklist_only_lasts_for_one_epoch() {
     let faulty_stake = Balance::from_yoctonear(10_000_000);
     let ok_stake = Balance::from_yoctonear(1_000_000);
     let validators =
