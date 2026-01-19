@@ -1155,6 +1155,42 @@
               "FullAccess"
             ],
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key with limited permission to make transactions with FunctionCallActions\nGas keys are a kind of access keys with a prepaid balance to pay for gas.",
+            "properties": {
+              "GasKeyFunctionCall": {
+                "items": [
+                  {
+                    "$ref": "#/components/schemas/GasKeyInfo"
+                  },
+                  {
+                    "$ref": "#/components/schemas/FunctionCallPermission"
+                  }
+                ],
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              }
+            },
+            "required": [
+              "GasKeyFunctionCall"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key with full access to the account.\nGas keys are a kind of access keys with a prepaid balance to pay for gas.",
+            "properties": {
+              "GasKeyFullAccess": {
+                "$ref": "#/components/schemas/GasKeyInfo"
+              }
+            },
+            "required": [
+              "GasKeyFullAccess"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -1204,6 +1240,82 @@
             },
             "required": [
               "FunctionCall"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "GasKeyFunctionCall": {
+                "properties": {
+                  "allowance": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/NearToken"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "method_names": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "num_nonces": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "receiver_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "balance",
+                  "num_nonces",
+                  "receiver_id",
+                  "method_names"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyFunctionCall"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "GasKeyFullAccess": {
+                "properties": {
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "num_nonces": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "balance",
+                  "num_nonces"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyFullAccess"
             ],
             "type": "object"
           }
@@ -2020,6 +2132,26 @@
               "GlobalContractDoesNotExist"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "KeyPermissionInvalid": {
+                "properties": {
+                  "permission": {
+                    "$ref": "#/components/schemas/AccessKeyPermission"
+                  }
+                },
+                "required": [
+                  "permission"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "KeyPermissionInvalid"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -2707,6 +2839,26 @@
             },
             "required": [
               "DeterministicStateInitValueLengthExceeded"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "KeyPermissionInvalid": {
+                "properties": {
+                  "permission": {
+                    "$ref": "#/components/schemas/AccessKeyPermission"
+                  }
+                },
+                "required": [
+                  "permission"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "KeyPermissionInvalid"
             ],
             "type": "object"
           }
@@ -6671,6 +6823,23 @@
             "description": "How often gc should be run"
           }
         },
+        "type": "object"
+      },
+      "GasKeyInfo": {
+        "properties": {
+          "balance": {
+            "$ref": "#/components/schemas/NearToken"
+          },
+          "num_nonces": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "balance",
+          "num_nonces"
+        ],
         "type": "object"
       },
       "GenesisConfig": {
