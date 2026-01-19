@@ -9,6 +9,7 @@ use crate::validator_signer::ValidatorSigner;
 use crate::version::ProtocolVersion;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey, Signature};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 
@@ -577,8 +578,9 @@ pub struct BlockHeaderV5 {
 pub struct BlockHeaderV6 {
     pub prev_hash: CryptoHash,
 
-    /// Inner part of the block header that gets hashed, split into two parts, one that is sent
-    ///    to light clients, and the rest
+    /// Inner part of the block header that gets hashed.
+    /// It's split into two parts: one that is sent to light clients,
+    /// and the other which contains the rest of information.
     pub inner_lite: BlockHeaderInnerLite,
     pub inner_rest: BlockHeaderInnerRestV6,
 
@@ -855,32 +857,74 @@ impl BlockHeader {
         };
 
         let chunk_endorsements = chunk_endorsements.unwrap_or_else(|| {
-            panic!("BlockHeaderV6 is enabled but chunk endorsement bitmap is not provided")
+            panic!(
+                "BlockHeaderV5 (or newer) is enabled but chunk endorsement bitmap is not provided"
+            )
         });
-        #[allow(deprecated)]
-        let inner_rest = BlockHeaderInnerRestV6 {
-            block_body_hash,
-            prev_chunk_outgoing_receipts_root,
-            chunk_headers_root,
-            chunk_tx_root,
-            random_value,
-            prev_validator_proposals,
-            chunk_mask,
-            next_gas_price,
-            block_ordinal,
-            total_supply,
-            last_final_block,
-            last_ds_final_block,
-            prev_height,
-            epoch_sync_data_hash,
-            approvals,
-            latest_protocol_version,
-            chunk_endorsements,
-            shard_split,
-        };
-        let (hash, signature) =
-            Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
-        Self::BlockHeaderV6(BlockHeaderV6 { prev_hash, inner_lite, inner_rest, signature, hash })
+
+        if ProtocolFeature::DynamicResharding.enabled(latest_protocol_version) {
+            let inner_rest = BlockHeaderInnerRestV6 {
+                block_body_hash,
+                prev_chunk_outgoing_receipts_root,
+                chunk_headers_root,
+                chunk_tx_root,
+                random_value,
+                prev_validator_proposals,
+                chunk_mask,
+                next_gas_price,
+                block_ordinal,
+                total_supply,
+                last_final_block,
+                last_ds_final_block,
+                prev_height,
+                epoch_sync_data_hash,
+                approvals,
+                latest_protocol_version,
+                chunk_endorsements,
+                shard_split,
+            };
+            let (hash, signature) =
+                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
+            Self::BlockHeaderV6(BlockHeaderV6 {
+                prev_hash,
+                inner_lite,
+                inner_rest,
+                signature,
+                hash,
+            })
+        } else {
+            #[allow(deprecated)]
+            let inner_rest = BlockHeaderInnerRestV5 {
+                block_body_hash,
+                prev_chunk_outgoing_receipts_root,
+                chunk_headers_root,
+                chunk_tx_root,
+                challenges_root: Default::default(),
+                random_value,
+                prev_validator_proposals,
+                chunk_mask,
+                next_gas_price,
+                total_supply,
+                challenges_result: vec![],
+                last_final_block,
+                last_ds_final_block,
+                block_ordinal,
+                prev_height,
+                epoch_sync_data_hash,
+                approvals,
+                latest_protocol_version,
+                chunk_endorsements,
+            };
+            let (hash, signature) =
+                Self::compute_hash_and_sign(signature_source, prev_hash, &inner_lite, &inner_rest);
+            Self::BlockHeaderV5(BlockHeaderV5 {
+                prev_hash,
+                inner_lite,
+                inner_rest,
+                signature,
+                hash,
+            })
+        }
     }
 
     /// Helper function for `new_impl` and `old_impl` to compute the hash and signature of the hash from the block header parts.
@@ -1444,7 +1488,7 @@ impl BlockHeader {
 
     /// Shard ID and boundary account for the upcoming resharding.
     /// This field may be set only for the last block of an epoch.
-    /// Split proposed at the end of epoch N will be executed in epoch N+2.
+    /// Split proposed at the end of epoch N will be effective since the beginning of epoch N+2.
     #[inline]
     pub fn shard_split(&self) -> Option<&(ShardId, AccountId)> {
         match self {
