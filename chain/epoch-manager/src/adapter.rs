@@ -430,10 +430,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(epoch_info.get_validator(validator_id))
     }
 
-    fn get_excluded_chunk_producers_for_shard(
-        &self,
-        shard_id: &ShardId,
-    ) -> Option<HashSet<ValidatorId>>;
+    fn get_excluded_chunk_producers_for_shard(&self, shard_id: &ShardId) -> HashSet<ValidatorId>;
 
     /// Chunk producer info for given height for given shard. Return EpochError if outside of known boundaries.
     fn get_chunk_producer_info(
@@ -934,10 +931,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         )
     }
 
-    fn get_excluded_chunk_producers_for_shard(
-        &self,
-        shard_id: &ShardId,
-    ) -> Option<HashSet<ValidatorId>> {
+    fn get_excluded_chunk_producers_for_shard(&self, shard_id: &ShardId) -> HashSet<ValidatorId> {
         let epoch_manager = self.read();
         epoch_manager.epoch_info_aggregator.get_excluded_chunk_producers_for_shard(shard_id)
     }

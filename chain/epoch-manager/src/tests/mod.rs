@@ -1053,14 +1053,14 @@ fn test_blacklist_sampling_skips_banned() {
     let height = 1;
     let mut aggregator = EpochInfoAggregator::new(EpochId::default(), CryptoHash::default());
     let blacklist = aggregator.get_excluded_chunk_producers_for_shard(&shard_id);
-    assert!(blacklist.is_none());
+    assert!(blacklist.is_empty());
     let base =
         epoch_info.sample_chunk_producer(&shard_layout, shard_id, height, blacklist).unwrap();
 
     aggregator.blacklist_chunk_producer(shard_id, base, 2);
     let blacklist = aggregator.get_excluded_chunk_producers_for_shard(&shard_id);
-    assert!(blacklist.is_some());
-    assert!(blacklist.clone().unwrap().contains(&base));
+    assert!(!blacklist.is_empty());
+    assert!(blacklist.contains(&base));
 
     let sampled =
         epoch_info.sample_chunk_producer(&shard_layout, shard_id, height, blacklist).unwrap();
@@ -1073,15 +1073,13 @@ fn test_blacklist_unbans_producer() {
 
     let mut aggregator = EpochInfoAggregator::new(EpochId::default(), CryptoHash::default());
     aggregator.blacklist_chunk_producer(shard_id, 0, 1);
-    let blacklist =
-        aggregator.get_excluded_chunk_producers_for_shard(&shard_id).unwrap_or_default();
+    let blacklist = aggregator.get_excluded_chunk_producers_for_shard(&shard_id);
     assert!(blacklist.is_empty());
 
     let mut aggregator = EpochInfoAggregator::new(EpochId::default(), CryptoHash::default());
     aggregator.blacklist_chunk_producer(shard_id, 0, 2);
     aggregator.blacklist_chunk_producer(shard_id, 1, 2);
-    let blacklist =
-        aggregator.get_excluded_chunk_producers_for_shard(&shard_id).unwrap_or_default();
+    let blacklist = aggregator.get_excluded_chunk_producers_for_shard(&shard_id);
     assert_eq!(blacklist.len(), 1);
 }
 
@@ -1150,7 +1148,7 @@ fn test_blacklist_banned_producer_not_sampled_again() {
         store_update.commit().unwrap();
 
         let latest_blacklist = epoch_manager.get_excluded_chunk_producers_for_shard(&shard_id);
-        if latest_blacklist.as_ref().map_or(false, |set| set.contains(&faulty_id)) {
+        if latest_blacklist.contains(&faulty_id) {
             if banned_height.is_none() {
                 banned_height = Some(height);
             }
@@ -1217,7 +1215,7 @@ fn test_blacklist_only_lasts_for_one_epoch() {
         if saw_new_epoch {
             let blacklist = epoch_manager.get_excluded_chunk_producers_for_shard(&shard_id);
             assert!(
-                !blacklist.as_ref().map_or(false, |set| set.contains(&faulty_id)),
+                !blacklist.contains(&faulty_id),
                 "faulty producer should not remain blacklisted in the new epoch"
             );
             break;
@@ -1238,7 +1236,7 @@ fn test_blacklist_only_lasts_for_one_epoch() {
         epoch_manager.write().record_block_info(block, [0; 32]).unwrap().commit().unwrap();
 
         let latest_blacklist = epoch_manager.get_excluded_chunk_producers_for_shard(&shard_id);
-        if latest_blacklist.as_ref().map_or(false, |set| set.contains(&faulty_id)) {
+        if latest_blacklist.contains(&faulty_id) {
             if banned_height.is_none() {
                 banned_height = Some(height);
             }
