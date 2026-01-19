@@ -1,4 +1,4 @@
-use super::config::{AccountCreationConfig, DynamicReshardingConfig, RuntimeConfig};
+use super::config::{AccountCreationConfig, RuntimeConfig};
 use crate::config::{BandwidthSchedulerConfig, CongestionControlConfig, WitnessConfig};
 use crate::cost::{
     ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, StorageUsageConfig,
@@ -407,14 +407,6 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 max_allowance: params.get(Parameter::MaxAllowance)?,
                 max_base_bandwidth: params.get(Parameter::MaxBaseBandwidth)?,
             },
-            dynamic_resharding_config: DynamicReshardingConfig {
-                memory_usage_threshold: params.get(Parameter::MemoryUsageThreshold)?,
-                min_child_memory_usage: params.get(Parameter::MinChildMemoryUsage)?,
-                max_number_of_shards: params.get(Parameter::MaxNumberOfShards)?,
-                min_epochs_between_resharding: params.get(Parameter::MinEpochsBetweenResharding)?,
-                force_split_shards: params.get(Parameter::ForceSplitShards)?,
-                block_split_shards: params.get(Parameter::BlockSplitShards)?,
-            },
             use_state_stored_receipt: params.get(Parameter::UseStateStoredReceipt)?,
         })
     }
@@ -672,7 +664,6 @@ mod tests {
                     Parameter::WasmStorageReadBase,
                     "{ gas: 50_000_000_000, compute: 100_000_000_000 }",
                 ),
-                (Parameter::ForceSplitShards, "[1, 2]"),
             ],
         );
     }
@@ -689,7 +680,6 @@ mod tests {
                 (Parameter::StorageAmountPerByte, "\"0.0001 N\""),
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
-                (Parameter::ForceSplitShards, "[1, 2]"),
             ],
         );
     }
@@ -712,7 +702,6 @@ mod tests {
                     Parameter::WasmStorageReadBase,
                     "{ gas: 50_000_000_000, compute: 200_000_000_000 }",
                 ),
-                (Parameter::ForceSplitShards, "[3, 4]"),
             ],
         );
     }
@@ -736,7 +725,6 @@ mod tests {
                     Parameter::WasmStorageReadBase,
                     "{ gas: 50_000_000_000, compute: 200_000_000_000 }",
                 ),
-                (Parameter::ForceSplitShards, "[]"),
             ],
         );
     }
@@ -757,7 +745,6 @@ mod tests {
                     Parameter::WasmStorageReadBase,
                     "{ gas: 50_000_000_000, compute: 100_000_000_000 }",
                 ),
-                (Parameter::ForceSplitShards, "[1, 2]"),
             ],
         );
     }
@@ -873,7 +860,6 @@ mod tests {
                 Parameter::StorageNumExtraBytesRecord,
                 Parameter::BurntGasReward,
                 Parameter::WasmStorageReadBase,
-                Parameter::ForceSplitShards,
             ]
             .iter(),
         );

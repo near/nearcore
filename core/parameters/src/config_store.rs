@@ -60,7 +60,6 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (83, include_config!("83.yaml")),
     (84, include_config!("84.yaml")),
     (129, include_config!("129.yaml")),
-    (252, include_config!("252.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -162,7 +161,6 @@ impl RuntimeConfigStore {
                     congestion_control_config: runtime_config.congestion_control_config,
                     witness_config: runtime_config.witness_config,
                     bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
-                    dynamic_resharding_config: runtime_config.dynamic_resharding_config.clone(),
                     use_state_stored_receipt: runtime_config.use_state_stored_receipt,
                 }),
             );

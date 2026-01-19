@@ -352,7 +352,7 @@ impl ForkNetworkCommand {
             ShardLayoutOverride::UseShardLayoutFromProtocolVersion(protocol_version) => {
                 epoch_manager
                     .get_epoch_config_from_protocol_version(*protocol_version)
-                    .legacy_shard_layout()
+                    .static_shard_layout()
             }
             ShardLayoutOverride::UseShardLayoutFromFile(shard_layout_file) => {
                 let layout = std::fs::read_to_string(&shard_layout_file).with_context(|| {
@@ -699,7 +699,7 @@ impl ForkNetworkCommand {
         // 1. Create default genesis and override its fields with given parameters.
         let (epoch_config, num_accounts_per_shard, chunk_producers) =
             Self::read_patches(patches_path)?;
-        let target_shard_layout = &epoch_config.legacy_shard_layout();
+        let target_shard_layout = &epoch_config.static_shard_layout();
         let validators = Self::read_validators(validators, home_dir)?;
         let num_seats = num_seats.unwrap_or(validators.len() as NumSeats);
         let mut genesis = Genesis::from_account_infos(
@@ -1431,7 +1431,7 @@ impl ForkNetworkCommand {
         new_state_roots: Vec<StateRoot>,
         new_validator_accounts: Vec<AccountInfo>,
     ) -> anyhow::Result<()> {
-        let shard_layout = epoch_config.legacy_shard_layout();
+        let shard_layout = epoch_config.static_shard_layout();
         // TODO: deprecate these fields as unused.
         let num_block_producer_seats_per_shard = vec![
             original_config

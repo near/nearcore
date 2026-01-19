@@ -243,14 +243,6 @@ pub enum Parameter {
 
     // Flag to enabled deterministic account ids
     DeterministicAccountIds,
-
-    // Dynamic resharding
-    MemoryUsageThreshold,
-    MinChildMemoryUsage,
-    MaxNumberOfShards,
-    MinEpochsBetweenResharding,
-    ForceSplitShards,
-    BlockSplitShards,
 }
 
 #[derive(
