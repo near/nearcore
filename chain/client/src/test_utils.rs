@@ -220,8 +220,10 @@ pub fn create_chunk(
                 tx_root,
                 header.congestion_info(),
                 header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
+                None,
                 &*signer,
                 &rs,
+                PROTOCOL_VERSION,
             )
         };
         let mut new_encoded_chunk = new_chunk.into_parts().1;

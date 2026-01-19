@@ -27,14 +27,14 @@ jobs:
         include:
           - name: Linux
             id: linux
-            os: warp-ubuntu-2204-x64-16x
+            os: warp-ubuntu-2404-x64-16x
             type: stable
             upload_profraws: true
             run_on_pr: true
           # TODO(spice): Once the feature is close to release make it part of nightly.
           - name: Linux Spice
             id: linux-spice
-            os: warp-ubuntu-2204-x64-16x
+            os: warp-ubuntu-2404-x64-16x
             type: spice
             # We disable profraws upload because it causes Github runners to run out of space.
             # This in turns prevents us from having coverage data for testing with spice.
@@ -42,7 +42,7 @@ jobs:
             run_on_pr: true
           - name: Linux Nightly
             id: linux-nightly
-            os: warp-ubuntu-2204-x64-16x
+            os: warp-ubuntu-2404-x64-16x
             type: nightly
             upload_profraws: true
             run_on_pr: true
@@ -128,7 +128,7 @@ jobs:
 
   pytest_nightly_tests:
     name: "Large pytest (nightly) Checks"
-    runs-on: warp-ubuntu-2204-x64-16x
+    runs-on: warp-ubuntu-2404-x64-16x
     strategy:
       fail-fast: false
     timeout-minutes: 90
@@ -183,7 +183,7 @@ jobs:
 
   protocol_schema_check:
     name: "Protocol Schema"
-    runs-on: warp-ubuntu-2204-x64-8x
+    runs-on: warp-ubuntu-2404-x64-8x
     permissions:
       contents: "read"
       id-token: "write"
@@ -242,7 +242,7 @@ jobs:
 
   check_clippy:
     name: "Cargo Clippy"
-    runs-on: warp-ubuntu-2204-x64-8x
+    runs-on: warp-ubuntu-2404-x64-8x
     permissions:
       contents: "read"
       id-token: "write"
@@ -272,7 +272,7 @@ jobs:
 
   doctests:
     name: "Rust Doctests"
-    runs-on: warp-ubuntu-2204-x64-8x
+    runs-on: warp-ubuntu-2404-x64-8x
     permissions:
       contents: "read"
       id-token: "write"
@@ -380,7 +380,7 @@ jobs:
 
   check_udeps:
     name: "Unused Dependencies"
-    runs-on: warp-ubuntu-2204-x64-8x
+    runs-on: warp-ubuntu-2404-x64-8x
     permissions:
       contents: "read"
       id-token: "write"
@@ -513,7 +513,7 @@ jobs:
         include:
           - name: Linux
             id: linux
-            os: warp-ubuntu-2204-x64-2x
+            os: warp-ubuntu-2404-x64-2x
           - name: Windows
             id: win
             os: windows-latest

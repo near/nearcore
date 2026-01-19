@@ -45,7 +45,7 @@ fn get_builder(num_shards: usize) -> TestLoopBuilder {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_optimistic_block() {
     let num_shards = 3;
@@ -197,7 +197,7 @@ fn get_height_to_skip_and_producers(
 
 #[test]
 /// Test that the optimistic block production does not break after a missing block.
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_optimistic_block_after_missing_block() {
     let num_shards = 3;
@@ -290,7 +290,7 @@ fn get_hit_count_and_height(env: &TestLoopEnv, producer: &ValidatorStake) -> (us
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[cfg(feature = "test_features")]
 /// Test that the optimistic block outcome is dropped on other nodes when

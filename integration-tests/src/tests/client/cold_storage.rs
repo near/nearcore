@@ -113,7 +113,7 @@ fn create_tx_function_call(
 /// After 4 epochs we check that everything, that exists in cold columns
 /// of the storage of the client also exists in the database to which we were writing.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_storage_after_commit_of_cold_update() {
     init_test_logger();
@@ -270,7 +270,7 @@ fn test_cold_db_head_update() {
 /// Here we are testing that `update_cold_db` handles itself correctly
 /// if some heights are not present in blockchain.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cold_db_copy_with_height_skips() {
     init_test_logger();
@@ -443,21 +443,21 @@ fn test_initial_copy_to_cold(batch_size: usize) {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_initial_copy_to_cold_small_batch() {
     test_initial_copy_to_cold(0);
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_initial_copy_to_cold_huge_batch() {
     test_initial_copy_to_cold(usize::MAX);
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_initial_copy_to_cold_medium_batch() {
     test_initial_copy_to_cold(5000);

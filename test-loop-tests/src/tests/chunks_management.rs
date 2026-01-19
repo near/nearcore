@@ -273,7 +273,7 @@ impl Test {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_all_in_all_shards() {
     Test {
@@ -286,7 +286,7 @@ fn slow_test_chunks_produced_and_distributed_all_in_all_shards() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_2_vals_per_shard() {
     Test {
@@ -299,7 +299,7 @@ fn slow_test_chunks_produced_and_distributed_2_vals_per_shard() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_one_val_per_shard() {
     Test {
@@ -315,7 +315,7 @@ fn slow_test_chunks_produced_and_distributed_one_val_per_shard() {
 // because we always fallback on the p2p mechanism. This test runs with a config
 // where `enabled: false`.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_chunk_distribution_network_disabled() {
     let config = ChunkDistributionNetworkConfig {
@@ -335,7 +335,7 @@ fn slow_test_chunks_produced_and_distributed_chunk_distribution_network_disabled
 // because we always fallback on the p2p mechanism. This test runs with a config
 // where the URIs are not real endpoints.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_chunk_distribution_network_wrong_urls() {
     let config = ChunkDistributionNetworkConfig {
@@ -359,7 +359,7 @@ fn slow_test_chunks_produced_and_distributed_chunk_distribution_network_wrong_ur
 // where the `get` URI points at a random http server (therefore it does not
 // return valid chunks).
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_chunk_distribution_network_incorrect_get_return() {
     let config = ChunkDistributionNetworkConfig {
@@ -376,7 +376,7 @@ fn slow_test_chunks_produced_and_distributed_chunk_distribution_network_incorrec
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_all_in_all_shards_should_succeed_even_without_forwarding()
  {
@@ -390,7 +390,7 @@ fn slow_test_chunks_produced_and_distributed_all_in_all_shards_should_succeed_ev
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding()
  {
@@ -404,7 +404,7 @@ fn slow_test_chunks_produced_and_distributed_2_vals_per_shard_should_succeed_eve
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding()
  {
@@ -427,7 +427,7 @@ fn slow_test_chunks_produced_and_distributed_one_val_per_shard_should_succeed_ev
 /// we disable chunk forwarding messages for the following tests, so we can focus on chunk
 /// requesting behavior.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_recovered_from_others() {
     Test {
@@ -444,7 +444,7 @@ fn slow_test_chunks_recovered_from_others() {
 /// but they won't do it for the first 3 seconds, and 3s block_timeout means that the block producers
 /// only wait for 3000/2 milliseconds until they produce a block with some chunks missing
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_recovered_from_full_timeout_too_short() {
     Test {
@@ -462,7 +462,7 @@ fn slow_test_chunks_recovered_from_full_timeout_too_short() {
 /// Same test as above, but the timeout is sufficiently large for test4 now to reconstruct the full
 /// chunk
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_chunks_recovered_from_full() {
     Test {

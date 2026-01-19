@@ -25,8 +25,8 @@ use near_client_primitives::debug::{
     DebugBlockStatusQuery, DebugBlocksStartingMode, DebugStatusResponse,
 };
 use near_client_primitives::types::{
-    GetBlockError, GetBlockProofError, GetChunkError, GetClientConfigError,
-    GetExecutionOutcomeError, GetGasPriceError, GetMaintenanceWindowsError,
+    BlockNotificationMessage, GetBlockError, GetBlockProofError, GetChunkError,
+    GetClientConfigError, GetExecutionOutcomeError, GetGasPriceError, GetMaintenanceWindowsError,
     GetNextLightClientBlockError, GetProtocolConfigError, GetReceiptError, GetSplitStorageInfo,
     GetSplitStorageInfoError, GetStateChangesError, GetValidatorInfoError, NetworkInfoResponse,
     StatusError,
@@ -46,7 +46,7 @@ use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
 };
 use near_jsonrpc_primitives::types::transactions::{
-    RpcSendTransactionRequest, RpcTransactionResponse,
+    RpcSendTransactionRequest, RpcTransactionError, RpcTransactionResponse,
 };
 use near_jsonrpc_primitives::types::view_access_key::{
     RpcViewAccessKeyError, RpcViewAccessKeyRequest, RpcViewAccessKeyResponse,
@@ -59,12 +59,6 @@ use near_jsonrpc_primitives::types::view_account::{
 };
 use near_jsonrpc_primitives::types::view_code::{
     RpcViewCodeError, RpcViewCodeRequest, RpcViewCodeResponse,
-};
-use near_jsonrpc_primitives::types::view_gas_key::{
-    RpcViewGasKeyError, RpcViewGasKeyRequest, RpcViewGasKeyResponse,
-};
-use near_jsonrpc_primitives::types::view_gas_key_list::{
-    RpcViewGasKeyListError, RpcViewGasKeyListRequest, RpcViewGasKeyListResponse,
 };
 use near_jsonrpc_primitives::types::view_state::{
     RpcViewStateError, RpcViewStateRequest, RpcViewStateResponse,
@@ -89,7 +83,9 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::time::{sleep, timeout};
+#[cfg(feature = "sandbox")]
+use tokio::time::sleep;
+use tokio::time::timeout;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 
@@ -335,6 +331,7 @@ struct JsonRpcHandler {
     enable_debug_rpc: bool,
     debug_pages_src_path: Option<PathBuf>,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
+    block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
 }
 
 impl JsonRpcHandler {
@@ -404,8 +401,6 @@ impl JsonRpcHandler {
                     }
                     QueryRequest::ViewAccessKey { .. } => "query_view_access_key",
                     QueryRequest::ViewAccessKeyList { .. } => "query_view_access_key_list",
-                    QueryRequest::ViewGasKey { .. } => "query_view_gas_key",
-                    QueryRequest::ViewGasKeyList { .. } => "query_view_gas_key_list",
                     QueryRequest::CallFunction { .. } => "query_call_function",
                     QueryRequest::ViewGlobalContractCode { .. } => {
                         "query_view_global_contract_code"
@@ -494,12 +489,6 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_call_function" => {
                 process_method_call(request, |params| self.call_function(params)).await
-            }
-            "EXPERIMENTAL_view_gas_key" => {
-                process_method_call(request, |params| self.view_gas_key(params)).await
-            }
-            "EXPERIMENTAL_view_gas_key_list" => {
-                process_method_call(request, |params| self.view_gas_key_list(params)).await
             }
             "EXPERIMENTAL_congestion_level" => {
                 process_method_call(request, |params| self.congestion_level(params)).await
@@ -627,6 +616,10 @@ impl JsonRpcHandler {
         signer_account_id: &AccountId,
     ) -> Result<bool, near_jsonrpc_primitives::types::transactions::RpcTransactionError> {
         timeout(self.polling_config.polling_timeout, async {
+            // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
+            let mut new_block_watcher = self.block_notification_watcher.clone();
+            new_block_watcher.mark_unchanged();
+
             loop {
                 // TODO(optimization): Introduce a view_client method to only get transaction
                 // status without the information about execution outcomes.
@@ -650,7 +643,7 @@ impl JsonRpcHandler {
                     }
                     _ => {}
                 }
-                sleep(self.polling_config.polling_interval).await;
+                new_block_watcher.changed().await.map_err(|_| RpcTransactionError::InternalError { debug_info: "Block notification channel closed".to_string() })?;
             }
         })
         .await
@@ -682,6 +675,10 @@ impl JsonRpcHandler {
         let mut tx_status_result =
             Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError);
         timeout(self.polling_config.polling_timeout, async {
+            // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
+            let mut new_block_watcher = self.block_notification_watcher.clone();
+            new_block_watcher.mark_unchanged();
+
             loop {
                 tx_status_result = self.view_client_send( TxStatus {
                     tx_hash,
@@ -716,7 +713,7 @@ impl JsonRpcHandler {
                     }
                     Err(err) => break Err(err),
                 }
-                sleep(self.polling_config.polling_interval).await;
+                new_block_watcher.changed().await.map_err(|_| RpcTransactionError::InternalError { debug_info: "Block notification channel closed".to_string() })?;
             }
         })
         .await
@@ -1191,69 +1188,6 @@ impl JsonRpcHandler {
             _ => Err(RpcQueryError::InternalError {
                 error_message: format!(
                     "Unexpected response kind from near client. Expected: CallResult, found: {:?}",
-                    query_response.kind
-                ),
-            }
-            .into()),
-        }
-    }
-
-    async fn view_gas_key(
-        &self,
-        request_data: RpcViewGasKeyRequest,
-    ) -> Result<RpcViewGasKeyResponse, RpcViewGasKeyError> {
-        let result = self
-            .view_client_send(ClientQuery::new(
-                request_data.block_reference,
-                QueryRequest::ViewGasKey {
-                    account_id: request_data.account_id,
-                    public_key: request_data.public_key,
-                },
-            ))
-            .await;
-        let query_response: QueryResponse =
-            result.map_err(<RpcQueryError as Into<RpcViewGasKeyError>>::into)?;
-        match query_response.kind {
-            near_primitives::views::QueryResponseKind::GasKey(gas_key) => {
-                Ok(RpcViewGasKeyResponse {
-                    gas_key,
-                    block_height: query_response.block_height,
-                    block_hash: query_response.block_hash,
-                })
-            }
-            _ => Err(RpcQueryError::InternalError {
-                error_message: format!(
-                    "Unexpected response kind from near client. Expected: GasKey, found: {:?}",
-                    query_response.kind
-                ),
-            }
-            .into()),
-        }
-    }
-
-    async fn view_gas_key_list(
-        &self,
-        request_data: RpcViewGasKeyListRequest,
-    ) -> Result<RpcViewGasKeyListResponse, RpcViewGasKeyListError> {
-        let result = self
-            .view_client_send(ClientQuery::new(
-                request_data.block_reference,
-                QueryRequest::ViewGasKeyList { account_id: request_data.account_id },
-            ))
-            .await;
-        let query_response: QueryResponse =
-            result.map_err(<RpcQueryError as Into<RpcViewGasKeyListError>>::into)?;
-        match query_response.kind {
-            near_primitives::views::QueryResponseKind::GasKeyList(gas_key_list) => {
-                Ok(RpcViewGasKeyListResponse {
-                    gas_key_list,
-                    block_height: query_response.block_height,
-                    block_hash: query_response.block_hash,
-                })
-            }
-            _ => Err(RpcQueryError::InternalError {
-                error_message: format!(
-                    "Unexpected response kind from near client. Expected: GasKeyList, found: {:?}",
                     query_response.kind
                 ),
             }
@@ -1893,7 +1827,9 @@ async fn debug_epoch_info_handler(
     State(handler): State<Arc<JsonRpcHandler>>,
     Path(epoch_id_str): Path<String>,
 ) -> Response {
-    let epoch_id: near_primitives::types::EpochId = epoch_id_str.parse().unwrap();
+    let Ok(epoch_id) = epoch_id_str.parse::<near_primitives::types::EpochId>() else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
     match handler.debug_epoch_info(Some(epoch_id)).await {
         Ok(Some(value)) => (StatusCode::OK, Json(value)).into_response(),
         Ok(None) => StatusCode::METHOD_NOT_ALLOWED.into_response(),
@@ -2015,6 +1951,7 @@ pub fn create_jsonrpc_app(
     view_client_sender: ViewClientSenderForRpc,
     process_tx_sender: ProcessTxSenderForRpc,
     peer_manager_sender: PeerManagerSenderForRpc,
+    block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
 ) -> Router {
@@ -2040,6 +1977,7 @@ pub fn create_jsonrpc_app(
         entity_debug_handler,
         #[cfg(feature = "test_features")]
         gc_sender,
+        block_notification_watcher,
     });
 
     // Build router
@@ -2088,6 +2026,7 @@ pub async fn start_http(
     view_client_sender: ViewClientSenderForRpc,
     process_tx_sender: ProcessTxSenderForRpc,
     peer_manager_sender: PeerManagerSenderForRpc,
+    block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
     future_spawner: &dyn FutureSpawner,
@@ -2105,6 +2044,7 @@ pub async fn start_http(
         view_client_sender,
         process_tx_sender,
         peer_manager_sender,
+        block_notification_watcher,
         #[cfg(feature = "test_features")]
         gc_sender,
         entity_debug_handler,

@@ -142,7 +142,7 @@ fn test_invalid_transactions_no_panic() {
 /// Tests the `RelaxedChunkValidation` feature.
 #[test]
 #[cfg(feature = "nightly")]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_invalid_transactions_dont_invalidate_chunk() {
     near_o11y::testonly::init_test_logger();

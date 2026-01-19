@@ -45,7 +45,7 @@ fn check_tx_processing(
 
 /// Test that duplicate transactions are properly rejected.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_hash_collision() {
     let epoch_length = 5;
@@ -196,7 +196,7 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
 
 /// Test that duplicate transactions from NEAR-implicit accounts are properly rejected.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_hash_collision_for_near_implicit_account_fail() {
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
@@ -261,7 +261,7 @@ fn test_chunk_transaction_validity() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_nonce_too_large() {
     let epoch_length = 5;

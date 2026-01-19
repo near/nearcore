@@ -127,7 +127,7 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
 
 /// Verifies that `cloud_head` progresses without crashes.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_basic() {
     test_cloud_archival_base(TestCloudArchivalParametersBuilder::default().build());
@@ -135,7 +135,7 @@ fn test_cloud_archival_basic() {
 
 /// Verifies that both `cloud_head` and `cold_head` progress with cold DB enabled.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_with_cold() {
     test_cloud_archival_base(
@@ -146,7 +146,7 @@ fn test_cloud_archival_with_cold() {
 /// Verifies that while the cloud writer is paused, GC stop never exceeds the first block
 /// of the epoch containing `cloud_head` and the writer catches up after resuming.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_resume() {
     let gc_period_num_blocks = MIN_GC_NUM_EPOCHS_TO_KEEP * MIN_EPOCH_LENGTH;
@@ -166,7 +166,7 @@ fn test_cloud_archival_resume() {
 
 /// Verifies that block data can be read from the cloud.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_read_block() {
     let block_height = Some(MIN_EPOCH_LENGTH / 2);
