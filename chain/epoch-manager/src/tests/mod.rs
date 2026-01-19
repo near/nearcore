@@ -1165,6 +1165,101 @@ fn test_blacklist_banned_producer_not_sampled_again() {
 }
 
 #[test]
+fn test_kickout_only_lasts_for_one_epoch() {
+    let faulty_stake = Balance::from_yoctonear(10_000_000);
+    let ok_stake = Balance::from_yoctonear(1_000_000);
+    let validators =
+        vec![("test1".parse().unwrap(), faulty_stake), ("test2".parse().unwrap(), ok_stake)];
+    let epoch_length = 120;
+    let epoch_manager = setup_epoch_manager(
+        validators,
+        epoch_length,
+        1,
+        2,
+        10,
+        10,
+        0,
+        default_reward_calculator(),
+        Rational32::new(0, 1),
+    )
+    .into_handle();
+
+    let hashes = hash_range((2 * epoch_length) as usize);
+    record_block(&mut epoch_manager.write(), Default::default(), hashes[0], 0, vec![]);
+
+    let shard_id = ShardId::new(0);
+    let faulty_account: AccountId = "test1".parse().unwrap();
+    let initial_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&hashes[0]).unwrap();
+    let faulty_id = {
+        let epoch_info = epoch_manager.get_epoch_info(&initial_epoch_id).unwrap();
+        *epoch_info.get_validator_id(&faulty_account).unwrap()
+    };
+
+    let mut prev_hash = hashes[0];
+    let mut expected_faulty = 0u64;
+    let mut banned_height: Option<BlockHeight> = None;
+    let mut saw_new_epoch = false;
+
+    for (index, cur_hash) in hashes.iter().enumerate().skip(1) {
+        let height = index as u64;
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap().clone();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let blacklist = epoch_manager.get_excluded_chunk_producers_for_shard(&shard_id);
+        let expected_id =
+            epoch_info.sample_chunk_producer(&shard_layout, shard_id, height, blacklist).unwrap();
+        let expected = epoch_info.get_validator(expected_id);
+
+        if expected.account_id() == &faulty_account {
+            expected_faulty += 1;
+        }
+
+        if saw_new_epoch {
+            let blacklist = epoch_manager.get_excluded_chunk_producers_for_shard(&shard_id);
+            assert!(
+                !blacklist.as_ref().map_or(false, |set| set.contains(&faulty_id)),
+                "faulty producer should not remain blacklisted in the new epoch"
+            );
+            break;
+        }
+
+        let should_produce = expected.account_id() != &faulty_account;
+        let prev_block_info = epoch_manager.get_block_info(&prev_hash).unwrap();
+        let block = block_info(
+            *cur_hash,
+            height,
+            height,
+            *cur_hash,
+            prev_hash,
+            *prev_block_info.epoch_first_block(),
+            vec![should_produce],
+            DEFAULT_TOTAL_SUPPLY,
+        );
+        epoch_manager.write().record_block_info(block, [0; 32]).unwrap().commit().unwrap();
+
+        let latest_blacklist = epoch_manager.get_excluded_chunk_producers_for_shard(&shard_id);
+        if latest_blacklist.as_ref().map_or(false, |set| set.contains(&faulty_id)) {
+            if banned_height.is_none() {
+                banned_height = Some(height);
+            }
+        }
+
+        let final_epoch_id = epoch_manager
+            .get_epoch_id(epoch_manager.get_block_info(cur_hash).unwrap().last_final_block_hash())
+            .unwrap();
+        if final_epoch_id != initial_epoch_id {
+            saw_new_epoch = true;
+        }
+
+        prev_hash = *cur_hash;
+    }
+
+    assert!(expected_faulty >= 20, "faulty producer was expected only {expected_faulty} times");
+    assert!(banned_height.is_some(), "faulty producer was never blacklisted");
+    assert!(saw_new_epoch, "did not reach the next epoch");
+}
+
+#[test]
 fn test_rewards_with_kickouts() {
     let stake_amount = Balance::from_yoctonear(1_000_000);
     let validators = vec![
