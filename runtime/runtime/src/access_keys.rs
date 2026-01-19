@@ -340,7 +340,7 @@ mod tests {
         );
 
         let AccessKeyPermission::GasKeyFullAccess(gas_key_info) = &gas_key.permission else {
-            panic!("expected GasKeyFullAccess permission");
+            unreachable!();
         };
         assert_eq!(gas_key_info.num_nonces, TEST_NUM_NONCES);
         assert_eq!(gas_key_info.balance, Balance::ZERO);
@@ -468,7 +468,7 @@ mod tests {
         assert_eq!(account.storage_usage(), storage_before);
 
         let AccessKeyPermission::GasKeyFullAccess(gas_key_info) = &gas_key.permission else {
-            panic!("expected GasKeyFullAccess permission");
+            unreachable!();
         };
 
         // Check gas key nonces were deleted
@@ -553,7 +553,7 @@ mod tests {
             .view_access_key(&state_update, &account_id, &gas_key_public_key)
             .expect("expected to find gas key");
         let AccessKeyPermission::GasKeyFullAccess(gas_key_info) = &view_gas_key.permission else {
-            panic!("expected GasKeyFullAccess permission");
+            unreachable!();
         };
         let expected = GasKeyInfo { num_nonces: TEST_NUM_NONCES, balance: Balance::ZERO };
         assert_eq!(gas_key_info, &expected);
