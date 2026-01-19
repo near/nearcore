@@ -89,6 +89,7 @@ async fn query_status_not_crash() {
         None,
         None,
         None,
+        None,
     );
     let timestamp = next_block.header().timestamp();
     next_block

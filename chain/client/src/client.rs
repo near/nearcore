@@ -974,6 +974,7 @@ impl Client {
             self.clock.clone(),
             sandbox_delta_time,
             optimistic_block,
+            None,
             spice_info,
         ));
 

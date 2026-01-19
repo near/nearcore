@@ -928,6 +928,7 @@ pub struct BlockHeaderView {
     pub signature: Signature,
     pub latest_protocol_version: ProtocolVersion,
     pub chunk_endorsements: Option<Vec<Vec<u8>>>,
+    pub shard_split: Option<(ShardId, AccountId)>,
 }
 
 impl From<&BlockHeader> for BlockHeaderView {
@@ -971,6 +972,7 @@ impl From<&BlockHeader> for BlockHeaderView {
             signature: header.signature().clone(),
             latest_protocol_version: header.latest_protocol_version(),
             chunk_endorsements: header.chunk_endorsements().map(|bitmap| bitmap.bytes()),
+            shard_split: header.shard_split().cloned(),
         }
     }
 }
@@ -1006,6 +1008,7 @@ impl From<BlockHeaderView> for BlockHeader {
             view.block_merkle_root,
             view.prev_height.unwrap_or_default(),
             view.chunk_endorsements.map(|bytes| ChunkEndorsementsBitmap::from_bytes(bytes)),
+            view.shard_split,
         )
     }
 }

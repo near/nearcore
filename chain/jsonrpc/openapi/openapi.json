@@ -3210,6 +3210,20 @@
             "default": "0",
             "description": "TODO(2271): deprecated."
           },
+          "shard_split": {
+            "items": [
+              {
+                "$ref": "#/components/schemas/ShardId"
+              },
+              {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            ],
+            "maxItems": 2,
+            "minItems": 2,
+            "nullable": true,
+            "type": "array"
+          },
           "signature": {
             "allOf": [
               {
