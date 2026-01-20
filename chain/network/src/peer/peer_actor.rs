@@ -18,7 +18,7 @@ use crate::network_protocol::{
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
-use crate::peer_manager::network_state::{NetworkState, PRUNE_EDGES_AFTER};
+use crate::peer_manager::network_state::{EdgesWithSource, NetworkState, PRUNE_EDGES_AFTER};
 #[cfg(test)]
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
@@ -1496,7 +1496,9 @@ impl PeerActor {
         conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
     ) {
-        if let Err(ban_reason) = network_state.add_edges(&clock, rtu.edges.clone()).await {
+        if let Err(ban_reason) =
+            network_state.add_edges(&clock, EdgesWithSource::Remote(rtu.edges.clone())).await
+        {
             conn.stop(Some(ban_reason));
         }
 
