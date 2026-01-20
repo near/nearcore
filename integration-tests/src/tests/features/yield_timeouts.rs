@@ -1,3 +1,6 @@
+use std::str::FromStr;
+use std::sync::Arc;
+
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_crypto::InMemorySigner;
@@ -9,9 +12,12 @@ use near_primitives::receipt::VersionedReceiptEnum::PromiseYield;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
+use near_primitives::trie_key::{TrieKey, col};
 use near_primitives::types::AccountId;
 use near_primitives::types::{Balance, Gas};
 use near_primitives::views::FinalExecutionStatus;
+use near_store::adapter::StoreAdapter;
+use near_store::{Trie, TrieDBStorage};
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
@@ -51,6 +57,59 @@ fn find_yield_data_ids_from_latest_block(env: &TestEnv) -> Vec<CryptoHash> {
         }
     }
 
+    result
+}
+
+fn get_yield_data_ids_in_latest_state(env: &TestEnv) -> Vec<CryptoHash> {
+    let client = &env.clients[0];
+    let head = client.chain.head().unwrap();
+    let block_hash = head.last_block_hash;
+    let epoch_id = head.epoch_id;
+    let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    let shard_uid = shard_layout.account_id_to_shard_uid(&"test0".parse::<AccountId>().unwrap());
+    let block = client.chain.get_block(&block_hash).unwrap();
+    let chunks = block.chunks();
+    let chunk_header =
+        chunks.iter().find(|header| header.shard_id() == shard_uid.shard_id()).unwrap();
+
+    let state_root = if let Ok(chunk_extra) = client.chain.get_chunk_extra(&block_hash, &shard_uid)
+    {
+        *chunk_extra.state_root()
+    } else {
+        chunk_header.prev_state_root()
+    };
+
+    let store = client.chain.chain_store().store();
+    let trie_storage = Arc::new(TrieDBStorage::new(store.trie_store(), shard_uid));
+    let trie = Trie::new(trie_storage, state_root, None);
+    let locked_trie = trie.lock_for_iter();
+    let mut iter = locked_trie.iter().unwrap();
+    iter.seek_prefix(&[col::PROMISE_YIELD_RECEIPT]).unwrap();
+
+    let dummy_key = TrieKey::PromiseYieldReceipt {
+        receiver_id: "test0".parse().unwrap(),
+        data_id: CryptoHash::default(),
+    };
+    assert_eq!(dummy_key.len(), 1 + 5 + 1 + 32);
+
+    let mut result = vec![];
+    for item in iter {
+        let (key, _val) = item.unwrap();
+        if !key.starts_with(&[col::PROMISE_YIELD_RECEIPT]) {
+            continue;
+        }
+
+        let account_len = key.len() - 1 - 1 - 32;
+        let account =
+            AccountId::from_str(std::str::from_utf8(&key[1..=account_len]).unwrap()).unwrap();
+        let data_id = CryptoHash(key[(key.len() - 32)..].try_into().unwrap());
+
+        let parsed_key = TrieKey::PromiseYieldReceipt { receiver_id: account, data_id };
+
+        assert_eq!(&key, &parsed_key.to_vec());
+
+        result.push(data_id);
+    }
     result
 }
 
@@ -119,7 +178,7 @@ fn prepare_env_with_yield(
         env.produce_block(0, i);
     }
 
-    let yield_data_ids = find_yield_data_ids_from_latest_block(&env);
+    let yield_data_ids = get_yield_data_ids_in_latest_state(&env);
     assert_eq!(yield_data_ids.len(), 1);
 
     let last_block_height = env.clients[0].chain.head().unwrap().height;
