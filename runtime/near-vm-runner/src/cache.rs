@@ -9,11 +9,12 @@ use crate::runner::VMKindExt;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use parking_lot::Mutex;
+use quick_cache::sync::Cache;
 
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU64, NonZeroUsize};
 use std::sync::Arc;
 
 #[cfg(not(windows))]
@@ -72,10 +73,29 @@ impl CompiledContract {
     }
 }
 
+/// Contains result of contract compilation with auxiliary data
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
 pub struct CompiledContractInfo {
     pub wasm_bytes: u64,
     pub compiled: CompiledContract,
+}
+
+impl CompiledContractInfo {
+    /// size [bytes] of the source wasm module
+    pub fn wasm_size(&self) -> u64 {
+        self.wasm_bytes
+    }
+
+    /// Size [bytes] of the compiled module
+    /// In case of compilation error, returns size of the error object
+    pub fn compiled_size(&self) -> u64 {
+        match &self.compiled {
+            CompiledContract::CompileModuleError(_) => {
+                size_of::<crate::logic::errors::CompilationError>() as u64
+            }
+            CompiledContract::Code(code) => code.len() as u64,
+        }
+    }
 }
 
 /// Cache for compiled modules
@@ -84,7 +104,7 @@ pub trait ContractRuntimeCache: Send + Sync {
     fn memory_cache(&self) -> &AnyCache {
         // This method returns a reference, so we need to store an instance somewhere.
         static ZERO_ANY_CACHE: std::sync::LazyLock<AnyCache> =
-            std::sync::LazyLock::new(|| AnyCache::new(0));
+            std::sync::LazyLock::new(|| AnyCache::new(0, 0));
         &ZERO_ANY_CACHE
     }
     fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> std::io::Result<()>;
@@ -248,7 +268,7 @@ impl FilesystemContractRuntimeCache {
         home_dir: &std::path::Path,
         store_path: Option<&StorePath>,
         contract_cache_path: &ContractCachePath,
-        memory_cache_size: usize,
+        memcache_max_items: usize,
     ) -> std::io::Result<Self>
     where
         StorePath: AsRef<std::path::Path> + ?Sized,
@@ -279,10 +299,20 @@ impl FilesystemContractRuntimeCache {
             path = %path.display(),
             message = "opened a contract executable cache directory"
         );
+
+        const AVG_COMPILED_CONTRACT_WEIGHT: u64 = 16 * 1024 * 1024; // 16 MiB
+        // x4 to accommodate for a long tail of smaller contracts / compilation errors. This will
+        // effectively bump the number of shards in the underlying cache. The constant is chosen
+        // somewhat arbitrarily.
+        let expected_cache_item_count = memcache_max_items * 4;
+
         Ok(Self {
             state: Arc::new(FilesystemContractRuntimeCacheState {
                 dir,
-                any_cache: AnyCache::new(memory_cache_size),
+                any_cache: AnyCache::new(
+                    expected_cache_item_count,
+                    memcache_max_items as u64 * AVG_COMPILED_CONTRACT_WEIGHT,
+                ),
                 test_temp_dir: None,
             }),
         })
@@ -472,20 +502,35 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
     }
 }
 
-type AnyCacheValue = dyn Any + Send;
+type AnyCacheValue = dyn Any + Send + Sync;
+
+#[derive(Default, Clone)]
+pub struct AnyCacheWeighter;
+
+impl quick_cache::Weighter<CryptoHash, (u64, Arc<AnyCacheValue>)> for AnyCacheWeighter {
+    fn weight(&self, _key: &CryptoHash, value: &(u64, Arc<AnyCacheValue>)) -> u64 {
+        value.0
+    }
+}
 
 /// Cache that can store instances of any type, keyed by a CryptoHash.
 ///
 /// Used primarily for storage of artifacts on a per-VM basis.
 pub struct AnyCache {
-    cache: Option<Mutex<lru::LruCache<CryptoHash, Box<AnyCacheValue>>>>,
+    cache: Option<Cache<CryptoHash, (u64, Arc<AnyCacheValue>), AnyCacheWeighter>>,
 }
 
 impl AnyCache {
-    fn new(size: usize) -> Self {
+    fn new(expected_item_count: usize, max_cache_weight: u64) -> Self {
         Self {
-            cache: if let Some(size) = NonZeroUsize::new(size) {
-                Some(Mutex::new(lru::LruCache::new(size.into())))
+            cache: if let (Some(max_cache_weight), Some(expected_item_count)) =
+                (NonZeroU64::new(max_cache_weight), NonZeroUsize::new(expected_item_count))
+            {
+                Some(Cache::with_weighter(
+                    expected_item_count.into(),
+                    max_cache_weight.into(),
+                    AnyCacheWeighter::default(),
+                ))
             } else {
                 None
             },
@@ -494,7 +539,7 @@ impl AnyCache {
 
     pub fn clear(&self) {
         if let Some(cache) = &self.cache {
-            cache.lock().clear();
+            cache.clear();
         }
     }
 
@@ -522,7 +567,7 @@ impl AnyCache {
     ///     // system.
     ///     match std::fs::read("/this/path/does/not/exist/") {
     ///         Err(e) => Err(e),
-    ///         Ok(bytes) => Ok(Box::new(bytes)) // : Result<Box<dyn Any...>, std::io::Error>
+    ///         Ok(bytes) => Ok((bytes.len() as u64, std::sync::Arc::new(bytes))) // : Result<Arc<dyn Any...>, std::io::Error>
     ///     }
     ///     // If the function above succeeds (returns `Ok`), `Vec<u8>` will end up being stored in
     ///     // the cache.
@@ -543,28 +588,26 @@ impl AnyCache {
     pub fn try_lookup<E, R>(
         &self,
         key: CryptoHash,
-        generate: impl FnOnce() -> Result<Box<AnyCacheValue>, E>,
+        generate: impl FnOnce() -> Result<(u64, Arc<AnyCacheValue>), E>,
         with: impl FnOnce(&AnyCacheValue) -> R,
     ) -> Result<R, E> {
         let Some(cache) = &self.cache else {
-            let v = generate()?;
+            let (_, v) = generate()?;
             // NB: The stars and ampersands here are semantics-affecting. e.g. if the star is
             // missing, we end up making an object out of `Box<dyn ...>` rather than using `dyn
             // Any` within the box which is obviously quite wrong.
             return Ok(with(&*v));
         };
         {
-            let mut guard = cache.lock();
-            if let Some(cached_value) = guard.get(&key) {
+            if let Some((_weight, cached_value)) = cache.get(&key) {
                 // Same here.
-                return Ok(with(&**cached_value));
+                return Ok(with(&*cached_value));
             }
         }
-        let generated = generate()?;
+        let (weight, generated) = generate()?;
         let result = with(&*generated);
         {
-            let mut guard = cache.lock();
-            guard.put(key, generated);
+            cache.insert(key, (weight, generated));
         }
         Ok(result)
     }
@@ -572,8 +615,7 @@ impl AnyCache {
     /// Checks if the cache contains the key without modifying the cache.
     pub fn contains(&self, key: CryptoHash) -> bool {
         let Some(cache) = &self.cache else { return false };
-        let guard = cache.lock();
-        guard.contains(&key)
+        cache.contains_key(&key)
     }
 }
 
@@ -603,7 +645,7 @@ mod tests {
     #[test]
     fn any_cache_empty() {
         struct TestType;
-        let empty = AnyCache::new(0);
+        let empty = AnyCache::new(0, 0);
         let key = CryptoHash::hash_bytes(b"empty");
         cov_mark::check!(any_cache_empty_generate);
         cov_mark::check!(any_cache_empty_with);
@@ -611,7 +653,7 @@ mod tests {
             key,
             || {
                 cov_mark::hit!(any_cache_empty_generate);
-                Ok::<_, ()>(Box::new(TestType))
+                Ok::<_, ()>((0_u64, Arc::new(TestType)))
             },
             |v| {
                 cov_mark::hit!(any_cache_empty_with);
@@ -624,8 +666,9 @@ mod tests {
 
     #[test]
     fn any_cache_sized() {
+        const CACHE_ITEM_WEIGHT: u64 = 1;
         struct TestType;
-        let empty = AnyCache::new(1);
+        let empty = AnyCache::new(1, 2 * CACHE_ITEM_WEIGHT);
         let key = CryptoHash::hash_bytes(b"sized");
         cov_mark::check!(any_cache_sized_generate);
         cov_mark::check!(any_cache_sized_with);
@@ -633,7 +676,7 @@ mod tests {
             key,
             || {
                 cov_mark::hit!(any_cache_sized_generate);
-                Ok::<_, ()>(Box::new(TestType))
+                Ok::<_, ()>((CACHE_ITEM_WEIGHT, Arc::new(TestType)))
             },
             |v| {
                 cov_mark::hit!(any_cache_sized_with);
@@ -658,7 +701,7 @@ mod tests {
 
     #[test]
     fn any_cache_errors() {
-        let empty = AnyCache::new(0);
+        let empty = AnyCache::new(0, 0);
         let key = CryptoHash::hash_bytes(b"errors");
         cov_mark::check!(any_cache_errors_generate);
         let result = empty.try_lookup(

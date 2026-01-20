@@ -5225,7 +5225,6 @@ dependencies = [
  "finite-wasm 0.5.0",
  "finite-wasm 0.6.0",
  "hex",
- "lru 0.16.3",
  "memoffset 0.8.0",
  "near-crypto",
  "near-o11y",
@@ -5243,6 +5242,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "prefix-sum-vec",
  "prometheus",
+ "quick_cache",
  "rand 0.8.5",
  "rayon",
  "ripemd",
@@ -6400,6 +6400,18 @@ checksum = "165859e9e55f79d67b96c5d96f4e88b6f2695a1972849c15a6a3f5c59fc2c003"
 dependencies = [
  "memchr",
  "serde",
+]
+
+[[package]]
+name = "quick_cache"
+version = "0.6.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ada44a88ef953a3294f6eb55d2007ba44646015e18613d2f213016379203ef3"
+dependencies = [
+ "ahash 0.8.11",
+ "equivalent",
+ "hashbrown 0.16.1",
+ "parking_lot 0.12.1",
 ]
 
 [[package]]

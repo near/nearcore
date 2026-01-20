@@ -21,12 +21,12 @@ ed25519-dalek.workspace = true
 enum-map.workspace = true
 finite-wasm = { workspace = true, features = ["instrument"], optional = true }
 finite-wasm-6 = { workspace = true, optional = true }
-lru.workspace = true
 memoffset = { workspace = true, optional = true }
 num-rational.workspace = true
 parking_lot.workspace = true
 prefix-sum-vec = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
+quick_cache.workspace = true
 rand.workspace = true
 rayon.workspace = true
 ripemd.workspace = true
