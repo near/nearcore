@@ -153,11 +153,16 @@ impl NearVM {
         Self::new_for_target(config, Target::new(Triple::host(), target_features))
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        target = "vm",
+        name = "NearVM::compile_uncached",
+        skip_all
+    )]
     pub(crate) fn compile_uncached(
         &self,
         code: &ContractCode,
     ) -> Result<UniversalExecutable, CompilationError> {
-        let _span = tracing::debug_span!(target: "vm", "NearVM::compile_uncached").entered();
         let start = std::time::Instant::now();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::NearVm)
             .map_err(CompilationError::PrepareError)?;
@@ -174,9 +179,22 @@ impl NearVM {
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             })?;
         crate::metrics::compilation_duration(VMKind::NearVm, start.elapsed());
+
+        tracing::debug!(
+            target: "vm",
+            original_size = %code.code().len(),
+            prepared_size = %prepared_code.len(),
+            "Compiled contract",
+        );
         Ok(executable)
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        target = "vm",
+        name = "NearVM::compile_and_cache",
+        skip_all
+    )]
     fn compile_and_cache(
         &self,
         code: &ContractCode,
@@ -196,6 +214,11 @@ impl NearVM {
                 Err(err) => CompiledContract::CompileModuleError(err.clone()),
             },
         };
+        tracing::debug!(
+            target: "vm",
+            compiled_code_size = &record.compiled.debug_len(),
+            "Caching compiled contract",
+        );
         cache.put(&key, record).map_err(CacheError::WriteError)?;
         Ok(executable_or_error)
     }
