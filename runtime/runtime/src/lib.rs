@@ -650,6 +650,17 @@ impl Runtime {
                     new_result.result = Err(ActionErrorKind::NewReceiptValidationError(e).into());
                 }
             }
+
+            for receipt in &new_result.new_receipts {
+                match receipt.receipt() {
+                    ReceiptEnum::PromiseYield(_) | ReceiptEnum::PromiseYieldV2(_) => {
+                        // receipt_id not set yet! Will need to set it again later.
+                        // This is only to mark it as resumable for the next action.
+                        set_promise_yield_receipt(state_update, &receipt);
+                    }
+                    _ => {}
+                }
+            }
             result.merge(new_result)?;
             // TODO storage error
             if let Err(ref mut res) = result.result {
@@ -829,9 +840,23 @@ impl Runtime {
                         | ReceiptEnum::PromiseYieldV2(_)
                 );
 
-                let res =
-                    receipt_sink.forward_or_buffer_receipt(new_receipt, apply_state, state_update);
-                if let Err(e) = res {
+                let forward_res = match new_receipt.receipt() {
+                    ReceiptEnum::PromiseYield(_) | ReceiptEnum::PromiseYieldV2(_) => {
+                        // Don't forward promise yield receipts, apply them immediately.
+                        set_promise_yield_receipt(state_update, &new_receipt);
+                        state_update.commit(StateChangeCause::PostponedReceipt {
+                            receipt_hash: new_receipt.get_hash(),
+                        });
+                        Ok(())
+                    }
+                    _ => receipt_sink.forward_or_buffer_receipt(
+                        new_receipt,
+                        apply_state,
+                        state_update,
+                    ),
+                };
+
+                if let Err(e) = forward_res {
                     Some(Err(e))
                 } else if is_action {
                     Some(Ok(receipt_id))
