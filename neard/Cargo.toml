@@ -52,9 +52,7 @@ near-state-parts-dump-check.workspace = true
 near-state-viewer.workspace = true
 near-store.workspace = true
 near-undo-block.workspace = true
-near-dump-test-contract = { workspace = true, optional = true, features = [
-  "test_features",
-] }
+near-dump-test-contract = { workspace = true, optional = true }
 
 [build-dependencies]
 anyhow.workspace = true
@@ -62,7 +60,7 @@ rustc_version = "0.4"
 
 [features]
 tx_generator = ["nearcore/tx_generator"]
-default = ["json_rpc", "rosetta_rpc"]
+default = ["json_rpc", "rosetta_rpc", "dump"]
 protocol_feature_spice = [
   "near-client/protocol_feature_spice",
   "near-primitives/protocol_feature_spice",
@@ -70,8 +68,12 @@ protocol_feature_spice = [
   "nearcore/protocol_feature_spice",
   "near-mirror/protocol_feature_spice",
 ]
+dump = ["near-dump-test-contract"]
 
-test_features = ["nearcore/test_features", "near-dump-test-contract"]
+test_features = [
+  "nearcore/test_features",
+  "near-dump-test-contract/test_features",
+]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 
