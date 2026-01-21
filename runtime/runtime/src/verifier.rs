@@ -450,6 +450,12 @@ pub fn validate_action(
         Action::DeterministicStateInit(a) => {
             validate_deterministic_state_init(limit_config, a, receiver, current_protocol_version)
         }
+        Action::TransferToGasKey(_) => {
+            validate_transfer_to_gas_key_action(current_protocol_version)
+        }
+        Action::TransferFromGasKey(_) => {
+            validate_transfer_from_gas_key_action(current_protocol_version)
+        }
     }
 }
 
@@ -626,6 +632,22 @@ fn validate_access_key_permission(
 
 fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsValidationError> {
     validate_action_account_id(&action.beneficiary_id)?;
+
+    Ok(())
+}
+
+fn validate_transfer_to_gas_key_action(
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), ActionsValidationError> {
+    require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
+
+    Ok(())
+}
+
+fn validate_transfer_from_gas_key_action(
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), ActionsValidationError> {
+    require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
 
     Ok(())
 }

@@ -289,6 +289,46 @@ pub struct TransferAction {
     pub deposit: Balance,
 }
 
+/// Transfer NEAR to a gas key's balance
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct TransferToGasKeyAction {
+    /// The public key of the gas key to fund
+    pub public_key: PublicKey,
+    /// Amount of NEAR to transfer to the gas key
+    pub deposit: Balance,
+}
+
+/// Transfer NEAR from a gas key's balance to the account
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct TransferFromGasKeyAction {
+    /// The public key of the gas key to withdraw from
+    pub public_key: PublicKey,
+    /// Amount of NEAR to transfer from the gas key
+    pub amount: Balance,
+}
+
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -321,6 +361,8 @@ pub enum Action {
     DeployGlobalContract(DeployGlobalContractAction) = 9,
     UseGlobalContract(Box<UseGlobalContractAction>) = 10,
     DeterministicStateInit(Box<DeterministicStateInitAction>) = 11,
+    TransferToGasKey(Box<TransferToGasKeyAction>) = 12,
+    TransferFromGasKey(Box<TransferFromGasKeyAction>) = 13,
 }
 
 const _: () = assert!(
@@ -343,6 +385,7 @@ impl Action {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
             Action::DeterministicStateInit(a) => a.deposit,
+            Action::TransferToGasKey(a) => a.deposit,
             _ => Balance::ZERO,
         }
     }
@@ -399,5 +442,17 @@ impl From<DeleteKeyAction> for Action {
 impl From<DeleteAccountAction> for Action {
     fn from(delete_account_action: DeleteAccountAction) -> Self {
         Self::DeleteAccount(delete_account_action)
+    }
+}
+
+impl From<TransferToGasKeyAction> for Action {
+    fn from(action: TransferToGasKeyAction) -> Self {
+        Self::TransferToGasKey(Box::new(action))
+    }
+}
+
+impl From<TransferFromGasKeyAction> for Action {
+    fn from(action: TransferFromGasKeyAction) -> Self {
+        Self::TransferFromGasKey(Box::new(action))
     }
 }

@@ -3,6 +3,7 @@ use std::mem::size_of;
 use near_crypto::PublicKey;
 use near_parameters::RuntimeFeesConfig;
 use near_primitives::account::{AccessKey, Account, GasKeyInfo};
+use near_primitives::action::{TransferFromGasKeyAction, TransferToGasKeyAction};
 use near_primitives::errors::{ActionErrorKind, RuntimeError};
 use near_primitives::transaction::{AddKeyAction, DeleteKeyAction};
 use near_primitives::types::{AccountId, BlockHeight, Compute, Nonce, NonceIndex, StorageUsage};
@@ -238,6 +239,92 @@ fn add_regular_key(
                 ))
             })?,
     );
+    Ok(())
+}
+
+pub(crate) fn action_transfer_to_gas_key(
+    state_update: &mut TrieUpdate,
+    result: &mut ActionResult,
+    account_id: &AccountId,
+    action: &TransferToGasKeyAction,
+) -> Result<(), RuntimeError> {
+    let mut access_key = match get_access_key(state_update, account_id, &action.public_key)? {
+        Some(key) => key,
+        None => {
+            result.result = Err(ActionErrorKind::GasKeyDoesNotExist {
+                account_id: account_id.clone(),
+                public_key: Box::new(action.public_key.clone()),
+            }
+            .into());
+            return Ok(());
+        }
+    };
+    let Some(gas_key_info) = access_key.gas_key_info_mut() else {
+        // Key exists but is not a gas key
+        result.result = Err(ActionErrorKind::GasKeyDoesNotExist {
+            account_id: account_id.clone(),
+            public_key: Box::new(action.public_key.clone()),
+        }
+        .into());
+        return Ok(());
+    };
+
+    gas_key_info.balance = gas_key_info.balance.checked_add(action.deposit).ok_or_else(|| {
+        RuntimeError::StorageError(StorageError::StorageInconsistentState(
+            "gas key balance integer overflow".to_string(),
+        ))
+    })?;
+    set_access_key(state_update, account_id.clone(), action.public_key.clone(), &access_key);
+    Ok(())
+}
+
+pub(crate) fn action_transfer_from_gas_key(
+    state_update: &mut TrieUpdate,
+    account: &mut Account,
+    result: &mut ActionResult,
+    account_id: &AccountId,
+    action: &TransferFromGasKeyAction,
+) -> Result<(), RuntimeError> {
+    let mut access_key = match get_access_key(state_update, account_id, &action.public_key)? {
+        Some(key) => key,
+        None => {
+            result.result = Err(ActionErrorKind::GasKeyDoesNotExist {
+                account_id: account_id.clone(),
+                public_key: Box::new(action.public_key.clone()),
+            }
+            .into());
+            return Ok(());
+        }
+    };
+    let Some(gas_key_info) = access_key.gas_key_info_mut() else {
+        // Key exists but is not a gas key
+        result.result = Err(ActionErrorKind::GasKeyDoesNotExist {
+            account_id: account_id.clone(),
+            public_key: Box::new(action.public_key.clone()),
+        }
+        .into());
+        return Ok(());
+    };
+
+    if gas_key_info.balance < action.amount {
+        result.result = Err(ActionErrorKind::InsufficientGasKeyBalance {
+            account_id: account_id.clone(),
+            public_key: Box::new(action.public_key.clone()),
+            balance: gas_key_info.balance,
+            required: action.amount,
+        }
+        .into());
+        return Ok(());
+    }
+    gas_key_info.balance = gas_key_info.balance.checked_sub(action.amount).unwrap();
+    set_access_key(state_update, account_id.clone(), action.public_key.clone(), &access_key);
+
+    let new_account_balance = account.amount().checked_add(action.amount).ok_or_else(|| {
+        RuntimeError::StorageError(StorageError::StorageInconsistentState(
+            "account balance integer overflow".to_string(),
+        ))
+    })?;
+    account.set_amount(new_account_balance);
     Ok(())
 }
 
