@@ -38,12 +38,11 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
 
-#[cfg(feature = "dump")]
-use near_dump_test_contract::DumpTestContractCommand;
-#[cfg(feature = "dump")]
-use near_network::tcp;
-#[cfg(feature = "dump")]
-use near_primitives::epoch_manager::EpochConfigStore;
+#[cfg(feature = "dump-contract")]
+use {
+    near_dump_test_contract::DumpTestContractCommand, near_network::tcp,
+    near_primitives::epoch_manager::EpochConfigStore,
+};
 
 /// NEAR Protocol Node
 #[derive(clap::Parser)]
@@ -155,11 +154,11 @@ impl NeardCmd {
             NeardSubCommand::ReplayArchive(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
-            #[cfg(feature = "dump")]
+            #[cfg(feature = "dump-contract")]
             NeardSubCommand::DumpTestContracts(cmd) => {
                 cmd.run()?;
             }
-            #[cfg(feature = "dump")]
+            #[cfg(feature = "dump-contract")]
             NeardSubCommand::DumpEpochConfigs(cmd) => {
                 cmd.run(&home_dir)?;
             }
@@ -270,11 +269,11 @@ pub(super) enum NeardSubCommand {
     /// Replays the blocks in the chain from an archival node.
     ReplayArchive(ReplayArchiveCommand),
 
-    #[cfg(feature = "dump")]
+    #[cfg(feature = "dump-contract")]
     /// Placeholder for test contracts subcommand
     DumpTestContracts(DumpTestContractCommand),
 
-    #[cfg(feature = "dump")]
+    #[cfg(feature = "dump-contract")]
     /// Dump hard-coded epoch configs into JSON files
     DumpEpochConfigs(DumpEpochConfigsCommand),
 }
@@ -844,7 +843,7 @@ pub(super) struct DumpEpochConfigsCommand {
     output_dir: Option<PathBuf>,
 }
 
-#[cfg(feature = "dump")]
+#[cfg(feature = "dump-contract")]
 impl DumpEpochConfigsCommand {
     pub fn run(self, home_dir: &Path) -> anyhow::Result<()> {
         let output_dir = self.output_dir.unwrap_or_else(|| home_dir.join("epoch_configs"));
