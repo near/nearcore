@@ -321,7 +321,7 @@ pub(crate) fn action_transfer_from_gas_key(
 
     let new_account_balance = account.amount().checked_add(action.amount).ok_or_else(|| {
         RuntimeError::StorageError(StorageError::StorageInconsistentState(
-            "account balance integer overflow".to_string(),
+            "Account balance integer overflow".to_string(),
         ))
     })?;
     account.set_amount(new_account_balance);
