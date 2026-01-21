@@ -71,7 +71,7 @@ pub fn build_shard_data(
         )));
     };
 
-    let chunk = store.chunk_store().get_chunk(&chunk_hash)?;
+    let chunk = chunk_store.get_chunk(&chunk_hash)?;
     let transactions = chunk.to_transactions().iter().cloned().collect();
     let receipts = chunk.prev_outgoing_receipts().iter().cloned().collect();
 
@@ -149,8 +149,7 @@ fn get_state_changes(
 }
 
 impl ShardData {
-    #[allow(unused)]
-    pub fn get_chunk(&self) -> &ShardChunk {
+    pub fn chunk(&self) -> &ShardChunk {
         match self {
             ShardData::V1(data) => &data.chunk,
         }

@@ -13,8 +13,8 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
-use near_store::archive::cloud_storage::download::CloudRetrievalError;
 use near_store::archive::cloud_storage::archive::CloudArchivingError;
+use near_store::archive::cloud_storage::retrieve::CloudRetrievalError;
 use near_store::db::{CLOUD_HEAD_KEY, DBTransaction};
 use near_store::{DBCol, FINAL_HEAD_KEY, Store};
 use time::Duration;
@@ -257,6 +257,10 @@ impl CloudArchivalWriter {
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let tracked_shards =
             self.shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?;
+
+        if self.epoch_manager.is_next_block_epoch_start(&block_hash)? {
+            self.cloud_storage.archive_epoch_data(&self.hot_store, &shard_layout, epoch_id).await?;
+        }
 
         self.cloud_storage.archive_block_data(&self.hot_store, height).await?;
         for shard_uid in tracked_shards {
