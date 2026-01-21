@@ -305,6 +305,11 @@ pub struct ClientActor {
 
     #[cfg(feature = "sandbox")]
     fastforward_delta: near_primitives::types::BlockHeightDelta,
+    /// Tracks whether a fast-forward operation is currently in progress.
+    /// This is separate from fastforward_delta because delta can be 0 while
+    /// blocks are still being produced. See https://github.com/near/nearcore/issues/9690
+    #[cfg(feature = "sandbox")]
+    fastforward_in_progress: bool,
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
@@ -441,6 +446,8 @@ impl ClientActor {
             sync_started: false,
             #[cfg(feature = "sandbox")]
             fastforward_delta: 0,
+            #[cfg(feature = "sandbox")]
+            fastforward_in_progress: false,
             shutdown_signal,
             config_updater,
             sync_jobs_sender,
@@ -721,35 +728,39 @@ impl
                 )
             }
             near_client_primitives::types::SandboxMessage::SandboxFastForward(delta_height) => {
-                if self.fastforward_delta > 0 {
+                if self.fastforward_in_progress {
                     return near_client_primitives::types::SandboxResponse::SandboxFastForwardFailed(
                         "Consecutive fast_forward requests cannot be made while a current one is going on.".to_string());
                 }
 
                 self.fastforward_delta = delta_height;
+                self.fastforward_in_progress = true;
                 near_client_primitives::types::SandboxResponse::SandboxNoResponse
             }
             near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus => {
-                // Fast forward is only complete when:
-                // 1. fastforward_delta is 0 (no more blocks to skip)
-                // 2. head.height >= latest_known.height (blocks have been produced)
+                // Check if fast-forward is complete by verifying:
+                // 1. No more blocks scheduled to skip (fastforward_delta == 0)
+                // 2. Chain head has caught up to target (head.height >= latest_known.height)
                 //
-                // Previously, we only checked fastforward_delta == 0, which caused
-                // the RPC to return success before blocks were actually produced.
+                // We track fastforward_in_progress explicitly because fastforward_delta
+                // can temporarily be 0 during processing while blocks are still being produced.
                 // See: https://github.com/near/nearcore/issues/9690
-                let finished = match (
-                    self.fastforward_delta,
-                    self.client.chain.head(),
-                    self.client.chain.chain_store().get_latest_known(),
-                ) {
-                    // Still fast-forwarding: not finished yet.
-                    (delta, _, _) if delta > 0 => false,
-                    // Fast-forwarding done and we have both head and latest_known:
-                    (_, Ok(head), Ok(latest_known)) => head.height >= latest_known.height,
-                    // Any error or missing data: treat as not finished.
-                    _ => false,
-                };
-                near_client_primitives::types::SandboxResponse::SandboxFastForwardFinished(finished)
+                if self.fastforward_in_progress {
+                    let done = self.fastforward_delta == 0
+                        && match (
+                            self.client.chain.head(),
+                            self.client.chain.chain_store().get_latest_known(),
+                        ) {
+                            (Ok(head), Ok(latest_known)) => head.height >= latest_known.height,
+                            _ => false,
+                        };
+                    if done {
+                        self.fastforward_in_progress = false;
+                    }
+                }
+                near_client_primitives::types::SandboxResponse::SandboxFastForwardFinished(
+                    !self.fastforward_in_progress,
+                )
             }
         }
     }
