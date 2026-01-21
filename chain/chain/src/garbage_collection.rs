@@ -467,7 +467,7 @@ impl ChainStore {
                 continue;
             };
 
-            let block_height = self.get_block_height(&block_hash).unwrap();
+            let block_height = self.get_block_height(&block_hash)?;
             if block_height < *final_height {
                 store_update.delete(DBCol::witnesses(), &key);
                 entries_cleared += 1;
