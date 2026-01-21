@@ -1028,13 +1028,12 @@ impl ClientActor {
 
     /// Process the sandbox fast forward request. If the change in block height is past an epoch,
     /// we fast forward to just right before the epoch, produce some blocks to get past and into
-    /// a new epoch, then we continue on with the residual amount to fast forward.
     #[cfg(feature = "sandbox")]
     fn sandbox_process_fast_forward(
         &mut self,
         block_height: BlockHeight,
     ) -> Result<Option<near_chain::types::LatestKnown>, Error> {
-        let mut delta_height = std::mem::replace(&mut self.fastforward_delta, 0);
+        let delta_height = self.fastforward_delta;
         if delta_height == 0 {
             return Ok(None);
         }
@@ -1046,26 +1045,17 @@ impl ClientActor {
             ));
         }
 
-        // Check if we are at epoch boundary. If we are, do not fast forward until new
-        // epoch is here. Decrement the fast_forward count by 1 when a block is produced
-        // during this period of waiting
         let block_height_wrt_epoch = block_height % epoch_length;
         if epoch_length - block_height_wrt_epoch <= 3 || block_height_wrt_epoch == 0 {
-            // wait for doomslug to call into produce block
-            self.fastforward_delta = delta_height;
             return Ok(None);
         }
 
         let delta_height = if block_height_wrt_epoch + delta_height >= epoch_length {
-            // fast forward to just right before epoch boundary to have epoch_manager
-            // handle the epoch_height updates as normal. `- 3` since this is being
-            // done 3 blocks before the epoch ends.
             let right_before_epoch_update = epoch_length - block_height_wrt_epoch - 3;
-
-            delta_height -= right_before_epoch_update;
-            self.fastforward_delta = delta_height;
+            self.fastforward_delta = delta_height - right_before_epoch_update;
             right_before_epoch_update
         } else {
+            self.fastforward_delta = 1;
             delta_height
         };
 
