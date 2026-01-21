@@ -4,16 +4,12 @@ use std::sync::Arc;
 use borsh::BorshDeserialize;
 
 use itertools::Itertools;
-use near_async::messaging::Handler;
 use near_chain::types::Tip;
+use near_client::Client;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
-use near_client::{Client, GetBlock};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
-use near_primitives::sharding::ChunkHash;
-use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, BlockId, BlockReference, EpochHeight, EpochId,
-};
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, EpochHeight, EpochId};
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::db::CLOUD_HEAD_KEY;
@@ -132,17 +128,13 @@ fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY).unwrap().unwrap().height
 }
 
-/// Runs tests verifying view client behavior at the given block height.
-pub fn test_view_client(env: &mut TestLoopEnv, archival_id: &AccountId, height: BlockHeight) {
-    let archival_node = TestLoopNode::for_account(&env.node_datas, archival_id);
-    let view_client_handle = archival_node.data().view_client_sender.actor_handle();
-    let view_client = env.test_loop.data.get_mut(&view_client_handle);
-    let block_reference = BlockReference::BlockId(BlockId::Height(height));
-    let block = view_client.handle(GetBlock(block_reference)).unwrap();
-    for chunk_header in block.chunks {
-        let _chunk_hash = ChunkHash(chunk_header.chunk_hash);
-        // TODO(cloud_archival) Implement shard data retrieval from cloud archive
-        //let _chunk = view_client.handle(GetChunk::ChunkHash(chunk_hash)).unwrap();
+/// Runs tests verifying that data for the block height exists in the archive,
+pub fn check_data_at_height(env: &TestLoopEnv, archival_id: &AccountId, height: BlockHeight) {
+    let cloud_storage = get_cloud_storage(env, archival_id);
+    let block_data = cloud_storage.get_block_data(height).unwrap();
+    for chunk_header in block_data.block().chunks().iter() {
+        let shard_id = chunk_header.shard_id();
+        let _shard_data = cloud_storage.get_shard_data(height, shard_id).unwrap();
     }
 }
 

@@ -163,12 +163,9 @@ impl NodeStorage {
     }
 
     pub fn get_split_db(&self) -> Option<Arc<SplitDB>> {
-        let cold =
-            self.cold_storage.as_ref().and_then(|cold| Some(cold.clone() as Arc<dyn Database>));
-        if cold.is_some() || self.cloud_storage.is_some() {
-            return Some(SplitDB::new(self.hot_storage.clone(), cold, self.cloud_storage.clone()));
-        }
-        None
+        self.cold_storage
+            .as_ref()
+            .map(|cold_db| SplitDB::new(self.hot_storage.clone(), cold_db.clone()))
     }
 
     /// Returns underlying database for given temperature.
