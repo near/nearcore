@@ -730,12 +730,26 @@ impl
                 near_client_primitives::types::SandboxResponse::SandboxNoResponse
             }
             near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus => {
-                // fastforward_delta == 0 reliably means "done" because we now ensure
-                // it only reaches 0 after block production completes (in post_block_production).
+                // Fast forward is only complete when:
+                // 1. fastforward_delta is 0 (no more blocks to skip)
+                // 2. head.height >= latest_known.height (blocks have been produced)
+                //
+                // Previously, we only checked fastforward_delta == 0, which caused
+                // the RPC to return success before blocks were actually produced.
                 // See: https://github.com/near/nearcore/issues/9690
-                near_client_primitives::types::SandboxResponse::SandboxFastForwardFinished(
-                    self.fastforward_delta == 0,
-                )
+                let finished = match (
+                    self.fastforward_delta,
+                    self.client.chain.head(),
+                    self.client.chain.chain_store().get_latest_known(),
+                ) {
+                    // Still fast-forwarding: not finished yet.
+                    (delta, _, _) if delta > 0 => false,
+                    // Fast-forwarding done and we have both head and latest_known:
+                    (_, Ok(head), Ok(latest_known)) => head.height >= latest_known.height,
+                    // Any error or missing data: treat as not finished.
+                    _ => false,
+                };
+                near_client_primitives::types::SandboxResponse::SandboxFastForwardFinished(finished)
             }
         }
     }
@@ -1069,10 +1083,6 @@ impl ClientActor {
             self.fastforward_delta = delta_height;
             right_before_epoch_update
         } else {
-            // Set to 1 so post_block_production will decrement it to 0 after
-            // the block is actually produced. This ensures fastforward_delta == 0
-            // only after block production completes, not before.
-            self.fastforward_delta = 1;
             delta_height
         };
 
