@@ -167,6 +167,13 @@ impl NearVM {
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::NearVm)
             .map_err(CompilationError::PrepareError)?;
 
+        tracing::debug!(
+            target: "vm",
+            original_size = code.code().len(),
+            prepared_size = prepared_code.len(),
+            "prepared contract",
+        );
+        
         debug_assert!(
             matches!(self.engine.validate(&prepared_code), Ok(_)),
             "near_vm failed to validate the prepared code"
@@ -180,12 +187,6 @@ impl NearVM {
             })?;
         crate::metrics::compilation_duration(VMKind::NearVm, start.elapsed());
 
-        tracing::debug!(
-            target: "vm",
-            original_size = %code.code().len(),
-            prepared_size = %prepared_code.len(),
-            "Compiled contract",
-        );
         Ok(executable)
     }
 
@@ -216,13 +217,16 @@ impl NearVM {
         };
         tracing::debug!(
             target: "vm",
-            compiled_code_size = &record.compiled.debug_len(),
-            "Caching compiled contract",
+            serialized_executable_size = &record.compiled.debug_len(),
+            "serialized compiled contract",
         );
         cache.put(&key, record).map_err(CacheError::WriteError)?;
         Ok(executable_or_error)
     }
 
+    /// Compile the contract if not already cached, load the compiled code, and run the provided
+    /// closure with it. The closure is expected to prepare the contract for execution (e.g., by loading 
+    /// it into an instance).
     #[tracing::instrument(
         level = "debug",
         target = "vm",
@@ -237,14 +241,14 @@ impl NearVM {
         method: &str,
         closure: impl FnOnce(GasCounter, &VMArtifact, Box<Self>) -> VMResult<PreparedContract>,
     ) -> VMResult<PreparedContract> {
-        // (wasm code size, compilation result)
-        type MemoryCacheType = (u64, Result<VMArtifact, CompilationError>);
+        // (wasm code size, compiled code size, compilation result)
+        type MemoryCacheType = (u64, usize, Result<VMArtifact, CompilationError>);
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
         // To identify a cache hit from either in-memory and on-disk cache correctly, we first assume that we have a cache hit here,
         // and then we set it to false when we fail to find any entry and decide to compile (by calling compile_and_cache below).
         let mut is_cache_hit = true;
         let key = get_contract_cache_key(contract.hash(), &self.config, near_vm_vm_hash());
-        let (wasm_bytes, artifact_result) = cache.memory_cache().try_lookup(
+        let (wasm_size_bytes, _compiled_code_size, artifact_result) = cache.memory_cache().try_lookup(
             key,
             || {
                 // `cache` stores compiled machine code in the database
@@ -262,6 +266,25 @@ impl NearVM {
                     let _span =
                         tracing::debug_span!(target: "vm", "NearVM::build_from_source").entered();
                     is_cache_hit = false;
+                    let compiled = self.compile_and_cache(&code, cache)?;
+                    let res = match compiled {
+                        Ok(executable) => Ok(to_any((
+                            code.code().len() as u64,
+                            compiled_contract_info.compiled.debug_len(),
+                            Ok(self
+                                .engine
+                                .load_universal_executable(&executable)
+                                .map(Arc::new)
+                                .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?),
+                        ))),
+                        Err(err) => Ok(to_any((
+                            code.code().len() as u64,
+                            0_usize,
+                            Err(err),
+                        ))),
+                    };
+                    
+                    return res;
                     return Ok(to_any((
                         code.code().len() as u64,
                         match self.compile_and_cache(&code, cache)? {
@@ -321,14 +344,14 @@ impl NearVM {
 
         crate::metrics::record_compiled_contract_cache_lookup(is_cache_hit);
         let config = Arc::clone(&self.config);
-        let result = gas_counter.before_loading_executable(&config, &method, wasm_bytes);
+        let result = gas_counter.before_loading_executable(&config, &method, wasm_size_bytes);
         if let Err(e) = result {
             let result = PreparationResult::OutcomeAbort(e);
             return Ok(PreparedContract { config, gas_counter, result });
         }
         match artifact_result {
             Ok(artifact) => {
-                let result = gas_counter.after_loading_executable(&config, wasm_bytes);
+                let result = gas_counter.after_loading_executable(&config, wasm_size_bytes);
                 if let Err(e) = result {
                     let result = PreparationResult::OutcomeAbort(e);
                     return Ok(PreparedContract { config, gas_counter, result });
