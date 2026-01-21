@@ -678,4 +678,238 @@ mod tests {
             .collect::<HashSet<PublicKey>>();
         assert_eq!(public_keys, expected_public_keys);
     }
+
+    fn transfer_to_gas_key(
+        state_update: &mut TrieUpdate,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+        amount: Balance,
+    ) {
+        let mut result = ActionResult::default();
+        let action = TransferToGasKeyAction { public_key: public_key.clone(), deposit: amount };
+        action_transfer_to_gas_key(state_update, &mut result, account_id, &action).unwrap();
+        assert!(result.result.is_ok());
+    }
+
+    #[test]
+    fn test_transfer_to_gas_key_success() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+
+        let gas_key_public_key =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "gas_key").public_key();
+        add_gas_key_to_account(&mut state_update, &mut account, &account_id, &gas_key_public_key);
+
+        let deposit_amount = Balance::from_yoctonear(1_000_000);
+        transfer_to_gas_key(&mut state_update, &account_id, &gas_key_public_key, deposit_amount);
+
+        let gas_key =
+            get_access_key(&state_update, &account_id, &gas_key_public_key).unwrap().unwrap();
+        let gas_key_info = gas_key.gas_key_info().unwrap();
+        assert_eq!(gas_key_info.balance, deposit_amount);
+
+        // Transfer more and verify accumulation
+        transfer_to_gas_key(&mut state_update, &account_id, &gas_key_public_key, deposit_amount);
+        let gas_key =
+            get_access_key(&state_update, &account_id, &gas_key_public_key).unwrap().unwrap();
+        let gas_key_info = gas_key.gas_key_info().unwrap();
+        assert_eq!(gas_key_info.balance, Balance::from_yoctonear(2_000_000));
+    }
+
+    #[test]
+    fn test_transfer_to_gas_key_nonexistent_key() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+
+        let nonexistent_key =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "nonexistent")
+                .public_key();
+        let mut result = ActionResult::default();
+        let action = TransferToGasKeyAction {
+            public_key: nonexistent_key.clone(),
+            deposit: Balance::from_yoctonear(1_000_000),
+        };
+        action_transfer_to_gas_key(&mut state_update, &mut result, &account_id, &action).unwrap();
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::GasKeyDoesNotExist {
+                account_id: account_id.clone(),
+                public_key: Box::new(nonexistent_key),
+            }
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_transfer_to_gas_key_not_gas_key() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+
+        // Try to transfer to a regular access key (not a gas key)
+        let mut result = ActionResult::default();
+        let action = TransferToGasKeyAction {
+            public_key: public_key.clone(),
+            deposit: Balance::from_yoctonear(1_000_000),
+        };
+        action_transfer_to_gas_key(&mut state_update, &mut result, &account_id, &action).unwrap();
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::GasKeyDoesNotExist {
+                account_id: account_id.clone(),
+                public_key: Box::new(public_key),
+            }
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_transfer_from_gas_key_success() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        let initial_account_balance = account.amount();
+
+        let gas_key_public_key =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "gas_key").public_key();
+        add_gas_key_to_account(&mut state_update, &mut account, &account_id, &gas_key_public_key);
+
+        // Fund the gas key
+        let deposit_amount = Balance::from_yoctonear(1_000_000);
+        transfer_to_gas_key(&mut state_update, &account_id, &gas_key_public_key, deposit_amount);
+
+        // Withdraw some amount
+        let withdraw_amount = Balance::from_yoctonear(400_000);
+        let mut result = ActionResult::default();
+        let action = TransferFromGasKeyAction {
+            public_key: gas_key_public_key.clone(),
+            amount: withdraw_amount,
+        };
+        action_transfer_from_gas_key(
+            &mut state_update,
+            &mut account,
+            &mut result,
+            &account_id,
+            &action,
+        )
+        .unwrap();
+        assert!(result.result.is_ok());
+
+        // Verify gas key balance decreased
+        let gas_key =
+            get_access_key(&state_update, &account_id, &gas_key_public_key).unwrap().unwrap();
+        let gas_key_info = gas_key.gas_key_info().unwrap();
+        assert_eq!(gas_key_info.balance, deposit_amount.checked_sub(withdraw_amount).unwrap());
+
+        // Verify account balance increased
+        assert_eq!(account.amount(), initial_account_balance.checked_add(withdraw_amount).unwrap());
+    }
+
+    #[test]
+    fn test_transfer_from_gas_key_insufficient_balance() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+
+        let gas_key_public_key =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "gas_key").public_key();
+        add_gas_key_to_account(&mut state_update, &mut account, &account_id, &gas_key_public_key);
+
+        // Fund with small amount
+        let deposit_amount = Balance::from_yoctonear(100);
+        transfer_to_gas_key(&mut state_update, &account_id, &gas_key_public_key, deposit_amount);
+
+        // Try to withdraw more than available
+        let withdraw_amount = Balance::from_yoctonear(1_000);
+        let mut result = ActionResult::default();
+        let action = TransferFromGasKeyAction {
+            public_key: gas_key_public_key.clone(),
+            amount: withdraw_amount,
+        };
+        action_transfer_from_gas_key(
+            &mut state_update,
+            &mut account,
+            &mut result,
+            &account_id,
+            &action,
+        )
+        .unwrap();
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::InsufficientGasKeyBalance {
+                account_id: account_id.clone(),
+                public_key: Box::new(gas_key_public_key),
+                balance: deposit_amount,
+                required: withdraw_amount,
+            }
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_transfer_from_gas_key_nonexistent_key() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+
+        let nonexistent_key =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "nonexistent")
+                .public_key();
+        let mut result = ActionResult::default();
+        let action = TransferFromGasKeyAction {
+            public_key: nonexistent_key.clone(),
+            amount: Balance::from_yoctonear(1_000),
+        };
+        action_transfer_from_gas_key(
+            &mut state_update,
+            &mut account,
+            &mut result,
+            &account_id,
+            &action,
+        )
+        .unwrap();
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::GasKeyDoesNotExist {
+                account_id: account_id.clone(),
+                public_key: Box::new(nonexistent_key),
+            }
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_transfer_from_gas_key_not_gas_key() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+
+        // Try to withdraw from a regular access key
+        let mut result = ActionResult::default();
+        let action = TransferFromGasKeyAction {
+            public_key: public_key.clone(),
+            amount: Balance::from_yoctonear(1_000),
+        };
+        action_transfer_from_gas_key(
+            &mut state_update,
+            &mut account,
+            &mut result,
+            &account_id,
+            &action,
+        )
+        .unwrap();
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::GasKeyDoesNotExist {
+                account_id: account_id.clone(),
+                public_key: Box::new(public_key),
+            }
+            .into())
+        );
+    }
 }
