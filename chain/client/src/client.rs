@@ -31,6 +31,7 @@ use near_chain::chain::{
 use near_chain::orphan::OrphanMissingChunks;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::types::ReshardingSender;
+use near_chain::spice_core::get_block_execution_results;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
@@ -378,6 +379,15 @@ impl Client {
             config.transaction_pool_size_limit,
             multi_spawner.prepare_transactions,
         );
+        {
+            // Initialize pending transaction queue from the current head
+            let mut guard = chunk_producer.pending_txs.lock();
+            guard.reset_from_uncertified_chunks(
+                &chain.head()?.last_block_hash,
+                &chain.chain_store(),
+                &shard_tracker,
+            )?;
+        }
 
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
         Ok(Self {
@@ -461,6 +471,52 @@ impl Client {
                 let transactions = chunk.to_transactions();
                 let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
                 pool_guard.remove_transactions(shard_uid, transactions);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn add_transactions_for_block_to_pending_queue(&self, block: &Block) -> Result<(), Error> {
+        let epoch_id = block.header().epoch_id();
+        // TODO(spice): Gas price should be calculated properly.
+        let gas_price = block.header().next_gas_price();
+        for chunk_header in block.chunks().iter_new() {
+            // We can directly get the shard_id from the chunk_header as we are guaranteed new chunk via iter_new
+            let shard_id = chunk_header.shard_id();
+            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
+            if self
+                .shard_tracker
+                .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
+            {
+                // By now the chunk must be in store, otherwise the block would have been orphaned
+                let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
+                let mut guard = self.chunk_producer.pending_txs.lock();
+                guard.get_queue_mut(shard_uid).add_transactions(
+                    *block.hash(),
+                    epoch_id,
+                    gas_price,
+                    chunk.into_transactions(),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub fn remove_certified_transactions_for_block_from_pending_queue(
+        &self,
+        block: &Block,
+    ) -> Result<(), Error> {
+        let block_execution_results = get_block_execution_results(block);
+        for chunk_id in block_execution_results.keys() {
+            let epoch_id = self.epoch_manager.get_epoch_id(&chunk_id.block_hash)?;
+            let shard_id = chunk_id.shard_id;
+            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
+            if self
+                .shard_tracker
+                .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
+            {
+                let mut guard = self.chunk_producer.pending_txs.lock();
+                guard.get_queue_mut(shard_uid).remove_transactions(&chunk_id.block_hash);
             }
         }
         Ok(())
@@ -1645,6 +1701,9 @@ impl Client {
         }
 
         if let Some(signer) = self.validator_signer.get() {
+            if let Err(err) = self.reconcile_pending_transaction_queue(status.clone(), &block) {
+                tracing::debug!(target: "client", ?err, "failed to reconcile pending transaction queue");
+            }
             if !self.reconcile_transaction_pool(status, &block) {
                 return;
             }
@@ -1681,6 +1740,34 @@ impl Client {
 
         // Notify all subscribed watchers about the new block.
         self.block_notification_watch_sender.send_replace(Some(block_notification));
+    }
+
+    fn reconcile_pending_transaction_queue(
+        &self,
+        status: BlockStatus,
+        block: &Block,
+    ) -> Result<(), Error> {
+        match status {
+            BlockStatus::Next => {
+                self.add_transactions_for_block_to_pending_queue(block)?;
+                self.remove_certified_transactions_for_block_from_pending_queue(block)
+            }
+            BlockStatus::Fork => {
+                // It's a fork, no need to reconcile transactions or produce chunks.
+                Ok(())
+            }
+            BlockStatus::Reorg(_) => {
+                // If there is a re-org, just reset the pending tx queue based on uncertified chunks.
+                let mut guard = self.chunk_producer.pending_txs.lock();
+                guard
+                    .reset_from_uncertified_chunks(
+                        block.hash(),
+                        &self.chain.chain_store,
+                        &self.shard_tracker,
+                    )
+                    .map_err(|e| e.into())
+            }
+        }
     }
 
     /// Reconcile the transaction pool after processing a block.

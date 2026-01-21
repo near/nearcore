@@ -1650,6 +1650,7 @@ fn prepare_transactions_extra(
                 .check_transaction_validity_period(&block.header(), tx.transaction.block_hash())
                 .is_ok()
         },
+        None,
         skip_tx_hashes,
         default_produce_chunk_add_transactions_time_limit(),
         cancel,
