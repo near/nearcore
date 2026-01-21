@@ -422,7 +422,7 @@ impl SpiceCoreReader {
     }
 }
 
-fn get_uncertified_chunks(
+pub(crate) fn get_uncertified_chunks(
     chain_store: &ChainStoreAdapter,
     block_hash: &CryptoHash,
 ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
