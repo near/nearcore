@@ -60,7 +60,7 @@ rustc_version = "0.4"
 
 [features]
 tx_generator = ["nearcore/tx_generator"]
-default = ["json_rpc", "rosetta_rpc", "dump-contract"]
+default = ["json_rpc", "rosetta_rpc", "dump-test-contract"]
 protocol_feature_spice = [
   "near-client/protocol_feature_spice",
   "near-primitives/protocol_feature_spice",
@@ -68,7 +68,7 @@ protocol_feature_spice = [
   "nearcore/protocol_feature_spice",
   "near-mirror/protocol_feature_spice",
 ]
-dump-contract = ["near-dump-test-contract"]
+dump-test-contract = ["near-dump-test-contract"]
 
 test_features = [
   "nearcore/test_features",
