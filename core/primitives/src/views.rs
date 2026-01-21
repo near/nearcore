@@ -1591,7 +1591,10 @@ impl TryFrom<ActionView> for Action {
                 Action::TransferToGasKey(Box::new(TransferToGasKeyAction { public_key, deposit }))
             }
             ActionView::TransferFromGasKey { public_key, amount } => {
-                Action::TransferFromGasKey(Box::new(TransferFromGasKeyAction { public_key, amount }))
+                Action::TransferFromGasKey(Box::new(TransferFromGasKeyAction {
+                    public_key,
+                    amount,
+                }))
             }
         })
     }
