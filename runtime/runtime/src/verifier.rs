@@ -747,6 +747,7 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
     use near_primitives::action::GlobalContractIdentifier;
+    use near_primitives::action::TransferToGasKeyAction;
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
     use near_primitives::deterministic_account_id::{
         DeterministicAccountStateInit, DeterministicAccountStateInitV1,
@@ -1326,6 +1327,45 @@ mod tests {
             assert!(cost > balance);
         } else {
             panic!("Incorrect error");
+        }
+    }
+
+    #[test]
+    fn test_validate_transaction_transfer_to_gas_key_not_enough_balance() {
+        let config = RuntimeConfig::test();
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
+
+        // TransferToGasKey with deposit exceeding account balance
+        let excessive_deposit = TESTING_INIT_BALANCE.saturating_mul(2);
+        let signed_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            alice_account(),
+            &*signer,
+            vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+                public_key: PublicKey::empty(KeyType::ED25519),
+                deposit: excessive_deposit,
+            }))],
+            CryptoHash::default(),
+            0,
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .expect_err("expected an error");
+        if let InvalidTxError::NotEnoughBalance { signer_id, balance, cost } = err {
+            assert_eq!(signer_id, alice_account());
+            assert_eq!(balance, TESTING_INIT_BALANCE);
+            assert!(cost > balance);
+        } else {
+            panic!("Incorrect error: {:?}", err);
         }
     }
 
