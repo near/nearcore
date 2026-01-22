@@ -76,10 +76,11 @@ impl TransactionPool {
         nonce_index: Option<NonceIndex>,
     ) -> PoolKey {
         let mut v = borsh::to_vec(&public_key).unwrap();
-        let nonce_index_encoded = borsh::to_vec(&nonce_index).unwrap();
         v.extend_from_slice(&self.key_seed);
         v.extend_from_slice(account_id.as_bytes());
-        v.extend_from_slice(&nonce_index_encoded);
+        if let Some(idx) = nonce_index {
+            v.extend_from_slice(&borsh::to_vec(&idx).unwrap());
+        }
         hash(&v)
     }
 
