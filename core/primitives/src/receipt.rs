@@ -320,7 +320,7 @@ impl BorshDeserialize for ReceiptOrStateStoredReceipt<'_> {
         // and StateStoredReceipt.
         // The StateStored receipt has the tag as the first two bytes.
         // The Receipt::V0 has 0 as the second byte.
-        // The Receipt::V1 has 1 as the first byte.
+        // Using 1 as the first byte is reserved in case Receipt::V1 is needed again.
         let u1 = u8::deserialize_reader(reader)?;
         let u2 = u8::deserialize_reader(reader)?;
 
