@@ -258,6 +258,10 @@ impl CloudArchivalWriter {
         let tracked_shards =
             self.shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?;
 
+        if self.epoch_manager.is_next_block_epoch_start(&block_hash)? {
+            self.cloud_storage.archive_epoch_data(&self.hot_store, &shard_layout, epoch_id).await?;
+        }
+
         self.cloud_storage.archive_block_data(&self.hot_store, height).await?;
         for shard_uid in tracked_shards {
             self.cloud_storage
