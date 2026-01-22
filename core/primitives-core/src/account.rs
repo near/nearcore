@@ -507,6 +507,14 @@ impl AccessKey {
             _ => None,
         }
     }
+
+    pub fn gas_key_info_mut(&mut self) -> Option<&mut GasKeyInfo> {
+        match &mut self.permission {
+            AccessKeyPermission::GasKeyFunctionCall(gas_key_info, _)
+            | AccessKeyPermission::GasKeyFullAccess(gas_key_info) => Some(gas_key_info),
+            _ => None,
+        }
+    }
 }
 
 #[derive(
