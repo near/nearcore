@@ -51,7 +51,6 @@ fn process_transaction(
             })),
         ],
         last_block_hash,
-        0,
     );
     let tx_hash = tx.get_hash();
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);

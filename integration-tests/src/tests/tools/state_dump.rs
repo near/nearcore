@@ -164,7 +164,6 @@ fn test_dump_state_respect_select_account_ids() {
             code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
         })],
         genesis_hash,
-        0,
     );
     let tx01 = SignedTransaction::stake(
         1,

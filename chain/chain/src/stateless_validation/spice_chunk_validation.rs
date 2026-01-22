@@ -334,7 +334,6 @@ mod tests {
     use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
     use near_o11y::testonly::init_test_logger;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::receipt::ReceiptPriority;
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
     use near_primitives::state::PartialState;
     use near_primitives::stateless_validation::ChunkProductionKey;
@@ -761,12 +760,10 @@ mod tests {
             Receipt::new_balance_refund(
                 &AccountId::from_str(TEST_VALIDATORS[0]).unwrap(),
                 Balance::from_yoctonear(100),
-                ReceiptPriority::NoPriority,
             ),
             Receipt::new_balance_refund(
                 &AccountId::from_str(TEST_VALIDATORS[1]).unwrap(),
                 Balance::from_yoctonear(100),
-                ReceiptPriority::NoPriority,
             ),
         ]
     }

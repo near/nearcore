@@ -86,7 +86,6 @@ pub(crate) fn action_deterministic_state_init(
         result.new_receipts.push(Receipt::new_balance_refund(
             receipt.balance_refund_receiver(),
             deposit_refund,
-            receipt.priority(),
         ));
     }
 

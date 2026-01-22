@@ -227,7 +227,6 @@ pub(crate) fn execute_storage_operations(
                 &create_user_test_signer(&sender_id).into(),
                 vec![read_action, write_action],
                 anchor_hash,
-                0,
             );
 
             store_and_submit_tx(

@@ -332,7 +332,6 @@ pub fn test_regression_nonce_update_with_mixed_transactions(node: impl Node) {
             &node_user.signer(),
             vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
             block_hash,
-            0,
         );
         txs.push(valid_transfer_tx);
     }
@@ -349,7 +348,6 @@ pub fn test_regression_nonce_update_with_mixed_transactions(node: impl Node) {
                 .unwrap(),
         })],
         block_hash,
-        0,
     ));
     node_user.commit_all_transactions(txs).unwrap();
     assert_eq!(node_user.get_access_key_nonce_for_signer(signer_id).unwrap(), nonce + 2);

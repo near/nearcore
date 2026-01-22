@@ -547,7 +547,6 @@ impl Runtime {
                     account_id,
                     signed_delegate_action,
                     &mut result,
-                    receipt.priority(),
                 )?;
             }
         };
@@ -942,7 +941,6 @@ impl Runtime {
             result.new_receipts.push(Receipt::new_balance_refund(
                 receipt.balance_refund_receiver(),
                 deposit_refund,
-                receipt.priority(),
             ));
         }
         if gas_balance_refund > Balance::ZERO {
@@ -952,7 +950,6 @@ impl Runtime {
                 &action_receipt.signer_id(),
                 gas_balance_refund,
                 action_receipt.signer_public_key().clone(),
-                receipt.priority(),
             ));
         }
 
