@@ -424,7 +424,7 @@ impl ChainStore {
             }
         };
         // Get min block height among uncertified chunks for each shard
-        let uncertified_chunks = get_uncertified_chunks(&self, &final_block_hash)?; // to make sure uncertified chunks are loaded
+        let uncertified_chunks = get_uncertified_chunks(&self, &final_block_hash)?;
         let mut final_block_min_uncertified_heights: HashMap<ShardId, BlockHeight> = HashMap::new();
         for chunk_info in uncertified_chunks {
             let entry = final_block_min_uncertified_heights
