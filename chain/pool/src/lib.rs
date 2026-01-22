@@ -350,8 +350,9 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::{SignedTransaction, TransactionNonce};
     use near_primitives::types::Balance;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rand::seq::SliceRandom;
-    use rand::thread_rng;
     use std::sync::Arc;
     const TEST_SEED: RngSeed = [3; 32];
 
@@ -412,7 +413,7 @@ mod tests {
         expected_weight: u32,
     ) -> (Vec<u64>, TransactionPool) {
         let mut pool = TransactionPool::new(TEST_SEED, None, "");
-        let mut rng = thread_rng();
+        let mut rng = StdRng::seed_from_u64(0);
         validated_txs.shuffle(&mut rng);
         for validated_tx in validated_txs {
             assert_eq!(pool.insert_transaction(validated_tx), InsertTransactionResult::Success);
@@ -526,7 +527,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         let mut pool = TransactionPool::new(TEST_SEED, None, "");
-        let mut rng = thread_rng();
+        let mut rng = StdRng::seed_from_u64(0);
         transactions.shuffle(&mut rng);
         for tx in transactions.clone() {
             println!("{:?}", tx);
@@ -683,7 +684,7 @@ mod tests {
         transactions.extend(generate_transactions_v1("alice.near", "alice.near", 1, 5, Some(1)));
 
         let mut pool = TransactionPool::new(TEST_SEED, None, "");
-        let mut rng = thread_rng();
+        let mut rng = StdRng::seed_from_u64(0);
         transactions.shuffle(&mut rng);
         for tx in transactions {
             assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
@@ -730,7 +731,7 @@ mod tests {
         }
 
         let mut pool = TransactionPool::new(TEST_SEED, None, "");
-        let mut rng = thread_rng();
+        let mut rng = StdRng::seed_from_u64(0);
         transactions.shuffle(&mut rng);
         for tx in transactions.clone() {
             assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
