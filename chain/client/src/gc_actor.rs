@@ -4,11 +4,13 @@ use near_async::messaging::Actor;
 #[cfg(feature = "test_features")]
 use near_async::messaging::Handler;
 use near_chain::ChainGenesis;
+use near_chain::spice_core::SpiceCoreReader;
 use near_chain::{ChainStore, ChainStoreAccess, types::RuntimeAdapter};
 use near_chain_configs::GCConfig;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_store::Store;
+use near_store::adapter::StoreAdapter;
 use near_store::db::metadata::DbKind;
 use std::sync::Arc;
 
@@ -20,6 +22,7 @@ pub struct GCActor {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
+    spice_core_reader: SpiceCoreReader,
     gc_config: GCConfig,
     /// True iff it is legacy or split storage archival node
     is_local_archive: bool,
@@ -37,12 +40,16 @@ impl GCActor {
         gc_config: GCConfig,
         is_local_archive: bool,
     ) -> Self {
+        let chain_store = ChainStore::new(store.clone(), true, genesis.transaction_validity_period);
+        let spice_core_reader =
+            SpiceCoreReader::new(store.chain_store(), epoch_manager.clone(), genesis.gas_limit);
         GCActor {
-            store: ChainStore::new(store, true, genesis.transaction_validity_period),
+            store: chain_store,
             runtime_adapter,
             gc_config,
             epoch_manager,
             shard_tracker,
+            spice_core_reader,
             is_local_archive,
             no_gc: false,
         }
@@ -56,6 +63,7 @@ impl GCActor {
                 self.runtime_adapter.clone(),
                 self.epoch_manager.clone(),
                 &self.shard_tracker,
+                &self.spice_core_reader,
             );
         }
 
@@ -71,6 +79,7 @@ impl GCActor {
                 self.runtime_adapter.clone(),
                 self.epoch_manager.clone(),
                 &self.shard_tracker,
+                &self.spice_core_reader,
             );
         }
 

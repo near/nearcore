@@ -24,7 +24,7 @@ use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
 
-use crate::spice_core::get_last_certified_block_height;
+use crate::spice_core::SpiceCoreReader;
 use crate::types::RuntimeAdapter;
 use crate::{Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate, metrics};
 
@@ -56,7 +56,14 @@ impl Chain {
         let runtime_adapter = self.runtime_adapter.clone();
         let epoch_manager = self.epoch_manager.clone();
         let shard_tracker = self.shard_tracker.clone();
-        self.mut_chain_store().clear_data(gc_config, runtime_adapter, epoch_manager, &shard_tracker)
+        let spice_core_reader = self.spice_core_reader.clone();
+        self.mut_chain_store().clear_data(
+            gc_config,
+            runtime_adapter,
+            epoch_manager,
+            &shard_tracker,
+            &spice_core_reader,
+        )
     }
 
     pub fn reset_data_pre_state_sync(&mut self, sync_hash: CryptoHash) -> Result<(), Error> {
@@ -155,6 +162,7 @@ impl ChainStore {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: &ShardTracker,
+        spice_core_reader: &SpiceCoreReader,
     ) -> Result<(), Error> {
         // We clear state transition data and witnesses separately without respecting gc configs
         // because they get accumulated too quickly for regular gc process.
@@ -162,7 +170,7 @@ impl ChainStore {
         // cleaning old blocks.
         let result = self
             .clear_state_transition_data(epoch_manager.as_ref())
-            .and(self.clear_witnesses_data(epoch_manager.as_ref()));
+            .and(self.clear_witnesses_data(epoch_manager.as_ref(), spice_core_reader));
 
         result.and(self.clear_old_blocks_data(
             gc_config,
@@ -390,7 +398,11 @@ impl ChainStore {
     /// no need to retain witnesses once the corresponding chunks are certified
     /// by the final block.
     #[tracing::instrument(target = "garbage_collection", level = "debug", skip_all)]
-    fn clear_witnesses_data(&self, epoch_manager: &dyn EpochManagerAdapter) -> Result<(), Error> {
+    fn clear_witnesses_data(
+        &self,
+        epoch_manager: &dyn EpochManagerAdapter,
+        spice_core_reader: &SpiceCoreReader,
+    ) -> Result<(), Error> {
         let _metric_timer = metrics::WITNESSES_GC_TIME.start_timer();
         // Use chain head to exit early if Spice protocol feature is not enabled.
         let head = self.head()?;
@@ -402,7 +414,7 @@ impl ChainStore {
 
         let final_head = self.final_head()?;
         let Ok(last_certified_height) =
-            get_last_certified_block_height(&self, &final_head.last_block_hash)
+            spice_core_reader.get_last_certified_block_height(&final_head.last_block_hash)
         else {
             tracing::debug!(target: "garbage_collection", "could not get last certified block height");
             return Ok(());

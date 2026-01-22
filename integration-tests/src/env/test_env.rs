@@ -120,6 +120,7 @@ impl TestEnv {
         let runtime_adapter = self.clients[id].chain.runtime_adapter.clone();
         let epoch_manager = self.clients[id].chain.epoch_manager.clone();
         let shard_tracker = self.clients[id].chain.shard_tracker.clone();
+        let spice_core_reader = self.clients[id].chain.spice_core_reader.clone();
         let gc_config = self.clients[id].config.gc.clone();
 
         // A RPC node should do regular garbage collection.
@@ -127,7 +128,13 @@ impl TestEnv {
             self.clients[id]
                 .chain
                 .mut_chain_store()
-                .clear_data(&gc_config, runtime_adapter, epoch_manager, &shard_tracker)
+                .clear_data(
+                    &gc_config,
+                    runtime_adapter,
+                    epoch_manager,
+                    &shard_tracker,
+                    &spice_core_reader,
+                )
                 .unwrap();
         } else {
             // TODO(cloud_archival) Handle the cloud archival case
@@ -141,7 +148,13 @@ impl TestEnv {
                 self.clients[id]
                     .chain
                     .mut_chain_store()
-                    .clear_data(&gc_config, runtime_adapter, epoch_manager, &shard_tracker)
+                    .clear_data(
+                        &gc_config,
+                        runtime_adapter,
+                        epoch_manager,
+                        &shard_tracker,
+                        &spice_core_reader,
+                    )
                     .unwrap();
             } else {
                 // An archival node with legacy storage or in the midst of migration to split

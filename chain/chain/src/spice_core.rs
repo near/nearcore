@@ -109,6 +109,15 @@ impl SpiceCoreReader {
         get_uncertified_chunks(&self.chain_store, block_hash)
     }
 
+    /// Returns the height of the last fully certified block relative to the given block.
+    /// All chunks in blocks at or below this height have been certified.
+    pub fn get_last_certified_block_height(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<BlockHeight, Error> {
+        get_last_certified_block_height(&self.chain_store, block_hash)
+    }
+
     pub fn get_execution_results_by_shard_id(
         &self,
         block_header: &BlockHeader,
@@ -556,7 +565,7 @@ fn find_oldest_uncertified_block_header(
 
 /// Returns the height of the last fully certified block relative to the given block.
 /// All chunks in blocks at or below this height have been certified.
-pub fn get_last_certified_block_height(
+fn get_last_certified_block_height(
     chain_store: &ChainStoreAdapter,
     block_hash: &CryptoHash,
 ) -> Result<BlockHeight, Error> {

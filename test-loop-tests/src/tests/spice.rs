@@ -6,7 +6,7 @@ use itertools::Itertools;
 use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
-use near_chain::spice_core::get_last_certified_block_height;
+use near_chain::Chain;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{ProcessTxRequest, Query, ViewClientActor};
 use near_network::client::SpiceChunkEndorsementMessage;
@@ -22,7 +22,6 @@ use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind};
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
-use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::{Mutex, RwLock};
 
 use crate::setup::builder::TestLoopBuilder;
@@ -325,9 +324,12 @@ fn test_spice_garbage_collection_witnesses() {
     let producer_node = TestLoopNode::from(env.node_datas[0].clone());
     env.test_loop.run_until(
         |test_loop_data| {
-            let chain_store = &producer_node.client(test_loop_data).chain.chain_store;
-            let final_head = chain_store.final_head().unwrap();
-            get_last_certified_block_height(chain_store, &final_head.last_block_hash).unwrap_or(0)
+            let chain = &producer_node.client(test_loop_data).chain;
+            let final_head = chain.chain_store.final_head().unwrap();
+            chain
+                .spice_core_reader
+                .get_last_certified_block_height(&final_head.last_block_hash)
+                .unwrap_or(0)
                 >= 10
         },
         Duration::seconds(20),
@@ -338,8 +340,8 @@ fn test_spice_garbage_collection_witnesses() {
         // This gets tracked shards for genesis, but it should not change during the test.
         .filter(|shard_id| shard_tracker.cares_about_shard(&CryptoHash::default(), *shard_id))
         .collect();
-    let chain_store = &producer_node.client(env.test_loop_data()).chain.chain_store;
-    assert_witness_gc_invariant(chain_store, &tracked_shards);
+    let chain = &producer_node.client(env.test_loop_data()).chain;
+    assert_witness_gc_invariant(chain, &tracked_shards);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
@@ -349,10 +351,13 @@ fn test_spice_garbage_collection_witnesses() {
 /// From the perspective of final_head:
 /// - Certified blocks (height <= last_certified_height): witness should NOT exist
 /// - Uncertified blocks (height > last_certified_height): witness SHOULD exist
-fn assert_witness_gc_invariant(chain_store: &ChainStoreAdapter, tracked_shards: &[ShardId]) {
+fn assert_witness_gc_invariant(chain: &Chain, tracked_shards: &[ShardId]) {
+    let chain_store = &chain.chain_store;
     let final_head = chain_store.final_head().unwrap();
-    let last_certified_height =
-        get_last_certified_block_height(chain_store, &final_head.last_block_hash).unwrap();
+    let last_certified_height = chain
+        .spice_core_reader
+        .get_last_certified_block_height(&final_head.last_block_hash)
+        .unwrap();
     let execution_head = chain_store.spice_execution_head().unwrap();
     let store = chain_store.store().store();
 
