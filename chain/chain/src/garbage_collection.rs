@@ -388,9 +388,9 @@ impl ChainStore {
     /// Clears witnesses data for chunks with older heights than those certified
     /// by the final block.
     ///
-    /// Similar to state transition data, witnesses can be garbage collected
-    /// with higher cadence because there is no need to retain witnesses once
-    /// the corresponding chunks are certified by the final block.
+    /// Witnesses can be garbage collected with higher cadence because there is
+    /// no need to retain witnesses once the corresponding chunks are certified
+    /// by the final block.
     fn clear_witnesses_data(&self, epoch_manager: &dyn EpochManagerAdapter) -> Result<(), Error> {
         if !cfg!(feature = "protocol_feature_spice") {
             return Ok(());
