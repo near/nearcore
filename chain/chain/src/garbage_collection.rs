@@ -162,7 +162,7 @@ impl ChainStore {
         // cleaning old blocks.
         let result = self
             .clear_state_transition_data(epoch_manager.as_ref())
-            .and(self.clear_witnesses_data());
+            .and(self.clear_witnesses_data(epoch_manager.as_ref()));
 
         result.and(self.clear_old_blocks_data(
             gc_config,
@@ -390,11 +390,15 @@ impl ChainStore {
     /// no need to retain witnesses once the corresponding chunks are certified
     /// by the final block.
     #[tracing::instrument(target = "garbage_collection", level = "debug", skip_all)]
-    fn clear_witnesses_data(&self) -> Result<(), Error> {
-        if !cfg!(feature = "protocol_feature_spice") {
+    fn clear_witnesses_data(&self, epoch_manager: &dyn EpochManagerAdapter) -> Result<(), Error> {
+        let _metric_timer = metrics::WITNESSES_GC_TIME.start_timer();
+        // Use chain head to exit early if Spice protocol feature is not enabled.
+        let head = self.head()?;
+        let head_header = self.get_block_header(&head.last_block_hash)?;
+        let protocol_version = epoch_manager.get_epoch_protocol_version(head_header.epoch_id())?;
+        if !ProtocolFeature::Spice.enabled(protocol_version) {
             return Ok(());
         }
-        let _metric_timer = metrics::WITNESSES_GC_TIME.start_timer();
 
         let final_head = self.final_head()?;
         let Ok(last_certified_height) =
