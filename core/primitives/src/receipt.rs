@@ -69,6 +69,7 @@ pub struct ReceiptV0 {
 ///
 /// `ReceiptV1` is not used, yet. It is only preparation for a possible future receipt priority.
 /// Therefore, most if not all code should keep using ReceiptV0, without the priority field.
+/// TODO(gas-keys): Remove ReceiptV1 as `priority_fee` was removed from `TransactionV1`.
 #[derive(
     BorshSerialize,
     BorshDeserialize,

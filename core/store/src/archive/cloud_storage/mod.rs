@@ -1,10 +1,16 @@
+use std::io::{Error, Result};
+
 use near_external_storage::ExternalConnection;
+use near_primitives::types::{BlockHeight, ShardId};
+
+use crate::archive::cloud_storage::block_data::BlockData;
+use crate::archive::cloud_storage::shard_data::ShardData;
 
 pub mod config;
-pub mod download;
-pub mod get;
 pub mod opener;
-pub mod upload;
+
+pub mod archive;
+pub mod retrieve;
 
 pub(super) mod block_data;
 pub(super) mod file_id;
@@ -15,4 +21,28 @@ pub struct CloudStorage {
     /// Connection to the external storage backend (e.g. S3, GCS, filesystem).
     external: ExternalConnection,
     chain_id: String,
+}
+
+impl CloudStorage {
+    pub fn get_block_data(&self, block_height: BlockHeight) -> Result<BlockData> {
+        let block_data =
+            block_on_future(self.retrieve_block_data(block_height)).map_err(Error::other)?;
+        Ok(block_data)
+    }
+
+    pub fn get_shard_data(
+        &self,
+        block_height: BlockHeight,
+        shard_id: ShardId,
+    ) -> Result<ShardData> {
+        let shard_data = block_on_future(self.retrieve_shard_data(block_height, shard_id))
+            .map_err(Error::other)?;
+        Ok(shard_data)
+    }
+}
+
+// TODO(cloud_archival): This is a temporary solution for development.
+// Ensure the final implementation does not negatively impact or crash the application.
+fn block_on_future<F: Future>(fut: F) -> F::Output {
+    futures::executor::block_on(fut)
 }

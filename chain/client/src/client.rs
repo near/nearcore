@@ -486,16 +486,18 @@ impl Client {
                     .to_transactions()
                     .into_iter()
                     .cloned()
-                    .filter_map(|signed_tx| match ValidatedTransaction::new(&config, signed_tx) {
-                        Ok(validated_tx) => Some(validated_tx),
-                        Err((err, signed_tx)) => {
-                            tracing::debug!(
-                                target: "client",
-                                ?signed_tx,
-                                ?err,
-                                "validating signed tx failed with error"
-                            );
-                            None
+                    .filter_map(|signed_tx| {
+                        match ValidatedTransaction::new(&config, signed_tx, protocol_version) {
+                            Ok(validated_tx) => Some(validated_tx),
+                            Err((err, signed_tx)) => {
+                                tracing::debug!(
+                                    target: "client",
+                                    ?signed_tx,
+                                    ?err,
+                                    "validating signed tx failed with error"
+                                );
+                                None
+                            }
                         }
                     })
                     .collect::<Vec<_>>();

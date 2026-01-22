@@ -14,7 +14,7 @@ use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBit
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
-    TransactionV0, TransactionV1, TransferAction,
+    TransactionNonce, TransactionV0, TransactionV1, TransferAction,
 };
 #[cfg(feature = "clock")]
 use crate::types::chunk_extra::ChunkExtra;
@@ -68,16 +68,14 @@ impl Transaction {
         receiver_id: AccountId,
         nonce: Nonce,
         block_hash: CryptoHash,
-        priority_fee: u64,
     ) -> Self {
         Transaction::V1(TransactionV1 {
             signer_id,
             public_key,
-            nonce,
+            nonce: TransactionNonce::from_nonce(nonce),
             receiver_id,
             block_hash,
             actions: vec![],
-            priority_fee,
         })
     }
 
@@ -91,7 +89,10 @@ impl Transaction {
     pub fn nonce_mut(&mut self) -> &mut Nonce {
         match self {
             Transaction::V0(tx) => &mut tx.nonce,
-            Transaction::V1(tx) => &mut tx.nonce,
+            Transaction::V1(tx) => match &mut tx.nonce {
+                TransactionNonce::Nonce { nonce } => nonce,
+                TransactionNonce::GasKeyNonce { nonce_index: _, nonce } => nonce,
+            },
         }
     }
 
@@ -175,15 +176,13 @@ impl SignedTransaction {
         .sign(signer)
     }
 
-    /// Explicitly create v1 transaction to test in cases where errors are expected.
     pub fn from_actions_v1(
-        nonce: Nonce,
+        nonce: TransactionNonce,
         signer_id: AccountId,
         receiver_id: AccountId,
         signer: &Signer,
         actions: Vec<Action>,
         block_hash: CryptoHash,
-        priority_fee: u64,
     ) -> Self {
         Transaction::V1(TransactionV1 {
             nonce,
@@ -192,7 +191,6 @@ impl SignedTransaction {
             receiver_id,
             block_hash,
             actions,
-            priority_fee,
         })
         .sign(signer)
     }
@@ -213,6 +211,24 @@ impl SignedTransaction {
             vec![Action::Transfer(TransferAction { deposit })],
             block_hash,
             0,
+        )
+    }
+
+    pub fn send_money_v1(
+        nonce: TransactionNonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        signer: &Signer,
+        deposit: Balance,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self::from_actions_v1(
+            nonce,
+            signer_id,
+            receiver_id,
+            signer,
+            vec![Action::Transfer(TransferAction { deposit })],
+            block_hash,
         )
     }
 
