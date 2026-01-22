@@ -276,7 +276,7 @@ fn submit_n_cheap_fns(
 /// See [`test_transaction_limit_for_remote_congestion`] for a similar test but
 /// with remote traffic.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_limit_for_local_congestion() {
     init_test_logger();
@@ -328,7 +328,7 @@ fn test_transaction_limit_for_local_congestion() {
 /// test but goes beyond `reject_tx_congestion_threshold` to test the tx
 /// rejection.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_limit_for_remote_congestion() {
     init_test_logger();
@@ -361,7 +361,7 @@ fn test_transaction_limit_for_remote_congestion() {
 
 /// Test that clients stop including transactions to fully congested receivers.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_transaction_filtering() {
     init_test_logger();
@@ -528,7 +528,7 @@ fn measure_tx_limit(
 /// Test that RPC clients stop accepting transactions when the receiver is
 /// congested.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_rpc_client_rejection() {
     let sender_id: AccountId = "test0".parse().unwrap();

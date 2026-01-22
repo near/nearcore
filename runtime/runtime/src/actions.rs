@@ -1,3 +1,4 @@
+use crate::access_keys::initial_nonce_value;
 use crate::config::{
     safe_add_compute, total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
 };
@@ -17,12 +18,11 @@ use near_primitives::receipt::{
     VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::transaction::{
-    Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
-    FunctionCallAction, StakeAction,
+    Action, DeleteAccountAction, DeployContractAction, FunctionCallAction, StakeAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, Nonce, StorageUsage,
+    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage,
 };
 use near_primitives::utils::account_is_implicit;
 use near_primitives::version::ProtocolVersion;
@@ -31,8 +31,7 @@ use near_primitives_core::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{
     StorageError, TrieAccess, TrieUpdate, enqueue_promise_yield_timeout, get_access_key,
-    get_promise_yield_indices, remove_access_key, remove_account, set_access_key,
-    set_promise_yield_indices,
+    get_promise_yield_indices, remove_account, set_access_key, set_promise_yield_indices,
 };
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
@@ -718,72 +717,6 @@ pub(crate) fn clear_account_contract_storage_usage(
     Ok(())
 }
 
-pub(crate) fn action_delete_key(
-    fee_config: &RuntimeFeesConfig,
-    state_update: &mut TrieUpdate,
-    account: &mut Account,
-    result: &mut ActionResult,
-    account_id: &AccountId,
-    delete_key: &DeleteKeyAction,
-) -> Result<(), StorageError> {
-    let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
-    if let Some(access_key) = access_key {
-        let storage_usage_config = &fee_config.storage_usage_config;
-        let storage_usage = borsh::object_length(&delete_key.public_key).unwrap() as u64
-            + borsh::object_length(&access_key).unwrap() as u64
-            + storage_usage_config.num_extra_bytes_record;
-        // Remove access key
-        remove_access_key(state_update, account_id.clone(), delete_key.public_key.clone());
-        account.set_storage_usage(account.storage_usage().saturating_sub(storage_usage));
-    } else {
-        result.result = Err(ActionErrorKind::DeleteKeyDoesNotExist {
-            public_key: delete_key.public_key.clone().into(),
-            account_id: account_id.clone(),
-        }
-        .into());
-    }
-    Ok(())
-}
-
-pub(crate) fn action_add_key(
-    apply_state: &ApplyState,
-    state_update: &mut TrieUpdate,
-    account: &mut Account,
-    result: &mut ActionResult,
-    account_id: &AccountId,
-    add_key: &AddKeyAction,
-) -> Result<(), StorageError> {
-    if get_access_key(state_update, account_id, &add_key.public_key)?.is_some() {
-        result.result = Err(ActionErrorKind::AddKeyAlreadyExists {
-            account_id: account_id.to_owned(),
-            public_key: add_key.public_key.clone().into(),
-        }
-        .into());
-        return Ok(());
-    }
-    let mut access_key = add_key.access_key.clone();
-    access_key.nonce = initial_nonce_value(apply_state.block_height);
-    set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
-
-    let storage_config = &apply_state.config.fees.storage_usage_config;
-    account.set_storage_usage(
-        account
-            .storage_usage()
-            .checked_add(
-                borsh::object_length(&add_key.public_key).unwrap() as u64
-                    + borsh::object_length(&add_key.access_key).unwrap() as u64
-                    + storage_config.num_extra_bytes_record,
-            )
-            .ok_or_else(|| {
-                StorageError::StorageInconsistentState(format!(
-                    "Storage usage integer overflow for account {}",
-                    account_id
-                ))
-            })?,
-    );
-    Ok(())
-}
-
 pub(crate) fn apply_delegate_action(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
@@ -1013,9 +946,7 @@ pub(crate) fn check_actor_permissions(
         | Action::AddKey(_)
         | Action::DeleteKey(_)
         | Action::DeployGlobalContract(_)
-        | Action::UseGlobalContract(_)
-        | Action::AddGasKey(_)
-        | Action::DeleteGasKey(_) => {
+        | Action::UseGlobalContract(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
                     account_id: account_id.clone(),
@@ -1043,7 +974,6 @@ pub(crate) fn check_actor_permissions(
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
         Action::Delegate(_) => (),
         Action::DeterministicStateInit(_) => (),
-        Action::TransferToGasKey(_) => (),
     };
     Ok(())
 }
@@ -1103,10 +1033,7 @@ pub(crate) fn check_account_existence(
         | Action::DeleteAccount(_)
         | Action::Delegate(_)
         | Action::DeployGlobalContract(_)
-        | Action::UseGlobalContract(_)
-        | Action::AddGasKey(_)
-        | Action::DeleteGasKey(_)
-        | Action::TransferToGasKey(_) => {
+        | Action::UseGlobalContract(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),
@@ -1152,12 +1079,6 @@ fn apply_recorded_storage_garbage(function_call: &FunctionCallAction, state_upda
             tracing::warn!(target: "runtime", %garbage_size_mbs, "generated storage proof garbage");
         }
     }
-}
-
-pub(crate) fn initial_nonce_value(block_height: BlockHeight) -> Nonce {
-    // Set default nonce for newly created access key to avoid transaction hash collision.
-    // See <https://github.com/near/nearcore/issues/3779>.
-    (block_height - 1) * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER
 }
 
 #[cfg(test)]

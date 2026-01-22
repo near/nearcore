@@ -45,7 +45,7 @@ pub fn build_block_data(store: &Store, block_height: BlockHeight) -> Result<Bloc
 }
 
 impl BlockData {
-    pub fn get_block(&self) -> &Block {
+    pub fn block(&self) -> &Block {
         match self {
             BlockData::V1(data) => &data.block,
         }

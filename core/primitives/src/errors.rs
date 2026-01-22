@@ -5,7 +5,6 @@ use crate::sharding::ChunkHash;
 use crate::types::{AccountId, Balance, EpochId, Nonce, SpiceChunkId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives_core::account::AccessKeyPermission;
 pub use near_primitives_core::errors::IntegerOverflowError;
 use near_primitives_core::types::Gas;
 use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
@@ -405,13 +404,15 @@ pub enum ActionsValidationError {
         length: u64,
         limit: u64,
     } = 16,
-    GasKeyPermissionInvalid {
-        permission: Box<AccessKeyPermission>,
-    } = 17,
     GasKeyTooManyNoncesRequested {
         requested_nonces: u32,
         limit: u32,
+    } = 17,
+    AddGasKeyWithNonZeroBalance {
+        balance: Balance,
     } = 18,
+    /// Gas keys with FunctionCall permission cannot have an allowance set.
+    GasKeyFunctionCallAllowanceNotAllowed = 19,
 }
 
 /// Describes the error for validating a receipt.
@@ -590,19 +591,22 @@ impl Display for ActionsValidationError {
                     "DeterministicStateInit contains value of length {length} but at most {limit} is allowed",
                 )
             }
-            ActionsValidationError::GasKeyPermissionInvalid { permission } => {
-                write!(
-                    f,
-                    "Gas key has invalid permission: {:?}. With FunctionCall, specifying allowance is not allowed.",
-                    permission
-                )
-            }
             ActionsValidationError::GasKeyTooManyNoncesRequested { requested_nonces, limit } => {
                 write!(
                     f,
                     "Gas key requested too many nonces: {} requested, but limit is {}",
                     requested_nonces, limit
                 )
+            }
+            ActionsValidationError::AddGasKeyWithNonZeroBalance { balance } => {
+                write!(
+                    f,
+                    "Adding a gas key with non-zero balance is not allowed: balance = {}",
+                    balance
+                )
+            }
+            ActionsValidationError::GasKeyFunctionCallAllowanceNotAllowed => {
+                write!(f, "Gas keys with FunctionCall permission cannot have an allowance set")
             }
         }
     }
@@ -753,14 +757,6 @@ pub enum ActionErrorKind {
     GlobalContractDoesNotExist {
         identifier: GlobalContractIdentifier,
     } = 22,
-    GasKeyDoesNotExist {
-        account_id: AccountId,
-        public_key: Box<PublicKey>,
-    } = 23,
-    GasKeyAlreadyExists {
-        account_id: AccountId,
-        public_key: Box<PublicKey>,
-    } = 24,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1038,20 +1034,6 @@ impl Display for ActionErrorKind {
             ),
             ActionErrorKind::GlobalContractDoesNotExist { identifier } => {
                 write!(f, "Global contract identifier {:?} not found", identifier)
-            }
-            ActionErrorKind::GasKeyDoesNotExist { account_id, public_key } => {
-                write!(
-                    f,
-                    "Gas key for account {:?} and public key {:?} does not exist",
-                    account_id, public_key
-                )
-            }
-            ActionErrorKind::GasKeyAlreadyExists { account_id, public_key } => {
-                write!(
-                    f,
-                    "Gas key for account {:?} and public key {:?} already exists",
-                    account_id, public_key
-                )
             }
         }
     }

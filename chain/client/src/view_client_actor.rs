@@ -421,11 +421,6 @@ impl ViewClientActor {
                     block_height,
                     block_hash,
                 } => QueryError::UnknownAccessKey { public_key, block_height, block_hash },
-                near_chain::near_chain_primitives::error::QueryError::UnknownGasKey {
-                    public_key,
-                    block_height,
-                    block_hash,
-                } => QueryError::UnknownGasKey { public_key, block_height, block_hash },
                 near_chain::near_chain_primitives::error::QueryError::ContractExecutionError {
                     error_message,
                     error,
@@ -465,8 +460,7 @@ impl ViewClientActor {
             | QueryRequest::ViewState { account_id, .. }
             | QueryRequest::ViewAccessKey { account_id, .. }
             | QueryRequest::ViewAccessKeyList { account_id, .. }
-            | QueryRequest::ViewGasKey { account_id, .. }
-            | QueryRequest::ViewGasKeyList { account_id }
+            | QueryRequest::ViewGasKeyNonces { account_id, .. }
             | QueryRequest::CallFunction { account_id, .. }
             | QueryRequest::ViewCode { account_id, .. } => {
                 account_id_to_shard_id(self.epoch_manager.as_ref(), account_id, &epoch_id)

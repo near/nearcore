@@ -340,7 +340,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
 
 #[test]
 #[cfg(feature = "test_features")]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_banning_chunk_producer_when_seeing_invalid_chunk() {
     init_test_logger();

@@ -21,6 +21,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::validate::validate_chunk_with_chunk_extra_and_roots;
 use near_chain::{ChainStore, ChainStoreAccess, Error};
 use near_chain_configs::MutableValidatorSigner;
+use near_client_primitives::types::BlockNotificationMessage;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -60,13 +61,6 @@ pub struct ChunkValidationSenderForPartialWitness {
 pub struct ChunkValidationSender {
     pub chunk_state_witness: Sender<ChunkStateWitnessMessage>,
     pub block_notification: Sender<BlockNotificationMessage>,
-}
-
-/// Message to notify the chunk validation actor about new blocks
-/// so it can process orphan witnesses that were waiting for these blocks.
-#[derive(Debug)]
-pub struct BlockNotificationMessage {
-    pub block: Arc<Block>,
 }
 
 /// An actor for validating chunk state witnesses and orphan witnesses.

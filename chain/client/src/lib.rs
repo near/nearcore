@@ -19,8 +19,8 @@ pub use crate::config_updater::ConfigUpdater;
 pub use crate::rpc_handler::{RpcHandlerActor, RpcHandlerConfig, spawn_rpc_handler_actor};
 pub use crate::state_request_actor::StateRequestActor;
 pub use crate::stateless_validation::chunk_validation_actor::{
-    BlockNotificationMessage, ChunkValidationActor, ChunkValidationSender,
-    ChunkValidationSenderForPartialWitness, HandleOrphanWitnessOutcome,
+    ChunkValidationActor, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
+    HandleOrphanWitnessOutcome,
 };
 pub use crate::view_client_actor::ViewClientActor;
 pub use chunk_producer::ProduceChunkResult;

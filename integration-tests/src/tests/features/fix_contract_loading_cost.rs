@@ -29,7 +29,7 @@ fn prepare_env_with_contract(
 
 /// Check that normal execution has the same gas cost after FixContractLoadingCost.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn unchanged_gas_cost() {
     if !ProtocolFeature::FixContractLoadingCost.enabled(PROTOCOL_VERSION) {
@@ -62,7 +62,7 @@ fn unchanged_gas_cost() {
 
 /// Check that execution that fails during contract preparation has the updated gas cost after the update.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn preparation_error_gas_cost() {
     if !ProtocolFeature::FixContractLoadingCost.enabled(PROTOCOL_VERSION) {

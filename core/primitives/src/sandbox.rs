@@ -23,10 +23,6 @@ pub mod state_patch {
             self.records.is_empty()
         }
 
-        pub fn clear(&mut self) {
-            self.records.clear();
-        }
-
         pub fn take(&mut self) -> SandboxStatePatch {
             Self { records: core::mem::take(&mut self.records) }
         }
@@ -58,8 +54,6 @@ pub mod state_patch {
         pub fn is_empty(&self) -> bool {
             true
         }
-        #[inline(always)]
-        pub fn clear(&self) {}
         #[inline(always)]
         pub fn take(&mut self) -> Self {
             Self
