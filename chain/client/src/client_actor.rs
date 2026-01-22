@@ -1055,7 +1055,6 @@ impl ClientActor {
             self.fastforward_delta = delta_height - right_before_epoch_update;
             right_before_epoch_update
         } else {
-            self.fastforward_delta = 0;
             delta_height
         };
 
