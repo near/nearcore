@@ -1665,7 +1665,7 @@ fn test_prepare_transactions_duplicate_nonces() {
     let group = iter.next().unwrap();
     let first_tx = group.peek_next().unwrap();
     let duplicate_nonce_tx = SignedTransaction::send_money(
-        first_tx.nonce(),
+        first_tx.nonce().nonce(),
         first_tx.signer_id().clone(),
         first_tx.receiver_id().clone(),
         &InMemorySigner::test_signer(&first_tx.signer_id()),
@@ -1689,12 +1689,12 @@ fn test_prepare_transactions_duplicate_nonces() {
     // Collect (public key, nonce) pairs to check for duplicates.
     let mut pk_nonce_set = HashSet::new();
     for tx in &txs.transactions {
-        let pk_nonce = (tx.public_key(), tx.nonce());
+        let pk_nonce = (tx.public_key(), tx.nonce().nonce());
         assert!(
             pk_nonce_set.insert(pk_nonce),
             "Duplicate transaction with public key {:?} and nonce {} found in prepared transactions",
             tx.public_key(),
-            tx.nonce()
+            tx.nonce().nonce()
         );
     }
 }
