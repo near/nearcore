@@ -453,8 +453,8 @@ pub fn validate_action(
         Action::TransferToGasKey(_) => {
             validate_transfer_to_gas_key_action(current_protocol_version)
         }
-        Action::TransferFromGasKey(_) => {
-            validate_transfer_from_gas_key_action(current_protocol_version)
+        Action::WithdrawFromGasKey(_) => {
+            validate_withdraw_from_gas_key_action(current_protocol_version)
         }
     }
 }
@@ -644,7 +644,7 @@ fn validate_transfer_to_gas_key_action(
     Ok(())
 }
 
-fn validate_transfer_from_gas_key_action(
+fn validate_withdraw_from_gas_key_action(
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;

@@ -145,7 +145,7 @@ pub fn total_send_fees(
             }
             // TODO(gas-keys): properly handle GasKey fees
             TransferToGasKey(_) => fees.fee(ActionCosts::transfer).send_fee(sender_is_receiver),
-            TransferFromGasKey(_) => fees.fee(ActionCosts::transfer).send_fee(sender_is_receiver),
+            WithdrawFromGasKey(_) => fees.fee(ActionCosts::transfer).send_fee(sender_is_receiver),
         };
         result = result.checked_add_result(delta)?;
     }
@@ -277,7 +277,7 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
         }
         // TODO(gas-keys): properly handle GasKey fees
         TransferToGasKey(_) => fees.fee(ActionCosts::transfer).exec_fee(),
-        TransferFromGasKey(_) => fees.fee(ActionCosts::transfer).exec_fee(),
+        WithdrawFromGasKey(_) => fees.fee(ActionCosts::transfer).exec_fee(),
     }
 }
 

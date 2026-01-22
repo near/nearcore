@@ -309,7 +309,7 @@ pub struct TransferToGasKeyAction {
     pub deposit: Balance,
 }
 
-/// Transfer NEAR from a gas key's balance to the account
+/// Withdraw NEAR from a gas key's balance to the account
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -322,7 +322,7 @@ pub struct TransferToGasKeyAction {
     ProtocolSchema,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct TransferFromGasKeyAction {
+pub struct WithdrawFromGasKeyAction {
     /// The public key of the gas key to withdraw from
     pub public_key: PublicKey,
     /// Amount of NEAR to transfer from the gas key
@@ -362,7 +362,7 @@ pub enum Action {
     UseGlobalContract(Box<UseGlobalContractAction>) = 10,
     DeterministicStateInit(Box<DeterministicStateInitAction>) = 11,
     TransferToGasKey(Box<TransferToGasKeyAction>) = 12,
-    TransferFromGasKey(Box<TransferFromGasKeyAction>) = 13,
+    WithdrawFromGasKey(Box<WithdrawFromGasKeyAction>) = 13,
 }
 
 const _: () = assert!(
@@ -451,8 +451,8 @@ impl From<TransferToGasKeyAction> for Action {
     }
 }
 
-impl From<TransferFromGasKeyAction> for Action {
-    fn from(action: TransferFromGasKeyAction) -> Self {
-        Self::TransferFromGasKey(Box::new(action))
+impl From<WithdrawFromGasKeyAction> for Action {
+    fn from(action: WithdrawFromGasKeyAction) -> Self {
+        Self::WithdrawFromGasKey(Box::new(action))
     }
 }

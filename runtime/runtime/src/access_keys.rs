@@ -3,7 +3,7 @@ use std::mem::size_of;
 use near_crypto::PublicKey;
 use near_parameters::RuntimeFeesConfig;
 use near_primitives::account::{AccessKey, Account, GasKeyInfo};
-use near_primitives::action::{TransferFromGasKeyAction, TransferToGasKeyAction};
+use near_primitives::action::{TransferToGasKeyAction, WithdrawFromGasKeyAction};
 use near_primitives::errors::{ActionErrorKind, RuntimeError};
 use near_primitives::transaction::{AddKeyAction, DeleteKeyAction};
 use near_primitives::types::{AccountId, BlockHeight, Compute, Nonce, NonceIndex, StorageUsage};
@@ -278,12 +278,12 @@ pub(crate) fn action_transfer_to_gas_key(
     Ok(())
 }
 
-pub(crate) fn action_transfer_from_gas_key(
+pub(crate) fn action_withdraw_from_gas_key(
     state_update: &mut TrieUpdate,
     account: &mut Account,
     result: &mut ActionResult,
     account_id: &AccountId,
-    action: &TransferFromGasKeyAction,
+    action: &WithdrawFromGasKeyAction,
 ) -> Result<(), RuntimeError> {
     let mut access_key = match get_access_key(state_update, account_id, &action.public_key)? {
         Some(key) => key,
@@ -766,7 +766,7 @@ mod tests {
     }
 
     #[test]
-    fn test_transfer_from_gas_key_success() {
+    fn test_withdraw_from_gas_key_success() {
         let (account_id, public_key, access_key) = test_account_keys();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
         let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
@@ -783,11 +783,11 @@ mod tests {
         // Withdraw some amount
         let withdraw_amount = Balance::from_yoctonear(400_000);
         let mut result = ActionResult::default();
-        let action = TransferFromGasKeyAction {
+        let action = WithdrawFromGasKeyAction {
             public_key: gas_key_public_key.clone(),
             amount: withdraw_amount,
         };
-        action_transfer_from_gas_key(
+        action_withdraw_from_gas_key(
             &mut state_update,
             &mut account,
             &mut result,
@@ -808,7 +808,7 @@ mod tests {
     }
 
     #[test]
-    fn test_transfer_from_gas_key_insufficient_balance() {
+    fn test_withdraw_from_gas_key_insufficient_balance() {
         let (account_id, public_key, access_key) = test_account_keys();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
         let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
@@ -824,11 +824,11 @@ mod tests {
         // Try to withdraw more than available
         let withdraw_amount = Balance::from_yoctonear(1_000);
         let mut result = ActionResult::default();
-        let action = TransferFromGasKeyAction {
+        let action = WithdrawFromGasKeyAction {
             public_key: gas_key_public_key.clone(),
             amount: withdraw_amount,
         };
-        action_transfer_from_gas_key(
+        action_withdraw_from_gas_key(
             &mut state_update,
             &mut account,
             &mut result,
@@ -850,7 +850,7 @@ mod tests {
     }
 
     #[test]
-    fn test_transfer_from_gas_key_nonexistent_key() {
+    fn test_withdraw_from_gas_key_nonexistent_key() {
         let (account_id, public_key, access_key) = test_account_keys();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
         let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
@@ -859,11 +859,11 @@ mod tests {
             InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "nonexistent")
                 .public_key();
         let mut result = ActionResult::default();
-        let action = TransferFromGasKeyAction {
+        let action = WithdrawFromGasKeyAction {
             public_key: nonexistent_key.clone(),
             amount: Balance::from_yoctonear(1_000),
         };
-        action_transfer_from_gas_key(
+        action_withdraw_from_gas_key(
             &mut state_update,
             &mut account,
             &mut result,
@@ -883,18 +883,18 @@ mod tests {
     }
 
     #[test]
-    fn test_transfer_from_gas_key_not_gas_key() {
+    fn test_withdraw_from_gas_key_not_gas_key() {
         let (account_id, public_key, access_key) = test_account_keys();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
         let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
 
         // Try to withdraw from a regular access key
         let mut result = ActionResult::default();
-        let action = TransferFromGasKeyAction {
+        let action = WithdrawFromGasKeyAction {
             public_key: public_key.clone(),
             amount: Balance::from_yoctonear(1_000),
         };
-        action_transfer_from_gas_key(
+        action_withdraw_from_gas_key(
             &mut state_update,
             &mut account,
             &mut result,

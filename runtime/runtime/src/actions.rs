@@ -947,7 +947,7 @@ pub(crate) fn check_actor_permissions(
         | Action::DeleteKey(_)
         | Action::DeployGlobalContract(_)
         | Action::UseGlobalContract(_)
-        | Action::TransferFromGasKey(_) => {
+        | Action::WithdrawFromGasKey(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
                     account_id: account_id.clone(),
@@ -1039,7 +1039,7 @@ pub(crate) fn check_account_existence(
         | Action::DeployGlobalContract(_)
         | Action::UseGlobalContract(_)
         | Action::TransferToGasKey(_)
-        | Action::TransferFromGasKey(_) => {
+        | Action::WithdrawFromGasKey(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),

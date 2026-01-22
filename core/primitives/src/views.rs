@@ -7,8 +7,8 @@ use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermis
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::action::{
     DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
-    GlobalContractIdentifier, TransferFromGasKeyAction, TransferToGasKeyAction,
-    UseGlobalContractAction,
+    GlobalContractIdentifier, TransferToGasKeyAction, UseGlobalContractAction,
+    WithdrawFromGasKeyAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -1449,7 +1449,7 @@ pub enum ActionView {
         public_key: PublicKey,
         deposit: Balance,
     } = 14,
-    TransferFromGasKey {
+    WithdrawFromGasKey {
         public_key: PublicKey,
         amount: Balance,
     } = 15,
@@ -1515,7 +1515,7 @@ impl From<Action> for ActionView {
                 public_key: action.public_key,
                 deposit: action.deposit,
             },
-            Action::TransferFromGasKey(action) => ActionView::TransferFromGasKey {
+            Action::WithdrawFromGasKey(action) => ActionView::WithdrawFromGasKey {
                 public_key: action.public_key,
                 amount: action.amount,
             },
@@ -1590,8 +1590,8 @@ impl TryFrom<ActionView> for Action {
             ActionView::TransferToGasKey { public_key, deposit } => {
                 Action::TransferToGasKey(Box::new(TransferToGasKeyAction { public_key, deposit }))
             }
-            ActionView::TransferFromGasKey { public_key, amount } => {
-                Action::TransferFromGasKey(Box::new(TransferFromGasKeyAction {
+            ActionView::WithdrawFromGasKey { public_key, amount } => {
+                Action::WithdrawFromGasKey(Box::new(WithdrawFromGasKeyAction {
                     public_key,
                     amount,
                 }))

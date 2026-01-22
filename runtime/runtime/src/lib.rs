@@ -1,7 +1,7 @@
 // cspell:ignore contractregistry
 
 use crate::access_keys::{
-    action_add_key, action_delete_key, action_transfer_from_gas_key, action_transfer_to_gas_key,
+    action_add_key, action_delete_key, action_transfer_to_gas_key, action_withdraw_from_gas_key,
 };
 use crate::actions::*;
 use crate::config::{
@@ -561,14 +561,14 @@ impl Runtime {
                     transfer_to_gas_key,
                 )?;
             }
-            Action::TransferFromGasKey(transfer_from_gas_key) => {
-                metrics::ACTION_CALLED_COUNT.transfer_from_gas_key.inc();
-                action_transfer_from_gas_key(
+            Action::WithdrawFromGasKey(withdraw_from_gas_key) => {
+                metrics::ACTION_CALLED_COUNT.withdraw_from_gas_key.inc();
+                action_withdraw_from_gas_key(
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
                     account_id,
-                    transfer_from_gas_key,
+                    withdraw_from_gas_key,
                 )?;
             }
         };
