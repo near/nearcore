@@ -306,7 +306,7 @@ pub(crate) fn action_withdraw_from_gas_key(
         return Ok(());
     };
 
-    if gas_key_info.balance < action.amount {
+    let Some(updated_balance) = gas_key_info.balance.checked_sub(action.amount) else {
         result.result = Err(ActionErrorKind::InsufficientGasKeyBalance {
             account_id: account_id.clone(),
             public_key: Box::new(action.public_key.clone()),
@@ -315,8 +315,8 @@ pub(crate) fn action_withdraw_from_gas_key(
         }
         .into());
         return Ok(());
-    }
-    gas_key_info.balance = gas_key_info.balance.checked_sub(action.amount).unwrap();
+    };
+    gas_key_info.balance = updated_balance;
     set_access_key(state_update, account_id.clone(), action.public_key.clone(), &access_key);
 
     let new_account_balance = account.amount().checked_add(action.amount).ok_or_else(|| {
