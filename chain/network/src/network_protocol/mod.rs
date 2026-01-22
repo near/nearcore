@@ -795,24 +795,6 @@ impl RoutedMessageBody {
             _ => false,
         }
     }
-
-    pub fn is_t1(&self) -> bool {
-        match self {
-            RoutedMessageBody::BlockApproval(_)
-            | RoutedMessageBody::VersionedPartialEncodedChunk(_)
-            | RoutedMessageBody::PartialEncodedChunkForward(_)
-            | RoutedMessageBody::PartialEncodedStateWitness(_)
-            | RoutedMessageBody::PartialEncodedStateWitnessForward(_)
-            | RoutedMessageBody::VersionedChunkEndorsement(_)
-            | RoutedMessageBody::ChunkContractAccesses(_)
-            | RoutedMessageBody::ContractCodeRequest(_)
-            | RoutedMessageBody::ContractCodeResponse(_)
-            | RoutedMessageBody::SpicePartialData(_)
-            | RoutedMessageBody::SpiceChunkEndorsement(_)
-            | RoutedMessageBody::SpicePartialDataRequest(..) => true,
-            _ => false,
-        }
-    }
 }
 
 impl fmt::Debug for RoutedMessageBody {
