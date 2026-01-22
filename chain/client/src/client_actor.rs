@@ -305,11 +305,11 @@ pub struct ClientActor {
 
     #[cfg(feature = "sandbox")]
     fastforward_delta: near_primitives::types::BlockHeightDelta,
-    /// Tracks whether a fast-forward operation is currently in progress.
-    /// This is separate from fastforward_delta because delta can be 0 while
-    /// blocks are still being produced. See https://github.com/near/nearcore/issues/9690
+    /// The target block height we're waiting for during fast-forward.
+    /// Set when a fast-forward request comes in, cleared when head reaches target.
+    /// See https://github.com/near/nearcore/issues/9690
     #[cfg(feature = "sandbox")]
-    fastforward_in_progress: bool,
+    fastforward_target_height: Option<near_primitives::types::BlockHeight>,
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
@@ -447,7 +447,7 @@ impl ClientActor {
             #[cfg(feature = "sandbox")]
             fastforward_delta: 0,
             #[cfg(feature = "sandbox")]
-            fastforward_in_progress: false,
+            fastforward_target_height: None,
             shutdown_signal,
             config_updater,
             sync_jobs_sender,
@@ -728,38 +728,35 @@ impl
                 )
             }
             near_client_primitives::types::SandboxMessage::SandboxFastForward(delta_height) => {
-                if self.fastforward_in_progress {
+                if self.fastforward_target_height.is_some() {
                     return near_client_primitives::types::SandboxResponse::SandboxFastForwardFailed(
                         "Consecutive fast_forward requests cannot be made while a current one is going on.".to_string());
                 }
 
+                let target = match self.client.chain.head() {
+                    Ok(head) => head.height + delta_height,
+                    Err(_) => {
+                        return near_client_primitives::types::SandboxResponse::SandboxFastForwardFailed(
+                            "Failed to get current head height.".to_string());
+                    }
+                };
                 self.fastforward_delta = delta_height;
-                self.fastforward_in_progress = true;
+                self.fastforward_target_height = Some(target);
                 near_client_primitives::types::SandboxResponse::SandboxNoResponse
             }
             near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus => {
-                // Check if fast-forward is complete by verifying:
-                // 1. No more blocks scheduled to skip (fastforward_delta == 0)
-                // 2. Chain head has caught up to target (head.height >= latest_known.height)
-                //
-                // We track fastforward_in_progress explicitly because fastforward_delta
-                // can temporarily be 0 during processing while blocks are still being produced.
-                // See: https://github.com/near/nearcore/issues/9690
-                if self.fastforward_in_progress {
-                    let done = self.fastforward_delta == 0
-                        && match (
-                            self.client.chain.head(),
-                            self.client.chain.chain_store().get_latest_known(),
-                        ) {
-                            (Ok(head), Ok(latest_known)) => head.height >= latest_known.height,
-                            _ => false,
-                        };
-                    if done {
-                        self.fastforward_in_progress = false;
+                // Check if fast-forward is complete by verifying head has reached target.
+                // We track target explicitly because fastforward_delta can be 0 while
+                // blocks are still being produced. See https://github.com/near/nearcore/issues/9690
+                if let Some(target) = self.fastforward_target_height {
+                    if let Ok(head) = self.client.chain.head() {
+                        if head.height >= target {
+                            self.fastforward_target_height = None;
+                        }
                     }
                 }
                 near_client_primitives::types::SandboxResponse::SandboxFastForwardFinished(
-                    !self.fastforward_in_progress,
+                    self.fastforward_target_height.is_none(),
                 )
             }
         }
