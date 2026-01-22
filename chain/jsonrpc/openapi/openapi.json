@@ -2132,6 +2132,64 @@
               "GlobalContractDoesNotExist"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key does not exist for the specified public key",
+            "properties": {
+              "GasKeyDoesNotExist": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyDoesNotExist"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key does not have sufficient balance for the requested withdrawal",
+            "properties": {
+              "InsufficientGasKeyBalance": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "required": {
+                    "$ref": "#/components/schemas/NearToken"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "public_key",
+                  "balance",
+                  "required"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "InsufficientGasKeyBalance"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -2438,6 +2496,54 @@
             },
             "required": [
               "DeterministicStateInit"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "TransferToGasKey": {
+                "properties": {
+                  "deposit": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "public_key",
+                  "deposit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "TransferToGasKey"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "WithdrawFromGasKey": {
+                "properties": {
+                  "amount": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "public_key",
+                  "amount"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "WithdrawFromGasKey"
             ],
             "type": "object"
           }
@@ -11111,6 +11217,30 @@
               "DeterministicStateInit"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "TransferToGasKey": {
+                "$ref": "#/components/schemas/TransferToGasKeyAction"
+              }
+            },
+            "required": [
+              "TransferToGasKey"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "WithdrawFromGasKey": {
+                "$ref": "#/components/schemas/WithdrawFromGasKeyAction"
+              }
+            },
+            "required": [
+              "WithdrawFromGasKey"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -19567,6 +19697,32 @@
         ],
         "type": "object"
       },
+      "TransferToGasKeyAction": {
+        "description": "Transfer NEAR to a gas key's balance",
+        "properties": {
+          "deposit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Amount of NEAR to transfer to the gas key"
+          },
+          "public_key": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            ],
+            "description": "The public key of the gas key to fund"
+          }
+        },
+        "required": [
+          "public_key",
+          "deposit"
+        ],
+        "type": "object"
+      },
       "TxExecutionError": {
         "description": "Error returned in the ExecutionOutcome in case of failure",
         "oneOf": [
@@ -20124,6 +20280,32 @@
             "type": "string"
           }
         ]
+      },
+      "WithdrawFromGasKeyAction": {
+        "description": "Withdraw NEAR from a gas key's balance to the account",
+        "properties": {
+          "amount": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Amount of NEAR to transfer from the gas key"
+          },
+          "public_key": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            ],
+            "description": "The public key of the gas key to withdraw from"
+          }
+        },
+        "required": [
+          "public_key",
+          "amount"
+        ],
+        "type": "object"
       },
       "WitnessConfigView": {
         "description": "Configuration specific to ChunkStateWitness.",
