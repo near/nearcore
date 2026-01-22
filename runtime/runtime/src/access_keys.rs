@@ -248,16 +248,13 @@ pub(crate) fn action_transfer_to_gas_key(
     account_id: &AccountId,
     action: &TransferToGasKeyAction,
 ) -> Result<(), RuntimeError> {
-    let mut access_key = match get_access_key(state_update, account_id, &action.public_key)? {
-        Some(key) => key,
-        None => {
-            result.result = Err(ActionErrorKind::GasKeyDoesNotExist {
-                account_id: account_id.clone(),
-                public_key: Box::new(action.public_key.clone()),
-            }
-            .into());
-            return Ok(());
+    let Some(mut access_key) = get_access_key(state_update, account_id, &action.public_key)? else {
+        result.result = Err(ActionErrorKind::GasKeyDoesNotExist {
+            account_id: account_id.clone(),
+            public_key: Box::new(action.public_key.clone()),
         }
+        .into());
+        return Ok(());
     };
     let Some(gas_key_info) = access_key.gas_key_info_mut() else {
         // Key exists but is not a gas key
@@ -285,16 +282,13 @@ pub(crate) fn action_withdraw_from_gas_key(
     account_id: &AccountId,
     action: &WithdrawFromGasKeyAction,
 ) -> Result<(), RuntimeError> {
-    let mut access_key = match get_access_key(state_update, account_id, &action.public_key)? {
-        Some(key) => key,
-        None => {
-            result.result = Err(ActionErrorKind::GasKeyDoesNotExist {
-                account_id: account_id.clone(),
-                public_key: Box::new(action.public_key.clone()),
-            }
-            .into());
-            return Ok(());
+    let Some(mut access_key) = get_access_key(state_update, account_id, &action.public_key)? else {
+        result.result = Err(ActionErrorKind::GasKeyDoesNotExist {
+            account_id: account_id.clone(),
+            public_key: Box::new(action.public_key.clone()),
         }
+        .into());
+        return Ok(());
     };
     let Some(gas_key_info) = access_key.gas_key_info_mut() else {
         // Key exists but is not a gas key
