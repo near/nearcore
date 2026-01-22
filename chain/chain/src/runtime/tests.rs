@@ -28,6 +28,7 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::receipt::{ActionReceipt, ReceiptV1};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
 use near_primitives::trie_key::TrieKey;
@@ -147,13 +148,12 @@ impl TestEnv {
         let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
         let genesis_hash = hash(&[0]);
 
+        let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         if config.create_flat_storage {
             // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behavior
             // and use a mock chain, so we need to initialize flat storage manually.
             let flat_storage_manager = runtime.get_flat_storage_manager();
-            for shard_uid in
-                epoch_manager.get_shard_layout(&EpochId::default()).unwrap().shard_uids()
-            {
+            for shard_uid in shard_layout.shard_uids() {
                 let mut store_update = store.store_update();
                 flat_storage_manager.set_flat_storage_for_genesis(
                     &mut store_update.flat_store_update(),
@@ -183,7 +183,14 @@ impl TestEnv {
                     genesis_total_supply,
                     genesis_protocol_version,
                     0,
-                    None,
+                    ChunkEndorsementsBitmap::from_endorsements(vec![
+                        vec![
+                            true;
+                            validators_len as usize
+                        ];
+                        shard_layout.num_shards()
+                            as usize
+                    ]),
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
@@ -306,9 +313,22 @@ impl TestEnv {
     }
 
     pub fn step(&mut self, transactions: Vec<Vec<SignedTransaction>>, chunk_mask: Vec<bool>) {
-        let new_hash = hash(&[(self.head.height + 1) as u8]);
+        let new_height = self.head.height + 1;
+        let new_hash = hash(&[new_height as u8]);
         let shard_ids = self.epoch_manager.shard_ids(&self.head.epoch_id).unwrap();
         let shard_layout = self.epoch_manager.get_shard_layout(&self.head.epoch_id).unwrap();
+        let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
+            shard_ids
+                .iter()
+                .map(|shard_id| {
+                    let assignments = self
+                        .epoch_manager
+                        .get_chunk_validator_assignments(&self.head.epoch_id, *shard_id, new_height)
+                        .unwrap();
+                    vec![true; assignments.assignments().iter().len()]
+                })
+                .collect(),
+        );
         assert_eq!(transactions.len(), shard_ids.len());
         assert_eq!(chunk_mask.len(), shard_ids.len());
         let mut all_proposals = vec![];
@@ -330,7 +350,7 @@ impl TestEnv {
             .add_validator_proposals(
                 BlockInfo::new(
                     new_hash,
-                    self.head.height + 1,
+                    new_height,
                     self.head.height.saturating_sub(1),
                     self.head.last_block_hash,
                     self.head.last_block_hash,
@@ -339,7 +359,7 @@ impl TestEnv {
                     self.runtime.genesis_config.total_supply,
                     self.runtime.genesis_config.protocol_version,
                     self.time + 10u64.pow(9),
-                    None,
+                    chunk_endorsements,
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
@@ -852,7 +872,11 @@ fn test_state_sync() {
                     new_env.runtime.genesis_config.total_supply,
                     new_env.runtime.genesis_config.protocol_version,
                     new_env.time,
-                    None,
+                    ChunkEndorsementsBitmap::from_endorsements(vec![
+                        vec![true; num_nodes as usize];
+                        shard_layout.num_shards()
+                            as usize
+                    ]),
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
