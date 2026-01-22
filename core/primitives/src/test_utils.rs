@@ -91,7 +91,7 @@ impl Transaction {
             Transaction::V0(tx) => &mut tx.nonce,
             Transaction::V1(tx) => match &mut tx.nonce {
                 TransactionNonce::Nonce { nonce } => nonce,
-                TransactionNonce::NonceAndIndex { nonce_index: _, nonce } => nonce,
+                TransactionNonce::GasKeyNonce { nonce_index: _, nonce } => nonce,
             },
         }
     }

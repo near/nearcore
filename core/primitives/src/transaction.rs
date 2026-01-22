@@ -51,7 +51,7 @@ pub enum TransactionNonce {
     /// Simple nonce without index, used by ordinary access keys
     Nonce { nonce: Nonce },
     /// Nonce with index, used by gas keys
-    NonceAndIndex { nonce: Nonce, nonce_index: NonceIndex },
+    GasKeyNonce { nonce: Nonce, nonce_index: NonceIndex },
 }
 
 impl TransactionNonce {
@@ -60,20 +60,20 @@ impl TransactionNonce {
     }
 
     pub fn from_nonce_and_index(nonce: Nonce, nonce_index: NonceIndex) -> Self {
-        TransactionNonce::NonceAndIndex { nonce, nonce_index }
+        TransactionNonce::GasKeyNonce { nonce, nonce_index }
     }
 
     pub fn nonce(&self) -> Nonce {
         match self {
             TransactionNonce::Nonce { nonce } => *nonce,
-            TransactionNonce::NonceAndIndex { nonce, .. } => *nonce,
+            TransactionNonce::GasKeyNonce { nonce, .. } => *nonce,
         }
     }
 
     pub fn nonce_index(&self) -> Option<NonceIndex> {
         match self {
             TransactionNonce::Nonce { .. } => None,
-            TransactionNonce::NonceAndIndex { nonce_index, .. } => Some(*nonce_index),
+            TransactionNonce::GasKeyNonce { nonce_index, .. } => Some(*nonce_index),
         }
     }
 }
