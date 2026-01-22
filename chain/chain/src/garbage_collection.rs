@@ -24,7 +24,7 @@ use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
 
-use crate::spice_core::get_uncertified_chunks;
+use crate::spice_core::get_last_certified_block_height;
 use crate::types::RuntimeAdapter;
 use crate::{Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate, metrics};
 
@@ -162,7 +162,7 @@ impl ChainStore {
         // cleaning old blocks.
         let result = self
             .clear_state_transition_data(epoch_manager.as_ref())
-            .and(self.clear_witnesses_data(epoch_manager.as_ref()));
+            .and(self.clear_witnesses_data());
 
         result.and(self.clear_old_blocks_data(
             gc_config,
@@ -385,13 +385,13 @@ impl ChainStore {
         Ok(())
     }
 
-    /// Clears witnesses data for chunks with older heights than those certified
-    /// by the final block.
+    /// Clears witnesses data for chunks with heights less than or equal to the last
+    /// certified block height, considered from the final head.
     ///
     /// Witnesses can be garbage collected with higher cadence because there is
     /// no need to retain witnesses once the corresponding chunks are certified
     /// by the final block.
-    fn clear_witnesses_data(&self, epoch_manager: &dyn EpochManagerAdapter) -> Result<(), Error> {
+    fn clear_witnesses_data(&self) -> Result<(), Error> {
         if !cfg!(feature = "protocol_feature_spice") {
             return Ok(());
         }
@@ -400,51 +400,12 @@ impl ChainStore {
         let _span =
             tracing::debug_span!(target: "garbage_collection", "clear_witnesses_data").entered();
 
-        let Ok(final_execution_head) = self.spice_final_execution_head() else {
-            // This can happen due to async execution.
-            tracing::debug!(target: "garbage_collection", "could not get spice final execution head");
+        let final_head = self.final_head()?;
+        let Ok(last_certified_height) =
+            get_last_certified_block_height(&self, &final_head.last_block_hash)
+        else {
+            tracing::debug!(target: "garbage_collection", "could not get last certified block height");
             return Ok(());
-        };
-        let final_block_hash = final_execution_head.last_block_hash;
-        let Ok(final_block) = self.get_block(&final_block_hash) else {
-            // This can happen if the node just did state sync.
-            tracing::debug!(target: "garbage_collection", ?final_block_hash, "could not get spice final execution block");
-            return Ok(());
-        };
-
-        // Cache block heights to avoid repeated DB lookups
-        let mut block_height_map: HashMap<CryptoHash, BlockHeight> = HashMap::new();
-        let mut get_block_height = |block_hash: &CryptoHash| -> Result<BlockHeight, Error> {
-            if let Some(height) = block_height_map.get(block_hash) {
-                Ok(*height)
-            } else {
-                let height = self.get_block_height(block_hash)?;
-                block_height_map.insert(*block_hash, height);
-                Ok(height)
-            }
-        };
-        // Get min block height among uncertified chunks for each shard
-        let uncertified_chunks = get_uncertified_chunks(&self, &final_block_hash)?;
-        let mut final_block_min_uncertified_heights: HashMap<ShardId, BlockHeight> = HashMap::new();
-        for chunk_info in uncertified_chunks {
-            let entry = final_block_min_uncertified_heights
-                .entry(chunk_info.chunk_id.shard_id)
-                .or_insert(BlockHeight::MAX);
-            let chunk_height = get_block_height(&chunk_info.chunk_id.block_hash)?;
-            if chunk_height < *entry {
-                *entry = chunk_height;
-            }
-        }
-
-        // In case we don't know about a shard_id, we will keep the witness for the following shards.
-        let relevant_shards: HashSet<_> = {
-            let shard_layout = epoch_manager
-                .get_shard_layout(final_block.header().epoch_id())
-                .expect("epoch id must exist");
-            let next_epoch_shard_layout = epoch_manager
-                .get_shard_layout(final_block.header().next_epoch_id())
-                .expect("next epoch id must exist");
-            shard_layout.shard_ids().chain(next_epoch_shard_layout.shard_ids()).collect()
         };
 
         let mut total_entries = 0;
@@ -452,23 +413,13 @@ impl ChainStore {
         let mut store_update = self.store().store_update();
         for (key, _) in self.store().iter(DBCol::witnesses()) {
             total_entries += 1;
-            let (block_hash, shard_id) = get_block_shard_id_rev(&key).map_err(|err| {
+            let (block_hash, _shard_id) = get_block_shard_id_rev(&key).map_err(|err| {
                 Error::StorageError(near_store::StorageError::StorageInconsistentState(format!(
                     "invalid witnesses key: {err:?}"
                 )))
             })?;
-
-            let Some(final_height) = final_block_min_uncertified_heights.get(&shard_id) else {
-                if !relevant_shards.contains(&shard_id) {
-                    store_update.delete(DBCol::witnesses(), &key);
-                    entries_cleared += 1;
-                }
-                // Witnesses may correspond to a shard that is created in next epoch.
-                continue;
-            };
-
             let block_height = self.get_block_height(&block_hash)?;
-            if block_height < *final_height {
+            if block_height <= last_certified_height {
                 store_update.delete(DBCol::witnesses(), &key);
                 entries_cleared += 1;
             }

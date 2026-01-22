@@ -6,6 +6,7 @@ use itertools::Itertools;
 use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_chain::spice_core::get_last_certified_block_height;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{ProcessTxRequest, Query, ViewClientActor};
 use near_network::client::SpiceChunkEndorsementMessage;
@@ -315,34 +316,44 @@ fn test_spice_garbage_collection_witnesses() {
         .clients(clients)
         .build();
 
-    let execution_delay = 4;
     // We delay endorsements to simulate slow execution validation causing execution to lag behind.
+    let execution_delay = 4;
     delay_endorsements_propagation(&mut env, execution_delay);
     env = env.warmup();
 
-    let node = TestLoopNode::rpc(&env.node_datas);
+    // Use a chunk producer node (not RPC) since only chunk producers store witnesses.
+    let producer_node = TestLoopNode::from(env.node_datas[0].clone());
     env.test_loop.run_until(
-        |test_loop_data| node.tail(test_loop_data) >= epoch_length,
+        |test_loop_data| {
+            let chain_store = &producer_node.client(test_loop_data).chain.chain_store;
+            let final_head = chain_store.final_head().unwrap();
+            get_last_certified_block_height(chain_store, &final_head.last_block_hash).unwrap_or(0)
+                >= 10
+        },
         Duration::seconds(20),
     );
-
-    let chain_store = &node.client(env.test_loop_data()).chain.chain_store;
-    assert_witnesses_data_is_cleared(
-        chain_store,
-        &shard_layout.shard_ids().collect(),
-        execution_delay,
-    );
+    let shard_tracker = &producer_node.client(env.test_loop_data()).shard_tracker;
+    let tracked_shards: Vec<_> = shard_layout
+        .shard_ids()
+        // This gets tracked shards for genesis, but it should not change during the test.
+        .filter(|shard_id| shard_tracker.cares_about_shard(&CryptoHash::default(), *shard_id))
+        .collect();
+    let chain_store = &producer_node.client(env.test_loop_data()).chain.chain_store;
+    assert_witness_gc_invariant(chain_store, &tracked_shards);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
-fn assert_witnesses_data_is_cleared(
-    chain_store: &ChainStoreAdapter,
-    expected_shard_ids: &HashSet<ShardId>,
-    execution_delay: u64,
-) {
-    let final_execution_head = chain_store.spice_final_execution_head().unwrap();
-    let final_execution_height = final_execution_head.height;
+/// Verifies witness GC invariant: witness exists iff block is uncertified.
+///
+/// From the perspective of final_head:
+/// - Certified blocks (height <= last_certified_height): witness should NOT exist
+/// - Uncertified blocks (height > last_certified_height): witness SHOULD exist
+fn assert_witness_gc_invariant(chain_store: &ChainStoreAdapter, tracked_shards: &[ShardId]) {
+    let final_head = chain_store.final_head().unwrap();
+    let last_certified_height =
+        get_last_certified_block_height(chain_store, &final_head.last_block_hash).unwrap();
+    let execution_head = chain_store.spice_execution_head().unwrap();
     let store = chain_store.store().store();
 
     // Verify that old witnesses are cleared
@@ -350,26 +361,20 @@ fn assert_witnesses_data_is_cleared(
         let (block_hash, shard_id) = get_block_shard_id_rev(&key).unwrap();
         let block_height = chain_store.get_block_height(&block_hash).unwrap();
         assert!(
-            expected_shard_ids.contains(&shard_id),
-            "witnesses gc didn't clear data for shard {shard_id}"
-        );
-        assert!(
-            block_height >= final_execution_height - execution_delay - 1,
-            "witnesses data contains too old block height {block_height} while final_execution_height is {final_execution_height}"
+            // Note we allow 1 block difference here since GC is async.
+            block_height > last_certified_height - 1,
+            "witness at height {block_height} shard {shard_id} should have been GC'd (last_certified_height = {last_certified_height})"
         );
     }
 
-    // Verify that recent witnesses still exist
-    let head_height = chain_store.head().unwrap().height;
-    let expected_witnesses = head_height - execution_delay - 1;
-    assert!(final_execution_height < expected_witnesses);
-    for height in (final_execution_height - execution_delay)..expected_witnesses {
+    // Verify that recent witnesses for uncertified blocks exist
+    for height in (last_certified_height + 1)..=execution_head.height {
         let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
-        for shard_id in expected_shard_ids {
-            let key = near_primitives::utils::get_block_shard_id(&block_hash, *shard_id);
+        for &shard_id in tracked_shards {
+            let key = near_primitives::utils::get_block_shard_id(&block_hash, shard_id);
             assert!(
                 store.get(DBCol::witnesses(), &key).is_some(),
-                "witnesses data for block at height {height} and shard {shard_id} was incorrectly GC'd"
+                "witness at height {height} shard {shard_id} should exist"
             );
         }
     }
