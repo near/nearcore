@@ -16,8 +16,12 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockReference};
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockReference, ShardId};
+use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind};
+use near_store::DBCol;
+use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::{Mutex, RwLock};
 
 use crate::setup::builder::TestLoopBuilder;
@@ -284,6 +288,91 @@ fn test_spice_garbage_collection() {
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+// TODO(spice-resharding): Add a test for witness GC during resharding.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_garbage_collection_witnesses() {
+    init_test_logger();
+
+    let num_producers = 2;
+    let num_validators = 0;
+    let validators_spec = create_validators_spec(num_producers, num_validators);
+    let clients = validators_spec_clients_with_rpc(&validators_spec);
+
+    let epoch_length = 5;
+    let shard_layout = ShardLayout::multi_shard(2, 0);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .validators_spec(validators_spec)
+        .shard_layout(shard_layout.clone())
+        .epoch_length(epoch_length)
+        .build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .gc_num_epochs_to_keep(1)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .build();
+
+    let execution_delay = 4;
+    // We delay endorsements to simulate slow execution validation causing execution to lag behind.
+    delay_endorsements_propagation(&mut env, execution_delay);
+    env = env.warmup();
+
+    let node = TestLoopNode::rpc(&env.node_datas);
+    env.test_loop.run_until(
+        |test_loop_data| node.tail(test_loop_data) >= epoch_length,
+        Duration::seconds(20),
+    );
+
+    let chain_store = &node.client(env.test_loop_data()).chain.chain_store;
+    assert_witnesses_data_is_cleared(
+        chain_store,
+        &shard_layout.shard_ids().collect(),
+        execution_delay,
+    );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+fn assert_witnesses_data_is_cleared(
+    chain_store: &ChainStoreAdapter,
+    expected_shard_ids: &HashSet<ShardId>,
+    execution_delay: u64,
+) {
+    let final_execution_head = chain_store.spice_final_execution_head().unwrap();
+    let final_execution_height = final_execution_head.height;
+    let store = chain_store.store().store();
+
+    // Verify that old witnesses are cleared
+    for (key, _) in store.iter(DBCol::witnesses()) {
+        let (block_hash, shard_id) = get_block_shard_id_rev(&key).unwrap();
+        let block_height = chain_store.get_block_height(&block_hash).unwrap();
+        assert!(
+            expected_shard_ids.contains(&shard_id),
+            "witnesses gc didn't clear data for shard {shard_id}"
+        );
+        assert!(
+            block_height >= final_execution_height - execution_delay - 1,
+            "witnesses data contains too old block height {block_height} while final_execution_height is {final_execution_height}"
+        );
+    }
+
+    // Verify that recent witnesses still exist
+    let head_height = chain_store.head().unwrap().height;
+    let expected_witnesses = head_height - execution_delay - 1;
+    assert!(final_execution_height < expected_witnesses);
+    for height in (final_execution_height - execution_delay)..expected_witnesses {
+        let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
+        for shard_id in expected_shard_ids {
+            let key = near_primitives::utils::get_block_shard_id(&block_hash, *shard_id);
+            assert!(
+                store.get(DBCol::witnesses(), &key).is_some(),
+                "witnesses data for block at height {height} and shard {shard_id} was incorrectly GC'd"
+            );
+        }
+    }
 }
 
 #[test]
