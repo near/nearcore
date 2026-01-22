@@ -15,6 +15,7 @@ use near_store::archive::cloud_storage::CloudStorage;
 use near_store::db::CLOUD_HEAD_KEY;
 use near_store::{COLD_HEAD_KEY, DBCol, Store};
 
+use crate::setup::builder::NodeStateBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::node::TestLoopNode;
 
@@ -128,7 +129,7 @@ fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY).unwrap().unwrap().height
 }
 
-/// Runs tests verifying that data for the block height exists in the archive,
+/// Runs tests to verify that data for the block height exists in the archive.
 pub fn check_data_at_height(env: &TestLoopEnv, archival_id: &AccountId, height: BlockHeight) {
     let cloud_storage = get_cloud_storage(env, archival_id);
     let block_data = cloud_storage.get_block_data(height).unwrap();
@@ -179,4 +180,21 @@ pub fn snapshots_sanity_check(
     }
     // Snapshots for the most recent epoch have not been uploaded yet.
     assert_eq!(epoch_heights_with_snapshot, HashSet::from_iter(1..final_epoch_height));
+}
+
+pub fn bootstrap_reader_at_height(
+    env: &mut TestLoopEnv,
+    reader_id: &AccountId,
+    _height: BlockHeight,
+) {
+    let genesis = env.shared_state.genesis.clone();
+    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
+    let node_state = NodeStateBuilder::new(genesis, tempdir_path)
+        .account_id(reader_id.clone())
+        .cloud_storage(true)
+        .build();
+    env.add_node(reader_id.as_ref(), node_state);
+
+    // TODO(cloud_archive) Bootstrap the reader node with all the data needed to answer
+    // queries from the epoch of block at the given height.
 }
