@@ -317,14 +317,12 @@ impl ChainStore {
         Ok(())
     }
 
+    #[tracing::instrument(target = "garbage_collection", level = "debug", skip_all)]
     fn clear_state_transition_data(
         &self,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> Result<(), Error> {
         let _metric_timer = metrics::STATE_TRANSITION_DATA_GC_TIME.start_timer();
-        let _span =
-            tracing::debug_span!(target: "garbage_collection", "clear_state_transition_data")
-                .entered();
 
         let final_block_hash =
             *self.get_block_header(&self.head()?.last_block_hash)?.last_final_block();
@@ -391,14 +389,12 @@ impl ChainStore {
     /// Witnesses can be garbage collected with higher cadence because there is
     /// no need to retain witnesses once the corresponding chunks are certified
     /// by the final block.
+    #[tracing::instrument(target = "garbage_collection", level = "debug", skip_all)]
     fn clear_witnesses_data(&self) -> Result<(), Error> {
         if !cfg!(feature = "protocol_feature_spice") {
             return Ok(());
         }
-
         let _metric_timer = metrics::WITNESSES_GC_TIME.start_timer();
-        let _span =
-            tracing::debug_span!(target: "garbage_collection", "clear_witnesses_data").entered();
 
         let final_head = self.final_head()?;
         let Ok(last_certified_height) =
