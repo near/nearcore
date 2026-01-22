@@ -1,0 +1,1 @@
+{"action": "apply", "unique_id": "rc-test", "start_height": 160684617, "location_set": "us-east1,europe-west4,asia-east1,us-west1", "chunk_producers": 11, "chunk_validators": 0, "archival_nodes": "true", "state_dumper": "false", "tracing_server": "false"}
