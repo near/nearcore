@@ -649,10 +649,9 @@ pub(crate) fn action_delete_account(
     // We use current amount as a pay out to beneficiary.
     let account_balance = account_ref.amount();
     if account_balance > Balance::ZERO {
-        result.new_receipts.push(Receipt::new_balance_refund(
-            &delete_account.beneficiary_id,
-            account_balance,
-        ));
+        result
+            .new_receipts
+            .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
     }
     remove_account(state_update, account_id)?;
     *actor_id = receipt.predecessor_id().clone();

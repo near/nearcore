@@ -71,8 +71,7 @@ fn send_tx(
     actions: Vec<Action>,
 ) -> ProcessTxResponse {
     let hash = env.clients[0].chain.head().unwrap().last_block_hash;
-    let tx =
-        SignedTransaction::from_actions(nonce, signer_id, receiver_id, signer, actions, hash);
+    let tx = SignedTransaction::from_actions(nonce, signer_id, receiver_id, signer, actions, hash);
     env.rpc_handlers[0].process_tx(tx, false, false)
 }
 
