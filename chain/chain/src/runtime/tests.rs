@@ -16,6 +16,7 @@ use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::test_utils::TEST_SEED;
 use near_o11y::testonly::init_test_logger;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::action::{AddKeyAction, FunctionCallAction};
@@ -1895,7 +1896,7 @@ fn test_prepare_transactions_extra_gas_key() {
         vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
         prev_hash,
     );
-    let mut pool = TransactionPool::new([42; 32], None, "");
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
     pool.insert_transaction(ValidatedTransaction::new_for_test(gas_key_tx.clone()));
 
     // Call prepare_transactions_extra directly on runtime
