@@ -18,7 +18,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::testonly::init_test_logger;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
-use near_primitives::action::FunctionCallAction;
+use near_primitives::action::{AddKeyAction, FunctionCallAction};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::block::Tip;
@@ -30,7 +30,9 @@ use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
+use near_primitives::transaction::{
+    Action, DeleteAccountAction, StakeAction, TransactionNonce, TransferAction,
+};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::Gas;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -1848,11 +1850,6 @@ fn test_prepare_transactions_extra() {
 // TODO(gas-keys): Remove "nightly" feature once stable features support it.
 #[cfg_attr(not(all(feature = "test_features", feature = "nightly")), ignore)]
 fn test_prepare_transactions_extra_gas_key() {
-    use crate::types::PrepareTransactionsBlockContext;
-    use near_primitives::account::AccessKey;
-    use near_primitives::transaction::{AddKeyAction, TransactionNonce};
-    use near_store::get_gas_key_nonce;
-
     let validators: Vec<AccountId> =
         (0..4).map(|i| format!("test{}", i + 1).parse().unwrap()).collect();
     let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(id)).collect();
