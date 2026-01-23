@@ -2795,8 +2795,6 @@ mod tests {
         );
     }
 
-    // ==================== Gas Key Transaction Verification Tests ====================
-
     #[test]
     fn test_gas_key_tx_valid_full_access() {
         let config = RuntimeConfig::test();
