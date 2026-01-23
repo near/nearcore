@@ -9,7 +9,6 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
-pub use crate::key_state::KeyState;
 use crate::metrics::{
     TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL,
     TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL,
@@ -21,7 +20,7 @@ use crate::verifier::{
 };
 pub use crate::verifier::{
     ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
-    validate_transaction, verify_and_charge_tx_ephemeral,
+    validate_transaction, verify_and_charge_gas_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
 };
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
@@ -111,7 +110,6 @@ mod conversions;
 mod deterministic_account_id;
 pub mod ext;
 mod global_contracts;
-mod key_state;
 pub mod metrics;
 mod pipelining;
 mod prefetch;
@@ -240,6 +238,8 @@ pub struct VerificationResult {
     pub receipt_gas_price: Balance,
     /// The balance that was burnt to convert the transaction into a receipt and send it.
     pub burnt_amount: Balance,
+    /// For gas key transactions: the nonce index and new nonce value to persist.
+    pub gas_key_nonce_update: Option<(NonceIndex, Nonce)>,
 }
 
 #[derive(Debug)]
@@ -1782,11 +1782,13 @@ impl Runtime {
                 Some(Err(e)) => return Err(e.clone().into()),
                 None => unreachable!("access keys should've been prefetched"),
             };
-            // Create KeyState abstraction for transaction verification
-            let mut key_state = if let Some(nonce_index) = tx.transaction.nonce().nonce_index() {
+            // Verify and charge based on transaction type (gas key vs regular access key)
+            let verification_result = if let Some(nonce_index) =
+                tx.transaction.nonce().nonce_index()
+            {
                 // Gas key transaction - load nonce from prefetched cache
-                let mut nonce_entry = gas_key_nonces.get_mut(&(signer_id, pubkey, nonce_index));
-                let current_nonce = match nonce_entry.as_deref_mut() {
+                let nonce_entry = gas_key_nonces.get(&(signer_id, pubkey, nonce_index));
+                let current_nonce = match nonce_entry.as_deref() {
                     Some(Ok(Some(n))) => *n,
                     Some(Ok(None)) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
@@ -1808,31 +1810,51 @@ impl Runtime {
                     Some(Err(e)) => return Err(e.clone().into()),
                     None => unreachable!("gas key nonces should've been prefetched"),
                 };
-                KeyState::from_gas_key(access_key, nonce_index, current_nonce)
+                match verify_and_charge_gas_key_tx_ephemeral(
+                    &processing_state.apply_state.config,
+                    account,
+                    access_key,
+                    nonce_index,
+                    current_nonce,
+                    &tx.transaction,
+                    &cost,
+                    Some(block_height),
+                ) {
+                    Ok(vr) => vr,
+                    Err(error) => {
+                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                        tracing::debug!(%tx_hash, error=&error as &dyn std::error::Error, "transaction failed verify/charge");
+                        let outcome = ExecutionOutcomeWithId::failed(tx, error);
+                        Self::register_outcome(
+                            processing_state.protocol_version,
+                            &mut processing_state.outcomes,
+                            outcome,
+                        );
+                        continue;
+                    }
+                }
             } else {
                 // Regular access key transaction
-                KeyState::from_access_key(access_key)
-            };
-
-            let verification_result = match verify_and_charge_tx_ephemeral(
-                &processing_state.apply_state.config,
-                account,
-                &mut key_state,
-                &tx.transaction,
-                &cost,
-                Some(block_height),
-            ) {
-                Ok(v) => v,
-                Err(error) => {
-                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    tracing::debug!(%tx_hash, error=&error as &dyn std::error::Error, "transaction failed verify/charge");
-                    let outcome = ExecutionOutcomeWithId::failed(tx, error);
-                    Self::register_outcome(
-                        processing_state.protocol_version,
-                        &mut processing_state.outcomes,
-                        outcome,
-                    );
-                    continue;
+                match verify_and_charge_tx_ephemeral(
+                    &processing_state.apply_state.config,
+                    account,
+                    access_key,
+                    &tx.transaction,
+                    &cost,
+                    Some(block_height),
+                ) {
+                    Ok(vr) => vr,
+                    Err(error) => {
+                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                        tracing::debug!(%tx_hash, error=&error as &dyn std::error::Error, "transaction failed verify/charge");
+                        let outcome = ExecutionOutcomeWithId::failed(tx, error);
+                        Self::register_outcome(
+                            processing_state.protocol_version,
+                            &mut processing_state.outcomes,
+                            outcome,
+                        );
+                        continue;
+                    }
                 }
             };
 
@@ -1908,7 +1930,7 @@ impl Runtime {
             metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
             set_account(&mut processing_state.state_update, signer_id.clone(), account);
             // Update gas key nonce if applicable
-            if let Some((nonce_index, new_nonce)) = key_state.gas_key_nonce_update() {
+            if let Some((nonce_index, new_nonce)) = verification_result.gas_key_nonce_update {
                 set_gas_key_nonce(
                     &mut processing_state.state_update,
                     signer_id.clone(),

@@ -28,7 +28,7 @@ use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
 use node_runtime::config::tx_cost;
 use node_runtime::{
-    ApplyState, KeyState, Runtime, SignedValidPeriodTransactions, get_signer_and_access_key,
+    ApplyState, Runtime, SignedValidPeriodTransactions, get_signer_and_access_key,
     set_tx_state_changes, verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
@@ -463,11 +463,10 @@ impl Testbed<'_> {
         let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)
             .expect("getting signer and access key should not fail in estimator");
 
-        let mut key_state = KeyState::from_access_key(&mut access_key);
         verify_and_charge_tx_ephemeral(
             &self.apply_state.config,
             &mut signer,
-            &mut key_state,
+            &mut access_key,
             validated_tx.to_tx(),
             &cost,
             block_height,

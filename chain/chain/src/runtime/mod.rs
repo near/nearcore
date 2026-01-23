@@ -53,8 +53,9 @@ use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
-    ApplyState, KeyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
-    get_signer_and_access_key, validate_transaction, verify_and_charge_tx_ephemeral,
+    ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
+    get_signer_and_access_key, validate_transaction, verify_and_charge_gas_key_tx_ephemeral,
+    verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -665,24 +666,45 @@ impl RuntimeAdapter for NightshadeRuntime {
         current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
-
-        let cost = tx_cost(runtime_config, &validated_tx.to_tx(), gas_price)?;
+        let tx = validated_tx.to_tx();
+        let cost = tx_cost(runtime_config, &tx, gas_price)?;
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
         let (mut signer, mut access_key) = get_signer_and_access_key(&trie, &validated_tx)?;
-        let mut key_state = KeyState::from_access_key(&mut access_key);
-        verify_and_charge_tx_ephemeral(
-            runtime_config,
-            &mut signer,
-            &mut key_state,
-            validated_tx.to_tx(),
-            &cost,
-            // here we do not know which block the transaction will be included
-            // and therefore skip the check on the nonce upper bound.
-            None,
-        )
-        .map(|_vr| ())
+        // Here we do not know which block the transaction will be included and
+        // therefore use `None` as `block_height` to skip the check on the nonce
+        // upper bound.
+        let block_height: Option<BlockHeight> = None;
+        if let Some(nonce_index) = tx.nonce().nonce_index() {
+            let current_nonce =
+                get_gas_key_nonce(&trie, tx.signer_id(), tx.public_key(), nonce_index)?
+                    .ok_or_else(|| InvalidTxError::InvalidNonce {
+                        tx_nonce: tx.nonce().nonce(),
+                        ak_nonce: 0,
+                    })?;
+            verify_and_charge_gas_key_tx_ephemeral(
+                runtime_config,
+                &mut signer,
+                &access_key,
+                nonce_index,
+                current_nonce,
+                &tx,
+                &cost,
+                block_height,
+            )
+            .map(|_vr| ())
+        } else {
+            verify_and_charge_tx_ephemeral(
+                runtime_config,
+                &mut signer,
+                &mut access_key,
+                &tx,
+                &cost,
+                block_height,
+            )
+            .map(|_vr| ())
+        }
     }
 
     #[instrument(
@@ -933,23 +955,31 @@ impl RuntimeAdapter for NightshadeRuntime {
                         continue;
                     }
                 };
-                let mut key_state = match cache.gas_key_nonce {
-                    Some((idx, nonce)) => KeyState::from_gas_key(&mut cache.access_key, idx, nonce),
-                    None => KeyState::from_access_key(&mut cache.access_key),
+                let verify_result = if let Some((idx, nonce)) = cache.gas_key_nonce {
+                    verify_and_charge_gas_key_tx_ephemeral(
+                        runtime_config,
+                        &mut cache.account,
+                        &cache.access_key,
+                        idx,
+                        nonce,
+                        validated_tx.to_tx(),
+                        &cost,
+                        Some(next_block_height),
+                    )
+                } else {
+                    verify_and_charge_tx_ephemeral(
+                        runtime_config,
+                        &mut cache.account,
+                        &mut cache.access_key,
+                        validated_tx.to_tx(),
+                        &cost,
+                        Some(next_block_height),
+                    )
                 };
-                let verify_result = verify_and_charge_tx_ephemeral(
-                    runtime_config,
-                    &mut cache.account,
-                    &mut key_state,
-                    validated_tx.to_tx(),
-                    &cost,
-                    Some(next_block_height),
-                );
-
                 // Update cached gas key nonce for subsequent transactions
-                if let Some((_, new_nonce)) = key_state.gas_key_nonce_update() {
-                    if let Some((_, cached_nonce)) = &mut cache.gas_key_nonce {
-                        *cached_nonce = new_nonce;
+                if let Ok(ref vr) = verify_result {
+                    if let Some((idx, new_nonce)) = vr.gas_key_nonce_update {
+                        cache.gas_key_nonce = Some((idx, new_nonce));
                     }
                 }
 
