@@ -386,7 +386,7 @@ impl ChainStore {
     /// Clears witnesses data for chunks with heights less than or equal to the last
     /// certified block height, considered from the final head.
     ///
-    /// Witnesses can be garbage collected with higher cadence because there is
+    /// Witnesses should be garbage collected with higher cadence because there is
     /// no need to retain witnesses once the corresponding chunks are certified
     /// by the final block.
     #[tracing::instrument(target = "garbage_collection", level = "debug", skip_all)]
