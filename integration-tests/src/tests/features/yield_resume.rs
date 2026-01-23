@@ -95,9 +95,12 @@ fn prepare_env(test_env_gas_limit: Option<u64>) -> TestEnv {
     env
 }
 
-/// In this test, yield and resume are invoked in separate transactions as quickly as possible.
+/// Submit one transaction which yields and saves data_id to state.
+/// Process 2 blocks.
+/// Submit another transaction which reads data_id from state and resumes.
+/// Yield-resume should work.
 #[test]
-fn yield_then_resume() {
+fn test_yield_then_resume_one_block_apart() {
     let mut env = prepare_env(None);
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -178,4 +181,90 @@ fn yield_then_resume() {
         env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
         FinalExecutionStatus::SuccessValue(vec![16u8]),
     );
+}
+
+/// Submit one transaction which yields and saves data_id to state.
+/// Submit another transaction which reads data_id from state and resumes.
+/// The transactions are executed in the same block.
+/// Yield-resume should work.
+/// Before ProtocolFeature::InstantYieldResume, the resume transaction failed in this scenario.
+/// With the feature everything should work fine.
+/// See https://github.com/near/nearcore/issues/14904, this test reproduces case 2)
+#[test]
+fn test_yield_then_resume_same_block() {
+    let mut env = prepare_env(None);
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let mut next_block_height = NEXT_BLOCK_HEIGHT_AFTER_SETUP;
+    let yield_payload = vec![6u8; 16];
+
+    // Add a transaction invoking `yield_create`.
+    let yield_transaction = SignedTransaction::from_actions(
+        200,
+        "test0".parse().unwrap(),
+        "test0".parse().unwrap(),
+        &signer,
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "call_yield_create_return_promise".to_string(),
+            args: yield_payload.clone(),
+            gas: Gas::from_teragas(300),
+            deposit: Balance::ZERO,
+        }))],
+        *genesis_block.hash(),
+    );
+    let yield_tx_hash = yield_transaction.get_hash();
+    assert_eq!(
+        env.rpc_handlers[0].process_tx(yield_transaction, false, false),
+        ProcessTxResponse::ValidTx
+    );
+
+    // Add another transaction invoking `yield_resume`.
+    let resume_transaction = SignedTransaction::from_actions(
+        201,
+        "test0".parse().unwrap(),
+        "test0".parse().unwrap(),
+        &signer,
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "call_yield_resume_read_data_id_from_storage".to_string(),
+            args: yield_payload,
+            gas: Gas::from_teragas(300),
+            deposit: Balance::ZERO,
+        }))],
+        *genesis_block.hash(),
+    );
+    let resume_tx_hash = resume_transaction.get_hash();
+    assert_eq!(
+        env.rpc_handlers[0].process_tx(resume_transaction, false, false),
+        ProcessTxResponse::ValidTx
+    );
+
+    // Allow the yield create and resume to be included and processed.
+    for _ in 0..3 {
+        env.produce_block(0, next_block_height);
+        next_block_height += 1;
+    }
+
+    if ProtocolFeature::InstantPromiseYield.enabled(PROTOCOL_VERSION) {
+        // Resumed callback executed, transaction finished successfully
+        assert_eq!(
+            env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
+            FinalExecutionStatus::SuccessValue(vec![16u8]),
+        );
+        // promise_yield_resume returned 1 (resumption succeeded)
+        assert_eq!(
+            env.clients[0].chain.get_partial_transaction_result(&resume_tx_hash).unwrap().status,
+            FinalExecutionStatus::SuccessValue(vec![1u8]),
+        );
+    } else {
+        // Resume callback has not executed, transaction is still waiting for resume
+        assert_eq!(
+            env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
+            FinalExecutionStatus::Started,
+        );
+        // promise_yield_resume returned 0 (resumption failed)
+        assert_eq!(
+            env.clients[0].chain.get_partial_transaction_result(&resume_tx_hash).unwrap().status,
+            FinalExecutionStatus::SuccessValue(vec![0u8]),
+        );
+    }
 }
