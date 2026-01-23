@@ -565,9 +565,10 @@ pub fn get_last_certified_block_header(
     if let Some(header) = oldest_uncertified {
         Ok(chain_store.get_block_header(header.prev_hash())?)
     } else {
+        let block = chain_store.get_block(block_hash)?;
         debug_assert!(
-            false,
-            "in the current implementation, a block cannot be immediately certified (soonest is next block)"
+            block.header().is_genesis(),
+            "spice blocks (except genesis) should always have uncertified chunks"
         );
         Ok(chain_store.get_block_header(block_hash)?)
     }
