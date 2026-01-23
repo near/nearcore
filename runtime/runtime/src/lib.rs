@@ -584,6 +584,7 @@ impl Runtime {
         preparation_pipeline: &ReceiptPreparationPipeline,
         receipt: &Receipt,
         receipt_sink: &mut ReceiptSink,
+        instant_receipts: &mut VecDeque<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ChunkApplyStatsV0,
         epoch_info_provider: &dyn EpochInfoProvider,
@@ -851,15 +852,21 @@ impl Runtime {
                         | ReceiptEnum::PromiseYieldV2(_)
                 );
 
-                let res =
-                    receipt_sink.forward_or_buffer_receipt(new_receipt, apply_state, state_update);
-                if let Err(e) = res {
-                    Some(Err(e))
-                } else if is_action {
-                    Some(Ok(receipt_id))
+                if new_receipt.is_instant_receipt(apply_state.current_protocol_version) {
+                    // Instant receipts are not sent as outgoing receipts, they will be processed immediately.
+                    instant_receipts.push_back(new_receipt);
                 } else {
-                    None
+                    // Send out the receipt as an outgoing receipt.
+                    if let Err(e) = receipt_sink.forward_or_buffer_receipt(
+                        new_receipt,
+                        apply_state,
+                        state_update,
+                    ) {
+                        return Some(Err(e));
+                    }
                 }
+
+                if is_action { Some(Ok(receipt_id)) } else { None }
             })
             .collect::<Result<_, _>>()?;
 
@@ -992,6 +999,7 @@ impl Runtime {
             epoch_info_provider,
             ref pipeline_manager,
             ref mut stats,
+            ref mut instant_receipts,
             ..
         } = *processing_state;
         let account_id = receipt.receiver_id();
@@ -1059,6 +1067,7 @@ impl Runtime {
                                 pipeline_manager,
                                 &ready_receipt,
                                 receipt_sink,
+                                instant_receipts,
                                 validator_proposals,
                                 stats,
                                 epoch_info_provider,
@@ -1087,6 +1096,7 @@ impl Runtime {
                 let executed = self.process_action_receipt(
                     receipt,
                     receipt_sink,
+                    instant_receipts,
                     validator_proposals,
                     state_update,
                     apply_state,
@@ -1133,6 +1143,7 @@ impl Runtime {
                             pipeline_manager,
                             &yield_receipt,
                             receipt_sink,
+                            instant_receipts,
                             validator_proposals,
                             stats,
                             epoch_info_provider,
@@ -1170,6 +1181,7 @@ impl Runtime {
         &self,
         receipt: &Receipt,
         receipt_sink: &mut ReceiptSink,
+        instant_receipts: &mut VecDeque<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
@@ -1206,6 +1218,7 @@ impl Runtime {
                     pipeline_manager,
                     receipt,
                     receipt_sink,
+                    instant_receipts,
                     validator_proposals,
                     stats,
                     epoch_info_provider,
@@ -2001,7 +2014,7 @@ impl Runtime {
                 }
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
-                self.process_receipt_with_metrics(
+                self.process_receipt_and_instant_receipts(
                     &receipt,
                     &mut processing_state,
                     receipt_sink,
@@ -2102,7 +2115,7 @@ impl Runtime {
                 ))
             })?;
 
-            self.process_receipt_with_metrics(
+            self.process_receipt_and_instant_receipts(
                 &receipt,
                 &mut processing_state,
                 receipt_sink,
@@ -2185,7 +2198,7 @@ impl Runtime {
                     }
                 }
 
-                self.process_receipt_with_metrics(
+                self.process_receipt_and_instant_receipts(
                     &receipt,
                     &mut processing_state,
                     receipt_sink,
@@ -2202,6 +2215,33 @@ impl Runtime {
             processing_state.total.gas,
             processing_state.total.compute,
         );
+        Ok(())
+    }
+
+    /// Process a receipt and then immediately process all newly generated instant receipts.
+    fn process_receipt_and_instant_receipts(
+        &self,
+        receipt: &Receipt,
+        processing_state: &mut ApplyProcessingReceiptState,
+        receipt_sink: &mut ReceiptSink,
+        validator_proposals: &mut Vec<ValidatorStake>,
+    ) -> Result<(), RuntimeError> {
+        self.process_receipt_with_metrics(
+            receipt,
+            processing_state,
+            receipt_sink,
+            validator_proposals,
+        )?;
+
+        while let Some(instant_receipt) = processing_state.instant_receipts.pop_front() {
+            self.process_receipt_with_metrics(
+                &instant_receipt,
+                processing_state,
+                receipt_sink,
+                validator_proposals,
+            )?;
+        }
+
         Ok(())
     }
 
@@ -2731,6 +2771,7 @@ impl<'a> ApplyProcessingState<'a> {
             outcomes: Vec::new(),
             metrics: metrics::ApplyMetrics::default(),
             local_receipts: VecDeque::new(),
+            instant_receipts: VecDeque::new(),
             incoming_receipts,
             delayed_receipts,
         }
@@ -2750,6 +2791,9 @@ struct ApplyProcessingReceiptState<'a> {
     outcomes: Vec<ExecutionOutcomeWithId>,
     metrics: ApplyMetrics,
     local_receipts: VecDeque<Receipt>,
+    /// Stores instant receipts generated while applying the current receipt. An instant receipt is
+    /// a receipt which should be processed immediately after the receipt that produced it.
+    instant_receipts: VecDeque<Receipt>,
     incoming_receipts: &'a [Receipt],
     delayed_receipts: DelayedReceiptQueueWrapper<'a>,
     pipeline_manager: pipelining::ReceiptPreparationPipeline,
@@ -2880,6 +2924,7 @@ pub mod estimator {
     use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
     use near_store::{ShardUId, TrieUpdate};
     use std::collections::HashMap;
+    use std::collections::VecDeque;
     use std::num::NonZeroU64;
 
     pub fn apply_action_receipt(
@@ -2887,6 +2932,7 @@ pub mod estimator {
         apply_state: &ApplyState,
         receipt: &Receipt,
         outgoing_receipts: &mut Vec<Receipt>,
+        instant_receipts: &mut VecDeque<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ChunkApplyStatsV0,
         epoch_info_provider: &dyn EpochInfoProvider,
@@ -2932,6 +2978,7 @@ pub mod estimator {
             &empty_pipeline,
             receipt,
             &mut receipt_sink,
+            instant_receipts,
             validator_proposals,
             stats,
             epoch_info_provider,
