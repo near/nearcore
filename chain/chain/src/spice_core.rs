@@ -10,8 +10,8 @@ use near_primitives::stateless_validation::spice_chunk_endorsement::{
     SpiceEndorsementCoreStatement, SpiceStoredVerifiedEndorsement,
 };
 use near_primitives::types::{
-    AccountId, BlockExecutionResults, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash,
-    ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
+    AccountId, BlockExecutionResults, ChunkExecutionResult, ChunkExecutionResultHash, ShardId,
+    SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
 use near_primitives::utils::{get_endorsements_key, get_execution_results_key};
 use near_store::adapter::StoreAdapter as _;
@@ -554,18 +554,21 @@ fn find_oldest_uncertified_block_header(
     Ok(uncertified_block_headers.into_iter().min_by_key(|header| header.height()))
 }
 
-/// Returns the height of the last fully certified block relative to the given block.
+/// Returns the header of the last fully certified block relative to the given block.
 /// All chunks in blocks at or below this height have been certified.
-pub fn get_last_certified_block_height(
+pub fn get_last_certified_block_header(
     chain_store: &ChainStoreAdapter,
     block_hash: &CryptoHash,
-) -> Result<BlockHeight, Error> {
+) -> Result<Arc<BlockHeader>, Error> {
     let uncertified_chunks = get_uncertified_chunks(chain_store, block_hash)?;
     let oldest_uncertified = find_oldest_uncertified_block_header(chain_store, uncertified_chunks)?;
     if let Some(header) = oldest_uncertified {
-        let prev_header = chain_store.get_block_header(header.prev_hash())?;
-        Ok(prev_header.height())
+        Ok(chain_store.get_block_header(header.prev_hash())?)
     } else {
-        Ok(chain_store.get_block_header(block_hash)?.height())
+        debug_assert!(
+            false,
+            "in the current implementation, a block cannot be immediately certified (soonest is next block)"
+        );
+        Ok(chain_store.get_block_header(block_hash)?)
     }
 }

@@ -6,7 +6,7 @@ use itertools::Itertools;
 use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
-use near_chain::spice_core::get_last_certified_block_height;
+use near_chain::spice_core::get_last_certified_block_header;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{ProcessTxRequest, Query, ViewClientActor};
 use near_network::client::SpiceChunkEndorsementMessage;
@@ -327,7 +327,8 @@ fn test_spice_garbage_collection_witnesses() {
         |test_loop_data| {
             let chain_store = &producer_node.client(test_loop_data).chain.chain_store;
             let final_head = chain_store.final_head().unwrap();
-            get_last_certified_block_height(chain_store, &final_head.last_block_hash).unwrap_or(0)
+            get_last_certified_block_header(chain_store, &final_head.last_block_hash)
+                .map_or(0, |header| header.height())
                 >= 10
         },
         Duration::seconds(20),
@@ -352,7 +353,7 @@ fn test_spice_garbage_collection_witnesses() {
 fn assert_witness_gc_invariant(chain_store: &ChainStoreAdapter, tracked_shards: &[ShardId]) {
     let final_head = chain_store.final_head().unwrap();
     let last_certified_height =
-        get_last_certified_block_height(chain_store, &final_head.last_block_hash).unwrap();
+        get_last_certified_block_header(chain_store, &final_head.last_block_hash).unwrap().height();
     let execution_head = chain_store.spice_execution_head().unwrap();
     let store = chain_store.store().store();
 
