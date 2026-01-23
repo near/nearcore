@@ -257,6 +257,10 @@ pub fn verify_and_charge_tx_ephemeral(
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
 ) -> Result<VerificationResult, InvalidTxError> {
+    // Regular access key transactions must not have a nonce_index
+    if let Some(idx) = tx.nonce().nonce_index() {
+        return Err(InvalidTxError::InvalidNonceIndex { tx_nonce_index: Some(idx), num_nonces: 0 });
+    }
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
     let account_id = tx.signer_id();
@@ -308,7 +312,102 @@ pub fn verify_and_charge_tx_ephemeral(
     // Update state
     access_key.nonce = tx_nonce;
     account.set_amount(new_amount);
-    Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
+    Ok(VerificationResult {
+        gas_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        burnt_amount,
+        gas_key_nonce_update: None,
+    })
+}
+
+/// Verify and charge for gas key transactions.
+///
+/// Similar to `verify_and_charge_tx_ephemeral` but for gas keys where the nonce
+/// is stored separately from the access key.
+///
+/// The new nonce is returned in `VerificationResult.gas_key_nonce_update`.
+///
+/// TODO(gas-keys): Charge gas key balance instead of account balance.
+pub fn verify_and_charge_gas_key_tx_ephemeral(
+    config: &RuntimeConfig,
+    account: &mut Account,
+    access_key: &AccessKey,
+    current_nonce: Nonce,
+    tx: &Transaction,
+    transaction_cost: &TransactionCost,
+    block_height: Option<BlockHeight>,
+) -> Result<VerificationResult, InvalidTxError> {
+    let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
+        *transaction_cost;
+    let account_id = tx.signer_id();
+
+    // Validate that access key is a gas key
+    let Some(gas_key_info) = access_key.gas_key_info() else {
+        return Err(InvalidTxError::InvalidAccessKeyError(
+            InvalidAccessKeyError::AccessKeyNotFound {
+                account_id: account_id.clone(),
+                public_key: Box::new(tx.public_key().clone()),
+            },
+        ));
+    };
+
+    // Validate nonce_index is present and in valid range
+    let Some(nonce_index) = tx.nonce().nonce_index() else {
+        return Err(InvalidTxError::InvalidNonceIndex {
+            tx_nonce_index: None,
+            num_nonces: gas_key_info.num_nonces,
+        });
+    };
+    if nonce_index >= gas_key_info.num_nonces {
+        return Err(InvalidTxError::InvalidNonceIndex {
+            tx_nonce_index: Some(nonce_index),
+            num_nonces: gas_key_info.num_nonces,
+        });
+    }
+
+    let tx_nonce = tx.nonce().nonce();
+    verify_nonce(tx_nonce, current_nonce, block_height)?;
+
+    // Check and deduct balance
+    // TODO(gas-keys): Charge gas key balance instead of account balance
+    let balance = account.amount();
+    let Some(new_amount) = balance.checked_sub(total_cost) else {
+        return Err(InvalidTxError::NotEnoughBalance {
+            signer_id: account_id.clone(),
+            balance,
+            cost: total_cost,
+        });
+    };
+
+    // Gas keys don't have allowance (it's always None for GasKeyFullAccess/GasKeyFunctionCall)
+
+    match check_storage_stake(account, new_amount, config) {
+        Ok(()) => {}
+        Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
+            return Err(InvalidTxError::LackBalanceForState {
+                signer_id: account_id.clone(),
+                amount,
+            });
+        }
+        Err(StorageStakingError::StorageError(err)) => {
+            return Err(StorageError::StorageInconsistentState(err).into());
+        }
+    };
+
+    // Validate FunctionCall permission constraints if applicable
+    if let Some(function_call_permission) = access_key.permission.function_call_permission() {
+        verify_function_call_permission(function_call_permission, tx)?;
+    }
+
+    account.set_amount(new_amount);
+    Ok(VerificationResult {
+        gas_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        burnt_amount,
+        gas_key_nonce_update: Some((nonce_index, tx_nonce)),
+    })
 }
 
 /// Validates a given receipt. Checks validity of the Action or Data receipt.
