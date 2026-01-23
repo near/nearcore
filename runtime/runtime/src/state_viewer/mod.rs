@@ -1,6 +1,6 @@
 use crate::ApplyState;
-use crate::actions::execute_function_call;
 use crate::ext::RuntimeExt;
+use crate::function_call::execute_function_call;
 use crate::global_contracts::{AccountContractAccessExt, GlobalContractAccessExt};
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
