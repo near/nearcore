@@ -1845,6 +1845,91 @@ fn test_prepare_transactions_extra() {
 }
 
 #[test]
+// TODO(gas-keys): Remove "nightly" feature once stable features support it.
+#[cfg_attr(not(all(feature = "test_features", feature = "nightly")), ignore)]
+fn test_prepare_transactions_extra_gas_key() {
+    use crate::types::PrepareTransactionsBlockContext;
+    use near_primitives::account::AccessKey;
+    use near_primitives::transaction::{AddKeyAction, TransactionNonce};
+    use near_store::get_gas_key_nonce;
+
+    let validators: Vec<AccountId> =
+        (0..4).map(|i| format!("test{}", i + 1).parse().unwrap()).collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(id)).collect();
+    let gas_key_signer =
+        InMemorySigner::from_seed(validators[0].clone(), near_crypto::KeyType::ED25519, "gas_key");
+
+    let mut env = TestEnv::new(vec![validators.clone()], 5, false);
+
+    // Add a gas key via AddKey transaction
+    let add_key_tx = SignedTransaction::from_actions(
+        1,
+        validators[0].clone(),
+        validators[0].clone(),
+        &signers[0],
+        vec![Action::AddKey(Box::new(AddKeyAction {
+            public_key: gas_key_signer.public_key(),
+            access_key: AccessKey::gas_key_full_access(3),
+        }))],
+        env.head.last_block_hash,
+        0,
+    );
+    env.step_default(vec![add_key_tx]);
+
+    // Get shard info and gas key nonce from state
+    let prev_hash = env.head.prev_block_hash;
+    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+    let shard_id = shard_uid.shard_id();
+
+    let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+    let state_update = near_store::TrieUpdate::new(trie);
+    let initial_nonce =
+        get_gas_key_nonce(&state_update, &validators[0], &gas_key_signer.public_key(), 0)
+            .unwrap()
+            .expect("gas key nonce should exist");
+
+    // Create gas key transaction and add to pool
+    let gas_key_tx = SignedTransaction::from_actions_v1(
+        TransactionNonce::from_nonce_and_index(initial_nonce + 1, 1),
+        validators[0].clone(),
+        validators[1].clone(),
+        &gas_key_signer,
+        vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+        prev_hash,
+    );
+    let mut pool = TransactionPool::new([42; 32], None, "");
+    pool.insert_transaction(ValidatedTransaction::new_for_test(gas_key_tx.clone()));
+
+    // Call prepare_transactions_extra directly on runtime
+    let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+    let state_update = TrieUpdate::new(trie);
+    let next_epoch_id = env.epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
+    let (prepared, skipped) = env
+        .runtime
+        .prepare_transactions_extra(
+            state_update,
+            shard_id,
+            PrepareTransactionsBlockContext {
+                next_gas_price: env.runtime.genesis_config.min_gas_price,
+                height: env.head.height,
+                next_epoch_id,
+                congestion_info: Default::default(),
+            },
+            &mut PoolIteratorWrapper::new(&mut pool),
+            &mut |_| true, // Skip validity period check for this test
+            HashSet::new(),
+            default_produce_chunk_add_transactions_time_limit(),
+            None,
+        )
+        .unwrap();
+
+    assert_eq!(prepared.transactions.len(), 1);
+    assert!(skipped.0.is_empty());
+    assert_eq!(prepared.transactions[0].get_hash(), gas_key_tx.get_hash());
+}
+
+#[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_storage_proof_garbage() {
     let shard_id = ShardId::new(0);
