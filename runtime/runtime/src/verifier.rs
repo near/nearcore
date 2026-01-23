@@ -261,6 +261,13 @@ pub fn verify_and_charge_tx_ephemeral(
     if let Some(idx) = tx.nonce().nonce_index() {
         return Err(InvalidTxError::InvalidNonceIndex { tx_nonce_index: Some(idx), num_nonces: 0 });
     }
+    // Gas keys must be used via gas key transaction path (with nonce_index)
+    if let Some(gas_key_info) = access_key.gas_key_info() {
+        return Err(InvalidTxError::InvalidNonceIndex {
+            tx_nonce_index: None,
+            num_nonces: gas_key_info.num_nonces,
+        });
+    }
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
     let account_id = tx.signer_id();
