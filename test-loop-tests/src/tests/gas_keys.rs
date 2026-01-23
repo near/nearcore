@@ -6,6 +6,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::account::AccessKey;
 use near_primitives::action::AddKeyAction;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{Action, SignedTransaction, TransactionNonce, TransferAction};
 use near_primitives::types::{AccountId, Balance, NonceIndex};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
@@ -85,7 +86,7 @@ fn test_gas_key_transaction() {
         1, // nonce
         sender.clone(),
         sender.clone(),
-        &near_primitives::test_utils::create_user_test_signer(sender),
+        &create_user_test_signer(sender),
         vec![Action::AddKey(Box::new(AddKeyAction {
             public_key: gas_key_signer.public_key(),
             access_key: AccessKey::gas_key_full_access(num_nonces),
