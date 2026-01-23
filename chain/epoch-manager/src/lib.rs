@@ -754,8 +754,8 @@ impl EpochManager {
                 }
             }
             let epoch_config = self.get_epoch_config(epoch_protocol_version);
-            // If ChunkEndorsementsInBlockHeader feature is enabled, we use the chunk validator kickout threshold
-            // as the cutoff threshold for the endorsement ratio to remap the ratio to 0 or 1.
+            // We use the chunk validator kickout threshold as the cutoff threshold for the
+            // endorsement ratio to remap the ratio to 0 or 1.
             let online_thresholds = ValidatorOnlineThresholds {
                 online_min_threshold: epoch_config.online_min_threshold,
                 online_max_threshold: epoch_config.online_max_threshold,
