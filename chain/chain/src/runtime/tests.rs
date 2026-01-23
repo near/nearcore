@@ -191,6 +191,7 @@ impl TestEnv {
                         shard_layout.num_shards()
                             as usize
                     ]),
+                    None,
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
@@ -360,6 +361,7 @@ impl TestEnv {
                     self.runtime.genesis_config.protocol_version,
                     self.time + 10u64.pow(9),
                     chunk_endorsements,
+                    None,
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
@@ -877,6 +879,7 @@ fn test_state_sync() {
                         shard_layout.num_shards()
                             as usize
                     ]),
+                    None,
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )

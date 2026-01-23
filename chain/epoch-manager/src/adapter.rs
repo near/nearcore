@@ -11,6 +11,7 @@ use near_primitives::shard_layout::{ShardInfo, ShardLayout};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
+use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
@@ -21,7 +22,7 @@ use near_primitives::views::EpochValidatorInfo;
 use near_store::ShardUId;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// A trait that abstracts the interface of the EpochManager. The two
@@ -770,6 +771,15 @@ pub trait EpochManagerAdapter: Send + Sync {
 
         Ok(result)
     }
+
+    /// Returns the shard split to include in the block header, if any.
+    /// This is called during block production to compute the `shard_split` field.
+    /// Returns `Some((shard_id, boundary_account))` if a shard split should be scheduled.
+    fn get_upcoming_shard_split(
+        &self,
+        parent_hash: &CryptoHash,
+        proposed_splits: &HashMap<ShardId, TrieSplit>,
+    ) -> Result<Option<(ShardId, AccountId)>, EpochError>;
 }
 
 impl EpochManagerAdapter for EpochManagerHandle {
@@ -923,5 +933,14 @@ impl EpochManagerAdapter for EpochManagerHandle {
             next_epoch_id,
             next_epoch_info,
         )
+    }
+
+    fn get_upcoming_shard_split(
+        &self,
+        parent_hash: &CryptoHash,
+        proposed_splits: &HashMap<ShardId, TrieSplit>,
+    ) -> Result<Option<(ShardId, AccountId)>, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.get_upcoming_shard_split(parent_hash, proposed_splits)
     }
 }

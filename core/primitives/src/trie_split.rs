@@ -40,4 +40,8 @@ impl TrieSplit {
     pub fn mem_diff(&self) -> u64 {
         self.right_memory.abs_diff(self.left_memory)
     }
+
+    pub fn total_memory(&self) -> u64 {
+        self.left_memory.saturating_add(self.right_memory)
+    }
 }

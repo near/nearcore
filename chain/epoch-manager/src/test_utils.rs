@@ -348,6 +348,7 @@ pub fn record_block_with_final_block_hash(
                 PROTOCOL_VERSION,
                 height * NUM_NS_IN_SECOND,
                 chunk_endorsements,
+                None, // shard_split
             ),
             [0; 32],
         )
@@ -401,6 +402,7 @@ pub fn record_block_with_version(
                 protocol_version,
                 height * NUM_NS_IN_SECOND,
                 chunk_endorsements,
+                None, // shard_split
             ),
             [0; 32],
         )
@@ -433,7 +435,7 @@ where
     (last_hash, height + count)
 }
 
-// TODO(#11900): Start using BlockInfoV3 in the tests.
+// TODO(dynamic_resharding): Start using BlockInfoV4 in the tests.
 #[allow(deprecated)]
 pub fn block_info(
     hash: CryptoHash,
