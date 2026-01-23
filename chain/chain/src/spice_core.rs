@@ -553,3 +553,23 @@ fn find_oldest_uncertified_block_header(
         .collect::<Result<Vec<_>, Error>>()?;
     Ok(uncertified_block_headers.into_iter().min_by_key(|header| header.height()))
 }
+
+/// Returns the header of the last fully certified block relative to the given block.
+/// All chunks in blocks at or below this height have been certified.
+pub fn get_last_certified_block_header(
+    chain_store: &ChainStoreAdapter,
+    block_hash: &CryptoHash,
+) -> Result<Arc<BlockHeader>, Error> {
+    let uncertified_chunks = get_uncertified_chunks(chain_store, block_hash)?;
+    let oldest_uncertified = find_oldest_uncertified_block_header(chain_store, uncertified_chunks)?;
+    if let Some(header) = oldest_uncertified {
+        Ok(chain_store.get_block_header(header.prev_hash())?)
+    } else {
+        let header = chain_store.get_block_header(block_hash)?;
+        debug_assert!(
+            header.is_genesis(),
+            "spice blocks (except genesis) should always have uncertified chunks"
+        );
+        Ok(header)
+    }
+}
