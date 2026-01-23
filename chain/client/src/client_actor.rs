@@ -745,16 +745,9 @@ impl
                 near_client_primitives::types::SandboxResponse::SandboxNoResponse
             }
             near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus => {
-                // Check if fast-forward is complete by verifying head has reached target.
-                // We track target explicitly because fastforward_delta can be 0 while
-                // blocks are still being produced. See https://github.com/near/nearcore/issues/9690
-                if let Some(target) = self.fastforward_target_height {
-                    if let Ok(head) = self.client.chain.head() {
-                        if head.height >= target {
-                            self.fastforward_target_height = None;
-                        }
-                    }
-                }
+                // fastforward_target_height is set when a request comes in and cleared
+                // in post_block_production when head reaches target.
+                // See https://github.com/near/nearcore/issues/9690
                 near_client_primitives::types::SandboxResponse::SandboxFastForwardFinished(
                     self.fastforward_target_height.is_none(),
                 )
@@ -1122,12 +1115,22 @@ impl ClientActor {
     #[allow(clippy::needless_pass_by_ref_mut)] // &mut self is needed with the sandbox feature
     fn post_block_production(&mut self) {
         #[cfg(feature = "sandbox")]
-        if self.fastforward_delta > 0 {
-            // Decrease the delta_height by 1 since we've produced a single block. This
-            // ensures that we advanced the right amount of blocks when fast forwarding
-            // and fast forwarding triggers regular block production in the case of
-            // stepping between epoch boundaries.
-            self.fastforward_delta -= 1;
+        {
+            if self.fastforward_delta > 0 {
+                // Decrease the delta_height by 1 since we've produced a single block. This
+                // ensures that we advanced the right amount of blocks when fast forwarding
+                // and fast forwarding triggers regular block production in the case of
+                // stepping between epoch boundaries.
+                self.fastforward_delta -= 1;
+            }
+            // Clear target when head reaches it
+            if let Some(target) = self.fastforward_target_height {
+                if let Ok(head) = self.client.chain.head() {
+                    if head.height >= target {
+                        self.fastforward_target_height = None;
+                    }
+                }
+            }
         }
     }
 
