@@ -19,9 +19,7 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
 };
 use near_primitives::transaction::{DeleteAccountAction, ValidatedTransaction};
-use near_primitives::types::{
-    AccountId, Balance, BlockHeight, Gas, Nonce, NonceIndex, StorageUsage,
-};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, Nonce, StorageUsage};
 use near_primitives::utils::derive_near_deterministic_account_id;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
@@ -259,6 +257,10 @@ pub fn verify_and_charge_tx_ephemeral(
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
 ) -> Result<VerificationResult, InvalidTxError> {
+    // Regular access key transactions must not have a nonce_index
+    if let Some(idx) = tx.nonce().nonce_index() {
+        return Err(InvalidTxError::InvalidNonceIndex { tx_nonce_index: Some(idx), num_nonces: 0 });
+    }
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
     let account_id = tx.signer_id();
@@ -331,7 +333,6 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     config: &RuntimeConfig,
     account: &mut Account,
     access_key: &AccessKey,
-    nonce_index: NonceIndex,
     current_nonce: Nonce,
     tx: &Transaction,
     transaction_cost: &TransactionCost,
@@ -341,7 +342,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
         *transaction_cost;
     let account_id = tx.signer_id();
 
-    // Validate that access key is a gas key with valid nonce_index
+    // Validate that access key is a gas key
     let Some(gas_key_info) = access_key.gas_key_info() else {
         return Err(InvalidTxError::InvalidAccessKeyError(
             InvalidAccessKeyError::AccessKeyNotFound {
@@ -350,8 +351,19 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
             },
         ));
     };
+
+    // Validate nonce_index is present and in valid range
+    let Some(nonce_index) = tx.nonce().nonce_index() else {
+        return Err(InvalidTxError::InvalidNonceIndex {
+            tx_nonce_index: None,
+            num_nonces: gas_key_info.num_nonces,
+        });
+    };
     if nonce_index >= gas_key_info.num_nonces {
-        return Err(InvalidTxError::InvalidNonce { tx_nonce: tx.nonce().nonce(), ak_nonce: 0 });
+        return Err(InvalidTxError::InvalidNonceIndex {
+            tx_nonce_index: Some(nonce_index),
+            num_nonces: gas_key_info.num_nonces,
+        });
     }
 
     let tx_nonce = tx.nonce().nonce();

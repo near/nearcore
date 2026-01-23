@@ -1793,11 +1793,13 @@ impl Runtime {
                     Some(Ok(None)) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                         tracing::debug!(%tx_hash, "gas key nonce not found");
+                        let num_nonces =
+                            access_key.gas_key_info().map(|info| info.num_nonces).unwrap_or(0);
                         let outcome = ExecutionOutcomeWithId::failed(
                             tx,
-                            InvalidTxError::InvalidNonce {
-                                tx_nonce: tx.transaction.nonce().nonce(),
-                                ak_nonce: 0,
+                            InvalidTxError::InvalidNonceIndex {
+                                tx_nonce_index: Some(nonce_index),
+                                num_nonces,
                             },
                         );
                         Self::register_outcome(
@@ -1814,7 +1816,6 @@ impl Runtime {
                     &processing_state.apply_state.config,
                     account,
                     access_key,
-                    nonce_index,
                     current_nonce,
                     &tx.transaction,
                     &cost,
@@ -1823,7 +1824,7 @@ impl Runtime {
                     Ok(vr) => vr,
                     Err(error) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        tracing::debug!(%tx_hash, error=&error as &dyn std::error::Error, "transaction failed verify/charge");
+                        tracing::debug!(%tx_hash, error = &error as &dyn std::error::Error, "transaction failed verify/charge");
                         let outcome = ExecutionOutcomeWithId::failed(tx, error);
                         Self::register_outcome(
                             processing_state.protocol_version,
@@ -1846,7 +1847,7 @@ impl Runtime {
                     Ok(vr) => vr,
                     Err(error) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        tracing::debug!(%tx_hash, error=&error as &dyn std::error::Error, "transaction failed verify/charge");
+                        tracing::debug!(%tx_hash, error = &error as &dyn std::error::Error, "transaction failed verify/charge");
                         let outcome = ExecutionOutcomeWithId::failed(tx, error);
                         Self::register_outcome(
                             processing_state.protocol_version,

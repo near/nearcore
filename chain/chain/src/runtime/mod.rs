@@ -687,7 +687,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 runtime_config,
                 &mut signer,
                 &access_key,
-                nonce_index,
                 current_nonce,
                 &tx,
                 &cost,
@@ -856,7 +855,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
 
             // Cache for signer account and access key, reused within the same transaction group.
-            // For gas key transactions, also caches the current nonce.
+            // For gas key transactions, also caches the current nonce and its index.
             struct SignerCache {
                 account_id: AccountId,
                 account: Account,
@@ -911,7 +910,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let nonce_index = validated_tx.nonce().nonce_index();
                 let cache = match &mut signer_cache {
                     Some(cache) => {
+                        // Check that the cached signer matches the current transaction
                         debug_assert_eq!(signer_id, &cache.account_id);
+                        debug_assert_eq!(nonce_index, cache.gas_key_nonce.map(|(idx, _)| idx));
                         cache
                     }
                     None => {
@@ -955,13 +956,12 @@ impl RuntimeAdapter for NightshadeRuntime {
                         continue;
                     }
                 };
-                let verify_result = if let Some((idx, nonce)) = cache.gas_key_nonce {
+                let verify_result = if let Some((_, current_nonce)) = cache.gas_key_nonce {
                     verify_and_charge_gas_key_tx_ephemeral(
                         runtime_config,
                         &mut cache.account,
                         &cache.access_key,
-                        idx,
-                        nonce,
+                        current_nonce,
                         validated_tx.to_tx(),
                         &cost,
                         Some(next_block_height),
@@ -978,8 +978,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 };
                 // Update cached gas key nonce for subsequent transactions
                 if let Ok(ref vr) = verify_result {
-                    if let Some((idx, new_nonce)) = vr.gas_key_nonce_update {
-                        cache.gas_key_nonce = Some((idx, new_nonce));
+                    if let Some(update) = vr.gas_key_nonce_update {
+                        cache.gas_key_nonce = Some(update);
                     }
                 }
 
