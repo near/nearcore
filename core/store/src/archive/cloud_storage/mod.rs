@@ -1,9 +1,10 @@
 use std::io::{Error, Result};
 
 use near_external_storage::ExternalConnection;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
 
 use crate::archive::cloud_storage::block_data::BlockData;
+use crate::archive::cloud_storage::epoch_data::EpochData;
 use crate::archive::cloud_storage::shard_data::ShardData;
 
 pub mod config;
@@ -13,6 +14,7 @@ pub mod archive;
 pub mod retrieve;
 
 pub(super) mod block_data;
+pub(super) mod epoch_data;
 pub(super) mod file_id;
 pub(super) mod shard_data;
 
@@ -24,6 +26,12 @@ pub struct CloudStorage {
 }
 
 impl CloudStorage {
+    pub fn get_epoch_data(&self, epoch_id: EpochId) -> Result<EpochData> {
+        let epoch_data =
+            block_on_future(self.retrieve_epoch_data(epoch_id)).map_err(Error::other)?;
+        Ok(epoch_data)
+    }
+
     pub fn get_block_data(&self, block_height: BlockHeight) -> Result<BlockData> {
         let block_data =
             block_on_future(self.retrieve_block_data(block_height)).map_err(Error::other)?;

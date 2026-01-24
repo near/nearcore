@@ -553,6 +553,7 @@ mod tests {
     use near_primitives::epoch_manager::EpochConfigStore;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::{
         AccountInfo, Balance, BlockHeight, EpochId, ProtocolVersion, ShardId,
@@ -607,7 +608,7 @@ mod tests {
         EpochManager::new_arc_handle_from_epoch_config_store(store, &genesis_config, config_store)
     }
 
-    pub fn record_block(
+    fn record_block(
         epoch_manager: &mut EpochManager,
         prev_h: CryptoHash,
         cur_h: CryptoHash,
@@ -615,6 +616,19 @@ mod tests {
         proposals: Vec<ValidatorStake>,
         protocol_version: ProtocolVersion,
     ) {
+        let epoch_id = epoch_manager.get_epoch_id(&prev_h).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
+            shard_layout
+                .shard_ids()
+                .map(|shard_id| {
+                    let assignments = epoch_manager
+                        .get_chunk_validator_assignments(&epoch_id, shard_id, height)
+                        .unwrap();
+                    vec![true; assignments.assignments().iter().len()]
+                })
+                .collect(),
+        );
         epoch_manager
             .record_block_info(
                 BlockInfo::new(
@@ -628,7 +642,7 @@ mod tests {
                     DEFAULT_TOTAL_SUPPLY,
                     protocol_version,
                     height * 10u64.pow(9),
-                    None,
+                    chunk_endorsements,
                 ),
                 [0; 32],
             )

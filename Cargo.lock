@@ -7787,7 +7787,6 @@ dependencies = [
  "near-async",
  "near-chain",
  "near-chain-configs",
- "near-chain-primitives",
  "near-client",
  "near-crypto",
  "near-epoch-manager",

@@ -1,12 +1,15 @@
 // cspell:ignore contractregistry
 
-use crate::access_keys::{action_add_key, action_delete_key};
+use crate::access_keys::{
+    action_add_key, action_delete_key, action_transfer_to_gas_key, action_withdraw_from_gas_key,
+};
 use crate::actions::*;
 use crate::config::{
     exec_fee, safe_add_balance, safe_add_compute, safe_gas_to_balance, total_deposit,
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
+use crate::function_call::action_function_call;
 use crate::metrics::{
     TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL,
     TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL,
@@ -106,6 +109,7 @@ mod congestion_control;
 mod conversions;
 mod deterministic_account_id;
 pub mod ext;
+mod function_call;
 mod global_contracts;
 pub mod metrics;
 mod pipelining;
@@ -547,6 +551,25 @@ impl Runtime {
                     account_id,
                     signed_delegate_action,
                     &mut result,
+                )?;
+            }
+            Action::TransferToGasKey(transfer_to_gas_key) => {
+                metrics::ACTION_CALLED_COUNT.transfer_to_gas_key.inc();
+                action_transfer_to_gas_key(
+                    state_update,
+                    &mut result,
+                    account_id,
+                    transfer_to_gas_key,
+                )?;
+            }
+            Action::WithdrawFromGasKey(withdraw_from_gas_key) => {
+                metrics::ACTION_CALLED_COUNT.withdraw_from_gas_key.inc();
+                action_withdraw_from_gas_key(
+                    state_update,
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    &mut result,
+                    account_id,
+                    withdraw_from_gas_key,
                 )?;
             }
         };

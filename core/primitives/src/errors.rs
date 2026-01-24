@@ -757,6 +757,18 @@ pub enum ActionErrorKind {
     GlobalContractDoesNotExist {
         identifier: GlobalContractIdentifier,
     } = 22,
+    /// Gas key does not exist for the specified public key
+    GasKeyDoesNotExist {
+        account_id: AccountId,
+        public_key: Box<PublicKey>,
+    } = 23,
+    /// Gas key does not have sufficient balance for the requested withdrawal
+    InsufficientGasKeyBalance {
+        account_id: AccountId,
+        public_key: Box<PublicKey>,
+        balance: Balance,
+        required: Balance,
+    } = 24,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1034,6 +1046,21 @@ impl Display for ActionErrorKind {
             ),
             ActionErrorKind::GlobalContractDoesNotExist { identifier } => {
                 write!(f, "Global contract identifier {:?} not found", identifier)
+            }
+            ActionErrorKind::GasKeyDoesNotExist { account_id, public_key } => {
+                write!(f, "Gas key {} does not exist for account {}", public_key, account_id)
+            }
+            ActionErrorKind::InsufficientGasKeyBalance {
+                account_id,
+                public_key,
+                balance,
+                required,
+            } => {
+                write!(
+                    f,
+                    "Gas key {} for account {} has insufficient balance: {} available, {} required",
+                    public_key, account_id, balance, required
+                )
             }
         }
     }
