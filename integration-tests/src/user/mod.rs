@@ -127,7 +127,6 @@ pub trait User {
             &*self.signer(),
             actions,
             block_hash,
-            0,
         )
     }
 

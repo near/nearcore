@@ -756,7 +756,7 @@ mod tests {
         DeterministicAccountStateInit, DeterministicAccountStateInitV1,
     };
     use near_primitives::hash::{CryptoHash, hash};
-    use near_primitives::receipt::{ActionReceipt, ReceiptPriority};
+    use near_primitives::receipt::ActionReceipt;
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
         CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction, TransactionNonce,
@@ -1192,7 +1192,6 @@ mod tests {
                     deposit: Balance::ZERO,
                 }))],
                 CryptoHash::default(),
-                0,
             ),
             InvalidTxError::ActionsValidation(ActionsValidationError::TotalPrepaidGasExceeded {
                 total_prepaid_gas: Gas::from_gas(200),
@@ -1356,7 +1355,6 @@ mod tests {
                 deposit: excessive_deposit,
             }))],
             CryptoHash::default(),
-            0,
         );
 
         let err = validate_verify_and_charge_transaction(
@@ -1405,7 +1403,6 @@ mod tests {
                 deposit: Balance::ZERO,
             }))],
             CryptoHash::default(),
-            0,
         );
 
         let err = validate_verify_and_charge_transaction(
@@ -1550,7 +1547,6 @@ mod tests {
                 Action::CreateAccount(CreateAccountAction {}),
             ],
             CryptoHash::default(),
-            0,
         );
         validate_verify_and_charge_transaction(
             &config,
@@ -1570,7 +1566,6 @@ mod tests {
             &*signer,
             vec![],
             CryptoHash::default(),
-            0,
         );
         validate_verify_and_charge_transaction(
             &config,
@@ -1590,7 +1585,6 @@ mod tests {
             &*signer,
             vec![Action::CreateAccount(CreateAccountAction {})],
             CryptoHash::default(),
-            0,
         );
         validate_verify_and_charge_transaction(
             &config,
@@ -1631,7 +1625,6 @@ mod tests {
                 deposit: Balance::ZERO,
             }))],
             CryptoHash::default(),
-            0,
         );
 
         let err = validate_verify_and_charge_transaction(
@@ -1680,7 +1673,6 @@ mod tests {
                 deposit: Balance::ZERO,
             }))],
             CryptoHash::default(),
-            0,
         );
 
         let err = validate_verify_and_charge_transaction(
@@ -1728,7 +1720,6 @@ mod tests {
                 deposit: Balance::from_yoctonear(100),
             }))],
             CryptoHash::default(),
-            0,
         );
 
         let err = validate_verify_and_charge_transaction(
@@ -1758,7 +1749,6 @@ mod tests {
             &*signer,
             vec![Action::DeployContract(DeployContractAction { code: vec![1; 5] })],
             CryptoHash::default(),
-            0,
         );
         let transaction_size = signed_tx.get_size();
 
@@ -1802,11 +1792,7 @@ mod tests {
         let limit_config = test_limit_config();
         validate_receipt(
             &limit_config,
-            &Receipt::new_balance_refund(
-                &alice_account(),
-                Balance::from_yoctonear(10),
-                ReceiptPriority::NoPriority,
-            ),
+            &Receipt::new_balance_refund(&alice_account(), Balance::from_yoctonear(10)),
             PROTOCOL_VERSION,
             ValidateReceiptMode::NewReceipt,
         )

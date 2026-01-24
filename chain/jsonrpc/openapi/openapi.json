@@ -11818,6 +11818,7 @@
           },
           "priority": {
             "default": 0,
+            "description": "Deprecated, retained for backward compatibility.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -15568,6 +15569,7 @@
           },
           "priority": {
             "default": 0,
+            "description": "Deprecated, retained for backward compatibility.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"

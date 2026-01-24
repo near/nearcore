@@ -8,7 +8,7 @@ use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    DataReceipt, Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV1,
+    DataReceipt, Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV0,
 };
 use near_primitives::types::{ShardId, StateChangeCause, StateRoot};
 use near_store::trie::receipts_column_helper::{DelayedReceiptQueue, TrieQueue};
@@ -233,8 +233,8 @@ impl PrepareBenchmarkCmd {
 
         let receipt = DataReceipt { data_id, data: Some(data) };
         let receipt = ReceiptEnum::Data(receipt);
-        let receipt = ReceiptV1 { predecessor_id, receiver_id, receipt_id, receipt, priority: 0 };
+        let receipt = ReceiptV0 { predecessor_id, receiver_id, receipt_id, receipt };
 
-        Receipt::V1(receipt)
+        Receipt::V0(receipt)
     }
 }

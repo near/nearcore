@@ -13,7 +13,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, Receipt, ReceiptEnum, ReceiptV1, VersionedActionReceipt,
+    ActionReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
 };
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::trie_key_parsers::{
@@ -295,12 +295,11 @@ impl TrieViewer {
             input_data_ids: vec![],
             actions: vec![function_call.clone().into()],
         };
-        let receipt = Receipt::V1(ReceiptV1 {
+        let receipt = Receipt::V0(ReceiptV0 {
             predecessor_id: contract_id.clone(),
             receiver_id: contract_id.clone(),
             receipt_id: empty_hash,
             receipt: ReceiptEnum::Action(action_receipt.clone()),
-            priority: 0,
         });
         let pipeline = ReceiptPreparationPipeline::new(
             Arc::clone(config),

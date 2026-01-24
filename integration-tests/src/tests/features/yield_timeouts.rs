@@ -79,7 +79,6 @@ fn prepare_env_with_yield(
             code: near_test_contracts::rs_contract().to_vec(),
         })],
         *genesis_block.hash(),
-        0,
     );
     let tx_hash = tx.get_hash();
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -106,7 +105,6 @@ fn prepare_env_with_yield(
             deposit: Balance::ZERO,
         }))],
         *genesis_block.hash(),
-        0,
     );
     let yield_tx_hash = yield_transaction.get_hash();
     assert_eq!(
@@ -145,7 +143,6 @@ fn invoke_yield_resume(env: &TestEnv, data_id: CryptoHash, yield_payload: Vec<u8
             deposit: Balance::ZERO,
         }))],
         *genesis_block.hash(),
-        0,
     );
     let tx_hash = resume_transaction.get_hash();
     assert_eq!(
@@ -178,7 +175,6 @@ fn create_congestion(env: &TestEnv) {
                 deposit: Balance::ZERO,
             }))],
             *genesis_block.hash(),
-            0,
         );
         tx_hashes.push(signed_transaction.get_hash());
         assert_eq!(

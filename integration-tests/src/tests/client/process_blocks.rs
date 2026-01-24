@@ -1872,7 +1872,6 @@ fn test_validate_chunk_extra() {
             code: near_test_contracts::rs_contract().to_vec(),
         })],
         *genesis_block.hash(),
-        0,
     );
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     let mut last_block = genesis_block;
@@ -1895,7 +1894,6 @@ fn test_validate_chunk_extra() {
             deposit: Balance::ZERO,
         }))],
         *last_block.hash(),
-        0,
     );
     assert_eq!(
         env.rpc_handlers[0].process_tx(function_call_tx, false, false),
@@ -3247,7 +3245,6 @@ fn test_validator_stake_host_function() {
             deposit: Balance::ZERO,
         }))],
         *genesis_block.hash(),
-        0,
     );
     assert_eq!(
         env.rpc_handlers[0].process_tx(signed_transaction, false, false),

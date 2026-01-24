@@ -11,8 +11,7 @@ use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0, VersionedActionReceipt,
-    VersionedReceiptEnum,
+    ActionReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::transaction::{
     Action, DeleteAccountAction, DeployContractAction, StakeAction,
@@ -322,11 +321,9 @@ pub(crate) fn action_delete_account(
     // We use current amount as a pay out to beneficiary.
     let account_balance = account_ref.amount();
     if account_balance > Balance::ZERO {
-        result.new_receipts.push(Receipt::new_balance_refund(
-            &delete_account.beneficiary_id,
-            account_balance,
-            ReceiptPriority::NoPriority,
-        ));
+        result
+            .new_receipts
+            .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
     }
     remove_account(state_update, account_id)?;
     *actor_id = receipt.predecessor_id().clone();
@@ -397,7 +394,6 @@ pub(crate) fn apply_delegate_action(
     sender_id: &AccountId,
     signed_delegate_action: &SignedDelegateAction,
     result: &mut ActionResult,
-    _priority: ReceiptPriority,
 ) -> Result<(), RuntimeError> {
     let delegate_action = &signed_delegate_action.delegate_action;
 
@@ -1021,7 +1017,6 @@ mod tests {
             &sender_id,
             &signed_delegate_action,
             &mut result,
-            ReceiptPriority::NoPriority,
         )
         .expect("Expect ok");
 
@@ -1066,7 +1061,6 @@ mod tests {
             &sender_id,
             &signed_delegate_action,
             &mut result,
-            ReceiptPriority::NoPriority,
         )
         .expect("Expect ok");
 
@@ -1093,7 +1087,6 @@ mod tests {
             &sender_id,
             &signed_delegate_action,
             &mut result,
-            ReceiptPriority::NoPriority,
         )
         .expect("Expect ok");
 
@@ -1120,7 +1113,6 @@ mod tests {
             &"www.test.near".parse().unwrap(),
             &signed_delegate_action,
             &mut result,
-            ReceiptPriority::NoPriority,
         )
         .expect("Expect ok");
 
