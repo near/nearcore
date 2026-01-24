@@ -30,7 +30,7 @@ fn execute_future<F: Future>(fut: F) -> F::Output {
     futures::executor::block_on(fut)
 }
 
-/// Sanity checks: heads alignment, GC tail bounds, and optional minimum GC progress.
+/// Sanity checks: heads alignment, GC tail bounds, and (optional) lower bound for expected GC tail.
 pub fn gc_and_heads_sanity_checks(
     env: &TestLoopEnv,
     writer_id: &AccountId,
@@ -185,6 +185,7 @@ pub fn snapshots_sanity_check(
 pub fn bootstrap_reader_at_height(
     env: &mut TestLoopEnv,
     reader_id: &AccountId,
+    epoch_length: BlockHeightDelta,
     _height: BlockHeight,
 ) {
     let genesis = env.shared_state.genesis.clone();
@@ -192,6 +193,14 @@ pub fn bootstrap_reader_at_height(
     let node_state = NodeStateBuilder::new(genesis, tempdir_path)
         .account_id(reader_id.clone())
         .cloud_storage(true)
+        .config_modifier(|config| {
+            // Enable epoch sync, and make the horizon small enough to trigger it.
+            config.epoch_sync.epoch_sync_horizon = 3 * epoch_length;
+            // Make header sync horizon small enough to trigger it.
+            config.block_header_fetch_horizon = epoch_length;
+            // Make block sync horizon small enough to trigger it.
+            config.block_fetch_horizon = epoch_length;
+        })
         .build();
     env.add_node(reader_id.as_ref(), node_state);
 
