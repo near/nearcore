@@ -2,6 +2,7 @@ use crate::metrics;
 use near_chain_configs::ExternalStorageLocation;
 use near_external_storage::{ExternalConnection, S3AccessConfig};
 use near_primitives::types::{EpochId, ShardId};
+use near_store::archive::cloud_storage::CloudStorage;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -56,6 +57,10 @@ impl StateSyncConnection {
             ExternalConnection::new(location, credentials_file, Some(s3_access_config));
         let storage_name = location.name().to_string();
         Self { connection, storage_name }
+    }
+
+    pub fn from_cloud_storage(cloud_storage: &CloudStorage) -> Self {
+        Self { connection: cloud_storage.connection().clone(), storage_name: "".into() }
     }
 
     pub async fn get_file(

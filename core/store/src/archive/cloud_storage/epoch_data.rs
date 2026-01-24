@@ -1,6 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::Error;
 use near_primitives::epoch_info::EpochInfo;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_schema_checker_lib::ProtocolSchema;
@@ -22,6 +23,8 @@ pub struct EpochDataV1 {
     epoch_start: BlockHeight,
     /// Provided by the caller of `build_epoch_data`.
     shard_layout: ShardLayout,
+    /// Read from `DBCol::StateSyncHashes`.
+    sync_hash: CryptoHash,
 }
 
 /// Builds an `EpochData` object for the given epoch ID by reading data from the store.
@@ -33,11 +36,21 @@ pub fn build_epoch_data(
     let store = store.epoch_store();
     let epoch_info = store.get_epoch_info(&epoch_id)?;
     let epoch_start = store.get_epoch_start(&epoch_id)?;
-    let epoch_data = EpochDataV1 { epoch_info, epoch_start, shard_layout };
+    let sync_hash = store
+        .chain_store()
+        .get_current_epoch_sync_hash(&epoch_id)?
+        .ok_or_else(|| Error::DBNotFoundErr(format!("StateSyncHashes, epoch ID: {epoch_id:?}")))?;
+    let epoch_data = EpochDataV1 { epoch_info, epoch_start, shard_layout, sync_hash };
     Ok(EpochData::V1(epoch_data))
 }
 
 impl EpochData {
+    pub fn epoch_info(&self) -> &EpochInfo {
+        match self {
+            EpochData::V1(data) => &data.epoch_info,
+        }
+    }
+
     pub fn epoch_start(&self) -> &BlockHeight {
         match self {
             EpochData::V1(data) => &data.epoch_start,
@@ -47,6 +60,12 @@ impl EpochData {
     pub fn shard_layout(&self) -> &ShardLayout {
         match self {
             EpochData::V1(data) => &data.shard_layout,
+        }
+    }
+
+    pub fn sync_hash(&self) -> &CryptoHash {
+        match self {
+            EpochData::V1(data) => &data.sync_hash,
         }
     }
 }

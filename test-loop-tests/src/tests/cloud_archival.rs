@@ -42,7 +42,7 @@ impl TestCloudArchivalParametersBuilder {
         assert!(num_epochs_to_wait >= MIN_NUM_EPOCHS_TO_WAIT);
         let disable_writer = self.disable_writer.unwrap_or_default();
         if disable_writer {
-            assert!(pause_writer_for_num_of_blocks.is_none());
+            assert!(self.pause_writer_for_num_of_blocks.is_none());
         }
 
         TestCloudArchivalParameters {
@@ -125,8 +125,8 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
     snapshots_sanity_check(&mut env, &archival_id, params.num_epochs_to_wait);
 
     let reader_id: AccountId = "reader".parse().unwrap();
-    if let Some(block_height) = params.bootstrap_reader_at_height {
-        bootstrap_reader_at_height(&mut env, &reader_id, MIN_EPOCH_LENGTH, block_height);
+    if let Some(target_block_height) = params.bootstrap_reader_at_height {
+        bootstrap_reader_at_height(&mut env, &reader_id, target_block_height);
     }
     env.test_loop.run_for(Duration::seconds(5));
 

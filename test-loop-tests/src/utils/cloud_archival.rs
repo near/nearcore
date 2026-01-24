@@ -1,19 +1,30 @@
 use std::collections::HashSet;
+use std::ops::Range;
 use std::sync::Arc;
 
 use borsh::BorshDeserialize;
 
 use itertools::Itertools;
+use near_chain::Chain;
 use near_chain::types::Tip;
 use near_client::Client;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
+use near_client::sync::external::{
+    StateFileType, StateSyncConnection, external_storage_location,
+    external_storage_location_directory, get_num_parts_from_filename,
+};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, EpochHeight, EpochId};
+use near_primitives::hash::CryptoHash;
+use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
+};
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::db::CLOUD_HEAD_KEY;
 use near_store::{COLD_HEAD_KEY, DBCol, Store};
+use near_vm_runner::logic::ProtocolVersion;
 
 use crate::setup::builder::NodeStateBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -185,25 +196,104 @@ pub fn snapshots_sanity_check(
 pub fn bootstrap_reader_at_height(
     env: &mut TestLoopEnv,
     reader_id: &AccountId,
-    epoch_length: BlockHeightDelta,
-    _height: BlockHeight,
+    target_block_height: BlockHeight,
 ) {
     let genesis = env.shared_state.genesis.clone();
     let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
     let node_state = NodeStateBuilder::new(genesis, tempdir_path)
         .account_id(reader_id.clone())
         .cloud_storage(true)
-        .config_modifier(|config| {
-            // Enable epoch sync, and make the horizon small enough to trigger it.
-            config.epoch_sync.epoch_sync_horizon = 3 * epoch_length;
-            // Make header sync horizon small enough to trigger it.
-            config.block_header_fetch_horizon = epoch_length;
-            // Make block sync horizon small enough to trigger it.
-            config.block_fetch_horizon = epoch_length;
-        })
         .build();
     env.add_node(reader_id.as_ref(), node_state);
 
-    // TODO(cloud_archive) Bootstrap the reader node with all the data needed to answer
-    // queries from the epoch of block at the given height.
+    let cloud_storage = get_cloud_storage(env, reader_id);
+    let target_block_data = cloud_storage.get_block_data(target_block_height).unwrap();
+    let epoch_id = target_block_data.block().header().epoch_id();
+    let epoch_data = cloud_storage.get_epoch_data(*epoch_id).unwrap();
+    let epoch_height = epoch_data.epoch_info().epoch_height();
+    let protocol_version = epoch_data.epoch_info().protocol_version();
+    for shard_id in epoch_data.shard_layout().shard_ids() {
+        let sync_hash = epoch_data.sync_hash();
+        let state_header =
+            cloud_storage.get_state_header(epoch_height, *epoch_id, shard_id).unwrap();
+        let state_root = state_header.chunk_prev_state_root();
+        let chain = &get_client(env, reader_id).chain;
+        chain.state_sync_adapter.set_state_header(shard_id, *sync_hash, state_header).unwrap();
+        let state_sync_connection = StateSyncConnection::from_cloud_storage(&cloud_storage);
+        let fut = load_state_snapshot(
+            chain,
+            &state_sync_connection,
+            cloud_storage.chain_id(),
+            epoch_id,
+            epoch_height,
+            *sync_hash,
+            &protocol_version,
+            shard_id,
+            state_root,
+        );
+        execute_future(fut);
+    }
+}
+
+fn get_part_ids(part_from: Option<u64>, part_to: Option<u64>, num_parts: u64) -> Range<u64> {
+    part_from.unwrap_or(0)..part_to.unwrap_or(num_parts)
+}
+
+async fn load_state_snapshot(
+    chain: &Chain,
+    external: &StateSyncConnection,
+    chain_id: &String,
+    epoch_id: &EpochId,
+    epoch_height: EpochHeight,
+    sync_hash: CryptoHash,
+    protocol_version: &ProtocolVersion,
+    shard_id: ShardId,
+    state_root: CryptoHash,
+) {
+    let directory_path = external_storage_location_directory(
+        chain_id,
+        epoch_id,
+        epoch_height,
+        shard_id,
+        &StateFileType::StatePart { part_id: 0, num_parts: 0 },
+    );
+    let part_file_names = external.list_objects(shard_id, &directory_path).await.unwrap();
+    assert!(!part_file_names.is_empty());
+    let num_parts = part_file_names.len() as u64;
+    assert_eq!(Some(num_parts), get_num_parts_from_filename(&part_file_names[0]));
+    let part_ids = get_part_ids(None, None, num_parts);
+    tracing::info!(
+        target: "state-parts",
+        epoch_height,
+        %shard_id,
+        num_parts,
+        ?sync_hash,
+        ?part_ids,
+        "loading state as seen at the beginning of the specified epoch",
+    );
+    for part_id in part_ids {
+        assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
+        let file_type = StateFileType::StatePart { part_id, num_parts };
+        let location =
+            external_storage_location(chain_id, &epoch_id, epoch_height, shard_id, &file_type);
+        let bytes = external.get_file(shard_id, &location, &file_type).await.unwrap();
+        let part_length = bytes.len();
+        let part = StatePart::from_bytes(bytes, *protocol_version).unwrap();
+        chain
+            .state_sync_adapter
+            .set_state_part(shard_id, sync_hash, PartId::new(part_id, num_parts), &part)
+            .unwrap();
+        chain
+            .runtime_adapter
+            .apply_state_part(
+                shard_id,
+                &state_root,
+                PartId::new(part_id, num_parts),
+                &part,
+                &epoch_id,
+            )
+            .unwrap();
+        tracing::info!(target: "state-parts", part_id, part_length, "loaded a state part");
+    }
+    tracing::info!(target: "state-parts", "loaded all requested state parts");
 }
