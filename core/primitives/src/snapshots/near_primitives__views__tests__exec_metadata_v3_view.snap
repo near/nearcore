@@ -297,6 +297,16 @@ expression: view
     },
     {
       "cost_category": "WASM_HOST_COST",
+      "cost": "P256_VERIFY_BASE",
+      "gas_used": "85"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "P256_VERIFY_BYTE",
+      "gas_used": "86"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
       "cost": "PROMISE_AND_BASE",
       "gas_used": "48"
     },

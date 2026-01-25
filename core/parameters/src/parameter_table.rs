@@ -386,6 +386,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
                 global_contract_host_fns: params.get(Parameter::GlobalContractHostFns)?,
                 deterministic_account_ids: params.get(Parameter::DeterministicAccountIds)?,
+                p256_verify: params.get(Parameter::P256Verify)?,
             }),
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params

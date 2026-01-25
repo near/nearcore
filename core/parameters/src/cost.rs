@@ -107,6 +107,8 @@ impl ExtCostsConfig {
             ExtCosts::ed25519_verify_byte => SAFETY_MULTIPLIER * 7157035,
             ExtCosts::ripemd160_block => SAFETY_MULTIPLIER * 226702528,
             ExtCosts::ecrecover_base => SAFETY_MULTIPLIER * 1121789875000,
+            ExtCosts::p256_verify_base => SAFETY_MULTIPLIER * 1121789875000,
+            ExtCosts::p256_verify_byte => SAFETY_MULTIPLIER * 7157035,
             ExtCosts::log_base => SAFETY_MULTIPLIER * 1181104350,
             ExtCosts::log_byte => SAFETY_MULTIPLIER * 4399597,
             ExtCosts::storage_write_base => SAFETY_MULTIPLIER * 21398912000,
@@ -285,6 +287,8 @@ pub enum ExtCosts {
     bls12381_p2_decompress_element = 82,
     storage_large_read_overhead_base = 83,
     storage_large_read_overhead_byte = 84,
+    p256_verify_base = 85,
+    p256_verify_byte = 86,
 }
 
 // Type of an action, used in fees logic.
@@ -366,6 +370,8 @@ impl ExtCosts {
             ExtCosts::ecrecover_base => Parameter::WasmEcrecoverBase,
             ExtCosts::ed25519_verify_base => Parameter::WasmEd25519VerifyBase,
             ExtCosts::ed25519_verify_byte => Parameter::WasmEd25519VerifyByte,
+            ExtCosts::p256_verify_base => Parameter::WasmP256VerifyBase,
+            ExtCosts::p256_verify_byte => Parameter::WasmP256VerifyByte,
             ExtCosts::log_base => Parameter::WasmLogBase,
             ExtCosts::log_byte => Parameter::WasmLogByte,
             ExtCosts::storage_write_base => Parameter::WasmStorageWriteBase,

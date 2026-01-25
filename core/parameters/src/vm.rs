@@ -186,6 +186,8 @@ pub struct Config {
 
     /// Whether to host functions introduced with deterministic account ids.
     pub deterministic_account_ids: bool,
+    /// Whether to enable the P-256 verification host function.
+    pub p256_verify: bool,
 
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
@@ -216,6 +218,7 @@ impl Config {
     pub fn enable_all_features(&mut self) {
         self.eth_implicit_accounts = true;
         self.global_contract_host_fns = true;
+        self.p256_verify = true;
     }
 }
 

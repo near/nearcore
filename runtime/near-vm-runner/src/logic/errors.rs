@@ -277,6 +277,11 @@ pub enum HostError {
     Ed25519VerifyInvalidInput {
         msg: String,
     },
+    /// Invalid input to p256 signature verification function (e.g. signature cannot be
+    /// derived from bytes).
+    P256VerifyInvalidInput {
+        msg: String,
+    },
     // Invalid input to bls12381 family of functions
     BLS12381InvalidInput {
         msg: String,
@@ -538,6 +543,9 @@ impl std::fmt::Display for HostError {
             ECRecoverError { msg } => write!(f, "ECDSA recover error: {}", msg),
             Ed25519VerifyInvalidInput { msg } => {
                 write!(f, "ED25519 signature verification error: {}", msg)
+            }
+            P256VerifyInvalidInput { msg } => {
+                write!(f, "P256 signature verification error: {}", msg)
             }
             BLS12381InvalidInput { msg } => write!(f, "BLS12-381 invalid input: {}", msg),
             YieldPayloadLength { length, limit } => write!(
