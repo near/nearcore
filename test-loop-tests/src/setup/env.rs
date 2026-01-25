@@ -106,6 +106,14 @@ impl TestLoopEnv {
         let cloud_storage = self.get_cloud_storage(node_data);
         let storage = TestNodeStorage { hot_store, split_store, cold_db, cloud_storage };
 
+        // Get a mutable reference and mark the node as stopped.
+        let node_data = self
+            .node_datas
+            .iter_mut()
+            .find(|data| data.identifier == identifier)
+            .expect("Node with identifier not found");
+        node_data.stopped = true;
+
         NodeSetupState { account_id, client_config, storage }
     }
 

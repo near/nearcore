@@ -222,21 +222,21 @@ impl RpcHandlerActor {
                 return Ok(ProcessTxResponse::ValidTx);
             }
             // Transactions only need to be recorded if the node is a validator.
-            if me.is_some() {
+            if let Some(me) = me {
                 let mut pool = self.tx_pool.lock();
                 match pool.insert_transaction(shard_uid, validated_tx) {
                     InsertTransactionResult::Success => {
-                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "recorded a transaction");
+                        tracing::trace!(target: "client", ?me, ?shard_uid, tx_hash = ?signed_tx.get_hash(), "recorded a transaction");
                     }
                     InsertTransactionResult::Duplicate => {
-                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "duplicate transaction, not forwarding it");
+                        tracing::trace!(target: "client", ?me, ?shard_uid, tx_hash = ?signed_tx.get_hash(), "duplicate transaction, not forwarding it");
                         return Ok(ProcessTxResponse::ValidTx);
                     }
                     InsertTransactionResult::NoSpaceLeft => {
                         if is_forwarded {
-                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, dropping the transaction");
+                            tracing::trace!(target: "client", ?me, ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, dropping the transaction");
                         } else {
-                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, trying to forward the transaction");
+                            tracing::trace!(target: "client", ?me, ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, trying to forward the transaction");
                         }
                     }
                 }
@@ -300,6 +300,8 @@ impl RpcHandlerActor {
         let head = self.chain_store.header_head()?;
         let maybe_next_epoch_id = self.get_next_epoch_id_if_at_boundary(&head)?;
 
+        let tx_hash = tx.get_hash();
+
         let mut validators = HashSet::new();
         for horizon in (2..=self.config.tx_routing_height_horizon)
             .chain(vec![self.config.tx_routing_height_horizon * 2].into_iter())
@@ -313,23 +315,29 @@ impl RpcHandlerActor {
                     shard_id,
                 })?
                 .take_account_id();
+
+            tracing::trace!(target: "client", ?tx_hash, height = %target_height, ?validator, %shard_id, "considering validator for forwarding - this epoch");
             validators.insert(validator);
-            if let Some(next_epoch_id) = &maybe_next_epoch_id {
-                let next_shard_id = account_id_to_shard_id(
-                    self.epoch_manager.as_ref(),
-                    tx.transaction.signer_id(),
-                    next_epoch_id,
-                )?;
-                let validator = self
-                    .epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
-                        epoch_id: *next_epoch_id,
-                        height_created: target_height,
-                        shard_id: next_shard_id,
-                    })?
-                    .take_account_id();
-                validators.insert(validator);
-            }
+
+            // If we're at an epoch boundary, also consider next epoch validators.
+            let Some(next_epoch_id) = &maybe_next_epoch_id else {
+                continue;
+            };
+            let next_shard_id = account_id_to_shard_id(
+                self.epoch_manager.as_ref(),
+                tx.transaction.signer_id(),
+                next_epoch_id,
+            )?;
+            let validator = self
+                .epoch_manager
+                .get_chunk_producer_info(&ChunkProductionKey {
+                    epoch_id: *next_epoch_id,
+                    height_created: target_height,
+                    shard_id: next_shard_id,
+                })?
+                .take_account_id();
+            tracing::trace!(target: "client", ?tx_hash, height = %target_height, ?validator, %shard_id, "considering validator for forwarding - next epoch");
+            validators.insert(validator);
         }
 
         let signer = self.validator_signer.get();

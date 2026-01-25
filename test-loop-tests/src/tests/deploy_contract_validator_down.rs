@@ -1,8 +1,8 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::node::TestLoopNode;
-use crate::utils::transactions::do_deploy_contract;
 use crate::utils::transactions::{check_txs, make_accounts, prepare_transfer_tx, submit_tx};
+use crate::utils::transactions::{deploy_contract, get_next_nonce};
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
@@ -10,7 +10,8 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance};
 
-const EPOCH_LENGTH: u64 = 10;
+// setup high epoch length to avoid kickout out the stopped validator
+const EPOCH_LENGTH: u64 = 1000;
 const GENESIS_HEIGHT: u64 = 1000;
 
 const NUM_VALIDATORS: usize = 4;
@@ -58,28 +59,65 @@ fn test_deploy_contract_validator_down() {
     let rpc_id = &accounts[0]; // "account0" is on shard 2
     let contract_id = &accounts[NUM_VALIDATORS + 1]; // "account5" is on shard 1
 
-    // Stop validator "account3" (chunk producer for shard 1)
-    let validator_to_stop = env.node_datas[3].clone();
+    let validator_to_stop = get_validator_to_stop(&env, rpc_id, contract_id);
+    let validator_to_stop = env.get_node_data_by_account_id(&validator_to_stop).unwrap().clone();
+
+    // // Stop validator "account3" (chunk producer for shard 1)
+    // let validator_to_stop = env.node_datas[3].clone();
     env.kill_node(&validator_to_stop.identifier);
+    tracing::info!(
+        target: "test",
+        "Stopped validator {} (peer id {})",
+        validator_to_stop.account_id,
+        validator_to_stop.peer_id
+    );
 
     // Verify that blocks are still being produced after one validator is down.
     let node = TestLoopNode::for_account(&env.node_datas, rpc_id);
-    let height_before = node.head(&env.test_loop.data).height;
-    env.test_loop.run_for(Duration::seconds(30));
-    let height_after = node.head(&env.test_loop.data).height;
-    assert!(height_after > height_before);
+    node.run_for_number_of_blocks(&mut env.test_loop, 10);
 
-    // Try to make a transfer to an account on shard 1 (where the chunk producer is stopped).
+    // Try to make a transfer to an account.
     let transfer_tx = prepare_transfer_tx(&env, rpc_id, contract_id, Balance::from_near(1));
     let transfer_tx_hash = transfer_tx.get_hash();
     submit_tx(&env.node_datas, rpc_id, transfer_tx);
-    env.test_loop.run_for(Duration::seconds(5));
+    node.run_for_number_of_blocks(&mut env.test_loop, 10);
     check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[transfer_tx_hash]);
 
-    // Try to deploy a contract on shard 1 (where the chunk producer is stopped).
-    // This fails even if timeout in `do_deploy_contract` is extended to 60s.
-    let contract_code = near_test_contracts::rs_contract().to_vec();
-    do_deploy_contract(&mut env, &rpc_id, contract_id, contract_code);
+    // Try to deploy a contract. This can fail if the stopped validator happens
+    // to be the chunk producer for heights head + {1, 2, 3, 6}. Otherwise the
+    // contract deployment should succeed.
+    tracing::info!(target: "test", "deploying contract");
+    let code = near_test_contracts::rs_contract().to_vec();
+    let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
+    let tx = deploy_contract(&mut env.test_loop, &env.node_datas, rpc_id, contract_id, code, nonce);
+    node.run_for_number_of_blocks(&mut env.test_loop, 10);
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+// Find a validator that is a chunk producer for the shard where `contract_id`
+// is located.
+fn get_validator_to_stop(
+    env: &TestLoopEnv,
+    rpc_id: &AccountId,
+    contract_id: &AccountId,
+) -> AccountId {
+    let node = TestLoopNode::for_account(&env.node_datas, rpc_id);
+    let env: &TestLoopEnv = env;
+    let node: &TestLoopNode<'_> = &node;
+    let client = node.client(env.test_loop_data());
+    let epoch_id = client.chain.head().unwrap().epoch_id;
+    let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+
+    let contract_shard_id = shard_layout.account_id_to_shard_id(contract_id);
+    tracing::info!(target: "test", ?contract_shard_id, "Contract shard id");
+
+    let chunk_producers = client
+        .epoch_manager
+        .get_epoch_chunk_producers_for_shard(&epoch_id, contract_shard_id)
+        .unwrap();
+    tracing::info!(target: "test", ?chunk_producers, "Chunk Producers");
+
+    chunk_producers[0].clone()
 }

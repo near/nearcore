@@ -60,13 +60,20 @@ pub fn check_transaction_validity_period(
     transaction_validity_period: BlockHeightDelta,
 ) -> Result<(), InvalidTxError> {
     let base_header =
-        chain_store.get_block_header(base_block_hash).map_err(|_| InvalidTxError::Expired)?;
+        chain_store.get_block_header(base_block_hash).map_err(|_| InvalidTxError::Expired).unwrap();
 
     metrics::CHAIN_VALIDITY_PERIOD_CHECK_DELAY
         .observe(prev_block_header.height().saturating_sub(base_header.height()) as f64);
 
     // First check the distance between blocks
     if prev_block_header.height() > base_header.height() + transaction_validity_period {
+        tracing::debug!(
+            target: "chain",
+            "Transaction expired: prev block height {}, base block height {}, validity period {}",
+            prev_block_header.height(),
+            base_header.height(),
+            transaction_validity_period
+        );
         return Err(InvalidTxError::Expired);
     }
 
@@ -115,6 +122,12 @@ fn validity_period_validate_is_ancestor(
 
     // Base can't be an ancestor of prev if its height is bigger
     if base_height > prev_height {
+        tracing::debug!(
+            target: "chain",
+            "Invalid ancestor check: base block height {}, prev block height {}",
+            base_height,
+            prev_height
+        );
         return Err(InvalidTxError::InvalidChain);
     }
 
@@ -130,12 +143,20 @@ fn validity_period_validate_is_ancestor(
         }
     }
 
+    tracing::debug!(
+        target: "chain",
+        "Ancestor check requires walking back the chain: base block height {}, prev block height {}",
+        base_height,
+        prev_height
+    );
+
     // if the base block height is smaller than `last_final_height` we only need to check
     // whether the base block is the same as the one with that height on the canonical fork.
     // Otherwise we walk back the chain to check whether base block is on the same chain.
     let last_final_height = chain_store
         .get_block_height(prev_block_header.last_final_block())
-        .map_err(|_| InvalidTxError::InvalidChain)?;
+        .map_err(|_| InvalidTxError::InvalidChain)
+        .unwrap();
 
     if last_final_height >= base_height {
         let base_block_hash_by_height = chain_store

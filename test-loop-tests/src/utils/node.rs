@@ -157,9 +157,15 @@ impl<'a> TestLoopNode<'a> {
         maximum_duration: Duration,
     ) {
         let initial_head_height = self.head(&test_loop.data).height;
+        let mut last_height = initial_head_height;
         test_loop.run_until(
             |test_loop_data| {
                 let current_height = self.head(&test_loop_data).height;
+                if last_height == current_height {
+                    return false;
+                }
+                tracing::debug!(target: "test", ?last_height, ?current_height, "new block height");
+                last_height = current_height;
                 current_height >= initial_head_height + num_blocks as u64
             },
             maximum_duration,
