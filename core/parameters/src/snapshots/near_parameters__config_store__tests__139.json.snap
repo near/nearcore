@@ -135,6 +135,8 @@ expression: config_view
       "ed25519_verify_base": 210000000000,
       "ed25519_verify_byte": 9000000,
       "ecrecover_base": 278821988457,
+      "p256_verify_base": 278821988457,
+      "p256_verify_byte": 9000000,
       "log_base": 3543313050,
       "log_byte": 13198791,
       "storage_write_base": 64196736000,

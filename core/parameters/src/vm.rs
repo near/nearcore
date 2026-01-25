@@ -205,6 +205,8 @@ pub struct Config {
 
     /// Whether to host functions introduced with deterministic account ids.
     pub deterministic_account_ids: bool,
+    /// Whether to enable the P-256 verification host function.
+    pub p256_verify: bool,
 
     /// Whether to enable gas key host functions.
     pub gas_key_host_fns: bool,
@@ -245,6 +247,7 @@ impl Config {
         self.eth_implicit_global_contract = true;
         self.global_contract_host_fns = true;
         self.gas_key_host_fns = true;
+        self.p256_verify = true;
     }
 }
 

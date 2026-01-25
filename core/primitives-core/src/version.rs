@@ -347,6 +347,8 @@ pub enum ProtocolFeature {
     /// validate_delegate_action_key. Previously the error could be
     /// overwritten by a subsequent receiver_id or method_name check.
     FixDelegateActionDepositWithFunctionCallError,
+    /// Enable P-256 verification host function.
+    P256Verify,
     Spice,
     ContinuousEpochSync,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
@@ -502,7 +504,7 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::GasKeys => 149,
+            ProtocolFeature::GasKeys | ProtocolFeature::P256Verify => 149,
             ProtocolFeature::DynamicResharding => 150,
             ProtocolFeature::StrictNonce => 151,
             ProtocolFeature::EarlyKickout => 152,
