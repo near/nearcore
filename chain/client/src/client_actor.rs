@@ -744,9 +744,6 @@ impl
                 near_client_primitives::types::SandboxResponse::SandboxNoResponse
             }
             near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus => {
-                // fastforward_target_height is set when a request comes in and cleared
-                // in post_block_production when head reaches target.
-                // See https://github.com/near/nearcore/issues/9690
                 near_client_primitives::types::SandboxResponse::SandboxFastForwardFinished(
                     self.fastforward_target_height.is_none(),
                 )
