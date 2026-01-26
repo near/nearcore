@@ -75,7 +75,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, get_protocol_upgrade_schedule};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
@@ -1201,11 +1201,27 @@ impl ClientActor {
                 continue;
             }
 
-            if self.client.doomslug.ready_to_produce_block(
-                height,
-                chunks_readiness,
-                log_block_production_info,
-            ) {
+            let protocol_version =
+                self.client.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+            let spice_ready_to_produce_block = if ProtocolFeature::Spice.enabled(protocol_version) {
+                let head_header = self.client.chain.get_block_header(prev_block_hash)?;
+                self.client.spice_timer.ready_to_produce_block(
+                    height,
+                    &self.client.chain.chain_store(),
+                    prev_block_hash,
+                    head_header.raw_timestamp(),
+                )?
+            } else {
+                true
+            };
+
+            if spice_ready_to_produce_block
+                && self.client.doomslug.ready_to_produce_block(
+                    height,
+                    chunks_readiness,
+                    log_block_production_info,
+                )
+            {
                 let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id)?;
                 self.client
                     .chunk_inclusion_tracker
