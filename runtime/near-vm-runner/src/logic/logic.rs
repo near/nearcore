@@ -1843,8 +1843,8 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         public_key_len: u64,
         public_key_ptr: u64,
     ) -> Result<u64> {
-        use p256::ecdsa::{Signature, VerifyingKey};
         use p256::ecdsa::signature::Verifier;
+        use p256::ecdsa::{Signature, VerifyingKey};
 
         self.result_state.gas_counter.pay_base(p256_verify_base)?;
 
@@ -1862,9 +1862,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         };
 
         let message = get_memory_or_register!(self, message_ptr, message_len)?;
-        self.result_state
-            .gas_counter
-            .pay_per(p256_verify_byte, message.len() as u64)?;
+        self.result_state.gas_counter.pay_per(p256_verify_byte, message.len() as u64)?;
 
         let public_key = {
             let vec = get_memory_or_register!(self, public_key_ptr, public_key_len)?;

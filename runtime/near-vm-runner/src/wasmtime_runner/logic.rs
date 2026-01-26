@@ -1905,8 +1905,8 @@ pub fn p256_verify(
     public_key_len: u64,
     public_key_ptr: u64,
 ) -> Result<u64> {
-    use p256::ecdsa::{Signature, VerifyingKey};
     use p256::ecdsa::signature::Verifier;
+    use p256::ecdsa::{Signature, VerifyingKey};
 
     let memory = get_memory(caller)?;
     let (memory, ctx) = memory.data_and_store_mut(caller);
@@ -1939,9 +1939,7 @@ pub fn p256_verify(
         message_ptr,
         message_len,
     )?;
-    ctx.result_state
-        .gas_counter
-        .pay_per(p256_verify_byte, message.len() as u64)?;
+    ctx.result_state.gas_counter.pay_per(p256_verify_byte, message.len() as u64)?;
 
     let public_key = {
         let vec = get_memory_or_register(
