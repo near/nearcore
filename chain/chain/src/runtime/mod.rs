@@ -679,9 +679,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         if let Some(nonce_index) = tx.nonce().nonce_index() {
             let current_nonce =
                 get_gas_key_nonce(&trie, tx.signer_id(), tx.public_key(), nonce_index)?
-                    .ok_or_else(|| InvalidTxError::InvalidNonce {
-                        tx_nonce: tx.nonce().nonce(),
-                        ak_nonce: 0,
+                    .ok_or_else(|| {
+                        let num_nonces = access_key
+                            .gas_key_info()
+                            .map_or(0, |gas_key_info| gas_key_info.num_nonces);
+                        InvalidTxError::InvalidNonceIndex {
+                            tx_nonce_index: Some(nonce_index),
+                            num_nonces,
+                        }
                     })?;
             verify_and_charge_gas_key_tx_ephemeral(
                 runtime_config,
