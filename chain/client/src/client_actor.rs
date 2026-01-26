@@ -303,8 +303,6 @@ pub struct ClientActor {
     sync_started: bool,
     sync_jobs_sender: SyncJobsSenderForClient,
 
-    #[cfg(feature = "sandbox")]
-    fastforward_delta: near_primitives::types::BlockHeightDelta,
     /// The target block height we're waiting for during fast-forward.
     /// Some iff sandbox fast forward is in progress.
     #[cfg(feature = "sandbox")]
@@ -443,8 +441,6 @@ impl ClientActor {
             doomslug_timer_next_attempt: now,
             sync_timer_next_attempt: now,
             sync_started: false,
-            #[cfg(feature = "sandbox")]
-            fastforward_delta: 0,
             #[cfg(feature = "sandbox")]
             fastforward_target_height: None,
             shutdown_signal,
@@ -732,15 +728,11 @@ impl
                         "Consecutive fast_forward requests cannot be made while a current one is going on.".to_string());
                 }
 
-                let target = match self.client.chain.head() {
-                    Ok(head) => head.height + delta_height,
-                    Err(_) => {
-                        return near_client_primitives::types::SandboxResponse::SandboxFastForwardFailed(
-                            "Failed to get current head height.".to_string());
-                    }
+                let Ok(head) = self.client.chain.head() else {
+                    return near_client_primitives::types::SandboxResponse::SandboxFastForwardFailed(
+                        "Failed to get current head height.".to_string());
                 };
-                self.fastforward_delta = delta_height;
-                self.fastforward_target_height = Some(target);
+                self.fastforward_target_height = Some(head.height + delta_height);
                 near_client_primitives::types::SandboxResponse::SandboxNoResponse
             }
             near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus => {
@@ -1048,7 +1040,12 @@ impl ClientActor {
         &mut self,
         block_height: BlockHeight,
     ) -> Result<Option<near_chain::types::LatestKnown>, Error> {
-        let mut delta_height = std::mem::replace(&mut self.fastforward_delta, 0);
+        let Some(target) = self.fastforward_target_height else {
+            return Ok(None);
+        };
+
+        // Compute remaining delta from target
+        let delta_height = target.saturating_sub(block_height);
         if delta_height == 0 {
             return Ok(None);
         }
@@ -1061,12 +1058,10 @@ impl ClientActor {
         }
 
         // Check if we are at epoch boundary. If we are, do not fast forward until new
-        // epoch is here. Decrement the fast_forward count by 1 when a block is produced
-        // during this period of waiting
+        // epoch is here. Blocks will be produced normally until we cross the boundary.
         let block_height_wrt_epoch = block_height % epoch_length;
         if epoch_length - block_height_wrt_epoch <= 3 || block_height_wrt_epoch == 0 {
             // wait for doomslug to call into produce block
-            self.fastforward_delta = delta_height;
             return Ok(None);
         }
 
@@ -1074,11 +1069,7 @@ impl ClientActor {
             // fast forward to just right before epoch boundary to have epoch_manager
             // handle the epoch_height updates as normal. `- 3` since this is being
             // done 3 blocks before the epoch ends.
-            let right_before_epoch_update = epoch_length - block_height_wrt_epoch - 3;
-
-            delta_height -= right_before_epoch_update;
-            self.fastforward_delta = delta_height;
-            right_before_epoch_update
+            epoch_length - block_height_wrt_epoch - 3
         } else {
             delta_height
         };
@@ -1111,19 +1102,10 @@ impl ClientActor {
     #[allow(clippy::needless_pass_by_ref_mut)] // &mut self is needed with the sandbox feature
     fn post_block_production(&mut self) {
         #[cfg(feature = "sandbox")]
-        {
-            if self.fastforward_delta > 0 {
-                // Decrease the delta_height by 1 since we've produced a single block. This
-                // ensures that we advanced the right amount of blocks when fast forwarding
-                // and fast forwarding triggers regular block production in the case of
-                // stepping between epoch boundaries.
-                self.fastforward_delta -= 1;
-            }
-            if let Some(target) = self.fastforward_target_height {
-                if let Ok(head) = self.client.chain.head() {
-                    if head.height >= target {
-                        self.fastforward_target_height = None;
-                    }
+        if let Some(target) = self.fastforward_target_height {
+            if let Ok(head) = self.client.chain.head() {
+                if head.height >= target {
+                    self.fastforward_target_height = None;
                 }
             }
         }
