@@ -1541,7 +1541,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             &mut self.result_state.gas_counter,
             &self.config.limit_config,
             register_id,
-            value_hash.as_slice(),
+            &value_hash[..],
         )
     }
 
@@ -1567,7 +1567,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             &mut self.result_state.gas_counter,
             &self.config.limit_config,
             register_id,
-            value_hash.as_slice(),
+            &value_hash[..],
         )
     }
 
@@ -1593,7 +1593,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             &mut self.result_state.gas_counter,
             &self.config.limit_config,
             register_id,
-            value_hash.as_slice(),
+            &value_hash[..],
         )
     }
 
@@ -1629,7 +1629,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             &mut self.result_state.gas_counter,
             &self.config.limit_config,
             register_id,
-            value_hash.as_slice(),
+            &value_hash[..],
         )
     }
 

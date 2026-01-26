@@ -1533,7 +1533,7 @@ pub fn sha256(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
-        value_hash.as_slice(),
+        &value_hash[..],
     )
 }
 
@@ -1572,7 +1572,7 @@ pub fn keccak256(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
-        value_hash.as_slice(),
+        &value_hash[..],
     )
 }
 
@@ -1611,7 +1611,7 @@ pub fn keccak512(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
-        value_hash.as_slice(),
+        &value_hash[..],
     )
 }
 
@@ -1657,7 +1657,7 @@ pub fn ripemd160(
         &mut ctx.result_state.gas_counter,
         &ctx.config.limit_config,
         register_id,
-        value_hash.as_slice(),
+        &value_hash[..],
     )
 }
 
