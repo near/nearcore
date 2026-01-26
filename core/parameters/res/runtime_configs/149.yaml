@@ -1,1 +1,3 @@
 gas_key_host_fns: { old: false, new: true }
+# Enable P-256 verification host function.
+p256_verify: { old: false, new: true }
