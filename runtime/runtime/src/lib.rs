@@ -274,6 +274,7 @@ pub struct ActionResult {
     pub new_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
     pub profile: Box<ProfileDataV3>,
+    pub tokens_burnt: Balance,
 }
 
 impl ActionResult {
@@ -292,6 +293,8 @@ impl ActionResult {
             .ok_or(IntegerOverflowError)?;
         self.gas_used = self.gas_used.checked_add_result(next_result.gas_used)?;
         self.compute_usage = safe_add_compute(self.compute_usage, next_result.compute_usage)?;
+        self.tokens_burnt =
+            self.tokens_burnt.checked_add(next_result.tokens_burnt).ok_or(IntegerOverflowError)?;
         self.profile.merge(&next_result.profile);
         self.result = next_result.result;
         self.logs.append(&mut next_result.logs);
@@ -322,6 +325,7 @@ impl Default for ActionResult {
             new_receipts: vec![],
             validator_proposals: vec![],
             profile: Default::default(),
+            tokens_burnt: Balance::ZERO,
         }
     }
 }
@@ -753,6 +757,7 @@ impl Runtime {
             .unwrap();
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.price_surplus)?;
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.refund_penalty)?;
+        tx_burnt_amount = safe_add_balance(tx_burnt_amount, result.tokens_burnt)?;
         // The amount of tokens burnt for the execution of this receipt. It's used in the execution
         // outcome.
         let tokens_burnt = tx_burnt_amount;
