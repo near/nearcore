@@ -6075,6 +6075,22 @@
             ],
             "description": "Cost for logging per byte"
           },
+          "p256_verify_base": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of P-256 verification base"
+          },
+          "p256_verify_byte": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearGas"
+              }
+            ],
+            "description": "Cost of P-256 verification per byte"
+          },
           "promise_and_base": {
             "allOf": [
               {
@@ -7988,6 +8004,27 @@
             },
             "required": [
               "Ed25519VerifyInvalidInput"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Invalid input to p256 signature verification function (e.g. signature cannot be\nderived from bytes).",
+            "properties": {
+              "P256VerifyInvalidInput": {
+                "properties": {
+                  "msg": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "msg"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "P256VerifyInvalidInput"
             ],
             "type": "object"
           }
@@ -19880,6 +19917,10 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "p256_verify": {
+            "description": "See [VMConfig::p256_verify](crate::vm::Config::p256_verify).",
+            "type": "boolean"
           },
           "reftypes_bulk_memory": {
             "description": "See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).",
