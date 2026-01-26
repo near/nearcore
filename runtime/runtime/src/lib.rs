@@ -61,6 +61,7 @@ use near_primitives::transaction::{
     SignedTransaction, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
+use near_primitives::types::PromiseYieldStatus;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, Compute, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce,
     NonceIndex, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
@@ -77,9 +78,10 @@ use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
     PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
-    get_account, get_gas_key_nonce, get_postponed_receipt, get_promise_yield_receipt, get_pure,
-    get_received_data, has_received_data, remove_postponed_receipt, remove_promise_yield_receipt,
-    set, set_access_key, set_account, set_gas_key_nonce, set_postponed_receipt,
+    get_account, get_gas_key_nonce, get_postponed_receipt, get_promise_yield_receipt,
+    get_promise_yield_status, get_pure, get_received_data, has_received_data,
+    remove_postponed_receipt, remove_promise_yield_receipt, remove_promise_yield_status, set,
+    set_access_key, set_account, set_gas_key_nonce, set_postponed_receipt,
     set_promise_yield_receipt, set_received_data,
 };
 use near_vm_runner::ContractCode;
@@ -1139,6 +1141,19 @@ impl Runtime {
                 set_promise_yield_receipt(state_update, receipt);
             }
             VersionedReceiptEnum::PromiseResume(data_receipt) => {
+                if data_receipt.data.is_none()
+                    && ProtocolFeature::YieldResumeImprovements
+                        .enabled(apply_state.current_protocol_version)
+                {
+                    // This is a timeout resume. Check the status to see if the receipt has been resumed.
+                    let status =
+                        get_promise_yield_status(state_update, account_id, data_receipt.data_id)?;
+                    if status == Some(PromiseYieldStatus::ResumeInitiated) {
+                        // A non-timeout resume receipt has been sent, cancel the timeout.
+                        return Ok(None);
+                    }
+                }
+
                 // Received a new PromiseResume receipt delivering input data for a PromiseYield.
                 // It is guaranteed that the PromiseYield has exactly one input data dependency
                 // and that it arrives first, so we can simply find and execute it.
@@ -1147,6 +1162,13 @@ impl Runtime {
                 {
                     // Remove the receipt from the state
                     remove_promise_yield_receipt(state_update, account_id, data_receipt.data_id);
+
+                    if ProtocolFeature::YieldResumeImprovements
+                        .enabled(apply_state.current_protocol_version)
+                    {
+                        // Clear the PromiseYield status
+                        remove_promise_yield_status(state_update, account_id, data_receipt.data_id);
+                    }
 
                     // Save the data into the state keyed by the data_id
                     set_received_data(

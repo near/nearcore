@@ -16,7 +16,9 @@ use near_primitives::receipt::{
     Receipt, ReceivedData, VersionedReceiptEnum,
 };
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
-use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, NonceIndex, StateRoot};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, Nonce, NonceIndex, PromiseYieldStatus, StateRoot,
+};
 use std::io;
 
 /// Reads an object from Trie.
@@ -217,6 +219,46 @@ pub fn has_promise_yield_receipt(
         &TrieKey::PromiseYieldReceipt { receiver_id, data_id },
         AccessOptions::DEFAULT,
     )
+}
+
+pub fn get_promise_yield_status(
+    trie: &dyn TrieAccess,
+    receiver_id: &AccountId,
+    data_id: CryptoHash,
+) -> Result<Option<PromiseYieldStatus>, StorageError> {
+    get(trie, &TrieKey::PromiseYieldStatus { receiver_id: receiver_id.clone(), data_id })
+}
+
+pub fn has_promise_yield_status(
+    trie: &dyn TrieAccess,
+    receiver_id: &AccountId,
+    data_id: CryptoHash,
+) -> Result<bool, StorageError> {
+    trie.contains_key(
+        &TrieKey::PromiseYieldStatus { receiver_id: receiver_id.clone(), data_id },
+        AccessOptions::DEFAULT,
+    )
+}
+
+pub fn set_promise_yield_status(
+    state_update: &mut TrieUpdate,
+    receiver_id: &AccountId,
+    data_id: CryptoHash,
+    status: PromiseYieldStatus,
+) {
+    set(
+        state_update,
+        TrieKey::PromiseYieldStatus { receiver_id: receiver_id.clone(), data_id },
+        &status,
+    );
+}
+
+pub fn remove_promise_yield_status(
+    state_update: &mut TrieUpdate,
+    receiver_id: &AccountId,
+    data_id: CryptoHash,
+) {
+    state_update.remove(TrieKey::PromiseYieldStatus { receiver_id: receiver_id.clone(), data_id });
 }
 
 pub fn get_buffered_receipt_indices(
