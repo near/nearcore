@@ -851,7 +851,8 @@ fn shard_split_handle_key_value(
         col::POSTPONED_RECEIPT_ID
         | col::PENDING_DATA_COUNT
         | col::POSTPONED_RECEIPT
-        | col::PROMISE_YIELD_RECEIPT => {
+        | col::PROMISE_YIELD_RECEIPT
+        | col::PROMISE_YIELD_STATUS => {
             copy_kv_to_child(&split_params, key, value, store_update, |raw_key: &[u8]| {
                 parse_account_id_from_trie_key_with_separator(
                     key_column_prefix,
