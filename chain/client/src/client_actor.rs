@@ -1122,7 +1122,6 @@ impl ClientActor {
                 // stepping between epoch boundaries.
                 self.fastforward_delta -= 1;
             }
-            // Clear target when head reaches it
             if let Some(target) = self.fastforward_target_height {
                 if let Ok(head) = self.client.chain.head() {
                     if head.height >= target {
