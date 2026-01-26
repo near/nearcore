@@ -306,8 +306,7 @@ pub struct ClientActor {
     #[cfg(feature = "sandbox")]
     fastforward_delta: near_primitives::types::BlockHeightDelta,
     /// The target block height we're waiting for during fast-forward.
-    /// Set when a fast-forward request comes in, cleared when head reaches target.
-    /// See https://github.com/near/nearcore/issues/9690
+    /// Some iff sandbox fast forward is in progress.
     #[cfg(feature = "sandbox")]
     fastforward_target_height: Option<near_primitives::types::BlockHeight>,
 
