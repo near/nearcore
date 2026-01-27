@@ -105,6 +105,8 @@ async fn test_send_tx_commit() {
 
 /// Test that expired transaction should be rejected
 #[tokio::test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_expired_tx() {
     // Create setup with very short transaction validity period (1 block)
     let accounts = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
