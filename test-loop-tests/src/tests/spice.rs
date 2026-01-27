@@ -258,11 +258,9 @@ fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height: u64) {
     }
 }
 
-/// Tests that RPC queries with different finalities return the correct blocks
-/// when execution lags behind consensus.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_spice_rpc_finality() {
+fn test_spice_rpc_get_block_by_finality() {
     init_test_logger();
 
     let num_producers = 2;
@@ -297,7 +295,6 @@ fn test_spice_rpc_finality() {
     );
 
     let test_loop_data = env.test_loop_data();
-    let head = node.head(test_loop_data);
     let execution_head = node.last_executed(test_loop_data);
     let final_head = node.client(test_loop_data).chain.final_head().unwrap();
 
