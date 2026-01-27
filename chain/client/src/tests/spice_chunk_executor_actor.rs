@@ -505,11 +505,11 @@ fn test_executing_blocks() {
     for (i, block) in blocks.iter().enumerate() {
         for actor in &mut actors {
             assert!(!block_executed(&actor, &block), "block #{} is already executed", i + 1);
-            assert!(!actor.chain.chain_store().is_block_executed(block.hash()), i + 1);
+            assert!(!actor.chain.chain_store().is_block_executed(block.hash()));
             actor
                 .handle_with_internal_events(ProcessedBlock { block_hash: *block.header().hash() });
             assert!(block_executed(&actor, &block), "failed to execute block #{}", i + 1);
-            assert!(actor.chain.chain_store().is_block_executed(block.hash()), i + 1);
+            assert!(actor.chain.chain_store().is_block_executed(block.hash()));
         }
         simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
         record_endorsements(&mut actors, &block);
