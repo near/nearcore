@@ -8,7 +8,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
-use near_primitives_core::types::Gas;
+use near_primitives_core::types::{Gas, ProtocolVersion};
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -462,6 +462,25 @@ impl Receipt {
             }
         };
         Ok(shard_id)
+    }
+
+    /// An instant receipt is a receipt which should be processed immediately after the receipt that
+    /// produced it, in the same chunk, irrespective of the gas limit.
+    /// The expectation is that applying an instant receipt is a quick operation (e.g. setting a few values in the state).
+    /// Instant receipts generally shouldn't emit new instant receipts, as it could lead to
+    /// infinitely many receipts being executed in a single chunk.
+    pub fn is_instant_receipt(&self, _protocol_version: ProtocolVersion) -> bool {
+        match self.versioned_receipt() {
+            VersionedReceiptEnum::PromiseYield(_) => {
+                // PromiseYield will be instant receipts in an upcoming protocol version.
+                // For now set to false, will be done in follow-up PR.
+                false
+            }
+            VersionedReceiptEnum::Action(_)
+            | VersionedReceiptEnum::Data(_)
+            | VersionedReceiptEnum::PromiseResume(_)
+            | VersionedReceiptEnum::GlobalContractDistribution(_) => false,
+        }
     }
 
     /// Generates a receipt with a transfer from system for a given balance without a receipt_id.
