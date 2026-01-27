@@ -1,6 +1,5 @@
 wasm_regular_op_cost: { old: 3_856_371, new: 2_207_874 }
 wasm_ecrecover_base: { old: 3_365_369_625_000, new: 278_821_988_457 }
-wasm_p256_verify_base: { old: 278_821_988_457, new: 278_821_988_457 }
 data_receipt_creation_base: {
   old: {
     send_sir: 4_697_339_419_375,
