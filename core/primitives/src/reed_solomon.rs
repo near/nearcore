@@ -277,7 +277,7 @@ mod tests {
         let data_shards = 1;
         let parity_shards = 1;
         let rs = ReedSolomon::new(data_shards, parity_shards).unwrap();
-        let data: Vec<u8> = b"aaabbbcccd".to_vec();
+        let data: Vec<u8> = b"my favorite data".to_vec();
         let (mut parts, _encoded_length) = reed_solomon_encode(&rs, &data);
 
         let encoded_length = usize::MAX;
