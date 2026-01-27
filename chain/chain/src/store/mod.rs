@@ -104,6 +104,8 @@ pub trait ChainStoreAccess {
     fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error>;
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> bool;
+    /// Has this block been executed? (SPICE only)
+    fn is_block_executed(&self, h: &CryptoHash) -> bool;
     /// Does this chunk exist?
     fn chunk_exists(&self, h: &ChunkHash) -> bool;
     /// Does this partial chunk exist?
@@ -909,6 +911,11 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::block_exists(self, h)
     }
 
+    /// Has this block been executed? (SPICE only)
+    fn is_block_executed(&self, h: &CryptoHash) -> bool {
+        ChainStoreAdapter::is_block_executed(self, h)
+    }
+
     fn chunk_exists(&self, h: &ChunkHash) -> bool {
         self.chunk_store().chunk_exists(h)
     }
@@ -1079,6 +1086,7 @@ pub struct ChainStoreUpdate<'a> {
     add_state_sync_infos: Vec<StateSyncInfo>,
     remove_state_sync_infos: Vec<CryptoHash>,
     chunk_apply_stats: HashMap<(CryptoHash, ShardId), ChunkApplyStats>,
+    blocks_executed: HashSet<CryptoHash>,
 }
 
 impl<'a> ChainStoreUpdate<'a> {
@@ -1105,6 +1113,7 @@ impl<'a> ChainStoreUpdate<'a> {
             add_state_sync_infos: vec![],
             remove_state_sync_infos: vec![],
             chunk_apply_stats: HashMap::default(),
+            blocks_executed: HashSet::new(),
         }
     }
 
@@ -1238,6 +1247,11 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             }
         }
         self.chain_store.block_exists(h)
+    }
+
+    /// Has this block been executed? (SPICE only)
+    fn is_block_executed(&self, h: &CryptoHash) -> bool {
+        self.chain_store.is_block_executed(h)
     }
 
     fn chunk_exists(&self, h: &ChunkHash) -> bool {
@@ -1477,6 +1491,11 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn save_spice_execution_head(&mut self, t: Tip) -> Result<(), Error> {
         self.spice_execution_head = Some(t.into());
         Ok(())
+    }
+
+    /// Marks a block as executed (SPICE only).
+    pub fn save_block_executed(&mut self, block_hash: CryptoHash) {
+        self.blocks_executed.insert(block_hash);
     }
 
     /// Updates fields in the ChainStore that store information about the
@@ -1860,6 +1879,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 &mut self.largest_target_height,
             )?;
             Self::write_col_misc(&mut store_update, GC_STOP_HEIGHT_KEY, &mut self.gc_stop_height)?;
+            for block_hash in &self.blocks_executed {
+                store_update.insert_ser(DBCol::block_executed(), block_hash.as_ref(), &())?;
+            }
         }
         {
             let _span = tracing::trace_span!(target: "store", "write_block").entered();

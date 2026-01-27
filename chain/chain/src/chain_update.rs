@@ -696,4 +696,9 @@ impl<'a> ChainUpdate<'a> {
         let tip = Tip::from_header(&header);
         self.chain_store_update.save_spice_execution_head(tip)
     }
+
+    /// Marks a block as executed (SPICE only).
+    pub fn save_block_executed(&mut self, block_hash: CryptoHash) {
+        self.chain_store_update.save_block_executed(block_hash);
+    }
 }

@@ -650,6 +650,7 @@ impl ChunkExecutorActor {
         )?;
         let final_execution_head = chain_update.update_spice_final_execution_head(&block)?;
         chain_update.save_spice_execution_head(block.header())?;
+        chain_update.save_block_executed(*block.hash());
         chain_update.commit()?;
         if let Some(final_execution_head) = final_execution_head {
             self.update_flat_storage_head(&shard_layout, &final_execution_head)?;

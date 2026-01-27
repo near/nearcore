@@ -158,6 +158,11 @@ impl ChainStoreAdapter {
         self.store.exists(DBCol::Block, h.as_ref())
     }
 
+    /// Has this block been executed? (SPICE only)
+    pub fn is_block_executed(&self, h: &CryptoHash) -> bool {
+        self.store.exists(DBCol::block_executed(), h.as_ref())
+    }
+
     /// Get block header.
     pub fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
         option_to_not_found(

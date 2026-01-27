@@ -799,6 +799,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         if cfg!(feature = "protocol_feature_spice") {
             self.gc_col(DBCol::all_next_block_hashes(), block_hash.as_bytes());
+            self.gc_col(DBCol::block_executed(), block_hash.as_bytes());
         }
         self.gc_col(DBCol::ChallengedBlocks, block_hash.as_bytes());
         self.gc_col(DBCol::BlocksToCatchup, block_hash.as_bytes());
@@ -1247,6 +1248,10 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks => {
+                store_update.delete(col, key);
+            }
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::BlockExecuted => {
                 store_update.delete(col, key);
             }
             DBCol::DbVersion
