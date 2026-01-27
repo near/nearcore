@@ -237,17 +237,31 @@ impl ViewClientActor {
         }
     }
 
-    /// Finds the first executed block walking back from `start_hash`.
+    /// Finds the first executed block walking back from `start_hash`, or genesis.
     fn find_first_executed_ancestor(
         &self,
         start_hash: &CryptoHash,
     ) -> Result<CryptoHash, near_chain::Error> {
+        let final_execution_head = self.chain.chain_store().spice_final_execution_head().ok();
         let mut hash = *start_hash;
         loop {
             if self.chain.chain_store().is_block_executed(&hash) {
                 return Ok(hash);
             }
             let header = self.chain.get_block_header(&hash)?;
+            if header.is_genesis() {
+                return Ok(*header.hash());
+            }
+            // Don't go past the final execution head. This is a defensive
+            // check, in normal operation we should always find an executed
+            // ancestor within a few blocks.
+            if let Some(final_execution_head) = &final_execution_head {
+                if header.height() <= final_execution_head.height {
+                    return Err(near_chain::Error::DBNotFoundErr(
+                        "no executed ancestor found".to_string(),
+                    ));
+                }
+            }
             hash = *header.prev_hash();
         }
     }
