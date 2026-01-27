@@ -201,10 +201,54 @@ impl ViewClientActor {
         &self,
         finality: &Finality,
     ) -> Result<CryptoHash, near_chain::Error> {
+        if cfg!(feature = "protocol_feature_spice") {
+            return self.get_spice_block_hash_by_finality(finality);
+        }
         match finality {
             Finality::None => Ok(self.chain.head()?.last_block_hash),
             Finality::DoomSlug => Ok(*self.chain.head_header()?.last_ds_final_block()),
             Finality::Final => Ok(self.chain.final_head()?.last_block_hash),
+        }
+    }
+
+    /// Returns the block hash for the given finality in SPICE mode.
+    /// In SPICE, we return the first executed ancestor of the consensus block.
+    fn get_spice_block_hash_by_finality(
+        &self,
+        finality: &Finality,
+    ) -> Result<CryptoHash, near_chain::Error> {
+        let execution_head = match self.chain.chain_store().spice_execution_head() {
+            Ok(tip) => tip,
+            Err(near_chain::Error::DBNotFoundErr(_)) => {
+                return Ok(*self.chain.genesis().hash());
+            }
+            Err(err) => return Err(err),
+        };
+        match finality {
+            Finality::None => Ok(execution_head.last_block_hash),
+            Finality::DoomSlug => {
+                let ds_final_hash = *self.chain.head_header()?.last_ds_final_block();
+                self.find_first_executed_ancestor(&ds_final_hash)
+            }
+            Finality::Final => {
+                let final_head = self.chain.final_head()?;
+                self.find_first_executed_ancestor(&final_head.last_block_hash)
+            }
+        }
+    }
+
+    /// Finds the first executed block walking back from `start_hash`.
+    fn find_first_executed_ancestor(
+        &self,
+        start_hash: &CryptoHash,
+    ) -> Result<CryptoHash, near_chain::Error> {
+        let mut hash = *start_hash;
+        loop {
+            if self.chain.chain_store().is_block_executed(&hash) {
+                return Ok(hash);
+            }
+            let header = self.chain.get_block_header(&hash)?;
+            hash = *header.prev_hash();
         }
     }
 
@@ -217,18 +261,7 @@ impl ViewClientActor {
         &self,
         reference: &BlockReference,
     ) -> Result<Option<Arc<BlockHeader>>, near_chain::Error> {
-        // TODO(spice): Implement support for getting different finalities from execution.
-        if cfg!(feature = "protocol_feature_spice")
-            && matches!(reference, BlockReference::Finality(_))
-        {
-            return match self.chain.chain_store().spice_execution_head() {
-                Ok(tip) => self.chain.get_block_header(&tip.last_block_hash).map(Some),
-                Err(near_chain::Error::DBNotFoundErr(_)) => {
-                    Ok(Some(self.chain.genesis().clone().into()))
-                }
-                Err(err) => Err(err),
-            };
-        }
+        // TODO(spice): Return "unknown block" for height/hash queries past execution_head.
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
                 self.chain.get_block_header_by_height(*block_height).map(Some)
@@ -262,6 +295,7 @@ impl ViewClientActor {
         &self,
         reference: &BlockReference,
     ) -> Result<Option<Arc<Block>>, near_chain::Error> {
+        // TODO(spice): Return "unknown block" for height/hash queries past execution_head.
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
                 self.chain.get_block_by_height(*block_height).map(Some)
