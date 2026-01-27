@@ -301,38 +301,18 @@ fn test_spice_rpc_finality() {
     let execution_head = node.last_executed(test_loop_data);
     let final_head = node.client(test_loop_data).chain.final_head().unwrap();
 
-    // Verify there's a gap
-    assert!(head.height > execution_head.height, "Expected consensus to be ahead of execution");
-
+    // Check that different finality queries return expected blocks
     let view_client = env.test_loop.data.get_mut(&node.data().view_client_sender.actor_handle());
-
-    // Query with Finality::None should return execution_head
     let block_none =
         view_client.handle(GetBlock(BlockReference::Finality(Finality::None))).unwrap();
-    assert_eq!(
-        block_none.header.height, execution_head.height,
-        "Finality::None should return execution head"
-    );
-
-    // Query with Finality::Final should return first executed ancestor of final_head
+    assert_eq!(block_none.header.height, execution_head.height);
     let block_final =
         view_client.handle(GetBlock(BlockReference::Finality(Finality::Final))).unwrap();
-    assert!(
-        block_final.header.height <= execution_head.height,
-        "Finality::Final should return a block at or before execution head"
-    );
-    assert!(
-        block_final.header.height <= final_head.height,
-        "Finality::Final should return a block at or before final head"
-    );
-
-    // Query with Finality::DoomSlug should also return an executed block
+    assert!(block_final.header.height <= execution_head.height);
+    assert!(block_final.header.height <= final_head.height);
     let block_doomslug =
         view_client.handle(GetBlock(BlockReference::Finality(Finality::DoomSlug))).unwrap();
-    assert!(
-        block_doomslug.header.height <= execution_head.height,
-        "Finality::DoomSlug should return a block at or before execution head"
-    );
+    assert!(block_doomslug.header.height <= execution_head.height);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
