@@ -375,6 +375,12 @@ pub enum DBCol {
     /// - *Content type*: Vec<[near_primitives::types::SpiceUncertifiedChunkInfo]>
     #[cfg(feature = "protocol_feature_spice")]
     UncertifiedChunks,
+    /// For spice, marks blocks that have been executed.
+    /// Used to determine which blocks are available for RPC queries.
+    /// - *Rows*: BlockHash (CryptoHash)
+    /// - *Content type*: empty (unit marker)
+    #[cfg(feature = "protocol_feature_spice")]
+    BlockExecuted,
 }
 
 /// Defines different logical parts of a db key.
@@ -443,7 +449,8 @@ impl DBCol {
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks
             | DBCol::ExecutionResults
-            | DBCol::UncertifiedExecutionResults => true,
+            | DBCol::UncertifiedExecutionResults
+            | DBCol::BlockExecuted => true,
             _ => false,
         }
     }
@@ -542,6 +549,8 @@ impl DBCol {
             | DBCol::UncertifiedExecutionResults => false,
             #[cfg(feature = "protocol_feature_spice")]
             | DBCol::UncertifiedChunks => false,
+            #[cfg(feature = "protocol_feature_spice")]
+            | DBCol::BlockExecuted => false,
             // TODO
             DBCol::ChallengedBlocks => false,
             DBCol::Misc => false,
@@ -699,6 +708,8 @@ impl DBCol {
             DBCol::UncertifiedExecutionResults => &[DBKeyType::ChunkExecutionResultHash],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks => &[DBKeyType::BlockHash],
+            #[cfg(feature = "protocol_feature_spice")]
+            DBCol::BlockExecuted => &[DBKeyType::BlockHash],
         }
     }
 
@@ -747,6 +758,13 @@ impl DBCol {
     pub fn uncertified_chunks() -> DBCol {
         #[cfg(feature = "protocol_feature_spice")]
         return DBCol::UncertifiedChunks;
+        #[cfg(not(feature = "protocol_feature_spice"))]
+        panic!("Expected protocol_feature_spice to be enabled")
+    }
+
+    pub fn block_executed() -> DBCol {
+        #[cfg(feature = "protocol_feature_spice")]
+        return DBCol::BlockExecuted;
         #[cfg(not(feature = "protocol_feature_spice"))]
         panic!("Expected protocol_feature_spice to be enabled")
     }

@@ -228,43 +228,27 @@ impl ViewClientActor {
             Finality::None => Ok(execution_head.last_block_hash),
             Finality::DoomSlug => {
                 let ds_final_hash = *self.chain.head_header()?.last_ds_final_block();
-                self.find_first_executed_ancestor(&ds_final_hash, &execution_head)
+                self.find_first_executed_ancestor(&ds_final_hash)
             }
             Finality::Final => {
                 let final_head = self.chain.final_head()?;
-                self.find_first_executed_ancestor(&final_head.last_block_hash, &execution_head)
+                self.find_first_executed_ancestor(&final_head.last_block_hash)
             }
         }
     }
 
-    /// Finds the common ancestor between `start_hash` and `execution_head`.
-    /// This is the most recent block that is both an ancestor of `start_hash`
-    /// and on the executed chain (ancestor of execution_head).
+    /// Finds the first executed block walking back from `start_hash`.
     fn find_first_executed_ancestor(
         &self,
         start_hash: &CryptoHash,
-        execution_head: &Tip,
     ) -> Result<CryptoHash, near_chain::Error> {
-        let mut consensus_hash = *start_hash;
-        let mut execution_hash = execution_head.last_block_hash;
+        let mut hash = *start_hash;
         loop {
-            if consensus_hash == execution_hash {
-                return Ok(consensus_hash);
+            if self.chain.chain_store().is_block_executed(&hash) {
+                return Ok(hash);
             }
-            let consensus_header = self.chain.get_block_header(&consensus_hash)?;
-            let execution_header = self.chain.get_block_header(&execution_hash)?;
-            match consensus_header.height().cmp(&execution_header.height()) {
-                std::cmp::Ordering::Greater => {
-                    consensus_hash = *consensus_header.prev_hash();
-                }
-                std::cmp::Ordering::Less => {
-                    execution_hash = *execution_header.prev_hash();
-                }
-                std::cmp::Ordering::Equal => {
-                    consensus_hash = *consensus_header.prev_hash();
-                    execution_hash = *execution_header.prev_hash();
-                }
-            }
+            let header = self.chain.get_block_header(&hash)?;
+            hash = *header.prev_hash();
         }
     }
 
