@@ -12,6 +12,7 @@ use tracing::span::EnteredSpan;
 pub type ReedSolomonPart = Option<Box<[u8]>>;
 
 pub const REED_SOLOMON_MAX_PARTS: usize = reed_solomon_erasure::galois_8::Field::ORDER;
+const MAX_ENCODED_LENGTH: usize = 512usize.checked_mul(bytesize::MIB as usize).unwrap();
 
 // Encode function takes a serializable object and returns a tuple of parts and length of encoded data
 pub fn reed_solomon_encode<T: BorshSerialize>(
@@ -50,6 +51,11 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
     parts: &mut [ReedSolomonPart],
     encoded_length: usize,
 ) -> Result<T, Error> {
+    // encoded_length may not be validated and since we may receive it from peers it may be arbitrary large.
+    if encoded_length > MAX_ENCODED_LENGTH {
+        return Err(Error::other("encoded length is too large"));
+    }
+
     if let Err(err) = rs.reconstruct(parts) {
         return Err(Error::other(err));
     }
@@ -257,5 +263,27 @@ impl<T: ReedSolomonEncoderDeserialize> ReedSolomonPartsTracker<T> {
         } else {
             InsertPartResult::Accepted
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+
+    use super::*;
+
+    #[test]
+    fn reed_solomon_decode_returns_error_with_large_encoded_length() {
+        let data_shards = 1;
+        let parity_shards = 1;
+        let rs = ReedSolomon::new(data_shards, parity_shards).unwrap();
+        let data: Vec<u8> = b"aaabbbcccd".to_vec();
+        let (mut parts, _encoded_length) = reed_solomon_encode(&rs, &data);
+
+        let encoded_length = usize::MAX;
+        assert_matches!(
+            reed_solomon_decode::<Vec<u8>>(&rs, &mut parts, encoded_length),
+            Err(Error { .. })
+        );
     }
 }
