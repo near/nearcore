@@ -65,42 +65,22 @@ pub struct ReceiptV0 {
     pub receipt: ReceiptEnum,
 }
 
-/// DO NOT USE
-///
-/// `ReceiptV1` is not used, yet. It is only preparation for a possible future receipt priority.
-/// Therefore, most if not all code should keep using ReceiptV0, without the priority field.
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Debug,
-    PartialEq,
-    Eq,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-    ProtocolSchema,
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct ReceiptV1 {
-    /// An issuer account_id of a particular receipt.
-    /// `predecessor_id` could be either `Transaction` `signer_id` or intermediate contract's `account_id`.
-    pub predecessor_id: AccountId,
-    /// `receiver_id` is a receipt destination.
-    pub receiver_id: AccountId,
-    /// An unique id for the receipt
-    pub receipt_id: CryptoHash,
-    /// A receipt type
-    pub receipt: ReceiptEnum,
-    /// Priority of a receipt
-    pub priority: u64,
-}
-
+/// A Receipt wrapper. Currently only V0 is used. V1 was prepared for a priority
+/// feature that was never activated and has been removed.
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize, ProtocolSchema)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum Receipt {
     V0(ReceiptV0),
-    V1(ReceiptV1),
+    // To introduce a V1 here, we need custom implementation of BorshSerialize
+    // and BorshDeserialize (aka "hackery") to maintain backwards compatibility.
+    //
+    // Prior this was used: First field in `ReceiptV0` is an `AccountId`, which
+    // is at most 64 bytes. For all valid `ReceiptV0`, the second byte must be 0
+    // because of the little endian encoding of the length of the account id.
+    // On the other hand, for `ReceiptV1`, always set the first byte to 1, and
+    // `AccountId` must have nonzero length, so the second byte must not be
+    // zero.
 }
 
 /// A receipt that is stored in the state with added metadata. A receipt may be
@@ -241,38 +221,13 @@ impl BorshSerialize for Receipt {
     fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         match self {
             Receipt::V0(receipt) => BorshSerialize::serialize(&receipt, writer),
-            Receipt::V1(receipt) => {
-                BorshSerialize::serialize(&1_u8, writer)?;
-                BorshSerialize::serialize(&receipt, writer)
-            }
         }
     }
 }
 
 impl BorshDeserialize for Receipt {
-    /// Deserialize based on the first and second bytes of the stream. For V0, we do backward compatible deserialization by deserializing
-    /// the entire stream into V0. For V1, we consume the first byte and then deserialize the rest.
     fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
-        // This is a ridiculous hackery: because the first field in `ReceiptV0` is an `AccountId`
-        // and an account id is at most 64 bytes, for all valid `ReceiptV0` the second byte must be 0
-        // because of the little endian encoding of the length of the account id.
-        // On the other hand, for `ReceiptV1`, since the first byte is 1 and an account id must have nonzero
-        // length, so the second byte must not be zero. Therefore, we can distinguish between the two versions
-        // by looking at the second byte.
-
-        let u1 = u8::deserialize_reader(reader)?;
-        let u2 = u8::deserialize_reader(reader)?;
-        let is_v0 = u2 == 0;
-
-        let prefix = if is_v0 { vec![u1, u2] } else { vec![u2] };
-        let mut reader = prefix.chain(reader);
-
-        let receipt = if is_v0 {
-            Receipt::V0(ReceiptV0::deserialize_reader(&mut reader)?)
-        } else {
-            Receipt::V1(ReceiptV1::deserialize_reader(&mut reader)?)
-        };
-        Ok(receipt)
+        Ok(Receipt::V0(ReceiptV0::deserialize_reader(reader)?))
     }
 }
 
@@ -365,7 +320,7 @@ impl BorshDeserialize for ReceiptOrStateStoredReceipt<'_> {
         // and StateStoredReceipt.
         // The StateStored receipt has the tag as the first two bytes.
         // The Receipt::V0 has 0 as the second byte.
-        // The Receipt::V1 has 1 as the first byte.
+        // Using 1 as the first byte is reserved in case Receipt::V1 is needed again.
         let u1 = u8::deserialize_reader(reader)?;
         let u2 = u8::deserialize_reader(reader)?;
 
@@ -380,22 +335,6 @@ impl BorshDeserialize for ReceiptOrStateStoredReceipt<'_> {
             let receipt = Receipt::deserialize_reader(&mut reader)?;
             let receipt = Cow::Owned(receipt);
             Ok(ReceiptOrStateStoredReceipt::Receipt(receipt))
-        }
-    }
-}
-
-pub enum ReceiptPriority {
-    /// Used in ReceiptV1
-    Priority(u64),
-    /// Used in ReceiptV0
-    NoPriority,
-}
-
-impl ReceiptPriority {
-    pub fn value(&self) -> u64 {
-        match self {
-            ReceiptPriority::Priority(value) => *value,
-            ReceiptPriority::NoPriority => 0,
         }
     }
 }
@@ -425,80 +364,53 @@ impl Receipt {
     }
 
     pub fn receiver_id(&self) -> &AccountId {
-        match self {
-            Receipt::V0(receipt) => &receipt.receiver_id,
-            Receipt::V1(receipt) => &receipt.receiver_id,
-        }
+        let Receipt::V0(receipt) = self;
+        &receipt.receiver_id
     }
 
     pub fn set_receiver_id(&mut self, receiver_id: AccountId) {
-        match self {
-            Receipt::V0(receipt) => receipt.receiver_id = receiver_id,
-            Receipt::V1(receipt) => receipt.receiver_id = receiver_id,
-        }
+        let Receipt::V0(receipt) = self;
+        receipt.receiver_id = receiver_id;
     }
 
     pub fn predecessor_id(&self) -> &AccountId {
-        match self {
-            Receipt::V0(receipt) => &receipt.predecessor_id,
-            Receipt::V1(receipt) => &receipt.predecessor_id,
-        }
+        let Receipt::V0(receipt) = self;
+        &receipt.predecessor_id
     }
 
     pub fn set_predecessor_id(&mut self, predecessor_id: AccountId) {
-        match self {
-            Receipt::V0(receipt) => receipt.predecessor_id = predecessor_id,
-            Receipt::V1(receipt) => receipt.predecessor_id = predecessor_id,
-        }
+        let Receipt::V0(receipt) = self;
+        receipt.predecessor_id = predecessor_id;
     }
 
     pub fn receipt(&self) -> &ReceiptEnum {
-        match self {
-            Receipt::V0(receipt) => &receipt.receipt,
-            Receipt::V1(receipt) => &receipt.receipt,
-        }
+        let Receipt::V0(receipt) = self;
+        &receipt.receipt
     }
 
     pub fn versioned_receipt(&self) -> VersionedReceiptEnum {
-        match self {
-            Receipt::V0(receipt) => VersionedReceiptEnum::from(&receipt.receipt),
-            Receipt::V1(receipt) => VersionedReceiptEnum::from(&receipt.receipt),
-        }
+        let Receipt::V0(receipt) = self;
+        VersionedReceiptEnum::from(&receipt.receipt)
     }
 
     pub fn receipt_mut(&mut self) -> &mut ReceiptEnum {
-        match self {
-            Receipt::V0(receipt) => &mut receipt.receipt,
-            Receipt::V1(receipt) => &mut receipt.receipt,
-        }
+        let Receipt::V0(receipt) = self;
+        &mut receipt.receipt
     }
 
     pub fn take_versioned_receipt<'a>(self) -> VersionedReceiptEnum<'a> {
-        match self {
-            Receipt::V0(receipt) => VersionedReceiptEnum::from(receipt.receipt),
-            Receipt::V1(receipt) => VersionedReceiptEnum::from(receipt.receipt),
-        }
+        let Receipt::V0(receipt) = self;
+        VersionedReceiptEnum::from(receipt.receipt)
     }
 
     pub fn receipt_id(&self) -> &CryptoHash {
-        match self {
-            Receipt::V0(receipt) => &receipt.receipt_id,
-            Receipt::V1(receipt) => &receipt.receipt_id,
-        }
+        let Receipt::V0(receipt) = self;
+        &receipt.receipt_id
     }
 
     pub fn set_receipt_id(&mut self, receipt_id: CryptoHash) {
-        match self {
-            Receipt::V0(receipt) => receipt.receipt_id = receipt_id,
-            Receipt::V1(receipt) => receipt.receipt_id = receipt_id,
-        }
-    }
-
-    pub fn priority(&self) -> ReceiptPriority {
-        match self {
-            Receipt::V0(_) => ReceiptPriority::NoPriority,
-            Receipt::V1(receipt) => ReceiptPriority::Priority(receipt.priority),
-        }
+        let Receipt::V0(receipt) = self;
+        receipt.receipt_id = receipt_id;
     }
 
     pub fn refund_to(&self) -> &Option<AccountId> {
@@ -553,90 +465,48 @@ impl Receipt {
     }
 
     /// Generates a receipt with a transfer from system for a given balance without a receipt_id.
-    /// This should be used for token refunds instead of gas refunds. It inherits priority from the parent receipt.
+    /// This should be used for token refunds instead of gas refunds.
     /// It doesn't refund the allowance of the access key. For gas refunds use `new_gas_refund`.
-    pub fn new_balance_refund(
-        receiver_id: &AccountId,
-        refund: Balance,
-        priority: ReceiptPriority,
-    ) -> Self {
-        match priority {
-            ReceiptPriority::Priority(priority) => Receipt::V1(ReceiptV1 {
-                predecessor_id: "system".parse().unwrap(),
-                receiver_id: receiver_id.clone(),
-                receipt_id: CryptoHash::default(),
-
-                receipt: ReceiptEnum::Action(ActionReceipt {
-                    signer_id: "system".parse().unwrap(),
-                    signer_public_key: PublicKey::empty(KeyType::ED25519),
-                    gas_price: Balance::ZERO,
-                    output_data_receivers: vec![],
-                    input_data_ids: vec![],
-                    actions: vec![Action::Transfer(TransferAction { deposit: refund })],
-                }),
-                priority,
+    pub fn new_balance_refund(receiver_id: &AccountId, refund: Balance) -> Self {
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: "system".parse().unwrap(),
+            receiver_id: receiver_id.clone(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: "system".parse().unwrap(),
+                signer_public_key: PublicKey::empty(KeyType::ED25519),
+                gas_price: Balance::ZERO,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit: refund })],
             }),
-            ReceiptPriority::NoPriority => Receipt::V0(ReceiptV0 {
-                predecessor_id: "system".parse().unwrap(),
-                receiver_id: receiver_id.clone(),
-                receipt_id: CryptoHash::default(),
-
-                receipt: ReceiptEnum::Action(ActionReceipt {
-                    signer_id: "system".parse().unwrap(),
-                    signer_public_key: PublicKey::empty(KeyType::ED25519),
-                    gas_price: Balance::ZERO,
-                    output_data_receivers: vec![],
-                    input_data_ids: vec![],
-                    actions: vec![Action::Transfer(TransferAction { deposit: refund })],
-                }),
-            }),
-        }
+        })
     }
 
     /// Generates a receipt with a transfer action from system for a given balance without a
     /// receipt_id. It contains `signer_id` and `signer_public_key` to indicate this is a gas
     /// refund. The execution of this receipt will try to refund the allowance of the
     /// access key with the given public key.
-    /// Gas refund does not inherit priority from its parent receipt and has no priority associated with it
     /// NOTE: The access key may be replaced by the owner, so the execution can't rely that the
     /// access key is the same and it should use best effort for the refund.
     pub fn new_gas_refund(
         receiver_id: &AccountId,
         refund: Balance,
         signer_public_key: PublicKey,
-        priority: ReceiptPriority,
     ) -> Self {
-        match priority {
-            ReceiptPriority::Priority(priority) => Receipt::V1(ReceiptV1 {
-                predecessor_id: "system".parse().unwrap(),
-                receiver_id: receiver_id.clone(),
-                receipt_id: CryptoHash::default(),
-
-                receipt: ReceiptEnum::Action(ActionReceipt {
-                    signer_id: receiver_id.clone(),
-                    signer_public_key,
-                    gas_price: Balance::ZERO,
-                    output_data_receivers: vec![],
-                    input_data_ids: vec![],
-                    actions: vec![Action::Transfer(TransferAction { deposit: refund })],
-                }),
-                priority,
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: "system".parse().unwrap(),
+            receiver_id: receiver_id.clone(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: receiver_id.clone(),
+                signer_public_key,
+                gas_price: Balance::ZERO,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit: refund })],
             }),
-            ReceiptPriority::NoPriority => Receipt::V0(ReceiptV0 {
-                predecessor_id: "system".parse().unwrap(),
-                receiver_id: receiver_id.clone(),
-                receipt_id: CryptoHash::default(),
-
-                receipt: ReceiptEnum::Action(ActionReceipt {
-                    signer_id: receiver_id.clone(),
-                    signer_public_key,
-                    gas_price: Balance::ZERO,
-                    output_data_receivers: vec![],
-                    input_data_ids: vec![],
-                    actions: vec![Action::Transfer(TransferAction { deposit: refund })],
-                }),
-            }),
-        }
+        })
     }
 
     pub fn new_global_contract_distribution(
@@ -1159,24 +1029,6 @@ mod tests {
         receipt_v0
     }
 
-    fn get_receipt_v1() -> Receipt {
-        let receipt_v1 = Receipt::V1(ReceiptV1 {
-            predecessor_id: "predecessor_id".parse().unwrap(),
-            receiver_id: "receiver_id".parse().unwrap(),
-            receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: "signer_id".parse().unwrap(),
-                signer_public_key: PublicKey::empty(KeyType::ED25519),
-                gas_price: Balance::ZERO,
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
-            }),
-            priority: 1,
-        });
-        receipt_v1
-    }
-
     #[test]
     fn test_receipt_v0_serialization() {
         let receipt_v0 = get_receipt_v0();
@@ -1186,14 +1038,8 @@ mod tests {
     }
 
     #[test]
-    fn test_receipt_v1_serialization() {
-        let receipt_v1 = get_receipt_v1();
-        let serialized_receipt = borsh::to_vec(&receipt_v1).unwrap();
-        let receipt2 = Receipt::try_from_slice(&serialized_receipt).unwrap();
-        assert_eq!(receipt_v1, receipt2);
-    }
-
-    fn test_state_stored_receipt_serialization_impl(receipt: Receipt) {
+    fn test_state_stored_receipt_serialization() {
+        let receipt = get_receipt_v0();
         let metadata =
             StateStoredReceiptMetadata { congestion_gas: Gas::from_gas(42), congestion_size: 43 };
         let receipt = StateStoredReceipt::new_owned(receipt, metadata);
@@ -1202,18 +1048,6 @@ mod tests {
         let deserialized_receipt = StateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
 
         assert_eq!(receipt, deserialized_receipt);
-    }
-
-    #[test]
-    fn test_state_stored_receipt_serialization_v0() {
-        let receipt = get_receipt_v0();
-        test_state_stored_receipt_serialization_impl(receipt);
-    }
-
-    #[test]
-    fn test_state_stored_receipt_serialization_v1() {
-        let receipt = get_receipt_v1();
-        test_state_stored_receipt_serialization_impl(receipt);
     }
 
     #[test]
@@ -1232,19 +1066,6 @@ mod tests {
         }
 
         // Case 2:
-        // Receipt V1 can be deserialized as ReceiptOrStateStoredReceipt
-        {
-            let receipt = get_receipt_v1();
-            let receipt = Cow::Owned(receipt);
-
-            let serialized_receipt = borsh::to_vec(&receipt).unwrap();
-            let deserialized_receipt =
-                ReceiptOrStateStoredReceipt::try_from_slice(&serialized_receipt).unwrap();
-
-            assert_eq!(ReceiptOrStateStoredReceipt::Receipt(receipt), deserialized_receipt);
-        }
-
-        // Case 3:
         // StateStoredReceipt can be deserialized as ReceiptOrStateStoredReceipt
         {
             let receipt = get_receipt_v0();
@@ -1264,7 +1085,7 @@ mod tests {
             );
         }
 
-        // Case 4:
+        // Case 3:
         // ReceiptOrStateStoredReceipt::Receipt
         {
             let receipt = get_receipt_v0();
@@ -1279,7 +1100,7 @@ mod tests {
             assert_eq!(receipt_or_state_stored_receipt, deserialized_receipt);
         }
 
-        // Case 5:
+        // Case 4:
         // ReceiptOrStateStoredReceipt::StateStoredReceipt
         {
             let receipt = get_receipt_v0();

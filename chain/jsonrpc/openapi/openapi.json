@@ -481,62 +481,6 @@
         }
       }
     },
-    "/EXPERIMENTAL_view_gas_key": {
-      "post": {
-        "description": "Returns information about a single gas key for given account.",
-        "operationId": "EXPERIMENTAL_view_gas_key",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_view_gas_key"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewGasKeyResponse_and_RpcViewGasKeyError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/EXPERIMENTAL_view_gas_key_list": {
-      "post": {
-        "description": "Returns all gas keys for a given account.",
-        "operationId": "EXPERIMENTAL_view_gas_key_list",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_view_gas_key_list"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewGasKeyListResponse_and_RpcViewGasKeyListError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/EXPERIMENTAL_view_state": {
       "post": {
         "description": "Returns the state (key-value pairs) of a contract based on the key prefix.",
@@ -1211,6 +1155,42 @@
               "FullAccess"
             ],
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key with limited permission to make transactions with FunctionCallActions\nGas keys are a kind of access keys with a prepaid balance to pay for gas.",
+            "properties": {
+              "GasKeyFunctionCall": {
+                "items": [
+                  {
+                    "$ref": "#/components/schemas/GasKeyInfo"
+                  },
+                  {
+                    "$ref": "#/components/schemas/FunctionCallPermission"
+                  }
+                ],
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              }
+            },
+            "required": [
+              "GasKeyFunctionCall"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key with full access to the account.\nGas keys are a kind of access keys with a prepaid balance to pay for gas.",
+            "properties": {
+              "GasKeyFullAccess": {
+                "$ref": "#/components/schemas/GasKeyInfo"
+              }
+            },
+            "required": [
+              "GasKeyFullAccess"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -1260,6 +1240,82 @@
             },
             "required": [
               "FunctionCall"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "GasKeyFunctionCall": {
+                "properties": {
+                  "allowance": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/NearToken"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "method_names": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "num_nonces": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "receiver_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "balance",
+                  "num_nonces",
+                  "receiver_id",
+                  "method_names"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyFunctionCall"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "GasKeyFullAccess": {
+                "properties": {
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "num_nonces": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "balance",
+                  "num_nonces"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyFullAccess"
             ],
             "type": "object"
           }
@@ -2079,6 +2135,7 @@
           },
           {
             "additionalProperties": false,
+            "description": "Gas key does not exist for the specified public key",
             "properties": {
               "GasKeyDoesNotExist": {
                 "properties": {
@@ -2103,25 +2160,34 @@
           },
           {
             "additionalProperties": false,
+            "description": "Gas key does not have sufficient balance for the requested withdrawal",
             "properties": {
-              "GasKeyAlreadyExists": {
+              "InsufficientGasKeyBalance": {
                 "properties": {
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
                   "public_key": {
                     "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "required": {
+                    "$ref": "#/components/schemas/NearToken"
                   }
                 },
                 "required": [
                   "account_id",
-                  "public_key"
+                  "public_key",
+                  "balance",
+                  "required"
                 ],
                 "type": "object"
               }
             },
             "required": [
-              "GasKeyAlreadyExists"
+              "InsufficientGasKeyBalance"
             ],
             "type": "object"
           }
@@ -2436,15 +2502,10 @@
           {
             "additionalProperties": false,
             "properties": {
-              "AddGasKey": {
+              "TransferToGasKey": {
                 "properties": {
-                  "num_nonces": {
-                    "format": "uint32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "permission": {
-                    "$ref": "#/components/schemas/AccessKeyPermissionView"
+                  "deposit": {
+                    "$ref": "#/components/schemas/NearToken"
                   },
                   "public_key": {
                     "$ref": "#/components/schemas/PublicKey"
@@ -2452,41 +2513,20 @@
                 },
                 "required": [
                   "public_key",
-                  "num_nonces",
-                  "permission"
+                  "deposit"
                 ],
                 "type": "object"
               }
             },
             "required": [
-              "AddGasKey"
+              "TransferToGasKey"
             ],
             "type": "object"
           },
           {
             "additionalProperties": false,
             "properties": {
-              "DeleteGasKey": {
-                "properties": {
-                  "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
-                  }
-                },
-                "required": [
-                  "public_key"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "DeleteGasKey"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "TransferToGasKey": {
+              "WithdrawFromGasKey": {
                 "properties": {
                   "amount": {
                     "$ref": "#/components/schemas/NearToken"
@@ -2503,7 +2543,7 @@
               }
             },
             "required": [
-              "TransferToGasKey"
+              "WithdrawFromGasKey"
             ],
             "type": "object"
           }
@@ -2891,26 +2931,6 @@
           {
             "additionalProperties": false,
             "properties": {
-              "GasKeyPermissionInvalid": {
-                "properties": {
-                  "permission": {
-                    "$ref": "#/components/schemas/AccessKeyPermission"
-                  }
-                },
-                "required": [
-                  "permission"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "GasKeyPermissionInvalid"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
               "GasKeyTooManyNoncesRequested": {
                 "properties": {
                   "limit": {
@@ -2935,29 +2955,35 @@
               "GasKeyTooManyNoncesRequested"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "AddGasKeyWithNonZeroBalance": {
+                "properties": {
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  }
+                },
+                "required": [
+                  "balance"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "AddGasKeyWithNonZeroBalance"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Gas keys with FunctionCall permission cannot have an allowance set.",
+            "enum": [
+              "GasKeyFunctionCallAllowanceNotAllowed"
+            ],
+            "type": "string"
           }
         ]
-      },
-      "AddGasKeyAction": {
-        "properties": {
-          "num_nonces": {
-            "format": "uint32",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "permission": {
-            "$ref": "#/components/schemas/AccessKeyPermission"
-          },
-          "public_key": {
-            "$ref": "#/components/schemas/PublicKey"
-          }
-        },
-        "required": [
-          "public_key",
-          "num_nonces",
-          "permission"
-        ],
-        "type": "object"
       },
       "AddKeyAction": {
         "description": "An action that adds key with public key associated",
@@ -3289,6 +3315,20 @@
             ],
             "default": "0",
             "description": "TODO(2271): deprecated."
+          },
+          "shard_split": {
+            "items": [
+              {
+                "$ref": "#/components/schemas/ShardId"
+              },
+              {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            ],
+            "maxItems": 2,
+            "minItems": 2,
+            "nullable": true,
+            "type": "array"
           },
           "signature": {
             "allOf": [
@@ -4105,17 +4145,6 @@
         ],
         "type": "object"
       },
-      "DeleteGasKeyAction": {
-        "properties": {
-          "public_key": {
-            "$ref": "#/components/schemas/PublicKey"
-          }
-        },
-        "required": [
-          "public_key"
-        ],
-        "type": "object"
-      },
       "DeleteKeyAction": {
         "properties": {
           "public_key": {
@@ -4312,58 +4341,6 @@
         ],
         "type": "object"
       },
-      "DynamicReshardingConfigView": {
-        "description": "Configuration for dynamic resharding feature\nSee [`DynamicReshardingConfig`] for more details.",
-        "properties": {
-          "block_split_shards": {
-            "description": "Shards that should **not** be split even when they meet the regular split criteria.",
-            "items": {
-              "$ref": "#/components/schemas/ShardId"
-            },
-            "type": "array"
-          },
-          "force_split_shards": {
-            "description": "Shards that should be split even when they don't meet the regular split criteria.",
-            "items": {
-              "$ref": "#/components/schemas/ShardId"
-            },
-            "type": "array"
-          },
-          "max_number_of_shards": {
-            "description": "Maximum number of shards in the network.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "memory_usage_threshold": {
-            "description": "Memory threshold over which a shard is marked for a split.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "min_child_memory_usage": {
-            "description": "Minimum memory usage of a child shard.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "min_epochs_between_resharding": {
-            "description": "Minimum number of epochs until next resharding can be scheduled.",
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "memory_usage_threshold",
-          "min_child_memory_usage",
-          "max_number_of_shards",
-          "min_epochs_between_resharding",
-          "force_split_shards",
-          "block_split_shards"
-        ],
-        "type": "object"
-      },
       "EpochId": {
         "allOf": [
           {
@@ -4374,21 +4351,11 @@
       },
       "EpochSyncConfig": {
         "properties": {
-          "disable_epoch_sync_for_bootstrapping": {
-            "default": false,
-            "description": "If true, even if the node started from genesis, it will not perform epoch sync.\nThere should be no reason to set this flag in production, because on both mainnet\nand testnet it would be infeasible to catch up from genesis without epoch sync.",
-            "type": "boolean"
-          },
           "epoch_sync_horizon": {
             "description": "This serves as two purposes: (1) the node will not epoch sync and instead resort to\nheader sync, if the genesis block is within this many blocks from the current block;\n(2) the node will reject an epoch sync proof if the provided proof is for an epoch\nthat is more than this many blocks behind the current block.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
-          },
-          "ignore_epoch_sync_network_requests": {
-            "default": false,
-            "description": "If true, the node will ignore epoch sync requests from the network. It is strongly\nrecommended not to set this flag, because it will prevent other nodes from\nbootstrapping. This flag is only included as a kill-switch and may be removed in a\nfuture release. Please note that epoch sync requests are heavily rate limited and\ncached, and therefore should not affect the performance of the node or introduce\nany non-negligible increase in network traffic.",
-            "type": "boolean"
           },
           "timeout_for_epoch_sync": {
             "allOf": [
@@ -5643,122 +5610,6 @@
             "properties": {
               "cause": {
                 "$ref": "#/components/schemas/RpcViewCodeError"
-              },
-              "name": {
-                "enum": [
-                  "HANDLER_ERROR"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "cause"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "cause": {
-                "$ref": "#/components/schemas/InternalError"
-              },
-              "name": {
-                "enum": [
-                  "INTERNAL_ERROR"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "cause"
-            ],
-            "type": "object"
-          }
-        ]
-      },
-      "ErrorWrapper_for_RpcViewGasKeyError": {
-        "oneOf": [
-          {
-            "properties": {
-              "cause": {
-                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
-              },
-              "name": {
-                "enum": [
-                  "REQUEST_VALIDATION_ERROR"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "cause"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "cause": {
-                "$ref": "#/components/schemas/RpcViewGasKeyError"
-              },
-              "name": {
-                "enum": [
-                  "HANDLER_ERROR"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "cause"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "cause": {
-                "$ref": "#/components/schemas/InternalError"
-              },
-              "name": {
-                "enum": [
-                  "INTERNAL_ERROR"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "cause"
-            ],
-            "type": "object"
-          }
-        ]
-      },
-      "ErrorWrapper_for_RpcViewGasKeyListError": {
-        "oneOf": [
-          {
-            "properties": {
-              "cause": {
-                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
-              },
-              "name": {
-                "enum": [
-                  "REQUEST_VALIDATION_ERROR"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "cause"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "cause": {
-                "$ref": "#/components/schemas/RpcViewGasKeyListError"
               },
               "name": {
                 "enum": [
@@ -7109,95 +6960,20 @@
         },
         "type": "object"
       },
-      "GasKey": {
-        "description": "Gas key is like an access key, except it stores a balance separately, and transactions signed\nwith it deduct their cost from the gas key balance instead of the account balance.",
-        "properties": {
-          "balance": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearToken"
-              }
-            ],
-            "description": "The balance of the gas key."
-          },
-          "num_nonces": {
-            "description": "The number of nonces this gas key has.",
-            "format": "uint32",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "permission": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/AccessKeyPermission"
-              }
-            ],
-            "description": "Defines the permissions for this gas key.\nIf this is a `FunctionCallPermission`, the allowance must be None (unlimited)."
-          }
-        },
-        "required": [
-          "num_nonces",
-          "balance",
-          "permission"
-        ],
-        "type": "object"
-      },
-      "GasKeyInfoView": {
-        "properties": {
-          "gas_key": {
-            "$ref": "#/components/schemas/GasKeyView"
-          },
-          "public_key": {
-            "$ref": "#/components/schemas/PublicKey"
-          }
-        },
-        "required": [
-          "public_key",
-          "gas_key"
-        ],
-        "type": "object"
-      },
-      "GasKeyList": {
-        "properties": {
-          "keys": {
-            "items": {
-              "$ref": "#/components/schemas/GasKeyInfoView"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "keys"
-        ],
-        "type": "object"
-      },
-      "GasKeyView": {
+      "GasKeyInfo": {
         "properties": {
           "balance": {
             "$ref": "#/components/schemas/NearToken"
           },
-          "nonces": {
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "type": "array"
-          },
           "num_nonces": {
             "format": "uint32",
             "minimum": 0,
             "type": "integer"
-          },
-          "permission": {
-            "$ref": "#/components/schemas/AccessKeyPermissionView"
           }
         },
         "required": [
-          "num_nonces",
           "balance",
-          "permission",
-          "nonces"
+          "num_nonces"
         ],
         "type": "object"
       },
@@ -9181,60 +8957,6 @@
         "title": "JsonRpcRequest_for_EXPERIMENTAL_view_code",
         "type": "object"
       },
-      "JsonRpcRequest_for_EXPERIMENTAL_view_gas_key": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "jsonrpc": {
-            "type": "string"
-          },
-          "method": {
-            "enum": [
-              "EXPERIMENTAL_view_gas_key"
-            ],
-            "type": "string"
-          },
-          "params": {
-            "$ref": "#/components/schemas/RpcViewGasKeyRequest"
-          }
-        },
-        "required": [
-          "jsonrpc",
-          "id",
-          "params",
-          "method"
-        ],
-        "title": "JsonRpcRequest_for_EXPERIMENTAL_view_gas_key",
-        "type": "object"
-      },
-      "JsonRpcRequest_for_EXPERIMENTAL_view_gas_key_list": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "jsonrpc": {
-            "type": "string"
-          },
-          "method": {
-            "enum": [
-              "EXPERIMENTAL_view_gas_key_list"
-            ],
-            "type": "string"
-          },
-          "params": {
-            "$ref": "#/components/schemas/RpcViewGasKeyListRequest"
-          }
-        },
-        "required": [
-          "jsonrpc",
-          "id",
-          "params",
-          "method"
-        ],
-        "title": "JsonRpcRequest_for_EXPERIMENTAL_view_gas_key_list",
-        "type": "object"
-      },
       "JsonRpcRequest_for_EXPERIMENTAL_view_state": {
         "properties": {
           "id": {
@@ -10911,86 +10633,6 @@
         "title": "JsonRpcResponse_for_RpcViewCodeResponse_and_RpcViewCodeError",
         "type": "object"
       },
-      "JsonRpcResponse_for_RpcViewGasKeyListResponse_and_RpcViewGasKeyListError": {
-        "oneOf": [
-          {
-            "properties": {
-              "result": {
-                "$ref": "#/components/schemas/RpcViewGasKeyListResponse"
-              }
-            },
-            "required": [
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "error": {
-                "$ref": "#/components/schemas/ErrorWrapper_for_RpcViewGasKeyListError"
-              }
-            },
-            "required": [
-              "error"
-            ],
-            "type": "object"
-          }
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "jsonrpc": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "jsonrpc",
-          "id"
-        ],
-        "title": "JsonRpcResponse_for_RpcViewGasKeyListResponse_and_RpcViewGasKeyListError",
-        "type": "object"
-      },
-      "JsonRpcResponse_for_RpcViewGasKeyResponse_and_RpcViewGasKeyError": {
-        "oneOf": [
-          {
-            "properties": {
-              "result": {
-                "$ref": "#/components/schemas/RpcViewGasKeyResponse"
-              }
-            },
-            "required": [
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "error": {
-                "$ref": "#/components/schemas/ErrorWrapper_for_RpcViewGasKeyError"
-              }
-            },
-            "required": [
-              "error"
-            ],
-            "type": "object"
-          }
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "jsonrpc": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "jsonrpc",
-          "id"
-        ],
-        "title": "JsonRpcResponse_for_RpcViewGasKeyResponse_and_RpcViewGasKeyError",
-        "type": "object"
-      },
       "JsonRpcResponse_for_RpcViewStateResponse_and_RpcViewStateError": {
         "oneOf": [
           {
@@ -11579,36 +11221,24 @@
           {
             "additionalProperties": false,
             "properties": {
-              "AddGasKey": {
-                "$ref": "#/components/schemas/AddGasKeyAction"
-              }
-            },
-            "required": [
-              "AddGasKey"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "DeleteGasKey": {
-                "$ref": "#/components/schemas/DeleteGasKeyAction"
-              }
-            },
-            "required": [
-              "DeleteGasKey"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
               "TransferToGasKey": {
                 "$ref": "#/components/schemas/TransferToGasKeyAction"
               }
             },
             "required": [
               "TransferToGasKey"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "WithdrawFromGasKey": {
+                "$ref": "#/components/schemas/WithdrawFromGasKeyAction"
+              }
+            },
+            "required": [
+              "WithdrawFromGasKey"
             ],
             "type": "object"
           }
@@ -12188,6 +11818,7 @@
           },
           "priority": {
             "default": 0,
+            "description": "Deprecated, retained for backward compatibility.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -15031,7 +14662,7 @@
                   },
                   "request_type": {
                     "enum": [
-                      "view_gas_key"
+                      "view_gas_key_nonces"
                     ],
                     "type": "string"
                   }
@@ -15044,41 +14675,7 @@
                 "type": "object"
               }
             ],
-            "title": "view_gas_key_by_block_id"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "block_id": {
-                    "$ref": "#/components/schemas/BlockId"
-                  }
-                },
-                "required": [
-                  "block_id"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
-                  "account_id": {
-                    "$ref": "#/components/schemas/AccountId"
-                  },
-                  "request_type": {
-                    "enum": [
-                      "view_gas_key_list"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "request_type",
-                  "account_id"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "view_gas_key_list_by_block_id"
+            "title": "view_gas_key_nonces_by_block_id"
           },
           {
             "allOf": [
@@ -15394,7 +14991,7 @@
                   },
                   "request_type": {
                     "enum": [
-                      "view_gas_key"
+                      "view_gas_key_nonces"
                     ],
                     "type": "string"
                   }
@@ -15407,41 +15004,7 @@
                 "type": "object"
               }
             ],
-            "title": "view_gas_key_by_finality"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "finality": {
-                    "$ref": "#/components/schemas/Finality"
-                  }
-                },
-                "required": [
-                  "finality"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
-                  "account_id": {
-                    "$ref": "#/components/schemas/AccountId"
-                  },
-                  "request_type": {
-                    "enum": [
-                      "view_gas_key_list"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "request_type",
-                  "account_id"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "view_gas_key_list_by_finality"
+            "title": "view_gas_key_nonces_by_finality"
           },
           {
             "allOf": [
@@ -15757,7 +15320,7 @@
                   },
                   "request_type": {
                     "enum": [
-                      "view_gas_key"
+                      "view_gas_key_nonces"
                     ],
                     "type": "string"
                   }
@@ -15770,41 +15333,7 @@
                 "type": "object"
               }
             ],
-            "title": "view_gas_key_by_sync_checkpoint"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "sync_checkpoint": {
-                    "$ref": "#/components/schemas/SyncCheckpoint"
-                  }
-                },
-                "required": [
-                  "sync_checkpoint"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
-                  "account_id": {
-                    "$ref": "#/components/schemas/AccountId"
-                  },
-                  "request_type": {
-                    "enum": [
-                      "view_gas_key_list"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "request_type",
-                  "account_id"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "view_gas_key_list_by_sync_checkpoint"
+            "title": "view_gas_key_nonces_by_sync_checkpoint"
           },
           {
             "allOf": [
@@ -15941,10 +15470,12 @@
             "$ref": "#/components/schemas/AccessKeyList"
           },
           {
-            "$ref": "#/components/schemas/GasKeyView"
-          },
-          {
-            "$ref": "#/components/schemas/GasKeyList"
+            "items": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
           }
         ],
         "properties": {
@@ -16038,6 +15569,7 @@
           },
           "priority": {
             "default": 0,
+            "description": "Deprecated, retained for backward compatibility.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -16352,43 +15884,6 @@
               },
               {
                 "properties": {
-                  "changes_type": {
-                    "enum": [
-                      "single_gas_key_changes"
-                    ],
-                    "type": "string"
-                  },
-                  "keys": {
-                    "items": {
-                      "$ref": "#/components/schemas/AccountWithPublicKey"
-                    },
-                    "type": "array"
-                  }
-                },
-                "required": [
-                  "changes_type",
-                  "keys"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "single_gas_key_changes_by_block_id"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "block_id": {
-                    "$ref": "#/components/schemas/BlockId"
-                  }
-                },
-                "required": [
-                  "block_id"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
                   "account_ids": {
                     "items": {
                       "$ref": "#/components/schemas/AccountId"
@@ -16410,43 +15905,6 @@
               }
             ],
             "title": "all_access_key_changes_by_block_id"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "block_id": {
-                    "$ref": "#/components/schemas/BlockId"
-                  }
-                },
-                "required": [
-                  "block_id"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
-                  "account_ids": {
-                    "items": {
-                      "$ref": "#/components/schemas/AccountId"
-                    },
-                    "type": "array"
-                  },
-                  "changes_type": {
-                    "enum": [
-                      "all_gas_key_changes"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "changes_type",
-                  "account_ids"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "all_gas_key_changes_by_block_id"
           },
           {
             "allOf": [
@@ -16615,43 +16073,6 @@
               },
               {
                 "properties": {
-                  "changes_type": {
-                    "enum": [
-                      "single_gas_key_changes"
-                    ],
-                    "type": "string"
-                  },
-                  "keys": {
-                    "items": {
-                      "$ref": "#/components/schemas/AccountWithPublicKey"
-                    },
-                    "type": "array"
-                  }
-                },
-                "required": [
-                  "changes_type",
-                  "keys"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "single_gas_key_changes_by_finality"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "finality": {
-                    "$ref": "#/components/schemas/Finality"
-                  }
-                },
-                "required": [
-                  "finality"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
                   "account_ids": {
                     "items": {
                       "$ref": "#/components/schemas/AccountId"
@@ -16673,43 +16094,6 @@
               }
             ],
             "title": "all_access_key_changes_by_finality"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "finality": {
-                    "$ref": "#/components/schemas/Finality"
-                  }
-                },
-                "required": [
-                  "finality"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
-                  "account_ids": {
-                    "items": {
-                      "$ref": "#/components/schemas/AccountId"
-                    },
-                    "type": "array"
-                  },
-                  "changes_type": {
-                    "enum": [
-                      "all_gas_key_changes"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "changes_type",
-                  "account_ids"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "all_gas_key_changes_by_finality"
           },
           {
             "allOf": [
@@ -16878,43 +16262,6 @@
               },
               {
                 "properties": {
-                  "changes_type": {
-                    "enum": [
-                      "single_gas_key_changes"
-                    ],
-                    "type": "string"
-                  },
-                  "keys": {
-                    "items": {
-                      "$ref": "#/components/schemas/AccountWithPublicKey"
-                    },
-                    "type": "array"
-                  }
-                },
-                "required": [
-                  "changes_type",
-                  "keys"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "single_gas_key_changes_by_sync_checkpoint"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "sync_checkpoint": {
-                    "$ref": "#/components/schemas/SyncCheckpoint"
-                  }
-                },
-                "required": [
-                  "sync_checkpoint"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
                   "account_ids": {
                     "items": {
                       "$ref": "#/components/schemas/AccountId"
@@ -16936,43 +16283,6 @@
               }
             ],
             "title": "all_access_key_changes_by_sync_checkpoint"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "sync_checkpoint": {
-                    "$ref": "#/components/schemas/SyncCheckpoint"
-                  }
-                },
-                "required": [
-                  "sync_checkpoint"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
-                  "account_ids": {
-                    "items": {
-                      "$ref": "#/components/schemas/AccountId"
-                    },
-                    "type": "array"
-                  },
-                  "changes_type": {
-                    "enum": [
-                      "all_gas_key_changes"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "changes_type",
-                  "account_ids"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "all_gas_key_changes_by_sync_checkpoint"
           },
           {
             "allOf": [
@@ -18672,460 +17982,6 @@
         ],
         "type": "object"
       },
-      "RpcViewGasKeyError": {
-        "oneOf": [
-          {
-            "properties": {
-              "info": {
-                "properties": {
-                  "block_reference": {
-                    "$ref": "#/components/schemas/BlockReference"
-                  }
-                },
-                "required": [
-                  "block_reference"
-                ],
-                "type": "object"
-              },
-              "name": {
-                "enum": [
-                  "UNKNOWN_BLOCK"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "info"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "info": {
-                "properties": {
-                  "block_hash": {
-                    "$ref": "#/components/schemas/CryptoHash"
-                  },
-                  "block_height": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "requested_account_id": {
-                    "$ref": "#/components/schemas/AccountId"
-                  }
-                },
-                "required": [
-                  "requested_account_id",
-                  "block_height",
-                  "block_hash"
-                ],
-                "type": "object"
-              },
-              "name": {
-                "enum": [
-                  "INVALID_ACCOUNT"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "info"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "info": {
-                "properties": {
-                  "block_hash": {
-                    "$ref": "#/components/schemas/CryptoHash"
-                  },
-                  "block_height": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "requested_account_id": {
-                    "$ref": "#/components/schemas/AccountId"
-                  }
-                },
-                "required": [
-                  "requested_account_id",
-                  "block_height",
-                  "block_hash"
-                ],
-                "type": "object"
-              },
-              "name": {
-                "enum": [
-                  "UNKNOWN_ACCOUNT"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "info"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "info": {
-                "properties": {
-                  "block_hash": {
-                    "$ref": "#/components/schemas/CryptoHash"
-                  },
-                  "block_height": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
-                  }
-                },
-                "required": [
-                  "public_key",
-                  "block_height",
-                  "block_hash"
-                ],
-                "type": "object"
-              },
-              "name": {
-                "enum": [
-                  "UNKNOWN_GAS_KEY"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "info"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "info": {
-                "properties": {
-                  "error_message": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "error_message"
-                ],
-                "type": "object"
-              },
-              "name": {
-                "enum": [
-                  "INTERNAL_ERROR"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "info"
-            ],
-            "type": "object"
-          }
-        ]
-      },
-      "RpcViewGasKeyListError": {
-        "oneOf": [
-          {
-            "properties": {
-              "info": {
-                "properties": {
-                  "block_reference": {
-                    "$ref": "#/components/schemas/BlockReference"
-                  }
-                },
-                "required": [
-                  "block_reference"
-                ],
-                "type": "object"
-              },
-              "name": {
-                "enum": [
-                  "UNKNOWN_BLOCK"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "info"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "info": {
-                "properties": {
-                  "block_hash": {
-                    "$ref": "#/components/schemas/CryptoHash"
-                  },
-                  "block_height": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "requested_account_id": {
-                    "$ref": "#/components/schemas/AccountId"
-                  }
-                },
-                "required": [
-                  "requested_account_id",
-                  "block_height",
-                  "block_hash"
-                ],
-                "type": "object"
-              },
-              "name": {
-                "enum": [
-                  "INVALID_ACCOUNT"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "info"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "info": {
-                "properties": {
-                  "block_hash": {
-                    "$ref": "#/components/schemas/CryptoHash"
-                  },
-                  "block_height": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "requested_account_id": {
-                    "$ref": "#/components/schemas/AccountId"
-                  }
-                },
-                "required": [
-                  "requested_account_id",
-                  "block_height",
-                  "block_hash"
-                ],
-                "type": "object"
-              },
-              "name": {
-                "enum": [
-                  "UNKNOWN_ACCOUNT"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "info"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "info": {
-                "properties": {
-                  "error_message": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "error_message"
-                ],
-                "type": "object"
-              },
-              "name": {
-                "enum": [
-                  "INTERNAL_ERROR"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "info"
-            ],
-            "type": "object"
-          }
-        ]
-      },
-      "RpcViewGasKeyListRequest": {
-        "oneOf": [
-          {
-            "properties": {
-              "block_id": {
-                "$ref": "#/components/schemas/BlockId"
-              }
-            },
-            "required": [
-              "block_id"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "finality": {
-                "$ref": "#/components/schemas/Finality"
-              }
-            },
-            "required": [
-              "finality"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "sync_checkpoint": {
-                "$ref": "#/components/schemas/SyncCheckpoint"
-              }
-            },
-            "required": [
-              "sync_checkpoint"
-            ],
-            "type": "object"
-          }
-        ],
-        "properties": {
-          "account_id": {
-            "$ref": "#/components/schemas/AccountId"
-          }
-        },
-        "required": [
-          "account_id"
-        ],
-        "title": "RpcViewGasKeyListRequest",
-        "type": "object"
-      },
-      "RpcViewGasKeyListResponse": {
-        "properties": {
-          "block_hash": {
-            "$ref": "#/components/schemas/CryptoHash"
-          },
-          "block_height": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "keys": {
-            "items": {
-              "$ref": "#/components/schemas/GasKeyInfoView"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "keys",
-          "block_height",
-          "block_hash"
-        ],
-        "type": "object"
-      },
-      "RpcViewGasKeyRequest": {
-        "oneOf": [
-          {
-            "properties": {
-              "block_id": {
-                "$ref": "#/components/schemas/BlockId"
-              }
-            },
-            "required": [
-              "block_id"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "finality": {
-                "$ref": "#/components/schemas/Finality"
-              }
-            },
-            "required": [
-              "finality"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "sync_checkpoint": {
-                "$ref": "#/components/schemas/SyncCheckpoint"
-              }
-            },
-            "required": [
-              "sync_checkpoint"
-            ],
-            "type": "object"
-          }
-        ],
-        "properties": {
-          "account_id": {
-            "$ref": "#/components/schemas/AccountId"
-          },
-          "public_key": {
-            "$ref": "#/components/schemas/PublicKey"
-          }
-        },
-        "required": [
-          "account_id",
-          "public_key"
-        ],
-        "title": "RpcViewGasKeyRequest",
-        "type": "object"
-      },
-      "RpcViewGasKeyResponse": {
-        "properties": {
-          "balance": {
-            "$ref": "#/components/schemas/NearToken"
-          },
-          "block_hash": {
-            "$ref": "#/components/schemas/CryptoHash"
-          },
-          "block_height": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "nonces": {
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "type": "array"
-          },
-          "num_nonces": {
-            "format": "uint32",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "permission": {
-            "$ref": "#/components/schemas/AccessKeyPermissionView"
-          }
-        },
-        "required": [
-          "num_nonces",
-          "balance",
-          "permission",
-          "nonces",
-          "block_height",
-          "block_hash"
-        ],
-        "type": "object"
-      },
       "RpcViewStateError": {
         "oneOf": [
           {
@@ -19394,22 +18250,6 @@
               }
             ],
             "description": "The configuration for congestion control."
-          },
-          "dynamic_resharding_config": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/DynamicReshardingConfigView"
-              }
-            ],
-            "default": {
-              "block_split_shards": [],
-              "force_split_shards": [],
-              "max_number_of_shards": 999999999999999,
-              "memory_usage_threshold": 999999999999999,
-              "min_child_memory_usage": 999999999999999,
-              "min_epochs_between_resharding": 999999999999999
-            },
-            "description": "Configuration for dynamic resharding feature."
           },
           "storage_amount_per_byte": {
             "allOf": [
@@ -19790,8 +18630,15 @@
             "minimum": 0,
             "type": "integer"
           },
+          "nonce_index": {
+            "format": "uint32",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
           "priority_fee": {
             "default": 0,
+            "description": "Deprecated, retained for backward compatibility.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -20294,40 +19141,6 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
-                  "gas_key": {
-                    "$ref": "#/components/schemas/GasKey"
-                  },
-                  "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
-                  }
-                },
-                "required": [
-                  "account_id",
-                  "public_key",
-                  "gas_key"
-                ],
-                "type": "object"
-              },
-              "type": {
-                "enum": [
-                  "gas_key_update"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "type",
-              "change"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "change": {
-                "properties": {
-                  "account_id": {
-                    "$ref": "#/components/schemas/AccountId"
-                  },
                   "index": {
                     "format": "uint32",
                     "minimum": 0,
@@ -20353,36 +19166,6 @@
               "type": {
                 "enum": [
                   "gas_key_nonce_update"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "type",
-              "change"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "change": {
-                "properties": {
-                  "account_id": {
-                    "$ref": "#/components/schemas/AccountId"
-                  },
-                  "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
-                  }
-                },
-                "required": [
-                  "account_id",
-                  "public_key"
-                ],
-                "type": "object"
-              },
-              "type": {
-                "enum": [
-                  "gas_key_deletion"
                 ],
                 "type": "string"
               }
@@ -20924,12 +19707,23 @@
         "type": "object"
       },
       "TransferToGasKeyAction": {
+        "description": "Transfer NEAR to a gas key's balance",
         "properties": {
           "deposit": {
-            "$ref": "#/components/schemas/NearToken"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Amount of NEAR to transfer to the gas key"
           },
           "public_key": {
-            "$ref": "#/components/schemas/PublicKey"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            ],
+            "description": "The public key of the gas key to fund"
           }
         },
         "required": [
@@ -21495,6 +20289,32 @@
             "type": "string"
           }
         ]
+      },
+      "WithdrawFromGasKeyAction": {
+        "description": "Withdraw NEAR from a gas key's balance to the account",
+        "properties": {
+          "amount": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Amount of NEAR to transfer from the gas key"
+          },
+          "public_key": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            ],
+            "description": "The public key of the gas key to withdraw from"
+          }
+        },
+        "required": [
+          "public_key",
+          "amount"
+        ],
+        "type": "object"
       },
       "WitnessConfigView": {
         "description": "Configuration specific to ChunkStateWitness.",

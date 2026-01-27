@@ -7,7 +7,3 @@ burnt_gas_reward: {
   old: { numerator: 2_000_000, denominator: 500 },
   new: { numerator: 3_000_000, denominator: 800 },
 }
-force_split_shards: {
-  old: [ 3, 4 ],
-  new: [ ],
-}

@@ -446,7 +446,6 @@ async fn ft_contract_account_create(
         &creator_signer,
         create_deploy_actions,
         block_hash,
-        0, // priority fee
     );
 
     // send and wait for the create+deploy to be accepted
@@ -527,7 +526,6 @@ async fn ft_contract_account_init(
         &creator_signer,
         vec![init_action],
         block_hash,
-        0,
     );
 
     let init_tx_hash = init_tx.get_hash();
@@ -629,7 +627,6 @@ async fn ft_contract_register_accounts(
                     &creator_signer,
                     vec![action],
                     block_hash,
-                    0,
                 );
 
                 let tx_hash = tx.get_hash();
@@ -755,7 +752,6 @@ async fn ft_contract_fund_accounts(
                 &creator_signer,
                 vec![action],
                 block_hash,
-                0,
             );
 
             let tx_hash = tx.get_hash();
@@ -858,7 +854,6 @@ async fn wait_chain_warm_up(
             &sender.as_signer(),
             vec![fund_action],
             block_hash,
-            0, // priority fee
         );
         // wait for the fund tx to finalize
         let debug_tx_hash = debug_tx.get_hash();
@@ -1020,7 +1015,6 @@ impl FungibleTokenTxSender {
             &signer,
             vec![action],
             *block_hash,
-            0,
         );
 
         match self

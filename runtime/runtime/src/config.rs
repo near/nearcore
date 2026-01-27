@@ -84,26 +84,13 @@ pub fn total_send_fees(
                     receiver_id.get_account_type(),
                 )
             }
-            TransferToGasKey(_) => {
-                // Note implicit account creation is not allowed for TransferToGasKey
-                // TODO(gas-keys): properly handle GasKey fees
-                Gas::ZERO
-            }
             Stake(_) => fees.fee(ActionCosts::stake).send_fee(sender_is_receiver),
             AddKey(add_key_action) => permission_send_fees(
                 &add_key_action.access_key.permission,
                 fees,
                 sender_is_receiver,
             ),
-            AddGasKey(_add_gas_key_action) => {
-                // TODO(gas-keys): properly handle GasKey fees
-                Gas::ZERO
-            }
             DeleteKey(_) => fees.fee(ActionCosts::delete_key).send_fee(sender_is_receiver),
-            DeleteGasKey(_) => {
-                // TODO(gas-keys): properly handle GasKey fees
-                Gas::ZERO
-            }
             DeleteAccount(_) => fees.fee(ActionCosts::delete_account).send_fee(sender_is_receiver),
             Delegate(signed_delegate_action) => {
                 let delegate_cost = fees.fee(ActionCosts::delegate).send_fee(sender_is_receiver);
@@ -156,6 +143,9 @@ pub fn total_send_fees(
 
                 base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
             }
+            // TODO(gas-keys): properly handle GasKey fees
+            TransferToGasKey(_) => Gas::ZERO,
+            WithdrawFromGasKey(_) => Gas::ZERO,
         };
         result = result.checked_add_result(delta)?;
     }
@@ -186,6 +176,9 @@ fn permission_send_fees(
         AccessKeyPermission::FullAccess => {
             fees.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
         }
+        // TODO(gas-keys): properly handle GasKey fees
+        AccessKeyPermission::GasKeyFullAccess(_) => Gas::ZERO,
+        AccessKeyPermission::GasKeyFunctionCall(_, _) => Gas::ZERO,
     }
 }
 
@@ -250,22 +243,9 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
                 receiver_id.get_account_type(),
             )
         }
-        TransferToGasKey(_) => {
-            // Note implicit account creation is not allowed for TransferToGasKey
-            // TODO(gas-keys): properly handle GasKey fees
-            Gas::ZERO
-        }
         Stake(_) => fees.fee(ActionCosts::stake).exec_fee(),
         AddKey(add_key_action) => permission_exec_fees(&add_key_action.access_key.permission, fees),
-        AddGasKey(_add_gas_key_action) => {
-            // TODO(gas-keys): properly handle GasKey fees
-            Gas::ZERO
-        }
         DeleteKey(_) => fees.fee(ActionCosts::delete_key).exec_fee(),
-        DeleteGasKey(_) => {
-            // TODO(gas-keys): properly handle GasKey fees
-            Gas::ZERO
-        }
         DeleteAccount(_) => fees.fee(ActionCosts::delete_account).exec_fee(),
         Delegate(_) => fees.fee(ActionCosts::delegate).exec_fee(),
         DeployGlobalContract(DeployGlobalContractAction { code, .. }) => {
@@ -295,6 +275,9 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
 
             base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
         }
+        // TODO(gas-keys): properly handle GasKey fees
+        TransferToGasKey(_) => Gas::ZERO,
+        WithdrawFromGasKey(_) => Gas::ZERO,
     }
 }
 
@@ -315,6 +298,9 @@ fn permission_exec_fees(permission: &AccessKeyPermission, fees: &RuntimeFeesConf
             base_fee.checked_add(all_bytes_fee).unwrap()
         }
         AccessKeyPermission::FullAccess => fees.fee(ActionCosts::add_full_access_key).exec_fee(),
+        // TODO(gas-keys): properly handle GasKey fees
+        AccessKeyPermission::GasKeyFullAccess(_) => Gas::ZERO,
+        AccessKeyPermission::GasKeyFunctionCall(_, _) => Gas::ZERO,
     }
 }
 

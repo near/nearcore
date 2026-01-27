@@ -28,7 +28,7 @@ use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessag
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptPriority};
+use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
@@ -806,7 +806,6 @@ fn test_not_executing_with_bad_receipts() {
         receipt_proofs[0].0.push(Receipt::new_balance_refund(
             &AccountId::from_str("test1").unwrap(),
             Balance::from_near(1),
-            ReceiptPriority::NoPriority,
         ));
         simulate_single_outgoing_message(&mut actors, &message);
     }
@@ -841,7 +840,6 @@ fn test_extra_pending_bad_receipt_proof_does_not_prevent_execution() {
         extra_proof.0.push(Receipt::new_balance_refund(
             &AccountId::from_str("test1").unwrap(),
             Balance::from_near(1),
-            ReceiptPriority::NoPriority,
         ));
         receipt_proofs.push(extra_proof);
         simulate_single_outgoing_message(&mut actors, &message);

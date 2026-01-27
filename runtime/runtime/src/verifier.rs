@@ -3,10 +3,10 @@ use crate::config::{TransactionCost, total_prepaid_gas};
 use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
-use near_primitives::account::{AccessKey, AccessKeyPermission, GasKey};
+use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::action::{
-    AddGasKeyAction, AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
+    AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
     GlobalContractIdentifier, UseGlobalContractAction,
 };
 use near_primitives::errors::{
@@ -121,7 +121,7 @@ pub fn validate_transaction(
     if let Err(err) = validate_transaction_actions(&config, &signed_tx, current_protocol_version) {
         return Err((err, signed_tx));
     }
-    ValidatedTransaction::new(config, signed_tx)
+    ValidatedTransaction::new(config, signed_tx, current_protocol_version)
 }
 
 /// Validates a transaction contains well-formed actions and is valid for the given runtime config.
@@ -133,7 +133,7 @@ pub(crate) fn validate_transaction_well_formed<'a>(
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), InvalidTxError> {
     validate_transaction_actions(config, signed_tx, current_protocol_version)?;
-    ValidatedTransaction::check_valid_for_config(config, signed_tx)
+    ValidatedTransaction::check_valid_for_config(config, signed_tx, current_protocol_version)
 }
 
 /// Set new `signer` and `access_key` in `state_update`.
@@ -193,15 +193,18 @@ pub fn verify_and_charge_tx_ephemeral(
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
     let signer_id = tx.signer_id();
-    if tx.nonce() <= access_key.nonce {
-        let err = InvalidTxError::InvalidNonce { tx_nonce: tx.nonce(), ak_nonce: access_key.nonce };
+    // TODO(gas-keys): Currently, this function does not support gas keys.
+    // This is fine since gas keys are not enabled yet.
+    let tx_nonce = tx.nonce().nonce();
+    if tx_nonce <= access_key.nonce {
+        let err = InvalidTxError::InvalidNonce { tx_nonce, ak_nonce: access_key.nonce };
         return Err(err.into());
     }
     if let Some(height) = block_height {
         let upper_bound =
             height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-        if tx.nonce() >= upper_bound {
-            return Err(InvalidTxError::NonceTooLarge { tx_nonce: tx.nonce(), upper_bound }.into());
+        if tx_nonce >= upper_bound {
+            return Err(InvalidTxError::NonceTooLarge { tx_nonce, upper_bound }.into());
         }
     }
 
@@ -272,7 +275,7 @@ pub fn verify_and_charge_tx_ephemeral(
         }
     };
 
-    access_key.nonce = tx.nonce();
+    access_key.nonce = tx_nonce;
     signer.set_amount(new_amount);
     Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
 }
@@ -440,22 +443,21 @@ pub fn validate_action(
         Action::UseGlobalContract(a) => validate_use_global_contract_action(a),
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
-        Action::TransferToGasKey(_) => {
-            validate_transfer_to_gas_key_action(current_protocol_version)
-        }
         Action::Stake(a) => validate_stake_action(a),
-        Action::AddKey(a) => validate_add_key_action(limit_config, a),
-        Action::AddGasKey(a) => {
-            validate_add_gas_key_action(limit_config, a, current_protocol_version)
-        }
+        Action::AddKey(a) => validate_add_key_action(limit_config, a, current_protocol_version),
         Action::DeleteKey(_) => Ok(()),
-        Action::DeleteGasKey(_) => validate_delete_gas_key_action(current_protocol_version),
         Action::DeleteAccount(a) => validate_delete_action(a),
         Action::Delegate(a) => {
             validate_delegate_action(limit_config, a, receiver, current_protocol_version)
         }
         Action::DeterministicStateInit(a) => {
             validate_deterministic_state_init(limit_config, a, receiver, current_protocol_version)
+        }
+        Action::TransferToGasKey(_) => {
+            validate_transfer_to_gas_key_action(current_protocol_version)
+        }
+        Action::WithdrawFromGasKey(_) => {
+            validate_withdraw_from_gas_key_action(current_protocol_version)
         }
     }
 }
@@ -548,11 +550,41 @@ fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationEr
 }
 
 /// Validates `AddKeyAction`. Checks validity of the access key permission.
+/// If adding a gas key, validates gas key specific constraints.
 fn validate_add_key_action(
     limit_config: &LimitConfig,
     action: &AddKeyAction,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
-    validate_access_key_permission(limit_config, &action.access_key.permission)
+    validate_access_key_permission(limit_config, &action.access_key.permission)?;
+
+    // If this is a gas key, apply additional gas key validation
+    if let Some(gas_key_info) = action.access_key.gas_key_info() {
+        require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
+
+        // For gas keys with FunctionCallPermission, allowance must be None
+        if let Some(fc) = action.access_key.permission.function_call_permission() {
+            if fc.allowance.is_some() {
+                return Err(ActionsValidationError::GasKeyFunctionCallAllowanceNotAllowed);
+            }
+        }
+
+        // TODO(gas-keys): consider making 0 nonces invalid.
+        if gas_key_info.num_nonces > AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY {
+            return Err(ActionsValidationError::GasKeyTooManyNoncesRequested {
+                requested_nonces: gas_key_info.num_nonces,
+                limit: AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY,
+            });
+        }
+
+        if gas_key_info.balance != Balance::ZERO {
+            return Err(ActionsValidationError::AddGasKeyWithNonZeroBalance {
+                balance: gas_key_info.balance,
+            });
+        }
+    }
+
+    Ok(())
 }
 
 /// Validates `AccessKeyPermission`. If the access key permission is `FunctionCall`, checks that the
@@ -562,7 +594,7 @@ fn validate_access_key_permission(
     limit_config: &LimitConfig,
     permission: &AccessKeyPermission,
 ) -> Result<(), ActionsValidationError> {
-    if let AccessKeyPermission::FunctionCall(fc) = permission {
+    if let Some(fc) = permission.function_call_permission() {
         // Check whether `receiver_id` is a valid account_id. Historically, we
         // allowed arbitrary strings there!
         match limit_config.account_id_validity_rules_version {
@@ -607,10 +639,26 @@ fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsVal
     Ok(())
 }
 
+fn validate_transfer_to_gas_key_action(
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), ActionsValidationError> {
+    require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
+
+    Ok(())
+}
+
+fn validate_withdraw_from_gas_key_action(
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), ActionsValidationError> {
+    require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
+
+    Ok(())
+}
+
 fn require_protocol_feature(
     feature: ProtocolFeature,
     feature_name: &str,
-    current_protocol_version: u32,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     if !feature.enabled(current_protocol_version) {
         return Err(ActionsValidationError::UnsupportedProtocolFeature {
@@ -625,7 +673,7 @@ fn validate_deterministic_state_init(
     limit_config: &LimitConfig,
     action: &DeterministicStateInitAction,
     receiver_id: &AccountId,
-    current_protocol_version: u32,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     require_protocol_feature(
         ProtocolFeature::DeterministicAccountIds,
@@ -666,47 +714,6 @@ fn validate_deterministic_state_init(
     Ok(())
 }
 
-/// Validates `AddGasKeyAction`. Checks validity of the access key permission. Additionally,
-/// - if the permission is a `FunctionCallPermission`, the allowance must be `None`.
-/// - verifies the number of nonces is within limits.
-fn validate_add_gas_key_action(
-    limit_config: &LimitConfig,
-    action: &AddGasKeyAction,
-    current_protocol_version: u32,
-) -> Result<(), ActionsValidationError> {
-    require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
-    validate_access_key_permission(limit_config, &action.permission)?;
-    if let AccessKeyPermission::FunctionCall(fc) = &action.permission {
-        if fc.allowance.is_some() {
-            return Err(ActionsValidationError::GasKeyPermissionInvalid {
-                permission: action.permission.clone().into(),
-            });
-        }
-    }
-    if action.num_nonces > GasKey::MAX_NONCES {
-        return Err(ActionsValidationError::GasKeyTooManyNoncesRequested {
-            requested_nonces: action.num_nonces,
-            limit: GasKey::MAX_NONCES,
-        });
-    }
-
-    Ok(())
-}
-
-fn validate_delete_gas_key_action(
-    current_protocol_version: u32,
-) -> Result<(), ActionsValidationError> {
-    require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
-    Ok(())
-}
-
-fn validate_transfer_to_gas_key_action(
-    current_protocol_version: u32,
-) -> Result<(), ActionsValidationError> {
-    require_protocol_feature(ProtocolFeature::GasKeys, "GasKeys", current_protocol_version)?;
-    Ok(())
-}
-
 fn validate_global_contract_identifier(
     identifier: &GlobalContractIdentifier,
 ) -> Result<(), ActionsValidationError> {
@@ -742,18 +749,18 @@ mod tests {
     use crate::near_primitives::trie_key::TrieKey;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
+    use near_primitives::action::GlobalContractIdentifier;
+    use near_primitives::action::TransferToGasKeyAction;
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
-    use near_primitives::action::{
-        DeleteGasKeyAction, GlobalContractIdentifier, TransferToGasKeyAction,
-    };
     use near_primitives::deterministic_account_id::{
         DeterministicAccountStateInit, DeterministicAccountStateInitV1,
     };
     use near_primitives::hash::{CryptoHash, hash};
-    use near_primitives::receipt::{ActionReceipt, ReceiptPriority};
+    use near_primitives::receipt::ActionReceipt;
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
-        CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction, TransferAction,
+        CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction, TransactionNonce,
+        TransferAction,
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
@@ -878,15 +885,16 @@ mod tests {
         gas_price: Balance,
         signed_transaction: SignedTransaction,
         expected_err: InvalidTxError,
+        current_protocol_version: ProtocolVersion,
     ) {
-        let validated_tx = match validate_transaction(config, signed_transaction, PROTOCOL_VERSION)
-        {
-            Ok(v) => v,
-            Err((err, _tx)) => {
-                assert_eq!(err, expected_err);
-                return;
-            }
-        };
+        let validated_tx =
+            match validate_transaction(config, signed_transaction, current_protocol_version) {
+                Ok(v) => v,
+                Err((err, _tx)) => {
+                    assert_eq!(err, expected_err);
+                    return;
+                }
+            };
         let cost = match tx_cost(config, &validated_tx.to_tx(), gas_price) {
             Ok(c) => c,
             Err(err) => {
@@ -1122,6 +1130,7 @@ mod tests {
             gas_price,
             tx,
             InvalidTxError::InvalidSignature,
+            PROTOCOL_VERSION,
         );
     }
 
@@ -1183,12 +1192,12 @@ mod tests {
                     deposit: Balance::ZERO,
                 }))],
                 CryptoHash::default(),
-                0,
             ),
             InvalidTxError::ActionsValidation(ActionsValidationError::TotalPrepaidGasExceeded {
                 total_prepaid_gas: Gas::from_gas(200),
                 limit: Gas::from_gas(100),
             }),
+            PROTOCOL_VERSION,
         );
     }
 
@@ -1268,6 +1277,7 @@ mod tests {
                 CryptoHash::default(),
             ),
             InvalidTxError::CostOverflow,
+            PROTOCOL_VERSION,
         );
     }
 
@@ -1282,15 +1292,15 @@ mod tests {
             &mut state_update,
             gas_price,
             SignedTransaction::from_actions_v1(
-                1,
+                TransactionNonce::from_nonce(1),
                 alice_account(),
                 bob_account(),
                 &*signer,
                 vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
                 CryptoHash::default(),
-                1,
             ),
             InvalidTxError::InvalidTransactionVersion,
+            ProtocolFeature::GasKeys.protocol_version() - 1,
         );
     }
 
@@ -1328,25 +1338,23 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_transfer_to_gas_key_not_enough_balance() {
+    fn test_validate_transaction_transfer_to_gas_key_not_enough_balance() {
         let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
 
+        // TransferToGasKey with deposit exceeding account balance
+        let excessive_deposit = TESTING_INIT_BALANCE.saturating_mul(2);
         let signed_tx = SignedTransaction::from_actions(
             1,
             alice_account(),
-            bob_account(),
+            alice_account(),
             &*signer,
-            vec![Action::TransferToGasKey(
-                TransferToGasKeyAction {
-                    public_key: PublicKey::from_seed(KeyType::ED25519, "gas_key"),
-                    deposit: TESTING_INIT_BALANCE,
-                }
-                .into(),
-            )],
+            vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+                public_key: PublicKey::empty(KeyType::ED25519),
+                deposit: excessive_deposit,
+            }))],
             CryptoHash::default(),
-            0,
         );
 
         let err = validate_verify_and_charge_transaction(
@@ -1395,7 +1403,6 @@ mod tests {
                 deposit: Balance::ZERO,
             }))],
             CryptoHash::default(),
-            0,
         );
 
         let err = validate_verify_and_charge_transaction(
@@ -1540,7 +1547,6 @@ mod tests {
                 Action::CreateAccount(CreateAccountAction {}),
             ],
             CryptoHash::default(),
-            0,
         );
         validate_verify_and_charge_transaction(
             &config,
@@ -1560,7 +1566,6 @@ mod tests {
             &*signer,
             vec![],
             CryptoHash::default(),
-            0,
         );
         validate_verify_and_charge_transaction(
             &config,
@@ -1580,7 +1585,6 @@ mod tests {
             &*signer,
             vec![Action::CreateAccount(CreateAccountAction {})],
             CryptoHash::default(),
-            0,
         );
         validate_verify_and_charge_transaction(
             &config,
@@ -1621,7 +1625,6 @@ mod tests {
                 deposit: Balance::ZERO,
             }))],
             CryptoHash::default(),
-            0,
         );
 
         let err = validate_verify_and_charge_transaction(
@@ -1670,7 +1673,6 @@ mod tests {
                 deposit: Balance::ZERO,
             }))],
             CryptoHash::default(),
-            0,
         );
 
         let err = validate_verify_and_charge_transaction(
@@ -1718,7 +1720,6 @@ mod tests {
                 deposit: Balance::from_yoctonear(100),
             }))],
             CryptoHash::default(),
-            0,
         );
 
         let err = validate_verify_and_charge_transaction(
@@ -1748,7 +1749,6 @@ mod tests {
             &*signer,
             vec![Action::DeployContract(DeployContractAction { code: vec![1; 5] })],
             CryptoHash::default(),
-            0,
         );
         let transaction_size = signed_tx.get_size();
 
@@ -1792,11 +1792,7 @@ mod tests {
         let limit_config = test_limit_config();
         validate_receipt(
             &limit_config,
-            &Receipt::new_balance_refund(
-                &alice_account(),
-                Balance::from_yoctonear(10),
-                ReceiptPriority::NoPriority,
-            ),
+            &Receipt::new_balance_refund(&alice_account(), Balance::from_yoctonear(10)),
             PROTOCOL_VERSION,
             ValidateReceiptMode::NewReceipt,
         )
@@ -2145,6 +2141,28 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_action_invalid_add_key_gas_key_before_protocol_feature() {
+        let num_nonces = 10; // Arbitrary number of nonces for testing
+        let gas_key = AccessKey::gas_key_full_access(num_nonces);
+        let protocol_version = ProtocolFeature::GasKeys.protocol_version() - 1;
+        assert_eq!(
+            validate_action(
+                &test_limit_config(),
+                &Action::AddKey(Box::new(AddKeyAction {
+                    public_key: PublicKey::empty(KeyType::ED25519),
+                    access_key: gas_key,
+                })),
+                &"alice.near".parse().unwrap(),
+                protocol_version,
+            ),
+            Err(ActionsValidationError::UnsupportedProtocolFeature {
+                protocol_feature: "GasKeys".to_owned(),
+                version: protocol_version,
+            })
+        );
+    }
+
+    #[test]
     fn test_validate_action_valid_delete_key() {
         validate_action(
             &test_limit_config(),
@@ -2433,49 +2451,14 @@ mod tests {
     }
 
     #[test]
-    fn test_gas_key_actions_require_protocol_feature() {
-        let protocol_version = ProtocolFeature::GasKeys.protocol_version() - 1;
-        let limit_config = test_limit_config();
-        let actions = vec![
-            Action::AddGasKey(Box::new(AddGasKeyAction {
-                public_key: PublicKey::empty(KeyType::ED25519),
-                num_nonces: 10,
-                permission: AccessKeyPermission::FullAccess,
-            })),
-            Action::DeleteGasKey(Box::new(DeleteGasKeyAction {
-                public_key: PublicKey::empty(KeyType::ED25519),
-            })),
-            Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
-                public_key: PublicKey::empty(KeyType::ED25519),
-                deposit: Balance::from_yoctonear(1),
-            })),
-        ];
-        for action in actions {
-            let res = validate_action(
-                &limit_config,
-                &action,
-                &"alice.near".parse().unwrap(),
-                protocol_version,
-            );
-            assert_eq!(
-                res.expect_err("expected an error"),
-                ActionsValidationError::UnsupportedProtocolFeature {
-                    protocol_feature: "GasKeys".to_owned(),
-                    version: protocol_version,
-                },
-            );
-        }
-    }
-
-    #[test]
     fn test_validate_add_gas_key_valid() {
         let limit_config = test_limit_config();
+        let num_nonces = 10; // Arbitrary number of nonces for testing
         validate_action(
             &limit_config,
-            &Action::AddGasKey(Box::new(AddGasKeyAction {
+            &Action::AddKey(Box::new(AddKeyAction {
                 public_key: PublicKey::empty(KeyType::ED25519),
-                num_nonces: 10,
-                permission: AccessKeyPermission::FullAccess,
+                access_key: AccessKey::gas_key_full_access(num_nonces),
             })),
             &"alice.near".parse().unwrap(),
             ProtocolFeature::GasKeys.protocol_version(),
@@ -2486,21 +2469,21 @@ mod tests {
     #[test]
     fn test_validate_add_gas_key_too_many_nonces_requested() {
         let limit_config = test_limit_config();
+        let num_nonces = AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY + 1;
         assert_eq!(
             validate_action(
                 &limit_config,
-                &Action::AddGasKey(Box::new(AddGasKeyAction {
+                &Action::AddKey(Box::new(AddKeyAction {
                     public_key: PublicKey::empty(KeyType::ED25519),
-                    num_nonces: GasKey::MAX_NONCES + 1,
-                    permission: AccessKeyPermission::FullAccess
+                    access_key: AccessKey::gas_key_full_access(num_nonces),
                 })),
                 &"alice.near".parse().unwrap(),
                 ProtocolFeature::GasKeys.protocol_version(),
             )
             .expect_err("expected an error"),
             ActionsValidationError::GasKeyTooManyNoncesRequested {
-                requested_nonces: GasKey::MAX_NONCES + 1,
-                limit: GasKey::MAX_NONCES
+                requested_nonces: num_nonces,
+                limit: AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY
             },
         );
     }
@@ -2508,43 +2491,46 @@ mod tests {
     #[test]
     fn test_validate_add_gas_key_allowance_set() {
         let limit_config = test_limit_config();
-        let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
-            allowance: Some(Balance::from_yoctonear(1000)),
-            receiver_id: "bob.near".parse().unwrap(),
-            method_names: vec![],
-        });
+        let num_nonces = 10; // Arbitrary number of nonces for testing
+        let gas_key = AccessKey::gas_key_function_call(
+            num_nonces,
+            FunctionCallPermission {
+                allowance: Some(Balance::from_yoctonear(1000)),
+                receiver_id: "bob.near".parse().unwrap(),
+                method_names: vec![],
+            },
+        );
         assert_eq!(
             validate_action(
                 &limit_config,
-                &Action::AddGasKey(Box::new(AddGasKeyAction {
+                &Action::AddKey(Box::new(AddKeyAction {
                     public_key: PublicKey::empty(KeyType::ED25519),
-                    num_nonces: 10,
-                    permission: permission.clone()
+                    access_key: gas_key,
                 })),
                 &"alice.near".parse().unwrap(),
                 ProtocolFeature::GasKeys.protocol_version(),
             )
             .expect_err("expected an error"),
-            ActionsValidationError::GasKeyPermissionInvalid { permission: permission.into() }
+            ActionsValidationError::GasKeyFunctionCallAllowanceNotAllowed
         );
     }
 
     #[test]
     fn test_validate_add_gas_key_method_name_too_long() {
         let limit_config = test_limit_config();
+        let num_nonces = 10; // Arbitrary number of nonces for testing
         let limit_length = limit_config.max_length_method_name;
-        let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
+        let permission = FunctionCallPermission {
             allowance: None,
             receiver_id: "bob.near".parse().unwrap(),
             method_names: vec!["A".repeat(limit_length as usize + 1)],
-        });
+        };
         assert_eq!(
             validate_action(
                 &limit_config,
-                &Action::AddGasKey(Box::new(AddGasKeyAction {
+                &Action::AddKey(Box::new(AddKeyAction {
                     public_key: PublicKey::empty(KeyType::ED25519),
-                    num_nonces: 10,
-                    permission,
+                    access_key: AccessKey::gas_key_function_call(num_nonces, permission),
                 })),
                 &"alice.near".parse().unwrap(),
                 ProtocolFeature::GasKeys.protocol_version(),

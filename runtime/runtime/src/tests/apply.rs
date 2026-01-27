@@ -22,7 +22,7 @@ use near_primitives::errors::{
     ActionErrorKind, FunctionCallError, InvalidTxError, MissingTrieValue, TxExecutionError,
 };
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0};
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
@@ -226,11 +226,7 @@ fn test_apply_check_balance_validation_rewards() {
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
             &Some(validator_accounts_update),
             &apply_state,
-            &[Receipt::new_balance_refund(
-                &alice_account(),
-                small_refund,
-                ReceiptPriority::NoPriority,
-            )],
+            &[Receipt::new_balance_refund(&alice_account(), small_refund)],
             SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
@@ -498,7 +494,6 @@ fn generate_refund_receipts(small_transfer: Balance, n: u64) -> Vec<Receipt> {
             Receipt::new_balance_refund(
                 &alice_account(),
                 small_transfer.checked_add(Balance::from_yoctonear(u128::from(i))).unwrap(),
-                ReceiptPriority::NoPriority,
             )
         })
         .collect()
@@ -3001,7 +2996,6 @@ fn test_deploy_and_call_local_receipt() {
             })),
         ],
         CryptoHash::default(),
-        0,
     );
 
     let apply_result = runtime
@@ -3050,7 +3044,6 @@ fn test_deploy_and_call_local_receipts() {
             code: near_test_contracts::rs_contract().to_vec(),
         })],
         CryptoHash::default(),
-        0,
     );
 
     let tx2 = SignedTransaction::from_actions(
@@ -3076,7 +3069,6 @@ fn test_deploy_and_call_local_receipts() {
             })),
         ],
         CryptoHash::default(),
-        0,
     );
 
     let apply_result = runtime

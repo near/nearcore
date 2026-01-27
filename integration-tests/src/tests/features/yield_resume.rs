@@ -74,7 +74,6 @@ fn prepare_env(test_env_gas_limit: Option<u64>) -> TestEnv {
             code: near_test_contracts::rs_contract().to_vec(),
         })],
         *genesis_block.hash(),
-        0,
     );
     let tx_hash = tx.get_hash();
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -116,7 +115,6 @@ fn yield_then_resume() {
             deposit: Balance::ZERO,
         }))],
         *genesis_block.hash(),
-        0,
     );
     let yield_tx_hash = yield_transaction.get_hash();
     assert_eq!(
@@ -148,7 +146,6 @@ fn yield_then_resume() {
             deposit: Balance::ZERO,
         }))],
         *genesis_block.hash(),
-        0,
     );
     assert_eq!(
         env.rpc_handlers[0].process_tx(resume_transaction, false, false),

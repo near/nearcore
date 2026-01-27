@@ -346,7 +346,6 @@ impl GlobalContractsTestEnv {
             &create_user_test_signer(&relayer),
             vec![Action::Delegate(signed_delegate_action.into())],
             self.get_tx_block_hash(),
-            0,
         );
         self.run_tx(tx);
     }

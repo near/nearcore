@@ -5,7 +5,6 @@ use crate::sharding::ChunkHash;
 use crate::types::{AccountId, Balance, EpochId, Nonce, SpiceChunkId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives_core::account::AccessKeyPermission;
 pub use near_primitives_core::errors::IntegerOverflowError;
 use near_primitives_core::types::Gas;
 use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
@@ -405,13 +404,15 @@ pub enum ActionsValidationError {
         length: u64,
         limit: u64,
     } = 16,
-    GasKeyPermissionInvalid {
-        permission: Box<AccessKeyPermission>,
-    } = 17,
     GasKeyTooManyNoncesRequested {
         requested_nonces: u32,
         limit: u32,
+    } = 17,
+    AddGasKeyWithNonZeroBalance {
+        balance: Balance,
     } = 18,
+    /// Gas keys with FunctionCall permission cannot have an allowance set.
+    GasKeyFunctionCallAllowanceNotAllowed = 19,
 }
 
 /// Describes the error for validating a receipt.
@@ -590,19 +591,22 @@ impl Display for ActionsValidationError {
                     "DeterministicStateInit contains value of length {length} but at most {limit} is allowed",
                 )
             }
-            ActionsValidationError::GasKeyPermissionInvalid { permission } => {
-                write!(
-                    f,
-                    "Gas key has invalid permission: {:?}. With FunctionCall, specifying allowance is not allowed.",
-                    permission
-                )
-            }
             ActionsValidationError::GasKeyTooManyNoncesRequested { requested_nonces, limit } => {
                 write!(
                     f,
                     "Gas key requested too many nonces: {} requested, but limit is {}",
                     requested_nonces, limit
                 )
+            }
+            ActionsValidationError::AddGasKeyWithNonZeroBalance { balance } => {
+                write!(
+                    f,
+                    "Adding a gas key with non-zero balance is not allowed: balance = {}",
+                    balance
+                )
+            }
+            ActionsValidationError::GasKeyFunctionCallAllowanceNotAllowed => {
+                write!(f, "Gas keys with FunctionCall permission cannot have an allowance set")
             }
         }
     }
@@ -753,13 +757,17 @@ pub enum ActionErrorKind {
     GlobalContractDoesNotExist {
         identifier: GlobalContractIdentifier,
     } = 22,
+    /// Gas key does not exist for the specified public key
     GasKeyDoesNotExist {
         account_id: AccountId,
         public_key: Box<PublicKey>,
     } = 23,
-    GasKeyAlreadyExists {
+    /// Gas key does not have sufficient balance for the requested withdrawal
+    InsufficientGasKeyBalance {
         account_id: AccountId,
         public_key: Box<PublicKey>,
+        balance: Balance,
+        required: Balance,
     } = 24,
 }
 
@@ -1040,17 +1048,18 @@ impl Display for ActionErrorKind {
                 write!(f, "Global contract identifier {:?} not found", identifier)
             }
             ActionErrorKind::GasKeyDoesNotExist { account_id, public_key } => {
-                write!(
-                    f,
-                    "Gas key for account {:?} and public key {:?} does not exist",
-                    account_id, public_key
-                )
+                write!(f, "Gas key {} does not exist for account {}", public_key, account_id)
             }
-            ActionErrorKind::GasKeyAlreadyExists { account_id, public_key } => {
+            ActionErrorKind::InsufficientGasKeyBalance {
+                account_id,
+                public_key,
+                balance,
+                required,
+            } => {
                 write!(
                     f,
-                    "Gas key for account {:?} and public key {:?} already exists",
-                    account_id, public_key
+                    "Gas key {} for account {} has insufficient balance: {} available, {} required",
+                    public_key, account_id, balance, required
                 )
             }
         }

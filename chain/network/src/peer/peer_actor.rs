@@ -18,7 +18,7 @@ use crate::network_protocol::{
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
-use crate::peer_manager::network_state::{NetworkState, PRUNE_EDGES_AFTER};
+use crate::peer_manager::network_state::{EdgesWithSource, NetworkState, PRUNE_EDGES_AFTER};
 #[cfg(test)]
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
@@ -1243,6 +1243,17 @@ impl PeerActor {
                 let clock = self.clock.clone();
                 let network_state = self.network_state.clone();
                 self.handle.spawn("handle request update nonce", async move {
+                    if let Err(err) = verify_nonce(&clock, edge_info.nonce) {
+                        tracing::debug!(
+                            target: "network",
+                            nonce = ?edge_info.nonce,
+                            peer_id = ?conn.peer_info.id,
+                            %err,
+                            "bad nonce, disconnecting"
+                        );
+                        conn.stop(Some(ReasonForBan::InvalidEdge));
+                        return;
+                    }
                     let peer_id = &conn.peer_info.id;
                     match network_state.graph.load().local_edges.get(peer_id) {
                         Some(cur_edge)
@@ -1485,7 +1496,9 @@ impl PeerActor {
         conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
     ) {
-        if let Err(ban_reason) = network_state.add_edges(&clock, rtu.edges.clone()).await {
+        if let Err(ban_reason) =
+            network_state.add_edges(&clock, EdgesWithSource::Remote(rtu.edges.clone())).await
+        {
             conn.stop(Some(ban_reason));
         }
 

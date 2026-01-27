@@ -170,7 +170,7 @@ fn generate_state_requests(store: FlatStoreAdapter, samples: usize) -> Vec<(Shar
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let shard_uids = epoch_config_store
         .get_config(PROTOCOL_VERSION)
-        .legacy_shard_layout()
+        .static_shard_layout()
         .shard_uids()
         .collect::<Vec<_>>();
     let num_shards = shard_uids.len();

@@ -793,7 +793,6 @@ impl TestEnv {
             &signer,
             actions,
             tip.last_block_hash,
-            0,
         )
     }
 
@@ -830,7 +829,6 @@ impl TestEnv {
             &relayer_signer,
             vec![Action::Delegate(Box::new(signed_delegate_action))],
             tip.last_block_hash,
-            0,
         )
     }
 

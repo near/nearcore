@@ -100,6 +100,7 @@ fn build_chain_with_orphans() {
         None,
         None,
         None,
+        None,
     ));
     assert_matches!(chain.process_block_test(block).unwrap_err(), Error::Orphan);
     assert_matches!(chain.process_block_test(blocks.pop().unwrap()).unwrap_err(), Error::Orphan);

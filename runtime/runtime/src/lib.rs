@@ -1,12 +1,15 @@
 // cspell:ignore contractregistry
 
+use crate::access_keys::{
+    action_add_key, action_delete_key, action_transfer_to_gas_key, action_withdraw_from_gas_key,
+};
 use crate::actions::*;
 use crate::config::{
     exec_fee, safe_add_balance, safe_add_compute, safe_gas_to_balance, total_deposit,
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
-use crate::gas_keys::{action_add_gas_key, action_delete_gas_key, action_transfer_to_gas_key};
+use crate::function_call::action_function_call;
 use crate::metrics::{
     TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL,
     TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL,
@@ -95,6 +98,7 @@ use std::sync::Arc;
 use tracing::instrument;
 use verifier::ValidateReceiptMode;
 
+mod access_keys;
 mod actions;
 #[cfg(test)]
 mod actions_test_utils;
@@ -105,7 +109,7 @@ mod congestion_control;
 mod conversions;
 mod deterministic_account_id;
 pub mod ext;
-mod gas_keys;
+mod function_call;
 mod global_contracts;
 pub mod metrics;
 mod pipelining;
@@ -492,10 +496,6 @@ impl Runtime {
                     epoch_info_provider,
                 )?;
             }
-            Action::TransferToGasKey(transfer) => {
-                metrics::ACTION_CALLED_COUNT.transfer_to_gas_key.inc();
-                action_transfer_to_gas_key(state_update, account_id, transfer, &mut result)?;
-            }
             Action::Stake(stake) => {
                 metrics::ACTION_CALLED_COUNT.stake.inc();
                 action_stake(
@@ -518,17 +518,6 @@ impl Runtime {
                     add_key,
                 )?;
             }
-            Action::AddGasKey(add_gas_key) => {
-                metrics::ACTION_CALLED_COUNT.add_gas_key.inc();
-                action_add_gas_key(
-                    apply_state,
-                    state_update,
-                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
-                    &mut result,
-                    account_id,
-                    add_gas_key,
-                )?;
-            }
             Action::DeleteKey(delete_key) => {
                 metrics::ACTION_CALLED_COUNT.delete_key.inc();
                 action_delete_key(
@@ -538,17 +527,6 @@ impl Runtime {
                     &mut result,
                     account_id,
                     delete_key,
-                )?;
-            }
-            Action::DeleteGasKey(delete_gas_key) => {
-                metrics::ACTION_CALLED_COUNT.delete_gas_key.inc();
-                action_delete_gas_key(
-                    &apply_state.config.fees,
-                    state_update,
-                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
-                    &mut result,
-                    account_id,
-                    delete_gas_key,
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
@@ -573,7 +551,25 @@ impl Runtime {
                     account_id,
                     signed_delegate_action,
                     &mut result,
-                    receipt.priority(),
+                )?;
+            }
+            Action::TransferToGasKey(transfer_to_gas_key) => {
+                metrics::ACTION_CALLED_COUNT.transfer_to_gas_key.inc();
+                action_transfer_to_gas_key(
+                    state_update,
+                    &mut result,
+                    account_id,
+                    transfer_to_gas_key,
+                )?;
+            }
+            Action::WithdrawFromGasKey(withdraw_from_gas_key) => {
+                metrics::ACTION_CALLED_COUNT.withdraw_from_gas_key.inc();
+                action_withdraw_from_gas_key(
+                    state_update,
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    &mut result,
+                    account_id,
+                    withdraw_from_gas_key,
                 )?;
             }
         };
@@ -968,7 +964,6 @@ impl Runtime {
             result.new_receipts.push(Receipt::new_balance_refund(
                 receipt.balance_refund_receiver(),
                 deposit_refund,
-                receipt.priority(),
             ));
         }
         if gas_balance_refund > Balance::ZERO {
@@ -978,7 +973,6 @@ impl Runtime {
                 &action_receipt.signer_id(),
                 gas_balance_refund,
                 action_receipt.signer_public_key().clone(),
-                receipt.priority(),
             ));
         }
 
