@@ -31,7 +31,9 @@ class Action(Enum):
 
 def call_gh_workflow(wf_params: dict):
     cmd = "gh workflow run mocknet_terraform.yml --repo Near-One/infra-ops "
-    cmd += " ".join([f"-f {key}={value}" for key, value in wf_params.items() if value != None])
+    cmd += " ".join([
+        f"-f {key}={value}" for key, value in wf_params.items() if value != None
+    ])
     logger.info(f"Calling GH workflow with command: {cmd}")
     result = subprocess.run(cmd, shell=True)
     logger.info(
@@ -54,14 +56,21 @@ def handle_create(test_setup, dump_workflow_params=None):
     if test_setup.regions != None:
         workflow_params["location_set"] = test_setup.regions
     if test_setup.node_hardware_config != None:
-        workflow_params["chunk_producers"] = test_setup.node_hardware_config.chunk_producers_hosts()
-        workflow_params["chunk_validators"] = test_setup.node_hardware_config.only_chunk_validators_hosts()
+        workflow_params[
+            "chunk_producers"] = test_setup.node_hardware_config.chunk_producers_hosts(
+            )
+        workflow_params[
+            "chunk_validators"] = test_setup.node_hardware_config.only_chunk_validators_hosts(
+            )
     if test_setup.has_archival != None:
-        workflow_params["archival_nodes"] = "true" if test_setup.has_archival else "false"
+        workflow_params[
+            "archival_nodes"] = "true" if test_setup.has_archival else "false"
     if test_setup.has_state_dumper != None:
-        workflow_params["state_dumper"] = "true" if test_setup.has_state_dumper else "false"
+        workflow_params[
+            "state_dumper"] = "true" if test_setup.has_state_dumper else "false"
     if test_setup.tracing_server != None:
-        workflow_params["tracing_server"] = "true" if test_setup.tracing_server else "false"
+        workflow_params[
+            "tracing_server"] = "true" if test_setup.tracing_server else "false"
 
     if dump_workflow_params:
         json.dump(workflow_params, dump_workflow_params)
@@ -146,7 +155,8 @@ def main():
 
     parser.add_argument(
         '--dump-workflow-params',
-        help='Print infra-ops workflow JSON parameters for the selected command to the specified file (or stdout if not given) without dispatching it.',
+        help=
+        'Print infra-ops workflow JSON parameters for the selected command to the specified file (or stdout if not given) without dispatching it.',
         type=FileType('w'),
         nargs='?',
         const='-',
@@ -213,9 +223,11 @@ def main():
     test_setup = get_test_case(args.test_case, args)
     # Route to appropriate handler based on command
     if args.command == 'create':
-        handle_create(test_setup, dump_workflow_params=args.dump_workflow_params)
+        handle_create(test_setup,
+                      dump_workflow_params=args.dump_workflow_params)
     elif args.command == 'destroy':
-        handle_destroy(test_setup, dump_workflow_params=args.dump_workflow_params)
+        handle_destroy(test_setup,
+                       dump_workflow_params=args.dump_workflow_params)
     elif args.command == 'start':
         handle_start_test(test_setup)
     else:
