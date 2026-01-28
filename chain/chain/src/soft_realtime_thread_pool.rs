@@ -1,28 +1,27 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use crate::metrics::{THREAD_POOL_MAX_NUM_THREADS, THREAD_POOL_NUM_THREADS};
+use crate::metrics::{
+    THREAD_POOL_MAX_NUM_THREADS, THREAD_POOL_NUM_THREADS, THREAD_POOL_QUEUE_SIZE,
+};
 use near_async::futures::AsyncComputationSpawner;
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
 use thread_priority::{
     RealtimeThreadSchedulePolicy, ThreadBuilder, ThreadPriority, ThreadSchedulePolicy,
 };
-use tracing::debug;
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
-type IdleThreadQueue = Arc<Mutex<VecDeque<oneshot::Sender<Option<Job>>>>>;
 
 /// OS thread pool for spawning latency-critical real time tasks.
 ///
-/// The pool can spawn an unbounded number of threads, but going above the
-/// configured `limit` would raise warnings. Idle threads are kept for
-/// `idle_timeout` to be potentially reused for new tasks. All threads in the
-/// pool are spawned under round-robin realtime policy (`SCHED_RR`) with a
-/// configured `priority`. Realtime threads **always** take precedence over
-/// threads using normal policy (`SCHED_OTHER`), so `priority` applies **only
-/// among other realtime threads**.
+/// The pool enforces a hard limit on the number of threads. If all threads are
+/// busy and the limit is reached, the job execution will be queued until a thread
+/// becomes available. Idle threads are kept for `idle_timeout` to be potentially
+/// reused for new tasks. All threads in the pool are spawned under round-robin
+/// realtime policy (`SCHED_RR`) with a configured `priority`. Realtime threads
+/// **always** take precedence over threads using normal policy (`SCHED_OTHER`),
+/// so `priority` applies **only among other realtime threads**.
 pub(crate) struct ThreadPool {
     /// Name of the pool. Used for logging/debugging purposes.
     name: &'static str,
@@ -30,11 +29,78 @@ pub(crate) struct ThreadPool {
     priority: ThreadPriority,
     /// Timeout after which an idle thread terminates.
     idle_timeout: Duration,
-    /// Counter of currently running worker threads (active or idle).
-    worker_counter: Arc<WorkerCounter>,
-    /// Queue of oneshot senders which allow sending jobs to idle threads.
-    /// Once a worker thread is done processing its job, it pushes a sender into this queue.
-    idle_thread_queue: IdleThreadQueue,
+    thread_limit: usize,
+    state: Arc<ThreadPoolState>,
+}
+
+struct ThreadPoolStateInner {
+    name: &'static str,
+    queue: VecDeque<Job>,
+    total_threads: usize,
+    idle_threads: usize,
+    shutdown: bool,
+}
+
+impl ThreadPoolStateInner {
+    fn new(name: &'static str) -> Self {
+        Self { name, queue: VecDeque::new(), total_threads: 0, idle_threads: 0, shutdown: false }
+    }
+
+    fn enqueue(&mut self, job: Job) {
+        self.queue.push_back(job);
+        self.update_queue_metrics();
+    }
+
+    fn dequeue(&mut self) -> Option<Job> {
+        let ret = self.queue.pop_front();
+        if ret.is_some() {
+            self.update_queue_metrics();
+        }
+        ret
+    }
+
+    fn inc_idle_threads(&mut self) {
+        self.idle_threads += 1;
+    }
+
+    fn dec_idle_threads(&mut self) {
+        self.idle_threads -= 1;
+    }
+
+    fn inc_total_threads(&mut self) {
+        self.total_threads += 1;
+        self.update_total_threads_metrics();
+    }
+
+    fn dec_total_threads(&mut self) {
+        self.total_threads -= 1;
+        self.update_total_threads_metrics();
+    }
+
+    fn update_queue_metrics(&self) {
+        THREAD_POOL_QUEUE_SIZE.with_label_values(&[self.name]).set(self.queue.len() as i64);
+    }
+
+    fn update_total_threads_metrics(&self) {
+        THREAD_POOL_NUM_THREADS.with_label_values(&[self.name]).set(self.total_threads as i64);
+        let max_num_threads = THREAD_POOL_MAX_NUM_THREADS.with_label_values(&[self.name]);
+        if self.total_threads > max_num_threads.get() as usize {
+            max_num_threads.set(self.total_threads as i64);
+        }
+    }
+}
+
+struct ThreadPoolState {
+    inner: Mutex<ThreadPoolStateInner>,
+    /// Signaled when new task is added to the queue or on shutdown.
+    condvar: Condvar,
+}
+
+impl Drop for ThreadPoolState {
+    fn drop(&mut self) {
+        self.inner.lock().shutdown = true;
+        self.condvar.notify_all();
+    }
 }
 
 impl ThreadPool {
@@ -49,42 +115,60 @@ impl ThreadPool {
             name,
             priority: priority.try_into().expect("priority out of range"),
             idle_timeout,
-            worker_counter: WorkerCounter::new(name, limit),
-            idle_thread_queue: Default::default(),
+            thread_limit: limit,
+            state: Arc::new(ThreadPoolState {
+                inner: Mutex::new(ThreadPoolStateInner::new(name)),
+                condvar: Condvar::new(),
+            }),
         }
     }
 
     /// Spawn a new task to be run on the pool. It will re-use existing idle threads
-    /// if possible, or spawn a new thread. Panic when spawning a new thread fails.
+    /// if possible, or spawn a new thread (up to the configured limit).
+    /// If at the thread limit and no idle threads are available, the job will be
+    /// queued until a thread becomes available. The caller thread is never blocked.
     pub(crate) fn spawn_boxed(&self, job: Job) {
-        // Try to use one of the existing idle threads
-        let mut job = Some(job);
-        let mut queue_guard = self.idle_thread_queue.lock();
-        while let Some(sender) = queue_guard.pop_front() {
-            job = match sender.send(job) {
-                Ok(()) => return,
-                Err(err) => err.into_inner(),
-            }
+        let mut state_guard = self.state.inner.lock();
+        state_guard.enqueue(job);
+        if state_guard.idle_threads > 0 {
+            self.state.condvar.notify_one();
+            return;
         }
-        drop(queue_guard);
-        self.spawn_thread(job.unwrap())
+        if state_guard.total_threads < self.thread_limit {
+            state_guard.inc_total_threads();
+            drop(state_guard);
+            self.spawn_thread();
+        } else {
+            tracing::trace!(
+                target: "chain::soft_realtime_thread_pool",
+                pool = self.name,
+                limit = self.thread_limit,
+                queue_size = state_guard.queue.len(),
+                "job execution is delayed, thread pool is at capacity"
+            );
+        }
     }
 
-    fn spawn_thread(&self, job: Job) {
+    fn spawn_thread(&self) {
         let name = self.name;
         let idle_timeout = self.idle_timeout;
-        let idle_queue = self.idle_thread_queue.clone();
-        let counter_guard = self.worker_counter.new_thread();
+        let state = self.state.clone();
         ThreadBuilder::default()
             .name(name)
             .policy(ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::RoundRobin))
             .priority(self.priority)
             .spawn(move |res| {
                 if let Err(err) = res {
-                    debug!(target: "chain::soft_realtime_thread_pool", name = name, err = %err, "Setting scheduler policy failed");
+                    tracing::debug!(
+                       target: "chain::soft_realtime_thread_pool",
+                       pool = name,
+                       err = %err,
+                       "set scheduler policy failed"
+                    );
                 };
-                run_worker(job, idle_timeout, idle_queue, counter_guard)
-            }).expect("Failed to spawn thread");
+                run_worker(state, idle_timeout)
+            })
+            .expect("failed to spawn thread");
     }
 }
 
@@ -94,78 +178,39 @@ impl AsyncComputationSpawner for ThreadPool {
     }
 }
 
-/// This struct tracks the current number of worker threads
-/// and updates relevant metrics accordingly.
-struct WorkerCounter {
-    name: &'static str,
-    limit: usize,
-    num_threads: AtomicUsize,
-}
-
-impl WorkerCounter {
-    fn new(name: &'static str, limit: usize) -> Arc<Self> {
-        Arc::new(Self { name, limit, num_threads: Default::default() })
-    }
-
-    fn dec(&self) {
-        self.num_threads.fetch_sub(1, Ordering::SeqCst);
-        THREAD_POOL_NUM_THREADS.with_label_values(&[self.name]).dec();
-    }
-
-    fn new_thread(self: &Arc<Self>) -> WorkerCounterGuard {
-        let num_threads = self.num_threads.fetch_add(1, Ordering::SeqCst);
-        if num_threads > self.limit {
-            debug!(
-                target: "chain::soft_realtime_thread_pool",
-                name = self.name,
-                limit = self.limit,
-                num_threads = num_threads,
-                "Thread pool limit exceeded"
-            );
-        }
-        THREAD_POOL_NUM_THREADS.with_label_values(&[self.name]).inc();
-        let max_num_threads = THREAD_POOL_MAX_NUM_THREADS.with_label_values(&[self.name]);
-        // There is a possible race condition here, but we don't care
-        if num_threads > max_num_threads.get() as usize {
-            max_num_threads.set(num_threads as i64);
-        }
-
-        WorkerCounterGuard(self.clone())
-    }
-}
-
-/// This struct ensures that the thread counter decrements when a thread dies,
-/// even in case of a panic.
-struct WorkerCounterGuard(Arc<WorkerCounter>);
-
-impl Drop for WorkerCounterGuard {
-    fn drop(&mut self) {
-        self.0.dec();
-    }
-}
-
-/// Start a worker thread. It will execute the initial job, and then pick up
-/// new jobs in a loop. The thread will terminate if it's idle for `idle_timeout`,
-/// or if `None` is sent via the job channel, or if the sender end of the channel
-/// is dropped.
-fn run_worker(
-    mut job: Job,
-    idle_timeout: Duration,
-    idle_queue: IdleThreadQueue,
-    worker_counter_guard: WorkerCounterGuard,
-) {
+/// Start a worker thread. It will then pick up jobs from the queue one a time in
+/// a loop. The thread will terminate if it's idle for `idle_timeout` or when
+/// shutdown is triggered via `shutdown` flag.
+fn run_worker(state: Arc<ThreadPoolState>, idle_timeout: Duration) {
+    let mut state_guard = state.inner.lock();
     loop {
-        job();
-        // Notify the pool that this thread is idle by pushing the sender into the idle queue
-        let (sender, receiver) = oneshot::channel();
-        idle_queue.lock().push_front(sender);
-
-        job = match receiver.recv_timeout(idle_timeout) {
-            Ok(Some(job)) => job,
-            _ => break,
+        if state_guard.shutdown {
+            tracing::trace!(
+                target: "chain::soft_realtime_thread_pool",
+                pool = state_guard.name,
+                "terminate thread at shutdown"
+            );
+            break;
+        }
+        if let Some(job) = state_guard.dequeue() {
+            drop(state_guard);
+            job();
+            state_guard = state.inner.lock();
+        } else {
+            state_guard.inc_idle_threads();
+            let timeout_res = state.condvar.wait_for(&mut state_guard, idle_timeout);
+            state_guard.dec_idle_threads();
+            if timeout_res.timed_out() {
+                tracing::trace!(
+                    target: "chain::soft_realtime_thread_pool",
+                    pool = state_guard.name,
+                    "terminate idle thread"
+                );
+                break;
+            }
         }
     }
-    drop(worker_counter_guard); // Dropping the guard decreases running threads counter
+    state_guard.dec_total_threads();
 }
 
 /// Async computation spawner to be used for chunk applying tasks.
@@ -195,7 +240,7 @@ pub struct PartialWitnessValidationThreadPool(ThreadPool);
 
 impl PartialWitnessValidationThreadPool {
     pub fn new() -> Self {
-        Self(ThreadPool::new("partial_witness_validation", Duration::from_secs(30), 2, 70))
+        Self(ThreadPool::new("partial_witness_validation", Duration::from_secs(30), 96, 70))
     }
 }
 
@@ -210,7 +255,7 @@ pub struct WitnessCreationThreadPool(ThreadPool);
 
 impl WitnessCreationThreadPool {
     pub fn new() -> Self {
-        Self(ThreadPool::new("witness_creation", Duration::from_secs(30), 1, 70))
+        Self(ThreadPool::new("witness_creation", Duration::from_secs(30), 6, 70))
     }
 }
 
@@ -223,69 +268,148 @@ impl AsyncComputationSpawner for WitnessCreationThreadPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
-    use std::sync::atomic::AtomicBool;
-    use std::thread;
+    use std::thread::{self, ThreadId};
+    use std::time::Instant;
+
+    const POOL_NAME: &str = "test_pool";
+    const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(2);
+    const DEFAULT_LIMIT: usize = 2;
+    const DEFAULT_PRIORITY: u8 = 50;
+
+    #[derive(Debug)]
+    struct JobExecutionOutcome {
+        thread_id: ThreadId,
+    }
+
+    struct JobHandle {
+        scheduled_receiver: oneshot::Receiver<()>,
+        start_sender: oneshot::Sender<()>,
+        done_receiver: oneshot::Receiver<JobExecutionOutcome>,
+    }
+
+    impl JobHandle {
+        fn start_execution(self) -> oneshot::Receiver<JobExecutionOutcome> {
+            self.start_sender.send(()).unwrap();
+            self.done_receiver
+        }
+
+        fn wait_scheduled(&self) {
+            self.scheduled_receiver.recv_ref().unwrap();
+        }
+
+        fn wait_executed(self) -> JobExecutionOutcome {
+            self.start_execution().recv().unwrap()
+        }
+    }
+
+    fn create_job() -> (Job, JobHandle) {
+        let (scheduled_sender, scheduled_receiver) = oneshot::channel();
+        let (start_sender, start_receiver) = oneshot::channel();
+        let (done_sender, done_receiver) = oneshot::channel();
+        let job = Box::new(move || {
+            let _ = scheduled_sender.send(());
+            if start_receiver.recv().is_err() {
+                return;
+            };
+            let thread_id = thread::current().id();
+            let outcome = JobExecutionOutcome { thread_id };
+            let _ = done_sender.send(outcome);
+        });
+        let start_trigger = JobHandle { scheduled_receiver, start_sender, done_receiver };
+        (job, start_trigger)
+    }
+
+    fn execute_job(pool: &ThreadPool) -> JobExecutionOutcome {
+        let (job, handle) = create_job();
+        pool.spawn_boxed(job);
+        handle.wait_executed()
+    }
+
+    /// Waits for condition to become true, polling with short yields.
+    /// Panics with the given message if timeout is reached.
+    fn wait_for(condition: impl Fn() -> bool, msg: &str) {
+        const WAIT_TIMEOUT: Duration = Duration::from_secs(1);
+        let start = Instant::now();
+        while !condition() {
+            if start.elapsed() > WAIT_TIMEOUT {
+                panic!("timeout waiting for {}", msg);
+            }
+            thread::yield_now();
+        }
+    }
 
     #[test]
     #[should_panic(expected = "priority out of range")]
     fn invalid_priority() {
-        ThreadPool::new("test_pool", Duration::from_millis(1), 1, 101);
+        ThreadPool::new(POOL_NAME, DEFAULT_IDLE_TIMEOUT, DEFAULT_LIMIT, 101);
     }
 
     #[test]
     fn single_job() {
-        let pool = ThreadPool::new("test_pool", Duration::from_millis(1), 1, 50);
-        let executed = Arc::new(AtomicBool::new(false));
-        let executed_clone = executed.clone();
-
-        let job = Box::new(move || {
-            executed_clone.store(true, Ordering::Relaxed);
-        });
-        pool.spawn_boxed(job);
-
-        thread::sleep(Duration::from_millis(50));
-        assert!(executed.load(Ordering::Relaxed));
-    }
-
-    /// Helper function to create a job that will store its thread ID into the hashset
-    fn store_thread_id_job(thread_ids: &Arc<Mutex<HashSet<thread::ThreadId>>>) -> Job {
-        let thread_ids = thread_ids.clone();
-        Box::new(move || {
-            let thread_id = thread::current().id();
-            thread_ids.lock().insert(thread_id);
-        })
+        let pool =
+            ThreadPool::new(POOL_NAME, DEFAULT_IDLE_TIMEOUT, DEFAULT_LIMIT, DEFAULT_PRIORITY);
+        execute_job(&pool);
     }
 
     #[test]
     fn thread_reuse() {
-        let pool = ThreadPool::new("test_pool", Duration::from_millis(200), 2, 50);
-        let thread_ids = Arc::new(Mutex::new(HashSet::new()));
+        let limit = 2;
+        let pool = ThreadPool::new(POOL_NAME, DEFAULT_IDLE_TIMEOUT, limit, DEFAULT_PRIORITY);
 
-        pool.spawn_boxed(store_thread_id_job(&thread_ids));
-        thread::sleep(Duration::from_millis(50));
+        let outcome1 = execute_job(&pool);
+        wait_for(|| pool.state.inner.lock().idle_threads == 1, "thread to become idle");
+        let outcome2 = execute_job(&pool);
 
-        pool.spawn_boxed(store_thread_id_job(&thread_ids));
-        thread::sleep(Duration::from_millis(50));
+        assert_eq!(outcome1.thread_id, outcome2.thread_id);
+    }
 
-        // One idle thread should be still running, and there should be only 1 thread spawned in total
-        assert_eq!(pool.worker_counter.num_threads.load(Ordering::SeqCst), 1);
-        assert_eq!(thread_ids.lock().len(), 1);
+    #[test]
+    fn concurrent_execution() {
+        let limit = 2;
+        let pool = ThreadPool::new(POOL_NAME, DEFAULT_IDLE_TIMEOUT, limit, DEFAULT_PRIORITY);
+
+        let (job1, handle1) = create_job();
+        pool.spawn_boxed(job1);
+        handle1.wait_scheduled();
+        let (job2, handle2) = create_job();
+        pool.spawn_boxed(job2);
+        handle2.wait_scheduled();
+
+        let outcome1 = handle1.wait_executed();
+        let outcome2 = handle2.wait_executed();
+
+        assert_ne!(outcome1.thread_id, outcome2.thread_id);
     }
 
     #[test]
     fn idle_timeout() {
-        let pool = ThreadPool::new("test_pool", Duration::from_millis(1), 2, 50);
-        let thread_ids = Arc::new(Mutex::new(HashSet::new()));
+        let idle_timeout = Duration::ZERO;
+        let pool = ThreadPool::new(POOL_NAME, idle_timeout, DEFAULT_LIMIT, DEFAULT_PRIORITY);
 
-        pool.spawn_boxed(store_thread_id_job(&thread_ids));
-        thread::sleep(Duration::from_millis(50));
+        let outcome1 = execute_job(&pool);
+        wait_for(|| pool.state.inner.lock().total_threads == 0, "thread shutdown");
+        let outcome2 = execute_job(&pool);
 
-        pool.spawn_boxed(store_thread_id_job(&thread_ids));
-        thread::sleep(Duration::from_millis(50));
+        assert_ne!(outcome1.thread_id, outcome2.thread_id);
+    }
 
-        // No idle threads should be running, and there should be 2 threads spawned in total
-        assert_eq!(pool.worker_counter.num_threads.load(Ordering::SeqCst), 0);
-        assert_eq!(thread_ids.lock().len(), 2);
+    #[test]
+    fn thread_limit_enforced() {
+        let limit = 1;
+        let pool = ThreadPool::new(POOL_NAME, DEFAULT_IDLE_TIMEOUT, limit, DEFAULT_PRIORITY);
+
+        let (job1, handle1) = create_job();
+        pool.spawn_boxed(job1);
+        handle1.wait_scheduled();
+
+        let (job2, handle2) = create_job();
+        pool.spawn_boxed(job2);
+
+        assert_eq!(pool.state.inner.lock().total_threads, 1);
+        assert_eq!(pool.state.inner.lock().queue.len(), 1);
+
+        let outcome1 = handle1.wait_executed();
+        let outcome2 = handle2.wait_executed();
+        assert_eq!(outcome1.thread_id, outcome2.thread_id);
     }
 }

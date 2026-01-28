@@ -372,3 +372,12 @@ pub(crate) static THREAD_POOL_MAX_NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock:
     )
     .unwrap()
 });
+
+pub(crate) static THREAD_POOL_QUEUE_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_thread_pool_queue_size",
+        "thread pool job queue size",
+        &["pool_name"],
+    )
+    .unwrap()
+});

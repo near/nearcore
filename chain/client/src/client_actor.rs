@@ -215,12 +215,12 @@ pub fn start_client(
         client.config.save_latest_witnesses,
         client.config.save_invalid_witnesses,
         {
-            // The number of shards for the binary's latest `PROTOCOL_VERSION` is used as a thread limit.
+            // The number of shards for the binary's latest `PROTOCOL_VERSION` is used to compute the thread limit.
             // This assumes that:
             // a) The number of shards will not grow above this limit without the binary being updated (no dynamic resharding),
             // b) Under normal conditions, the node will not process more chunks at the same time as there are shards.
-            let max_num_shards = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
-            ApplyChunksSpawner::Default.into_spawner(max_num_shards)
+            let thread_limit = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize * 3;
+            ApplyChunksSpawner::Default.into_spawner(thread_limit)
         },
         client.config.orphan_state_witness_pool_size,
         client.config.orphan_state_witness_max_size.as_u64(),
