@@ -19,7 +19,7 @@ use near_store::{KeyLookupMode, TrieUpdate, get_pure};
 use near_vm_runner::logic::GasCounter;
 use near_vm_runner::{ContractRuntimeCache, PreparedContract};
 use parking_lot::{Condvar, Mutex};
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -65,6 +65,61 @@ pub(crate) struct ReceiptPreparationPipeline {
 
     /// Storage for WASM code.
     storage: ContractStorage,
+}
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct CallPreparationKey {
+    code_hash: CryptoHash,
+    method_name: String,
+}
+
+pub(crate) struct CallPreparationCache {
+    prepared: Mutex<HashMap<CallPreparationKey, Box<dyn PreparedContract>>>,
+}
+
+impl CallPreparationCache {
+    pub(crate) fn new() -> Self {
+        Self { prepared: Mutex::new(HashMap::new()) }
+    }
+
+    pub(crate) fn prefetch(
+        &self,
+        contract_storage: &ContractStorage,
+        cache: Option<&dyn ContractRuntimeCache>,
+        config: Arc<near_parameters::vm::Config>,
+        gas_counter: GasCounter,
+        code_hash: CryptoHash,
+        account_id: &AccountId,
+        method_name: &str,
+    ) {
+        let key = CallPreparationKey { code_hash, method_name: method_name.to_string() };
+        {
+            let guard = self.prepared.lock();
+            if guard.contains_key(&key) {
+                return;
+            }
+        }
+        let contract = prepare_function_call(
+            contract_storage,
+            cache,
+            config,
+            gas_counter,
+            code_hash,
+            account_id,
+            method_name,
+        );
+        let mut guard = self.prepared.lock();
+        guard.entry(key).or_insert(contract);
+    }
+
+    pub(crate) fn take(
+        &self,
+        code_hash: CryptoHash,
+        method_name: &str,
+    ) -> Option<Box<dyn PreparedContract>> {
+        let key = CallPreparationKey { code_hash, method_name: method_name.to_string() };
+        self.prepared.lock().remove(&key)
+    }
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -378,7 +433,7 @@ impl ReceiptPreparationPipeline {
     }
 }
 
-fn prepare_function_call(
+pub(crate) fn prepare_function_call(
     contract_storage: &ContractStorage,
     cache: Option<&dyn ContractRuntimeCache>,
     config: Arc<near_parameters::vm::Config>,

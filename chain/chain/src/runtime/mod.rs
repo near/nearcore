@@ -275,6 +275,7 @@ impl NightshadeRuntime {
             current_protocol_version,
             config: config.clone(),
             cache: Some(self.compiled_contract_cache.handle()),
+            call_preparation_cache: None,
             is_new_chunk,
             congestion_info,
             bandwidth_requests,

@@ -243,6 +243,9 @@ pub enum Parameter {
 
     // Flag to enabled deterministic account ids
     DeterministicAccountIds,
+
+    // Flag to enable host function call
+    CallHostFns,
 }
 
 #[derive(

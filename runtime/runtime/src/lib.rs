@@ -87,7 +87,7 @@ use near_vm_runner::logic::ReturnData;
 use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
 use num_integer::Integer;
-use pipelining::ReceiptPreparationPipeline;
+use pipelining::{CallPreparationCache, ReceiptPreparationPipeline};
 use rayon::prelude::*;
 use smallvec::SmallVec;
 use std::cmp::max;
@@ -187,6 +187,8 @@ pub struct ApplyState {
     pub config: Arc<RuntimeConfig>,
     /// Cache for compiled contracts.
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
+    /// Cache for prepared contracts used by synchronous calls.
+    pub call_preparation_cache: Option<Arc<CallPreparationCache>>,
     /// Cache for trie node accesses.
     pub trie_access_tracker_state: Arc<ext::AccountingState>,
     /// Whether the chunk being applied is new.

@@ -985,6 +985,7 @@ mod tests {
             current_protocol_version: 1,
             config: Arc::new(RuntimeConfig::test()),
             cache: None,
+            call_preparation_cache: None,
             is_new_chunk: false,
             congestion_info: BlockCongestionInfo::default(),
             bandwidth_requests: BlockBandwidthRequests::empty(),

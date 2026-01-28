@@ -181,6 +181,9 @@ pub struct Config {
     /// Whether to enable global contract related host functions.
     pub global_contract_host_fns: bool,
 
+    /// Whether to enable host function `call`.
+    pub call_host_fns: bool,
+
     /// Whether to enable saturating reference types and bulk memory wasm extensions.
     pub reftypes_bulk_memory: bool,
 
@@ -216,6 +219,7 @@ impl Config {
     pub fn enable_all_features(&mut self) {
         self.eth_implicit_accounts = true;
         self.global_contract_host_fns = true;
+        self.call_host_fns = true;
     }
 }
 

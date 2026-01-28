@@ -202,6 +202,7 @@ impl RuntimeUser {
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
             cache: None,
+            call_preparation_cache: None,
             is_new_chunk: true,
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
