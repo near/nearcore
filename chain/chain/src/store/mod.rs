@@ -28,7 +28,7 @@ use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, StateChanges, StateChangesExt,
-    StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
+    StateChangesKinds, StateChangesKindsExt, StateChangesRequest, ValidatorId,
 };
 use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
@@ -36,7 +36,7 @@ use near_primitives::utils::{
 };
 use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter, chunk_producer_key};
 use near_store::db::{
     GC_STOP_HEIGHT_KEY, SPICE_EXECUTION_HEAD_KEY, SPICE_FINAL_EXECUTION_HEAD_KEY,
     STATE_SYNC_DUMP_KEY, StoreStatistics,
@@ -1050,6 +1050,7 @@ pub(crate) struct ChainStoreCacheUpdate {
     block_merkle_tree: HashMap<CryptoHash, Arc<PartialMerkleTree>>,
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
     processed_block_heights: HashSet<BlockHeight>,
+    chunk_producers: HashMap<(EpochId, ShardId, BlockHeight), ValidatorId>,
 }
 
 /// Provides layer to update chain without touching the underlying database.
@@ -1721,6 +1722,18 @@ impl<'a> ChainStoreUpdate<'a> {
         }
     }
 
+    pub fn save_chunk_producer(
+        &mut self,
+        epoch_id: EpochId,
+        shard_id: ShardId,
+        height: BlockHeight,
+        validator_id: ValidatorId,
+    ) {
+        self.chain_store_cache_update
+            .chunk_producers
+            .insert((epoch_id, shard_id, height), validator_id);
+    }
+
     pub fn add_block_to_catchup(&mut self, prev_hash: CryptoHash, block_hash: CryptoHash) {
         self.add_blocks_to_catchup.push((prev_hash, block_hash));
     }
@@ -2197,6 +2210,12 @@ impl<'a> ChainStoreUpdate<'a> {
                 &get_block_shard_id(block_hash, *shard_id),
                 stats,
             )?;
+        }
+        for ((epoch_id, shard_id, height), validator_id) in
+            &self.chain_store_cache_update.chunk_producers
+        {
+            let key = chunk_producer_key(epoch_id, shard_id, height);
+            store_update.set_ser(DBCol::ChunkProducers, &key, validator_id)?;
         }
         for other in self.store_updates.drain(..) {
             store_update.merge(other);

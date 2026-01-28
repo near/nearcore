@@ -168,6 +168,19 @@ impl<'a> ChainUpdate<'a> {
                     shard_id,
                     apply_result.stats,
                 );
+
+                let epoch_id = block.header().epoch_id();
+                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+                let epoch_info = self.epoch_manager.get_epoch_info(&epoch_id)?;
+                // TODO: remove unwrap and handle error
+                let producer_id =
+                    epoch_info.sample_chunk_producer(&shard_layout, shard_id, height).unwrap();
+                self.chain_store_update.save_chunk_producer(
+                    *epoch_id,
+                    shard_id,
+                    height,
+                    producer_id,
+                );
             }
             ShardUpdateResult::OldChunk(OldChunkResult { shard_uid, apply_result }) => {
                 // The chunk is missing but some fields may need to be updated
@@ -202,6 +215,20 @@ impl<'a> ChainUpdate<'a> {
                     *block_hash,
                     shard_uid.shard_id(),
                     apply_result.stats,
+                );
+
+                let shard_id = shard_uid.shard_id();
+                let epoch_id = block.header().epoch_id();
+                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+                let epoch_info = self.epoch_manager.get_epoch_info(&epoch_id)?;
+                // TODO: remove unwrap and handle error
+                let producer_id =
+                    epoch_info.sample_chunk_producer(&shard_layout, shard_id, height).unwrap();
+                self.chain_store_update.save_chunk_producer(
+                    *epoch_id,
+                    shard_id,
+                    height,
+                    producer_id,
                 );
             }
         };

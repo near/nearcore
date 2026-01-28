@@ -434,19 +434,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn get_chunk_producer_info(
         &self,
         key: &ChunkProductionKey,
-    ) -> Result<ValidatorStake, EpochError> {
-        let epoch_info = self.get_epoch_info(&key.epoch_id)?;
-        let shard_layout = self.get_shard_layout(&key.epoch_id)?;
-        let Some(validator_id) =
-            epoch_info.sample_chunk_producer(&shard_layout, key.shard_id, key.height_created)
-        else {
-            return Err(EpochError::ChunkProducerSelectionError(format!(
-                "Invalid shard {} for height {}",
-                key.shard_id, key.height_created,
-            )));
-        };
-        Ok(epoch_info.get_validator(validator_id))
-    }
+    ) -> Result<ValidatorStake, EpochError>;
 
     /// Gets the chunk validators for a given height and shard.
     fn get_chunk_validator_assignments(
@@ -923,5 +911,37 @@ impl EpochManagerAdapter for EpochManagerHandle {
             next_epoch_id,
             next_epoch_info,
         )
+    }
+
+    /// Chunk producer info for given height for given shard. Return EpochError if outside of known boundaries.
+    fn get_chunk_producer_info(
+        &self,
+        key: &ChunkProductionKey,
+    ) -> Result<ValidatorStake, EpochError> {
+        let epoch_info = self.get_epoch_info(&key.epoch_id)?;
+
+        // Try DB lookup first
+        {
+            let epoch_manager = self.read();
+            if let Ok(validator_id) = epoch_manager.store.get_chunk_producer(
+                &key.epoch_id,
+                &key.shard_id,
+                &key.height_created,
+            ) {
+                return Ok(epoch_info.get_validator(validator_id));
+            }
+        }
+
+        // Fallback to sampling
+        let shard_layout = self.get_shard_layout(&key.epoch_id)?;
+        let Some(validator_id) =
+            epoch_info.sample_chunk_producer(&shard_layout, key.shard_id, key.height_created)
+        else {
+            return Err(EpochError::ChunkProducerSelectionError(format!(
+                "Invalid shard {} for height {}",
+                key.shard_id, key.height_created,
+            )));
+        };
+        Ok(epoch_info.get_validator(validator_id))
     }
 }

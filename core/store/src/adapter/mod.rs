@@ -6,6 +6,8 @@ pub mod trie_store;
 
 use std::ops::{Deref, DerefMut};
 
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
+
 use crate::{Store, StoreUpdate};
 
 /// Internal enum that can store either an owned StoreUpdate to a reference to StoreUpdate.
@@ -137,4 +139,12 @@ pub trait StoreUpdateAdapter: Sized {
     fn trie_store_update(&mut self) -> trie_store::TrieStoreUpdateAdapter {
         trie_store::TrieStoreUpdateAdapter::new(self.store_update())
     }
+}
+
+pub fn chunk_producer_key(epoch_id: &EpochId, shard_id: &ShardId, height: &BlockHeight) -> Vec<u8> {
+    let mut key = Vec::with_capacity(48);
+    key.extend_from_slice(epoch_id.as_ref());
+    key.extend_from_slice(&shard_id.to_le_bytes());
+    key.extend_from_slice(&height.to_le_bytes());
+    key
 }
