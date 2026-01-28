@@ -167,6 +167,16 @@ impl BorshDeserialize for Transaction {
 
         let read_signer_id = |buf: [u8; 4], reader: &mut R| -> std::io::Result<AccountId> {
             let str_len = u32::from_le_bytes(buf);
+            if str_len > AccountId::MAX_LEN as u32 {
+                return Err(Error::new(
+                    ErrorKind::InvalidData,
+                    format!(
+                        "AccountId length {} exceeds maximum length {}",
+                        str_len,
+                        AccountId::MAX_LEN
+                    ),
+                ));
+            }
             let mut str_vec = Vec::with_capacity(str_len as usize);
             for _ in 0..str_len {
                 str_vec.push(u8::deserialize_reader(reader)?);
