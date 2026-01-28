@@ -56,6 +56,19 @@ pub enum FunctionCallError {
     HostError(HostError),
 }
 
+impl FunctionCallError {
+    pub fn size_bytes_approximate(&self) -> usize {
+        const BASE_SIZE: usize = 4; // to roughly accommodate for static parts of the enum
+        match self {
+            FunctionCallError::CompilationError(e) => e.size_bytes_approximate(),
+            FunctionCallError::LinkError { msg } => BASE_SIZE + msg.len(),
+            FunctionCallError::MethodResolveError(_)
+            | FunctionCallError::WasmTrap(_)
+            | FunctionCallError::HostError(_) => BASE_SIZE,
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 pub enum CacheError {
     #[error("cache read error: {0}")]
@@ -118,6 +131,22 @@ pub enum CompilationError {
     WasmtimeCompileError {
         msg: String,
     } = 3,
+}
+
+impl CompilationError {
+    /// Calculate the approximate memory footprint of given CompilationError.
+    pub fn size_bytes_approximate(&self) -> usize {
+        const BASE_SIZE: usize = 4; // to accomodate for String/Box/Box<str> etc
+
+        let dynamic_size = match self {
+            CompilationError::CodeDoesNotExist { account_id } => account_id.len(),
+            CompilationError::WasmerCompileError { msg }
+            | CompilationError::WasmtimeCompileError { msg } => msg.len(),
+            CompilationError::PrepareError(_) => 0,
+        };
+
+        BASE_SIZE + dynamic_size
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
