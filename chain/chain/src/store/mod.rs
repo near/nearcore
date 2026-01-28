@@ -2215,7 +2215,7 @@ impl<'a> ChainStoreUpdate<'a> {
             &self.chain_store_cache_update.chunk_producers
         {
             let key = chunk_producer_key(epoch_id, shard_id, height);
-            store_update.set_ser(DBCol::ChunkProducers, &key, validator_id)?;
+            store_update.insert_ser(DBCol::ChunkProducers, &key, validator_id)?;
         }
         for other in self.store_updates.drain(..) {
             store_update.merge(other);
