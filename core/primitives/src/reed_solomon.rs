@@ -12,6 +12,7 @@ use tracing::span::EnteredSpan;
 pub type ReedSolomonPart = Option<Box<[u8]>>;
 
 pub const REED_SOLOMON_MAX_PARTS: usize = reed_solomon_erasure::galois_8::Field::ORDER;
+const MAX_ENCODED_LENGTH: usize = 512usize.checked_mul(bytesize::MIB as usize).unwrap();
 
 // Encode function takes a serializable object and returns a tuple of parts and length of encoded data
 pub fn reed_solomon_encode<T: BorshSerialize>(
@@ -50,6 +51,10 @@ pub fn reed_solomon_decode<T: BorshDeserialize>(
     parts: &mut [ReedSolomonPart],
     encoded_length: usize,
 ) -> Result<T, Error> {
+    // encoded_length may not be validated and since we may receive it from peers it may be arbitrary large.
+    if encoded_length > MAX_ENCODED_LENGTH {
+        return Err(Error::other("encoded length is too large"));
+    }
     if let Err(err) = rs.reconstruct(parts) {
         return Err(Error::other(err));
     }
