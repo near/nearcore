@@ -57,6 +57,8 @@ pub fn verify_chunk_header_signature_with_epoch_manager_and_parts(
 ) -> Result<bool, Error> {
     let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+    // TODO: we will have access to the blacklist through the EpochManagerAdapter
+    // Is SyncLruCache<(EpochId, ShardId, BlockHeight), Blacklist> enough?
     let Some(chunk_producer) =
         epoch_info.sample_chunk_producer(&shard_layout, shard_id, height_created)
     else {
