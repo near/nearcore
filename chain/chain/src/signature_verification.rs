@@ -3,9 +3,9 @@ use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{
     block::BlockHeader,
+    errors::EpochError,
     hash::CryptoHash,
     sharding::{ChunkHash, ShardChunkHeader},
-    stateless_validation::ChunkProductionKey,
     types::{BlockHeight, EpochId, ShardId, validator_stake::ValidatorStake},
 };
 
@@ -55,8 +55,18 @@ pub fn verify_chunk_header_signature_with_epoch_manager_and_parts(
     height_created: BlockHeight,
     shard_id: ShardId,
 ) -> Result<bool, Error> {
-    let key = ChunkProductionKey { epoch_id, height_created, shard_id };
-    let chunk_producer = epoch_manager.get_chunk_producer_info(&key)?;
+    let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+    let Some(chunk_producer) =
+        epoch_info.sample_chunk_producer(&shard_layout, shard_id, height_created)
+    else {
+        return Err(EpochError::ChunkProducerSelectionError(format!(
+            "Invalid shard {} for height {}",
+            shard_id, height_created,
+        ))
+        .into());
+    };
+    let chunk_producer = epoch_info.get_validator(chunk_producer);
     Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
 }
 
