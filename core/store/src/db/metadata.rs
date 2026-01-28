@@ -1,11 +1,8 @@
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-
 /// Database version type.
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion =
-    if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) { 48 } else { 47 };
+pub const DB_VERSION: DbVersion = 46;
 
 /// Minimum supported database version. This is a property of the current binary.
 pub const MIN_SUPPORTED_DB_VERSION: DbVersion = 45;
