@@ -168,19 +168,6 @@ impl<'a> ChainUpdate<'a> {
                     shard_id,
                     apply_result.stats,
                 );
-
-                let epoch_id = block.header().epoch_id();
-                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-                let epoch_info = self.epoch_manager.get_epoch_info(&epoch_id)?;
-                // TODO: remove unwrap and handle error
-                let producer_id =
-                    epoch_info.sample_chunk_producer(&shard_layout, shard_id, height).unwrap();
-                self.chain_store_update.save_chunk_producer(
-                    *epoch_id,
-                    shard_id,
-                    height,
-                    producer_id,
-                );
             }
             ShardUpdateResult::OldChunk(OldChunkResult { shard_uid, apply_result }) => {
                 // The chunk is missing but some fields may need to be updated
@@ -216,22 +203,59 @@ impl<'a> ChainUpdate<'a> {
                     shard_uid.shard_id(),
                     apply_result.stats,
                 );
-
-                let shard_id = shard_uid.shard_id();
-                let epoch_id = block.header().epoch_id();
-                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-                let epoch_info = self.epoch_manager.get_epoch_info(&epoch_id)?;
-                // TODO: remove unwrap and handle error
-                let producer_id =
-                    epoch_info.sample_chunk_producer(&shard_layout, shard_id, height).unwrap();
-                self.chain_store_update.save_chunk_producer(
-                    *epoch_id,
-                    shard_id,
-                    height,
-                    producer_id,
-                );
             }
         };
+        Ok(())
+    }
+
+    /// Save chunk producers for all shards at height H+1.
+    ///
+    /// This ensures chunk producer information is available for all shards,
+    /// not just tracked shards. We only save for H+1 (not H) because H was
+    /// already saved when processing block H-1. Genesis chunk producers are
+    /// saved separately in genesis block initialization.
+    fn save_chunk_producers_for_block(&mut self, block: &Block) -> Result<(), Error> {
+        let next_height = block.header().height() + 1;
+        let is_next_epoch = self.epoch_manager.is_next_block_epoch_start(block.hash())?;
+
+        if is_next_epoch {
+            // Next block is in a new epoch
+            let next_epoch_id = self.epoch_manager.get_next_epoch_id(block.hash())?;
+            let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
+            let next_epoch_info = self.epoch_manager.get_epoch_info(&next_epoch_id)?;
+
+            for shard_id in next_shard_layout.shard_ids() {
+                if let Some(producer_id) =
+                    next_epoch_info.sample_chunk_producer(&next_shard_layout, shard_id, next_height)
+                {
+                    self.chain_store_update.save_chunk_producer(
+                        next_epoch_id,
+                        shard_id,
+                        next_height,
+                        producer_id,
+                    );
+                }
+            }
+        } else {
+            // Next block is in the same epoch
+            let epoch_id = block.header().epoch_id();
+            let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
+            let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
+
+            for shard_id in shard_layout.shard_ids() {
+                if let Some(producer_id) =
+                    epoch_info.sample_chunk_producer(&shard_layout, shard_id, next_height)
+                {
+                    self.chain_store_update.save_chunk_producer(
+                        *epoch_id,
+                        shard_id,
+                        next_height,
+                        producer_id,
+                    );
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -333,6 +357,9 @@ impl<'a> ChainUpdate<'a> {
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(Arc::clone(&block));
         self.chain_store_update.inc_block_refcount(prev_hash)?;
+
+        // Save chunk producers for all shards at height H+1
+        self.save_chunk_producers_for_block(&block)?;
 
         let protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
