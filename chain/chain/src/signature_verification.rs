@@ -3,7 +3,6 @@ use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{
     block::BlockHeader,
-    errors::EpochError,
     hash::CryptoHash,
     sharding::{ChunkHash, ShardChunkHeader},
     stateless_validation::ChunkProductionKey,
