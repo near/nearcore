@@ -34,7 +34,7 @@ branch=$(git branch --show-current)
 # in case of Release triggered run, branch is empty
 if [ -z "${branch}" ]; then
   ref=$(git describe --tags | head -n1)
-  branch=$(git branch -r --contains=${ref} | head -n1 | cut -c3- | cut -d / -f 2)
+  branch=$(git branch -r --contains="${ref}" | head -n1 | cut -c3- | cut -d / -f 2)
 fi
 
 os=$(uname)
@@ -55,9 +55,9 @@ run_cmd() {
 function tar_binary {
   local src="$1"
 
-  run_cmd mkdir -p ${src}/${os_and_arch}
-  run_cmd cp target/release/${src} ${src}/${os_and_arch}/
-  run_cmd tar -C ${src} -czvf ${src}.tar.gz ${os_and_arch}
+  run_cmd mkdir -p "${src}/${os_and_arch}"
+  run_cmd cp "target/release/${src}" "${src}/${os_and_arch}/"
+  run_cmd tar -C "${src}" -czvf "${src}.tar.gz" "${os_and_arch}"
 }
 
 function upload_s3 {
