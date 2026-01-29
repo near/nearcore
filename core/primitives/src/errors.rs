@@ -7,7 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 pub use near_primitives_core::errors::IntegerOverflowError;
 use near_primitives_core::types::Gas;
-use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
+use near_primitives_core::types::{BlockHeight, NonceIndex, ProtocolVersion, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Display};
 use std::io;
@@ -271,6 +271,14 @@ pub enum InvalidTxError {
         /// The number of blocks since the last included chunk of the shard.
         missed_chunks: u64,
     } = 17,
+    /// Transaction is specifying an invalid nonce index. Gas key transactions
+    /// must have a nonce_index in valid range, regular transactions must not.
+    InvalidNonceIndex {
+        /// The nonce_index from the transaction (None if missing).
+        tx_nonce_index: Option<NonceIndex>,
+        /// Number of nonces supported by the key. 0 means no nonce_index allowed (regular key).
+        num_nonces: NonceIndex,
+    } = 18,
 }
 
 impl From<StorageError> for InvalidTxError {
@@ -851,6 +859,9 @@ impl Display for InvalidTxError {
                     f,
                     "Shard {shard_id} missed {missed_chunks} chunks and rejects new transactions."
                 )
+            }
+            InvalidTxError::InvalidNonceIndex { tx_nonce_index, num_nonces } => {
+                write!(f, "Invalid nonce_index {tx_nonce_index:?} for key with {num_nonces} nonces")
             }
         }
     }

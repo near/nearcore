@@ -572,6 +572,14 @@ impl AccessKeyPermission {
             _ => None,
         }
     }
+
+    pub fn function_call_permission_mut(&mut self) -> Option<&mut FunctionCallPermission> {
+        match self {
+            AccessKeyPermission::FunctionCall(permission)
+            | AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
+            _ => None,
+        }
+    }
 }
 
 /// Grants limited permission to make transactions with FunctionCallActions
