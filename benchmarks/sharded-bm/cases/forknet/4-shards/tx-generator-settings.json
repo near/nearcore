@@ -8,15 +8,18 @@
 		"schedule": [
 			{ "tps": 1000, "duration_s": 180 },
 			{ "tps": 2000, "duration_s": 180 },
-			{ "tps": 9000, "duration_s": 60 }
+			{ "tps": 3000, "duration_s": 360 },
+			{ "tps": 4000, "duration_s": 600 },
+			{ "tps": 4500, "duration_s": 600 },
+			{ "tps": 5000, "duration_s": 600 },
 		],
 		"controller": {
-			"target_block_production_time_s": 1.5,
+			"target_block_production_time_s": 1.0,
 			"bps_filter_window_length": 6,
 			"gain_proportional": 300.0,
 			"gain_integral": 0,
 			"gain_derivative": 0.0,
-			"block_pause_threshold_ms": 3000
+			"block_pause_threshold_ms": 6000
 		}
 	}
 }
