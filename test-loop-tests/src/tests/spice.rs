@@ -261,11 +261,9 @@ fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height: u64) {
     }
 }
 
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_spice_rpc_get_block_by_finality() {
-    init_test_logger();
-
+/// Sets up a spice env with delayed endorsements so execution lags behind
+/// consensus, and runs until there is a gap of at least 3 blocks.
+fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, TestLoopNode<'static>) {
     let num_producers = 2;
     let num_validators = 0;
     let validators_spec = create_validators_spec(num_producers, num_validators);
@@ -283,11 +281,10 @@ fn test_spice_rpc_get_block_by_finality() {
     let execution_delay = 4;
     delay_endorsements_propagation(&mut env, execution_delay);
 
-    env = env.warmup();
+    let mut env = env.warmup();
 
-    let node = TestLoopNode::for_account(&env.node_datas, &producer_account);
+    let node = TestLoopNode::for_account(&env.node_datas, &producer_account).into_owned();
 
-    // Run until we have a gap between consensus and execution
     env.test_loop.run_until(
         |test_loop_data| {
             let head = node.head(test_loop_data);
@@ -297,11 +294,19 @@ fn test_spice_rpc_get_block_by_finality() {
         Duration::seconds(20),
     );
 
+    (env, node)
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_rpc_get_block_by_finality() {
+    init_test_logger();
+    let (mut env, node) = setup_spice_env_with_execution_delay();
+
     let test_loop_data = env.test_loop_data();
     let execution_head = node.last_executed(test_loop_data);
     let final_head = node.client(test_loop_data).chain.final_head().unwrap();
 
-    // Check that different finality queries return expected blocks
     let view_client = env.test_loop.data.get_mut(&node.data().view_client_sender.actor_handle());
     let block_none =
         view_client.handle(GetBlock(BlockReference::Finality(Finality::None))).unwrap();
@@ -321,37 +326,7 @@ fn test_spice_rpc_get_block_by_finality() {
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_rpc_unknown_block_past_execution_head() {
     init_test_logger();
-
-    let num_producers = 2;
-    let num_validators = 0;
-    let validators_spec = create_validators_spec(num_producers, num_validators);
-    let clients = validators_spec_clients(&validators_spec);
-
-    let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
-
-    let producer_account = clients[0].clone();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build();
-
-    let execution_delay = 4;
-    delay_endorsements_propagation(&mut env, execution_delay);
-
-    env = env.warmup();
-
-    let node = TestLoopNode::for_account(&env.node_datas, &producer_account);
-
-    // Run until we have a gap between consensus and execution
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let head = node.head(test_loop_data);
-            let execution_head = node.last_executed(test_loop_data);
-            head.height > execution_head.height + 2
-        },
-        Duration::seconds(20),
-    );
+    let (mut env, node) = setup_spice_env_with_execution_delay();
 
     let test_loop_data = env.test_loop_data();
     let execution_head = node.last_executed(test_loop_data);
