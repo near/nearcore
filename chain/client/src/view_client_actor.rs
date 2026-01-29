@@ -261,9 +261,13 @@ impl ViewClientActor {
             if !self.shard_tracker.cares_about_shard(header.hash(), shard_id) {
                 continue;
             }
-            let shard_uid =
-                shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id).into_chain_error()?;
-            return Ok(self.chain.chain_store().get_chunk_extra(header.hash(), &shard_uid).is_ok());
+            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)
+                .into_chain_error()?;
+            match self.chain.chain_store().get_chunk_extra(header.hash(), &shard_uid) {
+                Ok(_) => return Ok(true),
+                Err(near_chain_primitives::Error::DBNotFoundErr(_)) => return Ok(false),
+                Err(err) => return Err(err.into()),
+            }
         }
         Ok(false)
     }
