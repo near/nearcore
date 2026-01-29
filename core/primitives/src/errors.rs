@@ -404,7 +404,7 @@ pub enum ActionsValidationError {
         length: u64,
         limit: u64,
     } = 16,
-    GasKeyTooManyNoncesRequested {
+    GasKeyInvalidNumNonces {
         requested_nonces: u32,
         limit: u32,
     } = 17,
@@ -591,10 +591,10 @@ impl Display for ActionsValidationError {
                     "DeterministicStateInit contains value of length {length} but at most {limit} is allowed",
                 )
             }
-            ActionsValidationError::GasKeyTooManyNoncesRequested { requested_nonces, limit } => {
+            ActionsValidationError::GasKeyInvalidNumNonces { requested_nonces, limit } => {
                 write!(
                     f,
-                    "Gas key requested too many nonces: {} requested, but limit is {}",
+                    "gas key requested invalid number of nonces: {} (must be between 1 and {})",
                     requested_nonces, limit
                 )
             }

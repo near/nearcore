@@ -569,9 +569,10 @@ fn validate_add_key_action(
             }
         }
 
-        // TODO(gas-keys): consider making 0 nonces invalid.
-        if gas_key_info.num_nonces > AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY {
-            return Err(ActionsValidationError::GasKeyTooManyNoncesRequested {
+        if gas_key_info.num_nonces == 0
+            || gas_key_info.num_nonces > AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY
+        {
+            return Err(ActionsValidationError::GasKeyInvalidNumNonces {
                 requested_nonces: gas_key_info.num_nonces,
                 limit: AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY,
             });
@@ -2467,25 +2468,30 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_add_gas_key_too_many_nonces_requested() {
+    fn test_validate_add_gas_key_invalid_num_nonces() {
         let limit_config = test_limit_config();
-        let num_nonces = AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY + 1;
-        assert_eq!(
-            validate_action(
-                &limit_config,
-                &Action::AddKey(Box::new(AddKeyAction {
-                    public_key: PublicKey::empty(KeyType::ED25519),
-                    access_key: AccessKey::gas_key_full_access(num_nonces),
-                })),
-                &"alice.near".parse().unwrap(),
-                ProtocolFeature::GasKeys.protocol_version(),
-            )
-            .expect_err("expected an error"),
-            ActionsValidationError::GasKeyTooManyNoncesRequested {
-                requested_nonces: num_nonces,
-                limit: AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY
-            },
-        );
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let version = ProtocolFeature::GasKeys.protocol_version();
+        // Valid number of nonces is between 1 and MAX_NONCES_FOR_GAS_KEY inclusive.
+        // Test 0 nonces and num_nonces greater than the maximum allowed results in an error.
+        for num_nonces in [0, AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY + 1] {
+            assert_eq!(
+                validate_action(
+                    &limit_config,
+                    &Action::AddKey(Box::new(AddKeyAction {
+                        public_key: PublicKey::empty(KeyType::ED25519),
+                        access_key: AccessKey::gas_key_full_access(num_nonces),
+                    })),
+                    &account_id,
+                    version,
+                )
+                .unwrap_err(),
+                ActionsValidationError::GasKeyInvalidNumNonces {
+                    requested_nonces: num_nonces,
+                    limit: AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY
+                },
+            );
+        }
     }
 
     #[test]
