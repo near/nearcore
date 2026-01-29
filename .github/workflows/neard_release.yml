@@ -65,7 +65,7 @@ jobs:
           aws-region: us-west-1
 
       - name: Neard binary build and upload to S3
-        run: ./scripts/binary_release.sh
+        run: ./scripts/binary_release.sh release upload-release
 
       - name: Update latest version metadata in S3
         run: |
