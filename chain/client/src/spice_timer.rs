@@ -1,3 +1,4 @@
+use crate::metrics::{SPICE_BLOCK_PRODUCTION_DELAY_MS, SPICE_CERTIFICATION_LAG};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::spice_core::get_last_certified_block_header;
 use near_chain_primitives::Error;
@@ -94,18 +95,17 @@ impl SpiceTimer {
         let now = u128::try_from(self.clock.now_utc().unix_timestamp_nanos()).unwrap();
         let time_since_last_block_ns = now.saturating_sub(last_block_timestamp_ns as u128);
 
-        // Get certification head height (with caching)
         let certification_height = self.get_certification_head_height(chain_store, head_hash)?;
 
-        // Calculate certification lag
         // Target height should always be > certification height in normal operation
         let certification_lag = target_height.saturating_sub(certification_height);
 
-        // Calculate required delay based on lag
         let required_delay_ns = self.calculate_production_delay_ns(certification_lag);
 
-        // Update tracking
-        let ready = time_since_last_block_ns >= required_delay_ns;
+        SPICE_CERTIFICATION_LAG.set(certification_lag as i64);
+        SPICE_BLOCK_PRODUCTION_DELAY_MS.set((required_delay_ns / (1000 * 1000)) as i64);
+
+        let ready = required_delay_ns <= time_since_last_block_ns;
 
         tracing::debug!(
             target: "client",
