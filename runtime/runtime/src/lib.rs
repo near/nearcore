@@ -757,7 +757,9 @@ impl Runtime {
             .unwrap();
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.price_surplus)?;
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.refund_penalty)?;
-        tx_burnt_amount = safe_add_balance(tx_burnt_amount, result.tokens_burnt)?;
+        if result.result.is_ok() {
+            tx_burnt_amount = safe_add_balance(tx_burnt_amount, result.tokens_burnt)?;
+        }
         // The amount of tokens burnt for the execution of this receipt. It's used in the execution
         // outcome.
         let tokens_burnt = tx_burnt_amount;
