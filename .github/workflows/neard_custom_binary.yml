@@ -1,4 +1,4 @@
-name: Neard test features binary release
+name: Neard custom binary release
 
 on:
   workflow_dispatch:
@@ -7,6 +7,16 @@ on:
         default: 'master'
         description: "Nearcore branch to build and publish"
         type: string
+        required: true
+      release-type:
+        default: 'release'
+        description: "Release type, see binary_release.sh for more details"
+        type: choice
+        options:
+          - release
+          - nightly-release
+          - assertions-release
+          - test-features-release
         required: true
 
 jobs:
@@ -32,4 +42,4 @@ jobs:
           persist-credentials: false
 
       - name: Neard binary build and upload to S3
-        run: ./scripts/binary_release.sh test-features-release
+        run: ./scripts/binary_release.sh ${{ github.event.inputs.release-type }}
