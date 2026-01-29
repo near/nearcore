@@ -209,6 +209,8 @@ impl ViewClientActor {
             Finality::DoomSlug => *self.chain.head_header()?.last_ds_final_block(),
             Finality::Final => self.chain.final_head()?.last_block_hash,
         };
+        // TODO(spice): consider using `get_last_certified_block_header(chain_head)`
+        // for Finality::Final and Finality::DoomSlug.
         if ProtocolFeature::Spice.enabled(protocol_version) {
             self.find_first_executed_ancestor(&chain_head)
         } else {
