@@ -6,12 +6,7 @@
 		"sender_accounts_zipf_skew": 1.0,
 		"receiver_accounts_zipf_skew": 1.0,
 		"schedule": [
-			{ "tps": 1000, "duration_s": 180 },
-			{ "tps": 2000, "duration_s": 180 },
-			{ "tps": 3000, "duration_s": 360 },
-			{ "tps": 4000, "duration_s": 600 },
-			{ "tps": 4500, "duration_s": 600 },
-			{ "tps": 5000, "duration_s": 600 }
+			{ "tps": 1000, "duration_s": 3600 }
 		],
 		"controller": {
 			"target_block_production_time_s": 1.0,
