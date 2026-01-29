@@ -272,6 +272,18 @@ impl ViewClientActor {
         Ok(false)
     }
 
+    /// For spice, returns an error if the block has not been executed yet.
+    /// Non-spice blocks always pass.
+    fn check_block_executed(&self, header: &BlockHeader) -> Result<(), near_chain::Error> {
+        if !self.is_block_executed(header)? {
+            return Err(near_chain::Error::DBNotFoundErr(format!(
+                "block {} not yet executed",
+                header.hash()
+            )));
+        }
+        Ok(())
+    }
+
     /// Returns block header by reference.
     ///
     /// Returns `None` if the reference is a `SyncCheckpoint::EarliestAvailable`
@@ -281,13 +293,16 @@ impl ViewClientActor {
         &self,
         reference: &BlockReference,
     ) -> Result<Option<Arc<BlockHeader>>, near_chain::Error> {
-        // TODO(spice): Return "unknown block" for height/hash queries past execution_head.
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
-                self.chain.get_block_header_by_height(*block_height).map(Some)
+                let header = self.chain.get_block_header_by_height(*block_height)?;
+                self.check_block_executed(&header)?;
+                Ok(Some(header))
             }
             BlockReference::BlockId(BlockId::Hash(block_hash)) => {
-                self.chain.get_block_header(block_hash).map(Some)
+                let header = self.chain.get_block_header(block_hash)?;
+                self.check_block_executed(&header)?;
+                Ok(Some(header))
             }
             BlockReference::Finality(finality) => self
                 .get_block_hash_by_finality(finality)
@@ -315,13 +330,16 @@ impl ViewClientActor {
         &self,
         reference: &BlockReference,
     ) -> Result<Option<Arc<Block>>, near_chain::Error> {
-        // TODO(spice): Return "unknown block" for height/hash queries past execution_head.
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
-                self.chain.get_block_by_height(*block_height).map(Some)
+                let block = self.chain.get_block_by_height(*block_height)?;
+                self.check_block_executed(block.header())?;
+                Ok(Some(block))
             }
             BlockReference::BlockId(BlockId::Hash(block_hash)) => {
-                self.chain.get_block(block_hash).map(Some)
+                let block = self.chain.get_block(block_hash)?;
+                self.check_block_executed(block.header())?;
+                Ok(Some(block))
             }
             BlockReference::Finality(finality) => self
                 .get_block_hash_by_finality(finality)
