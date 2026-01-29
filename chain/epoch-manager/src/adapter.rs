@@ -19,15 +19,10 @@ use near_primitives::types::{
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::EpochValidatorInfo;
 use near_store::ShardUId;
-use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::sync::Arc;
-
-/// Number of blocks from the tip within which we allow fallback to sampling
-/// for chunk producer selection (in case DB entry is not yet written).
-const BLOCKS_FROM_TIP: BlockHeight = 1;
 
 /// A trait that abstracts the interface of the EpochManager. The two
 /// implementations are EpochManagerHandle and KeyValueEpochManager. Strongly
@@ -924,41 +919,12 @@ impl EpochManagerAdapter for EpochManagerHandle {
         key: &ChunkProductionKey,
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(&key.epoch_id)?;
-
-        // Try DB lookup first
-        {
-            let epoch_manager = self.read();
-            if let Ok(validator_id) = epoch_manager.store.get_chunk_producer(
-                &key.epoch_id,
-                &key.shard_id,
-                &key.height_created,
-            ) {
-                return Ok(epoch_info.get_validator(validator_id));
-            }
-        };
-
-        // Fallback to sampling only if height is close to the tip (might not be stored yet)
-        let tip_height = {
-            let epoch_manager = self.read();
-            epoch_manager.store.chain_store().head().map(|tip| tip.height).unwrap_or_default()
-        };
-
-        if key.height_created + BLOCKS_FROM_TIP < tip_height {
-            return Err(EpochError::ChunkProducerSelectionError(format!(
-                "Chunk producer not found in DB for epoch {:?} shard {} height {}, tip height: {}",
-                key.epoch_id, key.shard_id, key.height_created, tip_height,
-            )));
-        }
-
-        let shard_layout = self.get_shard_layout(&key.epoch_id)?;
-        let Some(validator_id) =
-            epoch_info.sample_chunk_producer(&shard_layout, key.shard_id, key.height_created)
-        else {
-            return Err(EpochError::ChunkProducerSelectionError(format!(
-                "Invalid shard {} for height {}",
-                key.shard_id, key.height_created,
-            )));
-        };
+        let epoch_manager = self.read();
+        let validator_id = epoch_manager.store.get_chunk_producer(
+            &key.epoch_id,
+            &key.shard_id,
+            &key.height_created,
+        )?;
         Ok(epoch_info.get_validator(validator_id))
     }
 }

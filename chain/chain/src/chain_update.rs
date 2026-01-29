@@ -209,17 +209,11 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Save chunk producers for all shards at height H+1.
-    ///
-    /// This ensures chunk producer information is available for all shards,
-    /// not just tracked shards. We only save for H+1 (not H) because H was
-    /// already saved when processing block H-1. Genesis chunk producers are
-    /// saved separately in genesis block initialization.
     fn save_chunk_producers_for_block(&mut self, block: &Block) -> Result<(), Error> {
         let next_height = block.header().height() + 1;
         let is_next_epoch = self.epoch_manager.is_next_block_epoch_start(block.hash())?;
 
         if is_next_epoch {
-            // Next block is in a new epoch
             let next_epoch_id = self.epoch_manager.get_next_epoch_id(block.hash())?;
             let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
             let next_epoch_info = self.epoch_manager.get_epoch_info(&next_epoch_id)?;
@@ -237,7 +231,6 @@ impl<'a> ChainUpdate<'a> {
                 }
             }
         } else {
-            // Next block is in the same epoch
             let epoch_id = block.header().epoch_id();
             let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
             let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;

@@ -6,6 +6,7 @@ use near_primitives::{
     errors::EpochError,
     hash::CryptoHash,
     sharding::{ChunkHash, ShardChunkHeader},
+    stateless_validation::ChunkProductionKey,
     types::{BlockHeight, EpochId, ShardId, validator_stake::ValidatorStake},
 };
 
@@ -55,20 +56,8 @@ pub fn verify_chunk_header_signature_with_epoch_manager_and_parts(
     height_created: BlockHeight,
     shard_id: ShardId,
 ) -> Result<bool, Error> {
-    let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
-    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-    // TODO: we will have access to the blacklist through the EpochManagerAdapter
-    // Is SyncLruCache<(EpochId, ShardId, BlockHeight), Blacklist> enough?
-    let Some(chunk_producer) =
-        epoch_info.sample_chunk_producer(&shard_layout, shard_id, height_created)
-    else {
-        return Err(EpochError::ChunkProducerSelectionError(format!(
-            "Invalid shard {} for height {}",
-            shard_id, height_created,
-        ))
-        .into());
-    };
-    let chunk_producer = epoch_info.get_validator(chunk_producer);
+    let key = ChunkProductionKey { epoch_id, height_created, shard_id };
+    let chunk_producer = epoch_manager.get_chunk_producer_info(&key)?;
     Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
 }
 
