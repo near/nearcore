@@ -591,30 +591,26 @@ enum StateRootSelector {
     Hash { hash: CryptoHash, shard_uid: ShardUId },
 }
 
+fn get_block_hash_key(hot_store: &Store, height: BlockHeight) -> anyhow::Result<Vec<u8>> {
+    let height_key = height.to_le_bytes();
+    let hash_key = hot_store
+        .get(DBCol::BlockHeight, &height_key)
+        .ok_or_else(|| anyhow::anyhow!("Failed to find block hash for height {:?}", height))?
+        .as_slice()
+        .to_vec();
+    Ok(hash_key)
+}
+
 /// Calculate previous state roots for chunks at block `height`.
 fn get_prev_state_roots(
-    storage: &NodeStorage,
     cold_store: &Store,
     epoch_manager: &EpochManagerHandle,
-    height: BlockHeight,
+    block_hash_key: Vec<u8>,
 ) -> anyhow::Result<Vec<(CryptoHash, ShardUId)>> {
-    let hash_key = {
-        let height_key = height.to_le_bytes();
-        storage
-            .get_hot_store()
-            .get(DBCol::BlockHeight, &height_key)
-            .ok_or_else(|| anyhow::anyhow!("Failed to find block hash for height {:?}", height))?
-            .as_slice()
-            .to_vec()
-    };
     let block = cold_store
-        .get_ser::<near_primitives::block::Block>(DBCol::Block, &hash_key)?
-        .ok_or_else(|| anyhow::anyhow!("Failed to find Block: {:?}", hash_key))?;
-    let prev_block_hash_key = block.header().prev_hash().as_bytes();
-    let prev_block = cold_store
-        .get_ser::<near_primitives::block::Block>(DBCol::Block, prev_block_hash_key)?
-        .ok_or_else(|| anyhow::anyhow!("Failed to find Block: {:?}", hash_key))?;
-    let shard_layout = epoch_manager.read().get_shard_layout(prev_block.header().epoch_id())?;
+        .get_ser::<near_primitives::block::Block>(DBCol::Block, &block_hash_key)?
+        .ok_or_else(|| anyhow::anyhow!("Failed to find Block: {:?}", block_hash_key))?;
+    let shard_layout = epoch_manager.read().get_shard_layout(block.header().epoch_id())?;
     let mut hashes = vec![];
     for chunk in block.chunks().iter() {
         let state_root_hash = cold_store
@@ -661,10 +657,16 @@ impl CheckStateRootCmd {
             }
         };
         for height in heights {
-            println!("# Running checks at height {}", height);
-            // We pass `height + 1` to `get_prev_state_roots` in order to obtain state roots at `height`.
+            let block_hash_key = match get_block_hash_key(&storage.get_hot_store(), height) {
+                Ok(key) => key,
+                Err(_) => {
+                    println!("\n## Block at height {height} is missing, skipping.\n");
+                    continue;
+                }
+            };
+            println!("# Running checks for prev state roots of height {}", height);
             let roots_with_shard_uid =
-                get_prev_state_roots(storage, &cold_store, epoch_manager, height + 1)?;
+                get_prev_state_roots(&cold_store, epoch_manager, block_hash_key)?;
             for (hash, shard_uid) in roots_with_shard_uid {
                 if let Err(error) =
                     Self::check_trie_root(&cold_store, &prune_condition, &shard_uid, &hash)
