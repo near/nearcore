@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use near_chain_configs::Genesis;
-use near_client::ProcessTxResponse;
+use near_client::{Client, ProcessTxResponse};
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::config::TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
@@ -17,7 +17,7 @@ use near_primitives::types::{Balance, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 use near_store::adapter::StoreAdapter;
-use near_store::{Trie, TrieDBStorage};
+use near_store::{ShardUId, Trie, TrieDBStorage};
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
@@ -68,18 +68,40 @@ pub fn get_yield_data_ids_in_latest_state(env: &TestEnv) -> Vec<CryptoHash> {
     let epoch_id = head.epoch_id;
     let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&epoch_id).unwrap();
     let shard_uid = shard_layout.account_id_to_shard_uid(&"test0".parse::<AccountId>().unwrap());
-    let block = client.chain.get_block(&block_hash).unwrap();
+
+    let latest_state_root = get_latest_state_state_root(client, block_hash, shard_uid);
+    get_yield_data_ids_in_state(client, latest_state_root, shard_uid)
+}
+
+/// Get the latest available state root.
+fn get_latest_state_state_root(
+    client: &Client,
+    latest_block_hash: CryptoHash,
+    shard_uid: ShardUId,
+) -> CryptoHash {
+    let block = client.chain.get_block(&latest_block_hash).unwrap();
     let chunks = block.chunks();
     let chunk_header =
         chunks.iter().find(|header| header.shard_id() == shard_uid.shard_id()).unwrap();
 
-    let state_root = if let Ok(chunk_extra) = client.chain.get_chunk_extra(&block_hash, &shard_uid)
-    {
-        *chunk_extra.state_root()
-    } else {
-        chunk_header.prev_state_root()
-    };
+    let state_root =
+        if let Ok(chunk_extra) = client.chain.get_chunk_extra(&latest_block_hash, &shard_uid) {
+            // Use post-state of the latest chunk if available
+            *chunk_extra.state_root()
+        } else {
+            // Otherwise use the pre-state of latest chunk
+            chunk_header.prev_state_root()
+        };
 
+    state_root
+}
+
+/// Iterate over all PromiseYieldReceipt entries in the given state and collect their data_ids.
+fn get_yield_data_ids_in_state(
+    client: &Client,
+    state_root: CryptoHash,
+    shard_uid: ShardUId,
+) -> Vec<CryptoHash> {
     let store = client.chain.chain_store().store();
     let trie_storage = Arc::new(TrieDBStorage::new(store.trie_store(), shard_uid));
     let trie = Trie::new(trie_storage, state_root, None);
