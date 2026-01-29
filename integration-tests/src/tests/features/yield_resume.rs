@@ -2,6 +2,7 @@ use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::block::ChunkType;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::receipt::ReceiptEnum::PromiseResume;
@@ -53,6 +54,24 @@ fn get_promise_resume_data_ids_from_latest_block(env: &TestEnv) -> Vec<CryptoHas
         }
     }
     result
+}
+
+fn get_transaction_hashes_in_latest_block(env: &TestEnv) -> Vec<CryptoHash> {
+    let client = &env.clients[0];
+    let chain = &client.chain;
+    let block = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
+
+    let mut transactions = Vec::new();
+    for c in block.chunks().iter() {
+        if let ChunkType::New(new_chunk_header) = c {
+            let chunk = chain.get_chunk(new_chunk_header.chunk_hash()).unwrap();
+            for tx in chunk.into_transactions() {
+                transactions.push(tx.get_hash());
+            }
+        }
+    }
+    transactions.sort();
+    transactions
 }
 
 /// Create environment with deployed test contract.
@@ -239,10 +258,18 @@ fn test_yield_then_resume_same_block() {
     );
 
     // Allow the yield create and resume to be included and processed.
-    for _ in 0..3 {
+    for _ in 0..2 {
         env.produce_block(0, next_block_height);
         next_block_height += 1;
     }
+
+    // Both transactions should be included in the same block.
+    let mut expected_txs = vec![resume_tx_hash, yield_tx_hash];
+    expected_txs.sort();
+    assert_eq!(get_transaction_hashes_in_latest_block(&env), expected_txs);
+
+    // Run one more block to execute the resume callback.
+    env.produce_block(0, next_block_height);
 
     if ProtocolFeature::InstantPromiseYield.enabled(PROTOCOL_VERSION) {
         // Resumed callback executed, transaction finished successfully
