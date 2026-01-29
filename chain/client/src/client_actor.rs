@@ -739,7 +739,6 @@ impl
 }
 
 impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for ClientActor {
-    // TODO(spice): Use execution head instead of consensus head for latest block info.
     fn handle(&mut self, msg: SpanWrapped<Status>) -> Result<StatusResponse, StatusError> {
         let msg = msg.span_unwrap();
         let head = self.client.chain.head()?;

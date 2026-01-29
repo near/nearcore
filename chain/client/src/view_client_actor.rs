@@ -237,33 +237,39 @@ impl ViewClientActor {
         }
     }
 
-    /// Finds the first executed block walking back from `start_hash`, or genesis.
+    /// Finds the first executed block walking back from `start_hash`.
     fn find_first_executed_ancestor(
         &self,
         start_hash: &CryptoHash,
     ) -> Result<CryptoHash, near_chain::Error> {
-        let final_execution_head = self.chain.chain_store().spice_final_execution_head().ok();
         let mut hash = *start_hash;
         loop {
-            if self.chain.chain_store().is_block_executed(&hash) {
+            let header = self.chain.get_block_header(&hash)?;
+            if self.is_block_executed(&hash, header.epoch_id()) {
                 return Ok(hash);
             }
-            let header = self.chain.get_block_header(&hash)?;
             if header.is_genesis() {
-                return Ok(*header.hash());
-            }
-            // Don't go past the final execution head. This is a defensive
-            // check, in normal operation we should always find an executed
-            // ancestor within a few blocks.
-            if let Some(final_execution_head) = &final_execution_head {
-                if header.height() <= final_execution_head.height {
-                    return Err(near_chain::Error::DBNotFoundErr(
-                        "no executed ancestor found".to_string(),
-                    ));
-                }
+                return Ok(hash);
             }
             hash = *header.prev_hash();
         }
+    }
+
+    /// Checks if a block has been executed by looking for chunk_extra on any
+    /// tracked shard.
+    fn is_block_executed(&self, block_hash: &CryptoHash, epoch_id: &EpochId) -> bool {
+        let Ok(shard_ids) = self.epoch_manager.shard_ids(epoch_id) else {
+            return false;
+        };
+        for shard_id in shard_ids {
+            if !self.shard_tracker.cares_about_shard(block_hash, shard_id) {
+                continue;
+            }
+            let shard_uid =
+                shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id).unwrap();
+            return self.chain.chain_store().get_chunk_extra(block_hash, &shard_uid).is_ok();
+        }
+        false
     }
 
     /// Returns block header by reference.
