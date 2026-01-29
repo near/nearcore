@@ -804,3 +804,19 @@ pub(crate) static COLD_STORE_COPY_RESULT: LazyLock<IntCounterVec> = LazyLock::ne
     )
     .unwrap()
 });
+
+pub(crate) static SPICE_CERTIFICATION_LAG: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_spice_certification_lag",
+        "Number of blocks between target height and certification height",
+    )
+    .unwrap()
+});
+
+pub(crate) static SPICE_BLOCK_PRODUCTION_DELAY_MS: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_spice_block_production_delay_ms",
+        "Spice-induced block production delay in milliseconds",
+    )
+    .unwrap()
+});
