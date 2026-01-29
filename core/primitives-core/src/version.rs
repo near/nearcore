@@ -438,8 +438,8 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
             ProtocolFeature::StatePartsCompression | ProtocolFeature::DeterministicAccountIds => 82,
-            ProtocolFeature::Wasmtime => 83,
-            ProtocolFeature::InvalidTxGenerateOutcomes => 84,
+            ProtocolFeature::InvalidTxGenerateOutcomes => 83,
+            ProtocolFeature::Wasmtime => 84,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
