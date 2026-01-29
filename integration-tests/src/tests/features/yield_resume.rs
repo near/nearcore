@@ -206,7 +206,7 @@ fn test_yield_then_resume_one_block_apart() {
 /// Submit another transaction which reads data_id from state and resumes.
 /// The transactions are executed in the same block.
 /// Yield-resume should work.
-/// Before ProtocolFeature::InstantYieldResume, the resume transaction failed in this scenario.
+/// Before ProtocolFeature::InstantPromiseYield, the resume transaction failed in this scenario.
 /// With the feature everything should work fine.
 /// See https://github.com/near/nearcore/issues/14904, this test reproduces case 2)
 #[test]
