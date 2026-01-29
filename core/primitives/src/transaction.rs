@@ -541,7 +541,6 @@ pub struct ExecutionOutcome {
     ///   a deficit.
     /// - Deleted gas keys: When a gas key or an account with gas keys is deleted, the remaining
     ///   balance on the gas key(s) is burnt.
-    /// - TODO: Add explanation for global contract deploys.
     pub tokens_burnt: Balance,
     /// The id of the account on which the execution happens. For transaction this is signer_id,
     /// for receipt this is receiver_id.
