@@ -226,7 +226,7 @@ impl ViewClientActor {
         let final_execution_head = self.chain.chain_store().spice_final_execution_head().ok();
         let mut header = self.chain.get_block_header(start_hash)?;
         loop {
-            if self.is_block_executed(&header) {
+            if self.is_block_executed(&header)? {
                 return Ok(*header.hash());
             }
             if header.is_genesis() {
@@ -249,24 +249,23 @@ impl ViewClientActor {
     /// Checks if a block has been executed by looking for chunk_extra on any
     /// tracked shard. Non-spice blocks are always considered executed since
     /// execution is synchronous with block processing.
-    fn is_block_executed(&self, header: &BlockHeader) -> bool {
+    fn is_block_executed(&self, header: &BlockHeader) -> Result<bool, near_chain::Error> {
         let epoch_id = header.epoch_id();
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id).unwrap_or(0);
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(epoch_id).into_chain_error()?;
         if !ProtocolFeature::Spice.enabled(protocol_version) {
-            return true;
+            return Ok(true);
         }
-        let Ok(shard_ids) = self.epoch_manager.shard_ids(epoch_id) else {
-            return false;
-        };
+        let shard_ids = self.epoch_manager.shard_ids(epoch_id).into_chain_error()?;
         for shard_id in shard_ids {
             if !self.shard_tracker.cares_about_shard(header.hash(), shard_id) {
                 continue;
             }
             let shard_uid =
-                shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id).unwrap();
-            return self.chain.chain_store().get_chunk_extra(header.hash(), &shard_uid).is_ok();
+                shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id).into_chain_error()?;
+            return Ok(self.chain.chain_store().get_chunk_extra(header.hash(), &shard_uid).is_ok());
         }
-        false
+        Ok(false)
     }
 
     /// Returns block header by reference.
