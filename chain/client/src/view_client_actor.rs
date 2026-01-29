@@ -49,6 +49,7 @@ use near_primitives::types::{
     Finality, MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId,
     ValidatorInfoIdentifier,
 };
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -201,39 +202,17 @@ impl ViewClientActor {
         &self,
         finality: &Finality,
     ) -> Result<CryptoHash, near_chain::Error> {
-        if cfg!(feature = "protocol_feature_spice") {
-            return self.get_spice_block_hash_by_finality(finality);
-        }
-        match finality {
-            Finality::None => Ok(self.chain.head()?.last_block_hash),
-            Finality::DoomSlug => Ok(*self.chain.head_header()?.last_ds_final_block()),
-            Finality::Final => Ok(self.chain.final_head()?.last_block_hash),
-        }
-    }
-
-    /// Returns the block hash for the given finality in SPICE mode.
-    /// In SPICE, we return the first executed ancestor of the consensus block.
-    fn get_spice_block_hash_by_finality(
-        &self,
-        finality: &Finality,
-    ) -> Result<CryptoHash, near_chain::Error> {
-        let execution_head = match self.chain.chain_store().spice_execution_head() {
-            Ok(tip) => tip,
-            Err(near_chain::Error::DBNotFoundErr(_)) => {
-                return Ok(*self.chain.genesis().hash());
-            }
-            Err(err) => return Err(err),
+        let head = self.chain.head()?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&head.epoch_id)?;
+        let chain_head = match finality {
+            Finality::None => head.last_block_hash,
+            Finality::DoomSlug => *self.chain.head_header()?.last_ds_final_block(),
+            Finality::Final => self.chain.final_head()?.last_block_hash,
         };
-        match finality {
-            Finality::None => Ok(execution_head.last_block_hash),
-            Finality::DoomSlug => {
-                let ds_final_hash = *self.chain.head_header()?.last_ds_final_block();
-                self.find_first_executed_ancestor(&ds_final_hash)
-            }
-            Finality::Final => {
-                let final_head = self.chain.final_head()?;
-                self.find_first_executed_ancestor(&final_head.last_block_hash)
-            }
+        if ProtocolFeature::Spice.enabled(protocol_version) {
+            self.find_first_executed_ancestor(&chain_head)
+        } else {
+            Ok(chain_head)
         }
     }
 
@@ -266,9 +245,14 @@ impl ViewClientActor {
     }
 
     /// Checks if a block has been executed by looking for chunk_extra on any
-    /// tracked shard.
+    /// tracked shard. Non-spice blocks are always considered executed since
+    /// execution is synchronous with block processing.
     fn is_block_executed(&self, header: &BlockHeader) -> bool {
         let epoch_id = header.epoch_id();
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id).unwrap_or(0);
+        if !ProtocolFeature::Spice.enabled(protocol_version) {
+            return true;
+        }
         let Ok(shard_ids) = self.epoch_manager.shard_ids(epoch_id) else {
             return false;
         };
