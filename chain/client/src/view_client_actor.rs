@@ -243,14 +243,13 @@ impl ViewClientActor {
         start_hash: &CryptoHash,
     ) -> Result<CryptoHash, near_chain::Error> {
         let final_execution_head = self.chain.chain_store().spice_final_execution_head().ok();
-        let mut hash = *start_hash;
+        let mut header = self.chain.get_block_header(start_hash)?;
         loop {
-            let header = self.chain.get_block_header(&hash)?;
-            if self.is_block_executed(&hash, header.epoch_id()) {
-                return Ok(hash);
+            if self.is_block_executed(&header) {
+                return Ok(*header.hash());
             }
             if header.is_genesis() {
-                return Ok(hash);
+                return Ok(*header.hash());
             }
             // Don't go past the final execution head. This is a defensive
             // check, in normal operation we should always find an executed
@@ -262,23 +261,24 @@ impl ViewClientActor {
                     ));
                 }
             }
-            hash = *header.prev_hash();
+            header = self.chain.get_block_header(header.prev_hash())?;
         }
     }
 
     /// Checks if a block has been executed by looking for chunk_extra on any
     /// tracked shard.
-    fn is_block_executed(&self, block_hash: &CryptoHash, epoch_id: &EpochId) -> bool {
+    fn is_block_executed(&self, header: &BlockHeader) -> bool {
+        let epoch_id = header.epoch_id();
         let Ok(shard_ids) = self.epoch_manager.shard_ids(epoch_id) else {
             return false;
         };
         for shard_id in shard_ids {
-            if !self.shard_tracker.cares_about_shard(block_hash, shard_id) {
+            if !self.shard_tracker.cares_about_shard(header.hash(), shard_id) {
                 continue;
             }
             let shard_uid =
                 shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id).unwrap();
-            return self.chain.chain_store().get_chunk_extra(block_hash, &shard_uid).is_ok();
+            return self.chain.chain_store().get_chunk_extra(header.hash(), &shard_uid).is_ok();
         }
         false
     }
