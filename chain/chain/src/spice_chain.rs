@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use near_chain_primitives::Error;
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::version::ProtocolFeature;
@@ -32,8 +32,7 @@ impl SpiceChainReader {
     /// execution is synchronous with block processing.
     pub fn is_block_executed(&self, header: &BlockHeader) -> Result<bool, Error> {
         let epoch_id = header.epoch_id();
-        let protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         if !ProtocolFeature::Spice.enabled(protocol_version) {
             return Ok(true);
         }
@@ -42,8 +41,7 @@ impl SpiceChainReader {
             if !self.shard_tracker.cares_about_shard(header.hash(), shard_id) {
                 continue;
             }
-            let shard_uid =
-                shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
+            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
             match self.chain_store.chunk_store().get_chunk_extra(header.hash(), &shard_uid) {
                 Ok(_) => return Ok(true),
                 Err(Error::DBNotFoundErr(_)) => return Ok(false),
@@ -57,10 +55,7 @@ impl SpiceChainReader {
     /// Non-spice blocks always pass.
     pub fn check_block_executed(&self, header: &BlockHeader) -> Result<(), Error> {
         if !self.is_block_executed(header)? {
-            return Err(Error::DBNotFoundErr(format!(
-                "block {} not yet executed",
-                header.hash()
-            )));
+            return Err(Error::DBNotFoundErr(format!("block {} not yet executed", header.hash())));
         }
         Ok(())
     }
@@ -81,9 +76,7 @@ impl SpiceChainReader {
             }
             if let Some(final_execution_head) = &final_execution_head {
                 if header.height() <= final_execution_head.height {
-                    return Err(Error::DBNotFoundErr(
-                        "no executed ancestor found".to_string(),
-                    ));
+                    return Err(Error::DBNotFoundErr("no executed ancestor found".to_string()));
                 }
             }
             header = self.chain_store.get_block_header(header.prev_hash())?;
