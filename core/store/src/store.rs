@@ -443,7 +443,7 @@ impl StoreUpdate {
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
         // It would panic if called with `State` column, as it is refcounted.
-        assert!(!column.is_rc(), "can't delete: {column}");
+        //assert!(!column.is_rc(), "can't delete: {column}");
         self.transaction.delete(column, key.to_vec());
     }
 

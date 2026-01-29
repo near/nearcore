@@ -8,6 +8,7 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::block::Tip;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::BlockHeight;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::archive::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::db::metadata::DbKind;
@@ -50,7 +51,7 @@ enum SubCommand {
     /// - store_relative_path points to an existing database with kind Rpc
     PrepareHot(PrepareHotCmd),
     /// Traverse trie and check that every node is in cold db.
-    /// Can start from given state_root or compute previous roots for every chunk in provided block
+    /// Can start from given state_root or compute roots for every chunk in provided block
     /// and use them as starting point.
     /// You can provide maximum depth and/or maximum number of vertices to traverse for each root.
     /// Trie is traversed using DFS with randomly shuffled kids for every node.
@@ -58,6 +59,7 @@ enum SubCommand {
     /// Modifies cold db from config to be considered not initialized.
     /// Doesn't actually delete any data, except for HEAD and COLD_HEAD in BlockMisc.
     ResetCold(ResetColdCmd),
+    CorruptCold(CorruptColdCmd),
 }
 
 impl ColdStoreCommand {
@@ -97,6 +99,7 @@ impl ColdStoreCommand {
             SubCommand::PrepareHot(cmd) => cmd.run(&storage, &home_dir, &near_config),
             SubCommand::CheckStateRoot(cmd) => cmd.run(&storage, &epoch_manager),
             SubCommand::ResetCold(cmd) => cmd.run(&storage),
+            SubCommand::CorruptCold(cmd) => cmd.run(&storage),
         }
     }
 
@@ -473,70 +476,9 @@ impl PrepareHotCmd {
     }
 }
 
-/// The StateRootSelector is a subcommand that allows the user to select the state root either by block height or by the state root hash.
-#[derive(clap::Subcommand)]
-enum StateRootSelector {
-    Height { height: near_primitives::types::BlockHeight },
-    Hash { hash: CryptoHash, shard_uid: ShardUId },
-}
-
-impl StateRootSelector {
-    pub fn get_roots(
-        &self,
-        storage: &NodeStorage,
-        cold_store: &Store,
-        epoch_manager: &EpochManagerHandle,
-    ) -> anyhow::Result<Vec<(CryptoHash, ShardUId)>> {
-        match self {
-            // If height is provided, calculate previous state roots for this block's chunks.
-            StateRootSelector::Height { height } => {
-                let hash_key = {
-                    let height_key = height.to_le_bytes();
-                    storage
-                        .get_hot_store()
-                        .get(DBCol::BlockHeight, &height_key)
-                        .ok_or_else(|| {
-                            anyhow::anyhow!("Failed to find block hash for height {:?}", height)
-                        })?
-                        .as_slice()
-                        .to_vec()
-                };
-                let block = cold_store
-                    .get_ser::<near_primitives::block::Block>(DBCol::Block, &hash_key)?
-                    .ok_or_else(|| anyhow::anyhow!("Failed to find Block: {:?}", hash_key))?;
-                let prev_block_hash_key = block.header().prev_hash().as_bytes();
-                let prev_block = cold_store
-                    .get_ser::<near_primitives::block::Block>(DBCol::Block, prev_block_hash_key)?
-                    .ok_or_else(|| anyhow::anyhow!("Failed to find Block: {:?}", hash_key))?;
-                let shard_layout =
-                    epoch_manager.read().get_shard_layout(prev_block.header().epoch_id())?;
-                let mut hashes = vec![];
-                for chunk in block.chunks().iter() {
-                    let state_root_hash = cold_store
-                        .get_ser::<near_primitives::sharding::ShardChunk>(
-                            DBCol::Chunks,
-                            chunk.chunk_hash().as_bytes(),
-                        )?
-                        .ok_or_else(|| {
-                            anyhow::anyhow!("Failed to find Chunk: {:?}", chunk.chunk_hash())
-                        })?
-                        .take_header()
-                        .prev_state_root();
-                    let shard_uid =
-                        ShardUId::from_shard_id_and_layout(chunk.shard_id(), &shard_layout);
-                    hashes.push((state_root_hash, shard_uid));
-                }
-                Ok(hashes)
-            }
-            // If state root is provided, then just use it.
-            StateRootSelector::Hash { hash, shard_uid } => Ok(vec![(*hash, *shard_uid)]),
-        }
-    }
-}
-
 /// Struct that holds all conditions for node in Trie
 /// to be checked by CheckStateRootCmd::check_trie.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct PruneCondition {
     /// Maximum depth (measured in number of nodes, not trie key length).
     max_depth: Option<u64>,
@@ -544,18 +486,36 @@ struct PruneCondition {
     max_count: Option<u64>,
 }
 
-/// Struct that holds data related to pruning of node in CheckStateRootCmd::check_trie.
+/// Struct that holds data related to iterating the trie in CheckStateRootCmd::check_trie.
 #[derive(Debug)]
-struct PruneState {
+struct IterState {
     /// Depth of node in trie (measured in number of nodes, not trie key length).
     depth: u64,
     /// Number of already checked nodes.
     count: u64,
+    trie_path: Vec<Vec<u8>>,
 }
 
-impl PruneState {
+impl IterState {
     pub fn new() -> Self {
-        Self { depth: 0, count: 0 }
+        Self { depth: 0, count: 0, trie_path: vec![] }
+    }
+
+    pub fn extend_path(&mut self, extension: Vec<u8>) {
+        //println!("Add {extension:?}");
+        self.trie_path.push(extension);
+    }
+
+    pub fn pop_path(&mut self) {
+        let _x = self.trie_path.pop().unwrap();
+        //println!("Del {x:?}");
+    }
+
+    pub fn print_path(&self) {
+        println!(
+            "\n{}",
+            self.trie_path.iter().map(|v| format!("{:?}", v)).collect::<Vec<_>>().join(" | ")
+        );
     }
 
     /// Return `true` if node should be pruned.
@@ -588,6 +548,28 @@ impl PruneState {
 }
 
 #[derive(clap::Args)]
+struct CorruptColdCmd {
+    #[clap(long)]
+    shard: ShardUId,
+    #[clap(long)]
+    hash: CryptoHash,
+}
+
+impl CorruptColdCmd {
+    pub fn run(self, storage: &NodeStorage) -> anyhow::Result<()> {
+        let cold_store = storage
+            .get_cold_store()
+            .ok_or_else(|| anyhow::anyhow!("Cold storage is not configured"))?;
+        let mapped_shard_uid = get_shard_uid_mapping(&cold_store, self.shard);
+        let cold_state_key = [mapped_shard_uid.to_bytes().as_ref(), self.hash.as_bytes()].concat();
+        let mut store_update = cold_store.store_update();
+        store_update.delete(DBCol::State, &cold_state_key);
+        store_update.commit()?;
+        Ok(())
+    }
+}
+
+#[derive(clap::Args)]
 struct CheckStateRootCmd {
     /// Maximum depth (measured in number of nodes, not trie key length) for checking trie.
     #[clap(long)]
@@ -602,10 +584,57 @@ struct CheckStateRootCmd {
     no_checkpoint: bool,
 }
 
+/// The StateRootSelector is a subcommand that allows the user to select the state root(s) either by block height(s) or by the state root hash.
+#[derive(clap::Subcommand)]
+enum StateRootSelector {
+    Heights { from: BlockHeight, to: Option<BlockHeight> },
+    Hash { hash: CryptoHash, shard_uid: ShardUId },
+}
+
+/// Calculate previous state roots for chunks at block `height`.
+fn get_prev_state_roots(
+    storage: &NodeStorage,
+    cold_store: &Store,
+    epoch_manager: &EpochManagerHandle,
+    height: BlockHeight,
+) -> anyhow::Result<Vec<(CryptoHash, ShardUId)>> {
+    let hash_key = {
+        let height_key = height.to_le_bytes();
+        storage
+            .get_hot_store()
+            .get(DBCol::BlockHeight, &height_key)
+            .ok_or_else(|| anyhow::anyhow!("Failed to find block hash for height {:?}", height))?
+            .as_slice()
+            .to_vec()
+    };
+    let block = cold_store
+        .get_ser::<near_primitives::block::Block>(DBCol::Block, &hash_key)?
+        .ok_or_else(|| anyhow::anyhow!("Failed to find Block: {:?}", hash_key))?;
+    let prev_block_hash_key = block.header().prev_hash().as_bytes();
+    let prev_block = cold_store
+        .get_ser::<near_primitives::block::Block>(DBCol::Block, prev_block_hash_key)?
+        .ok_or_else(|| anyhow::anyhow!("Failed to find Block: {:?}", hash_key))?;
+    let shard_layout = epoch_manager.read().get_shard_layout(prev_block.header().epoch_id())?;
+    let mut hashes = vec![];
+    for chunk in block.chunks().iter() {
+        let state_root_hash = cold_store
+            .get_ser::<near_primitives::sharding::ShardChunk>(
+                DBCol::Chunks,
+                chunk.chunk_hash().as_bytes(),
+            )?
+            .ok_or_else(|| anyhow::anyhow!("Failed to find Chunk: {:?}", chunk.chunk_hash()))?
+            .take_header()
+            .prev_state_root();
+        let shard_uid = ShardUId::from_shard_id_and_layout(chunk.shard_id(), &shard_layout);
+        hashes.push((state_root_hash, shard_uid));
+    }
+    Ok(hashes)
+}
+
 struct CheckTrieContext {
     store: Store,
-    shard_uid: ShardUId,
     prune_condition: PruneCondition,
+    shard_uid: ShardUId,
 }
 
 impl CheckStateRootCmd {
@@ -617,26 +646,56 @@ impl CheckStateRootCmd {
         let cold_store = storage
             .get_cold_store()
             .ok_or_else(|| anyhow::anyhow!("Cold storage is not configured"))?;
-
-        let roots_with_shard_uid =
-            self.state_root_selector.get_roots(storage, &cold_store, epoch_manager)?;
-        for (hash, shard_uid) in roots_with_shard_uid {
-            let prune_condition =
-                PruneCondition { max_depth: self.max_depth, max_count: self.max_count };
-            let context =
-                CheckTrieContext { store: cold_store.clone(), shard_uid, prune_condition };
-            let mut prune_state = PruneState::new();
-            let timer = Instant::now();
-            Self::check_trie(&context, &hash, &mut prune_state)?;
-            println!(
-                "Checked {} trie nodes in shard {} in the subtree of {}, elapsed_sec: {}",
-                prune_state.count,
-                context.shard_uid,
-                hash,
-                timer.elapsed().as_secs_f64()
-            );
+        let prune_condition =
+            PruneCondition { max_depth: self.max_depth, max_count: self.max_count };
+        let heights = match self.state_root_selector {
+            StateRootSelector::Hash { hash, shard_uid } => {
+                return Self::check_trie_root(&cold_store, &prune_condition, &shard_uid, &hash);
+            }
+            StateRootSelector::Heights { from, to } => {
+                if let Some(to) = to {
+                    from..=to
+                } else {
+                    from..=from
+                }
+            }
+        };
+        for height in heights {
+            println!("# Running checks at height {}", height);
+            // We pass `height + 1` to `get_prev_state_roots` in order to obtain state roots at `height`.
+            let roots_with_shard_uid =
+                get_prev_state_roots(storage, &cold_store, epoch_manager, height + 1)?;
+            for (hash, shard_uid) in roots_with_shard_uid {
+                if let Err(error) =
+                    Self::check_trie_root(&cold_store, &prune_condition, &shard_uid, &hash)
+                {
+                    println!("{error}\n");
+                }
+            }
         }
+        Ok(())
+    }
 
+    fn check_trie_root(
+        cold_store: &Store,
+        prune_condition: &PruneCondition,
+        shard_uid: &ShardUId,
+        hash: &CryptoHash,
+    ) -> anyhow::Result<()> {
+        let context = CheckTrieContext {
+            store: cold_store.clone(),
+            prune_condition: prune_condition.clone(),
+            shard_uid: *shard_uid,
+        };
+        let mut iter_state = IterState::new();
+        println!("* Checking shard {}, subtree of {}", shard_uid, hash);
+        let timer = Instant::now();
+        Self::check_trie(&context, &hash, &mut iter_state)?;
+        println!(
+            "Checked {} trie nodes, elapsed_sec: {}\n",
+            iter_state.count,
+            timer.elapsed().as_secs_f64()
+        );
         Ok(())
     }
 
@@ -644,43 +703,56 @@ impl CheckStateRootCmd {
     fn check_trie(
         context: &CheckTrieContext,
         hash: &CryptoHash,
-        prune_state: &mut PruneState,
+        iter_state: &mut IterState,
     ) -> anyhow::Result<()> {
-        tracing::debug!(target: "check_trie", ?hash, ?prune_state, "checking trie");
+        //println!("{}", hash);
+        tracing::debug!(target: "check_trie", ?hash, ?iter_state, "checking trie");
         let CheckTrieContext { store, shard_uid, prune_condition } = &context;
-        if prune_state.should_prune(prune_condition) {
+        if iter_state.should_prune(prune_condition) {
             tracing::debug!(target: "check_trie", ?prune_condition, "reached prune condition");
             return Ok(());
         }
 
-        let bytes = Self::read_state(store, shard_uid, hash)
+        let bytes = Self::read_state(store, shard_uid, hash);
+        if !matches!(bytes, Ok(Some(_))) {
+            iter_state.print_path();
+        }
+        let bytes = bytes
             .with_context(|| format!("Failed to read raw bytes for hash {:?}", hash))?
             .with_context(|| format!("Failed to find raw bytes for hash {:?}", hash))?;
+
         let node = near_store::RawTrieNodeWithSize::try_from_slice(&bytes)?;
         match node.node {
             near_store::RawTrieNode::Leaf(..) => {
                 tracing::debug!(target: "check_trie", "reached leaf node");
                 return Ok(());
             }
-            near_store::RawTrieNode::BranchNoValue(mut children)
-            | near_store::RawTrieNode::BranchWithValue(_, mut children) => {
-                children.0.shuffle(&mut rand::thread_rng());
-                for (_, child) in children.iter() {
-                    // Record in prune state that we are visiting a child node
-                    prune_state.down();
+            near_store::RawTrieNode::BranchNoValue(children)
+            | near_store::RawTrieNode::BranchWithValue(_, children) => {
+                let mut children: Vec<_> = children.iter().collect();
+                children.shuffle(&mut rand::thread_rng());
+                for (idx, child) in children {
+                    //println!("Extension {idx:?}");
+                    // Record in iter state that we are visiting a child node
+                    iter_state.down();
+                    iter_state.extend_path(vec![idx]);
                     // Visit a child node
-                    Self::check_trie(context, child, prune_state)?;
-                    // Record in prune state that we are returning from a child node
-                    prune_state.up();
+                    Self::check_trie(context, child, iter_state)?;
+                    iter_state.pop_path();
+                    // Record in iter state that we are returning from a child node
+                    iter_state.up();
                 }
             }
-            near_store::RawTrieNode::Extension(_, child) => {
-                // Record in prune state that we are visiting a child node
-                prune_state.down();
+            near_store::RawTrieNode::Extension(key, child) => {
+                //println!("Extension {key:?}");
+                // Record in iter state that we are visiting a child node
+                iter_state.down();
+                iter_state.extend_path(key);
                 // Visit a child node
-                Self::check_trie(context, &child, prune_state)?;
-                // Record in prune state that we are returning from a child node
-                prune_state.up();
+                Self::check_trie(context, &child, iter_state)?;
+                iter_state.pop_path();
+                // Record in iter state that we are returning from a child node
+                iter_state.up();
             }
         }
         Ok(())
@@ -693,6 +765,9 @@ impl CheckStateRootCmd {
     ) -> std::io::Result<Option<near_store::db::DBSlice<'a>>> {
         let mapped_shard_uid = get_shard_uid_mapping(&store, *shard_uid);
         let cold_state_key = [mapped_shard_uid.to_bytes().as_ref(), trie_key.as_bytes()].concat();
+        // if trie_key.to_string() == "2gfdom6gAEM4GWa5tBqG4t98gahzmwDX2wufR2YWyYyH" {
+        //     return Ok(None);
+        // }
         Ok(store.get(DBCol::State, &cold_state_key))
     }
 }

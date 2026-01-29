@@ -147,6 +147,7 @@ fn adjust_op(op: &mut DBOp) -> bool {
         }
         DBOp::Delete { col, key } => match col {
             DBCol::BlockMisc => true,
+            DBCol::State => true,
             _ => {
                 log_assert_fail!("Unexpected delete from {col} in cold store: {key:?}");
                 false
