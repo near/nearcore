@@ -1179,6 +1179,50 @@ fn test_get_last_certified_execution_results_for_next_block_with_certification_s
     assert_eq!(block_execution_results, execution_results);
 }
 
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_get_last_certified_execution_results_without_core_writer_execution_result_in_core() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block.clone());
+
+    let core_statements = block_certification_core_statements(&block);
+    let next_block = build_block(&mut chain, &block, core_statements);
+    process_block(&mut chain, next_block.clone());
+
+    let execution_results = core_reader
+        .get_last_certified_execution_results_for_next_block(next_block.header(), &[])
+        .unwrap();
+    let block_execution_results = block_execution_results(&block);
+    assert_eq!(block_execution_results, execution_results);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_get_last_certified_execution_results_without_core_writer_old_block_certified() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block.clone());
+
+    let core_statements = block_certification_core_statements(&block);
+    let mut last_block = build_block(&mut chain, &block, core_statements);
+    process_block(&mut chain, last_block.clone());
+
+    for _ in 0..3 {
+        let new_block = build_block(&chain, &last_block, vec![]);
+        process_block(&mut chain, new_block.clone());
+        last_block = new_block;
+    }
+
+    let execution_results = core_reader
+        .get_last_certified_execution_results_for_next_block(last_block.header(), &[])
+        .unwrap();
+    let block_execution_results = block_execution_results(&block);
+    assert_eq!(block_execution_results, execution_results);
+}
+
 fn block_execution_results(block: &Block) -> BlockExecutionResults {
     let mut results = HashMap::new();
     for chunk in block.chunks().iter_raw() {
