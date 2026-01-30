@@ -10,7 +10,7 @@ use near_async::time::Duration;
 use near_chain::types::Tip;
 use near_chain::{Block, BlockHeader};
 use near_client::client_actor::ClientActor;
-use near_client::{Client, ProcessTxRequest};
+use near_client::{Client, ProcessTxRequest, ViewClientActor};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -79,6 +79,14 @@ impl<'a> TestLoopNode<'a> {
     pub fn client_actor<'b>(&self, test_loop_data: &'b mut TestLoopData) -> &'b mut ClientActor {
         let client_handle = self.data().client_sender.actor_handle();
         test_loop_data.get_mut(&client_handle)
+    }
+
+    pub fn view_client_actor<'b>(
+        &self,
+        test_loop_data: &'b mut TestLoopData,
+    ) -> &'b mut ViewClientActor {
+        let handle = self.data().view_client_sender.actor_handle();
+        test_loop_data.get_mut(&handle)
     }
 
     pub fn tail(&self, test_loop_data: &TestLoopData) -> BlockHeight {
