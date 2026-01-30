@@ -45,7 +45,7 @@ async fn slow_test_track_shards() {
                     let last_block_hash1 = last_block_hash.clone();
                     let res = view_client.send_async(GetBlock::latest()).await;
                     match &res {
-                        Ok(Ok(b)) if b.header.height > 13 => {
+                        Ok(Ok(b)) if b.header.height > 10 => {
                             *last_block_hash1.write() = Some(b.header.hash);
                         }
                         Err(_) => return ControlFlow::Continue(()),
