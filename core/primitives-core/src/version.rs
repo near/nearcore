@@ -441,7 +441,8 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
             ProtocolFeature::StatePartsCompression | ProtocolFeature::DeterministicAccountIds => 82,
-            ProtocolFeature::InvalidTxGenerateOutcomes => 83,
+            ProtocolFeature::InvalidTxGenerateOutcomes
+            | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 83,
             ProtocolFeature::Wasmtime => 84,
 
             // Nightly features:
@@ -450,7 +451,6 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
             ProtocolFeature::GasKeys => 149,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
