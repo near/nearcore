@@ -340,6 +340,9 @@ pub enum ProtocolFeature {
     GasKeys,
     Spice,
     ContinuousEpochSync,
+    /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
+    /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
+    InstantPromiseYield,
 }
 
 impl ProtocolFeature {
@@ -443,6 +446,7 @@ impl ProtocolFeature {
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
+            ProtocolFeature::InstantPromiseYield => 130,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
