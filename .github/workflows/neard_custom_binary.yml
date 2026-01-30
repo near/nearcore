@@ -25,6 +25,7 @@ jobs:
     runs-on: warp-ubuntu-2404-x64-16x
     environment: deploy
     permissions:
+      contents: read
       id-token: write # required to use OIDC authentication
 
     steps:
