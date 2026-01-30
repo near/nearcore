@@ -257,10 +257,12 @@ pub fn verify_and_charge_tx_ephemeral(
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
 ) -> Result<VerificationResult, InvalidTxError> {
-    // Regular access key transactions must not have a nonce_index
-    if let Some(idx) = tx.nonce().nonce_index() {
-        return Err(InvalidTxError::InvalidNonceIndex { tx_nonce_index: Some(idx), num_nonces: 0 });
-    }
+    // It's the caller's responsibility to NOT call this function for transactions with
+    // nonce_index (i.e. gas key transactions).
+    assert!(
+        tx.nonce().nonce_index().is_none(),
+        "verify_and_charge_tx_ephemeral called for gas key transaction"
+    );
     // Gas keys must be used via gas key transaction path (with nonce_index)
     if let Some(gas_key_info) = access_key.gas_key_info() {
         return Err(InvalidTxError::InvalidNonceIndex {
@@ -345,6 +347,12 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
 ) -> Result<VerificationResult, InvalidTxError> {
+    // It's the caller's responsibility to ONLY call this function for transactions with
+    // nonce_index (i.e. gas key transactions).
+    let Some(nonce_index) = tx.nonce().nonce_index() else {
+        panic!("verify_and_charge_gas_key_tx_ephemeral called for non-gas key transaction")
+    };
+
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
     let account_id = tx.signer_id();
@@ -359,13 +367,7 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
         ));
     };
 
-    // Validate nonce_index is present and in valid range
-    let Some(nonce_index) = tx.nonce().nonce_index() else {
-        return Err(InvalidTxError::InvalidNonceIndex {
-            tx_nonce_index: None,
-            num_nonces: gas_key_info.num_nonces,
-        });
-    };
+    // Validate nonce_index is in valid range
     if nonce_index >= gas_key_info.num_nonces {
         return Err(InvalidTxError::InvalidNonceIndex {
             tx_nonce_index: Some(nonce_index),
