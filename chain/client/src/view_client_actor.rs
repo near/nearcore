@@ -49,7 +49,6 @@ use near_primitives::types::{
     Finality, MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId,
     ValidatorInfoIdentifier,
 };
-use near_primitives::version::ProtocolFeature;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -202,74 +201,11 @@ impl ViewClientActor {
         &self,
         finality: &Finality,
     ) -> Result<CryptoHash, near_chain::Error> {
-        let head = self.chain.head()?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&head.epoch_id)?;
-        let chain_head = match finality {
-            Finality::None => head.last_block_hash,
-            Finality::DoomSlug => *self.chain.head_header()?.last_ds_final_block(),
-            Finality::Final => self.chain.final_head()?.last_block_hash,
-        };
-        // TODO(spice): consider using `get_last_certified_block_header(chain_head)`
-        // for Finality::Final and Finality::DoomSlug.
-        if ProtocolFeature::Spice.enabled(protocol_version) {
-            self.find_first_executed_ancestor(&chain_head)
-        } else {
-            Ok(chain_head)
+        match finality {
+            Finality::None => Ok(self.chain.head()?.last_block_hash),
+            Finality::DoomSlug => Ok(*self.chain.head_header()?.last_ds_final_block()),
+            Finality::Final => Ok(self.chain.final_head()?.last_block_hash),
         }
-    }
-
-    /// Finds the first executed block walking back from `start_hash`.
-    fn find_first_executed_ancestor(
-        &self,
-        start_hash: &CryptoHash,
-    ) -> Result<CryptoHash, near_chain::Error> {
-        let final_execution_head = self.chain.chain_store().spice_final_execution_head().ok();
-        let mut header = self.chain.get_block_header(start_hash)?;
-        loop {
-            if self.is_block_executed(&header)? {
-                return Ok(*header.hash());
-            }
-            if header.is_genesis() {
-                return Ok(*header.hash());
-            }
-            // Don't go past the final execution head. This is a defensive
-            // check, in normal operation we should always find an executed
-            // ancestor within a few blocks.
-            if let Some(final_execution_head) = &final_execution_head {
-                if header.height() <= final_execution_head.height {
-                    return Err(near_chain::Error::DBNotFoundErr(
-                        "no executed ancestor found".to_string(),
-                    ));
-                }
-            }
-            header = self.chain.get_block_header(header.prev_hash())?;
-        }
-    }
-
-    /// Checks if a block has been executed by looking for chunk_extra on any
-    /// tracked shard. Non-spice blocks are always considered executed since
-    /// execution is synchronous with block processing.
-    fn is_block_executed(&self, header: &BlockHeader) -> Result<bool, near_chain::Error> {
-        let epoch_id = header.epoch_id();
-        let protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(epoch_id).into_chain_error()?;
-        if !ProtocolFeature::Spice.enabled(protocol_version) {
-            return Ok(true);
-        }
-        let shard_ids = self.epoch_manager.shard_ids(epoch_id).into_chain_error()?;
-        for shard_id in shard_ids {
-            if !self.shard_tracker.cares_about_shard(header.hash(), shard_id) {
-                continue;
-            }
-            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)
-                .into_chain_error()?;
-            match self.chain.chain_store().get_chunk_extra(header.hash(), &shard_uid) {
-                Ok(_) => return Ok(true),
-                Err(near_chain_primitives::Error::DBNotFoundErr(_)) => return Ok(false),
-                Err(err) => return Err(err.into()),
-            }
-        }
-        Ok(false)
     }
 
     /// Returns block header by reference.
@@ -281,7 +217,18 @@ impl ViewClientActor {
         &self,
         reference: &BlockReference,
     ) -> Result<Option<Arc<BlockHeader>>, near_chain::Error> {
-        // TODO(spice): Return "unknown block" for height/hash queries past execution_head.
+        // TODO(spice): Implement support for getting different finalities from execution.
+        if cfg!(feature = "protocol_feature_spice")
+            && matches!(reference, BlockReference::Finality(_))
+        {
+            return match self.chain.chain_store().spice_execution_head() {
+                Ok(tip) => self.chain.get_block_header(&tip.last_block_hash).map(Some),
+                Err(near_chain::Error::DBNotFoundErr(_)) => {
+                    Ok(Some(self.chain.genesis().clone().into()))
+                }
+                Err(err) => Err(err),
+            };
+        }
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
                 self.chain.get_block_header_by_height(*block_height).map(Some)
@@ -315,7 +262,6 @@ impl ViewClientActor {
         &self,
         reference: &BlockReference,
     ) -> Result<Option<Arc<Block>>, near_chain::Error> {
-        // TODO(spice): Return "unknown block" for height/hash queries past execution_head.
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
                 self.chain.get_block_by_height(*block_height).map(Some)
