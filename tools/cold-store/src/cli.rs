@@ -608,8 +608,9 @@ impl RepairColdCmd {
         // The last block with consistent post-state.
         let prev_chunk_prev_block_hash = prev_chunk.prev_block_hash();
 
+        let split_store = storage.get_split_store().expect("Split store expected on archival node");
         let epoch_manager = EpochManager::new_arc_handle(
-            storage.get_hot_store(),
+            split_store.clone(),
             &near_config.genesis.config,
             Some(home_dir),
         );
@@ -619,7 +620,7 @@ impl RepairColdCmd {
 
         let runtime = NightshadeRuntime::from_config(
             home_dir,
-            cold_store.clone(),
+            split_store,
             &near_config,
             epoch_manager.clone(),
         )
@@ -677,7 +678,7 @@ impl RepairColdCmd {
         );
         let mut store_update = store.trie_store().store_update();
         wrapped_trie_changes.insertions_into(&mut store_update);
-        store_update.commit()?;
+        //store_update.commit()?;
         Ok(())
     }
 

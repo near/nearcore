@@ -473,7 +473,7 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 82;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
