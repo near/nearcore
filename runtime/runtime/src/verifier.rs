@@ -256,6 +256,7 @@ pub fn verify_and_charge_tx_ephemeral(
     tx: &Transaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
+    protocol_version: ProtocolVersion,
 ) -> Result<VerificationResult, InvalidTxError> {
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
@@ -273,18 +274,27 @@ pub fn verify_and_charge_tx_ephemeral(
         });
     };
 
-    // Check and deduct allowance (only for FunctionCall permission)
-    if let Some(allowance) =
-        access_key.permission.function_call_permission_mut().and_then(|fc| fc.allowance.as_mut())
-    {
-        *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
-            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
-                account_id: account_id.clone(),
-                public_key: tx.public_key().clone().into(),
-                allowance: *allowance,
-                cost: total_cost,
-            })
-        })?;
+    // Check allowance (only for FunctionCall permission)
+    let new_allowance = if let Some(fc) = access_key.permission.function_call_permission() {
+        match fc.allowance {
+            Some(allowance) => Some(allowance.checked_sub(total_cost).ok_or_else(|| {
+                InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
+                    account_id: account_id.clone(),
+                    public_key: tx.public_key().clone().into(),
+                    allowance,
+                    cost: total_cost,
+                })
+            })?),
+            None => None,
+        }
+    } else {
+        None
+    };
+    let fix_allowance = ProtocolFeature::FixAccessKeyAllowanceCharging.enabled(protocol_version);
+    if !fix_allowance {
+        if let Some(new) = new_allowance {
+            access_key.permission.function_call_permission_mut().unwrap().allowance = Some(new);
+        }
     }
 
     match check_storage_stake(account, new_amount, config) {
@@ -306,6 +316,11 @@ pub fn verify_and_charge_tx_ephemeral(
     }
 
     // Update state
+    if fix_allowance {
+        if let Some(new) = new_allowance {
+            access_key.permission.function_call_permission_mut().unwrap().allowance = Some(new);
+        }
+    }
     access_key.nonce = tx_nonce;
     account.set_amount(new_amount);
     Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
@@ -951,6 +966,7 @@ mod tests {
             validated_tx.to_tx(),
             &cost,
             None,
+            current_protocol_version,
         )
         .expect_err("expected an error");
         assert_eq!(err, expected_err);
@@ -978,6 +994,7 @@ mod tests {
             validated_tx.to_tx(),
             &transaction_cost,
             block_height,
+            current_protocol_version,
         )?;
         set_tx_state_changes(state_update, &validated_tx, &signer, &access_key);
         Ok(vr)

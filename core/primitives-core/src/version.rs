@@ -338,6 +338,11 @@ pub enum ProtocolFeature {
     InvalidTxGenerateOutcomes,
     DynamicResharding,
     GasKeys,
+    /// Fix access key allowance mutation in verify_and_charge_tx_ephemeral.
+    /// Previously, the allowance was decremented in-place before later checks
+    /// (storage stake, function call permission) that could return an error,
+    /// violating the documented contract of no mutation on error.
+    FixAccessKeyAllowanceCharging,
     Spice,
     ContinuousEpochSync,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
@@ -452,6 +457,7 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
             ProtocolFeature::GasKeys => 149,
+            ProtocolFeature::FixAccessKeyAllowanceCharging => 150,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
@@ -480,7 +486,7 @@ pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 150;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.

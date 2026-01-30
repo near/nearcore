@@ -1776,6 +1776,7 @@ impl Runtime {
                     &tx.transaction,
                     &cost,
                     Some(block_height),
+                    processing_state.protocol_version,
                 ) {
                     Ok(v) => v,
                     Err(error) => {
