@@ -237,7 +237,7 @@ fn verify_nonce(
     }
     if let Some(height) = block_height {
         let upper_bound =
-            height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+            height.saturating_mul(near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER);
         if tx_nonce >= upper_bound {
             return Err(InvalidTxError::NonceTooLarge { tx_nonce, upper_bound });
         }
