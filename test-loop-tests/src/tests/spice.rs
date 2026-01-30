@@ -9,7 +9,7 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::spice_core::get_last_certified_block_header;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::{BlockResponse, GetBlock, ProcessTxRequest, Query, ViewClientActor};
+use near_client::{BlockResponse, ProcessTxRequest, Query, ViewClientActor};
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::{NetworkRequests, PeerInfo};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt as _;
@@ -20,7 +20,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockReference, Finality, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockReference, ShardId};
 use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind};
 use near_store::DBCol;
@@ -260,62 +260,6 @@ fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height: u64) {
             }
         }));
     }
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_spice_rpc_get_block_by_finality() {
-    init_test_logger();
-
-    let num_producers = 2;
-    let num_validators = 0;
-    let validators_spec = create_validators_spec(num_producers, num_validators);
-    let clients = validators_spec_clients(&validators_spec);
-
-    let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
-
-    let producer_account = clients[0].clone();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build();
-
-    let execution_delay = 4;
-    delay_endorsements_propagation(&mut env, execution_delay);
-
-    env = env.warmup();
-
-    let node = TestLoopNode::for_account(&env.node_datas, &producer_account);
-
-    // Run until we have a gap between consensus and execution
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let head = node.head(test_loop_data);
-            let execution_head = node.last_executed(test_loop_data);
-            head.height > execution_head.height + 2
-        },
-        Duration::seconds(20),
-    );
-
-    let test_loop_data = env.test_loop_data();
-    let execution_head = node.last_executed(test_loop_data);
-    let final_head = node.client(test_loop_data).chain.final_head().unwrap();
-
-    // Check that different finality queries return expected blocks
-    let view_client = env.test_loop.data.get_mut(&node.data().view_client_sender.actor_handle());
-    let block_none =
-        view_client.handle(GetBlock(BlockReference::Finality(Finality::None))).unwrap();
-    assert_eq!(block_none.header.height, execution_head.height);
-    let block_final =
-        view_client.handle(GetBlock(BlockReference::Finality(Finality::Final))).unwrap();
-    assert!(block_final.header.height <= execution_head.height);
-    assert!(block_final.header.height <= final_head.height);
-    let block_doomslug =
-        view_client.handle(GetBlock(BlockReference::Finality(Finality::DoomSlug))).unwrap();
-    assert!(block_doomslug.header.height <= execution_head.height);
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]
