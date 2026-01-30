@@ -536,6 +536,10 @@ pub fn record_uncertified_chunks_for_block(
         block.header().hash().as_ref(),
         &uncertified_chunks,
     )?;
+    // for (chunk_id, execution_result) in &block_execution_results {
+    //     let key = get_execution_results_key(&chunk_id.block_hash, chunk_id.shard_id);
+    //     store_update.insert_ser(DBCol::execution_results(), &key, execution_result)?;
+    // }
     chain_store_update.merge(store_update);
     Ok(())
 }

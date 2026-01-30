@@ -528,8 +528,6 @@ impl SpiceCoreWriterActor {
     }
 
     pub(crate) fn handle_processed_block(&self, block_hash: CryptoHash) -> Result<(), Error> {
-        // TEST-ONLY: widen the race window to reproduce the flaky test.
-        std::thread::sleep(std::time::Duration::from_millis(50));
         let block = self.chain_store.get_block(&block_hash).unwrap();
         // Since block was already processed we know it's valid so can record it in core state.
         let store_update = self.record_block_core_statements(&block)?;
