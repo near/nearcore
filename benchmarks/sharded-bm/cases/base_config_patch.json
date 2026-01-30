@@ -51,11 +51,11 @@
             "nanos": 600000000
         },
         "max_block_production_delay": {
-            "secs": 30,
+            "secs": 2,
             "nanos": 0
         },
         "max_block_wait_delay": {
-            "secs": 30,
+            "secs": 8,
             "nanos": 0
         },
         "block_production_tracking_delay": {
@@ -67,7 +67,7 @@
             "nanos": 10000000
         }
     },
-    "save_tx_outcomes": false,
+    "save_tx_outcomes": true,
     "save_state_changes": false,
     "gc_num_epochs_to_keep": 3,
     "save_untracked_partial_chunks_parts": false,
