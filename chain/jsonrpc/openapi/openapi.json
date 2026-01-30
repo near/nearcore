@@ -2931,7 +2931,7 @@
           {
             "additionalProperties": false,
             "properties": {
-              "GasKeyTooManyNoncesRequested": {
+              "GasKeyInvalidNumNonces": {
                 "properties": {
                   "limit": {
                     "format": "uint32",
@@ -2952,7 +2952,7 @@
               }
             },
             "required": [
-              "GasKeyTooManyNoncesRequested"
+              "GasKeyInvalidNumNonces"
             ],
             "type": "object"
           },
