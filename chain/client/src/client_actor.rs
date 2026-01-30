@@ -1190,7 +1190,8 @@ impl ClientActor {
         }
 
         let prev_block_hash = &head.last_block_hash;
-        let chunks_readiness = self.client.prepare_chunk_headers(prev_block_hash, &epoch_id)?;
+        let head_header = self.client.chain.get_block_header(prev_block_hash)?;
+        let chunks_readiness = self.client.prepare_chunk_headers(prev_block_hash, &epoch_id)?;  
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {
@@ -1204,7 +1205,6 @@ impl ClientActor {
             let protocol_version =
                 self.client.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
             let spice_ready_to_produce_block = if ProtocolFeature::Spice.enabled(protocol_version) {
-                let head_header = self.client.chain.get_block_header(prev_block_hash)?;
                 self.client.spice_timer.ready_to_produce_block(
                     height,
                     &self.client.chain.chain_store(),
