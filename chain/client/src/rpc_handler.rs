@@ -17,6 +17,7 @@ use near_network::types::PeerManagerMessageRequest;
 use near_pool::InsertTransactionResult;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::AccountId;
 use near_primitives::types::BlockHeightDelta;
 use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
@@ -222,7 +223,7 @@ impl RpcHandlerActor {
                 return Ok(ProcessTxResponse::ValidTx);
             }
             // Transactions only need to be recorded if the node is a validator.
-            if me.is_some() {
+            if self.is_chunk_producer_for_transaction(signed_tx.transaction.signer_id())? {
                 let mut pool = self.tx_pool.lock();
                 match pool.insert_transaction(shard_uid, validated_tx) {
                     InsertTransactionResult::Success => {
@@ -378,6 +379,48 @@ impl RpcHandlerActor {
             }
         }
         Ok(false)
+    }
+
+    fn is_chunk_producer_for_transaction(
+        &self,
+        signer_id: &AccountId,
+    ) -> Result<bool, near_client_primitives::types::Error> {
+        let head = self.chain_store.head()?;
+
+        // Is a chunk producer in this epoch?
+        if self.is_chunk_producer_for_transaction_in_epoch(&head.epoch_id, signer_id)? {
+            return Ok(true);
+        }
+
+        // If close to the next epoch, is a chunk producer in the next epoch?
+        if let Some(next_epoch_id) = self.get_next_epoch_id_if_at_boundary(&head)? {
+            if self.is_chunk_producer_for_transaction_in_epoch(&next_epoch_id, signer_id)? {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    fn is_chunk_producer_for_transaction_in_epoch(
+        &self,
+        epoch_id: &EpochId,
+        signer_id: &AccountId,
+    ) -> Result<bool, near_client_primitives::types::Error> {
+        let signer = self.validator_signer.get();
+        let account_id = if let Some(vs) = &signer {
+            vs.validator_id()
+        } else {
+            return Ok(false);
+        };
+
+        let shard_id =
+            self.epoch_manager.get_shard_layout(epoch_id)?.account_id_to_shard_id(signer_id);
+
+        Ok(self
+            .epoch_manager
+            .get_epoch_chunk_producers_for_shard(epoch_id, shard_id)?
+            .contains(account_id))
     }
 
     /// If we're a validator in one of the next few chunks, but epoch switch could happen soon,
