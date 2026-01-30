@@ -3,19 +3,24 @@ use anyhow;
 use anyhow::Context;
 use borsh::BorshDeserialize;
 use clap;
+use near_chain::types::RuntimeAdapter;
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use near_primitives::block::Tip;
+use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::BlockHeight;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
 use near_store::adapter::trie_store::get_shard_uid_mapping;
+use near_store::adapter::StoreAdapter;
 use near_store::archive::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::db::metadata::DbKind;
-use near_store::{COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, ShardUId, TAIL_KEY};
+use near_store::trie::AccessOptions;
+use near_store::{KeyForStateChanges, ShardUId, WrappedTrieChanges, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY};
 use near_store::{DBCol, NodeStorage, Store, StoreOpener};
-use nearcore::NearConfig;
-use rand::seq::SliceRandom;
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+use std::ops::Deref;
+//use rand::seq::SliceRandom;
 use std::path::Path;
 use std::time::Instant;
 use strum::IntoEnumIterator;
@@ -60,6 +65,7 @@ enum SubCommand {
     /// Doesn't actually delete any data, except for HEAD and COLD_HEAD in BlockMisc.
     ResetCold(ResetColdCmd),
     CorruptCold(CorruptColdCmd),
+    RepairCold(RepairColdCmd),
 }
 
 impl ColdStoreCommand {
@@ -100,6 +106,7 @@ impl ColdStoreCommand {
             SubCommand::CheckStateRoot(cmd) => cmd.run(&storage, &epoch_manager),
             SubCommand::ResetCold(cmd) => cmd.run(&storage),
             SubCommand::CorruptCold(cmd) => cmd.run(&storage),
+            SubCommand::RepairCold(cmd) => cmd.run(&storage, &home_dir, &near_config),
         }
     }
 
@@ -570,6 +577,141 @@ impl CorruptColdCmd {
 }
 
 #[derive(clap::Args)]
+struct RepairColdCmd {
+    #[clap(long)]
+    shard: ShardUId,
+    // Repairs trie at prev_state_root of block at `height`.
+    #[clap(long)]
+    height: BlockHeight,
+}
+
+impl RepairColdCmd {
+    pub fn run(self, storage: &NodeStorage, home_dir: &Path, near_config: &NearConfig,) -> anyhow::Result<()> {
+        let cold_store = storage
+            .get_cold_store()
+            .ok_or_else(|| anyhow::anyhow!("Cold storage is not configured"))?;
+
+        let block_hash_key = get_block_hash_key(&storage.get_hot_store(), self.height)?;
+        let block = get_block(&cold_store, block_hash_key)?;
+        let chunks = block.chunks();
+        // Chunk which prev_state_root is the trie we want to repair. We expect this is the first trie with missing data.
+        let chunk = chunks.iter().find(|chunk| chunk.shard_id() == self.shard.shard_id())
+            .ok_or_else(|| anyhow::anyhow!("No chunk with given shard and height"))?.deref().clone();
+        
+        // We expect this block's post-state to be inconsistent.
+        let chunk_prev_block_hash = chunk.prev_block_hash();
+        let chunk_prev_block = get_block(&cold_store, chunk_prev_block_hash.as_bytes().to_vec())?;
+        let chunks = chunk_prev_block.chunks();
+        // Chunk which prev_state_root is the last trie that is consistent.
+        let prev_chunk = chunks.iter().find(|chunk| chunk.shard_id() == self.shard.shard_id())
+            .ok_or_else(|| anyhow::anyhow!("No chunk with given shard and height"))?.deref().clone();
+        // The last block with consistent post-state.
+        let prev_chunk_prev_block_hash = prev_chunk.prev_block_hash();
+
+        let epoch_manager = EpochManager::new_arc_handle(
+            storage.get_hot_store(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
+        let shard_layout = epoch_manager.read().get_shard_layout(chunk_prev_block.header().epoch_id())?;
+        // Get the state changes that are to be applied on top of the last block with consistent post-state.
+        let state_changes = Self::get_state_changes(&cold_store, &shard_layout, chunk_prev_block_hash, self.shard)?;
+
+        let runtime = NightshadeRuntime::from_config(
+            home_dir,
+            cold_store.clone(),
+            &near_config,
+            epoch_manager.clone(),
+        )
+        .expect("could not create the transaction runtime");
+        
+        // Re-apply state changes on top of the last known consistent trie for this shard.
+        Self::reapply_state_changes(
+            &cold_store,
+            &runtime,
+            self.shard,
+            prev_chunk_prev_block_hash,
+            prev_chunk.prev_state_root(),
+            &chunk_prev_block,
+            state_changes,
+            chunk.prev_state_root(),
+        )?;
+        Ok(())
+    }
+
+    fn reapply_state_changes(
+        store: &Store,
+        runtime: &NightshadeRuntime,
+        shard_uid: ShardUId,
+        last_block_hash_with_consistent_post_state: &CryptoHash,
+        last_consistent_state_root: CryptoHash,
+        first_block_with_inconsistent_post_state: &Block,
+        state_changes: Vec<RawStateChangesWithTrieKey>,
+        expected_new_state_root: CryptoHash,
+    ) -> anyhow::Result<()> {
+        let trie = runtime.get_trie_for_shard(
+            shard_uid.shard_id(),
+            last_block_hash_with_consistent_post_state,
+            last_consistent_state_root,
+            false,
+        ).unwrap();
+        let trie_update = trie.update(
+            state_changes.iter().map(|raw_state_changes_with_trie_key| {
+                let raw_key = raw_state_changes_with_trie_key.trie_key.to_vec();
+                let data =
+                    raw_state_changes_with_trie_key.changes.last().unwrap().data.clone();
+                (raw_key, data)
+            }),
+            AccessOptions::NO_SIDE_EFFECTS,
+        )
+        .unwrap();
+        // The check below gives us confidence that everything went correctly.
+        assert_eq!(trie_update.new_root, expected_new_state_root);
+
+        let wrapped_trie_changes = WrappedTrieChanges::new(
+            runtime.get_tries(),
+            shard_uid,
+            trie_update,
+            state_changes,
+            first_block_with_inconsistent_post_state.header().height(),
+        );
+        let mut store_update = store.trie_store().store_update();
+        wrapped_trie_changes.insertions_into(&mut store_update);
+        store_update.commit()?;
+        Ok(())
+    }
+
+    fn get_state_changes(
+        store: &Store,
+        shard_layout: &ShardLayout,
+        block_hash: &CryptoHash,
+        shard_uid: ShardUId,
+    ) -> anyhow::Result<Vec<RawStateChangesWithTrieKey>> {
+        let storage_key = KeyForStateChanges::for_block(&block_hash);
+        let mut state_changes = vec![];
+        for item in store
+            .iter_prefix_ser::<RawStateChangesWithTrieKey>(DBCol::StateChanges, storage_key.as_ref())
+        {
+            let (key, changes) = item?;
+            let decoded_shard_uid = if let Some(account_id) = changes.trie_key.get_account_id() {
+                shard_layout.account_id_to_shard_uid(&account_id)
+            } else {
+                KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
+                    &key,
+                    &block_hash,
+                    &changes.trie_key,
+                )?
+            };
+            if decoded_shard_uid != shard_uid {
+                continue;
+            }
+            state_changes.push(changes);
+        }
+        Ok(state_changes)
+    }
+}
+
+#[derive(clap::Args)]
 struct CheckStateRootCmd {
     /// Maximum depth (measured in number of nodes, not trie key length) for checking trie.
     #[clap(long)]
@@ -601,15 +743,19 @@ fn get_block_hash_key(hot_store: &Store, height: BlockHeight) -> anyhow::Result<
     Ok(hash_key)
 }
 
+fn get_block(store: &Store, hash_key: Vec<u8>) -> anyhow::Result<Block> {
+    store
+        .get_ser::<near_primitives::block::Block>(DBCol::Block, &hash_key)?
+        .ok_or_else(|| anyhow::anyhow!("Failed to find Block: {:?}", hash_key))
+}
+
 /// Calculate previous state roots for chunks at block `height`.
 fn get_prev_state_roots(
     cold_store: &Store,
     epoch_manager: &EpochManagerHandle,
     block_hash_key: Vec<u8>,
 ) -> anyhow::Result<Vec<(CryptoHash, ShardUId)>> {
-    let block = cold_store
-        .get_ser::<near_primitives::block::Block>(DBCol::Block, &block_hash_key)?
-        .ok_or_else(|| anyhow::anyhow!("Failed to find Block: {:?}", block_hash_key))?;
+    let block = get_block(cold_store, block_hash_key)?;
     let shard_layout = epoch_manager.read().get_shard_layout(block.header().epoch_id())?;
     let mut hashes = vec![];
     for chunk in block.chunks().iter() {
@@ -731,8 +877,8 @@ impl CheckStateRootCmd {
             }
             near_store::RawTrieNode::BranchNoValue(children)
             | near_store::RawTrieNode::BranchWithValue(_, children) => {
-                let mut children: Vec<_> = children.iter().collect();
-                children.shuffle(&mut rand::thread_rng());
+                let children: Vec<_> = children.iter().collect();
+                //children.shuffle(&mut rand::thread_rng());
                 for (idx, child) in children {
                     //println!("Extension {idx:?}");
                     // Record in iter state that we are visiting a child node
