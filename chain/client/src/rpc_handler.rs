@@ -222,7 +222,7 @@ impl RpcHandlerActor {
             if check_only {
                 return Ok(ProcessTxResponse::ValidTx);
             }
-            // Transactions only need to be recorded if the node is a validator.
+            // Transactions only need to be recorded if this node is a chunk producer for the transaction's shard.
             if self.is_chunk_producer_for_transaction(signed_tx.transaction.signer_id())? {
                 let mut pool = self.tx_pool.lock();
                 match pool.insert_transaction(shard_uid, validated_tx) {
