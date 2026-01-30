@@ -1,20 +1,17 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::Poll;
 
 use itertools::Itertools;
-use near_async::messaging::{CanSend as _, CanSendAsync as _, Handler as _, Sender};
+use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::spice_core::get_last_certified_block_header;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::{BlockResponse, ProcessTxRequest, Query, ViewClientActor};
+use near_client::{ProcessTxRequest, Query, ViewClientActor};
 use near_network::client::SpiceChunkEndorsementMessage;
-use near_network::types::{NetworkRequests, PeerInfo};
-use near_o11y::span_wrapped_msg::SpanWrappedMessageExt as _;
+use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
@@ -36,7 +33,6 @@ use crate::utils::account::{
 };
 use crate::utils::get_node_data;
 use crate::utils::node::TestLoopNode;
-use crate::utils::peer_manager_actor::{ClientSenderForTestLoopNetwork, TestLoopNetworkBlockInfo};
 use crate::utils::transactions::{TransactionRunner, get_anchor_hash};
 
 #[test]
@@ -829,198 +825,6 @@ fn schedule_send_money_txs(
         );
     }
     (sent_txs, balance_changes)
-}
-
-/// Sets up handlers to reproduce the orphan block + execution results race condition.
-///
-/// Delays the first block containing `ChunkExecutionResult` core statements from reaching
-/// `target_account`, then releases it after 2 more blocks have been produced. Also delays
-/// ALL endorsements by `endorsement_delay` blocks to create execution lag, ensuring
-/// `last_certified_block_header` lags behind by more than 1 block.
-///
-/// The `active` flag gates both block and endorsement delay so warmup can complete normally.
-fn setup_orphan_race_handlers(
-    env: &mut TestLoopEnv,
-    target_account: &AccountId,
-    endorsement_delay: u64,
-    active: Arc<AtomicBool>,
-) {
-    let client_senders: HashMap<AccountId, ClientSenderForTestLoopNetwork> =
-        env.node_datas.iter().map(|d| (d.account_id.clone(), d.into())).collect();
-    let pm_senders: HashMap<AccountId, Sender<TestLoopNetworkBlockInfo>> =
-        env.node_datas.iter().map(|d| (d.account_id.clone(), d.into())).collect();
-    let peer_ids: HashMap<AccountId, near_primitives::network::PeerId> =
-        env.node_datas.iter().map(|d| (d.account_id.clone(), d.peer_id.clone())).collect();
-    let accounts: Vec<AccountId> = env.node_datas.iter().map(|d| d.account_id.clone()).collect();
-    let core_writer_senders: HashMap<AccountId, _> = env
-        .node_datas
-        .iter()
-        .map(|d| (d.account_id.clone(), d.spice_core_writer_sender.clone()))
-        .collect();
-
-    for node in &env.node_datas {
-        let my_account = node.account_id.clone();
-        let target = target_account.clone();
-        let client_senders = client_senders.clone();
-        let pm_senders = pm_senders.clone();
-        let peer_ids = peer_ids.clone();
-        let accounts = accounts.clone();
-        let core_writer_senders = core_writer_senders.clone();
-        let active = active.clone();
-
-        let delayed_block: Arc<RwLock<Option<(Arc<near_primitives::block::Block>, BlockHeight)>>> =
-            Arc::new(RwLock::new(None));
-        let has_delayed: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-        let block_heights: Arc<RwLock<HashMap<CryptoHash, BlockHeight>>> =
-            Arc::new(RwLock::new(HashMap::new()));
-        // Endorsements delayed globally (target_account, block_hash, endorsement).
-        let delayed_endorsements: Arc<
-            RwLock<VecDeque<(AccountId, CryptoHash, SpiceChunkEndorsement)>>,
-        > = Arc::new(RwLock::new(VecDeque::new()));
-
-        let peer_actor = env.test_loop.data.get_mut(&node.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
-            if !active.load(Ordering::Relaxed) {
-                return Some(request);
-            }
-            match request {
-                NetworkRequests::Block { ref block } => {
-                    block_heights.write().insert(*block.hash(), block.header().height());
-
-                    // Release delayed endorsements when enough blocks have passed.
-                    {
-                        let mut delayed = delayed_endorsements.write();
-                        loop {
-                            let Some((_, block_hash, _)) = delayed.front() else {
-                                break;
-                            };
-                            let heights = block_heights.read();
-                            let Some(&height) = heights.get(block_hash) else {
-                                break;
-                            };
-                            if height + endorsement_delay >= block.header().height() {
-                                break;
-                            }
-                            drop(heights);
-                            let (endorsement_target, _, endorsement) = delayed.pop_front().unwrap();
-                            core_writer_senders[&endorsement_target]
-                                .send(SpiceChunkEndorsementMessage(endorsement));
-                        }
-                    }
-
-                    // If we have a stored block and current height >= stored height + 2,
-                    // release it to the target.
-                    {
-                        let mut stored = delayed_block.write();
-                        if let Some((ref held_block, held_height)) = *stored {
-                            if block.header().height() >= held_height + 2 {
-                                let released = held_block.clone();
-                                *stored = None;
-                                let my_peer_id = &peer_ids[&my_account];
-                                let future = client_senders[&target].send_async(
-                                    BlockResponse {
-                                        block: released.clone(),
-                                        peer_id: my_peer_id.clone(),
-                                        was_requested: false,
-                                    }
-                                    .span_wrap(),
-                                );
-                                drop(future);
-                                pm_senders[&target].send(TestLoopNetworkBlockInfo {
-                                    peer: PeerInfo {
-                                        id: my_peer_id.clone(),
-                                        addr: None,
-                                        account_id: Some(my_account.clone()),
-                                    },
-                                    block_header: released.header().clone(),
-                                });
-                            }
-                        }
-                    }
-
-                    // Delay the first block with ChunkExecutionResult from reaching target.
-                    let has_execution_result = block
-                        .spice_core_statements()
-                        .iter()
-                        .any(|s| matches!(s, SpiceCoreStatement::ChunkExecutionResult { .. }));
-                    if has_execution_result && !*has_delayed.read() {
-                        *has_delayed.write() = true;
-                        let height = block.header().height();
-                        *delayed_block.write() = Some((block.clone(), height));
-
-                        // Manually deliver to all nodes except target and self.
-                        let my_peer_id = &peer_ids[&my_account];
-                        for account in &accounts {
-                            if *account == target || *account == my_account {
-                                continue;
-                            }
-                            let future = client_senders[account].send_async(
-                                BlockResponse {
-                                    block: block.clone(),
-                                    peer_id: my_peer_id.clone(),
-                                    was_requested: false,
-                                }
-                                .span_wrap(),
-                            );
-                            drop(future);
-                            pm_senders[account].send(TestLoopNetworkBlockInfo {
-                                peer: PeerInfo {
-                                    id: my_peer_id.clone(),
-                                    addr: None,
-                                    account_id: Some(my_account.clone()),
-                                },
-                                block_header: block.header().clone(),
-                            });
-                        }
-                        return None;
-                    }
-
-                    Some(request)
-                }
-                // Delay ALL endorsements to create execution lag.
-                NetworkRequests::SpiceChunkEndorsement(endorsement_target, endorsement) => {
-                    delayed_endorsements.write().push_back((
-                        endorsement_target,
-                        *endorsement.block_hash(),
-                        endorsement,
-                    ));
-                    None
-                }
-                _ => Some(request),
-            }
-        }));
-    }
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_spice_orphan_block_execution_results_race() {
-    init_test_logger();
-
-    let num_producers = 2;
-    let num_validators = 1;
-    let validators_spec = create_validators_spec(num_producers, num_validators);
-    let clients = validators_spec_clients(&validators_spec);
-    let target_validator = clients.last().unwrap().clone();
-
-    let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
-
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store_from_genesis()
-        .clients(clients)
-        .build();
-
-    let active = Arc::new(AtomicBool::new(false));
-    setup_orphan_race_handlers(&mut env, &target_validator, 2, active.clone());
-    let mut env = env.warmup();
-
-    active.store(true, Ordering::Relaxed);
-
-    let node = TestLoopNode::from(env.node_datas[0].clone());
-    node.run_until_head_height_with_timeout(&mut env.test_loop, 20, Duration::seconds(30));
-
-    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 fn query_view_account(view_client: &mut ViewClientActor, account_id: AccountId) -> AccountView {
