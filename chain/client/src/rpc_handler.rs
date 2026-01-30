@@ -386,9 +386,10 @@ impl RpcHandlerActor {
         signer_id: &AccountId,
     ) -> Result<bool, near_client_primitives::types::Error> {
         let head = self.chain_store.head()?;
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
 
         // Is a chunk producer in this epoch?
-        if self.is_chunk_producer_for_transaction_in_epoch(&head.epoch_id, signer_id)? {
+        if self.is_chunk_producer_for_transaction_in_epoch(&epoch_id, signer_id)? {
             return Ok(true);
         }
 
