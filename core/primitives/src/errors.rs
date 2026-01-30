@@ -1336,6 +1336,9 @@ pub enum HostError {
     /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
     /// derived from bytes).
     Ed25519VerifyInvalidInput { msg: String } = 32,
+    /// Invalid input to p256 signature verification function (e.g. signature cannot be
+    /// derived from bytes).
+    P256VerifyInvalidInput { msg: String } = 33,
 }
 
 #[derive(

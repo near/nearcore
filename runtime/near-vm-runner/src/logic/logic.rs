@@ -1541,7 +1541,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             &mut self.result_state.gas_counter,
             &self.config.limit_config,
             register_id,
-            value_hash.as_slice(),
+            &value_hash[..],
         )
     }
 
@@ -1567,7 +1567,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             &mut self.result_state.gas_counter,
             &self.config.limit_config,
             register_id,
-            value_hash.as_slice(),
+            &value_hash[..],
         )
     }
 
@@ -1593,7 +1593,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             &mut self.result_state.gas_counter,
             &self.config.limit_config,
             register_id,
-            value_hash.as_slice(),
+            &value_hash[..],
         )
     }
 
@@ -1629,7 +1629,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
             &mut self.result_state.gas_counter,
             &self.config.limit_config,
             register_id,
-            value_hash.as_slice(),
+            &value_hash[..],
         )
     }
 
@@ -1796,6 +1796,82 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
                     })
                 })?;
             match ed25519_dalek::VerifyingKey::from_bytes(b) {
+                Ok(public_key) => public_key,
+                Err(_) => return Ok(false as u64),
+            }
+        };
+
+        match public_key.verify(&message, &signature) {
+            Err(_) => Ok(false as u64),
+            Ok(()) => Ok(true as u64),
+        }
+    }
+
+    /// Verify a P-256 ECDSA signature given a message and a public key.
+    ///
+    /// The signature must be 64 bytes, encoded as `r || s`. The public key must be a 33-byte
+    /// compressed SEC1 encoding.
+    ///
+    /// Returns a bool indicating success (1) or failure (0) as a `u64`.
+    ///
+    /// # Errors
+    ///
+    /// * If the public key's size is not equal to 33 or signature size is not equal
+    ///   to 64, returns [HostError::P256VerifyInvalidInput].
+    /// * If any of the signature, message or public key arguments are out of
+    ///   memory bounds, returns [`HostError::MemoryAccessViolation`]
+    ///
+    /// # Cost
+    ///
+    /// Each input can either be in memory or in a register. Set the length of
+    /// the input to `u64::MAX` to declare that the input is a register number
+    /// and not a pointer. Each input has a gas cost input_cost(num_bytes) that
+    /// depends on whether it is from memory or from a register. It is either
+    /// read_memory_base + num_bytes * read_memory_byte in the former case or
+    /// read_register_base + num_bytes * read_register_byte in the latter. This
+    /// function is labeled as `input_cost` below.
+    ///
+    /// `input_cost(num_bytes_signature) + input_cost(num_bytes_message) +
+    ///  input_cost(num_bytes_public_key) + p256_verify_base +
+    ///  p256_verify_byte * num_bytes_message`
+    pub fn p256_verify(
+        &mut self,
+        signature_len: u64,
+        signature_ptr: u64,
+        message_len: u64,
+        message_ptr: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+    ) -> Result<u64> {
+        use p256::ecdsa::signature::Verifier;
+        use p256::ecdsa::{Signature, VerifyingKey};
+
+        self.result_state.gas_counter.pay_base(p256_verify_base)?;
+
+        let signature = {
+            let vec = get_memory_or_register!(self, signature_ptr, signature_len)?;
+            if vec.len() != 64 {
+                return Err(VMLogicError::HostError(HostError::P256VerifyInvalidInput {
+                    msg: "invalid signature length".to_string(),
+                }));
+            }
+            match Signature::from_slice(&vec) {
+                Ok(signature) => signature,
+                Err(_) => return Ok(false as u64),
+            }
+        };
+
+        let message = get_memory_or_register!(self, message_ptr, message_len)?;
+        self.result_state.gas_counter.pay_per(p256_verify_byte, message.len() as u64)?;
+
+        let public_key = {
+            let vec = get_memory_or_register!(self, public_key_ptr, public_key_len)?;
+            if vec.len() != 33 {
+                return Err(VMLogicError::HostError(HostError::P256VerifyInvalidInput {
+                    msg: "invalid public key length".to_string(),
+                }));
+            }
+            match VerifyingKey::from_sec1_bytes(&vec) {
                 Ok(public_key) => public_key,
                 Err(_) => return Ok(false as u64),
             }

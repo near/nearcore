@@ -338,6 +338,8 @@ pub enum ProtocolFeature {
     InvalidTxGenerateOutcomes,
     DynamicResharding,
     GasKeys,
+    /// Enable P-256 verification host function.
+    P256Verify,
     Spice,
     ContinuousEpochSync,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
@@ -451,7 +453,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
-            ProtocolFeature::GasKeys => 149,
+            ProtocolFeature::GasKeys | ProtocolFeature::P256Verify => 149,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.

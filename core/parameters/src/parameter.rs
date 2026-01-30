@@ -110,6 +110,8 @@ pub enum Parameter {
     WasmEcrecoverBase,
     WasmEd25519VerifyBase,
     WasmEd25519VerifyByte,
+    WasmP256VerifyBase,
+    WasmP256VerifyByte,
     WasmLogBase,
     WasmLogByte,
     WasmStorageWriteBase,
@@ -243,6 +245,8 @@ pub enum Parameter {
 
     // Flag to enabled deterministic account ids
     DeterministicAccountIds,
+    // Flag to enable P-256 verification host function
+    P256Verify,
 }
 
 #[derive(

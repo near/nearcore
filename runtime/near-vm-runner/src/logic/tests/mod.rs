@@ -7,6 +7,7 @@ pub(crate) mod helpers;
 mod iterators;
 mod logs;
 mod miscs;
+mod p256_verify;
 mod promises;
 mod registers;
 mod storage_read_write;

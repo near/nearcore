@@ -235,6 +235,8 @@ pub struct VMConfigView {
     pub reftypes_bulk_memory: bool,
     /// See [VMConfig::deterministic_account_ids](crate::vm::Config::deterministic_account_ids).
     pub deterministic_account_ids: bool,
+    /// See [VMConfig::p256_verify](crate::vm::Config::p256_verify).
+    pub p256_verify: bool,
 
     /// See [VMConfig::storage_get_mode](crate::vm::Config::storage_get_mode).
     pub storage_get_mode: crate::vm::StorageGetMode,
@@ -270,6 +272,7 @@ impl From<crate::vm::Config> for VMConfigView {
             global_contract_host_fns: config.global_contract_host_fns,
             reftypes_bulk_memory: config.reftypes_bulk_memory,
             deterministic_account_ids: config.deterministic_account_ids,
+            p256_verify: config.p256_verify,
         }
     }
 }
@@ -291,6 +294,7 @@ impl From<VMConfigView> for crate::vm::Config {
             global_contract_host_fns: view.global_contract_host_fns,
             reftypes_bulk_memory: view.reftypes_bulk_memory,
             deterministic_account_ids: view.deterministic_account_ids,
+            p256_verify: view.p256_verify,
         }
     }
 }
@@ -366,6 +370,11 @@ pub struct ExtCostsConfigView {
 
     /// Cost of calling ecrecover
     pub ecrecover_base: Gas,
+
+    /// Cost of P-256 verification base
+    pub p256_verify_base: Gas,
+    /// Cost of P-256 verification per byte
+    pub p256_verify_byte: Gas,
 
     /// Cost for calling logging.
     pub log_base: Gas,
@@ -526,6 +535,8 @@ impl From<crate::ExtCostsConfig> for ExtCostsConfigView {
             ed25519_verify_base: config.gas_cost(ExtCosts::ed25519_verify_base),
             ed25519_verify_byte: config.gas_cost(ExtCosts::ed25519_verify_byte),
             ecrecover_base: config.gas_cost(ExtCosts::ecrecover_base),
+            p256_verify_base: config.gas_cost(ExtCosts::p256_verify_base),
+            p256_verify_byte: config.gas_cost(ExtCosts::p256_verify_byte),
             log_base: config.gas_cost(ExtCosts::log_base),
             log_byte: config.gas_cost(ExtCosts::log_byte),
             storage_write_base: config.gas_cost(ExtCosts::storage_write_base),
@@ -630,6 +641,8 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
                 ExtCosts::ed25519_verify_base => view.ed25519_verify_base,
                 ExtCosts::ed25519_verify_byte => view.ed25519_verify_byte,
                 ExtCosts::ecrecover_base => view.ecrecover_base,
+                ExtCosts::p256_verify_base => view.p256_verify_base,
+                ExtCosts::p256_verify_byte => view.p256_verify_byte,
                 ExtCosts::log_base => view.log_base,
                 ExtCosts::log_byte => view.log_byte,
                 ExtCosts::storage_write_base => view.storage_write_base,

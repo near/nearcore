@@ -1,7 +1,7 @@
 use crate::util::{Packable, Point, Scalar};
 use blake2::Blake2bVar;
-use blake2::digest::generic_array::{GenericArray, typenum::U32};
-use blake2::digest::{FixedOutput, OutputSizeUser, Reset, Update, VariableOutput};
+use blake2::digest::typenum::U32;
+use blake2::digest::{FixedOutput, Output, OutputSizeUser, Reset, Update, VariableOutput};
 
 pub use blake2::Blake2b512 as Hash512;
 
@@ -25,7 +25,7 @@ impl OutputSizeUser for Hash256 {
 }
 
 impl FixedOutput for Hash256 {
-    fn finalize_into(self, out: &mut GenericArray<u8, Self::OutputSize>) {
+    fn finalize_into(self, out: &mut Output<Self>) {
         self.0.finalize_variable(out).expect("hash output size is correct")
     }
 }

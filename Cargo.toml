@@ -317,6 +317,7 @@ opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.30", default-features = false, features = ["grpc-tonic", "trace"] }
 opentelemetry-semantic-conventions = "0.30"
 ordered-float = { version = "4.2.0", features = ["serde", "borsh"] }
+p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "std"] }
 parking_lot = "0.12.1"
 percent-encoding = "2.2.0"
 pin-project = "1.0"

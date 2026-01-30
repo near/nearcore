@@ -165,6 +165,8 @@ wasm_ripemd160_block: 680_107_584
 wasm_ecrecover_base: 3_365_369_625_000
 wasm_ed25519_verify_base: 210_000_000_000
 wasm_ed25519_verify_byte: 9_000_000
+wasm_p256_verify_base: 278_821_988_457
+wasm_p256_verify_byte: 9_000_000
 wasm_log_base: 3_543_313_050
 wasm_log_byte: 13_198_791
 wasm_storage_write_base: 64_196_736_000
@@ -263,6 +265,7 @@ discard_custom_sections: false
 global_contract_host_fns: false
 reftypes_bulk_memory: false
 deterministic_account_ids: false
+p256_verify: false
 
 
 # Congestion Control configuration
