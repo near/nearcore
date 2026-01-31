@@ -43,10 +43,11 @@ use near_primitives::views::{
     AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
     ValidatorKickoutView,
 };
+use near_store::adapter::chunk_producer_key;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use near_store::trie::AccessOptions;
-use near_store::{NodeStorage, PartialStorage, get_genesis_state_roots};
+use near_store::{DBCol, NodeStorage, PartialStorage, get_genesis_state_roots};
 use near_vm_runner::FilesystemContractRuntimeCache;
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Ratio;
@@ -74,6 +75,7 @@ struct TestEnv {
     pub last_shard_proposals: HashMap<ShardId, Vec<ValidatorStake>>,
     pub last_proposals: Vec<ValidatorStake>,
     time: u64,
+    store: Store,
 }
 
 impl TestEnv {
@@ -197,7 +199,7 @@ impl TestEnv {
             .unwrap()
             .commit()
             .unwrap();
-        Self {
+        let env = Self {
             epoch_manager,
             runtime,
             head: Tip {
@@ -212,7 +214,30 @@ impl TestEnv {
             last_proposals: vec![],
             last_shard_proposals: HashMap::default(),
             time: 0,
+            store,
+        };
+        // Save chunk producers for genesis heights (H, H+1, H+2)
+        let genesis_epoch_id = EpochId::default();
+        env.save_chunk_producers_for_height(&genesis_epoch_id, 0);
+        env.save_chunk_producers_for_height(&genesis_epoch_id, 1);
+        env.save_chunk_producers_for_height(&genesis_epoch_id, 2);
+        env
+    }
+
+    /// Save chunk producers for a given height to the db using the specified epoch
+    fn save_chunk_producers_for_height(&self, epoch_id: &EpochId, height: u64) {
+        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id).unwrap();
+        let epoch_info = self.epoch_manager.get_epoch_info(epoch_id).unwrap();
+        let mut store_update = self.store.store_update();
+        for shard_id in shard_layout.shard_ids() {
+            if let Some(producer_id) =
+                epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+            {
+                let key = chunk_producer_key(epoch_id, &shard_id, &height);
+                store_update.insert_ser(DBCol::ChunkProducers, &key, &producer_id).unwrap();
+            }
         }
+        store_update.commit().unwrap();
     }
 
     pub fn apply_new_chunk(
@@ -376,19 +401,24 @@ impl TestEnv {
         self.last_proposals = all_proposals;
         self.time += 10u64.pow(9);
 
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(&self.head.last_block_hash).unwrap();
+        let next_epoch_id = self
+            .epoch_manager
+            .get_next_epoch_id_from_prev_block(&self.head.last_block_hash)
+            .unwrap();
         self.head = Tip {
             last_block_hash: new_hash,
             prev_block_hash: self.head.last_block_hash,
             height: self.head.height + 1,
-            epoch_id: self
-                .epoch_manager
-                .get_epoch_id_from_prev_block(&self.head.last_block_hash)
-                .unwrap(),
-            next_epoch_id: self
-                .epoch_manager
-                .get_next_epoch_id_from_prev_block(&self.head.last_block_hash)
-                .unwrap(),
+            epoch_id,
+            next_epoch_id,
         };
+
+        // Save chunk producers for H+1 to match Chain postprocess_block behavior
+        let is_next_epoch = self.epoch_manager.is_next_block_epoch_start(&new_hash).unwrap();
+        let epoch_for_next_height = if is_next_epoch { next_epoch_id } else { epoch_id };
+        self.save_chunk_producers_for_height(&epoch_for_next_height, new_height + 1);
     }
 
     /// Step when there is only one shard

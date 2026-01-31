@@ -1221,6 +1221,9 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ChunkApplyStats => {
                 store_update.delete(col, key);
             }
+            DBCol::ChunkProducers => {
+                store_update.delete(col, key);
+            }
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ReceiptProofs => {
                 store_update.delete(col, key);

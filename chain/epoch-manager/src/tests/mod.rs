@@ -20,7 +20,6 @@ use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::types::ValidatorKickoutReason::{
@@ -738,14 +737,16 @@ fn test_reward_multiple_shards() {
         let i = height as usize;
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&h[i - 1]).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
         // test1 skips its chunks in the first epoch
         let chunk_mask = shard_layout
             .shard_ids()
             .map(|shard_id| {
-                let chunk_production_key =
-                    ChunkProductionKey { epoch_id, height_created: height, shard_id };
-                let expected_chunk_producer =
-                    epoch_manager.get_chunk_producer_info(&chunk_production_key).unwrap();
+                // Use sampling here since this test does not populate the chunk producer db
+                let expected_chunk_producer = epoch_info
+                    .sample_chunk_producer(&shard_layout, shard_id, height)
+                    .map(|id| epoch_info.get_validator(id))
+                    .unwrap();
                 if expected_chunk_producer.account_id() == "test1" && epoch_id == init_epoch_id {
                     expected_chunks += 1;
                     false

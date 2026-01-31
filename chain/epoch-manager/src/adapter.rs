@@ -434,19 +434,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn get_chunk_producer_info(
         &self,
         key: &ChunkProductionKey,
-    ) -> Result<ValidatorStake, EpochError> {
-        let epoch_info = self.get_epoch_info(&key.epoch_id)?;
-        let shard_layout = self.get_shard_layout(&key.epoch_id)?;
-        let Some(validator_id) =
-            epoch_info.sample_chunk_producer(&shard_layout, key.shard_id, key.height_created)
-        else {
-            return Err(EpochError::ChunkProducerSelectionError(format!(
-                "Invalid shard {} for height {}",
-                key.shard_id, key.height_created,
-            )));
-        };
-        Ok(epoch_info.get_validator(validator_id))
-    }
+    ) -> Result<ValidatorStake, EpochError>;
 
     /// Gets the chunk validators for a given height and shard.
     fn get_chunk_validator_assignments(
@@ -923,5 +911,48 @@ impl EpochManagerAdapter for EpochManagerHandle {
             next_epoch_id,
             next_epoch_info,
         )
+    }
+
+    /// Chunk producer info for given height for given shard. Return EpochError if outside of known boundaries.
+    /// First tries to look up from the DB. If not found and the height is in the future
+    /// falls back to sampling. This is needed for best effort transaction routing which
+    /// looks up chunk producers several blocks ahead
+    fn get_chunk_producer_info(
+        &self,
+        key: &ChunkProductionKey,
+    ) -> Result<ValidatorStake, EpochError> {
+        let epoch_info = self.get_epoch_info(&key.epoch_id)?;
+        let epoch_manager = self.read();
+
+        // Try DB lookup first
+        match epoch_manager.store.get_chunk_producer(
+            &key.epoch_id,
+            &key.shard_id,
+            &key.height_created,
+        ) {
+            Ok(validator_id) => {
+                return Ok(epoch_info.get_validator(validator_id));
+            }
+            Err(db_err) => {
+                // DB lookup failed, only fall back to sampling for future heights.
+                let largest_final_height = epoch_manager.largest_final_height;
+                if largest_final_height > 0 && key.height_created <= largest_final_height + 2 {
+                    // This is a historical height that should be in the DB but is not
+                    return Err(db_err);
+                }
+            }
+        }
+
+        // Fall back to sampling for future heights
+        let shard_layout = self.get_shard_layout(&key.epoch_id)?;
+        let Some(validator_id) =
+            epoch_info.sample_chunk_producer(&shard_layout, key.shard_id, key.height_created)
+        else {
+            return Err(EpochError::ChunkProducerSelectionError(format!(
+                "Invalid shard {} for height {}",
+                key.shard_id, key.height_created,
+            )));
+        };
+        Ok(epoch_info.get_validator(validator_id))
     }
 }
