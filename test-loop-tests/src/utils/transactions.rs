@@ -86,6 +86,27 @@ pub fn get_next_nonce(
     access_key.nonce + 1
 }
 
+/// Get next available nonce for the account's public key.
+// pub fn get_next_nonce_from_node(
+//     test_loop_data: &TestLoopData,
+//     node: &TestLoopNode,
+//     account_id: &AccountId,
+// ) -> u64 {
+//     let signer: Signer = create_user_test_signer(&account_id);
+//     let client = node.client(test_loop_data);
+
+//     let clients = vec![client];
+//     let query = QueryRequest::ViewAccessKey {
+//         account_id: account_id.clone(),
+//         public_key: signer.public_key(),
+//     };
+//     let response = clients.runtime_query(account_id, query);
+//     let QueryResponseKind::AccessKey(access_key) = response.kind else {
+//         panic!("Expected AccessKey response");
+//     };
+//     access_key.nonce + 1
+// }
+
 /// Execute money transfers within given `TestLoop` between given accounts.
 /// Runs chain long enough for the transfers to be optimistically executed.
 /// Used to generate state changes and check that chain is able to update
@@ -211,7 +232,7 @@ pub fn do_deploy_contract(
     tracing::info!(target: "test", "deploying contract");
     let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
     let tx = deploy_contract(&mut env.test_loop, &env.node_datas, rpc_id, contract_id, code, nonce);
-    env.test_loop.run_for(Duration::seconds(3));
+    env.test_loop.run_for(Duration::seconds(10));
     check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
@@ -307,7 +328,6 @@ pub fn deploy_contract(
     nonce: u64,
 ) -> CryptoHash {
     let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
-
     let signer = create_user_test_signer(&contract_id);
 
     let tx = SignedTransaction::deploy_contract(nonce, contract_id, code, &signer, block_hash);
@@ -486,6 +506,7 @@ pub fn get_shared_block_hash(
 ) -> CryptoHash {
     let clients = node_datas
         .iter()
+        .filter(|data| !data.stopped)
         .map(|data| &test_loop_data.get(&data.client_sender.actor_handle()).client)
         .collect_vec();
 

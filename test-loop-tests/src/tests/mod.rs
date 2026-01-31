@@ -14,6 +14,7 @@ mod contract_distribution_cross_shard;
 mod contract_distribution_simple;
 mod create_delete_account;
 mod cross_shard_tx;
+mod deploy_contract_validator_down;
 mod deterministic_account_id;
 mod early_prepare_transactions;
 mod epoch_sync;

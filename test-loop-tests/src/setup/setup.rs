@@ -549,6 +549,7 @@ pub fn setup_client(
         cold_store_sender,
         cloud_storage_sender,
         cloud_archival_writer_handle,
+        stopped: false,
     };
 
     // Add the client to the network shared state before returning data

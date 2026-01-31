@@ -24,18 +24,13 @@ where
     fn client_index_tracking_account(&self, account_id: &AccountId) -> usize {
         let client: &Client = self[0].as_ref();
         let head = client.chain.head().unwrap();
-        let shard_id =
-            account_id_to_shard_id(client.epoch_manager.as_ref(), &account_id, &head.epoch_id)
-                .unwrap();
+        let parent_hash = head.prev_block_hash;
+        let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
+        let shard_id = shard_layout.account_id_to_shard_id(account_id);
 
         for i in 0..self.len() {
             let client: &Client = self[i].as_ref();
-            let validator_signer = client.validator_signer.get().unwrap();
-            let account_id = validator_signer.validator_id();
-            let tracks_shard = client
-                .epoch_manager
-                .cares_about_shard_from_prev_block(&head.prev_block_hash, account_id, shard_id)
-                .unwrap();
+            let tracks_shard = client.shard_tracker.cares_about_shard(&parent_hash, shard_id);
             if tracks_shard {
                 return i;
             }
