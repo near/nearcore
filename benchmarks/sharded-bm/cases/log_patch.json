@@ -1,5 +1,5 @@
 {
-    "rust_log": "transaction-generator=info,tokio_reactor=info,config=info,near=info,stats=info,telemetry=info,db=info,delay_detector=info,state_viewer=info,warn",
+    "rust_log": "client=debug,transaction-generator=info,tokio_reactor=info,config=info,near=info,stats=info,telemetry=info,db=info,delay_detector=info,state_viewer=info,warn",
     "verbose_module": null,
     "opentelemetry": "client=debug,chain=debug,[{tag_block_production=\"true\"}]=debug,[{tag_witness_distribution=\"true\"}]=debug,[{tag_optimistic=\"true\"}]=debug,[{tag_chunk_distribution=\"true\"}]=debug,info"
 }

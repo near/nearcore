@@ -773,12 +773,12 @@ impl Doomslug {
             return true;
         }
 
-        let delay =
+        let chunk_wait_delay =
             self.timer.get_delay(self.timer.height.saturating_sub(self.largest_final_height.get()))
                 * *self.timer.chunk_wait_mult.numer()
                 / *self.timer.chunk_wait_mult.denom();
 
-        let ready = now > when + delay;
+        let ready = now > when + chunk_wait_delay;
         span.record("need_to_wait", !ready);
         if verbose {
             if ready {
@@ -788,7 +788,7 @@ impl Doomslug {
                 );
             } else {
                 tracing::info!(
-                    target: "doomslug", target_height, need_to_wait_for = ?(when + delay - now),
+                    target: "doomslug", target_height, need_to_wait_for = ?(when + chunk_wait_delay - now),
                     ?enough_approvals_for, "not ready to produce block, need to wait"
                 );
             }
