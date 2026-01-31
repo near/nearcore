@@ -1553,6 +1553,133 @@ fn test_chunk_producer_kickout() {
     );
 }
 
+/// Test that validators are excluded from chunk production during the epoch
+/// if they miss more than MAX_MISSED_CHUNKS_THRESHOLD chunks.
+#[test]
+fn test_chunk_producer_early_kickout() {
+    let stake_amount = Balance::from_yoctonear(1_000_000);
+    let validators =
+        vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
+    let epoch_length = 100;
+    let total_supply = stake_amount.checked_mul(validators.len().try_into().unwrap()).unwrap();
+    let mut em = setup_epoch_manager(
+        validators,
+        epoch_length,
+        1,
+        2,
+        90,
+        70,
+        0,
+        default_reward_calculator(),
+        Rational32::new(0, 1),
+    );
+    let rng_seed = [0; 32];
+    let hashes = hash_range((epoch_length + 2) as usize);
+
+    record_block(&mut em, Default::default(), hashes[0], 0, vec![]);
+
+    let epoch_id = em.get_epoch_id(&hashes[0]).unwrap();
+    let mut test1_missed_count = 0;
+    const THRESHOLD: u64 = 5;
+
+    // Record blocks where test1 misses chunks
+    // We need to miss more than THRESHOLD chunks to trigger exclusion
+    let mut last_index = 0;
+    for (i, (prev_block, curr_block)) in hashes.iter().zip(hashes.iter().skip(1)).enumerate() {
+        let height = (i + 1) as u64;
+        let current_epoch_id = em.get_epoch_id(prev_block).unwrap();
+
+        let epoch_info = em.get_epoch_info(&current_epoch_id).unwrap().clone();
+        let shard_layout = em.get_shard_layout(&current_epoch_id).unwrap();
+        let shard_id = shard_layout.get_shard_id(0).unwrap();
+
+        // test1 misses chunks until we exceed threshold
+        let chunk_producer =
+            epoch_info.sample_chunk_producer(&shard_layout, shard_id, height).unwrap();
+        let should_miss = chunk_producer == 0 && test1_missed_count < THRESHOLD + 1;
+        if should_miss {
+            test1_missed_count += 1;
+        }
+
+        let chunk_mask = vec![!should_miss];
+
+        let last_final_block_hash = if i == 0 { *prev_block } else { hashes[i - 1] };
+
+        em.record_block_info(
+            block_info(
+                *curr_block,
+                height,
+                height - 1,
+                last_final_block_hash,
+                *prev_block,
+                epoch_id.0,
+                chunk_mask,
+                total_supply,
+            ),
+            rng_seed,
+        )
+        .unwrap()
+        .commit()
+        .unwrap();
+
+        if test1_missed_count > THRESHOLD {
+            last_index = i + 1;
+            break;
+        } else {
+            let excluded = em.get_excluded_chunk_producers(&epoch_id, &curr_block).unwrap();
+            assert!(excluded.is_empty());
+        }
+    }
+
+    let last_block = hashes[last_index];
+    assert!(
+        test1_missed_count > THRESHOLD,
+        "test1 should have missed at least {} chunks, but only missed {}",
+        THRESHOLD + 1,
+        test1_missed_count
+    );
+
+    let excluded = em.get_excluded_chunk_producers(&epoch_id, &last_block).unwrap();
+    assert!(
+        excluded.contains(&0),
+        "test1 (validator_id 0) should be excluded after missing {} chunks (threshold: {})",
+        test1_missed_count,
+        THRESHOLD
+    );
+    assert!(!excluded.contains(&1), "test2 should not be excluded");
+
+    // Record an extra block to check if exclusion persists
+    let next_block = hashes[last_index];
+    let next_height = last_index as u64 + 1;
+    let extra_block = hashes[last_index + 1];
+    let extra_height = next_height + 1;
+
+    em.record_block_info(
+        block_info(
+            extra_block,
+            extra_height,
+            next_height,
+            next_block,
+            next_block,
+            epoch_id.0,
+            vec![true],
+            total_supply,
+        ),
+        rng_seed,
+    )
+    .unwrap()
+    .commit()
+    .unwrap();
+
+    // Check that exclusion persists after the extra block
+    let excluded_after_extra = em.get_excluded_chunk_producers(&epoch_id, &extra_block).unwrap();
+    assert!(
+        excluded_after_extra.contains(&0),
+        "test1 (validator_id 0) should still be excluded after extra block"
+    );
+    assert!(!excluded_after_extra.contains(&1), "test2 should not be excluded");
+}
+
 /// Test when all blocks are produced and all chunks are skipped, chunk
 /// validator is not kicked out.
 #[test]
