@@ -258,7 +258,7 @@ pub enum StateChangesRequest {
     AllAccessKeyChanges { account_ids: Vec<AccountId> },
     ContractCodeChanges { account_ids: Vec<AccountId> },
     DataChanges { account_ids: Vec<AccountId>, key_prefix: StoreKey },
-    // TODO(gas-keys): Add state changes request for gas key nonces.
+    GasKeyNonceChanges { keys: Vec<AccountWithPublicKey> },
 }
 
 #[derive(Debug)]
@@ -509,6 +509,19 @@ impl StateChanges {
                     state_change.value,
                     StateChangeValue::DataUpdate { .. } | StateChangeValue::DataDeletion { .. }
                 )
+            })
+            .collect())
+    }
+
+    pub fn from_gas_key_nonce_changes(
+        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
+    ) -> Result<StateChanges, std::io::Error> {
+        let state_changes = Self::from_changes(raw_changes)?;
+
+        Ok(state_changes
+            .into_iter()
+            .filter(|state_change| {
+                matches!(state_change.value, StateChangeValue::GasKeyNonceUpdate { .. })
             })
             .collect())
     }

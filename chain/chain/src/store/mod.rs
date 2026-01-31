@@ -734,6 +734,22 @@ impl ChainStore {
                 }
                 changes
             }
+            StateChangesRequest::GasKeyNonceChanges { keys } => {
+                let mut changes = StateChanges::new();
+                for key in keys {
+                    // Gas key nonces extend the access key raw key with a nonce index suffix,
+                    // so we use the access key as a prefix to find all nonces.
+                    let data_key = TrieKey::AccessKey {
+                        account_id: key.account_id.clone(),
+                        public_key: key.public_key.clone(),
+                    };
+                    let storage_key = KeyForStateChanges::from_trie_key(block_hash, &data_key);
+                    let changes_per_key_prefix = storage_key.find_iter(&store);
+                    changes
+                        .extend(StateChanges::from_gas_key_nonce_changes(changes_per_key_prefix)?);
+                }
+                changes
+            }
         })
     }
 

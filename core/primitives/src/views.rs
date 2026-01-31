@@ -2650,6 +2650,9 @@ pub enum StateChangesRequestView {
         #[serde(rename = "key_prefix_base64")]
         key_prefix: StoreKey,
     },
+    GasKeyNonceChanges {
+        keys: Vec<AccountWithPublicKey>,
+    },
 }
 
 impl From<StateChangesRequestView> for StateChangesRequest {
@@ -2669,6 +2672,9 @@ impl From<StateChangesRequestView> for StateChangesRequest {
             }
             StateChangesRequestView::DataChanges { account_ids, key_prefix } => {
                 Self::DataChanges { account_ids, key_prefix }
+            }
+            StateChangesRequestView::GasKeyNonceChanges { keys } => {
+                Self::GasKeyNonceChanges { keys }
             }
         }
     }
