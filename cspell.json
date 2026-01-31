@@ -249,6 +249,7 @@
         "nearvm",
         "netdev",
         "newtype",
+        "newtypes",
         "nextest",
         "nikurt",
         "nocapture",

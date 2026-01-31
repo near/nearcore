@@ -141,6 +141,81 @@ impl StatePart {
     }
 }
 
+/// Raw state part bytes as received from network or disk.
+/// This is the unvalidated input to the parsing and validation pipeline.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawStatePart(pub Vec<u8>);
+
+/// Parsed state part that has been successfully deserialized/decompressed.
+/// This represents a valid StatePart structure but has not been validated against the trie.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedStatePart(pub StatePart);
+
+/// Validated state part that has been checked against the trie and is safe to use.
+/// This is the only type that should be passed to functions that apply state parts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidatedStatePart(pub StatePart);
+
+impl RawStatePart {
+    /// Parse raw bytes into a ParsedStatePart using the given protocol version.
+    pub fn parse(
+        self,
+        protocol_version: ProtocolVersion,
+    ) -> Result<ParsedStatePart, borsh::io::Error> {
+        let state_part = StatePart::from_bytes(self.0, protocol_version)?;
+        Ok(ParsedStatePart(state_part))
+    }
+}
+
+impl ParsedStatePart {
+    /// Get the underlying StatePart for inspection.
+    pub fn state_part(&self) -> &StatePart {
+        &self.0
+    }
+}
+
+impl ValidatedStatePart {
+    /// Get the underlying StatePart.
+    pub fn state_part(&self) -> &StatePart {
+        &self.0
+    }
+
+    /// Convert to bytes for storage using the given protocol version.
+    pub fn to_bytes(&self, protocol_version: ProtocolVersion) -> Vec<u8> {
+        self.0.to_bytes(protocol_version)
+    }
+
+    /// Create a ValidatedStatePart from bytes that were previously validated and stored.
+    ///
+    /// SAFETY: Only use this for data read from trusted local storage (e.g., DBCol::StateParts)
+    /// where the data was validated before being stored. Do NOT use for data from the network.
+    pub fn from_trusted_store_bytes(
+        bytes: Vec<u8>,
+        protocol_version: ProtocolVersion,
+    ) -> Result<Self, borsh::io::Error> {
+        let state_part = StatePart::from_bytes(bytes, protocol_version)?;
+        Ok(Self(state_part))
+    }
+
+    /// Wrap a StatePart that is known to be valid from a trusted source.
+    ///
+    /// Use cases:
+    /// - Parts generated locally via `obtain_state_part` (self-generated, inherently valid)
+    /// - Test code where parts are constructed directly
+    ///
+    /// Do NOT use for parts received from the network - use `validate_state_part_bytes` instead.
+    pub fn from_trusted_source(part: StatePart) -> Self {
+        Self(part)
+    }
+}
+
+/// Errors that can occur during state part validation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ValidationError {
+    DeserializationFailed,
+    TrieValidationFailed,
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -223,5 +298,30 @@ mod tests {
         let err = decompression_result.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
         assert_eq!(err.to_string(), "decompression limit exceeded");
+    }
+
+    #[test]
+    fn test_newtype_validation_flow() {
+        use super::{RawStatePart, ValidatedStatePart};
+
+        let protocol_version = ProtocolFeature::StatePartsCompression.protocol_version();
+        let partial_state = dummy_partial_state();
+        let state_part = StatePart::from_partial_state(partial_state, protocol_version, 1);
+
+        // Test the newtype flow: RawStatePart -> ParsedStatePart -> ValidatedStatePart
+        let bytes = state_part.to_bytes(protocol_version);
+        let raw_part = RawStatePart(bytes.clone());
+
+        // Parse raw bytes
+        let parsed_part = raw_part.parse(protocol_version).unwrap();
+        assert_eq!(parsed_part.state_part(), &state_part);
+
+        // Validation is performed in higher layers (runtime) where the Trie is available.
+        // Here we only ensure the newtypes and roundtrip work.
+        let validated_part = ValidatedStatePart(parsed_part.state_part().clone());
+
+        // Test that we can convert back to bytes
+        let bytes_again = validated_part.to_bytes(protocol_version);
+        assert_eq!(bytes, bytes_again);
     }
 }
