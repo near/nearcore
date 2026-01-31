@@ -52,13 +52,13 @@ pub enum RpcQueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Access key for public key {public_key} has never been observed on the node")]
+    #[error("Access key for public key {public_key} does not exist while viewing")]
     UnknownAccessKey {
         public_key: near_crypto::PublicKey,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Gas key for public key {public_key} has never been observed on the node")]
+    #[error("Gas key for public key {public_key} does not exist while viewing")]
     UnknownGasKey {
         public_key: near_crypto::PublicKey,
         block_height: near_primitives::types::BlockHeight,
