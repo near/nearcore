@@ -258,7 +258,6 @@ pub enum StateChangesRequest {
     AllAccessKeyChanges { account_ids: Vec<AccountId> },
     ContractCodeChanges { account_ids: Vec<AccountId> },
     DataChanges { account_ids: Vec<AccountId>, key_prefix: StoreKey },
-    // TODO(gas-keys): Add state changes request for gas key nonces.
 }
 
 #[derive(Debug)]
@@ -475,6 +474,7 @@ impl StateChanges {
                     state_change.value,
                     StateChangeValue::AccessKeyUpdate { .. }
                         | StateChangeValue::AccessKeyDeletion { .. }
+                        | StateChangeValue::GasKeyNonceUpdate { .. }
                 )
             })
             .collect())
