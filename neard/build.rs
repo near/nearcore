@@ -116,6 +116,34 @@ fn get_enabled_features() -> String {
     features.join(", ")
 }
 
+/// Set CXXFLAGS environment variable to -include cstdint. This fixes compilation bug for
+/// rocksdb-sys when using GNU's standard libc++ (libstdc++). This isn't a problem with LLVMs
+/// libc++  because cstdint is a transitive include. Setting this flag doesn't do any harm either
+/// way. It just ensures consistent builds on more platforms.
+fn set_cxxflags_for_libstdcpp() {
+    // Linux colmonly uses libstdc++ instead of LLVM's libc++. MacOS systems use libc++
+    // but adding the flag doesn't cause problems, so just add it for all UNIX likes.
+    // Windows with MinGQ/MSYS2 is likely also affected.
+    if !cfg!(any(unix, all(windows, target_env = "gnu"))) {
+        return;
+    }
+
+    let cstdint_flag = "-include cstdint";
+    if let Ok(cxx_flags) = std::env::var("CXXFLAGS") {
+        if !cxx_flags.contains(cstdint_flag) {
+            let new_flags = format!("{cxx_flags} {cstdint_flag}");
+            unsafe {
+                std::env::set_var("CXXFLAGS", &new_flags);
+            }
+        }
+    } else {
+        unsafe {
+            std::env::set_var("CXXFLAGS", cstdint_flag);
+        }
+    }
+    println!("cargo:rerun-if-env-changed=CXXFLAGS");
+}
+
 fn main() {
     if let Err(err) = try_main() {
         eprintln!("{}", err);
@@ -141,6 +169,8 @@ fn try_main() -> Result<()> {
     println!("cargo:rustc-env=NEARD_RUSTC_VERSION={}", rustc_version::version()?);
 
     println!("cargo:rustc-env=NEARD_FEATURES={}", get_enabled_features());
+
+    set_cxxflags_for_libstdcpp();
 
     Ok(())
 }
