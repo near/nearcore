@@ -3,7 +3,7 @@ use crate::store::utils::{
     get_block_header_on_chain_by_height, get_chunk_clone_from_header,
     get_incoming_receipts_for_shard,
 };
-use crate::types::{RuntimeAdapter, StatePartValidationResult, StateRootNodeValidationResult};
+use crate::types::{RuntimeAdapter, StateRootNodeValidationResult};
 use crate::validate::validate_chunk_proofs;
 use crate::{ReceiptFilter, byzantine_assert, metrics};
 use near_async::time::{Clock, Instant};
@@ -535,26 +535,36 @@ impl ChainStateSyncAdapter {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
         let state_root = *chunk.take_header().take_inner().prev_state_root();
-        if matches!(
-            self.runtime_adapter.validate_state_part(shard_id, &state_root, part_id, part),
-            StatePartValidationResult::Invalid
-        ) {
-            byzantine_assert!(false);
-            return Err(Error::Other(format!(
-                "set_state_part failed: validate_state_part failed. state_root={:?}",
-                state_root
-            )));
-        }
         let epoch_id = self.epoch_manager.get_epoch_id(&sync_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
-        // Saving the part data.
-        let mut store_update = self.chain_store.store().store_update();
-        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.idx))?;
+        // Convert to bytes first
         let bytes = part.to_bytes(protocol_version);
-        store_update.set(DBCol::StateParts, &key, &bytes);
-        store_update.commit()?;
-        Ok(())
+
+        // Validate bytes and get ValidatedStatePart
+        match self.runtime_adapter.validate_state_part_bytes(
+            shard_id,
+            &state_root,
+            part_id,
+            protocol_version,
+            &bytes,
+        ) {
+            Ok(_validated_part) => {
+                // Saving the part data.
+                let mut store_update = self.chain_store.store().store_update();
+                let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.idx))?;
+                store_update.set(DBCol::StateParts, &key, &bytes);
+                store_update.commit()?;
+                Ok(())
+            }
+            Err(_) => {
+                byzantine_assert!(false);
+                Err(Error::Other(format!(
+                    "set_state_part failed: validate_state_part_bytes failed. state_root={:?}",
+                    state_root
+                )))
+            }
+        }
     }
 
     pub fn get_requested_state_parts(&self) -> Vec<RequestedStatePartsView> {

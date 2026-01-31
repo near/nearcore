@@ -608,13 +608,28 @@ pub trait RuntimeAdapter: Send + Sync {
         part: &StatePart,
     ) -> StatePartValidationResult;
 
+    /// Validate raw state part bytes and return a ValidatedStatePart if successful.
+    /// This is the new validation method that encapsulates parsing and validation.
+    fn validate_state_part_bytes(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        part_id: PartId,
+        protocol_version: near_primitives::version::ProtocolVersion,
+        bytes: &[u8],
+    ) -> Result<
+        near_primitives::state_part::ValidatedStatePart,
+        near_primitives::state_part::ValidationError,
+    >;
+
     /// Should be executed after accepting all the parts to set up a new state.
+    /// Takes a ValidatedStatePart to ensure the part was validated before being applied.
     fn apply_state_part(
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
         part_id: PartId,
-        part: &StatePart,
+        part: &near_primitives::state_part::ValidatedStatePart,
         epoch_id: &EpochId,
     ) -> Result<(), Error>;
 
