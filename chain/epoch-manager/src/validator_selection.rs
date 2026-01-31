@@ -758,7 +758,8 @@ mod tests {
             let shard_index = shard_info.shard_index();
             let shard_id = shard_info.shard_id();
             for h in 0..100_000 {
-                let cp = epoch_info.sample_chunk_producer(&shard_layout, shard_id, h);
+                let cp =
+                    epoch_info.sample_chunk_producer(&shard_layout, shard_id, h, HashSet::new());
                 // Don't read too much into this. The reason the ValidatorId always
                 // equals the ShardId is because the validators are assigned to shards in order.
                 assert_eq!(cp, Some(shard_index as u64))
@@ -792,7 +793,9 @@ mod tests {
         for shard_id in shard_layout.shard_ids() {
             let mut counts: [i32; 2] = [0, 0];
             for h in 0..100_000 {
-                let cp = epoch_info.sample_chunk_producer(&shard_layout, shard_id, h).unwrap();
+                let cp = epoch_info
+                    .sample_chunk_producer(&shard_layout, shard_id, h, HashSet::new())
+                    .unwrap();
                 // if ValidatorId is in the second half then it is the lower
                 // stake validator (because they are sorted by decreasing stake).
                 let index = if cp >= num_shards { 1 } else { 0 };
