@@ -89,6 +89,7 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
         current_protocol_version: PROTOCOL_VERSION,
         config: Arc::new(RuntimeConfig::test()),
         cache: Some(Box::new(FilesystemContractRuntimeCache::test().unwrap())),
+        call_preparation_cache: None,
         is_new_chunk: true,
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),

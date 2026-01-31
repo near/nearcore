@@ -580,6 +580,22 @@ pub(crate) static PIPELINING_ACTIONS_TASK_WORKING_TIME: LazyLock<Counter> = Lazy
     .unwrap()
 });
 
+pub(crate) static SYNC_CALL_PREPARED_CACHE_HITS: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_sync_call_prepared_cache_hits_total",
+        "Number of sync call prepared contracts loaded from the prefetch cache.",
+    )
+    .unwrap()
+});
+
+pub(crate) static SYNC_CALL_PREPARED_CACHE_MISSES: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_sync_call_prepared_cache_misses_total",
+        "Number of sync call prepared contracts missing from the prefetch cache.",
+    )
+    .unwrap()
+});
+
 /// Buckets used for burned gas in receipts.
 ///
 /// The maximum possible is 1300 Tgas for a full chunk.

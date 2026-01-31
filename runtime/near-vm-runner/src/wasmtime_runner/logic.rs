@@ -2986,6 +2986,94 @@ pub fn promise_batch_action_function_call_weight(
     )
 }
 
+/// Executes a synchronous contract call and writes the outcome into a register.
+///
+/// # Errors
+///
+/// * If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
+///   `arguments_len + arguments_ptr` or `amount_ptr + 16` points outside the memory of the guest
+///   or host returns `MemoryAccessViolation`.
+/// * If called as view function returns `ProhibitedInView`.
+///
+/// # Returns
+///
+/// Length of the serialized outcome written to `register_id`.
+pub fn call(
+    caller: &mut Caller<'_, Ctx>,
+    account_id_len: u64,
+    account_id_ptr: u64,
+    method_name_len: u64,
+    method_name_ptr: u64,
+    arguments_len: u64,
+    arguments_ptr: u64,
+    amount_ptr: u64,
+    gas: u64,
+    register_id: u64,
+) -> Result<u64> {
+    let memory = get_memory(caller)?;
+    let (memory, ctx) = memory.data_and_store_mut(caller);
+    ctx.result_state.gas_counter.pay_base(base)?;
+    if ctx.context.is_view() {
+        return Err(HostError::ProhibitedInView { method_name: "call".to_string() }.into());
+    }
+    let receiver_id = read_and_parse_account_id(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        &ctx.config,
+        account_id_ptr,
+        account_id_len,
+    )?;
+    let amount =
+        Balance::from_yoctonear(get_u128(&mut ctx.result_state.gas_counter, memory, amount_ptr)?);
+    let gas = Gas::from_gas(gas);
+    let method_name = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        method_name_ptr,
+        method_name_len,
+    )?;
+    if method_name.is_empty() {
+        return Err(HostError::EmptyMethodName.into());
+    }
+    let arguments = get_memory_or_register(
+        &mut ctx.result_state.gas_counter,
+        memory,
+        &ctx.registers,
+        arguments_ptr,
+        arguments_len,
+    )?;
+
+    let method_name = method_name.to_owned();
+    let arguments = arguments.to_owned();
+    let num_bytes = method_name.len() as u64 + arguments.len() as u64;
+    pay_action_base(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::function_call_base,
+        true,
+    )?;
+    pay_action_per_byte(
+        &mut ctx.result_state.gas_counter,
+        &ctx.fees_config,
+        ActionCosts::function_call_byte,
+        num_bytes,
+        true,
+    )?;
+    ctx.result_state.gas_counter.prepay_gas(gas)?;
+    ctx.result_state.deduct_balance(amount)?;
+
+    let outcome = ctx.ext.call(receiver_id, method_name, arguments, amount, gas)?;
+    ctx.registers.set(
+        &mut ctx.result_state.gas_counter,
+        &ctx.config.limit_config,
+        register_id,
+        &outcome,
+    )?;
+    Ok(outcome.len() as u64)
+}
+
 /// Appends `Transfer` action to the batch of actions for the given promise pointed by
 /// `promise_idx`.
 ///

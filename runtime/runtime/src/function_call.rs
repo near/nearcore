@@ -1,7 +1,10 @@
 use crate::config::safe_add_compute;
 use crate::ext::{ExternalError, RuntimeExt};
+use crate::global_contracts::AccountContractAccessExt;
+use crate::pipelining::prepare_function_call;
 use crate::receipt_manager::ReceiptManager;
 use crate::{ActionResult, ApplyState, metrics};
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::RuntimeConfig;
 use near_primitives::account::Account;
 use near_primitives::config::ViewConfig;
@@ -13,18 +16,66 @@ use near_primitives::receipt::{
 };
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::types::{AccountId, EpochInfoProvider};
+use near_primitives_core::apply::ApplyChunkReason;
 use near_primitives_core::version::ProtocolFeature;
+use near_store::get_account;
 use near_store::{
     StorageError, TrieUpdate, enqueue_promise_yield_timeout, get_promise_yield_indices,
-    set_promise_yield_indices,
+    set_account, set_promise_yield_indices,
 };
 use near_vm_runner::PreparedContract;
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
-use near_vm_runner::logic::{VMContext, VMOutcome};
+use near_vm_runner::logic::types::ReturnData;
+use near_vm_runner::logic::{GasCounter, VMContext, VMOutcome};
 use std::rc::Rc;
 use std::sync::Arc;
+
+#[derive(BorshSerialize, BorshDeserialize)]
+pub(crate) enum CallReturnData {
+    None,
+    Value(Vec<u8>),
+}
+
+#[derive(BorshSerialize, BorshDeserialize)]
+pub(crate) struct CallOutcome {
+    pub balance: u128,
+    pub storage_usage: u64,
+    pub return_data: CallReturnData,
+    pub burnt_gas: u64,
+    pub used_gas: u64,
+    pub compute_usage: u64,
+    pub logs: Vec<String>,
+    pub aborted: Option<String>,
+}
+
+impl CallOutcome {
+    fn from_vm_outcome(outcome: VMOutcome) -> Self {
+        let mut aborted = outcome.aborted.map(|err| err.to_string());
+        let return_data = match outcome.return_data {
+            ReturnData::Value(value) => CallReturnData::Value(value),
+            ReturnData::None => CallReturnData::None,
+            ReturnData::ReceiptIndex(_) => {
+                if aborted.is_none() {
+                    aborted =
+                        Some("Receipt-based return data is not supported in calls.".to_string());
+                }
+                CallReturnData::None
+            }
+        };
+        CallOutcome {
+            balance: outcome.balance,
+            storage_usage: outcome.storage_usage,
+            return_data,
+            burnt_gas: outcome.burnt_gas.as_gas(),
+            used_gas: outcome.used_gas.as_gas(),
+            compute_usage: outcome.compute_usage,
+            logs: outcome.logs,
+            aborted,
+        }
+    }
+}
 
 pub(crate) fn action_function_call(
     state_update: &mut TrieUpdate,
@@ -65,15 +116,22 @@ pub(crate) fn action_function_call(
     let mut runtime_ext = RuntimeExt::new(
         state_update,
         &mut receipt_manager,
+        apply_state,
         account_id.clone(),
         account.clone(),
+        action_receipt.signer_id().clone(),
+        action_receipt.signer_public_key().clone(),
+        action_receipt.refund_to().clone(),
         *action_hash,
         apply_state.epoch_id,
         apply_state.block_height,
+        apply_state.shard_id,
         epoch_info_provider,
         apply_state.current_protocol_version,
         config.wasm_config.storage_get_mode,
         Arc::clone(&apply_state.trie_access_tracker_state),
+        true,
+        0,
     );
     let outcome = execute_function_call(
         contract,
@@ -342,6 +400,199 @@ pub(crate) fn execute_function_call(
     }
 
     Ok(outcome)
+}
+
+pub(crate) fn execute_call(
+    state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
+    epoch_info_provider: &dyn EpochInfoProvider,
+    caller_id: &AccountId,
+    signer_id: &AccountId,
+    signer_public_key: &near_crypto::PublicKey,
+    refund_to: Option<AccountId>,
+    receiver_id: AccountId,
+    function_call: FunctionCallAction,
+    action_hash: &CryptoHash,
+    call_depth: u32,
+) -> Result<Vec<u8>, RuntimeError> {
+    let Some(mut account) = get_account(state_update, &receiver_id)? else {
+        let outcome = CallOutcome {
+            balance: 0,
+            storage_usage: 0,
+            return_data: CallReturnData::None,
+            burnt_gas: 0,
+            used_gas: 0,
+            compute_usage: 0,
+            logs: Vec::new(),
+            aborted: Some(format!("Account {} does not exist", receiver_id)),
+        };
+        return borsh::to_vec(&outcome).map_err(|err| {
+            RuntimeError::StorageError(StorageError::StorageInconsistentState(format!(
+                "Failed to serialize call outcome: {err}",
+            )))
+        });
+    };
+
+    let account_contract = account.contract();
+    let code_hash = account_contract.into_owned().hash(state_update)?;
+    state_update.record_contract_call(
+        receiver_id.clone(),
+        code_hash,
+        account_contract.as_ref(),
+        apply_state.apply_reason.clone(),
+    )?;
+
+    #[cfg(feature = "test_features")]
+    apply_recorded_storage_garbage(&function_call, state_update);
+
+    let max_gas_burnt =
+        std::cmp::min(apply_state.config.wasm_config.limit_config.max_gas_burnt, function_call.gas);
+    let cache = apply_state.cache.as_ref().map(|v| v.handle());
+    let contract_storage = state_update.contract_storage();
+    let prefetched = apply_state
+        .call_preparation_cache
+        .as_deref()
+        .and_then(|prefetch_cache| prefetch_cache.take(code_hash, &function_call.method_name));
+    let contract = if let Some(contract) = prefetched {
+        metrics::SYNC_CALL_PREPARED_CACHE_HITS.inc();
+        contract
+    } else {
+        if apply_state.call_preparation_cache.is_some() {
+            metrics::SYNC_CALL_PREPARED_CACHE_MISSES.inc();
+        }
+        let gas_counter = GasCounter::new(
+            apply_state.config.wasm_config.ext_costs.clone(),
+            max_gas_burnt,
+            apply_state.config.wasm_config.regular_op_cost,
+            function_call.gas,
+            false,
+        );
+        prepare_function_call(
+            &contract_storage,
+            cache.as_deref(),
+            Arc::clone(&apply_state.config.wasm_config),
+            gas_counter,
+            code_hash,
+            &receiver_id,
+            &function_call.method_name,
+        )
+    };
+
+    let mut call_state_update = state_update.clone_for_tx_preparation();
+    let refund_to_clone = refund_to.clone();
+    let mut receipt_manager = ReceiptManager::default();
+    let mut runtime_ext = RuntimeExt::new(
+        &mut call_state_update,
+        &mut receipt_manager,
+        apply_state,
+        receiver_id.clone(),
+        account.clone(),
+        signer_id.clone(),
+        signer_public_key.clone(),
+        refund_to_clone,
+        *action_hash,
+        apply_state.epoch_id,
+        apply_state.block_height,
+        apply_state.shard_id,
+        epoch_info_provider,
+        apply_state.current_protocol_version,
+        apply_state.config.wasm_config.storage_get_mode,
+        Arc::clone(&apply_state.trie_access_tracker_state),
+        false,
+        call_depth,
+    );
+
+    let action_receipt =
+        if ProtocolFeature::DeterministicAccountIds.enabled(apply_state.current_protocol_version) {
+            VersionedActionReceipt::from(ActionReceiptV2 {
+                signer_id: signer_id.clone(),
+                refund_to,
+                signer_public_key: signer_public_key.clone(),
+                gas_price: apply_state.gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![],
+            })
+        } else {
+            VersionedActionReceipt::from(ActionReceipt {
+                signer_id: signer_id.clone(),
+                signer_public_key: signer_public_key.clone(),
+                gas_price: apply_state.gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![],
+            })
+        };
+
+    let outcome = execute_function_call(
+        contract,
+        apply_state,
+        &mut runtime_ext,
+        caller_id,
+        &action_receipt,
+        [].into(),
+        &function_call,
+        action_hash,
+        &apply_state.config,
+        true,
+        None,
+    )?;
+
+    let is_view = apply_state.apply_reason == ApplyChunkReason::ViewTrackedShard;
+    if is_view && (call_state_update.committed_len() > 0 || call_state_update.prospective_len() > 0)
+    {
+        return Err(RuntimeError::StorageError(StorageError::StorageInconsistentState(
+            "View call attempted to modify state".to_string(),
+        )));
+    }
+    if outcome.aborted.is_none() && !is_view {
+        let updates = call_state_update.take_prospective();
+        state_update.merge_prospective(updates);
+        account.set_amount(outcome.balance);
+        account.set_storage_usage(outcome.storage_usage);
+        set_account(state_update, receiver_id.clone(), &account);
+    }
+
+    let call_outcome = CallOutcome::from_vm_outcome(outcome);
+    borsh::to_vec(&call_outcome).map_err(|err| {
+        RuntimeError::StorageError(StorageError::StorageInconsistentState(format!(
+            "Failed to serialize call outcome: {err}",
+        )))
+    })
+}
+
+pub(crate) fn prefetch_call(
+    state_update: &TrieUpdate,
+    apply_state: &ApplyState,
+    receiver_id: &AccountId,
+    function_call: &FunctionCallAction,
+) -> Result<(), RuntimeError> {
+    let Some(prefetch_cache) = apply_state.call_preparation_cache.as_deref() else {
+        return Ok(());
+    };
+    let Some(account) = get_account(state_update, receiver_id)? else {
+        return Ok(());
+    };
+    let code_hash = account.contract().into_owned().hash(state_update)?;
+    let max_gas_burnt = apply_state.config.wasm_config.limit_config.max_gas_burnt;
+    let gas_counter = GasCounter::new(
+        apply_state.config.wasm_config.ext_costs.clone(),
+        max_gas_burnt,
+        apply_state.config.wasm_config.regular_op_cost,
+        function_call.gas,
+        false,
+    );
+    let cache = apply_state.cache.as_ref().map(|v| v.handle());
+    prefetch_cache.prefetch(
+        &state_update.contract_storage(),
+        cache.as_deref(),
+        Arc::clone(&apply_state.config.wasm_config),
+        gas_counter,
+        code_hash,
+        receiver_id,
+        &function_call.method_name,
+    );
+    Ok(())
 }
 
 /// See #11703 for more details

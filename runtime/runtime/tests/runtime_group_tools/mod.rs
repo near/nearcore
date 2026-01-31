@@ -112,6 +112,7 @@ impl StandaloneRuntime {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
             cache: None,
+            call_preparation_cache: None,
             is_new_chunk: true,
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),

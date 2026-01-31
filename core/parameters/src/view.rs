@@ -231,6 +231,8 @@ pub struct VMConfigView {
     pub discard_custom_sections: bool,
     /// See [VMConfig::global_contract_host_fns](crate::vm::Config::global_contract_host_fns).
     pub global_contract_host_fns: bool,
+    /// See [VMConfig::call_host_fns](crate::vm::Config::call_host_fns).
+    pub call_host_fns: bool,
     /// See [VMConfig::reftypes_bulk_memory](crate::vm::Config::reftypes_bulk_memory).
     pub reftypes_bulk_memory: bool,
     /// See [VMConfig::deterministic_account_ids](crate::vm::Config::deterministic_account_ids).
@@ -268,6 +270,7 @@ impl From<crate::vm::Config> for VMConfigView {
             vm_kind: config.vm_kind,
             eth_implicit_accounts: config.eth_implicit_accounts,
             global_contract_host_fns: config.global_contract_host_fns,
+            call_host_fns: config.call_host_fns,
             reftypes_bulk_memory: config.reftypes_bulk_memory,
             deterministic_account_ids: config.deterministic_account_ids,
         }
@@ -289,6 +292,7 @@ impl From<VMConfigView> for crate::vm::Config {
             vm_kind: view.vm_kind,
             eth_implicit_accounts: view.eth_implicit_accounts,
             global_contract_host_fns: view.global_contract_host_fns,
+            call_host_fns: view.call_host_fns,
             reftypes_bulk_memory: view.reftypes_bulk_memory,
             deterministic_account_ids: view.deterministic_account_ids,
         }
