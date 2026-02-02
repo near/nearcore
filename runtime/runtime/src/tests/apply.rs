@@ -1,10 +1,13 @@
 use super::GAS_PRICE;
+use crate::access_keys::initial_nonce_value;
 use crate::congestion_control::{compute_receipt_congestion_gas, compute_receipt_size};
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
     set_sha256_cost,
 };
-use crate::{ApplyResult, ApplyState, Runtime, ValidatorAccountsUpdate};
+use crate::{
+    ActionResult, ApplyResult, ApplyState, Runtime, ValidatorAccountsUpdate, action_add_key,
+};
 use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
@@ -12,7 +15,7 @@ use near_o11y::testonly::init_test_logger;
 use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::account::AccessKey;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
-use near_primitives::action::{Action, DeleteAccountAction};
+use near_primitives::action::{Action, DeleteAccountAction, TransferToGasKeyAction};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{
@@ -29,11 +32,12 @@ use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::test_utils::{MockEpochInfoProvider, account_new};
 use near_primitives::transaction::{
     AddKeyAction, DeleteKeyAction, DeployContractAction, ExecutionOutcomeWithId, ExecutionStatus,
-    FunctionCallAction, SignedTransaction, TransferAction,
+    FunctionCallAction, SignedTransaction, TransactionNonce, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, Balance, EpochId, EpochInfoProvider, Gas, MerkleHash, ShardId, StateChangeCause,
+    AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, MerkleHash, ShardId,
+    StateChangeCause,
 };
 use near_primitives::utils::create_receipt_id_from_transaction;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -41,8 +45,8 @@ use near_store::test_utils::TestTriesBuilder;
 use near_store::trie::AccessOptions;
 use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
 use near_store::{
-    MissingTrieValueContext, ShardTries, StorageError, Trie, get_account, set_access_key,
-    set_account,
+    MissingTrieValueContext, ShardTries, StorageError, Trie, get_access_key, get_account,
+    get_gas_key_nonce, set_access_key, set_account,
 };
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
 use std::collections::HashSet;
@@ -3534,5 +3538,208 @@ fn test_expired_transaction() {
             0,
             "should have not produced any outcomes for the expired tx"
         );
+    }
+}
+
+#[test]
+fn test_gas_key_burn_not_reported_on_failed_receipt() {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version = ProtocolFeature::GasKeys.protocol_version();
+
+    let gas_key_pk =
+        InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "gas_key").public_key();
+    let deposit_amount = Balance::from_near(1);
+
+    // Phase 1: Add a gas key and fund it.
+    let setup_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key: gas_key_pk.clone(),
+                access_key: AccessKey::gas_key_full_access(2),
+            })),
+            Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+                public_key: gas_key_pk.clone(),
+                deposit: deposit_amount,
+            })),
+        ],
+    );
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[setup_receipt],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    assert!(matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_)));
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit().unwrap();
+
+    // Verify gas key was created and funded.
+    let state = tries.new_trie_update(ShardUId::single_shard(), root);
+    let access_key = get_access_key(&state, &alice_account(), &gas_key_pk).unwrap().unwrap();
+    assert_eq!(access_key.gas_key_info().unwrap().balance, deposit_amount);
+
+    // Phase 2: Multi-action receipt where a gas key deletion is followed by a
+    // failing action. The entire receipt should fail and state should roll back,
+    // so the gas key balance must NOT be reported as burned.
+    let nonexistent_pk =
+        InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "nonexistent").public_key();
+    let test_receipt = create_receipt_with_actions(
+        alice_account(),
+        signers[0].clone(),
+        vec![
+            Action::DeleteKey(Box::new(DeleteKeyAction { public_key: gas_key_pk.clone() })),
+            Action::DeleteKey(Box::new(DeleteKeyAction { public_key: nonexistent_pk })),
+        ],
+    );
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[test_receipt],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let outcome = &apply_result.outcomes[0].outcome;
+    assert!(matches!(outcome.status, ExecutionStatus::Failure(_)));
+    // tokens_burnt must not include the gas key balance — only gas costs.
+    assert!(
+        outcome.tokens_burnt < deposit_amount,
+        "tokens_burnt ({}) should not include gas key balance ({})",
+        outcome.tokens_burnt,
+        deposit_amount,
+    );
+
+    // Gas key should still exist with its balance after rollback.
+    let mut store_update = tries.store_update();
+    let root =
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    store_update.commit().unwrap();
+    let state = tries.new_trie_update(ShardUId::single_shard(), root);
+    let access_key = get_access_key(&state, &alice_account(), &gas_key_pk).unwrap().unwrap();
+    assert_eq!(access_key.gas_key_info().unwrap().balance, deposit_amount);
+}
+
+#[test]
+fn test_apply_gas_key_transaction() {
+    const GAS_KEY_BLOCK_HEIGHT: BlockHeight = 10;
+    let num_nonces = 3;
+
+    let initial_balance = Balance::from_near(1_000_000);
+    let transfer_amount = Balance::from_near(100);
+    let (runtime, tries, root, mut apply_state, _signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        initial_balance,
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+
+    // Enable gas keys protocol feature
+    apply_state.current_protocol_version = ProtocolFeature::GasKeys.protocol_version();
+    apply_state.block_height = GAS_KEY_BLOCK_HEIGHT;
+
+    let shard_uid = ShardUId::single_shard();
+    let mut state_update = tries.new_trie_update(shard_uid, root);
+
+    // Get alice's account and add gas key using action_add_key
+    let mut alice_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
+    let gas_key_signer = Arc::new(InMemorySigner::from_seed(
+        alice_account(),
+        near_crypto::KeyType::ED25519,
+        "gas_key_seed",
+    ));
+    let gas_key = AccessKey::gas_key_full_access(num_nonces);
+    let add_key_action =
+        AddKeyAction { public_key: gas_key_signer.public_key(), access_key: gas_key };
+    let mut result = ActionResult::default();
+    action_add_key(
+        &apply_state,
+        &mut state_update,
+        &mut alice_account_state,
+        &mut result,
+        &alice_account(),
+        &add_key_action,
+    )
+    .unwrap();
+    set_account(&mut state_update, alice_account(), &alice_account_state);
+
+    // Commit the state changes
+    state_update.commit(StateChangeCause::InitialState);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+    store_update.commit().unwrap();
+
+    // Get the initial nonce value
+    let initial_nonce = initial_nonce_value(GAS_KEY_BLOCK_HEIGHT);
+    let nonce_index = 1;
+
+    // Create a gas key transaction
+    let gas_key_tx = SignedTransaction::from_actions_v1(
+        TransactionNonce::from_nonce_and_index(initial_nonce + 1, nonce_index),
+        alice_account(),
+        bob_account(),
+        &*gas_key_signer,
+        vec![Action::Transfer(TransferAction { deposit: transfer_amount })],
+        CryptoHash::default(),
+    );
+
+    // Apply the transaction
+    let signed_valid_period_txs = SignedValidPeriodTransactions::new(vec![gas_key_tx], vec![true]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .expect("apply should succeed");
+
+    // Verify transaction produced an outcome
+    assert_eq!(apply_result.outcomes.len(), 1, "should have one outcome for gas key tx");
+    let outcome = &apply_result.outcomes[0];
+    assert_matches!(&outcome.outcome.status, ExecutionStatus::SuccessReceiptId(_));
+
+    // Commit apply result and verify state changes
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+
+    // Verify gas key nonce was updated
+    let new_nonce =
+        get_gas_key_nonce(&state, &alice_account(), &gas_key_signer.public_key(), nonce_index)
+            .unwrap()
+            .expect("gas key nonce should exist");
+    assert_eq!(new_nonce, initial_nonce + 1, "gas key nonce should be updated");
+
+    // Verify other gas key nonces are unchanged
+    for index in 0..num_nonces {
+        if index == nonce_index {
+            continue;
+        }
+        let other_nonce =
+            get_gas_key_nonce(&state, &alice_account(), &gas_key_signer.public_key(), index)
+                .unwrap()
+                .expect("gas key nonce should exist");
+        assert_eq!(other_nonce, initial_nonce, "other gas key nonce should be unchanged");
     }
 }

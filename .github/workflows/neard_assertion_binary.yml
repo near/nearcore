@@ -1,22 +1,15 @@
-name: Neard custom binary release
+name: Neard Assertion binary release
 
 on:
+  schedule:
+    - cron: '23 */8 * * *'
+
   workflow_dispatch:
     inputs:
       branch:
         default: 'master'
         description: "Nearcore branch to build and publish"
         type: string
-        required: true
-      release-type:
-        default: 'release'
-        description: "Release type, see binary_release.sh for more details"
-        type: choice
-        options:
-          - release
-          - nightly-release
-          - assertions-release
-          - test-features-release
         required: true
 
 jobs:
@@ -25,7 +18,6 @@ jobs:
     runs-on: warp-ubuntu-2404-x64-16x
     environment: deploy
     permissions:
-      contents: read
       id-token: write # required to use OIDC authentication
 
     steps:
@@ -42,5 +34,17 @@ jobs:
           ref: ${{ github.event.inputs.branch }}
           persist-credentials: false
 
+      - name: Checkout nearcore repository
+        if: ${{ github.event_name != 'workflow_dispatch'}}
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - name: Neard binary build and upload to S3
-        run: ./scripts/binary_release.sh ${{ github.event.inputs.release-type }}
+        run: ./scripts/binary_release.sh assertions-release
+
+      - name: Update latest version metadata in S3
+        run: |
+          echo $(git rev-parse HEAD) > latest
+          BRANCH=$(git branch --show-current)
+          aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${BRANCH}/latest-assertions

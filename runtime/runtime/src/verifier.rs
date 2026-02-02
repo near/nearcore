@@ -258,6 +258,19 @@ pub fn verify_and_charge_tx_ephemeral(
     block_height: Option<BlockHeight>,
     protocol_version: ProtocolVersion,
 ) -> Result<VerificationResult, InvalidTxError> {
+    // It's the caller's responsibility to NOT call this function for transactions with
+    // nonce_index (i.e. gas key transactions).
+    assert!(
+        tx.nonce().nonce_index().is_none(),
+        "verify_and_charge_tx_ephemeral called for gas key transaction"
+    );
+    // Gas keys must be used via gas key transaction path (with nonce_index)
+    if let Some(gas_key_info) = access_key.gas_key_info() {
+        return Err(InvalidTxError::InvalidNonceIndex {
+            tx_nonce_index: None,
+            num_nonces: gas_key_info.num_nonces,
+        });
+    }
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
     let account_id = tx.signer_id();
@@ -323,7 +336,102 @@ pub fn verify_and_charge_tx_ephemeral(
     }
     access_key.nonce = tx_nonce;
     account.set_amount(new_amount);
-    Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
+    Ok(VerificationResult {
+        gas_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        burnt_amount,
+        gas_key_nonce_update: None,
+    })
+}
+
+/// Verify and charge for gas key transactions.
+///
+/// Similar to `verify_and_charge_tx_ephemeral` but for gas keys where the nonce
+/// is stored separately from the access key.
+///
+/// The new nonce is returned in `VerificationResult.gas_key_nonce_update`.
+///
+/// TODO(gas-keys): Charge gas key balance instead of account balance.
+pub fn verify_and_charge_gas_key_tx_ephemeral(
+    config: &RuntimeConfig,
+    account: &mut Account,
+    access_key: &AccessKey,
+    current_nonce: Nonce,
+    tx: &Transaction,
+    transaction_cost: &TransactionCost,
+    block_height: Option<BlockHeight>,
+) -> Result<VerificationResult, InvalidTxError> {
+    // It's the caller's responsibility to ONLY call this function for transactions with
+    // nonce_index (i.e. gas key transactions).
+    let Some(nonce_index) = tx.nonce().nonce_index() else {
+        panic!("verify_and_charge_gas_key_tx_ephemeral called for non-gas key transaction")
+    };
+
+    let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
+        *transaction_cost;
+    let account_id = tx.signer_id();
+
+    // Validate that access key is a gas key
+    let Some(gas_key_info) = access_key.gas_key_info() else {
+        return Err(InvalidTxError::InvalidAccessKeyError(
+            InvalidAccessKeyError::AccessKeyNotFound {
+                account_id: account_id.clone(),
+                public_key: Box::new(tx.public_key().clone()),
+            },
+        ));
+    };
+
+    // Validate nonce_index is in valid range
+    if nonce_index >= gas_key_info.num_nonces {
+        return Err(InvalidTxError::InvalidNonceIndex {
+            tx_nonce_index: Some(nonce_index),
+            num_nonces: gas_key_info.num_nonces,
+        });
+    }
+
+    let tx_nonce = tx.nonce().nonce();
+    verify_nonce(tx_nonce, current_nonce, block_height)?;
+
+    // Check and deduct balance
+    // TODO(gas-keys): Charge gas key balance instead of account balance
+    let balance = account.amount();
+    let Some(new_amount) = balance.checked_sub(total_cost) else {
+        return Err(InvalidTxError::NotEnoughBalance {
+            signer_id: account_id.clone(),
+            balance,
+            cost: total_cost,
+        });
+    };
+
+    // Gas keys don't have allowance (it's always None for GasKeyFullAccess/GasKeyFunctionCall)
+
+    match check_storage_stake(account, new_amount, config) {
+        Ok(()) => {}
+        Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
+            return Err(InvalidTxError::LackBalanceForState {
+                signer_id: account_id.clone(),
+                amount,
+            });
+        }
+        Err(StorageStakingError::StorageError(err)) => {
+            return Err(StorageError::StorageInconsistentState(err).into());
+        }
+    };
+
+    // Validate FunctionCall permission constraints if applicable
+    if let Some(function_call_permission) = access_key.permission.function_call_permission() {
+        verify_function_call_permission(function_call_permission, tx)?;
+    }
+
+    account.set_amount(new_amount);
+    Ok(VerificationResult {
+        gas_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        burnt_amount,
+        gas_key_nonce_update: Some((nonce_index, tx_nonce)),
+    })
 }
 
 /// Validates a given receipt. Checks validity of the Action or Data receipt.
@@ -615,9 +723,10 @@ fn validate_add_key_action(
             }
         }
 
-        // TODO(gas-keys): consider making 0 nonces invalid.
-        if gas_key_info.num_nonces > AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY {
-            return Err(ActionsValidationError::GasKeyTooManyNoncesRequested {
+        if gas_key_info.num_nonces == 0
+            || gas_key_info.num_nonces > AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY
+        {
+            return Err(ActionsValidationError::GasKeyInvalidNumNonces {
                 requested_nonces: gas_key_info.num_nonces,
                 limit: AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY,
             });
@@ -790,14 +899,19 @@ fn truncate_string(s: &str, limit: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::access_keys::{action_add_key, initial_nonce_value};
     use crate::config::tx_cost;
     use crate::near_primitives::shard_layout::ShardUId;
     use crate::near_primitives::trie_key::TrieKey;
+    use crate::{ActionResult, ApplyState};
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
     use near_primitives::action::GlobalContractIdentifier;
     use near_primitives::action::TransferToGasKeyAction;
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
+    use near_primitives::apply::ApplyChunkReason;
+    use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
+    use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::deterministic_account_id::{
         DeterministicAccountStateInit, DeterministicAccountStateInitV1,
     };
@@ -805,13 +919,15 @@ mod tests {
     use near_primitives::receipt::ActionReceipt;
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
-        CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction, TransactionNonce,
-        TransferAction,
+        AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction,
+        TransactionNonce, TransferAction,
     };
-    use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
-    use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::types::{
+        AccountId, Balance, BlockHeight, EpochId, MerkleHash, NonceIndex, StateChangeCause,
+    };
+    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use near_store::test_utils::TestTriesBuilder;
-    use near_store::{set, set_access_key, set_account};
+    use near_store::{get_gas_key_nonce, set, set_access_key, set_account};
     use near_vm_runner::ContractCode;
     use std::collections::BTreeMap;
     use std::sync::Arc;
@@ -925,6 +1041,82 @@ mod tests {
         )
     }
 
+    const TEST_GAS_KEY_BLOCK_HEIGHT: BlockHeight = 10;
+
+    fn create_apply_state(block_height: BlockHeight) -> ApplyState {
+        ApplyState {
+            apply_reason: ApplyChunkReason::UpdateTrackedShard,
+            block_height,
+            prev_block_hash: CryptoHash::default(),
+            shard_id: ShardUId::single_shard().shard_id(),
+            epoch_id: EpochId::default(),
+            epoch_height: 3,
+            gas_price: Balance::from_yoctonear(100),
+            block_timestamp: 1,
+            gas_limit: None,
+            random_seed: CryptoHash::default(),
+            current_protocol_version: ProtocolFeature::GasKeys.protocol_version(),
+            config: Arc::new(RuntimeConfig::test()),
+            cache: None,
+            is_new_chunk: false,
+            congestion_info: BlockCongestionInfo::default(),
+            bandwidth_requests: BlockBandwidthRequests::empty(),
+            trie_access_tracker_state: Default::default(),
+            on_post_state_ready: None,
+        }
+    }
+
+    /// Sets up an account with a gas key using action_add_key.
+    /// Returns (signer, state_update, gas_price, initial_nonce).
+    fn setup_gas_key_account(
+        initial_balance: Balance,
+        num_nonces: NonceIndex,
+        function_call_permission: Option<FunctionCallPermission>,
+    ) -> (Arc<Signer>, TrieUpdate, Balance, Nonce) {
+        let tries = TestTriesBuilder::new().build();
+        let root = MerkleHash::default();
+        let account_id = alice_account();
+        let signer: Arc<Signer> = Arc::new(InMemorySigner::test_signer(&account_id));
+
+        let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
+        let mut account = account_new(initial_balance, CryptoHash::default());
+        set_account(&mut state_update, account_id.clone(), &account);
+
+        // Use action_add_key to add the gas key (initializes nonces)
+        let gas_key = match function_call_permission {
+            Some(perm) => AccessKey::gas_key_function_call(num_nonces, perm),
+            None => AccessKey::gas_key_full_access(num_nonces),
+        };
+        let apply_state = create_apply_state(TEST_GAS_KEY_BLOCK_HEIGHT);
+        let action = AddKeyAction { public_key: signer.public_key(), access_key: gas_key };
+        let mut result = ActionResult::default();
+        action_add_key(
+            &apply_state,
+            &mut state_update,
+            &mut account,
+            &mut result,
+            &account_id,
+            &action,
+        )
+        .unwrap();
+        assert!(result.result.is_ok(), "action_add_key failed: {:?}", result.result);
+        set_account(&mut state_update, account_id.clone(), &account);
+
+        // Commit initial state
+        state_update.commit(StateChangeCause::InitialState);
+        let trie_changes = state_update.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit().unwrap();
+
+        (
+            signer,
+            tries.new_trie_update(ShardUId::single_shard(), root),
+            Balance::from_yoctonear(100),
+            initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT),
+        )
+    }
+
     fn assert_err_both_validations(
         config: &RuntimeConfig,
         state_update: &TrieUpdate,
@@ -985,17 +1177,34 @@ mod tests {
             Err((err, _tx)) => return Err(err),
         };
         let (mut signer, mut access_key) = get_signer_and_access_key(state_update, &validated_tx)?;
-
         let transaction_cost = tx_cost(config, &validated_tx.to_tx(), gas_price)?;
-        let vr = verify_and_charge_tx_ephemeral(
-            config,
-            &mut signer,
-            &mut access_key,
-            validated_tx.to_tx(),
-            &transaction_cost,
-            block_height,
-            current_protocol_version,
-        )?;
+        let tx = validated_tx.to_tx();
+
+        // Check if this is a gas key transaction
+        let vr = if let Some(nonce_index) = tx.nonce().nonce_index() {
+            let current_nonce =
+                get_gas_key_nonce(state_update, tx.signer_id(), tx.public_key(), nonce_index)?
+                    .unwrap_or(0);
+            verify_and_charge_gas_key_tx_ephemeral(
+                config,
+                &mut signer,
+                &access_key,
+                current_nonce,
+                tx,
+                &transaction_cost,
+                block_height,
+            )?
+        } else {
+            verify_and_charge_tx_ephemeral(
+                config,
+                &mut signer,
+                &mut access_key,
+                tx,
+                &transaction_cost,
+                block_height,
+                current_protocol_version,
+            )?
+        };
         set_tx_state_changes(state_update, &validated_tx, &signer, &access_key);
         Ok(vr)
     }
@@ -2515,25 +2724,30 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_add_gas_key_too_many_nonces_requested() {
+    fn test_validate_add_gas_key_invalid_num_nonces() {
         let limit_config = test_limit_config();
-        let num_nonces = AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY + 1;
-        assert_eq!(
-            validate_action(
-                &limit_config,
-                &Action::AddKey(Box::new(AddKeyAction {
-                    public_key: PublicKey::empty(KeyType::ED25519),
-                    access_key: AccessKey::gas_key_full_access(num_nonces),
-                })),
-                &"alice.near".parse().unwrap(),
-                ProtocolFeature::GasKeys.protocol_version(),
-            )
-            .expect_err("expected an error"),
-            ActionsValidationError::GasKeyTooManyNoncesRequested {
-                requested_nonces: num_nonces,
-                limit: AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY
-            },
-        );
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let version = ProtocolFeature::GasKeys.protocol_version();
+        // Valid number of nonces is between 1 and MAX_NONCES_FOR_GAS_KEY inclusive.
+        // Test 0 nonces and num_nonces greater than the maximum allowed results in an error.
+        for num_nonces in [0, AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY + 1] {
+            assert_eq!(
+                validate_action(
+                    &limit_config,
+                    &Action::AddKey(Box::new(AddKeyAction {
+                        public_key: PublicKey::empty(KeyType::ED25519),
+                        access_key: AccessKey::gas_key_full_access(num_nonces),
+                    })),
+                    &account_id,
+                    version,
+                )
+                .unwrap_err(),
+                ActionsValidationError::GasKeyInvalidNumNonces {
+                    requested_nonces: num_nonces,
+                    limit: AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY
+                },
+            );
+        }
     }
 
     #[test]
@@ -2588,6 +2802,332 @@ mod tests {
                 length: limit_length + 1,
                 limit: limit_length
             }
+        );
+    }
+
+    #[test]
+    fn test_gas_key_tx_valid_full_access() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 5;
+        let (signer, mut state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, num_nonces, None);
+
+        let deposit = Balance::from_yoctonear(100);
+        let nonce_index = 2;
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, nonce_index),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit })],
+            CryptoHash::default(),
+        );
+
+        let result = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .expect("valid gas key transaction");
+
+        assert_eq!(result.gas_key_nonce_update, Some((nonce_index, initial_nonce + 1)));
+        assert!(result.gas_burnt > Gas::ZERO);
+    }
+
+    #[test]
+    fn test_gas_key_tx_valid_function_call() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 3;
+        let permission = FunctionCallPermission {
+            allowance: None,
+            receiver_id: bob_account().to_string(),
+            method_names: vec!["do_something".to_string()],
+        };
+        let (signer, mut state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, num_nonces, Some(permission));
+
+        let nonce_index = 0;
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, nonce_index),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "do_something".to_string(),
+                args: vec![],
+                gas: Gas::from_gigagas(10),
+                deposit: Balance::ZERO,
+            }))],
+            CryptoHash::default(),
+        );
+
+        let result = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .expect("valid gas key function call transaction");
+
+        assert_eq!(result.gas_key_nonce_update, Some((nonce_index, initial_nonce + 1)));
+    }
+
+    #[test]
+    fn test_gas_key_tx_nonce_updated() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 2;
+        let (signer, mut state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, num_nonces, None);
+
+        // Send first transaction with nonce_index 0
+        let nonce_index = 0;
+        let signed_tx1 = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, nonce_index),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+            CryptoHash::default(),
+        );
+
+        let result1 = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx1,
+            gas_price,
+            None,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .unwrap();
+        assert_eq!(result1.gas_key_nonce_update, Some((nonce_index, initial_nonce + 1)));
+
+        // Send second transaction with nonce_index 1
+        let nonce_index = 1;
+        let signed_tx2 = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, nonce_index),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+            CryptoHash::default(),
+        );
+
+        let result2 = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx2,
+            gas_price,
+            None,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .unwrap();
+        assert_eq!(result2.gas_key_nonce_update, Some((nonce_index, initial_nonce + 1)));
+    }
+
+    #[test]
+    fn test_gas_key_tx_not_a_gas_key() {
+        // Set up a regular access key (not a gas key), then try to use it as a gas key
+        let config = RuntimeConfig::test();
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
+
+        // Try to use it as a gas key transaction (with nonce_index)
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(1, 0),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .expect_err("should fail for non-gas key");
+
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::AccessKeyNotFound {
+                account_id: alice_account(),
+                public_key: Box::new(signer.public_key()),
+            })
+        );
+    }
+
+    #[test]
+    fn test_gas_key_tx_missing_nonce_index() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 3;
+        let (signer, mut state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, num_nonces, None);
+
+        // Use TransactionNonce::Nonce (no nonce_index) on a gas key
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce(initial_nonce + 1),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .expect_err("should fail without nonce_index for gas key");
+
+        // verify_and_charge_tx_ephemeral rejects gas keys used without nonce_index
+        assert_eq!(err, InvalidTxError::InvalidNonceIndex { tx_nonce_index: None, num_nonces });
+    }
+
+    #[test]
+    fn test_gas_key_tx_nonce_index_out_of_range() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 3;
+        let (signer, mut state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, num_nonces, None);
+
+        // Use nonce_index = 5 when only 3 nonces exist
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, 5),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .expect_err("should fail with out-of-range nonce_index");
+
+        assert_eq!(err, InvalidTxError::InvalidNonceIndex { tx_nonce_index: Some(5), num_nonces });
+    }
+
+    #[test]
+    fn test_gas_key_tx_invalid_nonce() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 2;
+        let (signer, mut state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, num_nonces, None);
+
+        // Use nonce <= current_nonce
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(initial_nonce, 0), // Same as current, not greater
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .expect_err("should fail with invalid nonce");
+
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidNonce { tx_nonce: initial_nonce, ak_nonce: initial_nonce }
+        );
+    }
+
+    #[test]
+    fn test_gas_key_tx_not_enough_balance() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 2;
+        let small_balance = Balance::from_yoctonear(1);
+        let (signer, mut state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(small_balance, num_nonces, None);
+
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, 0),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1000) })],
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .expect_err("should fail with not enough balance");
+
+        match err {
+            InvalidTxError::NotEnoughBalance { signer_id, .. } => {
+                assert_eq!(signer_id, alice_account());
+            }
+            _ => panic!("unexpected error: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_access_key_tx_rejects_nonce_index() {
+        // Set up a regular access key, then try to use nonce_index with it
+        let config = RuntimeConfig::test();
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, Balance::ZERO, Some(AccessKey::full_access()));
+
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(1, 0), // Has nonce_index
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(100) })],
+            CryptoHash::default(),
+        );
+
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .expect_err("should fail when using nonce_index with regular access key");
+
+        // The error comes from verify_and_charge_gas_key_tx_ephemeral because nonce_index is present,
+        // but the access key is not a gas key
+        assert_eq!(
+            err,
+            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::AccessKeyNotFound {
+                account_id: alice_account(),
+                public_key: Box::new(signer.public_key()),
+            })
         );
     }
 }

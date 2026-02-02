@@ -16,7 +16,7 @@ use near_primitives::receipt::{
     Receipt, ReceivedData, VersionedReceiptEnum,
 };
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
-use near_primitives::types::{AccountId, BlockHeight, Nonce, NonceIndex, StateRoot};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, NonceIndex, StateRoot};
 use std::io;
 
 /// Reads an object from Trie.
@@ -302,12 +302,15 @@ pub fn get_gas_key_nonce(
 }
 
 /// Removes account, code and all access keys and gas keys associated to it.
+/// Returns the total balance from gas keys that is burnt as a result of removing the account.
 pub fn remove_account(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
-) -> Result<(), StorageError> {
+) -> Result<Balance, StorageError> {
     state_update.remove(TrieKey::Account { account_id: account_id.clone() });
     state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
+
+    let mut gas_key_balance_to_burn = Balance::ZERO;
 
     // Removing access keys and gas key nonces
     let lock = state_update.trie().lock_for_iter();
@@ -338,6 +341,19 @@ pub fn remove_account(
                 index,
             });
         } else {
+            // Check if this is a gas key with balance to burn
+            if let Some(balance) = get_access_key(state_update, account_id, &public_key)?
+                .as_ref()
+                .and_then(|access_key| access_key.gas_key_info())
+                .map(|gas_key_info| gas_key_info.balance)
+            {
+                gas_key_balance_to_burn =
+                    gas_key_balance_to_burn.checked_add(balance).ok_or_else(|| {
+                        StorageError::StorageInconsistentState(
+                            "gas key balance overflow".to_string(),
+                        )
+                    })?;
+            }
             keys_to_remove.push(TrieKey::AccessKey {
                 account_id: account_id.clone(),
                 public_key: public_key.clone(),
@@ -369,7 +385,7 @@ pub fn remove_account(
     for key in data_keys {
         state_update.remove(TrieKey::ContractData { account_id: account_id.clone(), key });
     }
-    Ok(())
+    Ok(gas_key_balance_to_burn)
 }
 
 pub fn get_genesis_state_roots(store: &Store) -> io::Result<Option<Vec<StateRoot>>> {

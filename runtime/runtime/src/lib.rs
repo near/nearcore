@@ -21,7 +21,7 @@ use crate::verifier::{
 };
 pub use crate::verifier::{
     ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
-    validate_transaction, verify_and_charge_tx_ephemeral,
+    validate_transaction, verify_and_charge_gas_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
 };
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
@@ -61,8 +61,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, Compute, EpochHeight, EpochId, EpochInfoProvider, Gas,
-    RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
+    AccountId, Balance, BlockHeight, Compute, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce,
+    NonceIndex, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
     validator_stake::ValidatorStake,
 };
 use near_primitives::utils::{
@@ -76,9 +76,10 @@ use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
     PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
-    get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
-    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
-    set_account, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
+    get_account, get_gas_key_nonce, get_postponed_receipt, get_promise_yield_receipt, get_pure,
+    get_received_data, has_received_data, remove_postponed_receipt, remove_promise_yield_receipt,
+    set, set_access_key, set_account, set_gas_key_nonce, set_postponed_receipt,
+    set_promise_yield_receipt, set_received_data,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -239,6 +240,8 @@ pub struct VerificationResult {
     pub receipt_gas_price: Balance,
     /// The balance that was burnt to convert the transaction into a receipt and send it.
     pub burnt_amount: Balance,
+    /// For gas key transactions: the nonce index and new nonce value to persist.
+    pub gas_key_nonce_update: Option<(NonceIndex, Nonce)>,
 }
 
 #[derive(Debug)]
@@ -274,6 +277,7 @@ pub struct ActionResult {
     pub new_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
     pub profile: Box<ProfileDataV3>,
+    pub tokens_burnt: Balance,
 }
 
 impl ActionResult {
@@ -302,9 +306,14 @@ impl ActionResult {
         if self.result.is_ok() {
             self.new_receipts.append(&mut next_result.new_receipts);
             self.validator_proposals.append(&mut next_result.validator_proposals);
+            self.tokens_burnt = self
+                .tokens_burnt
+                .checked_add(next_result.tokens_burnt)
+                .ok_or(IntegerOverflowError)?;
         } else {
             self.new_receipts.clear();
             self.validator_proposals.clear();
+            self.tokens_burnt = Balance::ZERO;
         }
         Ok(())
     }
@@ -322,6 +331,7 @@ impl Default for ActionResult {
             new_receipts: vec![],
             validator_proposals: vec![],
             profile: Default::default(),
+            tokens_burnt: Balance::ZERO,
         }
     }
 }
@@ -754,6 +764,7 @@ impl Runtime {
             .unwrap();
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.price_surplus)?;
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.refund_penalty)?;
+        tx_burnt_amount = safe_add_balance(tx_burnt_amount, result.tokens_burnt)?;
         // The amount of tokens burnt for the execution of this receipt. It's used in the execution
         // outcome.
         let tokens_burnt = tx_burnt_amount;
@@ -1561,7 +1572,7 @@ impl Runtime {
 
         let mut validations: Vec<Option<InvalidTxError>> = vec![None; num_transactions];
 
-        let ((), (accounts, access_keys)) = rayon::join(
+        let ((), (accounts, access_keys, gas_key_nonces)) = rayon::join(
             || {
                 let validation_chunks = validations.par_chunks_mut(chunk_size);
                 let (maybe_expired_txs, tx_expiration_flags) =
@@ -1655,6 +1666,16 @@ impl Runtime {
                     AHashRandomState::new(),
                     128,
                 );
+                // Gas key nonces are stored separately from access keys
+                let gas_key_nonces: dashmap::DashMap<
+                    (&AccountId, &PublicKey, NonceIndex),
+                    Result<Option<Nonce>, StorageError>,
+                    AHashRandomState,
+                > = dashmap::DashMap::with_capacity_and_hasher_and_shard_amount(
+                    num_transactions,
+                    AHashRandomState::new(),
+                    128,
+                );
 
                 let (maybe_expired_txs, tx_expiration_flags) =
                     signed_txs.get_potentially_expired_transactions_and_expiration_flags();
@@ -1676,9 +1697,22 @@ impl Runtime {
                             access_keys.entry((signer_id, pubkey)).or_insert_with(|| {
                                 get_access_key(&processing_state.state_update, signer_id, pubkey)
                             });
+                            // For gas key transactions, also prefetch the nonce
+                            if let Some(nonce_index) = tx.transaction.nonce().nonce_index() {
+                                gas_key_nonces
+                                    .entry((signer_id, pubkey, nonce_index))
+                                    .or_insert_with(|| {
+                                        get_gas_key_nonce(
+                                            &processing_state.state_update,
+                                            signer_id,
+                                            pubkey,
+                                            nonce_index,
+                                        )
+                                    });
+                            }
                         }
                     });
-                (accounts, access_keys)
+                (accounts, access_keys, gas_key_nonces)
             },
         );
 
@@ -1768,7 +1802,60 @@ impl Runtime {
                 Some(Err(e)) => return Err(e.clone().into()),
                 None => unreachable!("access keys should've been prefetched"),
             };
-            let verification_result = {
+            // Verify and charge based on transaction type (gas key vs regular access key)
+            let verification_result = if let Some(nonce_index) =
+                tx.transaction.nonce().nonce_index()
+            {
+                // Gas key transaction - load nonce from prefetched cache
+                let nonce_entry = gas_key_nonces.get(&(signer_id, pubkey, nonce_index));
+                let current_nonce = match nonce_entry.as_deref() {
+                    Some(Ok(Some(n))) => *n,
+                    Some(Ok(None)) => {
+                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                        tracing::debug!(%tx_hash, "gas key nonce not found");
+                        let num_nonces =
+                            access_key.gas_key_info().map(|info| info.num_nonces).unwrap_or(0);
+                        let outcome = ExecutionOutcomeWithId::failed(
+                            tx,
+                            InvalidTxError::InvalidNonceIndex {
+                                tx_nonce_index: Some(nonce_index),
+                                num_nonces,
+                            },
+                        );
+                        Self::register_outcome(
+                            processing_state.protocol_version,
+                            &mut processing_state.outcomes,
+                            outcome,
+                        );
+                        continue;
+                    }
+                    Some(Err(e)) => return Err(e.clone().into()),
+                    None => unreachable!("gas key nonces should've been prefetched"),
+                };
+                match verify_and_charge_gas_key_tx_ephemeral(
+                    &processing_state.apply_state.config,
+                    account,
+                    access_key,
+                    current_nonce,
+                    &tx.transaction,
+                    &cost,
+                    Some(block_height),
+                ) {
+                    Ok(vr) => vr,
+                    Err(error) => {
+                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                        tracing::debug!(%tx_hash, error = &error as &dyn std::error::Error, "transaction failed verify/charge");
+                        let outcome = ExecutionOutcomeWithId::failed(tx, error);
+                        Self::register_outcome(
+                            processing_state.protocol_version,
+                            &mut processing_state.outcomes,
+                            outcome,
+                        );
+                        continue;
+                    }
+                }
+            } else {
+                // Regular access key transaction
                 match verify_and_charge_tx_ephemeral(
                     &processing_state.apply_state.config,
                     account,
@@ -1778,12 +1865,11 @@ impl Runtime {
                     Some(block_height),
                     processing_state.protocol_version,
                 ) {
-                    Ok(v) => v,
+                    Ok(vr) => vr,
                     Err(error) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        tracing::debug!(%tx_hash, error=&error as &dyn std::error::Error, "transaction failed verify/charge");
+                        tracing::debug!(%tx_hash, error = &error as &dyn std::error::Error, "transaction failed verify/charge");
                         let outcome = ExecutionOutcomeWithId::failed(tx, error);
-
                         Self::register_outcome(
                             processing_state.protocol_version,
                             &mut processing_state.outcomes,
@@ -1865,6 +1951,20 @@ impl Runtime {
             processing_state.outcomes.push(outcome);
             metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
             set_account(&mut processing_state.state_update, signer_id.clone(), account);
+            // Update gas key nonce if applicable
+            if let Some((nonce_index, new_nonce)) = verification_result.gas_key_nonce_update {
+                set_gas_key_nonce(
+                    &mut processing_state.state_update,
+                    signer_id.clone(),
+                    pubkey.clone(),
+                    nonce_index,
+                    new_nonce,
+                );
+                // Also update the cached value for subsequent transactions in the same chunk
+                if let Some(mut entry) = gas_key_nonces.get_mut(&(signer_id, pubkey, nonce_index)) {
+                    *entry = Ok(Some(new_nonce));
+                }
+            }
             set_access_key(
                 &mut processing_state.state_update,
                 signer_id.clone(),
