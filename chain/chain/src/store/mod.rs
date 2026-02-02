@@ -696,7 +696,7 @@ impl ChainStore {
                         public_key: key.public_key.clone(),
                     };
                     let storage_key = KeyForStateChanges::from_trie_key(block_hash, &data_key);
-                    let changes_per_key = storage_key.find_exact_iter(&store);
+                    let changes_per_key = storage_key.find_iter(&store);
                     changes.extend(StateChanges::from_access_key_changes(changes_per_key)?);
                 }
                 changes
