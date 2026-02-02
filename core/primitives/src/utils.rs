@@ -453,14 +453,18 @@ where
     Serializable(object)
 }
 
-/// From `near-account-id` version `1.0.0-alpha.2`, `is_implicit` returns true for ETH-implicit accounts.
 /// This function is a wrapper for `is_implicit` method so that we can easily differentiate its behavior
-/// based on whether ETH-implicit accounts are enabled.
-pub fn account_is_implicit(account_id: &AccountId, eth_implicit_accounts_enabled: bool) -> bool {
-    if eth_implicit_accounts_enabled {
-        account_id.get_account_type().is_implicit()
-    } else {
-        account_id.get_account_type() == AccountType::NearImplicitAccount
+/// based on whether specifcic implicit accounts are enabled.
+pub fn account_is_implicit(
+    account_id: &AccountId,
+    eth_implicit_accounts_enabled: bool,
+    deterministic_account_ids_enabled: bool,
+) -> bool {
+    match account_id.get_account_type() {
+        AccountType::NamedAccount => false,
+        AccountType::NearImplicitAccount => true,
+        AccountType::EthImplicitAccount => eth_implicit_accounts_enabled,
+        AccountType::NearDeterministicAccount => deterministic_account_ids_enabled,
     }
 }
 
