@@ -21,7 +21,7 @@ use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::receipt::{
     ActionReceipt, ActionReceiptV2, DataReceipt, DataReceiver, GlobalContractDistributionReceipt,
-    Receipt, ReceiptEnum, ReceiptV1, VersionedActionReceipt, VersionedReceiptEnum,
+    Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
@@ -2233,11 +2233,9 @@ pub struct ReceiptView {
     pub receipt_id: CryptoHash,
 
     pub receipt: ReceiptEnumView,
-    // Default value used when deserializing ReceiptView which are missing the `priority` field.
-    // Data which is missing this field was serialized before the introduction of priority.
-    // For ReceiptV0 ReceiptPriority::NoPriority => 0
-    #[serde(default)]
-    pub priority: u64,
+    /// Deprecated, retained for backward compatibility.
+    #[serde(default, rename = "priority")]
+    pub _priority: u64,
 }
 
 #[derive(
@@ -2313,8 +2311,6 @@ impl From<Receipt> for ReceiptView {
         let is_promise_yield =
             matches!(receipt.versioned_receipt(), VersionedReceiptEnum::PromiseYield(_));
         let is_promise_resume = matches!(receipt.receipt(), ReceiptEnum::PromiseResume(_));
-        let priority = receipt.priority().value();
-
         ReceiptView {
             predecessor_id: receipt.predecessor_id().clone(),
             receiver_id: receipt.receiver_id().clone(),
@@ -2343,7 +2339,7 @@ impl From<Receipt> for ReceiptView {
                     }
                 }
             },
-            priority,
+            _priority: 0,
         }
     }
 }
@@ -2383,7 +2379,7 @@ impl TryFrom<ReceiptView> for Receipt {
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(receipt_view: ReceiptView) -> Result<Self, Self::Error> {
-        Ok(Receipt::V1(ReceiptV1 {
+        Ok(Receipt::V0(ReceiptV0 {
             predecessor_id: receipt_view.predecessor_id,
             receiver_id: receipt_view.receiver_id,
             receipt_id: receipt_view.receipt_id,
@@ -2469,7 +2465,6 @@ impl TryFrom<ReceiptView> for Receipt {
                     ))
                 }
             },
-            priority: receipt_view.priority,
         }))
     }
 }

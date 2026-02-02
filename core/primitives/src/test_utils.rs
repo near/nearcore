@@ -163,7 +163,6 @@ impl SignedTransaction {
         signer: &Signer,
         actions: Vec<Action>,
         block_hash: CryptoHash,
-        _priority_fee: u64,
     ) -> Self {
         Transaction::V0(TransactionV0 {
             nonce,
@@ -210,7 +209,6 @@ impl SignedTransaction {
             signer,
             vec![Action::Transfer(TransferAction { deposit })],
             block_hash,
-            0,
         )
     }
 
@@ -247,7 +245,6 @@ impl SignedTransaction {
             signer,
             vec![Action::Stake(Box::new(StakeAction { stake, public_key }))],
             block_hash,
-            0,
         )
     }
 
@@ -274,7 +271,6 @@ impl SignedTransaction {
                 Action::Transfer(TransferAction { deposit: amount }),
             ],
             block_hash,
-            0,
         )
     }
 
@@ -294,7 +290,6 @@ impl SignedTransaction {
             signer,
             vec![Action::DeployContract(DeployContractAction { code })],
             block_hash,
-            0,
         )
     }
 
@@ -318,7 +313,6 @@ impl SignedTransaction {
                 deploy_mode,
             })],
             block_hash,
-            0,
         )
     }
 
@@ -340,7 +334,6 @@ impl SignedTransaction {
                 contract_identifier,
             }))],
             block_hash,
-            0,
         )
     }
 
@@ -369,7 +362,6 @@ impl SignedTransaction {
                 Action::DeployContract(DeployContractAction { code }),
             ],
             block_hash,
-            0,
         )
     }
 
@@ -396,7 +388,6 @@ impl SignedTransaction {
                 deposit,
             }))],
             block_hash,
-            0,
         )
     }
 
@@ -415,7 +406,6 @@ impl SignedTransaction {
             signer,
             vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
             block_hash,
-            0,
         )
     }
 
@@ -427,7 +417,6 @@ impl SignedTransaction {
             &EmptySigner::new().into(),
             vec![],
             block_hash,
-            0,
         )
     }
 
@@ -446,7 +435,6 @@ impl SignedTransaction {
             signer,
             vec![Action::AddKey(Box::new(AddKeyAction { public_key, access_key }))],
             block_hash,
-            0,
         )
     }
 
@@ -469,7 +457,6 @@ impl SignedTransaction {
                 deposit,
             }))],
             block_hash,
-            0,
         )
     }
 }

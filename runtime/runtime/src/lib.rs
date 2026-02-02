@@ -9,6 +9,7 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
+use crate::function_call::action_function_call;
 use crate::metrics::{
     TRANSACTION_BATCH_SIGNATURE_VERIFY_FAILURE_TOTAL,
     TRANSACTION_BATCH_SIGNATURE_VERIFY_SUCCESS_TOTAL,
@@ -20,7 +21,7 @@ use crate::verifier::{
 };
 pub use crate::verifier::{
     ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, get_signer_and_access_key, set_tx_state_changes,
-    validate_transaction, verify_and_charge_tx_ephemeral,
+    validate_transaction, verify_and_charge_gas_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
 };
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
@@ -60,8 +61,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, Compute, EpochHeight, EpochId, EpochInfoProvider, Gas,
-    RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
+    AccountId, Balance, BlockHeight, Compute, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce,
+    NonceIndex, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
     validator_stake::ValidatorStake,
 };
 use near_primitives::utils::{
@@ -75,9 +76,10 @@ use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
     PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
-    get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
-    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_access_key,
-    set_account, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
+    get_account, get_gas_key_nonce, get_postponed_receipt, get_promise_yield_receipt, get_pure,
+    get_received_data, has_received_data, remove_postponed_receipt, remove_promise_yield_receipt,
+    set, set_access_key, set_account, set_gas_key_nonce, set_postponed_receipt,
+    set_promise_yield_receipt, set_received_data,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -108,6 +110,7 @@ mod congestion_control;
 mod conversions;
 mod deterministic_account_id;
 pub mod ext;
+mod function_call;
 mod global_contracts;
 pub mod metrics;
 mod pipelining;
@@ -237,6 +240,8 @@ pub struct VerificationResult {
     pub receipt_gas_price: Balance,
     /// The balance that was burnt to convert the transaction into a receipt and send it.
     pub burnt_amount: Balance,
+    /// For gas key transactions: the nonce index and new nonce value to persist.
+    pub gas_key_nonce_update: Option<(NonceIndex, Nonce)>,
 }
 
 #[derive(Debug)]
@@ -272,6 +277,7 @@ pub struct ActionResult {
     pub new_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
     pub profile: Box<ProfileDataV3>,
+    pub tokens_burnt: Balance,
 }
 
 impl ActionResult {
@@ -300,9 +306,14 @@ impl ActionResult {
         if self.result.is_ok() {
             self.new_receipts.append(&mut next_result.new_receipts);
             self.validator_proposals.append(&mut next_result.validator_proposals);
+            self.tokens_burnt = self
+                .tokens_burnt
+                .checked_add(next_result.tokens_burnt)
+                .ok_or(IntegerOverflowError)?;
         } else {
             self.new_receipts.clear();
             self.validator_proposals.clear();
+            self.tokens_burnt = Balance::ZERO;
         }
         Ok(())
     }
@@ -320,6 +331,7 @@ impl Default for ActionResult {
             new_receipts: vec![],
             validator_proposals: vec![],
             profile: Default::default(),
+            tokens_burnt: Balance::ZERO,
         }
     }
 }
@@ -549,7 +561,6 @@ impl Runtime {
                     account_id,
                     signed_delegate_action,
                     &mut result,
-                    receipt.priority(),
                 )?;
             }
             Action::TransferToGasKey(transfer_to_gas_key) => {
@@ -583,6 +594,7 @@ impl Runtime {
         preparation_pipeline: &ReceiptPreparationPipeline,
         receipt: &Receipt,
         receipt_sink: &mut ReceiptSink,
+        instant_receipts: &mut VecDeque<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ChunkApplyStatsV0,
         epoch_info_provider: &dyn EpochInfoProvider,
@@ -752,6 +764,7 @@ impl Runtime {
             .unwrap();
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.price_surplus)?;
         tx_burnt_amount = safe_add_balance(tx_burnt_amount, gas_refund_result.refund_penalty)?;
+        tx_burnt_amount = safe_add_balance(tx_burnt_amount, result.tokens_burnt)?;
         // The amount of tokens burnt for the execution of this receipt. It's used in the execution
         // outcome.
         let tokens_burnt = tx_burnt_amount;
@@ -850,15 +863,21 @@ impl Runtime {
                         | ReceiptEnum::PromiseYieldV2(_)
                 );
 
-                let res =
-                    receipt_sink.forward_or_buffer_receipt(new_receipt, apply_state, state_update);
-                if let Err(e) = res {
-                    Some(Err(e))
-                } else if is_action {
-                    Some(Ok(receipt_id))
+                if new_receipt.is_instant_receipt(apply_state.current_protocol_version) {
+                    // Instant receipts are not sent as outgoing receipts, they will be processed immediately.
+                    instant_receipts.push_back(new_receipt);
                 } else {
-                    None
+                    // Send out the receipt as an outgoing receipt.
+                    if let Err(e) = receipt_sink.forward_or_buffer_receipt(
+                        new_receipt,
+                        apply_state,
+                        state_update,
+                    ) {
+                        return Some(Err(e));
+                    }
                 }
+
+                if is_action { Some(Ok(receipt_id)) } else { None }
             })
             .collect::<Result<_, _>>()?;
 
@@ -963,7 +982,6 @@ impl Runtime {
             result.new_receipts.push(Receipt::new_balance_refund(
                 receipt.balance_refund_receiver(),
                 deposit_refund,
-                receipt.priority(),
             ));
         }
         if gas_balance_refund > Balance::ZERO {
@@ -973,7 +991,6 @@ impl Runtime {
                 &action_receipt.signer_id(),
                 gas_balance_refund,
                 action_receipt.signer_public_key().clone(),
-                receipt.priority(),
             ));
         }
 
@@ -993,6 +1010,7 @@ impl Runtime {
             epoch_info_provider,
             ref pipeline_manager,
             ref mut stats,
+            ref mut instant_receipts,
             ..
         } = *processing_state;
         let account_id = receipt.receiver_id();
@@ -1060,6 +1078,7 @@ impl Runtime {
                                 pipeline_manager,
                                 &ready_receipt,
                                 receipt_sink,
+                                instant_receipts,
                                 validator_proposals,
                                 stats,
                                 epoch_info_provider,
@@ -1088,6 +1107,7 @@ impl Runtime {
                 let executed = self.process_action_receipt(
                     receipt,
                     receipt_sink,
+                    instant_receipts,
                     validator_proposals,
                     state_update,
                     apply_state,
@@ -1134,6 +1154,7 @@ impl Runtime {
                             pipeline_manager,
                             &yield_receipt,
                             receipt_sink,
+                            instant_receipts,
                             validator_proposals,
                             stats,
                             epoch_info_provider,
@@ -1171,6 +1192,7 @@ impl Runtime {
         &self,
         receipt: &Receipt,
         receipt_sink: &mut ReceiptSink,
+        instant_receipts: &mut VecDeque<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
@@ -1207,6 +1229,7 @@ impl Runtime {
                     pipeline_manager,
                     receipt,
                     receipt_sink,
+                    instant_receipts,
                     validator_proposals,
                     stats,
                     epoch_info_provider,
@@ -1549,7 +1572,7 @@ impl Runtime {
 
         let mut validations: Vec<Option<InvalidTxError>> = vec![None; num_transactions];
 
-        let ((), (accounts, access_keys)) = rayon::join(
+        let ((), (accounts, access_keys, gas_key_nonces)) = rayon::join(
             || {
                 let validation_chunks = validations.par_chunks_mut(chunk_size);
                 let (maybe_expired_txs, tx_expiration_flags) =
@@ -1643,6 +1666,16 @@ impl Runtime {
                     AHashRandomState::new(),
                     128,
                 );
+                // Gas key nonces are stored separately from access keys
+                let gas_key_nonces: dashmap::DashMap<
+                    (&AccountId, &PublicKey, NonceIndex),
+                    Result<Option<Nonce>, StorageError>,
+                    AHashRandomState,
+                > = dashmap::DashMap::with_capacity_and_hasher_and_shard_amount(
+                    num_transactions,
+                    AHashRandomState::new(),
+                    128,
+                );
 
                 let (maybe_expired_txs, tx_expiration_flags) =
                     signed_txs.get_potentially_expired_transactions_and_expiration_flags();
@@ -1664,9 +1697,22 @@ impl Runtime {
                             access_keys.entry((signer_id, pubkey)).or_insert_with(|| {
                                 get_access_key(&processing_state.state_update, signer_id, pubkey)
                             });
+                            // For gas key transactions, also prefetch the nonce
+                            if let Some(nonce_index) = tx.transaction.nonce().nonce_index() {
+                                gas_key_nonces
+                                    .entry((signer_id, pubkey, nonce_index))
+                                    .or_insert_with(|| {
+                                        get_gas_key_nonce(
+                                            &processing_state.state_update,
+                                            signer_id,
+                                            pubkey,
+                                            nonce_index,
+                                        )
+                                    });
+                            }
                         }
                     });
-                (accounts, access_keys)
+                (accounts, access_keys, gas_key_nonces)
             },
         );
 
@@ -1756,7 +1802,60 @@ impl Runtime {
                 Some(Err(e)) => return Err(e.clone().into()),
                 None => unreachable!("access keys should've been prefetched"),
             };
-            let verification_result = {
+            // Verify and charge based on transaction type (gas key vs regular access key)
+            let verification_result = if let Some(nonce_index) =
+                tx.transaction.nonce().nonce_index()
+            {
+                // Gas key transaction - load nonce from prefetched cache
+                let nonce_entry = gas_key_nonces.get(&(signer_id, pubkey, nonce_index));
+                let current_nonce = match nonce_entry.as_deref() {
+                    Some(Ok(Some(n))) => *n,
+                    Some(Ok(None)) => {
+                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                        tracing::debug!(%tx_hash, "gas key nonce not found");
+                        let num_nonces =
+                            access_key.gas_key_info().map(|info| info.num_nonces).unwrap_or(0);
+                        let outcome = ExecutionOutcomeWithId::failed(
+                            tx,
+                            InvalidTxError::InvalidNonceIndex {
+                                tx_nonce_index: Some(nonce_index),
+                                num_nonces,
+                            },
+                        );
+                        Self::register_outcome(
+                            processing_state.protocol_version,
+                            &mut processing_state.outcomes,
+                            outcome,
+                        );
+                        continue;
+                    }
+                    Some(Err(e)) => return Err(e.clone().into()),
+                    None => unreachable!("gas key nonces should've been prefetched"),
+                };
+                match verify_and_charge_gas_key_tx_ephemeral(
+                    &processing_state.apply_state.config,
+                    account,
+                    access_key,
+                    current_nonce,
+                    &tx.transaction,
+                    &cost,
+                    Some(block_height),
+                ) {
+                    Ok(vr) => vr,
+                    Err(error) => {
+                        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                        tracing::debug!(%tx_hash, error = &error as &dyn std::error::Error, "transaction failed verify/charge");
+                        let outcome = ExecutionOutcomeWithId::failed(tx, error);
+                        Self::register_outcome(
+                            processing_state.protocol_version,
+                            &mut processing_state.outcomes,
+                            outcome,
+                        );
+                        continue;
+                    }
+                }
+            } else {
+                // Regular access key transaction
                 match verify_and_charge_tx_ephemeral(
                     &processing_state.apply_state.config,
                     account,
@@ -1765,12 +1864,11 @@ impl Runtime {
                     &cost,
                     Some(block_height),
                 ) {
-                    Ok(v) => v,
+                    Ok(vr) => vr,
                     Err(error) => {
                         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                        tracing::debug!(%tx_hash, error=&error as &dyn std::error::Error, "transaction failed verify/charge");
+                        tracing::debug!(%tx_hash, error = &error as &dyn std::error::Error, "transaction failed verify/charge");
                         let outcome = ExecutionOutcomeWithId::failed(tx, error);
-
                         Self::register_outcome(
                             processing_state.protocol_version,
                             &mut processing_state.outcomes,
@@ -1852,6 +1950,20 @@ impl Runtime {
             processing_state.outcomes.push(outcome);
             metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
             set_account(&mut processing_state.state_update, signer_id.clone(), account);
+            // Update gas key nonce if applicable
+            if let Some((nonce_index, new_nonce)) = verification_result.gas_key_nonce_update {
+                set_gas_key_nonce(
+                    &mut processing_state.state_update,
+                    signer_id.clone(),
+                    pubkey.clone(),
+                    nonce_index,
+                    new_nonce,
+                );
+                // Also update the cached value for subsequent transactions in the same chunk
+                if let Some(mut entry) = gas_key_nonces.get_mut(&(signer_id, pubkey, nonce_index)) {
+                    *entry = Ok(Some(new_nonce));
+                }
+            }
             set_access_key(
                 &mut processing_state.state_update,
                 signer_id.clone(),
@@ -2002,7 +2114,7 @@ impl Runtime {
                 }
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
-                self.process_receipt_with_metrics(
+                self.process_receipt_and_instant_receipts(
                     &receipt,
                     &mut processing_state,
                     receipt_sink,
@@ -2103,7 +2215,7 @@ impl Runtime {
                 ))
             })?;
 
-            self.process_receipt_with_metrics(
+            self.process_receipt_and_instant_receipts(
                 &receipt,
                 &mut processing_state,
                 receipt_sink,
@@ -2186,7 +2298,7 @@ impl Runtime {
                     }
                 }
 
-                self.process_receipt_with_metrics(
+                self.process_receipt_and_instant_receipts(
                     &receipt,
                     &mut processing_state,
                     receipt_sink,
@@ -2203,6 +2315,33 @@ impl Runtime {
             processing_state.total.gas,
             processing_state.total.compute,
         );
+        Ok(())
+    }
+
+    /// Process a receipt and then immediately process all newly generated instant receipts.
+    fn process_receipt_and_instant_receipts(
+        &self,
+        receipt: &Receipt,
+        processing_state: &mut ApplyProcessingReceiptState,
+        receipt_sink: &mut ReceiptSink,
+        validator_proposals: &mut Vec<ValidatorStake>,
+    ) -> Result<(), RuntimeError> {
+        self.process_receipt_with_metrics(
+            receipt,
+            processing_state,
+            receipt_sink,
+            validator_proposals,
+        )?;
+
+        while let Some(instant_receipt) = processing_state.instant_receipts.pop_front() {
+            self.process_receipt_with_metrics(
+                &instant_receipt,
+                processing_state,
+                receipt_sink,
+                validator_proposals,
+            )?;
+        }
+
         Ok(())
     }
 
@@ -2732,6 +2871,7 @@ impl<'a> ApplyProcessingState<'a> {
             outcomes: Vec::new(),
             metrics: metrics::ApplyMetrics::default(),
             local_receipts: VecDeque::new(),
+            instant_receipts: VecDeque::new(),
             incoming_receipts,
             delayed_receipts,
         }
@@ -2751,6 +2891,9 @@ struct ApplyProcessingReceiptState<'a> {
     outcomes: Vec<ExecutionOutcomeWithId>,
     metrics: ApplyMetrics,
     local_receipts: VecDeque<Receipt>,
+    /// Stores instant receipts generated while applying the current receipt. An instant receipt is
+    /// a receipt which should be processed immediately after the receipt that produced it.
+    instant_receipts: VecDeque<Receipt>,
     incoming_receipts: &'a [Receipt],
     delayed_receipts: DelayedReceiptQueueWrapper<'a>,
     pipeline_manager: pipelining::ReceiptPreparationPipeline,
@@ -2881,6 +3024,7 @@ pub mod estimator {
     use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
     use near_store::{ShardUId, TrieUpdate};
     use std::collections::HashMap;
+    use std::collections::VecDeque;
     use std::num::NonZeroU64;
 
     pub fn apply_action_receipt(
@@ -2888,6 +3032,7 @@ pub mod estimator {
         apply_state: &ApplyState,
         receipt: &Receipt,
         outgoing_receipts: &mut Vec<Receipt>,
+        instant_receipts: &mut VecDeque<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ChunkApplyStatsV0,
         epoch_info_provider: &dyn EpochInfoProvider,
@@ -2933,6 +3078,7 @@ pub mod estimator {
             &empty_pipeline,
             receipt,
             &mut receipt_sink,
+            instant_receipts,
             validator_proposals,
             stats,
             epoch_info_provider,
