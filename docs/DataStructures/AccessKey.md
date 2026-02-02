@@ -8,7 +8,7 @@ pub struct AccessKey {
     /// The nonce for this access key.
     /// When a key is created, its nonce is initialized to `(block_height - 1) * 1_000_000`.
     /// Valid transaction nonces for a given block must be strictly less than `block_height * 1_000_000`.
-    /// See `runtime/runtime/src/actions.rs::initial_nonce_value()` and the constant
+    /// See `nearcore/runtime/runtime/src/access_keys.rs::initial_nonce_value()` and the constant
     /// `core/primitives-core/src/account.rs::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER`.
     pub nonce: Nonce,
     /// Defines permissions for this access key.
