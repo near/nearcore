@@ -13,7 +13,7 @@ use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{ActionCosts, RuntimeConfig};
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::action::{Action, DeleteAccountAction, TransferToGasKeyAction};
 use near_primitives::apply::ApplyChunkReason;
@@ -3310,9 +3310,6 @@ fn test_transaction_multiple_access_keys_with_apply() {
 /// After the fix: tx1 does not touch the allowance, and tx2 succeeds.
 #[test]
 fn test_fix_access_key_allowance_no_mutation_on_failed_tx() {
-    use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
-    use near_store::get_access_key;
-
     let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
 
     // We'll run the test twice: once with the old version and once with the new version.
@@ -3428,40 +3425,33 @@ fn test_fix_access_key_allowance_no_mutation_on_failed_tx() {
             )
             .unwrap();
 
-        assert_eq!(apply_result.outcomes.len(), 2, "protocol_version={protocol_version}");
-        let tx1_outcome = &apply_result.outcomes[0];
-        assert_eq!(tx1_outcome.id, tx1.get_hash());
-        // tx1 always fails with ReceiverMismatch
-        assert_matches!(
-            &tx1_outcome.outcome.status,
-            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                InvalidTxError::InvalidAccessKeyError(
-                    near_primitives::errors::InvalidAccessKeyError::ReceiverMismatch { .. }
-                )
-            ))
-        );
-
-        let tx2_outcome = &apply_result.outcomes[1];
-        assert_eq!(tx2_outcome.id, tx2.get_hash());
         if expect_tx2_success {
-            // After the fix: allowance was not touched by failed tx1, so tx2 succeeds.
-            // The status is SuccessReceiptId because the receiver differs from the signer.
+            // After the fix (also after InvalidTxGenerateOutcomes): both outcomes are recorded.
+            assert_eq!(apply_result.outcomes.len(), 2, "protocol_version={protocol_version}");
+            let tx1_outcome = &apply_result.outcomes[0];
+            assert_eq!(tx1_outcome.id, tx1.get_hash());
+            assert_matches!(
+                &tx1_outcome.outcome.status,
+                ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                    InvalidTxError::InvalidAccessKeyError(
+                        near_primitives::errors::InvalidAccessKeyError::ReceiverMismatch { .. }
+                    )
+                ))
+            );
+            let tx2_outcome = &apply_result.outcomes[1];
+            assert_eq!(tx2_outcome.id, tx2.get_hash());
             assert_matches!(
                 &tx2_outcome.outcome.status,
                 ExecutionStatus::SuccessReceiptId(_),
                 "protocol_version={protocol_version}: tx2 should succeed after fix"
             );
         } else {
-            // Before the fix: allowance was decremented by failed tx1, so tx2 fails.
-            assert_matches!(
-                &tx2_outcome.outcome.status,
-                ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-                    InvalidTxError::InvalidAccessKeyError(
-                        near_primitives::errors::InvalidAccessKeyError::NotEnoughAllowance { .. }
-                    )
-                )),
-                "protocol_version={protocol_version}: tx2 should fail before fix"
-            );
+            // Before the fix (also before InvalidTxGenerateOutcomes): failed tx outcomes
+            // are not recorded. Both txs fail (tx1 with ReceiverMismatch, tx2 with
+            // NotEnoughAllowance due to tx1's buggy allowance mutation), so no outcomes
+            // or outgoing receipts are produced.
+            assert_eq!(apply_result.outcomes.len(), 0);
+            assert_eq!(apply_result.outgoing_receipts.len(), 0);
         }
 
         // Verify the access key state after apply.
