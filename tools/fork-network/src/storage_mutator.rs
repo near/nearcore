@@ -1,6 +1,6 @@
 use near_crypto::PublicKey;
 use near_mirror::key_mapping::map_account;
-use near_primitives::account::{AccessKey, Account, GasKey};
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::bandwidth_scheduler::{
     BandwidthSchedulerState, BandwidthSchedulerStateV1, LinkAllowance,
 };
@@ -256,34 +256,6 @@ impl StorageMutator {
         )
     }
 
-    pub(crate) fn remove_gas_key(
-        &mut self,
-        source_shard_uid: ShardUId,
-        account_id: AccountId,
-        public_key: PublicKey,
-    ) -> anyhow::Result<()> {
-        if self.target_shards.contains(&source_shard_uid) {
-            let shard_idx =
-                self.target_shard_layout.get_shard_index(source_shard_uid.shard_id()).unwrap();
-            self.remove(shard_idx, TrieKey::GasKey { account_id, public_key, index: None })?;
-        }
-        Ok(())
-    }
-
-    pub(crate) fn set_gas_key(
-        &mut self,
-        shard_idx: ShardIndex,
-        account_id: AccountId,
-        public_key: PublicKey,
-        gas_key: GasKey,
-    ) -> anyhow::Result<()> {
-        self.set(
-            shard_idx,
-            TrieKey::GasKey { account_id, public_key, index: None },
-            borsh::to_vec(&gas_key)?,
-        )
-    }
-
     pub(crate) fn remove_gas_key_nonce(
         &mut self,
         source_shard_uid: ShardUId,
@@ -294,7 +266,7 @@ impl StorageMutator {
         if self.target_shards.contains(&source_shard_uid) {
             let shard_idx =
                 self.target_shard_layout.get_shard_index(source_shard_uid.shard_id()).unwrap();
-            self.remove(shard_idx, TrieKey::GasKey { account_id, public_key, index: Some(index) })?;
+            self.remove(shard_idx, TrieKey::GasKeyNonce { account_id, public_key, index })?;
         }
         Ok(())
     }
@@ -309,7 +281,7 @@ impl StorageMutator {
     ) -> anyhow::Result<()> {
         self.set(
             shard_idx,
-            TrieKey::GasKey { account_id, public_key, index: Some(index) },
+            TrieKey::GasKeyNonce { account_id, public_key, index },
             borsh::to_vec(&nonce)?,
         )
     }

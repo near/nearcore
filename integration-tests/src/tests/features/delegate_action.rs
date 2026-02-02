@@ -55,6 +55,7 @@ fn exec_meta_transaction(
     let mut genesis =
         Genesis::test(vec![validator, user.clone(), receiver.clone(), relayer.clone()], 1);
     genesis.config.epoch_length = 1000;
+    genesis.config.transaction_validity_period = 2000;
     genesis.config.protocol_version = protocol_version;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
@@ -68,8 +69,6 @@ fn exec_meta_transaction(
 
 /// Basic test to ensure the happy path works.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn accept_valid_meta_tx() {
     let status = exec_meta_transaction(vec![], PROTOCOL_VERSION);
     assert!(matches!(status, FinalExecutionStatus::SuccessValue(_)), "{status:?}",);

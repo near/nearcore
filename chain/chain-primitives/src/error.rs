@@ -37,12 +37,6 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Gas key for public key {public_key} does not exist while viewing")]
-    UnknownGasKey {
-        public_key: near_crypto::PublicKey,
-        block_height: near_primitives::types::BlockHeight,
-        block_hash: near_primitives::hash::CryptoHash,
-    },
     #[error("Internal error occurred: {error_message}")]
     InternalError {
         error_message: String,
@@ -52,6 +46,7 @@ pub enum QueryError {
     #[error("Function call returned an error: {error_message}")]
     ContractExecutionError {
         error_message: String,
+        error: near_primitives::errors::FunctionCallError,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
@@ -211,6 +206,8 @@ pub enum Error {
     InvalidShardIndex(ShardIndex),
     #[error("Shard id {0} does not have a parent")]
     NoParentShardId(ShardId),
+    #[error("Cannot derive shard layout")]
+    CannotDeriveLayout,
     /// Invalid shard id
     #[error("Invalid state request: {0}")]
     InvalidStateRequest(String),
@@ -345,6 +342,7 @@ impl Error {
             | Error::InvalidShardId(_)
             | Error::InvalidShardIndex(_)
             | Error::NoParentShardId(_)
+            | Error::CannotDeriveLayout
             | Error::InvalidStateRequest(_)
             | Error::InvalidRandomnessBeaconOutput
             | Error::InvalidBlockMerkleRoot
@@ -427,6 +425,7 @@ impl Error {
             Error::InvalidShardId(_) => "invalid_shard_id",
             Error::InvalidShardIndex(_) => "invalid_shard_index",
             Error::NoParentShardId(_) => "no_parent_shard_id",
+            Error::CannotDeriveLayout => "derive_layout",
             Error::InvalidStateRequest(_) => "invalid_state_request",
             Error::InvalidRandomnessBeaconOutput => "invalid_randomness_beacon_output",
             Error::InvalidBlockMerkleRoot => "invalid_block_merkle_root",
@@ -466,11 +465,12 @@ impl<T> EpochErrorResultToChainError<T> for Result<T, EpochError> {
 impl From<ShardLayoutError> for Error {
     fn from(error: ShardLayoutError) -> Self {
         match error {
-            ShardLayoutError::InvalidShardIdError { shard_id } => Error::InvalidShardId(shard_id),
-            ShardLayoutError::InvalidShardIndexError { shard_index } => {
+            ShardLayoutError::InvalidShardId { shard_id } => Error::InvalidShardId(shard_id),
+            ShardLayoutError::InvalidShardIndex { shard_index } => {
                 Error::InvalidShardIndex(shard_index)
             }
-            ShardLayoutError::NoParentError { shard_id } => Error::NoParentShardId(shard_id),
+            ShardLayoutError::NoParent { shard_id } => Error::NoParentShardId(shard_id),
+            ShardLayoutError::CannotDeriveLayout => Error::CannotDeriveLayout,
         }
     }
 }

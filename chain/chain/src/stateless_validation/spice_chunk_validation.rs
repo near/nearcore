@@ -26,8 +26,6 @@ use crate::store::filter_incoming_receipts_for_shard;
 use crate::types::{RuntimeAdapter, StorageDataSource};
 use crate::{Chain, ChainStore};
 
-use super::chunk_validation::apply_result_to_chunk_extra;
-
 pub struct SpicePreValidationOutput {
     new_chunk_data: NewChunkData,
 }
@@ -201,7 +199,7 @@ pub fn spice_validate_chunk_state_witness(
             None,
         )?;
         let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
-        let chunk_extra = apply_result_to_chunk_extra(main_apply_result, gas_limit);
+        let chunk_extra = main_apply_result.to_chunk_extra(gas_limit);
 
         (chunk_extra, outgoing_receipts)
     };
@@ -335,10 +333,7 @@ mod tests {
     use near_async::time::Clock;
     use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::receipt::ReceiptPriority;
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
     use near_primitives::state::PartialState;
     use near_primitives::stateless_validation::ChunkProductionKey;
@@ -357,7 +352,6 @@ mod tests {
 
     use crate::store::ChainStoreAccess;
     use crate::test_utils::{get_chain_with_genesis, process_block_sync};
-    use crate::types::ApplyChunkResult;
     use crate::{BlockProcessingArtifact, Provenance};
 
     use super::*;
@@ -766,12 +760,10 @@ mod tests {
             Receipt::new_balance_refund(
                 &AccountId::from_str(TEST_VALIDATORS[0]).unwrap(),
                 Balance::from_yoctonear(100),
-                ReceiptPriority::NoPriority,
             ),
             Receipt::new_balance_refund(
                 &AccountId::from_str(TEST_VALIDATORS[1]).unwrap(),
                 Balance::from_yoctonear(100),
-                ReceiptPriority::NoPriority,
             ),
         ]
     }
@@ -783,22 +775,14 @@ mod tests {
         signer: &ValidatorSigner,
         tx_root: CryptoHash,
     ) -> ShardChunkHeader {
-        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
             prev_block_hash,
-            Default::default(),
-            Default::default(),
             Default::default(),
             Default::default(),
             height,
             shard_id,
             Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
             tx_root,
-            Default::default(),
-            CongestionInfo::default(),
-            BandwidthRequests::empty(),
             signer,
         ))
     }
@@ -962,7 +946,7 @@ mod tests {
                 )
                 .unwrap();
             let signer = Arc::new(create_test_signer(block_producer.account_id().as_str()));
-            TestBlockBuilder::new(Clock::real(), prev_block, signer)
+            TestBlockBuilder::from_prev_block(Clock::real(), prev_block, signer)
                 .chunks(chunks)
                 .spice_core_statements(vec![])
                 .build()
@@ -1182,18 +1166,7 @@ mod tests {
             )
             .unwrap();
 
-            let (outcome_root, _) =
-                ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
-            let chunk_extra = ChunkExtra::new(
-                &apply_result.new_root,
-                outcome_root,
-                apply_result.validator_proposals.clone(),
-                apply_result.total_gas_burnt,
-                gas_limit,
-                apply_result.total_balance_burnt,
-                apply_result.congestion_info,
-                apply_result.bandwidth_requests.clone(),
-            );
+            let chunk_extra = apply_result.to_chunk_extra(gas_limit);
             let shard_layout =
                 self.chain.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
             let (outgoing_receipts_root, _) = Chain::create_receipts_proofs_from_outgoing_receipts(

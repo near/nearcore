@@ -1,8 +1,11 @@
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+
 /// Database version type.
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 47;
+pub const DB_VERSION: DbVersion =
+    if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) { 48 } else { 47 };
 
 /// Minimum supported database version. This is a property of the current binary.
 pub const MIN_SUPPORTED_DB_VERSION: DbVersion = 45;
@@ -121,7 +124,7 @@ fn maybe_read<T: std::str::FromStr>(
     key: &[u8],
 ) -> std::io::Result<Option<T>> {
     let msg = "it’s not a neard database or database is corrupted";
-    db.get_raw_bytes(crate::DBCol::DbVersion, key)?
+    db.get_raw_bytes(crate::DBCol::DbVersion, key)
         .map(|bytes| {
             let value = std::str::from_utf8(&bytes)
                 .map_err(|_err| format!("invalid {what}: {bytes:?}; {msg}"))?;

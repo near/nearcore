@@ -1,7 +1,7 @@
 pub(super) mod opener;
 
 use crate::archive::cloud_storage::CloudStorage;
-use crate::archive::cloud_storage::config::CloudArchivalConfig;
+use crate::archive::cloud_storage::config::CloudStorageContext;
 use crate::db::{Database, SplitDB, metadata};
 use crate::{Store, StoreConfig};
 use opener::StoreOpener;
@@ -45,15 +45,15 @@ pub struct NodeStorage {
 }
 
 impl NodeStorage {
-    /// Initializes a new opener with given home directory and hot and cold
-    /// store config.
+    /// Initializes a new opener with given home directory and hot, cold,
+    /// and cloud store config.
     pub fn opener<'a>(
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
         cold_store_config: Option<&'a StoreConfig>,
-        cloud_archival_config: Option<&'a CloudArchivalConfig>,
+        cloud_storage_context: Option<CloudStorageContext>,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, store_config, cold_store_config, cloud_archival_config)
+        StoreOpener::new(home_dir, store_config, cold_store_config, cloud_storage_context)
     }
 
     /// Initializes an opener for a new temporary test store.
@@ -163,12 +163,9 @@ impl NodeStorage {
     }
 
     pub fn get_split_db(&self) -> Option<Arc<SplitDB>> {
-        let cold =
-            self.cold_storage.as_ref().and_then(|cold| Some(cold.clone() as Arc<dyn Database>));
-        if cold.is_some() || self.cloud_storage.is_some() {
-            return Some(SplitDB::new(self.hot_storage.clone(), cold, self.cloud_storage.clone()));
-        }
-        None
+        self.cold_storage
+            .as_ref()
+            .map(|cold_db| SplitDB::new(self.hot_storage.clone(), cold_db.clone()))
     }
 
     /// Returns underlying database for given temperature.

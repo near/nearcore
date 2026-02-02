@@ -213,7 +213,7 @@ impl StoreConfig {
         // MIN_SUPPORTED_PROTOCOL_VERSION to ensure cache limits for old shard layout are included.
         for protocol_version in MIN_SUPPORTED_PROTOCOL_VERSION..=PROTOCOL_VERSION {
             let epoch_config = epoch_config_store.get_config(protocol_version);
-            let shard_layout = epoch_config.shard_layout.clone();
+            let shard_layout = epoch_config.static_shard_layout().clone();
             // O(n) is fine as list is short
             if !shard_layouts.contains(&shard_layout) {
                 shard_layouts.push(shard_layout);

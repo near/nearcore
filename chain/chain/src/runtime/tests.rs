@@ -25,9 +25,10 @@ use near_primitives::block::Tip;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
-use near_primitives::receipt::{ActionReceipt, ReceiptV1};
+use near_primitives::receipt::{ActionReceipt, ReceiptV0};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
 use near_primitives::trie_key::TrieKey;
@@ -107,6 +108,7 @@ impl TestEnv {
         );
         // No fees mode.
         genesis.config.epoch_length = config.epoch_length;
+        genesis.config.transaction_validity_period = config.epoch_length * 2;
         genesis.config.chunk_producer_kickout_threshold =
             genesis.config.block_producer_kickout_threshold;
         genesis.config.chunk_validator_only_kickout_threshold =
@@ -142,18 +144,16 @@ impl TestEnv {
             StateSnapshotConfig::enabled(dir.path().join("data")),
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
             false,
-            false,
         );
         let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
         let genesis_hash = hash(&[0]);
 
+        let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         if config.create_flat_storage {
             // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behavior
             // and use a mock chain, so we need to initialize flat storage manually.
             let flat_storage_manager = runtime.get_flat_storage_manager();
-            for shard_uid in
-                epoch_manager.get_shard_layout(&EpochId::default()).unwrap().shard_uids()
-            {
+            for shard_uid in shard_layout.shard_uids() {
                 let mut store_update = store.store_update();
                 flat_storage_manager.set_flat_storage_for_genesis(
                     &mut store_update.flat_store_update(),
@@ -183,7 +183,14 @@ impl TestEnv {
                     genesis_total_supply,
                     genesis_protocol_version,
                     0,
-                    None,
+                    ChunkEndorsementsBitmap::from_endorsements(vec![
+                        vec![
+                            true;
+                            validators_len as usize
+                        ];
+                        shard_layout.num_shards()
+                            as usize
+                    ]),
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
@@ -306,9 +313,22 @@ impl TestEnv {
     }
 
     pub fn step(&mut self, transactions: Vec<Vec<SignedTransaction>>, chunk_mask: Vec<bool>) {
-        let new_hash = hash(&[(self.head.height + 1) as u8]);
+        let new_height = self.head.height + 1;
+        let new_hash = hash(&[new_height as u8]);
         let shard_ids = self.epoch_manager.shard_ids(&self.head.epoch_id).unwrap();
         let shard_layout = self.epoch_manager.get_shard_layout(&self.head.epoch_id).unwrap();
+        let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
+            shard_ids
+                .iter()
+                .map(|shard_id| {
+                    let assignments = self
+                        .epoch_manager
+                        .get_chunk_validator_assignments(&self.head.epoch_id, *shard_id, new_height)
+                        .unwrap();
+                    vec![true; assignments.assignments().iter().len()]
+                })
+                .collect(),
+        );
         assert_eq!(transactions.len(), shard_ids.len());
         assert_eq!(chunk_mask.len(), shard_ids.len());
         let mut all_proposals = vec![];
@@ -330,7 +350,7 @@ impl TestEnv {
             .add_validator_proposals(
                 BlockInfo::new(
                     new_hash,
-                    self.head.height + 1,
+                    new_height,
                     self.head.height.saturating_sub(1),
                     self.head.last_block_hash,
                     self.head.last_block_hash,
@@ -339,7 +359,7 @@ impl TestEnv {
                     self.runtime.genesis_config.total_supply,
                     self.runtime.genesis_config.protocol_version,
                     self.time + 10u64.pow(9),
-                    None,
+                    chunk_endorsements,
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
@@ -852,7 +872,11 @@ fn test_state_sync() {
                     new_env.runtime.genesis_config.total_supply,
                     new_env.runtime.genesis_config.protocol_version,
                     new_env.time,
-                    None,
+                    ChunkEndorsementsBitmap::from_endorsements(vec![
+                        vec![true; num_nodes as usize];
+                        shard_layout.num_shards()
+                            as usize
+                    ]),
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
@@ -922,7 +946,7 @@ fn test_state_sync() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_get_validator_info() {
     let num_nodes = 2;
@@ -1328,7 +1352,6 @@ fn test_delete_account_after_unstake() {
         })],
         // runtime does not validate block history
         CryptoHash::default(),
-        0,
     );
     env.step_default(vec![delete_account_transaction]);
     for _ in 15..=17 {
@@ -1424,7 +1447,6 @@ fn test_trie_and_flat_state_equality() {
         vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(10) })],
         // runtime does not validate block history
         CryptoHash::default(),
-        0,
     );
     env.step_default(vec![transfer_tx]);
     for _ in 1..=5 {
@@ -1656,6 +1678,49 @@ fn prepare_transactions_extra(
     )
 }
 
+#[test]
+fn test_prepare_transactions_duplicate_nonces() {
+    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
+
+    // Insert a transaction with a duplicate (public key, nonce) pair into the pool.
+    let mut iter = transaction_pool.pool_iterator();
+    let group = iter.next().unwrap();
+    let first_tx = group.peek_next().unwrap();
+    let duplicate_nonce_tx = SignedTransaction::send_money(
+        first_tx.nonce().nonce(),
+        first_tx.signer_id().clone(),
+        first_tx.receiver_id().clone(),
+        &InMemorySigner::test_signer(&first_tx.signer_id()),
+        Balance::from_yoctonear(9999),
+        *first_tx.to_tx().block_hash(),
+    );
+    drop(iter);
+
+    let storage_config = RuntimeStorageConfig {
+        state_root: env.state_roots[0],
+        use_flat_storage: true,
+        source: StorageDataSource::Db,
+        state_patch: Default::default(),
+    };
+    let insert_result =
+        transaction_pool.insert_transaction(ValidatedTransaction::new_for_test(duplicate_nonce_tx));
+    assert_eq!(insert_result, InsertTransactionResult::Success);
+    let mut iter = transaction_pool.pool_iterator();
+    let txs = prepare_transactions(&env, &chain, &mut iter, storage_config).unwrap();
+
+    // Collect (public key, nonce) pairs to check for duplicates.
+    let mut pk_nonce_set = HashSet::new();
+    for tx in &txs.transactions {
+        let pk_nonce = (tx.public_key(), tx.nonce().nonce());
+        assert!(
+            pk_nonce_set.insert(pk_nonce),
+            "Duplicate transaction with public key {:?} and nonce {} found in prepared transactions",
+            tx.public_key(),
+            tx.nonce().nonce()
+        );
+    }
+}
+
 /// Check that transactions validation fails if provided empty storage proof.
 #[test]
 fn test_prepare_transactions_empty_storage_proof() {
@@ -1786,7 +1851,7 @@ fn test_storage_proof_garbage() {
     let signer = create_test_signer("test1");
     let env = TestEnv::new(vec![vec![signer.validator_id().clone()]], 100, false);
     let garbage_size_mb = 50usize;
-    let receipt = Receipt::V1(ReceiptV1 {
+    let receipt = Receipt::V0(ReceiptV0 {
         predecessor_id: signer.validator_id().clone(),
         receiver_id: signer.validator_id().clone(),
         receipt_id: CryptoHash::hash_bytes(&[42]),
@@ -1806,7 +1871,6 @@ fn test_storage_proof_garbage() {
                 .into(),
             )],
         }),
-        priority: 0,
     });
     let apply_result = env.apply_new_chunk(shard_id, vec![], &[receipt]);
     let PartialState::TrieValues(storage_proof) = apply_result.proof.unwrap().nodes;
@@ -1870,6 +1934,127 @@ fn stake(
         vec![Action::Stake(Box::new(StakeAction { stake, public_key: sender.public_key() }))],
         // runtime does not validate block history
         CryptoHash::default(),
-        0,
     )
+}
+
+mod check_dynamic_resharding {
+    use near_primitives::epoch_manager::DynamicReshardingConfig;
+    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::trie_key::TrieKey;
+    use near_primitives::types::ShardId;
+    use near_store::test_utils::{TestTriesBuilder, test_populate_trie};
+    use near_store::{ShardUId, Trie};
+
+    use crate::runtime::check_dynamic_resharding;
+
+    fn get_config(
+        memory_usage_threshold: u64,
+        min_child_memory_usage: u64,
+        max_number_of_shards: u64,
+        force_split_shards: Vec<ShardId>,
+        block_split_shards: Vec<ShardId>,
+    ) -> DynamicReshardingConfig {
+        DynamicReshardingConfig {
+            memory_usage_threshold,
+            min_child_memory_usage,
+            max_number_of_shards,
+            min_epochs_between_resharding: 0,
+            force_split_shards,
+            block_split_shards,
+        }
+    }
+
+    fn make_trie_with_accounts(accounts: &[(&str, usize)]) -> Trie {
+        let tries = TestTriesBuilder::new().with_flat_storage(true).build();
+        let shard_uid = ShardUId::single_shard();
+
+        let changes = accounts
+            .iter()
+            .map(|(acc, size)| {
+                let key = TrieKey::Account { account_id: acc.parse().unwrap() };
+                (key.to_vec(), Some(vec![0u8; *size]))
+            })
+            .collect();
+
+        let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, changes);
+        tries.get_trie_for_shard(shard_uid, root)
+    }
+
+    #[test]
+    fn max_shards_reached() {
+        let trie = make_trie_with_accounts(&[("aa", 100), ("bb", 100)]);
+        let shard_layout = ShardLayout::single_shard();
+        let shard_id = ShardId::new(0);
+
+        let config = get_config(0, 0, 1, vec![], vec![]);
+        let result = check_dynamic_resharding(&trie, shard_id, shard_layout, &config);
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn block_split_shards() {
+        let trie = make_trie_with_accounts(&[("aa", 100), ("bb", 100)]);
+        let shard_layout = ShardLayout::single_shard();
+        let shard_id = ShardId::new(0);
+
+        let config = get_config(0, 0, 100, vec![], vec![shard_id]);
+        let result = check_dynamic_resharding(&trie, shard_id, shard_layout, &config);
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn force_split_shards() {
+        let trie = make_trie_with_accounts(&[("aa", 100), ("bb", 100)]);
+        let shard_layout = ShardLayout::single_shard();
+        let shard_id = ShardId::new(0);
+
+        // shard_id is in force_split_shards, should split regardless of memory
+        let config = get_config(u64::MAX, u64::MAX, 100, vec![shard_id], vec![]);
+        let result = check_dynamic_resharding(&trie, shard_id, shard_layout, &config);
+        assert!(result.unwrap().is_some());
+    }
+
+    #[test]
+    fn below_memory_threshold() {
+        let trie = make_trie_with_accounts(&[("aa", 100), ("bb", 100)]);
+        let shard_layout = ShardLayout::single_shard();
+        let shard_id = ShardId::new(0);
+
+        let config = get_config(u64::MAX, 0, 100, vec![], vec![]);
+        let result = check_dynamic_resharding(&trie, shard_id, shard_layout, &config);
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn left_child_too_small() {
+        let trie = make_trie_with_accounts(&[("aa", 100), ("bb", 100_000)]);
+        let shard_layout = ShardLayout::single_shard();
+        let shard_id = ShardId::new(0);
+
+        let config = get_config(0, 1000, 100, vec![], vec![]);
+        let result = check_dynamic_resharding(&trie, shard_id, shard_layout, &config);
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn right_child_too_small() {
+        let trie = make_trie_with_accounts(&[("bb", 100_000), ("cc", 100)]);
+        let shard_layout = ShardLayout::single_shard();
+        let shard_id = ShardId::new(0);
+
+        let config = get_config(0, 1000, 100, vec![], vec![]);
+        let result = check_dynamic_resharding(&trie, shard_id, shard_layout, &config);
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn split_approved() {
+        let trie = make_trie_with_accounts(&[("aa", 100), ("bb", 100)]);
+        let shard_layout = ShardLayout::single_shard();
+        let shard_id = ShardId::new(0);
+
+        let config = get_config(0, 0, 100, vec![], vec![]);
+        let result = check_dynamic_resharding(&trie, shard_id, shard_layout, &config);
+        assert!(result.unwrap().is_some());
+    }
 }

@@ -256,12 +256,10 @@ max_yield_payload_size: 1_024 # kiB
 
 # Contract runtime configuration
 flat_storage_reads: false
-implicit_account_creation: false
 fix_contract_loading_cost: false
 vm_kind: Wasmer0
 eth_implicit_accounts: false
 discard_custom_sections: false
-saturating_float_to_int: false
 global_contract_host_fns: false
 reftypes_bulk_memory: false
 deterministic_account_ids: false

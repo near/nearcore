@@ -61,6 +61,7 @@ fn setup_network_node(
 
     let mut genesis = Genesis::test(validators, 1);
     genesis.config.epoch_length = 5;
+    genesis.config.transaction_validity_period = 10;
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(node_storage.get_hot_store(), &genesis, Some(tempdir.path()));
     let epoch_manager =
@@ -106,6 +107,8 @@ fn setup_network_node(
     };
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
+    let (block_notification_watch_sender, _block_notification_watch_receiver) =
+        tokio::sync::watch::channel(None);
     let adv = near_client::adversarial::Controls::default();
     let StartClientResult { client_actor, tx_pool, chunk_endorsement_tracker, .. } = start_client(
         Clock::real(),
@@ -129,6 +132,7 @@ fn setup_network_node(
         true,
         None,
         noop().into_multi_sender(),
+        block_notification_watch_sender,
         SpiceClientConfig {
             chunk_executor_sender: noop().into_sender(),
             spice_chunk_validator_sender: noop().into_sender(),

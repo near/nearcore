@@ -204,12 +204,10 @@ pub enum Parameter {
 
     // Contract runtime features
     FlatStorageReads,
-    ImplicitAccountCreation,
     FixContractLoadingCost,
     VmKind,
     EthImplicitAccounts,
     DiscardCustomSections,
-    SaturatingFloatToInt,
     ReftypesBulkMemory,
 
     // Congestion Control

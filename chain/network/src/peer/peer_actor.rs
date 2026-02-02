@@ -18,7 +18,7 @@ use crate::network_protocol::{
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
-use crate::peer_manager::network_state::{NetworkState, PRUNE_EDGES_AFTER};
+use crate::peer_manager::network_state::{EdgesWithSource, NetworkState, PRUNE_EDGES_AFTER};
 #[cfg(test)]
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
@@ -1243,6 +1243,17 @@ impl PeerActor {
                 let clock = self.clock.clone();
                 let network_state = self.network_state.clone();
                 self.handle.spawn("handle request update nonce", async move {
+                    if let Err(err) = verify_nonce(&clock, edge_info.nonce) {
+                        tracing::debug!(
+                            target: "network",
+                            nonce = ?edge_info.nonce,
+                            peer_id = ?conn.peer_info.id,
+                            %err,
+                            "bad nonce, disconnecting"
+                        );
+                        conn.stop(Some(ReasonForBan::InvalidEdge));
+                        return;
+                    }
                     let peer_id = &conn.peer_info.id;
                     match network_state.graph.load().local_edges.get(peer_id) {
                         Some(cur_edge)
@@ -1456,7 +1467,8 @@ impl PeerActor {
                     }
                 } else {
                     if msg.decrease_ttl() {
-                        *msg.num_hops_mut() += 1;
+                        let num_hops = msg.num_hops_mut();
+                        *num_hops = num_hops.saturating_add(1);
                         self.network_state.send_message_to_peer(&self.clock, conn.tier, msg);
                     } else {
                         #[cfg(test)]
@@ -1484,7 +1496,9 @@ impl PeerActor {
         conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
     ) {
-        if let Err(ban_reason) = network_state.add_edges(&clock, rtu.edges.clone()).await {
+        if let Err(ban_reason) =
+            network_state.add_edges(&clock, EdgesWithSource::Remote(rtu.edges.clone())).await
+        {
             conn.stop(Some(ban_reason));
         }
 
@@ -1654,7 +1668,7 @@ impl messaging::Handler<stream::Error> for PeerActor {
             },
             };
             log_assert!(expected, "unexpected closing reason: {err}");
-            tracing::info!(target: "network", ?err, peer_info = %this.peer_info, "closing connection");
+            tracing::debug!(target: "network", ?err, peer_info = %this.peer_info, "closing connection");
             this.stop(ClosingReason::StreamError);
         });
     }
@@ -1717,7 +1731,7 @@ impl messaging::Handler<stream::Frame> for PeerActor {
                     conn.last_time_received_message.store(now);
                     // Check if the message type is allowed given the TIER of the connection:
                     // TIER1 connections are reserved exclusively for BFT consensus messages.
-                    if !conn.tier.is_allowed(&peer_msg) {
+                    if !conn.tier.is_allowed_receive(&peer_msg) {
                         tracing::warn!(target: "network", msg_variant = %peer_msg.msg_variant(), tier = ?conn.tier, "received message on connection, disconnecting");
                         // TODO(gprusak): this is abusive behavior. Consider banning for it.
                         this.stop(ClosingReason::DisallowedMessage);

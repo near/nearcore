@@ -1,4 +1,5 @@
 pub mod blocks;
+pub mod call_function;
 pub mod changes;
 pub mod chunks;
 pub mod client_config;
@@ -16,3 +17,9 @@ pub mod split_storage;
 pub mod status;
 pub mod transactions;
 pub mod validator;
+pub mod view_access_key;
+pub mod view_access_key_list;
+pub mod view_account;
+pub mod view_code;
+pub mod view_state;
+// TODO(gas-keys): add view_gas_key_nonces module

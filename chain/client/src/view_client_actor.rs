@@ -29,7 +29,8 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
-    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, TxStatusRequest, TxStatusResponse,
+    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, GetCurrentEpochHeight,
+    TxStatusRequest, TxStatusResponse,
 };
 use near_network::types::{
     NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
@@ -44,8 +45,9 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,
-    MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
+    AccountId, BlockHeight, BlockId, BlockReference, EpochHeight, EpochId, EpochReference,
+    Finality, MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId,
+    ValidatorInfoIdentifier,
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
@@ -419,17 +421,14 @@ impl ViewClientActor {
                     block_height,
                     block_hash,
                 } => QueryError::UnknownAccessKey { public_key, block_height, block_hash },
-                near_chain::near_chain_primitives::error::QueryError::UnknownGasKey {
-                    public_key,
-                    block_height,
-                    block_hash,
-                } => QueryError::UnknownGasKey { public_key, block_height, block_hash },
                 near_chain::near_chain_primitives::error::QueryError::ContractExecutionError {
                     error_message,
+                    error,
                     block_hash,
                     block_height,
                 } => QueryError::ContractExecutionError {
                     vm_error: error_message,
+                    error,
                     block_height,
                     block_hash,
                 },
@@ -461,8 +460,7 @@ impl ViewClientActor {
             | QueryRequest::ViewState { account_id, .. }
             | QueryRequest::ViewAccessKey { account_id, .. }
             | QueryRequest::ViewAccessKeyList { account_id, .. }
-            | QueryRequest::ViewGasKey { account_id, .. }
-            | QueryRequest::ViewGasKeyList { account_id }
+            | QueryRequest::ViewGasKeyNonces { account_id, .. }
             | QueryRequest::CallFunction { account_id, .. }
             | QueryRequest::ViewCode { account_id, .. } => {
                 account_id_to_shard_id(self.epoch_manager.as_ref(), account_id, &epoch_id)
@@ -1451,5 +1449,14 @@ impl Handler<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageIn
             cold_head_height: cold_head.map(|tip| tip.height),
             hot_db_kind,
         })
+    }
+}
+
+impl Handler<GetCurrentEpochHeight, Option<EpochHeight>> for ViewClientActor {
+    fn handle(&mut self, _: GetCurrentEpochHeight) -> Option<EpochHeight> {
+        let Ok(tip) = self.chain.head() else {
+            return None;
+        };
+        self.epoch_manager.get_epoch_info(&tip.epoch_id).map(|info| info.epoch_height()).ok()
     }
 }

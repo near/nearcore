@@ -20,9 +20,7 @@ fn get_state_sync_new_chunks(
 fn iter_state_sync_hashes_keys<'a>(
     store: &'a Store,
 ) -> impl Iterator<Item = Result<EpochId, std::io::Error>> + 'a {
-    store
-        .iter(DBCol::StateSyncHashes)
-        .map(|item| item.and_then(|(k, _v)| EpochId::try_from_slice(&k)))
+    store.iter(DBCol::StateSyncHashes).map(|(k, _v)| EpochId::try_from_slice(&k))
 }
 
 /// Saves new chunk info and returns whether there are at least 2 chunks per shard in the epoch for header.prev_hash()

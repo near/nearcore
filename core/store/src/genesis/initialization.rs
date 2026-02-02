@@ -34,6 +34,7 @@ pub fn initialize_sharded_genesis_state(
     genesis_epoch_config: &EpochConfig,
     home_dir: Option<&Path>,
 ) {
+    let shard_layout = genesis_epoch_config.static_shard_layout();
     let state_roots = if let Some(state_roots) =
         get_genesis_state_roots(&store).expect("Store failed on genesis initialization")
     {
@@ -58,7 +59,7 @@ pub fn initialize_sharded_genesis_state(
             }
             genesis_state_from_dump(store.clone(), home_dir.unwrap())
         } else {
-            genesis_state_from_genesis(store.clone(), genesis, &genesis_epoch_config.shard_layout)
+            genesis_state_from_genesis(store.clone(), genesis, &shard_layout)
         };
         let mut store_update = store.store_update();
         set_genesis_state_roots(&mut store_update, &state_roots);
@@ -77,7 +78,7 @@ pub fn initialize_sharded_genesis_state(
     }
 
     assert_eq!(
-        genesis_epoch_config.shard_layout.shard_ids().count(),
+        shard_layout.shard_ids().count(),
         genesis_epoch_config.num_block_producer_seats_per_shard.len(),
         "genesis config shard_layout and num_block_producer_seats_per_shard indicate inconsistent number of shards",
     );

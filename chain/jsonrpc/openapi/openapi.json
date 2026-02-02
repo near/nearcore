@@ -5,6 +5,34 @@
     "version": "1.2.2"
   },
   "paths": {
+    "/EXPERIMENTAL_call_function": {
+      "post": {
+        "description": "Calls a view function on a contract and returns the result.",
+        "operationId": "EXPERIMENTAL_call_function",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_call_function"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcCallFunctionResponse_and_RpcCallFunctionError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/EXPERIMENTAL_changes": {
       "post": {
         "description": "[Deprecated] Returns changes for a given account, contract or contract code for given block height or hash. Consider using changes instead.",
@@ -334,6 +362,146 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/JsonRpcResponse_for_Array_of_ValidatorStakeView_and_RpcValidatorError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/EXPERIMENTAL_view_access_key": {
+      "post": {
+        "description": "Returns information about a single access key for given account.",
+        "operationId": "EXPERIMENTAL_view_access_key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_view_access_key"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewAccessKeyResponse_and_RpcViewAccessKeyError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/EXPERIMENTAL_view_access_key_list": {
+      "post": {
+        "description": "Returns all access keys for a given account.",
+        "operationId": "EXPERIMENTAL_view_access_key_list",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_view_access_key_list"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewAccessKeyListResponse_and_RpcViewAccessKeyListError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/EXPERIMENTAL_view_account": {
+      "post": {
+        "description": "Returns information about an account for given account_id.",
+        "operationId": "EXPERIMENTAL_view_account",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_view_account"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewAccountResponse_and_RpcViewAccountError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/EXPERIMENTAL_view_code": {
+      "post": {
+        "description": "Returns the contract code (Wasm binary) deployed to the account.",
+        "operationId": "EXPERIMENTAL_view_code",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_view_code"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewCodeResponse_and_RpcViewCodeError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/EXPERIMENTAL_view_state": {
+      "post": {
+        "description": "Returns the state (key-value pairs) of a contract based on the key prefix.",
+        "operationId": "EXPERIMENTAL_view_state",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonRpcRequest_for_EXPERIMENTAL_view_state"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonRpcResponse_for_RpcViewStateResponse_and_RpcViewStateError"
                 }
               }
             }
@@ -987,6 +1155,42 @@
               "FullAccess"
             ],
             "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key with limited permission to make transactions with FunctionCallActions\nGas keys are a kind of access keys with a prepaid balance to pay for gas.",
+            "properties": {
+              "GasKeyFunctionCall": {
+                "items": [
+                  {
+                    "$ref": "#/components/schemas/GasKeyInfo"
+                  },
+                  {
+                    "$ref": "#/components/schemas/FunctionCallPermission"
+                  }
+                ],
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              }
+            },
+            "required": [
+              "GasKeyFunctionCall"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key with full access to the account.\nGas keys are a kind of access keys with a prepaid balance to pay for gas.",
+            "properties": {
+              "GasKeyFullAccess": {
+                "$ref": "#/components/schemas/GasKeyInfo"
+              }
+            },
+            "required": [
+              "GasKeyFullAccess"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -1036,6 +1240,82 @@
             },
             "required": [
               "FunctionCall"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "GasKeyFunctionCall": {
+                "properties": {
+                  "allowance": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/NearToken"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ]
+                  },
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "method_names": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "num_nonces": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "receiver_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "balance",
+                  "num_nonces",
+                  "receiver_id",
+                  "method_names"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyFunctionCall"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "GasKeyFullAccess": {
+                "properties": {
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "num_nonces": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "balance",
+                  "num_nonces"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyFullAccess"
             ],
             "type": "object"
           }
@@ -1855,6 +2135,7 @@
           },
           {
             "additionalProperties": false,
+            "description": "Gas key does not exist for the specified public key",
             "properties": {
               "GasKeyDoesNotExist": {
                 "properties": {
@@ -1879,25 +2160,34 @@
           },
           {
             "additionalProperties": false,
+            "description": "Gas key does not have sufficient balance for the requested withdrawal",
             "properties": {
-              "GasKeyAlreadyExists": {
+              "InsufficientGasKeyBalance": {
                 "properties": {
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
                   "public_key": {
                     "$ref": "#/components/schemas/PublicKey"
+                  },
+                  "required": {
+                    "$ref": "#/components/schemas/NearToken"
                   }
                 },
                 "required": [
                   "account_id",
-                  "public_key"
+                  "public_key",
+                  "balance",
+                  "required"
                 ],
                 "type": "object"
               }
             },
             "required": [
-              "GasKeyAlreadyExists"
+              "InsufficientGasKeyBalance"
             ],
             "type": "object"
           }
@@ -2212,15 +2502,10 @@
           {
             "additionalProperties": false,
             "properties": {
-              "AddGasKey": {
+              "TransferToGasKey": {
                 "properties": {
-                  "num_nonces": {
-                    "format": "uint32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "permission": {
-                    "$ref": "#/components/schemas/AccessKeyPermissionView"
+                  "deposit": {
+                    "$ref": "#/components/schemas/NearToken"
                   },
                   "public_key": {
                     "$ref": "#/components/schemas/PublicKey"
@@ -2228,41 +2513,20 @@
                 },
                 "required": [
                   "public_key",
-                  "num_nonces",
-                  "permission"
+                  "deposit"
                 ],
                 "type": "object"
               }
             },
             "required": [
-              "AddGasKey"
+              "TransferToGasKey"
             ],
             "type": "object"
           },
           {
             "additionalProperties": false,
             "properties": {
-              "DeleteGasKey": {
-                "properties": {
-                  "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
-                  }
-                },
-                "required": [
-                  "public_key"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "DeleteGasKey"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "TransferToGasKey": {
+              "WithdrawFromGasKey": {
                 "properties": {
                   "amount": {
                     "$ref": "#/components/schemas/NearToken"
@@ -2279,7 +2543,7 @@
               }
             },
             "required": [
-              "TransferToGasKey"
+              "WithdrawFromGasKey"
             ],
             "type": "object"
           }
@@ -2667,27 +2931,7 @@
           {
             "additionalProperties": false,
             "properties": {
-              "GasKeyPermissionInvalid": {
-                "properties": {
-                  "permission": {
-                    "$ref": "#/components/schemas/AccessKeyPermission"
-                  }
-                },
-                "required": [
-                  "permission"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "GasKeyPermissionInvalid"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "GasKeyTooManyNoncesRequested": {
+              "GasKeyInvalidNumNonces": {
                 "properties": {
                   "limit": {
                     "format": "uint32",
@@ -2708,32 +2952,38 @@
               }
             },
             "required": [
-              "GasKeyTooManyNoncesRequested"
+              "GasKeyInvalidNumNonces"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "AddGasKeyWithNonZeroBalance": {
+                "properties": {
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  }
+                },
+                "required": [
+                  "balance"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "AddGasKeyWithNonZeroBalance"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Gas keys with FunctionCall permission cannot have an allowance set.",
+            "enum": [
+              "GasKeyFunctionCallAllowanceNotAllowed"
+            ],
+            "type": "string"
           }
         ]
-      },
-      "AddGasKeyAction": {
-        "properties": {
-          "num_nonces": {
-            "format": "uint32",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "permission": {
-            "$ref": "#/components/schemas/AccessKeyPermission"
-          },
-          "public_key": {
-            "$ref": "#/components/schemas/PublicKey"
-          }
-        },
-        "required": [
-          "public_key",
-          "num_nonces",
-          "permission"
-        ],
-        "type": "object"
       },
       "AddKeyAction": {
         "description": "An action that adds key with public key associated",
@@ -3065,6 +3315,20 @@
             ],
             "default": "0",
             "description": "TODO(2271): deprecated."
+          },
+          "shard_split": {
+            "items": [
+              {
+                "$ref": "#/components/schemas/ShardId"
+              },
+              {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            ],
+            "maxItems": 2,
+            "minItems": 2,
+            "nullable": true,
+            "type": "array"
           },
           "signature": {
             "allOf": [
@@ -3881,17 +4145,6 @@
         ],
         "type": "object"
       },
-      "DeleteGasKeyAction": {
-        "properties": {
-          "public_key": {
-            "$ref": "#/components/schemas/PublicKey"
-          }
-        },
-        "required": [
-          "public_key"
-        ],
-        "type": "object"
-      },
       "DeleteKeyAction": {
         "properties": {
           "public_key": {
@@ -4098,21 +4351,11 @@
       },
       "EpochSyncConfig": {
         "properties": {
-          "disable_epoch_sync_for_bootstrapping": {
-            "default": false,
-            "description": "If true, even if the node started from genesis, it will not perform epoch sync.\nThere should be no reason to set this flag in production, because on both mainnet\nand testnet it would be infeasible to catch up from genesis without epoch sync.",
-            "type": "boolean"
-          },
           "epoch_sync_horizon": {
             "description": "This serves as two purposes: (1) the node will not epoch sync and instead resort to\nheader sync, if the genesis block is within this many blocks from the current block;\n(2) the node will reject an epoch sync proof if the provided proof is for an epoch\nthat is more than this many blocks behind the current block.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
-          },
-          "ignore_epoch_sync_network_requests": {
-            "default": false,
-            "description": "If true, the node will ignore epoch sync requests from the network. It is strongly\nrecommended not to set this flag, because it will prevent other nodes from\nbootstrapping. This flag is only included as a kill-switch and may be removed in a\nfuture release. Please note that epoch sync requests are heavily rate limited and\ncached, and therefore should not affect the performance of the node or introduce\nany non-negligible increase in network traffic.",
-            "type": "boolean"
           },
           "timeout_for_epoch_sync": {
             "allOf": [
@@ -4207,6 +4450,64 @@
             "properties": {
               "cause": {
                 "$ref": "#/components/schemas/RpcBlockError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcCallFunctionError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcCallFunctionError"
               },
               "name": {
                 "enum": [
@@ -5077,6 +5378,296 @@
             "properties": {
               "cause": {
                 "$ref": "#/components/schemas/RpcValidatorError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcViewAccessKeyError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcViewAccessKeyError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcViewAccessKeyListError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcViewAccessKeyListError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcViewAccountError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcViewAccountError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcViewCodeError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcViewCodeError"
+              },
+              "name": {
+                "enum": [
+                  "HANDLER_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/InternalError"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ErrorWrapper_for_RpcViewStateError": {
+        "oneOf": [
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcRequestValidationErrorKind"
+              },
+              "name": {
+                "enum": [
+                  "REQUEST_VALIDATION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "cause"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "cause": {
+                "$ref": "#/components/schemas/RpcViewStateError"
               },
               "name": {
                 "enum": [
@@ -6369,95 +6960,20 @@
         },
         "type": "object"
       },
-      "GasKey": {
-        "description": "Gas key is like an access key, except it stores a balance separately, and transactions signed\nwith it deduct their cost from the gas key balance instead of the account balance.",
-        "properties": {
-          "balance": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/NearToken"
-              }
-            ],
-            "description": "The balance of the gas key."
-          },
-          "num_nonces": {
-            "description": "The number of nonces this gas key has.",
-            "format": "uint32",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "permission": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/AccessKeyPermission"
-              }
-            ],
-            "description": "Defines the permissions for this gas key.\nIf this is a `FunctionCallPermission`, the allowance must be None (unlimited)."
-          }
-        },
-        "required": [
-          "num_nonces",
-          "balance",
-          "permission"
-        ],
-        "type": "object"
-      },
-      "GasKeyInfoView": {
-        "properties": {
-          "gas_key": {
-            "$ref": "#/components/schemas/GasKeyView"
-          },
-          "public_key": {
-            "$ref": "#/components/schemas/PublicKey"
-          }
-        },
-        "required": [
-          "public_key",
-          "gas_key"
-        ],
-        "type": "object"
-      },
-      "GasKeyList": {
-        "properties": {
-          "keys": {
-            "items": {
-              "$ref": "#/components/schemas/GasKeyInfoView"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "keys"
-        ],
-        "type": "object"
-      },
-      "GasKeyView": {
+      "GasKeyInfo": {
         "properties": {
           "balance": {
             "$ref": "#/components/schemas/NearToken"
           },
-          "nonces": {
-            "items": {
-              "format": "uint64",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "type": "array"
-          },
           "num_nonces": {
             "format": "uint32",
             "minimum": 0,
             "type": "integer"
-          },
-          "permission": {
-            "$ref": "#/components/schemas/AccessKeyPermissionView"
           }
         },
         "required": [
-          "num_nonces",
           "balance",
-          "permission",
-          "nonces"
+          "num_nonces"
         ],
         "type": "object"
       },
@@ -6865,12 +7381,30 @@
         ]
       },
       "GlobalContractIdentifierView": {
-        "anyOf": [
+        "oneOf": [
           {
-            "$ref": "#/components/schemas/CryptoHash"
+            "additionalProperties": false,
+            "properties": {
+              "hash": {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            },
+            "required": [
+              "hash"
+            ],
+            "type": "object"
           },
           {
-            "$ref": "#/components/schemas/AccountId"
+            "additionalProperties": false,
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            },
+            "required": [
+              "account_id"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -7961,8 +8495,66 @@
               "ShardStuck"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Transaction is specifying an invalid nonce index. Gas key transactions\nmust have a nonce_index in valid range, regular transactions must not.",
+            "properties": {
+              "InvalidNonceIndex": {
+                "properties": {
+                  "num_nonces": {
+                    "description": "Number of nonces supported by the key. 0 means no nonce_index allowed (regular key).",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "tx_nonce_index": {
+                    "description": "The nonce_index from the transaction (None if missing).",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "nullable": true,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "num_nonces"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "InvalidNonceIndex"
+            ],
+            "type": "object"
           }
         ]
+      },
+      "JsonRpcRequest_for_EXPERIMENTAL_call_function": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_call_function"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcCallFunctionRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_call_function",
+        "type": "object"
       },
       "JsonRpcRequest_for_EXPERIMENTAL_changes": {
         "properties": {
@@ -8286,6 +8878,141 @@
           "method"
         ],
         "title": "JsonRpcRequest_for_EXPERIMENTAL_validators_ordered",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_EXPERIMENTAL_view_access_key": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_view_access_key"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewAccessKeyRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_view_access_key",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_EXPERIMENTAL_view_access_key_list": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_view_access_key_list"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewAccessKeyListRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_view_access_key_list",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_EXPERIMENTAL_view_account": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_view_account"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewAccountRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_view_account",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_EXPERIMENTAL_view_code": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_view_code"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewCodeRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_view_code",
+        "type": "object"
+      },
+      "JsonRpcRequest_for_EXPERIMENTAL_view_state": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "EXPERIMENTAL_view_state"
+            ],
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/RpcViewStateRequest"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "params",
+          "method"
+        ],
+        "title": "JsonRpcRequest_for_EXPERIMENTAL_view_state",
         "type": "object"
       },
       "JsonRpcRequest_for_block": {
@@ -9057,6 +9784,46 @@
         "title": "JsonRpcResponse_for_RpcBlockResponse_and_RpcBlockError",
         "type": "object"
       },
+      "JsonRpcResponse_for_RpcCallFunctionResponse_and_RpcCallFunctionError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcCallFunctionResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcCallFunctionError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcCallFunctionResponse_and_RpcCallFunctionError",
+        "type": "object"
+      },
       "JsonRpcResponse_for_RpcChunkResponse_and_RpcChunkError": {
         "oneOf": [
           {
@@ -9737,6 +10504,206 @@
         "title": "JsonRpcResponse_for_RpcValidatorResponse_and_RpcValidatorError",
         "type": "object"
       },
+      "JsonRpcResponse_for_RpcViewAccessKeyListResponse_and_RpcViewAccessKeyListError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcViewAccessKeyListResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcViewAccessKeyListError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcViewAccessKeyListResponse_and_RpcViewAccessKeyListError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_RpcViewAccessKeyResponse_and_RpcViewAccessKeyError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcViewAccessKeyResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcViewAccessKeyError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcViewAccessKeyResponse_and_RpcViewAccessKeyError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_RpcViewAccountResponse_and_RpcViewAccountError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcViewAccountResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcViewAccountError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcViewAccountResponse_and_RpcViewAccountError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_RpcViewCodeResponse_and_RpcViewCodeError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcViewCodeResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcViewCodeError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcViewCodeResponse_and_RpcViewCodeError",
+        "type": "object"
+      },
+      "JsonRpcResponse_for_RpcViewStateResponse_and_RpcViewStateError": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/RpcViewStateResponse"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorWrapper_for_RpcViewStateError"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "jsonrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id"
+        ],
+        "title": "JsonRpcResponse_for_RpcViewStateResponse_and_RpcViewStateError",
+        "type": "object"
+      },
       "KnownProducerView": {
         "description": "Information about a Producer: its account name, peer_id and a list of connected peers that\nthe node can use to send message for this producer.",
         "properties": {
@@ -10285,36 +11252,24 @@
           {
             "additionalProperties": false,
             "properties": {
-              "AddGasKey": {
-                "$ref": "#/components/schemas/AddGasKeyAction"
-              }
-            },
-            "required": [
-              "AddGasKey"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "DeleteGasKey": {
-                "$ref": "#/components/schemas/DeleteGasKeyAction"
-              }
-            },
-            "required": [
-              "DeleteGasKey"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
               "TransferToGasKey": {
                 "$ref": "#/components/schemas/TransferToGasKeyAction"
               }
             },
             "required": [
               "TransferToGasKey"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "WithdrawFromGasKey": {
+                "$ref": "#/components/schemas/WithdrawFromGasKeyAction"
+              }
+            },
+            "required": [
+              "WithdrawFromGasKey"
             ],
             "type": "object"
           }
@@ -10894,6 +11849,7 @@
           },
           "priority": {
             "default": 0,
+            "description": "Deprecated, retained for backward compatibility.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -11041,6 +11997,296 @@
           "author",
           "header",
           "chunks"
+        ],
+        "type": "object"
+      },
+      "RpcCallFunctionError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_reference": {
+                    "$ref": "#/components/schemas/BlockReference"
+                  }
+                },
+                "required": [
+                  "block_reference"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_BLOCK"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INVALID_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "contract_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "contract_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "NO_CONTRACT_CODE"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "vm_error": {
+                    "$ref": "#/components/schemas/FunctionCallError"
+                  }
+                },
+                "required": [
+                  "vm_error",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "CONTRACT_EXECUTION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "RpcCallFunctionRequest": {
+        "oneOf": [
+          {
+            "properties": {
+              "block_id": {
+                "$ref": "#/components/schemas/BlockId"
+              }
+            },
+            "required": [
+              "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "finality": {
+                "$ref": "#/components/schemas/Finality"
+              }
+            },
+            "required": [
+              "finality"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "sync_checkpoint": {
+                "$ref": "#/components/schemas/SyncCheckpoint"
+              }
+            },
+            "required": [
+              "sync_checkpoint"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "args_base64": {
+            "$ref": "#/components/schemas/FunctionArgs"
+          },
+          "method_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "method_name",
+          "args_base64"
+        ],
+        "title": "RpcCallFunctionRequest",
+        "type": "object"
+      },
+      "RpcCallFunctionResponse": {
+        "description": "A result returned by contract method",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "block_height": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "logs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "result": {
+            "items": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result",
+          "logs",
+          "block_height",
+          "block_hash"
         ],
         "type": "object"
       },
@@ -11370,10 +12616,6 @@
             "maxItems": 2,
             "minItems": 2,
             "type": "array"
-          },
-          "dynamic_resharding_dry_run": {
-            "description": "If true, the runtime will do a dynamic resharding 'dry run' at the last block of each epoch.\nThis means calculating tentative boundary accounts for splitting the tracked shards.",
-            "type": "boolean"
           },
           "enable_early_prepare_transactions": {
             "description": "If true, transactions for the next chunk will be prepared early, right after the previous chunk's\npost-state is ready. This can help produce chunks faster, for high-throughput chains.\nThe current implementation increases latency on low-load chains, which will be fixed in the future.\nThe default is disabled.",
@@ -13153,12 +14395,16 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "error": {
+                    "$ref": "#/components/schemas/FunctionCallError"
+                  },
                   "vm_error": {
                     "type": "string"
                   }
                 },
                 "required": [
                   "vm_error",
+                  "error",
                   "block_height",
                   "block_hash"
                 ],
@@ -13447,7 +14693,7 @@
                   },
                   "request_type": {
                     "enum": [
-                      "view_gas_key"
+                      "view_gas_key_nonces"
                     ],
                     "type": "string"
                   }
@@ -13460,41 +14706,7 @@
                 "type": "object"
               }
             ],
-            "title": "view_gas_key_by_block_id"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "block_id": {
-                    "$ref": "#/components/schemas/BlockId"
-                  }
-                },
-                "required": [
-                  "block_id"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
-                  "account_id": {
-                    "$ref": "#/components/schemas/AccountId"
-                  },
-                  "request_type": {
-                    "enum": [
-                      "view_gas_key_list"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "request_type",
-                  "account_id"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "view_gas_key_list_by_block_id"
+            "title": "view_gas_key_nonces_by_block_id"
           },
           {
             "allOf": [
@@ -13810,7 +15022,7 @@
                   },
                   "request_type": {
                     "enum": [
-                      "view_gas_key"
+                      "view_gas_key_nonces"
                     ],
                     "type": "string"
                   }
@@ -13823,41 +15035,7 @@
                 "type": "object"
               }
             ],
-            "title": "view_gas_key_by_finality"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "finality": {
-                    "$ref": "#/components/schemas/Finality"
-                  }
-                },
-                "required": [
-                  "finality"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
-                  "account_id": {
-                    "$ref": "#/components/schemas/AccountId"
-                  },
-                  "request_type": {
-                    "enum": [
-                      "view_gas_key_list"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "request_type",
-                  "account_id"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "view_gas_key_list_by_finality"
+            "title": "view_gas_key_nonces_by_finality"
           },
           {
             "allOf": [
@@ -14173,7 +15351,7 @@
                   },
                   "request_type": {
                     "enum": [
-                      "view_gas_key"
+                      "view_gas_key_nonces"
                     ],
                     "type": "string"
                   }
@@ -14186,41 +15364,7 @@
                 "type": "object"
               }
             ],
-            "title": "view_gas_key_by_sync_checkpoint"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "sync_checkpoint": {
-                    "$ref": "#/components/schemas/SyncCheckpoint"
-                  }
-                },
-                "required": [
-                  "sync_checkpoint"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
-                  "account_id": {
-                    "$ref": "#/components/schemas/AccountId"
-                  },
-                  "request_type": {
-                    "enum": [
-                      "view_gas_key_list"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "request_type",
-                  "account_id"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "view_gas_key_list_by_sync_checkpoint"
+            "title": "view_gas_key_nonces_by_sync_checkpoint"
           },
           {
             "allOf": [
@@ -14357,10 +15501,12 @@
             "$ref": "#/components/schemas/AccessKeyList"
           },
           {
-            "$ref": "#/components/schemas/GasKeyView"
-          },
-          {
-            "$ref": "#/components/schemas/GasKeyList"
+            "items": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
           }
         ],
         "properties": {
@@ -14454,6 +15600,7 @@
           },
           "priority": {
             "default": 0,
+            "description": "Deprecated, retained for backward compatibility.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -14768,43 +15915,6 @@
               },
               {
                 "properties": {
-                  "changes_type": {
-                    "enum": [
-                      "single_gas_key_changes"
-                    ],
-                    "type": "string"
-                  },
-                  "keys": {
-                    "items": {
-                      "$ref": "#/components/schemas/AccountWithPublicKey"
-                    },
-                    "type": "array"
-                  }
-                },
-                "required": [
-                  "changes_type",
-                  "keys"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "single_gas_key_changes_by_block_id"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "block_id": {
-                    "$ref": "#/components/schemas/BlockId"
-                  }
-                },
-                "required": [
-                  "block_id"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
                   "account_ids": {
                     "items": {
                       "$ref": "#/components/schemas/AccountId"
@@ -14826,43 +15936,6 @@
               }
             ],
             "title": "all_access_key_changes_by_block_id"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "block_id": {
-                    "$ref": "#/components/schemas/BlockId"
-                  }
-                },
-                "required": [
-                  "block_id"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
-                  "account_ids": {
-                    "items": {
-                      "$ref": "#/components/schemas/AccountId"
-                    },
-                    "type": "array"
-                  },
-                  "changes_type": {
-                    "enum": [
-                      "all_gas_key_changes"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "changes_type",
-                  "account_ids"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "all_gas_key_changes_by_block_id"
           },
           {
             "allOf": [
@@ -15031,43 +16104,6 @@
               },
               {
                 "properties": {
-                  "changes_type": {
-                    "enum": [
-                      "single_gas_key_changes"
-                    ],
-                    "type": "string"
-                  },
-                  "keys": {
-                    "items": {
-                      "$ref": "#/components/schemas/AccountWithPublicKey"
-                    },
-                    "type": "array"
-                  }
-                },
-                "required": [
-                  "changes_type",
-                  "keys"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "single_gas_key_changes_by_finality"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "finality": {
-                    "$ref": "#/components/schemas/Finality"
-                  }
-                },
-                "required": [
-                  "finality"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
                   "account_ids": {
                     "items": {
                       "$ref": "#/components/schemas/AccountId"
@@ -15089,43 +16125,6 @@
               }
             ],
             "title": "all_access_key_changes_by_finality"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "finality": {
-                    "$ref": "#/components/schemas/Finality"
-                  }
-                },
-                "required": [
-                  "finality"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
-                  "account_ids": {
-                    "items": {
-                      "$ref": "#/components/schemas/AccountId"
-                    },
-                    "type": "array"
-                  },
-                  "changes_type": {
-                    "enum": [
-                      "all_gas_key_changes"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "changes_type",
-                  "account_ids"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "all_gas_key_changes_by_finality"
           },
           {
             "allOf": [
@@ -15294,43 +16293,6 @@
               },
               {
                 "properties": {
-                  "changes_type": {
-                    "enum": [
-                      "single_gas_key_changes"
-                    ],
-                    "type": "string"
-                  },
-                  "keys": {
-                    "items": {
-                      "$ref": "#/components/schemas/AccountWithPublicKey"
-                    },
-                    "type": "array"
-                  }
-                },
-                "required": [
-                  "changes_type",
-                  "keys"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "single_gas_key_changes_by_sync_checkpoint"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "sync_checkpoint": {
-                    "$ref": "#/components/schemas/SyncCheckpoint"
-                  }
-                },
-                "required": [
-                  "sync_checkpoint"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
                   "account_ids": {
                     "items": {
                       "$ref": "#/components/schemas/AccountId"
@@ -15352,43 +16314,6 @@
               }
             ],
             "title": "all_access_key_changes_by_sync_checkpoint"
-          },
-          {
-            "allOf": [
-              {
-                "properties": {
-                  "sync_checkpoint": {
-                    "$ref": "#/components/schemas/SyncCheckpoint"
-                  }
-                },
-                "required": [
-                  "sync_checkpoint"
-                ],
-                "type": "object"
-              },
-              {
-                "properties": {
-                  "account_ids": {
-                    "items": {
-                      "$ref": "#/components/schemas/AccountId"
-                    },
-                    "type": "array"
-                  },
-                  "changes_type": {
-                    "enum": [
-                      "all_gas_key_changes"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "changes_type",
-                  "account_ids"
-                ],
-                "type": "object"
-              }
-            ],
-            "title": "all_gas_key_changes_by_sync_checkpoint"
           },
           {
             "allOf": [
@@ -16164,6 +17089,1180 @@
         "title": "RpcValidatorsOrderedRequest",
         "type": "object"
       },
+      "RpcViewAccessKeyError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_reference": {
+                    "$ref": "#/components/schemas/BlockReference"
+                  }
+                },
+                "required": [
+                  "block_reference"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_BLOCK"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INVALID_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "public_key": {
+                    "$ref": "#/components/schemas/PublicKey"
+                  }
+                },
+                "required": [
+                  "public_key",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_ACCESS_KEY"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "RpcViewAccessKeyListError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_reference": {
+                    "$ref": "#/components/schemas/BlockReference"
+                  }
+                },
+                "required": [
+                  "block_reference"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_BLOCK"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INVALID_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "RpcViewAccessKeyListRequest": {
+        "oneOf": [
+          {
+            "properties": {
+              "block_id": {
+                "$ref": "#/components/schemas/BlockId"
+              }
+            },
+            "required": [
+              "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "finality": {
+                "$ref": "#/components/schemas/Finality"
+              }
+            },
+            "required": [
+              "finality"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "sync_checkpoint": {
+                "$ref": "#/components/schemas/SyncCheckpoint"
+              }
+            },
+            "required": [
+              "sync_checkpoint"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "title": "RpcViewAccessKeyListRequest",
+        "type": "object"
+      },
+      "RpcViewAccessKeyListResponse": {
+        "description": "Lists access keys",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "block_height": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/AccessKeyInfoView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "keys",
+          "block_height",
+          "block_hash"
+        ],
+        "type": "object"
+      },
+      "RpcViewAccessKeyRequest": {
+        "oneOf": [
+          {
+            "properties": {
+              "block_id": {
+                "$ref": "#/components/schemas/BlockId"
+              }
+            },
+            "required": [
+              "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "finality": {
+                "$ref": "#/components/schemas/Finality"
+              }
+            },
+            "required": [
+              "finality"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "sync_checkpoint": {
+                "$ref": "#/components/schemas/SyncCheckpoint"
+              }
+            },
+            "required": [
+              "sync_checkpoint"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "public_key": {
+            "$ref": "#/components/schemas/PublicKey"
+          }
+        },
+        "required": [
+          "account_id",
+          "public_key"
+        ],
+        "title": "RpcViewAccessKeyRequest",
+        "type": "object"
+      },
+      "RpcViewAccessKeyResponse": {
+        "description": "Describes access key permission scope and nonce.",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "block_height": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nonce": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "permission": {
+            "$ref": "#/components/schemas/AccessKeyPermissionView"
+          }
+        },
+        "required": [
+          "nonce",
+          "permission",
+          "block_height",
+          "block_hash"
+        ],
+        "type": "object"
+      },
+      "RpcViewAccountError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_reference": {
+                    "$ref": "#/components/schemas/BlockReference"
+                  }
+                },
+                "required": [
+                  "block_reference"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_BLOCK"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INVALID_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "RpcViewAccountRequest": {
+        "oneOf": [
+          {
+            "properties": {
+              "block_id": {
+                "$ref": "#/components/schemas/BlockId"
+              }
+            },
+            "required": [
+              "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "finality": {
+                "$ref": "#/components/schemas/Finality"
+              }
+            },
+            "required": [
+              "finality"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "sync_checkpoint": {
+                "$ref": "#/components/schemas/SyncCheckpoint"
+              }
+            },
+            "required": [
+              "sync_checkpoint"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "title": "RpcViewAccountRequest",
+        "type": "object"
+      },
+      "RpcViewAccountResponse": {
+        "description": "A view of the account",
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/NearToken"
+          },
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "block_height": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "code_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "global_contract_account_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
+          },
+          "global_contract_hash": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ]
+          },
+          "locked": {
+            "$ref": "#/components/schemas/NearToken"
+          },
+          "storage_paid_at": {
+            "default": 0,
+            "description": "TODO(2271): deprecated.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "storage_usage": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "amount",
+          "locked",
+          "code_hash",
+          "storage_usage",
+          "block_height",
+          "block_hash"
+        ],
+        "type": "object"
+      },
+      "RpcViewCodeError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_reference": {
+                    "$ref": "#/components/schemas/BlockReference"
+                  }
+                },
+                "required": [
+                  "block_reference"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_BLOCK"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INVALID_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "contract_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "contract_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "NO_CONTRACT_CODE"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "RpcViewCodeRequest": {
+        "oneOf": [
+          {
+            "properties": {
+              "block_id": {
+                "$ref": "#/components/schemas/BlockId"
+              }
+            },
+            "required": [
+              "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "finality": {
+                "$ref": "#/components/schemas/Finality"
+              }
+            },
+            "required": [
+              "finality"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "sync_checkpoint": {
+                "$ref": "#/components/schemas/SyncCheckpoint"
+              }
+            },
+            "required": [
+              "sync_checkpoint"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "title": "RpcViewCodeRequest",
+        "type": "object"
+      },
+      "RpcViewCodeResponse": {
+        "description": "A view of the contract code.",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "block_height": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "code_base64": {
+            "type": "string"
+          },
+          "hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          }
+        },
+        "required": [
+          "code_base64",
+          "hash",
+          "block_height",
+          "block_hash"
+        ],
+        "type": "object"
+      },
+      "RpcViewStateError": {
+        "oneOf": [
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_reference": {
+                    "$ref": "#/components/schemas/BlockReference"
+                  }
+                },
+                "required": [
+                  "block_reference"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_BLOCK"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INVALID_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "requested_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "requested_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "UNKNOWN_ACCOUNT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "contract_account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "contract_account_id",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "TOO_LARGE_CONTRACT_STATE"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_message"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "INTERNAL_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "RpcViewStateRequest": {
+        "oneOf": [
+          {
+            "properties": {
+              "block_id": {
+                "$ref": "#/components/schemas/BlockId"
+              }
+            },
+            "required": [
+              "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "finality": {
+                "$ref": "#/components/schemas/Finality"
+              }
+            },
+            "required": [
+              "finality"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "sync_checkpoint": {
+                "$ref": "#/components/schemas/SyncCheckpoint"
+              }
+            },
+            "required": [
+              "sync_checkpoint"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "include_proof": {
+            "default": false,
+            "type": "boolean"
+          },
+          "prefix_base64": {
+            "$ref": "#/components/schemas/StoreKey"
+          }
+        },
+        "required": [
+          "account_id",
+          "prefix_base64"
+        ],
+        "title": "RpcViewStateRequest",
+        "type": "object"
+      },
+      "RpcViewStateResponse": {
+        "description": "Resulting state values for a view state query request",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          "block_height": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "proof": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/StateItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "values",
+          "block_height",
+          "block_hash"
+        ],
+        "type": "object"
+      },
       "RuntimeConfigView": {
         "description": "View that preserves JSON format of the runtime config.",
         "properties": {
@@ -16320,6 +18419,18 @@
               "V2"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "V3": {
+                "$ref": "#/components/schemas/ShardLayoutV3"
+              }
+            },
+            "required": [
+              "V3"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -16447,6 +18558,51 @@
         ],
         "type": "object"
       },
+      "ShardLayoutV3": {
+        "description": "Counterpart to `ShardLayoutV3` composed of maps with string keys to aid\nserde serialization.",
+        "properties": {
+          "boundary_accounts": {
+            "items": {
+              "$ref": "#/components/schemas/AccountId"
+            },
+            "type": "array"
+          },
+          "id_to_index_map": {
+            "additionalProperties": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "last_split": {
+            "$ref": "#/components/schemas/ShardId"
+          },
+          "shard_ids": {
+            "items": {
+              "$ref": "#/components/schemas/ShardId"
+            },
+            "type": "array"
+          },
+          "shards_split_map": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/ShardId"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "boundary_accounts",
+          "shard_ids",
+          "id_to_index_map",
+          "shards_split_map",
+          "last_split"
+        ],
+        "type": "object"
+      },
       "ShardUId": {
         "description": "`ShardUId` is a unique representation for shards from different shard layouts.\n\nComparing to `ShardId`, which is just an ordinal number ranging from 0 to NUM_SHARDS-1,\n`ShardUId` provides a way to unique identify shards when shard layouts may change across epochs.\nThis is important because we store states indexed by shards in our database, so we need a\nway to unique identify shard even when shards change across epochs.\nAnother difference between `ShardUId` and `ShardId` is that `ShardUId` should only exist in\na node's internal state while `ShardId` can be exposed to outside APIs and used in protocol\nlevel information (for example, `ShardChunkHeader` contains `ShardId` instead of `ShardUId`)",
         "properties": {
@@ -16505,8 +18661,15 @@
             "minimum": 0,
             "type": "integer"
           },
+          "nonce_index": {
+            "format": "uint32",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
           "priority_fee": {
             "default": 0,
+            "description": "Deprecated, retained for backward compatibility.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -17009,40 +19172,6 @@
                   "account_id": {
                     "$ref": "#/components/schemas/AccountId"
                   },
-                  "gas_key": {
-                    "$ref": "#/components/schemas/GasKey"
-                  },
-                  "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
-                  }
-                },
-                "required": [
-                  "account_id",
-                  "public_key",
-                  "gas_key"
-                ],
-                "type": "object"
-              },
-              "type": {
-                "enum": [
-                  "gas_key_update"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "type",
-              "change"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "change": {
-                "properties": {
-                  "account_id": {
-                    "$ref": "#/components/schemas/AccountId"
-                  },
                   "index": {
                     "format": "uint32",
                     "minimum": 0,
@@ -17068,36 +19197,6 @@
               "type": {
                 "enum": [
                   "gas_key_nonce_update"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "type",
-              "change"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "change": {
-                "properties": {
-                  "account_id": {
-                    "$ref": "#/components/schemas/AccountId"
-                  },
-                  "public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
-                  }
-                },
-                "required": [
-                  "account_id",
-                  "public_key"
-                ],
-                "type": "object"
-              },
-              "type": {
-                "enum": [
-                  "gas_key_deletion"
                 ],
                 "type": "string"
               }
@@ -17639,12 +19738,23 @@
         "type": "object"
       },
       "TransferToGasKeyAction": {
+        "description": "Transfer NEAR to a gas key's balance",
         "properties": {
           "deposit": {
-            "$ref": "#/components/schemas/NearToken"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Amount of NEAR to transfer to the gas key"
           },
           "public_key": {
-            "$ref": "#/components/schemas/PublicKey"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            ],
+            "description": "The public key of the gas key to fund"
           }
         },
         "required": [
@@ -17779,7 +19889,7 @@
             "type": "integer"
           },
           "implicit_account_creation": {
-            "description": "See [VMConfig::implicit_account_creation](crate::vm::Config::implicit_account_creation).",
+            "description": "Deprecated",
             "type": "boolean"
           },
           "limit_config": {
@@ -17811,10 +19921,6 @@
             "format": "uint32",
             "minimum": 0,
             "type": "integer"
-          },
-          "saturating_float_to_int": {
-            "description": "See [VMConfig::saturating_float_to_int](crate::vm::Config::saturating_float_to_int).",
-            "type": "boolean"
           },
           "storage_get_mode": {
             "allOf": [
@@ -18214,6 +20320,32 @@
             "type": "string"
           }
         ]
+      },
+      "WithdrawFromGasKeyAction": {
+        "description": "Withdraw NEAR from a gas key's balance to the account",
+        "properties": {
+          "amount": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NearToken"
+              }
+            ],
+            "description": "Amount of NEAR to transfer from the gas key"
+          },
+          "public_key": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            ],
+            "description": "The public key of the gas key to withdraw from"
+          }
+        },
+        "required": [
+          "public_key",
+          "amount"
+        ],
+        "type": "object"
       },
       "WitnessConfigView": {
         "description": "Configuration specific to ChunkStateWitness.",

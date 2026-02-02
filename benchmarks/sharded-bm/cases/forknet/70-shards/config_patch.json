@@ -1,0 +1,8 @@
+{
+    "network": {
+        "max_num_peers": 160,
+        "ideal_connections_lo": 150,
+        "ideal_connections_hi": 155
+    }
+}
+

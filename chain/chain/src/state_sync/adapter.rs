@@ -111,7 +111,7 @@ impl ChainStateSyncAdapter {
         assert_eq!(&chunk_headers_root, sync_prev_block.header().chunk_headers_root());
 
         // If the node was not tracking the shard it may not have the chunk in storage.
-        let chunk = get_chunk_clone_from_header(&self.chain_store, chunk_header)?;
+        let chunk = get_chunk_clone_from_header(&self.chain_store.chunk_store(), chunk_header)?;
         let chunk_proof =
             chunk_proofs.get(prev_shard_index).ok_or(Error::InvalidShardId(shard_id))?.clone();
         let block_header = get_block_header_on_chain_by_height(
@@ -296,7 +296,7 @@ impl ChainStateSyncAdapter {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         // Check cache
         let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
-        if let Ok(Some(bytes)) = self.chain_store.store_ref().get(DBCol::StateParts, &key) {
+        if let Some(bytes) = self.chain_store.store_ref().get(DBCol::StateParts, &key) {
             metrics::STATE_PART_CACHE_HIT.inc();
             let state_part = StatePart::from_bytes(bytes.to_vec(), protocol_version)?;
             return Ok(state_part);

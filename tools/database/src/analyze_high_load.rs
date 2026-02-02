@@ -84,7 +84,8 @@ impl HighLoadStatsCommand {
             home,
             &near_config.store,
             near_config.cold_store.as_ref(),
-            near_config.cloud_storage_config(),
+            // TODO(cloud_archival) Consider supporting cloud archive here
+            None,
         );
         let storage = opener.open()?;
         let store = std::sync::Arc::new(
@@ -146,7 +147,7 @@ impl HighLoadStatsCommand {
         store: std::sync::Arc<Store>,
     ) -> anyhow::Result<Option<BlockStats>> {
         let height_key = height.to_le_bytes();
-        let block_hash_vec = store.get(DBCol::BlockHeight, &height_key)?;
+        let block_hash_vec = store.get(DBCol::BlockHeight, &height_key);
         if block_hash_vec.is_none() {
             return Ok(None);
         }

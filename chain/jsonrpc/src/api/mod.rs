@@ -5,6 +5,7 @@ use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::errors::{RpcError, ServerError};
 
 mod blocks;
+mod call_function;
 mod changes;
 mod chunks;
 mod client_config;
@@ -21,6 +22,11 @@ mod split_storage;
 mod status;
 mod transactions;
 mod validator;
+mod view_access_key;
+mod view_access_key_list;
+mod view_account;
+mod view_code;
+mod view_state;
 
 pub trait RpcRequest: Sized {
     fn parse(value: Value) -> Result<Self, RpcParseError>;

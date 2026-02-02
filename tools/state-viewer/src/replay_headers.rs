@@ -1,13 +1,9 @@
-use itertools::Itertools;
 use near_chain::BlockHeader;
 use near_chain::ChainStore;
 use near_chain::ChainStoreAccess;
-use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
-use near_epoch_manager::EpochManagerHandle;
 use near_primitives::epoch_block_info::BlockInfo;
-use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::types::AccountId;
 use near_primitives::types::ValidatorKickoutReason;
 use near_primitives::types::{BlockHeight, ValidatorInfoIdentifier};
@@ -51,14 +47,7 @@ pub(crate) fn replay_headers(
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
             tracing::trace!(%height, ?header, "height and header");
 
-            let block_info = get_block_info(&header, &chain_store, epoch_manager.as_ref())
-                .unwrap_or_else(|e| {
-                    panic!(
-                        "Failed to add chunk endorsements for block height {}: {:#}",
-                        header.height(),
-                        e
-                    )
-                });
+            let block_info = get_block_info(&header, &chain_store);
             epoch_manager_replay
                 .add_validator_proposals(block_info, *header.random_value())
                 .unwrap()
@@ -211,59 +200,11 @@ fn get_validator_kickouts(
 }
 
 /// Returns the [`BlockInfo`] corresponding to the header.
-/// This function may override the resulting [`BlockInfo`] based on certain protocol versions.
-fn get_block_info(
-    header: &BlockHeader,
-    chain_store: &ChainStore,
-    epoch_manager: &EpochManagerHandle,
-) -> Result<BlockInfo, Error> {
-    // Note(#11900): Until the chunk endorsements in block header are enabled, we generate the chunk endorsement bitmap
-    // in the following from the chunk endorsement signatures in the block body.
-    // TODO(#11900): Remove this code after ChunkEndorsementsInBlockHeader is stabilized.
-    let chunk_endorsements_bitmap: Option<ChunkEndorsementsBitmap> =
-        if header.chunk_endorsements().is_none() {
-            let block = chain_store.get_block(header.hash())?;
-            let chunks = block.chunks();
-            let epoch_id = block.header().epoch_id();
-            let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-
-            let endorsement_signatures = block.chunk_endorsements().to_vec();
-            assert_eq!(endorsement_signatures.len(), chunks.len());
-
-            let mut bitmap = ChunkEndorsementsBitmap::new(chunks.len());
-
-            let prev_block_epoch_id =
-                epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())?;
-            for (shard_index, chunk_header) in chunks.iter().enumerate() {
-                let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-                let endorsements = &endorsement_signatures[shard_index];
-                if !chunk_header.is_new_chunk() {
-                    assert_eq!(endorsements.len(), 0);
-                    bitmap.add_endorsements(shard_index, vec![]);
-                } else {
-                    let assignments = epoch_manager
-                        .get_chunk_validator_assignments(
-                            &prev_block_epoch_id,
-                            shard_id,
-                            chunk_header.height_created(),
-                        )?
-                        .ordered_chunk_validators();
-                    assert_eq!(endorsements.len(), assignments.len());
-                    bitmap.add_endorsements(
-                        shard_index,
-                        endorsements.iter().map(|signature| signature.is_some()).collect_vec(),
-                    );
-                }
-            }
-            Some(bitmap)
-        } else {
-            None
-        };
-    Ok(BlockInfo::from_header_and_endorsements(
+fn get_block_info(header: &BlockHeader, chain_store: &ChainStore) -> BlockInfo {
+    BlockInfo::from_header(
         &header,
         chain_store.get_block_height(header.last_final_block()).unwrap(),
-        chunk_endorsements_bitmap,
-    ))
+    )
 }
 
 /// Returns a stored that reads from the original chain store, but also allows writes to a temporary DB.
@@ -274,7 +215,7 @@ fn create_replay_store(home_dir: &Path, near_config: &NearConfig) -> Store {
         home_dir,
         &near_config.config.store,
         near_config.config.cold_store.as_ref(),
-        near_config.config.cloud_storage_config(),
+        near_config.cloud_storage_context(),
     );
     let storage = store_opener.open_in_mode(Mode::ReadOnly).unwrap();
 

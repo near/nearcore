@@ -1,5 +1,6 @@
-use near_primitives::types::{BlockHeight, ShardId};
-use std::path::PathBuf;
+use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
+
+use crate::archive::cloud_storage::CloudStorage;
 
 /// Identifiers of files stored in cloud archival storage.
 /// Each variant maps to a specific logical file within the archive.
@@ -7,36 +8,45 @@ use std::path::PathBuf;
 pub enum CloudStorageFileID {
     /// Identifier of the metadata file storing the current archival head.
     Head,
+    /// Identifier of the epoch file for the given epoch ID.
+    Epoch(EpochId),
     /// Identifier of the block file for the given block height.
     Block(BlockHeight),
     /// Identifier of the shard file for the given block height and shard.
     Shard(BlockHeight, ShardId),
+    /// Identifier of the state snapshot header file for the given epoch and shard.
+    StateHeader(EpochHeight, EpochId, ShardId),
 }
 
-impl CloudStorageFileID {
-    /// Returns the path components representing this file within the storage hierarchy.
-    fn path_parts(&self) -> Vec<String> {
-        match self {
-            CloudStorageFileID::Head => vec!["metadata".to_string(), "head".to_string()],
-            CloudStorageFileID::Block(height) => vec![height.to_string(), "block".to_string()],
-            CloudStorageFileID::Shard(height, shard_id) => {
-                vec![height.to_string(), "shard".to_string(), shard_id.to_string()]
+impl CloudStorage {
+    /// Returns the directory path and file name for the given file identifier.
+    pub fn location_dir_and_file(&self, file_id: &CloudStorageFileID) -> (String, String) {
+        let (mut dir_path, file_name) = match file_id {
+            CloudStorageFileID::Head => ("metadata".into(), "head".into()),
+            CloudStorageFileID::Epoch(epoch_id) => {
+                (format!("epoch_id={}", epoch_id.0), "epoch_data".into())
             }
-        }
+            CloudStorageFileID::Block(height) => {
+                (format!("block_height={height}"), "block_data".into())
+            }
+            CloudStorageFileID::Shard(height, shard_id) => {
+                (format!("block_height={height}/shard_id={shard_id}"), "shard_data".into())
+            }
+            CloudStorageFileID::StateHeader(epoch_height, epoch_id, shard_id) => (
+                format!(
+                    "epoch_height={}/epoch_id={}/headers/shard_id={}",
+                    epoch_height, epoch_id.0, shard_id,
+                ),
+                "header".into(),
+            ),
+        };
+        dir_path = format!("chain_id={}/{}", self.chain_id, dir_path);
+        (dir_path, file_name)
     }
 
-    /// Returns the full relative path (as a UTF-8 string) for this file.
-    pub fn path(&self) -> String {
-        let path = PathBuf::from_iter(self.path_parts());
-        path.to_str().expect("non UTF-8 string").to_string()
-    }
-
-    /// Returns the directory path and file name separately.
-    pub fn dir_and_file_name(&self) -> (String, String) {
-        let mut path_parts = self.path_parts();
-        let file_name = path_parts.pop().expect("File path must be non-empty");
-        let dir = PathBuf::from_iter(path_parts);
-        let dir_str = dir.to_str().expect("non UTF-8 string").to_string();
-        (dir_str, file_name)
+    /// Returns the full file path for the given file identifier.
+    pub fn file_path(&self, file_id: &CloudStorageFileID) -> String {
+        let (location_dir, file_name) = self.location_dir_and_file(file_id);
+        format!("{}/{}", location_dir, file_name)
     }
 }

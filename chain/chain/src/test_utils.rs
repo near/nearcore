@@ -57,6 +57,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         vec![1; num_shards as usize],
     );
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     get_chain_with_genesis(clock, genesis)
 }
 
@@ -199,7 +200,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         "chain head"
     );
     let mut headers = vec![];
-    for (key, _) in chain_store.store().iter(DBCol::BlockHeader).map(Result::unwrap) {
+    for (key, _) in chain_store.store().iter(DBCol::BlockHeader) {
         let header = chain_store
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()
@@ -285,25 +286,41 @@ pub fn get_fake_next_block_chunk_headers(
         shard_id: ShardId,
         prev_block_hash: CryptoHash,
         signer: &ValidatorSigner,
+        is_spice_block: bool,
     ) -> ShardChunkHeader {
-        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-            prev_block_hash,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            height,
-            shard_id,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            CongestionInfo::default(),
-            BandwidthRequests::empty(),
-            signer,
-        ))
+        if is_spice_block {
+            ShardChunkHeader::V3(ShardChunkHeaderV3::new_for_spice(
+                prev_block_hash,
+                Default::default(),
+                Default::default(),
+                height,
+                shard_id,
+                Default::default(),
+                Default::default(),
+                signer,
+            ))
+        } else {
+            ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+                prev_block_hash,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                height,
+                shard_id,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                CongestionInfo::default(),
+                BandwidthRequests::empty(),
+                None,
+                signer,
+                PROTOCOL_VERSION,
+            ))
+        }
     }
 
     let mut chunks = Vec::new();
@@ -318,7 +335,8 @@ pub fn get_fake_next_block_chunk_headers(
             })
             .unwrap();
         let signer = create_test_signer(chunk_producer.account_id().as_str());
-        let mut chunk_header = chunk_header(height, shard_id, *block.hash(), &signer);
+        let mut chunk_header =
+            chunk_header(height, shard_id, *block.hash(), &signer, block.is_spice_block());
         *chunk_header.height_included_mut() = height;
         chunks.push(chunk_header);
     }
@@ -333,7 +351,7 @@ mod test {
     use rand::Rng;
 
     use near_primitives::hash::CryptoHash;
-    use near_primitives::receipt::{Receipt, ReceiptPriority};
+    use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ReceiptList;
     use near_primitives::types::{AccountId, Balance, NumShards};
 
@@ -359,9 +377,8 @@ mod test {
 
     fn test_build_receipt_hashes_with_num_shard(num_shards: NumShards) {
         let shard_layout = ShardLayout::multi_shard(num_shards, 0);
-        let create_receipt_from_receiver_id = |receiver_id| {
-            Receipt::new_balance_refund(&receiver_id, Balance::ZERO, ReceiptPriority::NoPriority)
-        };
+        let create_receipt_from_receiver_id =
+            |receiver_id| Receipt::new_balance_refund(&receiver_id, Balance::ZERO);
         let mut rng = rand::thread_rng();
         let receipts = (0..3000)
             .map(|_| {

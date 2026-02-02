@@ -37,42 +37,24 @@ impl BlockInfo {
         total_supply: Balance,
         latest_protocol_version: ProtocolVersion,
         timestamp_nanosec: u64,
-        chunk_endorsements: Option<ChunkEndorsementsBitmap>,
+        chunk_endorsements: ChunkEndorsementsBitmap,
     ) -> Self {
-        if let Some(chunk_endorsements) = chunk_endorsements {
-            Self::V3(BlockInfoV3 {
-                hash,
-                height,
-                last_finalized_height,
-                last_final_block_hash,
-                prev_hash,
-                proposals,
-                chunk_mask: validator_mask,
-                latest_protocol_version,
-                slashed: HashMap::new(),
-                total_supply,
-                epoch_first_block: Default::default(),
-                epoch_id: Default::default(),
-                timestamp_nanosec,
-                chunk_endorsements,
-            })
-        } else {
-            Self::V2(BlockInfoV2 {
-                hash,
-                height,
-                last_finalized_height,
-                last_final_block_hash,
-                prev_hash,
-                proposals,
-                chunk_mask: validator_mask,
-                latest_protocol_version,
-                slashed: HashMap::new(),
-                total_supply,
-                epoch_first_block: Default::default(),
-                epoch_id: Default::default(),
-                timestamp_nanosec,
-            })
-        }
+        Self::V3(BlockInfoV3 {
+            hash,
+            height,
+            last_finalized_height,
+            last_final_block_hash,
+            prev_hash,
+            proposals,
+            chunk_mask: validator_mask,
+            latest_protocol_version,
+            slashed: HashMap::new(),
+            total_supply,
+            epoch_first_block: Default::default(),
+            epoch_id: Default::default(),
+            timestamp_nanosec,
+            chunk_endorsements,
+        })
     }
 
     pub fn from_header(header: &BlockHeader, last_finalized_height: BlockHeight) -> Self {
@@ -87,28 +69,7 @@ impl BlockInfo {
             header.total_supply(),
             header.latest_protocol_version(),
             header.raw_timestamp(),
-            header.chunk_endorsements().cloned(),
-        )
-    }
-
-    // TODO(#11900): Remove this and use `from_header` only, when endorsements bitmap is added to the BlockHeader.
-    pub fn from_header_and_endorsements(
-        header: &BlockHeader,
-        last_finalized_height: BlockHeight,
-        chunk_endorsements: Option<ChunkEndorsementsBitmap>,
-    ) -> Self {
-        BlockInfo::new(
-            *header.hash(),
-            header.height(),
-            last_finalized_height,
-            *header.last_final_block(),
-            *header.prev_hash(),
-            header.prev_validator_proposals().collect(),
-            header.chunk_mask().to_vec(),
-            header.total_supply(),
-            header.latest_protocol_version(),
-            header.raw_timestamp(),
-            header.chunk_endorsements().cloned().or(chunk_endorsements),
+            header.chunk_endorsements().cloned().expect("header should include chunk endorsements"),
         )
     }
 

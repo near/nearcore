@@ -7,20 +7,17 @@ use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
 use near_config_utils::DownloadConfigType;
 use near_database_tool::commands::DatabaseCommand;
-use near_dump_test_contract::DumpTestContractCommand;
 use near_dyn_configs::{UpdatableConfigLoader, UpdatableConfigLoaderError, UpdatableConfigs};
 use near_flat_storage::commands::FlatStorageCommand;
 use near_fork_network::cli::ForkNetworkCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
-use near_network::tcp;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
     BuildEnvFilterError, EnvFilterBuilder, default_subscriber,
     default_subscriber_with_opentelemetry,
 };
 use near_ping::PingCommand;
-use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards, ProtocolVersion, ShardId};
@@ -40,6 +37,12 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
+
+#[cfg(feature = "dump-test-contract")]
+use {
+    near_dump_test_contract::DumpTestContractCommand, near_network::tcp,
+    near_primitives::epoch_manager::EpochConfigStore,
+};
 
 /// NEAR Protocol Node
 #[derive(clap::Parser)]
@@ -151,9 +154,11 @@ impl NeardCmd {
             NeardSubCommand::ReplayArchive(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
+            #[cfg(feature = "dump-test-contract")]
             NeardSubCommand::DumpTestContracts(cmd) => {
                 cmd.run()?;
             }
+            #[cfg(feature = "dump-test-contract")]
             NeardSubCommand::DumpEpochConfigs(cmd) => {
                 cmd.run(&home_dir)?;
             }
@@ -264,9 +269,11 @@ pub(super) enum NeardSubCommand {
     /// Replays the blocks in the chain from an archival node.
     ReplayArchive(ReplayArchiveCommand),
 
+    #[cfg(feature = "dump-test-contract")]
     /// Placeholder for test contracts subcommand
     DumpTestContracts(DumpTestContractCommand),
 
+    #[cfg(feature = "dump-test-contract")]
     /// Dump hard-coded epoch configs into JSON files
     DumpEpochConfigs(DumpEpochConfigsCommand),
 }
@@ -836,6 +843,7 @@ pub(super) struct DumpEpochConfigsCommand {
     output_dir: Option<PathBuf>,
 }
 
+#[cfg(feature = "dump-test-contract")]
 impl DumpEpochConfigsCommand {
     pub fn run(self, home_dir: &Path) -> anyhow::Result<()> {
         let output_dir = self.output_dir.unwrap_or_else(|| home_dir.join("epoch_configs"));

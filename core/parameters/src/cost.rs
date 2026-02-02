@@ -587,31 +587,27 @@ impl StorageUsageConfig {
 /// We can assume that no overflow will happen here.
 pub fn transfer_exec_fee(
     cfg: &RuntimeFeesConfig,
-    implicit_account_creation_allowed: bool,
     eth_implicit_accounts_enabled: bool,
     receiver_account_type: AccountType,
 ) -> Gas {
     let transfer_fee = cfg.fee(ActionCosts::transfer).exec_fee();
-    match (implicit_account_creation_allowed, eth_implicit_accounts_enabled, receiver_account_type)
-    {
+    match (eth_implicit_accounts_enabled, receiver_account_type) {
         // Regular transfer to a named account.
-        (_, _, AccountType::NamedAccount) => transfer_fee,
+        (_, AccountType::NamedAccount) => transfer_fee,
         // No account will be created, just a regular transfer.
-        (false, _, _) => transfer_fee,
-        // No account will be created, just a regular transfer.
-        (true, false, AccountType::EthImplicitAccount) => transfer_fee,
+        (false, AccountType::EthImplicitAccount) => transfer_fee,
         // Extra fee for the CreateAccount.
-        (true, true, AccountType::EthImplicitAccount) => {
+        (true, AccountType::EthImplicitAccount) => {
             transfer_fee.checked_add(cfg.fee(ActionCosts::create_account).exec_fee()).unwrap()
         }
         // Extra fees for the CreateAccount and AddFullAccessKey.
-        (true, _, AccountType::NearImplicitAccount) => transfer_fee
+        (_, AccountType::NearImplicitAccount) => transfer_fee
             .checked_add(cfg.fee(ActionCosts::create_account).exec_fee())
             .unwrap()
             .checked_add(cfg.fee(ActionCosts::add_full_access_key).exec_fee())
             .unwrap(),
         // Extra fees for the implied CreateAccount action.
-        (true, _, AccountType::NearDeterministicAccount) => {
+        (_, AccountType::NearDeterministicAccount) => {
             transfer_fee.checked_add(cfg.fee(ActionCosts::create_account).exec_fee()).unwrap()
         }
     }
@@ -620,31 +616,27 @@ pub fn transfer_exec_fee(
 pub fn transfer_send_fee(
     cfg: &RuntimeFeesConfig,
     sender_is_receiver: bool,
-    implicit_account_creation_allowed: bool,
     eth_implicit_accounts_enabled: bool,
     receiver_account_type: AccountType,
 ) -> Gas {
     let transfer_fee = cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
-    match (implicit_account_creation_allowed, eth_implicit_accounts_enabled, receiver_account_type)
-    {
+    match (eth_implicit_accounts_enabled, receiver_account_type) {
         // Regular transfer to a named account.
-        (_, _, AccountType::NamedAccount) => transfer_fee,
+        (_, AccountType::NamedAccount) => transfer_fee,
         // No account will be created, just a regular transfer.
-        (false, _, _) => transfer_fee,
-        // No account will be created, just a regular transfer.
-        (true, false, AccountType::EthImplicitAccount) => transfer_fee,
+        (false, AccountType::EthImplicitAccount) => transfer_fee,
         // Extra fee for the CreateAccount.
-        (true, true, AccountType::EthImplicitAccount) => transfer_fee
+        (true, AccountType::EthImplicitAccount) => transfer_fee
             .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
             .unwrap(),
         // Extra fees for the CreateAccount and AddFullAccessKey.
-        (true, _, AccountType::NearImplicitAccount) => transfer_fee
+        (_, AccountType::NearImplicitAccount) => transfer_fee
             .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
             .unwrap()
             .checked_add(cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver))
             .unwrap(),
         // Extra fees for the implied  CreateAccount action.
-        (true, _, AccountType::NearDeterministicAccount) => transfer_fee
+        (_, AccountType::NearDeterministicAccount) => transfer_fee
             .checked_add(cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver))
             .unwrap(),
     }

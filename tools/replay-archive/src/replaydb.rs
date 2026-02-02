@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -65,12 +64,12 @@ impl ReplayDB {
 }
 
 impl Database for ReplayDB {
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
         self.columns_read.lock().insert(col);
         self.read_db(col).get_raw_bytes(col, key)
     }
 
-    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
         assert!(col.is_rc());
         self.columns_read.lock().insert(col);
         self.read_db(col).get_with_rc_stripped(col, key)
@@ -101,7 +100,7 @@ impl Database for ReplayDB {
         self.read_db(col).iter_raw_bytes(col)
     }
 
-    fn write(&self, batch: DBTransaction) -> io::Result<()> {
+    fn write(&self, batch: DBTransaction) {
         let columns = batch.columns();
         assert!(
             columns.is_disjoint(&self.archival_columns),
@@ -112,11 +111,11 @@ impl Database for ReplayDB {
         self.write_db.write(batch)
     }
 
-    fn flush(&self) -> io::Result<()> {
+    fn flush(&self) {
         unreachable!()
     }
 
-    fn compact(&self) -> io::Result<()> {
+    fn compact(&self) {
         unreachable!()
     }
 
@@ -150,7 +149,7 @@ pub(crate) fn open_storage_for_replay(
         home_dir,
         &near_config.config.store,
         near_config.config.cold_store.as_ref(),
-        near_config.config.cloud_storage_config(),
+        near_config.cloud_storage_context(),
     );
     let split_storage = opener.open_in_mode(Mode::ReadOnly).context("Failed to open storage")?;
     match split_storage.get_split_db() {

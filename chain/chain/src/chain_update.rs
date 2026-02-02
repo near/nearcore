@@ -15,6 +15,7 @@ use crate::{DoomslugThresholdMode, metrics};
 use near_chain_configs::ProtocolVersionCheckConfig;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::epoch_sync::update_epoch_sync_proof;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, Tip};
@@ -26,8 +27,9 @@ use near_primitives::sharding::{ReceiptProof, ShardChunk};
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::LightClientBlockView;
+use near_store::adapter::StoreAdapter;
 use node_runtime::SignedValidPeriodTransactions;
 use std::sync::Arc;
 
@@ -117,21 +119,12 @@ impl<'a> ChainUpdate<'a> {
         let height = block.header().height();
         match result {
             ShardUpdateResult::NewChunk(NewChunkResult { gas_limit, shard_uid, apply_result }) => {
-                let (outcome_root, outcome_paths) =
+                let (_, outcome_paths) =
                     ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
 
                 // Save state root after applying transactions.
-                let chunk_extra = ChunkExtra::new(
-                    &apply_result.new_root,
-                    outcome_root,
-                    apply_result.validator_proposals,
-                    apply_result.total_gas_burnt,
-                    gas_limit,
-                    apply_result.total_balance_burnt,
-                    apply_result.congestion_info,
-                    apply_result.bandwidth_requests,
-                );
+                let chunk_extra = apply_result.to_chunk_extra(gas_limit);
                 self.chain_store_update.save_chunk_extra(
                     block_hash,
                     &shard_uid,
@@ -295,13 +288,28 @@ impl<'a> ChainUpdate<'a> {
             BlockInfo::from_header(block.header(), last_finalized_height),
             *block.header().random_value(),
         )?;
-        self.chain_store_update.merge(epoch_manager_update);
+        self.chain_store_update.merge(epoch_manager_update.into());
+
+        if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+            // If this is the first block of the epoch, update epoch sync proof.
+            // We pass the prev_hash, i.e. the hash of last block of prev epoch to update_epoch_sync_proof.
+            // See update_epoch_sync_proof for more details.
+            let last_final_block = block.header().last_final_block();
+            if self.epoch_manager.is_next_block_epoch_start(last_final_block)? {
+                tracing::debug!(block_hash = ?block.hash(), "updating epoch sync proof");
+                let epoch_store = self.chain_store_update.store().epoch_store();
+                let epoch_manager_update = update_epoch_sync_proof(&epoch_store, last_final_block)?;
+                self.chain_store_update.merge(epoch_manager_update.into());
+            }
+        }
 
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(Arc::clone(&block));
         self.chain_store_update.inc_block_refcount(prev_hash)?;
 
-        if cfg!(feature = "protocol_feature_spice") {
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+        if ProtocolFeature::Spice.enabled(protocol_version) {
             record_uncertified_chunks_for_block(
                 &mut self.chain_store_update,
                 self.epoch_manager.as_ref(),
@@ -527,8 +535,7 @@ impl<'a> ChainUpdate<'a> {
             transactions,
         )?;
 
-        let (outcome_root, outcome_proofs) =
-            ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
+        let (_, outcome_proofs) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
 
         self.chain_store_update.save_chunk(chunk);
 
@@ -544,18 +551,10 @@ impl<'a> ChainUpdate<'a> {
         )?;
         self.chain_store_update.merge(store_update.into());
 
+        let chunk_extra = apply_result.to_chunk_extra(gas_limit);
+
         self.chain_store_update.save_trie_changes(*block_header.hash(), apply_result.trie_changes);
 
-        let chunk_extra = ChunkExtra::new(
-            &apply_result.new_root,
-            outcome_root,
-            apply_result.validator_proposals,
-            apply_result.total_gas_burnt,
-            gas_limit,
-            apply_result.total_balance_burnt,
-            apply_result.congestion_info,
-            apply_result.bandwidth_requests,
-        );
         self.chain_store_update.save_chunk_extra(
             block_header.hash(),
             &shard_uid,

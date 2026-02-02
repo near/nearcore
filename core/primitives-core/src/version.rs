@@ -328,8 +328,10 @@ pub enum ProtocolFeature {
     IncreaseMaxCongestionMissedChunks,
 
     Wasmtime,
-    SaturatingFloatToInt,
-    ChunkPartChecks,
+    #[deprecated]
+    _DeprecatedSaturatingFloatToInt,
+    #[deprecated]
+    _DeprecatedChunkPartChecks,
     StatePartsCompression,
     /// NEP: https://github.com/near/NEPs/pull/616
     DeterministicAccountIds,
@@ -337,6 +339,10 @@ pub enum ProtocolFeature {
     DynamicResharding,
     GasKeys,
     Spice,
+    ContinuousEpochSync,
+    /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
+    /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
+    InstantPromiseYield,
 }
 
 impl ProtocolFeature {
@@ -430,32 +436,36 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedProduceOptimisticBlock => 77,
             ProtocolFeature::_DeprecatedSimpleNightshadeV6
             | ProtocolFeature::_DeprecatedVersionedStateWitness
-            | ProtocolFeature::ChunkPartChecks
-            | ProtocolFeature::SaturatingFloatToInt
+            | ProtocolFeature::_DeprecatedChunkPartChecks
+            | ProtocolFeature::_DeprecatedSaturatingFloatToInt
             | ProtocolFeature::_DeprecatedReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
             ProtocolFeature::StatePartsCompression | ProtocolFeature::DeterministicAccountIds => 82,
-            ProtocolFeature::Wasmtime => 83,
-            ProtocolFeature::InvalidTxGenerateOutcomes => 84,
+            ProtocolFeature::InvalidTxGenerateOutcomes
+            | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 83,
+            ProtocolFeature::Wasmtime => 84,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
+            ProtocolFeature::InstantPromiseYield => 130,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
             ProtocolFeature::GasKeys => 149,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
-            ProtocolFeature::Spice => 151,
+            ProtocolFeature::Spice => 180,
 
             // Place features that are not yet in Nightly below this line.
-            ProtocolFeature::DynamicResharding => 152,
+            ProtocolFeature::ContinuousEpochSync => 201,
+            // TODO(dynamic_resharding): This should be 152, but some resharding tests bump
+            //     protocol version to trigger resharding and accidentally turn on this feature
+            ProtocolFeature::DynamicResharding => 252,
         }
     }
 
-    pub fn enabled(&self, protocol_version: ProtocolVersion) -> bool {
+    pub const fn enabled(&self, protocol_version: ProtocolVersion) -> bool {
         protocol_version >= self.protocol_version()
     }
 }
@@ -476,7 +486,7 @@ const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
 // time cargo feature for spice should be removed as well.
 // For spice we want to include all nightly features, but for now we don't want nightly to run with
 // spice.
-const SPICE_PROTOCOL_VERSION: ProtocolVersion = 151;
+const SPICE_PROTOCOL_VERSION: ProtocolVersion = 200;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "protocol_feature_spice") {

@@ -476,10 +476,47 @@ impl AccessKey {
     pub fn full_access() -> Self {
         Self { nonce: 0, permission: AccessKeyPermission::FullAccess }
     }
+
+    pub fn gas_key_full_access(num_nonces: NonceIndex) -> Self {
+        Self {
+            nonce: 0,
+            permission: AccessKeyPermission::GasKeyFullAccess(GasKeyInfo {
+                balance: Balance::from_yoctonear(0),
+                num_nonces,
+            }),
+        }
+    }
+
+    pub fn gas_key_function_call(
+        num_nonces: NonceIndex,
+        function_call_permission: FunctionCallPermission,
+    ) -> Self {
+        Self {
+            nonce: 0,
+            permission: AccessKeyPermission::GasKeyFunctionCall(
+                GasKeyInfo { balance: Balance::from_yoctonear(0), num_nonces },
+                function_call_permission,
+            ),
+        }
+    }
+
+    pub fn gas_key_info(&self) -> Option<&GasKeyInfo> {
+        match &self.permission {
+            AccessKeyPermission::GasKeyFunctionCall(gas_key_info, _)
+            | AccessKeyPermission::GasKeyFullAccess(gas_key_info) => Some(gas_key_info),
+            _ => None,
+        }
+    }
+
+    pub fn gas_key_info_mut(&mut self) -> Option<&mut GasKeyInfo> {
+        match &mut self.permission {
+            AccessKeyPermission::GasKeyFunctionCall(gas_key_info, _)
+            | AccessKeyPermission::GasKeyFullAccess(gas_key_info) => Some(gas_key_info),
+            _ => None,
+        }
+    }
 }
 
-/// Gas key is like an access key, except it stores a balance separately, and transactions signed
-/// with it deduct their cost from the gas key balance instead of the account balance.
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -493,20 +530,9 @@ impl AccessKey {
     ProtocolSchema,
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct GasKey {
-    /// The number of nonces this gas key has.
-    pub num_nonces: NonceIndex,
-    /// The balance of the gas key.
+pub struct GasKeyInfo {
     pub balance: Balance,
-    /// Defines the permissions for this gas key.
-    /// If this is a `FunctionCallPermission`, the allowance must be None (unlimited).
-    pub permission: AccessKeyPermission,
-}
-
-impl GasKey {
-    /// Maximum number of nonces a gas key can have.
-    /// Limited to prevent too many trie operations when creating / deleting gas keys.
-    pub const MAX_NONCES: NonceIndex = 1024;
+    pub num_nonces: NonceIndex,
 }
 
 /// Defines permissions for AccessKey
@@ -525,10 +551,35 @@ impl GasKey {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AccessKeyPermission {
     FunctionCall(FunctionCallPermission),
-
     /// Grants full access to the account.
     /// NOTE: It's used to replace account-level public keys.
     FullAccess,
+    /// Gas key with limited permission to make transactions with FunctionCallActions
+    /// Gas keys are a kind of access keys with a prepaid balance to pay for gas.
+    GasKeyFunctionCall(GasKeyInfo, FunctionCallPermission),
+    /// Gas key with full access to the account.
+    /// Gas keys are a kind of access keys with a prepaid balance to pay for gas.
+    GasKeyFullAccess(GasKeyInfo),
+}
+
+impl AccessKeyPermission {
+    pub const MAX_NONCES_FOR_GAS_KEY: u32 = 1024;
+
+    pub fn function_call_permission(&self) -> Option<&FunctionCallPermission> {
+        match self {
+            AccessKeyPermission::FunctionCall(permission)
+            | AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
+            _ => None,
+        }
+    }
+
+    pub fn function_call_permission_mut(&mut self) -> Option<&mut FunctionCallPermission> {
+        match self {
+            AccessKeyPermission::FunctionCall(permission)
+            | AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
+            _ => None,
+        }
+    }
 }
 
 /// Grants limited permission to make transactions with FunctionCallActions

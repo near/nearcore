@@ -286,6 +286,7 @@ impl SpiceDataDistributorActor {
         chain_store: ChainStoreAdapter,
         validator_signer: MutableValidatorSigner,
         shard_tracker: ShardTracker,
+        core_reader: SpiceCoreReader,
         network_adapter: PeerManagerAdapter,
         executor_sender: Sender<ExecutorIncomingUnverifiedReceipts>,
         witness_validator_sender: Sender<SpanWrapped<SpiceChunkStateWitnessMessage>>,
@@ -293,7 +294,6 @@ impl SpiceDataDistributorActor {
         const RECENTLY_DECODED_DATA_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(100).unwrap();
         const DATA_PARTS_RATIO: f64 = 0.6;
         const PENDING_PARTIAL_DATA_CAP: NonZeroUsize = NonZeroUsize::new(10).unwrap();
-        let core_reader = SpiceCoreReader::new(chain_store.clone(), epoch_manager.clone());
         Self {
             // TODO(spice): Evaluate whether the same data parts ratio makes sense for all data
             // distributed.
@@ -610,12 +610,7 @@ impl SpiceDataDistributorActor {
         Ok(())
     }
 
-    fn is_data_known(
-        &self,
-        me: &AccountId,
-        block: &Block,
-        id: &SpiceDataIdentifier,
-    ) -> Result<bool, Error> {
+    fn is_data_known(&self, me: &AccountId, block: &Block, id: &SpiceDataIdentifier) -> bool {
         match id {
             SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } => {
                 debug_assert_eq!(block_hash, block.hash());
@@ -624,24 +619,18 @@ impl SpiceDataDistributorActor {
                     block_hash,
                     *to_shard_id,
                     *from_shard_id,
-                )
-                .map_err(near_chain::Error::from)?
-                {
-                    return Ok(true);
+                ) {
+                    return true;
                 }
             }
             SpiceDataIdentifier::Witness { block_hash, shard_id } => {
                 debug_assert_eq!(block_hash, block.hash());
-                if self
-                    .core_reader
-                    .endorsement_exists(block_hash, *shard_id, me)
-                    .map_err(near_chain::Error::from)?
-                {
-                    return Ok(true);
+                if self.core_reader.endorsement_exists(block_hash, *shard_id, me) {
+                    return true;
                 }
             }
         }
-        Ok(false)
+        false
     }
 
     fn verify_data_id(&self, id: &SpiceDataIdentifier, block: &Block) -> Result<(), Error> {
@@ -688,7 +677,7 @@ impl SpiceDataDistributorActor {
     }
 
     fn possible_epoch_ids(&self, block_hash: &CryptoHash) -> Result<Vec<EpochId>, Error> {
-        let possible_epoch_ids = if self.chain_store.block_exists(block_hash)? {
+        let possible_epoch_ids = if self.chain_store.block_exists(block_hash) {
             let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
             vec![epoch_id]
         } else {
@@ -867,7 +856,7 @@ impl SpiceDataDistributorActor {
             if self.recently_decoded_data.contains(&id) {
                 continue;
             }
-            if self.is_data_known(me, &block, &id)? {
+            if self.is_data_known(me, &block, &id) {
                 tracing::debug!(target: "spice_data_distribution", ?id, "data is known; will not start waiting on it");
                 continue;
             }

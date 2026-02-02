@@ -6,6 +6,7 @@ use itertools::Itertools;
 use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_chain::spice_core::get_last_certified_block_header;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{ProcessTxRequest, Query, ViewClientActor};
 use near_network::client::SpiceChunkEndorsementMessage;
@@ -16,8 +17,12 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockReference};
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockReference, ShardId};
+use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind};
+use near_store::DBCol;
+use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use parking_lot::{Mutex, RwLock};
 
 use crate::setup::builder::TestLoopBuilder;
@@ -68,7 +73,6 @@ fn test_spice_chain() {
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, INITIAL_BALANCE)
         .genesis_height(10000)
-        .transaction_validity_period(1000)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
@@ -285,6 +289,96 @@ fn test_spice_garbage_collection() {
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+// TODO(spice-resharding): Add a test for witness GC during resharding.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_garbage_collection_witnesses() {
+    init_test_logger();
+
+    let num_producers = 2;
+    let num_validators = 0;
+    let validators_spec = create_validators_spec(num_producers, num_validators);
+    let clients = validators_spec_clients_with_rpc(&validators_spec);
+
+    let epoch_length = 5;
+    let shard_layout = ShardLayout::multi_shard(2, 0);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .validators_spec(validators_spec)
+        .shard_layout(shard_layout.clone())
+        .epoch_length(epoch_length)
+        .build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .gc_num_epochs_to_keep(1)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .build();
+
+    // We delay endorsements to simulate slow execution validation causing execution to lag behind.
+    let execution_delay = 4;
+    delay_endorsements_propagation(&mut env, execution_delay);
+    env = env.warmup();
+
+    // Use a chunk producer node (not RPC) since only chunk producers store witnesses.
+    let producer_node = TestLoopNode::from(env.node_datas[0].clone());
+    env.test_loop.run_until(
+        |test_loop_data| {
+            let chain_store = &producer_node.client(test_loop_data).chain.chain_store;
+            let final_head = chain_store.final_head().unwrap();
+            get_last_certified_block_header(chain_store, &final_head.last_block_hash)
+                .map_or(0, |header| header.height())
+                >= 10
+        },
+        Duration::seconds(20),
+    );
+    let shard_tracker = &producer_node.client(env.test_loop_data()).shard_tracker;
+    let tracked_shards: Vec<_> = shard_layout
+        .shard_ids()
+        // This gets tracked shards for genesis, but it should not change during the test.
+        .filter(|shard_id| shard_tracker.cares_about_shard(&CryptoHash::default(), *shard_id))
+        .collect();
+    let chain_store = &producer_node.client(env.test_loop_data()).chain.chain_store;
+    assert_witness_gc_invariant(chain_store, &tracked_shards);
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Verifies witness GC invariant: witness exists iff block is uncertified.
+///
+/// From the perspective of final_head:
+/// - Certified blocks (height <= last_certified_height): witness should NOT exist
+/// - Uncertified blocks (height > last_certified_height): witness SHOULD exist
+fn assert_witness_gc_invariant(chain_store: &ChainStoreAdapter, tracked_shards: &[ShardId]) {
+    let final_head = chain_store.final_head().unwrap();
+    let last_certified_height =
+        get_last_certified_block_header(chain_store, &final_head.last_block_hash).unwrap().height();
+    let execution_head = chain_store.spice_execution_head().unwrap();
+    let store = chain_store.store().store();
+
+    // Verify that old witnesses are cleared
+    for (key, _) in store.iter(DBCol::witnesses()) {
+        let (block_hash, shard_id) = get_block_shard_id_rev(&key).unwrap();
+        let block_height = chain_store.get_block_height(&block_hash).unwrap();
+        assert!(
+            // Note we allow 1 block difference here since GC is async.
+            block_height > last_certified_height - 1,
+            "witness at height {block_height} shard {shard_id} should have been GC'd (last_certified_height = {last_certified_height})"
+        );
+    }
+
+    // Verify that recent witnesses for uncertified blocks exist
+    for height in (last_certified_height + 1)..=execution_head.height {
+        let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
+        for &shard_id in tracked_shards {
+            let key = near_primitives::utils::get_block_shard_id(&block_hash, shard_id);
+            assert!(
+                store.get(DBCol::witnesses(), &key).is_some(),
+                "witness at height {height} shard {shard_id} should exist"
+            );
+        }
+    }
 }
 
 #[test]
@@ -657,9 +751,12 @@ fn test_spice_chain_with_missing_chunks() {
             }
         }
 
-        if !client.chain.spice_core_reader.all_execution_results_exist(&block).unwrap() {
-            let execution_results =
-                client.chain.spice_core_reader.get_execution_results_by_shard_id(&block).unwrap();
+        if !client.chain.spice_core_reader.all_execution_results_exist(block.header()).unwrap() {
+            let execution_results = client
+                .chain
+                .spice_core_reader
+                .get_execution_results_by_shard_id(block.header())
+                .unwrap();
             missed_execution = true;
             println!(
                 "not all execution result for block at height: {}; execution_results: {:?}",

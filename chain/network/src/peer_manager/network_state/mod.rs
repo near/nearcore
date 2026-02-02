@@ -165,7 +165,7 @@ pub(crate) struct NetworkState {
     /// Mutex which prevents overlapping calls to tier1_advertise_proxies.
     tier1_advertise_proxies_mutex: tokio::sync::Mutex<()>,
     /// Demultiplexer aggregating calls to add_edges(), for V1 routing protocol
-    add_edges_demux: demux::Demux<Vec<Edge>, Result<(), ReasonForBan>>,
+    add_edges_demux: demux::Demux<EdgesWithSource, Result<(), ReasonForBan>>,
     /// Demultiplexer aggregating calls to update_routes(), for V2 routing protocol
     #[cfg(feature = "distance_vector_routing")]
     update_routes_demux:
@@ -174,6 +174,22 @@ pub(crate) struct NetworkState {
     /// Mutex serializing calls to set_chain_info(), which mutates a bunch of stuff non-atomically.
     /// TODO(gprusak): make it use synchronization primitives in some more canonical way.
     set_chain_info_mutex: Mutex<()>,
+}
+
+#[derive(Debug)]
+/// Edges along with their source (constructed locally or received from a remote peer).
+/// Self-connected edges are not allowed from remote peers.
+pub(crate) enum EdgesWithSource {
+    Local(Vec<Edge>),
+    Remote(Vec<Edge>),
+}
+
+impl EdgesWithSource {
+    pub(crate) fn is_empty(&self) -> bool {
+        match self {
+            EdgesWithSource::Local(edges) | EdgesWithSource::Remote(edges) => edges.is_empty(),
+        }
+    }
 }
 
 impl NetworkState {
@@ -378,7 +394,7 @@ impl NetworkState {
                     // First verify and broadcast the edge of the connection, so that in case
                     // it is invalid, the connection is not added to the pool.
                     // TODO(gprusak): consider actually banning the peer for consistency.
-                    this.add_edges(&clock, vec![edge.clone()])
+                    this.add_edges(&clock, EdgesWithSource::Local(vec![edge.clone()]))
                         .await
                         .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     // Insert to the local connection pool
@@ -442,7 +458,9 @@ impl NetworkState {
                 if edge.edge_type() == EdgeState::Active {
                     let edge_update =
                         edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                    this.add_edges(&clock, vec![edge_update.clone()]).await.unwrap();
+                    this.add_edges(&clock, EdgesWithSource::Local(vec![edge_update.clone()]))
+                        .await
+                        .unwrap();
                 }
             }
 
@@ -674,7 +692,7 @@ impl NetworkState {
         }
 
         let accounts_data = self.accounts_data.load();
-        if tcp::Tier::T1.is_allowed_routed(&msg) {
+        if tcp::Tier::T1.is_allowed_send_routed(&msg) {
             for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys| keys.iter())
             {
                 let data = match accounts_data.data.get(key) {
@@ -1030,7 +1048,9 @@ impl NetworkState {
                             // Unwrap is safe, because new_edge is always valid.
                             let new_edge =
                                 edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                            this.add_edges(&clock, vec![new_edge.clone()]).await.unwrap()
+                            this.add_edges(&clock, EdgesWithSource::Local(vec![new_edge.clone()]))
+                                .await
+                                .unwrap()
                         }
                     })),
                     // OK

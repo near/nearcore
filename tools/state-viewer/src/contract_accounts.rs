@@ -139,9 +139,8 @@ pub(crate) enum ActionType {
     DeployGlobalContract,
     UseGlobalContract,
     DeterministicStateInit,
-    AddGasKey,
-    DeleteGasKey,
     TransferToGasKey,
+    WithdrawFromGasKey,
 }
 
 impl ContractAccount {
@@ -286,13 +285,12 @@ impl<T: Iterator<Item = Result<ContractAccount>>> Summary for T {
 /// processing receipts that would come later. Changes made to the action set by
 /// already processed receipts will not be reverted.
 fn try_find_actions_spawned_by_receipt(
-    raw_kv_pair: std::io::Result<(Box<[u8]>, Box<[u8]>)>,
+    raw_kv_pair: (Box<[u8]>, Box<[u8]>),
     accounts: &mut BTreeMap<AccountId, ContractInfo>,
     store: &Store,
     filter: &ContractAccountFilter,
 ) -> Result<()> {
-    let (raw_key, raw_value) =
-        raw_kv_pair.map_err(|e| ContractAccountError::UnparsableValue(e, DBCol::Receipts))?;
+    let (raw_key, raw_value) = raw_kv_pair;
     // key: receipt id (CryptoHash)
     let key = CryptoHash::deserialize(&mut raw_value.as_ref())
         .map_err(|e| ContractAccountError::InvalidKey(e, raw_key.to_vec()))?;
@@ -373,9 +371,8 @@ fn map_action(action: &Action) -> ActionType {
         Action::DeployGlobalContract(_) => ActionType::DeployGlobalContract,
         Action::UseGlobalContract(_) => ActionType::UseGlobalContract,
         Action::DeterministicStateInit(_) => ActionType::DeterministicStateInit,
-        Action::AddGasKey(_) => ActionType::AddGasKey,
-        Action::DeleteGasKey(_) => ActionType::DeleteGasKey,
         Action::TransferToGasKey(_) => ActionType::TransferToGasKey,
+        Action::WithdrawFromGasKey(_) => ActionType::WithdrawFromGasKey,
     }
 }
 

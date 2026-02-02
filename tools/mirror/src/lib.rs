@@ -707,7 +707,8 @@ impl TargetChainTx {
     fn target_nonce(&self) -> TargetNonce {
         match self {
             Self::Ready(t) => TargetNonce {
-                nonce: Some(t.target_tx.transaction.nonce()),
+                // TODO(gas-keys): support mirror code.
+                nonce: Some(t.target_tx.transaction.nonce().nonce()),
                 pending_outcomes: HashSet::new(),
             },
             Self::AwaitingNonce(t) => t.target_nonce.clone(),
@@ -844,7 +845,8 @@ impl<T: ChainAccess> TxMirror<T> {
                     target_home,
                     &target_config.config.store,
                     target_config.config.cold_store.as_ref(),
-                    target_config.config.cloud_storage_config(),
+                    // TODO(cloud_archival) Consider supporting cloud archive here
+                    None,
                 )
                 .path()
                 .join("mirror");

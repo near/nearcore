@@ -32,14 +32,14 @@ use crate::utils::transactions;
 const GAS_PRICE: Balance = Balance::from_yoctonear(1);
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_contract_by_hash() {
     test_deploy_and_call_global_contract(GlobalContractDeployMode::CodeHash);
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_contract_by_account_id() {
     test_deploy_and_call_global_contract(GlobalContractDeployMode::AccountId);
@@ -120,14 +120,14 @@ fn test_global_contract_update() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_contract_by_account_id_rpc_calls() {
     test_global_contract_rpc_calls(GlobalContractDeployMode::AccountId);
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_contract_by_hash_rpc_calls() {
     test_global_contract_rpc_calls(GlobalContractDeployMode::CodeHash);
@@ -346,7 +346,6 @@ impl GlobalContractsTestEnv {
             &create_user_test_signer(&relayer),
             vec![Action::Delegate(signed_delegate_action.into())],
             self.get_tx_block_hash(),
-            0,
         );
         self.run_tx(tx);
     }

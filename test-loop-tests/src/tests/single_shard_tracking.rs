@@ -84,7 +84,7 @@ fn test_rpc_single_shard_tracking() {
 /// Tests that an archival node tracking a parent shard correctly tracks its children after resharding.
 /// Verifies that GC works as expected and only relevant chunk data is kept.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_archival_single_shard_tracking_when_resharding() {
     init_test_logger();
@@ -103,9 +103,8 @@ fn test_archival_single_shard_tracking_when_resharding() {
     let base_epoch_config = Arc::new(TestEpochConfigBuilder::from_genesis(&genesis).build());
     let boundary_account: AccountId = "account6".parse().unwrap();
     let parent_shard_id = base_shard_layout.account_id_to_shard_id(&boundary_account);
-    let new_epoch_config =
+    let (new_epoch_config, new_shard_layout) =
         derive_new_epoch_config_from_boundary(&base_epoch_config, &boundary_account);
-    let new_shard_layout = new_epoch_config.shard_layout.clone();
     let initial_shards: Vec<ShardUId> = base_shard_layout.shard_uids().collect();
     let (untracked_shard, initial_tracked_shards) =
         initial_shards.split_last().map(|(l, r)| (*l, r.to_vec())).unwrap();
@@ -164,7 +163,7 @@ fn test_archival_single_shard_tracking_when_resharding() {
     let prev_block = chain_store.get_block(&prev_hash).unwrap();
     let epoch_id = prev_block.header().epoch_id();
     // By this point, resharding is expected to have occurred.
-    assert_eq!(epoch_manager.get_epoch_config(&epoch_id).unwrap().shard_layout, new_shard_layout);
+    assert_eq!(epoch_manager.get_shard_layout(epoch_id).unwrap(), new_shard_layout);
 
     // Shortly after resharding, both parent and child chunk data should exist in storage.
     let mut expected_stored_shard_uids = shards_tracked_after_resharding.clone();
@@ -184,8 +183,8 @@ fn assert_old_chunks_are_cleared(
     let final_block_height = chain_store.final_head().unwrap().height;
     let store = chain_store.store().store();
     let mut stored_shards = HashSet::<ShardUId>::default();
-    for res in store.iter(DBCol::ChunkExtra) {
-        let (block_hash, shard_uid) = get_block_shard_uid_rev(&res.unwrap().0).unwrap();
+    for (key, _) in store.iter(DBCol::ChunkExtra) {
+        let (block_hash, shard_uid) = get_block_shard_uid_rev(&key).unwrap();
         let block_height = chain_store.get_block_height(&block_hash).unwrap();
         stored_shards.insert(shard_uid);
         assert!(
@@ -209,7 +208,6 @@ fn assert_new_chunks_exist(chain_store: &ChainStoreAdapter, tracked_shards: &Has
             assert!(
                 store
                     .get(DBCol::ChunkExtra, &get_block_shard_uid(&block_hash, shard_uid))
-                    .unwrap()
                     .is_some(),
                 "ChunkExtra missing for ShardUId {shard_uid} and height {height}",
             );

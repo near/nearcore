@@ -1,6 +1,6 @@
 use crate::client::{
-    ClientSenderForNetwork, SetNetworkInfo, SpiceChunkEndorsementMessage, StateRequestHeader,
-    StateRequestPart,
+    ClientSenderForNetwork, GetCurrentEpochHeight, SetNetworkInfo, SpiceChunkEndorsementMessage,
+    StateRequestHeader, StateRequestPart,
 };
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
@@ -15,7 +15,6 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
-use crate::snapshot_hosts::STATE_SNAPSHOT_INFO_RETENTION_WINDOW;
 use crate::spice_data_distribution::SpiceDataDistributorSenderForNetwork;
 use crate::state_witness::PartialWitnessSenderForNetwork;
 use crate::stats::metrics;
@@ -268,6 +267,9 @@ impl PeerManagerActor {
             let clock = clock.clone();
             let actor_system = actor_system.clone();
             async move {
+                if let Ok(Some(epoch_height)) = state.client.current_epoch_height_request.send_async(GetCurrentEpochHeight).await {
+                    state.snapshot_hosts.set_current_epoch_height(epoch_height);
+                }
                 // Start server if address provided.
                 if let Some(server_addr) = &state.config.node_addr {
                     tracing::debug!(target: "network", at = ?server_addr, "starting public server");
@@ -950,9 +952,7 @@ impl PeerManagerActor {
             NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::ChainProgressed {
                 epoch_height,
             }) => {
-                self.state.snapshot_hosts.set_discard_epoch_threshold(
-                    epoch_height.saturating_sub(STATE_SNAPSHOT_INFO_RETENTION_WINDOW),
-                );
+                self.state.snapshot_hosts.set_current_epoch_height(epoch_height);
                 NetworkResponses::NoResponse
             }
             NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::SnapshotCreated {
@@ -960,6 +960,15 @@ impl PeerManagerActor {
                 mut epoch_height,
                 mut shards,
             }) => {
+                // Don't send out snapshot host info with empty shards - there's nothing useful to advertise.
+                if shards.is_empty() {
+                    tracing::trace!(
+                        target: "network",
+                        "skipping snapshot host info broadcast: no shards available"
+                    );
+                    return NetworkResponses::NoResponse;
+                }
+
                 if shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
                     tracing::warn!(
                         shards_len = shards.len(),

@@ -27,21 +27,22 @@ jobs:
         include:
           - name: Linux
             id: linux
-            os: warp-ubuntu-2204-x64-16x
+            os: warp-ubuntu-2404-x64-16x
             type: stable
             upload_profraws: true
             run_on_pr: true
           # TODO(spice): Once the feature is close to release make it part of nightly.
           - name: Linux Spice
             id: linux-spice
-            os: warp-ubuntu-2204-x64-16x
+            os: warp-ubuntu-2404-x64-16x
             type: spice
-            # We disable coverage because it causes Github runners to run out of space.
+            # We disable profraws upload because it causes Github runners to run out of space.
+            # This in turns prevents us from having coverage data for testing with spice.
             upload_profraws: false
-            run_on_pr: false
+            run_on_pr: true
           - name: Linux Nightly
             id: linux-nightly
-            os: warp-ubuntu-2204-x64-16x
+            os: warp-ubuntu-2404-x64-16x
             type: nightly
             upload_profraws: true
             run_on_pr: true
@@ -81,7 +82,7 @@ jobs:
 
       # Install all the required tools
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
-        uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+        uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just,cargo-nextest,cargo-llvm-cov
 
@@ -127,7 +128,7 @@ jobs:
 
   pytest_nightly_tests:
     name: "Large pytest (nightly) Checks"
-    runs-on: warp-ubuntu-2204-x64-16x
+    runs-on: warp-ubuntu-2404-x64-16x
     strategy:
       fail-fast: false
     timeout-minutes: 90
@@ -157,7 +158,7 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: cargo-llvm-cov
       - run: pip3 install --user -r pytest/requirements.txt
@@ -182,7 +183,7 @@ jobs:
 
   protocol_schema_check:
     name: "Protocol Schema"
-    runs-on: warp-ubuntu-2204-x64-8x
+    runs-on: warp-ubuntu-2404-x64-8x
     permissions:
       contents: "read"
       id-token: "write"
@@ -205,7 +206,7 @@ jobs:
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - run: just check-protocol-schema
@@ -217,7 +218,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - uses: actions/setup-python@v5
@@ -234,14 +235,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - run: just check-cargo-fmt
 
   check_clippy:
     name: "Cargo Clippy"
-    runs-on: warp-ubuntu-2204-x64-8x
+    runs-on: warp-ubuntu-2404-x64-8x
     permissions:
       contents: "read"
       id-token: "write"
@@ -264,14 +265,14 @@ jobs:
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - run: just check-cargo-clippy
 
   doctests:
     name: "Rust Doctests"
-    runs-on: warp-ubuntu-2204-x64-8x
+    runs-on: warp-ubuntu-2404-x64-8x
     permissions:
       contents: "read"
       id-token: "write"
@@ -294,7 +295,7 @@ jobs:
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - run: just doctests
@@ -305,7 +306,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - run: npm install -g cspell
@@ -318,7 +319,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just,cargo-deny
       - run: just check-cargo-deny
@@ -330,7 +331,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - run: just check-themis
@@ -342,7 +343,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just,cargo-machete
       - run: just check-cargo-machete
@@ -372,14 +373,14 @@ jobs:
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - run: just check-non-default
 
   check_udeps:
     name: "Unused Dependencies"
-    runs-on: warp-ubuntu-2204-x64-8x
+    runs-on: warp-ubuntu-2404-x64-8x
     permissions:
       contents: "read"
       id-token: "write"
@@ -402,7 +403,7 @@ jobs:
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just,cargo-udeps
       - run: just check-cargo-udeps
@@ -414,7 +415,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: cargo-audit
       - run: cargo audit -D warnings
@@ -440,7 +441,7 @@ jobs:
           pattern: coverage-profraw-*
           path: coverage/profraw
           merge-multiple: true
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: cargo-llvm-cov
       - uses: actions/setup-python@v5
@@ -499,26 +500,20 @@ jobs:
           flags: unittests-nightly
       - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7
         with:
-          files: py.json
-          fail_ci_if_error: false
-          flags: pytests
-      - uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7
-        with:
           files: py-nightly.json
           fail_ci_if_error: false
           flags: pytests-nightly
 
   publishable_packages_check:
-    name: "Cargo check publishable packages separately"
+    name: "Cargo check publishable packages separately (${{ matrix.name }})"
     runs-on: ${{ matrix.os }}
-    if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: Linux
             id: linux
-            os: warp-ubuntu-2204-x64-2x
+            os: warp-ubuntu-2404-x64-2x
           - name: Windows
             id: win
             os: windows-latest
@@ -527,30 +522,42 @@ jobs:
       contents: "read"
       id-token: "write"
     steps:
+      # We use this step to indicate when the whole job needs to be skipped.
+      # We don't use job-level condition so that matrix.name in the name is pretty-expended even when the job is skipped.
+      - id: run-job
+        if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
+        name: Check if job should be skipped
+        run: true
       - uses: actions/checkout@v4
+        if: steps.run-job.outcome == 'success'
         with:
           persist-credentials: false
       - id: gcp-auth
+        if: steps.run-job.outcome == 'success'
         name: Authenticate with Google Cloud
         continue-on-error: true
         uses: "google-github-actions/auth@v2"
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
           service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
-      - if: steps.gcp-auth.outcome == 'success'
+      - if: steps.run-job.outcome == 'success' && steps.gcp-auth.outcome == 'success'
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
-      - if: steps.gcp-auth.outcome == 'success'
+      - if: steps.run-job.outcome == 'success' && steps.gcp-auth.outcome == 'success'
         run: |
           echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
+        if: steps.run-job.outcome == 'success'
         with:
           tool: just
-      - run: just check-publishable-separately
-      - run: just check-publishable-separately --no-default-features
-      - run: just check-publishable-separately --all-features
+      - if: steps.run-job.outcome == 'success'
+        run: just check-publishable-separately
+      - if: steps.run-job.outcome == 'success'
+        run: just check-publishable-separately --no-default-features
+      - if: steps.run-job.outcome == 'success'
+        run: just check-publishable-separately --all-features
   openapi_spec:
     name: "OpenAPI Spec"
     runs-on: ubuntu-latest
@@ -558,7 +565,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
       - run: just openapi-spec

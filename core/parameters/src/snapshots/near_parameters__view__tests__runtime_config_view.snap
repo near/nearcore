@@ -200,7 +200,6 @@ expression: "&view"
     "linear_op_unit_cost": 822756,
     "vm_kind": "<REDACTED>",
     "discard_custom_sections": true,
-    "saturating_float_to_int": true,
     "global_contract_host_fns": true,
     "reftypes_bulk_memory": true,
     "deterministic_account_ids": true,
@@ -235,7 +234,7 @@ expression: "&view"
       "max_locals_per_contract": 1000000,
       "max_tables_per_contract": 1,
       "max_elements_per_contract_table": 10000,
-      "account_id_validity_rules_version": 1,
+      "account_id_validity_rules_version": 2,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
       "per_receipt_storage_proof_size_limit": 4000000

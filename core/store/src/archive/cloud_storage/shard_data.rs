@@ -56,6 +56,7 @@ pub fn build_shard_data(
     shard_uid: ShardUId,
 ) -> Result<ShardData, Error> {
     let chain_store = store.chain_store();
+    let chunk_store = store.chunk_store();
     let block_hash = chain_store.get_block_hash_by_height(block_height)?;
     let block = chain_store.get_block(&block_hash)?;
     let shard_id = shard_uid.shard_id();
@@ -70,7 +71,7 @@ pub fn build_shard_data(
         )));
     };
 
-    let chunk = chain_store.get_chunk(&chunk_hash)?;
+    let chunk = chunk_store.get_chunk(&chunk_hash)?;
     let transactions = chunk.to_transactions().iter().cloned().collect();
     let receipts = chunk.prev_outgoing_receipts().iter().cloned().collect();
 
@@ -88,10 +89,10 @@ pub fn build_shard_data(
         Vec::new()
     };
 
-    let chunk_extra = (*chain_store.get_chunk_extra(&block_hash, &shard_uid)?).clone();
+    let chunk_extra = (*chunk_store.get_chunk_extra(&block_hash, &shard_uid)?).clone();
     let state_changes = get_state_changes(store, shard_layout, &block_hash, shard_uid)?;
     let chunk_apply_stats =
-        chain_store.get_chunk_apply_stats(&block_hash, &shard_id)?.ok_or_else(|| {
+        chunk_store.get_chunk_apply_stats(&block_hash, &shard_id)?.ok_or_else(|| {
             Error::DBNotFoundErr(format!(
                 "CHUNK APPLY STATS, block height: {}, shard ID: {:?}",
                 block_height, shard_id
@@ -148,8 +149,7 @@ fn get_state_changes(
 }
 
 impl ShardData {
-    #[allow(unused)]
-    pub fn get_chunk(&self) -> &ShardChunk {
+    pub fn chunk(&self) -> &ShardChunk {
         match self {
             ShardData::V1(data) => &data.chunk,
         }

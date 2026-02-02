@@ -106,8 +106,11 @@ impl Genesis {
             );
         }
         add_protocol_account(&mut records);
-        let epoch_config =
-            Genesis::test_epoch_config(num_validator_seats, shard_layout, FAST_EPOCH_LENGTH);
+        let epoch_config = Genesis::test_epoch_config(
+            num_validator_seats,
+            shard_layout.clone(),
+            FAST_EPOCH_LENGTH,
+        );
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
             genesis_time,
@@ -135,7 +138,7 @@ impl Genesis {
             chunk_validator_only_kickout_threshold: epoch_config
                 .chunk_validator_only_kickout_threshold,
             fishermen_threshold: epoch_config.fishermen_threshold,
-            shard_layout: epoch_config.shard_layout,
+            shard_layout,
             target_validator_mandates_per_shard: epoch_config.target_validator_mandates_per_shard,
             max_kickout_stake_perc: epoch_config.validator_max_kickout_stake_perc,
             online_min_threshold: epoch_config.online_min_threshold,
@@ -343,7 +346,6 @@ impl ClientConfig {
             protocol_version_check: Default::default(),
             enable_early_prepare_transactions: default_enable_early_prepare_transactions(),
             chunks_cache_height_horizon: default_chunks_cache_height_horizon(),
-            dynamic_resharding_dry_run: false,
             disable_tx_routing: false,
         }
     }

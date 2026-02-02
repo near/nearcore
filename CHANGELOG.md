@@ -7,7 +7,7 @@
 * The contract runtime now allows for bulk memory instructions in Wasm code.
 
 ### Non-protocol Changes
-**No Changes**
+* Replace polling for transaction status with event notifications to improve jsonrpc response latency
 
 ## [2.10.0]
 
@@ -29,16 +29,15 @@
 * Batch ed25519 signature verification for transaction processing. [#14196](https://github.com/near/nearcore/pull/14196)
 * New `/actors` page in debug-ui, showing utilization of actors and dequeue time of recently processed messages. [#14452](https://github.com/near/nearcore/pull/14452)
 * Fix to avoid re-applying state parts in case state sync was interrupted and resumed. [#14232](https://github.com/near/nearcore/pull/14232)
+* Moved Tier1 configuration from experimental to top level config. No action is necessary as the default values are the recommended ones. ([#13575](https://github.com/near/nearcore/pull/13575))
+* Add a new configuration option `save_tx_outcomes` ([#13610](https://github.com/near/nearcore/pull/13610)). When set to `false`, per-transaction outcomes are not written to the db to improve validator throughput. Disabling this config means transactions processed by the node will not be queryable by transaction hash, however this is not needed for validators to perform their duties. The default for archive and RPC nodes is `true`.
+* Updated the recommended operating system network settings for running `neard` ([#14012](https://github.com/near/nearcore/pull/14012)).
 
 ## [2.9.0]
 
 ### Protocol Changes
-**No Changes**
-
-### Non-protocol Changes
-* Moved Tier1 configuration from experimental to top level config. No action is necessary as the default values are the recommended ones. ([#13575](https://github.com/near/nearcore/pull/13575))
-* Add a new configuration option `save_tx_outcomes` ([#13610](https://github.com/near/nearcore/pull/13610)). When set to `false`, per-transaction outcomes are not written to the db to improve validator throughput. Disabling this config means transactions processed by the node will not be queryable by transaction hash, however this is not needed for validators to perform their duties. The default for archive and RPC nodes is `true`.
-* Updated the recommended operating system network settings for running `neard` ([#14012](https://github.com/near/nearcore/pull/14012)).
+* Maximum inflation rate moved to epoch config
+* Inflation rate reduction from 5% to 2.5%
 
 ## [2.8.0]
 

@@ -1,12 +1,14 @@
 use super::*;
 use crate::network_protocol::PeersResponse;
 use crate::network_protocol::testonly as data;
+use crate::network_protocol::{RoutedMessage, RoutedMessageBody};
 use crate::testonly::make_rng;
 use crate::types::{Disconnect, HandshakeFailureReason, PeerMessage};
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::{Context as _, bail};
 use itertools::Itertools as _;
 use near_async::time;
+use near_primitives::network::PeerId;
 use rand::Rng as _;
 
 #[test]

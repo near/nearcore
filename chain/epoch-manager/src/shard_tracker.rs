@@ -73,6 +73,14 @@ impl ShardTracker {
         Self::new(TrackedShardsConfig::NoShards, epoch_manager, empty_validator_signer)
     }
 
+    /// Returns the shadow-tracked validator ID if the node is a shadow validator; otherwise, returns None.
+    pub fn get_shadow_validator_id(&self) -> Option<&AccountId> {
+        match &self.tracked_shards_config {
+            TrackedShardsConfig::ShadowValidator(validator_id) => Some(validator_id),
+            _ => None,
+        }
+    }
+
     fn tracks_shard_at_epoch(
         &self,
         shard_id: ShardId,
@@ -454,6 +462,7 @@ impl ShardTracker {
             &epoch_id,
             &self.epoch_manager,
         )?;
+
         self.descendant_of_tracked_shard_cache.lock().insert(shard_id, is_tracked);
         Ok(is_tracked)
     }
@@ -481,8 +490,16 @@ fn check_if_descendant_of_tracked_shard_impl(
     epoch_id: &EpochId,
     epoch_manager: &Arc<dyn EpochManagerAdapter>,
 ) -> Result<bool, EpochError> {
+    let tracked_shards: HashSet<ShardUId> = tracked_shards.into_iter().cloned().collect();
     let mut protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
     let mut shard_layout = epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
+
+    // `ShardLayoutV3` stores all ancestor shards, not need to iterate through protocol versions
+    if let Some(ancestors) = shard_layout.ancestor_uids(shard_id) {
+        let ancestors = HashSet::from_iter(ancestors);
+        return Ok(!ancestors.is_disjoint(&tracked_shards));
+    }
+
     let mut shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
     if tracked_shards.contains(&shard_uid) {
         // We explicitly track `shard_id` (the shard is a descendant of itself).
@@ -490,7 +507,6 @@ fn check_if_descendant_of_tracked_shard_impl(
     }
     // `shard_uid` does not belong to `tracked_shards`, but it might be a descendant of one.
     // Iterate through all ancestors of `shard_uid` to see if any belong to `tracked_shards`.
-    let tracked_shards: HashSet<ShardUId> = tracked_shards.into_iter().cloned().collect();
     let genesis_protocol_version = epoch_manager.genesis_protocol_version();
     while protocol_version > genesis_protocol_version {
         protocol_version -= 1;
@@ -537,6 +553,7 @@ mod tests {
     use near_primitives::epoch_manager::EpochConfigStore;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::{
         AccountInfo, Balance, BlockHeight, EpochId, ProtocolVersion, ShardId,
@@ -579,10 +596,10 @@ mod tests {
                 &first_split_shard_layout,
                 "abcd".parse().unwrap(),
             );
-            let mut first_split_epoch_config = base_epoch_config;
-            first_split_epoch_config.shard_layout = first_split_shard_layout;
-            let mut second_split_epoch_config = first_split_epoch_config.clone();
-            second_split_epoch_config.shard_layout = second_split_shard_layout;
+            let first_split_epoch_config =
+                base_epoch_config.clone().with_shard_layout(first_split_shard_layout);
+            let second_split_epoch_config =
+                base_epoch_config.with_shard_layout(second_split_shard_layout);
             epoch_configs.push((PROTOCOL_VERSION - 1, Arc::new(first_split_epoch_config)));
             epoch_configs.push((PROTOCOL_VERSION, Arc::new(second_split_epoch_config)));
         }
@@ -591,7 +608,7 @@ mod tests {
         EpochManager::new_arc_handle_from_epoch_config_store(store, &genesis_config, config_store)
     }
 
-    pub fn record_block(
+    fn record_block(
         epoch_manager: &mut EpochManager,
         prev_h: CryptoHash,
         cur_h: CryptoHash,
@@ -599,6 +616,19 @@ mod tests {
         proposals: Vec<ValidatorStake>,
         protocol_version: ProtocolVersion,
     ) {
+        let epoch_id = epoch_manager.get_epoch_id(&prev_h).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
+            shard_layout
+                .shard_ids()
+                .map(|shard_id| {
+                    let assignments = epoch_manager
+                        .get_chunk_validator_assignments(&epoch_id, shard_id, height)
+                        .unwrap();
+                    vec![true; assignments.assignments().iter().len()]
+                })
+                .collect(),
+        );
         epoch_manager
             .record_block_info(
                 BlockInfo::new(
@@ -612,7 +642,7 @@ mod tests {
                     DEFAULT_TOTAL_SUPPLY,
                     protocol_version,
                     height * 10u64.pow(9),
-                    None,
+                    chunk_endorsements,
                 ),
                 [0; 32],
             )

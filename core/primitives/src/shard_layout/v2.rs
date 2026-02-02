@@ -287,7 +287,7 @@ impl ShardLayoutV2 {
         shard_id: ShardId,
     ) -> Result<Option<ShardId>, ShardLayoutError> {
         if !self.shard_ids.contains(&shard_id) {
-            return Err(ShardLayoutError::InvalidShardIdError { shard_id });
+            return Err(ShardLayoutError::InvalidShardId { shard_id });
         }
         match &self.shards_parent_map {
             // we can safely unwrap here because the construction of to_parent_shard_map guarantees
@@ -304,13 +304,13 @@ impl ShardLayoutV2 {
         self.id_to_index_map
             .get(&shard_id)
             .copied()
-            .ok_or(ShardLayoutError::InvalidShardIdError { shard_id })
+            .ok_or(ShardLayoutError::InvalidShardId { shard_id })
     }
 
     pub fn get_shard_id(&self, shard_index: ShardIndex) -> Result<ShardId, ShardLayoutError> {
         self.shard_ids
             .get(shard_index)
             .copied()
-            .ok_or(ShardLayoutError::InvalidShardIndexError { shard_index })
+            .ok_or(ShardLayoutError::InvalidShardIndex { shard_index })
     }
 }

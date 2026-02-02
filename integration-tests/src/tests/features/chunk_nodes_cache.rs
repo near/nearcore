@@ -51,7 +51,6 @@ fn process_transaction(
             })),
         ],
         last_block_hash,
-        0,
     );
     let tx_hash = tx.get_hash();
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -84,14 +83,13 @@ fn process_transaction(
 /// for `Value 1` and only 2 db reads for `Value 2`, because first 4 nodes were already put into the accounting
 /// cache. 4nd run should give the same results, because caching must not affect different chunks.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn compare_node_counts() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 10;
     let num_blocks = 5;
 
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(
             &genesis,

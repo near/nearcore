@@ -33,7 +33,7 @@ const NUM_CLIENTS: usize = NUM_PRODUCERS + NUM_VALIDATORS + NUM_RPC;
 /// with producers, validators, rpc nodes, single shard tracking and state sync.
 #[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_congestion_control_simple() {
     init_test_logger();
@@ -70,7 +70,7 @@ fn slow_test_congestion_control_simple() {
 
 #[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_one_shard_congested() {
     init_test_logger();
@@ -170,7 +170,6 @@ fn setup(
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
-        .transaction_validity_period(1000)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)

@@ -16,7 +16,7 @@ use near_jsonrpc_tests::{
 
 /// Test sending transaction via json rpc without waiting.
 #[tokio::test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_send_tx_async() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
@@ -70,7 +70,7 @@ async fn test_send_tx_async() {
 
 /// Test sending transaction and waiting for it to be committed to a block.
 #[tokio::test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_send_tx_commit() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
@@ -93,8 +93,12 @@ async fn test_send_tx_commit() {
         FinalExecutionStatus::SuccessValue(Vec::new())
     );
     assert!(
-        [TxExecutionStatus::Executed, TxExecutionStatus::Final]
-            .contains(&result.final_execution_status),
+        [
+            TxExecutionStatus::ExecutedOptimistic,
+            TxExecutionStatus::Executed,
+            TxExecutionStatus::Final
+        ]
+        .contains(&result.final_execution_status),
         "All the receipts should be already executed"
     );
 }

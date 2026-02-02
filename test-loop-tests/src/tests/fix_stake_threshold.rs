@@ -44,7 +44,7 @@ fn slow_test_fix_validator_stake_threshold() {
 
     let genesis = TestGenesisBuilder::new()
         .genesis_time_from_clock(&test_loop_builder.clock())
-        .shard_layout(epoch_config_store.get_config(PROTOCOL_VERSION).shard_layout.clone())
+        .shard_layout(epoch_config_store.get_config(PROTOCOL_VERSION).static_shard_layout())
         .epoch_length(epoch_length)
         .validators_spec(validators_spec)
         .max_inflation_rate(Rational32::new(0, 1))

@@ -13,7 +13,7 @@ use num_rational::Ratio;
 use std::sync::Arc;
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn build_chain() {
     init_test_logger();
@@ -48,7 +48,7 @@ fn build_chain() {
         clock.advance(Duration::milliseconds(1));
         let prev_hash = *chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
-        let block = TestBlockBuilder::new(clock.clock(), &prev, signer.clone()).build();
+        let block = TestBlockBuilder::from_prev_block(clock.clock(), &prev, signer.clone()).build();
         chain.process_block_test(block).unwrap();
         assert_eq!(chain.head().unwrap().height, i as u64);
     }
@@ -72,7 +72,9 @@ fn build_chain_with_orphans() {
     let (mut chain, _, _, signer) = setup(clock.clone());
     let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
     for i in 1..4 {
-        let block = TestBlockBuilder::new(clock.clone(), &blocks[i - 1], signer.clone()).build();
+        let block =
+            TestBlockBuilder::from_prev_block(clock.clone(), &blocks[i - 1], signer.clone())
+                .build();
         blocks.push(block);
     }
     let last_block = &blocks[blocks.len() - 1];
@@ -98,6 +100,7 @@ fn build_chain_with_orphans() {
         None,
         None,
         None,
+        None,
     ));
     assert_matches!(chain.process_block_test(block).unwrap_err(), Error::Orphan);
     assert_matches!(chain.process_block_test(blocks.pop().unwrap()).unwrap_err(), Error::Orphan);
@@ -120,12 +123,16 @@ fn build_chain_with_skips_and_forks() {
     init_test_logger();
     let (mut chain, _, _, signer) = setup(Clock::real());
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-    let b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
-    let b2 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).height(2).build();
-    let b3 = TestBlockBuilder::new(Clock::real(), &b1, signer.clone()).height(3).build();
-    let b4 = TestBlockBuilder::new(Clock::real(), &b2, signer.clone()).height(4).build();
-    let b5 = TestBlockBuilder::new(Clock::real(), &b4, signer.clone()).build();
-    let b6 = TestBlockBuilder::new(Clock::real(), &b5, signer.clone()).build();
+    let b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build();
+    let b2 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone())
+        .height(2)
+        .build();
+    let b3 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &b1, signer.clone()).height(3).build();
+    let b4 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &b2, signer.clone()).height(4).build();
+    let b5 = TestBlockBuilder::from_prev_block(Clock::real(), &b4, signer.clone()).build();
+    let b6 = TestBlockBuilder::from_prev_block(Clock::real(), &b5, signer.clone()).build();
     assert!(chain.process_block_test(b1).is_ok());
     assert!(chain.process_block_test(b2).is_ok());
     assert!(chain.process_block_test(b3.clone()).is_ok());
@@ -136,7 +143,7 @@ fn build_chain_with_skips_and_forks() {
     assert_eq!(chain.get_block_header_by_height(5).unwrap().height(), 5);
     assert_eq!(chain.get_block_header_by_height(6).unwrap().height(), 6);
 
-    let c4 = TestBlockBuilder::new(Clock::real(), &b3, signer).height(4).build();
+    let c4 = TestBlockBuilder::from_prev_block(Clock::real(), &b3, signer).height(4).build();
     assert_eq!(chain.final_head().unwrap().height, 4);
     assert_matches!(chain.process_block_test(c4), Err(Error::CannotBeFinalized));
 }
@@ -160,20 +167,30 @@ fn blocks_at_height() {
     init_test_logger();
     let (mut chain, _, _, signer) = setup(Clock::real());
     let genesis = chain.get_block_by_height(0).unwrap();
-    let b_1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).height(1).build();
+    let b_1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone())
+        .height(1)
+        .build();
 
-    let b_2 = TestBlockBuilder::new(Clock::real(), &b_1, signer.clone()).height(2).build();
+    let b_2 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &b_1, signer.clone()).height(2).build();
 
-    let c_1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).height(1).build();
-    let c_3 = TestBlockBuilder::new(Clock::real(), &c_1, signer.clone()).height(3).build();
-    let c_4 = TestBlockBuilder::new(Clock::real(), &c_3, signer.clone()).height(4).build();
+    let c_1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone())
+        .height(1)
+        .build();
+    let c_3 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &c_1, signer.clone()).height(3).build();
+    let c_4 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &c_3, signer.clone()).height(4).build();
 
-    let d_3 = TestBlockBuilder::new(Clock::real(), &b_2, signer.clone()).height(3).build();
+    let d_3 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &b_2, signer.clone()).height(3).build();
 
-    let d_5 = TestBlockBuilder::new(Clock::real(), &d_3, signer.clone()).height(5).build();
-    let d_6 = TestBlockBuilder::new(Clock::real(), &d_5, signer.clone()).height(6).build();
+    let d_5 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &d_3, signer.clone()).height(5).build();
+    let d_6 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &d_5, signer.clone()).height(6).build();
 
-    let e_7 = TestBlockBuilder::new(Clock::real(), &b_1, signer).height(7).build();
+    let e_7 = TestBlockBuilder::from_prev_block(Clock::real(), &b_1, signer).height(7).build();
 
     let b_1_hash = *b_1.hash();
     let b_2_hash = *b_2.hash();
@@ -233,10 +250,12 @@ fn next_blocks() {
     init_test_logger();
     let (mut chain, _, _, signer) = setup(Clock::real());
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-    let b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
-    let b2 = TestBlockBuilder::new(Clock::real(), &b1, signer.clone()).height(2).build();
-    let b3 = TestBlockBuilder::new(Clock::real(), &b1, signer.clone()).height(3).build();
-    let b4 = TestBlockBuilder::new(Clock::real(), &b3, signer).height(4).build();
+    let b1 = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer.clone()).build();
+    let b2 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &b1, signer.clone()).height(2).build();
+    let b3 =
+        TestBlockBuilder::from_prev_block(Clock::real(), &b1, signer.clone()).height(3).build();
+    let b4 = TestBlockBuilder::from_prev_block(Clock::real(), &b3, signer).height(4).build();
     let b1_hash = *b1.hash();
     let b2_hash = *b2.hash();
     let b3_hash = *b3.hash();
@@ -255,7 +274,7 @@ fn block_chunk_headers_iter() {
     init_test_logger();
     let (chain, _, _, signer) = setup(Clock::real());
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-    let mut block = TestBlockBuilder::new(Clock::real(), &genesis, signer).build();
+    let mut block = TestBlockBuilder::from_prev_block(Clock::real(), &genesis, signer).build();
     let header = block.chunks().get(0).unwrap().clone();
     let mut fake_headers = vec![header; 16];
 
@@ -280,7 +299,7 @@ fn block_chunk_headers_iter() {
 /// it is marked as pending and can be processed later.
 #[cfg(feature = "test_features")]
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_pending_block() {
     init_test_logger();
@@ -289,11 +308,11 @@ fn test_pending_block() {
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
     // Create block 1
-    let block1 = TestBlockBuilder::new(clock.clone(), &genesis, signer.clone()).build();
+    let block1 = TestBlockBuilder::from_prev_block(clock.clone(), &genesis, signer.clone()).build();
     chain.process_block_test(block1.clone()).unwrap();
 
     // Create block 2 (but don't process it yet)
-    let block2 = TestBlockBuilder::new(clock, &block1, signer.clone()).build();
+    let block2 = TestBlockBuilder::from_prev_block(clock, &block1, signer.clone()).build();
 
     // Create optimistic block at height 2 based on block 1
     let optimistic_block = OptimisticBlock::adv_produce(
@@ -356,7 +375,7 @@ fn test_pending_block() {
 /// skip pending pool and process block right away.
 #[cfg(feature = "test_features")]
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_pending_block_same_height() {
     use near_crypto::{KeyType, Signature};
@@ -367,11 +386,11 @@ fn test_pending_block_same_height() {
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
     // Create block 1
-    let block1 = TestBlockBuilder::new(clock.clone(), &genesis, signer.clone()).build();
+    let block1 = TestBlockBuilder::from_prev_block(clock.clone(), &genesis, signer.clone()).build();
     chain.process_block_test(block1.clone()).unwrap();
 
     // Create block 2 and its copy
-    let block2 = TestBlockBuilder::new(clock, &block1, signer.clone()).build();
+    let block2 = TestBlockBuilder::from_prev_block(clock, &block1, signer.clone()).build();
     let block2a = block2.clone();
 
     // Create copy of block 2 with different hash.

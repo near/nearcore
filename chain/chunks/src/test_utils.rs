@@ -23,6 +23,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, Balance, EpochId, Gas};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::set_genesis_height;
@@ -164,8 +165,10 @@ impl ChunkTestFixture {
             MerkleHash::default(),
             Default::default(),
             BandwidthRequests::empty(),
+            None,
             &signer,
             &rs,
+            PROTOCOL_VERSION,
         );
 
         let mock_encoded_chunk = mock_chunk.into_parts().1;

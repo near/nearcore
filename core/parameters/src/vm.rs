@@ -172,17 +172,11 @@ pub struct Config {
     /// Enable the `FixContractLoadingCost` protocol feature.
     pub fix_contract_loading_cost: bool,
 
-    /// Enable the `ImplicitAccountCreation` protocol feature.
-    pub implicit_account_creation: bool,
-
     /// Enable the `EthImplicitAccounts` protocol feature.
     pub eth_implicit_accounts: bool,
 
     /// Whether to discard custom sections.
     pub discard_custom_sections: bool,
-
-    /// Whether to enable saturating float-to-integer wasm operators.
-    pub saturating_float_to_int: bool,
 
     /// Whether to enable global contract related host functions.
     pub global_contract_host_fns: bool,
@@ -222,7 +216,6 @@ impl Config {
     pub fn enable_all_features(&mut self) {
         self.eth_implicit_accounts = true;
         self.global_contract_host_fns = true;
-        self.implicit_account_creation = true;
     }
 }
 

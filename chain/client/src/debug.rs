@@ -229,7 +229,7 @@ fn find_first_height_to_fetch(
 
     let min_height_to_search = max(
         height_to_fetch as i64 - DEBUG_MAX_BLOCKS_TO_SEARCH as i64,
-        chain_store.genesis_height() as i64,
+        chain_store.get_genesis_height() as i64,
     ) as u64;
     while height_to_fetch > min_height_to_search {
         let block_hashes = get_block_hashes_to_fetch(chain_store, height_to_fetch, final_height);
@@ -361,7 +361,7 @@ impl ClientActor {
                     .enumerate()
                     .map(|(shard_index, chunk)| {
                         // TODO(spice): chunks in spice no longer contain prev state root.
-                        if cfg!(feature = "protocol_feature_spice") {
+                        if chunk.is_spice_chunk() {
                             return (0, 0);
                         }
                         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
@@ -547,9 +547,10 @@ impl ClientActor {
         let mut height_to_fetch = starting_height.unwrap_or(header_head.height);
         height_to_fetch =
             find_first_height_to_fetch(chain_store, height_to_fetch, mode, final_head.height)?;
-        let min_height_to_fetch =
-            max(height_to_fetch as i64 - num_blocks as i64, chain_store.genesis_height() as i64)
-                as u64;
+        let min_height_to_fetch = max(
+            height_to_fetch as i64 - num_blocks as i64,
+            chain_store.get_genesis_height() as i64,
+        ) as u64;
 
         let mut block_hashes_to_force_fetch = HashSet::new();
         while height_to_fetch > min_height_to_fetch || !block_hashes_to_force_fetch.is_empty() {
