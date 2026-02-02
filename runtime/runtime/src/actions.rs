@@ -670,7 +670,11 @@ pub(crate) fn check_account_existence(
                 }
                 .into());
             } else {
-                if account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts) {
+                if account_is_implicit(
+                    account_id,
+                    config.wasm_config.eth_implicit_accounts,
+                    config.wasm_config.deterministic_account_ids,
+                ) {
                     // If the account doesn't exist and it's implicit, then you
                     // should only be able to create it using single transfer action.
                     // Because you should not be able to add another access key to the account in
@@ -730,7 +734,11 @@ fn check_transfer_to_nonexisting_account(
     implicit_account_creation_eligible: bool,
 ) -> Result<(), ActionError> {
     if implicit_account_creation_eligible
-        && account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts)
+        && account_is_implicit(
+            account_id,
+            config.wasm_config.eth_implicit_accounts,
+            config.wasm_config.deterministic_account_ids,
+        )
     {
         // OK. It's implicit account creation.
         // Notes:
