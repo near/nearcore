@@ -265,7 +265,6 @@ impl ShardTries {
     ) {
         let mut ops = Vec::with_capacity(insertions.len());
         for TrieRefcountAddition { trie_node_or_value_hash, trie_node_or_value, rc } in insertions {
-            println!("hash {}", trie_node_or_value_hash);
             store_update.increment_refcount_by(
                 shard_uid,
                 trie_node_or_value_hash,

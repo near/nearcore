@@ -3,22 +3,28 @@ use anyhow;
 use anyhow::Context;
 use borsh::BorshDeserialize;
 use clap;
-use near_chain::types::RuntimeAdapter;
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::{DelayedReceiptIndices, PromiseYieldIndices, Receipt};
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
-use near_store::adapter::trie_store::get_shard_uid_mapping;
+use near_primitives::trie_key::TrieKey;
+use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey, ShardId, StateChangeCause};
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::archive::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::db::metadata::DbKind;
+use near_store::flat::FlatStorageManager;
 use near_store::trie::AccessOptions;
-use near_store::{KeyForStateChanges, ShardUId, WrappedTrieChanges, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY};
+use near_store::{
+    COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, KeyForStateChanges, ShardTries, ShardUId,
+    StateSnapshotConfig, TAIL_KEY, Trie, TrieChanges, TrieConfig, TrieUpdate, get, set,
+};
 use near_store::{DBCol, NodeStorage, Store, StoreOpener};
-use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+use nearcore::NearConfig;
+use std::num::NonZero;
 use std::ops::Deref;
 //use rand::seq::SliceRandom;
 use std::path::Path;
@@ -64,7 +70,6 @@ enum SubCommand {
     /// Modifies cold db from config to be considered not initialized.
     /// Doesn't actually delete any data, except for HEAD and COLD_HEAD in BlockMisc.
     ResetCold(ResetColdCmd),
-    CorruptCold(CorruptColdCmd),
     RepairCold(RepairColdCmd),
 }
 
@@ -105,7 +110,6 @@ impl ColdStoreCommand {
             SubCommand::PrepareHot(cmd) => cmd.run(&storage, &home_dir, &near_config),
             SubCommand::CheckStateRoot(cmd) => cmd.run(&storage, &epoch_manager),
             SubCommand::ResetCold(cmd) => cmd.run(&storage),
-            SubCommand::CorruptCold(cmd) => cmd.run(&storage),
             SubCommand::RepairCold(cmd) => cmd.run(&storage, &home_dir, &near_config),
         }
     }
@@ -555,58 +559,51 @@ impl IterState {
 }
 
 #[derive(clap::Args)]
-struct CorruptColdCmd {
-    #[clap(long)]
-    shard: ShardUId,
-    #[clap(long)]
-    hash: CryptoHash,
-}
-
-impl CorruptColdCmd {
-    pub fn run(self, storage: &NodeStorage) -> anyhow::Result<()> {
-        let cold_store = storage
-            .get_cold_store()
-            .ok_or_else(|| anyhow::anyhow!("Cold storage is not configured"))?;
-        let mapped_shard_uid = get_shard_uid_mapping(&cold_store, self.shard);
-        let cold_state_key = [mapped_shard_uid.to_bytes().as_ref(), self.hash.as_bytes()].concat();
-        let mut store_update = cold_store.store_update();
-        store_update.delete(DBCol::State, &cold_state_key);
-        store_update.commit()?;
-        Ok(())
-    }
-}
-
-#[derive(clap::Args)]
 struct RepairColdCmd {
     #[clap(long)]
-    shard: ShardUId,
-    // Repairs trie at prev_state_root of block at `height`.
+    shard_id: ShardId,
+    // Repairs trie at prev_state_root of the shard chunk with given `height`.
     #[clap(long)]
     height: BlockHeight,
 }
 
 impl RepairColdCmd {
-    pub fn run(self, storage: &NodeStorage, home_dir: &Path, near_config: &NearConfig,) -> anyhow::Result<()> {
+    pub fn run(
+        self,
+        storage: &NodeStorage,
+        home_dir: &Path,
+        near_config: &NearConfig,
+    ) -> anyhow::Result<()> {
+        let hot_store = storage.get_hot_store();
         let cold_store = storage
             .get_cold_store()
             .ok_or_else(|| anyhow::anyhow!("Cold storage is not configured"))?;
 
-        let block_hash_key = get_block_hash_key(&storage.get_hot_store(), self.height)?;
+        let block_hash_key = get_block_hash_key(&hot_store, self.height)?;
         let block = get_block(&cold_store, block_hash_key)?;
         let chunks = block.chunks();
         // Chunk which prev_state_root is the trie we want to repair. We expect this is the first trie with missing data.
-        let chunk = chunks.iter().find(|chunk| chunk.shard_id() == self.shard.shard_id())
-            .ok_or_else(|| anyhow::anyhow!("No chunk with given shard and height"))?.deref().clone();
-        
-        // We expect this block's post-state to be inconsistent.
+        let chunk = chunks
+            .iter()
+            .find(|chunk| chunk.shard_id() == self.shard_id)
+            .ok_or_else(|| anyhow::anyhow!("No chunk with given shard and height"))?
+            .deref()
+            .clone();
+        let expected_new_state_root = chunk.prev_state_root();
+
+        // This block's post-state may be inconsistent.
         let chunk_prev_block_hash = chunk.prev_block_hash();
         let chunk_prev_block = get_block(&cold_store, chunk_prev_block_hash.as_bytes().to_vec())?;
         let chunks = chunk_prev_block.chunks();
+
         // Chunk which prev_state_root is the last trie that is consistent.
-        let prev_chunk = chunks.iter().find(|chunk| chunk.shard_id() == self.shard.shard_id())
-            .ok_or_else(|| anyhow::anyhow!("No chunk with given shard and height"))?.deref().clone();
-        // The last block with consistent post-state.
-        let prev_chunk_prev_block_hash = prev_chunk.prev_block_hash();
+        let prev_chunk = chunks
+            .iter()
+            .find(|chunk| chunk.shard_id() == self.shard_id)
+            .ok_or_else(|| anyhow::anyhow!("No chunk with given shard and height"))?
+            .deref()
+            .clone();
+        let last_consistent_state_root = prev_chunk.prev_state_root();
 
         let split_store = storage.get_split_store().expect("Split store expected on archival node");
         let epoch_manager = EpochManager::new_arc_handle(
@@ -614,96 +611,144 @@ impl RepairColdCmd {
             &near_config.genesis.config,
             Some(home_dir),
         );
-        let shard_layout = epoch_manager.read().get_shard_layout(chunk_prev_block.header().epoch_id())?;
-        // Get the state changes that are to be applied on top of the last block with consistent post-state.
-        let state_changes = Self::get_state_changes(&cold_store, &shard_layout, chunk_prev_block_hash, self.shard)?;
+        let shard_layout =
+            epoch_manager.read().get_shard_layout(chunk_prev_block.header().epoch_id())?;
+        let shard_uid = ShardUId::from_shard_id_and_layout(self.shard_id, &shard_layout);
 
-        let runtime = NightshadeRuntime::from_config(
-            home_dir,
-            split_store,
-            &near_config,
-            epoch_manager.clone(),
-        )
-        .expect("could not create the transaction runtime");
-        
-        // Re-apply state changes on top of the last known consistent trie for this shard.
-        Self::reapply_state_changes(
-            &cold_store,
-            &runtime,
-            self.shard,
-            prev_chunk_prev_block_hash,
-            prev_chunk.prev_state_root(),
-            &chunk_prev_block,
-            state_changes,
-            chunk.prev_state_root(),
-        )?;
+        let tries = ShardTries::new(
+            split_store.trie_store(),
+            TrieConfig::from_store_config(&near_config.config.store),
+            FlatStorageManager::new(split_store.flat_store()),
+            StateSnapshotConfig::Disabled,
+        );
+
+        // // Get the state changes that are to be applied on top of the last block with consistent post-state.
+        // let state_changes = Self::get_state_changes(&cold_store, &shard_layout, chunk_prev_block_hash, self.shard_id)?;
+
+        // // Re-apply state changes on top of the last known consistent trie for this shard.
+        // let trie_changes = Self::reapply_state_changes(
+        //     tries.get_trie_for_shard(shard_uid, last_consistent_state_root),
+        //     state_changes,
+        // )?;
+        let chunk_extra =
+            cold_store.chunk_store().get_chunk_extra(chunk_prev_block_hash, &shard_uid)?;
+        let state_root = chunk_extra.state_root();
+        println!("root {}", state_root);
+        let mut dummy_store_update = hot_store.trie_store().store_update();
+        // let state_root = tries.apply_all(&trie_changes, shard_uid, &mut dummy_store_update);
+
+        let trie = tries.get_trie_for_shard(shard_uid, *state_root);
+        let mut delayed_receipt_indices: DelayedReceiptIndices =
+            get(&trie, &TrieKey::DelayedReceiptIndices)?.unwrap();
+        let orig_end = delayed_receipt_indices.next_available_index;
+        let promise: Option<PromiseYieldIndices> = get(&trie, &TrieKey::PromiseYieldIndices)?;
+        if promise.is_none() {
+            println!("Promise: none");
+        }
+        let promise = promise.unwrap_or_default();
+        assert_eq!(promise.len(), 0);
+        let mut receipts = vec![];
+
+        while delayed_receipt_indices.first_index < delayed_receipt_indices.next_available_index {
+            let key = TrieKey::DelayedReceipt { index: delayed_receipt_indices.first_index };
+            let receipt: Receipt = get(&trie, &key)?.unwrap();
+            delayed_receipt_indices.first_index += 1;
+            receipts.push(receipt);
+        }
+
+        println!("Delayed receipts: {}", receipts.len());
+        for i in 0..=orig_end {
+            let trie = tries.get_trie_for_shard(shard_uid, *state_root);
+            let mut trie_update = TrieUpdate::new(trie);
+            set(
+                &mut trie_update,
+                TrieKey::DelayedReceiptIndices,
+                &DelayedReceiptIndices { first_index: i, next_available_index: i },
+            );
+            trie_update.commit(StateChangeCause::_UnusedReshardingV2);
+            let trie_changes = trie_update.finalize()?.trie_changes;
+            let tmp_state_root = tries.apply_all(&trie_changes, shard_uid, &mut dummy_store_update);
+            println!("* i={}, root={}", i, tmp_state_root);
+        }
+
+        let trie = tries.get_trie_for_shard(shard_uid, *state_root);
+        let mut trie_update = TrieUpdate::new(trie);
+
+        // let mut delayed_receipt_indices = DelayedReceiptIndices { first_index: 0, next_available_index: 0};
+        // for receipt in receipts {
+        //     set(
+        //         &mut trie_update,
+        //         TrieKey::DelayedReceipt { index: delayed_receipt_indices.next_available_index },
+        //         &receipt,
+        //     );
+        //     delayed_receipt_indices.next_available_index += 1;
+        // }
+
+        // set(
+        //     &mut trie_update,
+        //     TrieKey::DelayedReceiptIndices,
+        //     &delayed_receipt_indices,
+        // );
+        trie_update.commit(StateChangeCause::_UnusedReshardingV2);
+        let trie_changes = trie_update.finalize()?.trie_changes;
+        let state_root = tries.apply_all(&trie_changes, shard_uid, &mut dummy_store_update);
+
+        println!("final root {}", state_root);
+
+        // The check below gives us confidence that everything went correctly.
+        assert_eq!(state_root, expected_new_state_root);
+
+        // let mut store_update = cold_store.trie_store().store_update();
+        // for insertion in trie_update.insertions() {
+        //     store_update.increment_refcount_by(
+        //         shard_uid,
+        //         insertion.hash(),
+        //         insertion.payload(),
+        //         NonZero::new(1).unwrap(),
+        //     );
+        // }
         Ok(())
     }
 
     fn reapply_state_changes(
-        store: &Store,
-        runtime: &NightshadeRuntime,
-        shard_uid: ShardUId,
-        last_block_hash_with_consistent_post_state: &CryptoHash,
-        last_consistent_state_root: CryptoHash,
-        first_block_with_inconsistent_post_state: &Block,
+        trie: Trie,
         state_changes: Vec<RawStateChangesWithTrieKey>,
-        expected_new_state_root: CryptoHash,
-    ) -> anyhow::Result<()> {
-        let trie = runtime.get_trie_for_shard(
-            shard_uid.shard_id(),
-            last_block_hash_with_consistent_post_state,
-            last_consistent_state_root,
-            false,
-        ).unwrap();
-        let trie_update = trie.update(
+    ) -> anyhow::Result<TrieChanges> {
+        let trie_changes = trie.update(
             state_changes.iter().map(|raw_state_changes_with_trie_key| {
                 let raw_key = raw_state_changes_with_trie_key.trie_key.to_vec();
-                let data =
-                    raw_state_changes_with_trie_key.changes.last().unwrap().data.clone();
+                let data = raw_state_changes_with_trie_key.changes.last().unwrap().data.clone();
                 (raw_key, data)
             }),
             AccessOptions::NO_SIDE_EFFECTS,
-        )
-        .unwrap();
-        // The check below gives us confidence that everything went correctly.
-        assert_eq!(trie_update.new_root, expected_new_state_root);
-
-        let wrapped_trie_changes = WrappedTrieChanges::new(
-            runtime.get_tries(),
-            shard_uid,
-            trie_update,
-            state_changes,
-            first_block_with_inconsistent_post_state.header().height(),
-        );
-        let mut store_update = store.trie_store().store_update();
-        wrapped_trie_changes.insertions_into(&mut store_update);
-        //store_update.commit()?;
-        Ok(())
+        )?;
+        Ok(trie_changes)
     }
 
     fn get_state_changes(
         store: &Store,
         shard_layout: &ShardLayout,
         block_hash: &CryptoHash,
-        shard_uid: ShardUId,
+        shard_id: ShardId,
     ) -> anyhow::Result<Vec<RawStateChangesWithTrieKey>> {
         let storage_key = KeyForStateChanges::for_block(&block_hash);
         let mut state_changes = vec![];
-        for item in store
-            .iter_prefix_ser::<RawStateChangesWithTrieKey>(DBCol::StateChanges, storage_key.as_ref())
-        {
+        for item in store.iter_prefix_ser::<RawStateChangesWithTrieKey>(
+            DBCol::StateChanges,
+            storage_key.as_ref(),
+        ) {
             let (key, changes) = item?;
-            let decoded_shard_uid = if let Some(account_id) = changes.trie_key.get_account_id() {
-                shard_layout.account_id_to_shard_uid(&account_id)
+            let decoded_shard_id = if let Some(account_id) = changes.trie_key.get_account_id() {
+                shard_layout.account_id_to_shard_id(&account_id)
             } else {
                 KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
                     &key,
                     &block_hash,
                     &changes.trie_key,
                 )?
+                .shard_id()
             };
-            if decoded_shard_uid != shard_uid {
+            if decoded_shard_id != shard_id {
                 continue;
             }
             state_changes.push(changes);
