@@ -1,6 +1,7 @@
 use crate::VerificationResult;
 use crate::config::{TransactionCost, total_prepaid_gas};
 use crate::near_primitives::account::Account;
+use near_crypto::PublicKey;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -245,6 +246,29 @@ fn verify_nonce(
     Ok(())
 }
 
+fn check_and_compute_new_allowance(
+    access_key: &AccessKey,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+    total_cost: Balance,
+) -> Result<Option<Balance>, InvalidTxError> {
+    let Some(fc) = access_key.permission.function_call_permission() else {
+        return Ok(None);
+    };
+    let Some(allowance) = fc.allowance else {
+        return Ok(None);
+    };
+    let new_allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
+        InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
+            account_id: account_id.clone(),
+            public_key: public_key.clone().into(),
+            allowance,
+            cost: total_cost,
+        })
+    })?;
+    Ok(Some(new_allowance))
+}
+
 /// Verify nonce, balance and access key for the transaction given the account state.
 ///
 /// This will only modify the `account` and `access_key` with the new state if the
@@ -287,22 +311,8 @@ pub fn verify_and_charge_tx_ephemeral(
         });
     };
 
-    // Check allowance (only for FunctionCall permission)
-    let new_allowance = if let Some(fc) = access_key.permission.function_call_permission() {
-        match fc.allowance {
-            Some(allowance) => Some(allowance.checked_sub(total_cost).ok_or_else(|| {
-                InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
-                    account_id: account_id.clone(),
-                    public_key: tx.public_key().clone().into(),
-                    allowance,
-                    cost: total_cost,
-                })
-            })?),
-            None => None,
-        }
-    } else {
-        None
-    };
+    let new_allowance =
+        check_and_compute_new_allowance(&access_key, account_id, tx.public_key(), total_cost)?;
     let fix_allowance = ProtocolFeature::FixAccessKeyAllowanceCharging.enabled(protocol_version);
     if !fix_allowance {
         if let Some(new) = new_allowance {
