@@ -935,7 +935,7 @@ impl Client {
         };
 
         // Compute shard_split if this is the last block of the epoch
-        let shard_split = if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
+        let shard_split = if self.epoch_manager.is_next_next_block_epoch_start(&prev_hash)? {
             // Collect proposed splits from chunk headers
             let proposed_splits = chunk_headers
                 .iter()

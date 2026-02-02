@@ -99,8 +99,11 @@ pub trait EpochManagerAdapter: Send + Sync {
         }
     }
 
-    /// Returns true, if the block with the given `parent_hash` is last block in its epoch.
-    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError>;
+    /// Returns true, if the block with the given `block_hash` is the last block in its epoch.
+    fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError>;
+
+    /// Returns true if the block two blocks after the given `block_hash` belongs to a new epoch.
+    fn is_next_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError>;
 
     /// Get epoch id given hash of previous block.
     fn get_epoch_id_from_prev_block(
@@ -823,6 +826,11 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.is_next_block_epoch_start(parent_hash)
+    }
+
+    fn is_next_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.is_next_next_block_epoch_start(parent_hash)
     }
 
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {

@@ -863,7 +863,7 @@ impl EpochManager {
                     *block_info.epoch_id_mut() = EpochId::default();
                     *block_info.epoch_first_block_mut() = current_hash;
                     is_epoch_start = true;
-                } else if self.is_next_block_in_next_epoch(&prev_block_info)? {
+                } else if self.is_next_epoch_after_n_blocks(&prev_block_info, 1)? {
                     // Current block is in the new epoch, finalize the one in prev_block.
                     *block_info.epoch_id_mut() =
                         self.get_next_epoch_id_from_info(&prev_block_info)?;
@@ -900,7 +900,7 @@ impl EpochManager {
                 }
 
                 // If this is the last block in the epoch, finalize this epoch.
-                if self.is_next_block_in_next_epoch(&block_info)? {
+                if self.is_next_epoch_after_n_blocks(&block_info, 1)? {
                     self.finalize_epoch(&mut store_update, &block_info, &current_hash, rng_seed)?;
                 }
             }
@@ -1076,10 +1076,19 @@ impl EpochManager {
         self.get_epoch_info(&epoch_id)
     }
 
-    /// Returns true if next block after given block hash is in the new epoch.
-    pub fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
-        let block_info = self.get_block_info(parent_hash)?;
-        self.is_next_block_in_next_epoch(&block_info)
+    /// Returns true if next block after the given `block_hash` is in the new epoch.
+    pub fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {
+        let block_info = self.get_block_info(block_hash)?;
+        self.is_next_epoch_after_n_blocks(&block_info, 1)
+    }
+
+    /// Returns true if the block two blocks after the given `block_hash` belongs to a new epoch.
+    pub fn is_next_next_block_epoch_start(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<bool, EpochError> {
+        let block_info = self.get_block_info(block_hash)?;
+        self.is_next_epoch_after_n_blocks(&block_info, 2)
     }
 
     pub fn get_next_epoch_id_from_prev_block(
@@ -1429,8 +1438,14 @@ impl EpochManager {
 
 /// Private utilities for EpochManager.
 impl EpochManager {
-    /// Returns true, if given current block info, next block supposed to be in the next epoch.
-    fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
+    /// Returns true if the block `offset` positions after `block_info` is in the next epoch.
+    /// For example, offset=1 checks if the next block is in the next epoch,
+    /// offset=2 checks if the block after the next is in the next epoch.
+    fn is_next_epoch_after_n_blocks(
+        &self,
+        block_info: &BlockInfo,
+        offset: u64,
+    ) -> Result<bool, EpochError> {
         if block_info.is_genesis() {
             return Ok(true);
         }
@@ -1442,10 +1457,10 @@ impl EpochManager {
         if epoch_length <= 3 {
             // This is here to make epoch_manager tests pass. Needs to be removed, tracked in
             // https://github.com/nearprotocol/nearcore/issues/2522
-            return Ok(block_info.height() + 1 >= estimated_next_epoch_start);
+            return Ok(block_info.height() + offset >= estimated_next_epoch_start);
         }
 
-        Ok(block_info.last_finalized_height() + 3 >= estimated_next_epoch_start)
+        Ok(block_info.last_finalized_height() + 2 + offset >= estimated_next_epoch_start)
     }
 
     /// Returns true, if given current block info, next block must include the approvals from the next
@@ -1454,7 +1469,7 @@ impl EpochManager {
         &self,
         block_info: &BlockInfo,
     ) -> Result<bool, EpochError> {
-        if self.is_next_block_in_next_epoch(block_info)? {
+        if self.is_next_epoch_after_n_blocks(block_info, 1)? {
             return Ok(false);
         }
         let epoch_length = {
@@ -1728,7 +1743,7 @@ impl EpochManager {
         proposed_splits: &HashMap<ShardId, TrieSplit>,
     ) -> Result<Option<(ShardId, AccountId)>, EpochError> {
         // Only compute shard_split if this block will be the last block of the epoch
-        if !self.is_next_block_epoch_start(parent_hash)? {
+        if !self.is_next_next_block_epoch_start(parent_hash)? {
             return Ok(None);
         }
 

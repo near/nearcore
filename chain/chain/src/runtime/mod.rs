@@ -532,7 +532,7 @@ impl NightshadeRuntime {
         if !ProtocolFeature::DynamicResharding.enabled(protocol_version) {
             return Ok(None);
         }
-        if !self.epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
+        if !self.epoch_manager.is_next_next_block_epoch_start(prev_block_hash)? {
             return Ok(None);
         }
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
