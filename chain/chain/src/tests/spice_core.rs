@@ -190,7 +190,7 @@ fn test_all_execution_results_exist_when_some_are_missing() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_for_genesis() {
+fn test_core_statements_for_next_block_for_genesis() {
     let (chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     assert_eq!(core_reader.core_statements_for_next_block(genesis.header()).unwrap(), vec![]);
@@ -198,7 +198,7 @@ fn test_core_statement_for_next_block_for_genesis() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_for_non_spice_block() {
+fn test_core_statements_for_next_block_for_non_spice_block() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_non_spice_block(&mut chain, &genesis);
@@ -208,7 +208,7 @@ fn test_core_statement_for_next_block_for_non_spice_block() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_when_block_is_not_recorded() {
+fn test_core_statements_for_next_block_when_block_is_not_recorded() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
@@ -217,7 +217,7 @@ fn test_core_statement_for_next_block_when_block_is_not_recorded() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_no_endorsements() {
+fn test_core_statements_for_next_block_contains_no_endorsements() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
@@ -228,7 +228,7 @@ fn test_core_statement_for_next_block_contains_no_endorsements() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_new_endorsements() {
+fn test_core_statements_for_next_block_contains_new_endorsements() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -247,7 +247,7 @@ fn test_core_statement_for_next_block_contains_new_endorsements() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_no_endorsements_for_fork_block() {
+fn test_core_statements_for_next_block_contains_no_endorsements_for_fork_block() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
@@ -273,7 +273,7 @@ fn test_core_statement_for_next_block_contains_no_endorsements_for_fork_block() 
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_new_endorsement() {
+fn test_core_statements_for_next_block_contains_new_endorsement() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -292,7 +292,7 @@ fn test_core_statement_for_next_block_contains_new_endorsement() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_new_execution_results() {
+fn test_core_statements_for_next_block_contains_new_execution_results() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -317,7 +317,7 @@ fn test_core_statement_for_next_block_contains_new_execution_results() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_with_endorsements_creates_valid_block() {
+fn test_core_statements_for_next_block_with_endorsements_creates_valid_block() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -336,7 +336,7 @@ fn test_core_statement_for_next_block_with_endorsements_creates_valid_block() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_with_execution_results_creates_valid_block() {
+fn test_core_statements_for_next_block_with_execution_results_creates_valid_block() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -358,7 +358,7 @@ fn test_core_statement_for_next_block_with_execution_results_creates_valid_block
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_no_already_included_execution_results() {
+fn test_core_statements_for_next_block_contains_no_already_included_execution_results() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -382,7 +382,7 @@ fn test_core_statement_for_next_block_contains_no_already_included_execution_res
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_no_already_included_endorsement() {
+fn test_core_statements_for_next_block_contains_no_already_included_endorsement() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -403,7 +403,7 @@ fn test_core_statement_for_next_block_contains_no_already_included_endorsement()
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_no_endorsements_for_included_execution_result() {
+fn test_core_statements_for_next_block_contains_no_endorsements_for_included_execution_result() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -431,7 +431,7 @@ fn test_core_statement_for_next_block_contains_no_endorsements_for_included_exec
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_all_endorsements() {
+fn test_core_statements_for_next_block_contains_all_endorsements() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
