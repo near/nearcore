@@ -348,6 +348,9 @@ pub enum ProtocolFeature {
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
     /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
     InstantPromiseYield,
+    /// Includes tokens burnt as part of global contract deploys into corresponding
+    /// execution outcome's `tokens_burnt`.
+    IncludeDeployGlobalContractOutcomeBurntStorage,
 }
 
 impl ProtocolFeature {
@@ -448,7 +451,8 @@ impl ProtocolFeature {
             ProtocolFeature::StatePartsCompression | ProtocolFeature::DeterministicAccountIds => 82,
             ProtocolFeature::InvalidTxGenerateOutcomes
             | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen
-            | ProtocolFeature::FixAccessKeyAllowanceCharging => 83,
+            | ProtocolFeature::FixAccessKeyAllowanceCharging
+            | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage => 83,
             ProtocolFeature::Wasmtime => 84,
 
             // Nightly features:
