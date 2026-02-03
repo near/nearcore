@@ -1271,7 +1271,8 @@
                     "type": "array"
                   },
                   "num_nonces": {
-                    "format": "uint32",
+                    "format": "uint16",
+                    "maximum": 65535,
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -1302,7 +1303,8 @@
                     "$ref": "#/components/schemas/NearToken"
                   },
                   "num_nonces": {
-                    "format": "uint32",
+                    "format": "uint16",
+                    "maximum": 65535,
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -2934,12 +2936,14 @@
               "GasKeyInvalidNumNonces": {
                 "properties": {
                   "limit": {
-                    "format": "uint32",
+                    "format": "uint16",
+                    "maximum": 65535,
                     "minimum": 0,
                     "type": "integer"
                   },
                   "requested_nonces": {
-                    "format": "uint32",
+                    "format": "uint16",
+                    "maximum": 65535,
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -6966,7 +6970,8 @@
             "$ref": "#/components/schemas/NearToken"
           },
           "num_nonces": {
-            "format": "uint32",
+            "format": "uint16",
+            "maximum": 65535,
             "minimum": 0,
             "type": "integer"
           }
@@ -8504,13 +8509,15 @@
                 "properties": {
                   "num_nonces": {
                     "description": "Number of nonces supported by the key. 0 means no nonce_index allowed (regular key).",
-                    "format": "uint32",
+                    "format": "uint16",
+                    "maximum": 65535,
                     "minimum": 0,
                     "type": "integer"
                   },
                   "tx_nonce_index": {
                     "description": "The nonce_index from the transaction (None if missing).",
-                    "format": "uint32",
+                    "format": "uint16",
+                    "maximum": 65535,
                     "minimum": 0,
                     "nullable": true,
                     "type": "integer"
@@ -18662,7 +18669,8 @@
             "type": "integer"
           },
           "nonce_index": {
-            "format": "uint32",
+            "format": "uint16",
+            "maximum": 65535,
             "minimum": 0,
             "nullable": true,
             "type": "integer"
@@ -19173,7 +19181,8 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "index": {
-                    "format": "uint32",
+                    "format": "uint16",
+                    "maximum": 65535,
                     "minimum": 0,
                     "type": "integer"
                   },
