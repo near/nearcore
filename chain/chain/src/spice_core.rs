@@ -396,27 +396,28 @@ impl SpiceCoreReader {
                 block_header
             };
 
-        let mut execution_results =
-            self.get_execution_results_by_shard_id(last_certified_block_header)?;
+        if last_certified_block_header.is_genesis() {
+            return Ok(BlockExecutionResults(
+                self.get_execution_results_by_shard_id(last_certified_block_header)?,
+            ));
+        }
 
         let last_certified_hash = *last_certified_block_header.hash();
         let num_shards =
             self.epoch_manager.shard_ids(last_certified_block_header.epoch_id())?.len();
+        let mut execution_results: HashMap<ShardId, Arc<ChunkExecutionResult>> = HashMap::new();
         for (chunk_id, result) in iter_execution_results(core_statements_for_next_block) {
             if chunk_id.block_hash != last_certified_hash {
                 continue;
             }
             execution_results.entry(chunk_id.shard_id).or_insert_with(|| Arc::new(result.clone()));
         }
-        if execution_results.len() == num_shards {
-            return Ok(BlockExecutionResults(execution_results));
-        }
 
-        // Fallback: walk backwards collecting execution results from core statements.
-        // SpiceCoreWriterActor writes to DBCol::execution_results asynchronously, so
-        // during orphan processing the results may not be persisted yet.
-        // TODO(spice): Consider making the fallback the main path, maybe this is a
-        // premature optimization.
+        // Walk backwards from block_header, collecting execution results from
+        // each block's core statements. We can't depend on reading from
+        // DBCol::execution_results, which SpiceCoreWriterActor writes
+        // asynchronously. So, during orphan processing, the results we need
+        // here may not be persisted to that column yet.
         let mut current_hash = *block_header.hash();
         while execution_results.len() < num_shards && current_hash != last_certified_hash {
             let block = self.chain_store.get_block(&current_hash)?;
