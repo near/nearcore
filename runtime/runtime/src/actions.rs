@@ -325,7 +325,11 @@ pub(crate) fn action_delete_account(
             .new_receipts
             .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
     }
-    remove_account(state_update, account_id)?;
+    let gas_key_balance_to_burn = remove_account(state_update, account_id)?;
+    result.tokens_burnt =
+        result.tokens_burnt.checked_add(gas_key_balance_to_burn).ok_or_else(|| {
+            StorageError::StorageInconsistentState("tokens_burnt overflow".to_string())
+        })?;
     *actor_id = receipt.predecessor_id().clone();
     *account = None;
     Ok(())

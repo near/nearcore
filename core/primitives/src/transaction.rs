@@ -535,9 +535,14 @@ pub struct ExecutionOutcome {
     // set and any code that attempts to use it will crash.
     #[borsh(skip)]
     pub compute_usage: Option<Compute>,
-    /// The amount of tokens burnt corresponding to the burnt gas amount.
-    /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
-    /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
+    /// Sum of tokens burnt for:
+    /// - Gas: This value doesn't always equal to the `gas_burnt` multiplied by the gas price,
+    ///   because the prepaid gas price might be lower than the actual gas price and it creates
+    ///   a deficit.
+    /// - Deleted gas keys: When a gas key or an account with gas keys is deleted, the remaining
+    ///   balance on the gas key(s) is burnt.
+    /// - Deployed global contracts: Tokens are burnt when deploying a global contract to
+    ///   compensate for permanently storing contract code in the state.
     pub tokens_burnt: Balance,
     /// The id of the account on which the execution happens. For transaction this is signer_id,
     /// for receipt this is receiver_id.

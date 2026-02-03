@@ -6,13 +6,13 @@ use near_primitives::action::{
     DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
     UseGlobalContractAction,
 };
-use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
-use near_primitives::errors::{ActionErrorKind, RuntimeError};
+use near_primitives::errors::{ActionErrorKind, IntegerOverflowError, RuntimeError};
 use near_primitives::global_contract::ContractIsLocalError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{GlobalContractDistributionReceipt, Receipt, ReceiptEnum};
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, EpochInfoProvider, ShardId, StateChangeCause};
+use near_primitives::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{KeyLookupMode, StorageError, TrieAccess as _, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
@@ -27,7 +27,6 @@ pub(crate) fn action_deploy_global_contract(
     apply_state: &ApplyState,
     deploy_contract: &DeployGlobalContractAction,
     result: &mut ActionResult,
-    stats: &mut ChunkApplyStatsV0,
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_global_contract").entered();
 
@@ -45,8 +44,12 @@ pub(crate) fn action_deploy_global_contract(
         .into());
         return Ok(());
     };
-    stats.balance.global_actions_burnt_amount =
-        stats.balance.global_actions_burnt_amount.saturating_add(storage_cost);
+    if ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
+        .enabled(apply_state.current_protocol_version)
+    {
+        result.tokens_burnt =
+            result.tokens_burnt.checked_add(storage_cost).ok_or(IntegerOverflowError)?;
+    }
     account.set_amount(updated_balance);
 
     initiate_distribution(
