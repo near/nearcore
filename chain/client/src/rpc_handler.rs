@@ -223,7 +223,7 @@ impl RpcHandlerActor {
                 return Ok(ProcessTxResponse::ValidTx);
             }
             // Transactions only need to be recorded if this node is a chunk producer for the transaction's shard.
-            if self.is_chunk_producer_for_transaction(signed_tx.transaction.signer_id())? {
+            if self.is_chunk_producer_for_transaction(&head, signed_tx.transaction.signer_id())? {
                 let mut pool = self.tx_pool.lock();
                 match pool.insert_transaction(shard_uid, validated_tx) {
                     InsertTransactionResult::Success => {
@@ -383,9 +383,9 @@ impl RpcHandlerActor {
 
     fn is_chunk_producer_for_transaction(
         &self,
+        head: &Tip,
         signer_id: &AccountId,
     ) -> Result<bool, near_client_primitives::types::Error> {
-        let head = self.chain_store.head()?;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
 
         // Is a chunk producer in this epoch?
