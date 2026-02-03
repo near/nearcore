@@ -415,6 +415,8 @@ impl SpiceCoreReader {
         // Fallback: walk backwards collecting execution results from core statements.
         // SpiceCoreWriterActor writes to DBCol::execution_results asynchronously, so
         // during orphan processing the results may not be persisted yet.
+        // TODO(spice): Consider making the fallback the main path, maybe this is a
+        // premature optimization.
         let mut current_hash = *block_header.hash();
         while execution_results.len() < num_shards && current_hash != last_certified_hash {
             let block = self.chain_store.get_block(&current_hash)?;
