@@ -470,6 +470,7 @@ impl Testbed<'_> {
             validated_tx.to_tx(),
             &cost,
             block_height,
+            PROTOCOL_VERSION,
         )
         .expect("tx verification should not fail in estimator");
         set_tx_state_changes(&mut state_update, &validated_tx, &signer, &access_key);
