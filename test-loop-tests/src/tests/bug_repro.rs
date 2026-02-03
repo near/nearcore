@@ -464,7 +464,7 @@ fn test_rpc_forwards_retried_transaction() {
     // There should be two ForwardTx(validator0, tx2) messages recorded.
     assert_eq!(
         forward_tx_requests.borrow_mut().as_slice(),
-        &[(validator_acc.clone(), tx2.get_hash()), (validator_acc.clone(), tx2.get_hash())]
+        &[(validator_acc.clone(), tx2.get_hash()), (validator_acc, tx2.get_hash())]
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
