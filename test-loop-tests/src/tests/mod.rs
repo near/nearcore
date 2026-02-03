@@ -39,6 +39,7 @@ mod reject_outdated_blocks;
 mod resharding_v3;
 mod single_shard_tracking;
 mod spice;
+mod spice_resharding;
 mod state_sync;
 mod syncing;
 mod view_requests;

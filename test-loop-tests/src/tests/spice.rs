@@ -213,7 +213,7 @@ fn test_spice_chain_with_delayed_execution() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
-fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height: u64) {
+pub(super) fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height: u64) {
     let core_writer_senders: HashMap<_, _> = env
         .node_datas
         .iter()
