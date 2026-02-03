@@ -387,12 +387,11 @@ impl Runtime {
         let account_id = receipt.receiver_id();
         let is_refund = receipt.predecessor_id().is_system();
         let is_the_only_action = actions.len() == 1;
-        //
         let implicit_account_creation_eligible = !is_refund
             && (is_the_only_action
                 // Deterministic AccountIds can be created by incoming transfers regardless
                 // of number of actions in the current receipt. For instance, this sequence
-                // of actions is considered valid:
+                // of actions within a single receipt is considered valid:
                 // 1. Transfer
                 // 2. DeterministicStateInit
                 // 3. FunctionCall
