@@ -379,13 +379,8 @@ impl SpiceCoreReader {
         block_header: &BlockHeader,
         core_statements_for_next_block: &[SpiceCoreStatement],
     ) -> Result<BlockExecutionResults, Error> {
-        let newly_certified_chunks: HashSet<&SpiceChunkId> = core_statements_for_next_block
-            .iter()
-            .filter_map(|s| match s {
-                SpiceCoreStatement::ChunkExecutionResult { chunk_id, .. } => Some(chunk_id),
-                _ => None,
-            })
-            .collect();
+        let newly_certified_chunks: HashSet<&SpiceChunkId> =
+            iter_execution_results(core_statements_for_next_block).map(|(id, _)| id).collect();
 
         let mut uncertified_chunks =
             get_uncertified_chunks(&self.chain_store, block_header.hash())?;
@@ -411,11 +406,12 @@ impl SpiceCoreReader {
         let num_shards =
             self.epoch_manager.shard_ids(last_certified_block_header.epoch_id())?.len();
         let mut execution_results: HashMap<ShardId, Arc<ChunkExecutionResult>> = HashMap::new();
-        collect_execution_results_for_block(
-            &last_certified_hash,
-            core_statements_for_next_block,
-            &mut execution_results,
-        );
+        for (chunk_id, result) in iter_execution_results(core_statements_for_next_block) {
+            if chunk_id.block_hash != last_certified_hash {
+                continue;
+            }
+            execution_results.entry(chunk_id.shard_id).or_insert_with(|| Arc::new(result.clone()));
+        }
 
         // Walk backwards from block_header, collecting execution results from
         // each block's core statements. We can't depend on reading from
@@ -425,11 +421,14 @@ impl SpiceCoreReader {
         let mut current_hash = *block_header.hash();
         while execution_results.len() < num_shards && current_hash != last_certified_hash {
             let block = self.chain_store.get_block(&current_hash)?;
-            collect_execution_results_for_block(
-                &last_certified_hash,
-                block.spice_core_statements(),
-                &mut execution_results,
-            );
+            for (chunk_id, result) in iter_execution_results(block.spice_core_statements()) {
+                if chunk_id.block_hash != last_certified_hash {
+                    continue;
+                }
+                execution_results
+                    .entry(chunk_id.shard_id)
+                    .or_insert_with(|| Arc::new(result.clone()));
+            }
             current_hash = *block.header().prev_hash();
         }
 
@@ -442,21 +441,15 @@ impl SpiceCoreReader {
     }
 }
 
-fn collect_execution_results_for_block(
-    target_block_hash: &CryptoHash,
+fn iter_execution_results(
     core_statements: &[SpiceCoreStatement],
-    results: &mut HashMap<ShardId, Arc<ChunkExecutionResult>>,
-) {
-    for core_statement in core_statements {
-        let SpiceCoreStatement::ChunkExecutionResult { execution_result, chunk_id } =
-            core_statement
-        else {
-            continue;
-        };
-        if chunk_id.block_hash == *target_block_hash {
-            results.entry(chunk_id.shard_id).or_insert_with(|| Arc::new(execution_result.clone()));
+) -> impl Iterator<Item = (&SpiceChunkId, &ChunkExecutionResult)> {
+    core_statements.iter().filter_map(|s| match s {
+        SpiceCoreStatement::ChunkExecutionResult { chunk_id, execution_result } => {
+            Some((chunk_id, execution_result))
         }
-    }
+        _ => None,
+    })
 }
 
 fn get_uncertified_chunks(
@@ -483,16 +476,7 @@ fn get_uncertified_chunks(
 }
 
 fn get_block_execution_results(block: &Block) -> HashMap<&SpiceChunkId, &ChunkExecutionResult> {
-    block
-        .spice_core_statements()
-        .iter()
-        .filter_map(|core_statement| match core_statement {
-            SpiceCoreStatement::ChunkExecutionResult { execution_result, chunk_id } => {
-                Some((chunk_id, execution_result))
-            }
-            _ => None,
-        })
-        .collect()
+    iter_execution_results(block.spice_core_statements()).collect()
 }
 
 fn get_block_endorsements(
