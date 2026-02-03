@@ -778,6 +778,9 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Returns the shard split to include in the block header, if any.
     /// This is called during block production to compute the `shard_split` field.
     /// Returns `Some((shard_id, boundary_account))` if a shard split should be scheduled.
+    /// The proposed split should be included in the header of the next block  after the one
+    /// identified by `parent_hash`. It will be used to derive layout for epoch `N+2`
+    /// (where `N` is the current epoch).
     fn get_upcoming_shard_split(
         &self,
         parent_hash: &CryptoHash,

@@ -639,6 +639,9 @@ impl EpochManager {
     /// If dynamic resharding is enabled it will either:
     ///   a) derive a new layout based on the split defined in `block_info`, or
     ///   b) return `next_shard_layout` (if there is no split specified there).
+    ///
+    /// Parameters `next_next_epoch_version`, `next_next_epoch_config` and `next_shard_layout`
+    /// are relative to the epoch of `block_info`.
     fn next_next_shard_layout(
         &self,
         next_next_epoch_version: ProtocolVersion,
@@ -1737,6 +1740,9 @@ impl EpochManager {
     /// Returns the shard split to include in the block header, if any.
     /// This is called during block production to compute the `shard_split` field.
     /// Returns `Some((shard_id, boundary_account))` if a shard split should be scheduled.
+    /// The proposed split should be included in the header of the next block  after the one
+    /// identified by `parent_hash`. It will be used to derive layout for epoch `N+2`
+    /// (where `N` is the current epoch).
     pub fn get_upcoming_shard_split(
         &self,
         parent_hash: &CryptoHash,
