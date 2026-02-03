@@ -847,7 +847,7 @@ impl Client {
             })
             .collect();
 
-        debug_assert_eq!(approvals_map.len(), 0);
+        assert_eq!(approvals_map.len(), 0);
 
         let next_epoch_id = self
             .epoch_manager
@@ -1030,7 +1030,7 @@ impl Client {
                 tracing::warn!(target: "client", ?err, "received bad block");
             } else if err.is_error() {
                 if let near_chain::Error::DBNotFoundErr(msg) = &err {
-                    debug_assert!(!msg.starts_with("BLOCK HEIGHT"), "{:?}", err);
+                    assert!(!msg.starts_with("BLOCK HEIGHT"), "{:?}", err);
                 }
                 if self.sync_handler.sync_status.is_syncing() {
                     // While syncing, we may receive blocks that are older or from next epochs.
@@ -1450,17 +1450,23 @@ impl Client {
 
     /// Checks if the latest hash known to Doomslug matches the current head, and updates it if not.
     pub fn check_and_update_doomslug_tip(&mut self) -> Result<(), Error> {
-        let tip = self.chain.head()?;
-
-        if tip.last_block_hash != self.doomslug.get_tip().0 {
-            // We need to update the doomslug tip
-            let last_final_hash =
-                *self.chain.get_block_header(&tip.last_block_hash)?.last_final_block();
+        let tip = self.chain.head().inspect_err(|e| {
+            tracing::warn!(target: "client", ?e, "check_and_update_doomslug_tip: failed to get head");
+        })?;
+        let (ds_hash, ds_height) = self.doomslug.get_tip();
+        if tip.last_block_hash != ds_hash {
+            let head_header = self.chain.get_block_header(&tip.last_block_hash).inspect_err(|e| {
+                tracing::warn!(target: "client", ?e, head_height = tip.height, head_hash = ?tip.last_block_hash, "check_and_update_doomslug_tip: failed to get head header");
+            })?;
+            let last_final_hash = *head_header.last_final_block();
             let last_final_height = if last_final_hash == CryptoHash::default() {
                 self.chain.genesis().height()
             } else {
-                self.chain.get_block_header(&last_final_hash)?.height()
+                self.chain.get_block_header(&last_final_hash).inspect_err(|e| {
+                    tracing::warn!(target: "client", ?e, head_height = tip.height, ?last_final_hash, "check_and_update_doomslug_tip: failed to get last final header");
+                })?.height()
             };
+            tracing::debug!(target: "client", head_height = tip.height, ds_height, last_final_height, "updating doomslug tip");
             self.doomslug.set_tip(tip.last_block_hash, tip.height, last_final_height);
         }
 

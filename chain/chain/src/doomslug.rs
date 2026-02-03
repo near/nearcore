@@ -497,7 +497,7 @@ impl Doomslug {
             // The `endorsement_delay` is time to send approval to the block producer at `timer.height`,
             // while the `skip_delay` is the time before sending the approval to BP of `timer_height + 1`,
             // so it makes sense for them to be at least 2x apart
-            debug_assert!(skip_delay >= 2 * self.timer.endorsement_delay);
+            assert!(skip_delay >= 2 * self.timer.endorsement_delay);
 
             let tip_height = self.tip.height;
 
@@ -530,7 +530,7 @@ impl Doomslug {
             }
 
             if now >= self.timer.started + skip_delay {
-                debug_assert!(!self.endorsement_pending);
+                assert!(!self.endorsement_pending);
 
                 self.largest_target_height
                     .set(std::cmp::max(self.timer.height + 1, self.largest_target_height.get()));
@@ -646,7 +646,7 @@ impl Doomslug {
         height: BlockHeight,
         last_final_height: BlockHeight,
     ) {
-        debug_assert!(height > self.tip.height || self.tip.height == 0);
+        assert!(height > self.tip.height || self.tip.height == 0);
         self.tip = DoomslugTip { block_hash, height };
 
         self.largest_final_height.set(last_final_height);
