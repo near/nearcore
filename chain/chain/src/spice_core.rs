@@ -441,6 +441,10 @@ impl SpiceCoreReader {
 fn iter_execution_results(
     core_statements: &[SpiceCoreStatement],
 ) -> impl Iterator<Item = (&SpiceChunkId, &ChunkExecutionResult)> {
+    // TODO(spice): Consider making a newtype wrapper for list of
+    // SpiceCoreStatements. Would also be good if it worked with any iterators
+    // generally (i.e. generics implementing IntoIterator trait). so we can
+    // write: block.spice_core_statements().iter_execution_results()
     core_statements.iter().filter_map(|s| match s {
         SpiceCoreStatement::ChunkExecutionResult { chunk_id, execution_result } => {
             Some((chunk_id, execution_result))
