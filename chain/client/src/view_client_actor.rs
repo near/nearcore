@@ -7,6 +7,7 @@ use crate::{
 };
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
+use near_chain::spice_chain::SpiceChainReader;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, get_epoch_block_producers_view,
@@ -58,6 +59,7 @@ use near_primitives::views::{
     SignedTransactionView, SplitStorageInfoView, StateChangesKindsView, StateChangesView,
     TxExecutionStatus, TxStatusView,
 };
+use near_store::adapter::StoreAdapter as _;
 use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, HEAD_KEY};
 use parking_lot::RwLock;
@@ -91,6 +93,7 @@ pub struct ViewClientActor {
     network_adapter: PeerManagerAdapter,
     pub config: ClientConfig,
     request_manager: Arc<RwLock<ViewClientRequestManager>>,
+    spice_chain_reader: SpiceChainReader,
 }
 
 impl ViewClientRequestManager {
@@ -155,6 +158,11 @@ impl ViewClientActor {
             config.save_trie_changes,
             validator_signer,
         )?;
+        let spice_chain_reader = SpiceChainReader::new(
+            runtime.store().chain_store(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+        );
         Ok(Self {
             clock,
             adv,
@@ -165,6 +173,7 @@ impl ViewClientActor {
             network_adapter,
             config,
             request_manager: Arc::new(RwLock::new(ViewClientRequestManager::new())),
+            spice_chain_reader,
         })
     }
 
@@ -212,64 +221,10 @@ impl ViewClientActor {
         // TODO(spice): consider using `get_last_certified_block_header(chain_head)`
         // for Finality::Final and Finality::DoomSlug.
         if ProtocolFeature::Spice.enabled(protocol_version) {
-            self.find_first_executed_ancestor(&chain_head)
+            Ok(*self.spice_chain_reader.find_first_executed_ancestor(&chain_head)?.hash())
         } else {
             Ok(chain_head)
         }
-    }
-
-    /// Finds the first executed block walking back from `start_hash`.
-    fn find_first_executed_ancestor(
-        &self,
-        start_hash: &CryptoHash,
-    ) -> Result<CryptoHash, near_chain::Error> {
-        let final_execution_head = self.chain.chain_store().spice_final_execution_head().ok();
-        let mut header = self.chain.get_block_header(start_hash)?;
-        loop {
-            if self.is_block_executed(&header)? {
-                return Ok(*header.hash());
-            }
-            if header.is_genesis() {
-                return Ok(*header.hash());
-            }
-            // Don't go past the final execution head. This is a defensive
-            // check, in normal operation we should always find an executed
-            // ancestor within a few blocks.
-            if let Some(final_execution_head) = &final_execution_head {
-                if header.height() <= final_execution_head.height {
-                    return Err(near_chain::Error::DBNotFoundErr(
-                        "no executed ancestor found".to_string(),
-                    ));
-                }
-            }
-            header = self.chain.get_block_header(header.prev_hash())?;
-        }
-    }
-
-    /// Checks if a block has been executed by looking for chunk_extra on any
-    /// tracked shard. Non-spice blocks are always considered executed since
-    /// execution is synchronous with block processing.
-    fn is_block_executed(&self, header: &BlockHeader) -> Result<bool, near_chain::Error> {
-        let epoch_id = header.epoch_id();
-        let protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(epoch_id).into_chain_error()?;
-        if !ProtocolFeature::Spice.enabled(protocol_version) {
-            return Ok(true);
-        }
-        let shard_ids = self.epoch_manager.shard_ids(epoch_id).into_chain_error()?;
-        for shard_id in shard_ids {
-            if !self.shard_tracker.cares_about_shard(header.hash(), shard_id) {
-                continue;
-            }
-            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)
-                .into_chain_error()?;
-            match self.chain.chain_store().get_chunk_extra(header.hash(), &shard_uid) {
-                Ok(_) => return Ok(true),
-                Err(near_chain_primitives::Error::DBNotFoundErr(_)) => return Ok(false),
-                Err(err) => return Err(err.into()),
-            }
-        }
-        Ok(false)
     }
 
     /// Returns block header by reference.
@@ -281,13 +236,16 @@ impl ViewClientActor {
         &self,
         reference: &BlockReference,
     ) -> Result<Option<Arc<BlockHeader>>, near_chain::Error> {
-        // TODO(spice): Return "unknown block" for height/hash queries past execution_head.
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
-                self.chain.get_block_header_by_height(*block_height).map(Some)
+                let header = self.chain.get_block_header_by_height(*block_height)?;
+                self.spice_chain_reader.check_block_executed(&header)?;
+                Ok(Some(header))
             }
             BlockReference::BlockId(BlockId::Hash(block_hash)) => {
-                self.chain.get_block_header(block_hash).map(Some)
+                let header = self.chain.get_block_header(block_hash)?;
+                self.spice_chain_reader.check_block_executed(&header)?;
+                Ok(Some(header))
             }
             BlockReference::Finality(finality) => self
                 .get_block_hash_by_finality(finality)
@@ -315,13 +273,16 @@ impl ViewClientActor {
         &self,
         reference: &BlockReference,
     ) -> Result<Option<Arc<Block>>, near_chain::Error> {
-        // TODO(spice): Return "unknown block" for height/hash queries past execution_head.
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
-                self.chain.get_block_by_height(*block_height).map(Some)
+                let block = self.chain.get_block_by_height(*block_height)?;
+                self.spice_chain_reader.check_block_executed(block.header())?;
+                Ok(Some(block))
             }
             BlockReference::BlockId(BlockId::Hash(block_hash)) => {
-                self.chain.get_block(block_hash).map(Some)
+                let block = self.chain.get_block(block_hash)?;
+                self.spice_chain_reader.check_block_executed(block.header())?;
+                Ok(Some(block))
             }
             BlockReference::Finality(finality) => self
                 .get_block_hash_by_finality(finality)
