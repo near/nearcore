@@ -41,4 +41,5 @@ mod single_shard_tracking;
 mod spice;
 mod state_sync;
 mod syncing;
+mod view_requests;
 mod view_requests_to_archival_node;

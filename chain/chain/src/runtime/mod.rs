@@ -706,6 +706,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 &tx,
                 &cost,
                 block_height,
+                current_protocol_version,
             )
             .map(|_vr| ())
         }
@@ -979,6 +980,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         validated_tx.to_tx(),
                         &cost,
                         Some(next_block_height),
+                        protocol_version,
                     )
                 };
                 // Update cached gas key nonce for subsequent transactions

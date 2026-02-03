@@ -13,7 +13,7 @@ use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{ActionCosts, RuntimeConfig};
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::action::{Action, DeleteAccountAction, TransferToGasKeyAction};
 use near_primitives::apply::ApplyChunkReason;
@@ -3297,6 +3297,186 @@ fn test_transaction_multiple_access_keys_with_apply() {
 
     assert!(account.amount() < Balance::from_near(994_000));
     assert!(account.amount() > Balance::from_near(993_000));
+}
+
+/// Tests that the FixAccessKeyAllowanceCharging protocol feature prevents
+/// access key allowance mutation when a transaction fails after the allowance
+/// check. Scenario: two function call transactions using the same access key.
+/// Tx1 targets the wrong receiver (fails at verify_function_call_permission,
+/// which runs after the allowance check). Tx2 targets the correct receiver.
+///
+/// Before the fix: tx1 incorrectly decrements the allowance, causing tx2 to
+/// see a lower allowance and fail with NotEnoughAllowance.
+/// After the fix: tx1 does not touch the allowance, and tx2 succeeds.
+#[test]
+fn test_fix_access_key_allowance_no_mutation_on_failed_tx() {
+    let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
+
+    // We'll run the test twice: once with the old version and once with the new version.
+    let fix_version = ProtocolFeature::FixAccessKeyAllowanceCharging.protocol_version();
+    for (protocol_version, expect_tx2_success) in [(fix_version - 1, false), (fix_version, true)] {
+        let config = Arc::new(RuntimeConfig::test());
+        // Compute cost of one function call transaction so we can set allowance tightly.
+        let sample_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            bob_account(),
+            &*alice_signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "hello".to_string(),
+                args: vec![],
+                gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+                deposit: Balance::ZERO,
+            }))],
+            CryptoHash::default(),
+        );
+        let sample_cost =
+            crate::config::tx_cost(&config, &sample_tx.transaction, GAS_PRICE).unwrap();
+        // Set allowance so it covers exactly one transaction's total_cost.
+        let allowance = sample_cost.total_cost;
+
+        // Build state manually with a function call access key.
+        let tries = TestTriesBuilder::new().build();
+        let shard_uid = ShardUId::single_shard();
+        let root = MerkleHash::default();
+        let mut initial_state = tries.new_trie_update(shard_uid, root);
+
+        let access_key = AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: Some(allowance),
+                receiver_id: bob_account().into(),
+                method_names: vec![],
+            }),
+        };
+        let mut alice = account_new(Balance::from_near(1_000_000), CryptoHash::default());
+        alice.set_storage_usage(182);
+        set_account(&mut initial_state, alice_account(), &alice);
+        set_access_key(&mut initial_state, alice_account(), alice_signer.public_key(), &access_key);
+        let bob = account_new(Balance::from_near(1_000_000), CryptoHash::default());
+        set_account(&mut initial_state, bob_account(), &bob);
+
+        initial_state.commit(StateChangeCause::InitialState);
+        let trie_changes = initial_state.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        store_update.commit().unwrap();
+
+        let runtime = Runtime::new();
+        let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
+        let epoch_info_provider = MockEpochInfoProvider::default();
+        let shard_layout = epoch_info_provider.shard_layout(&EpochId::default()).unwrap();
+        let shard_ids = shard_layout.shard_ids();
+        let shards_congestion_info =
+            shard_ids.map(|id| (id, ExtendedCongestionInfo::default())).collect();
+        let mut apply_state = ApplyState {
+            apply_reason: ApplyChunkReason::UpdateTrackedShard,
+            block_height: 1,
+            prev_block_hash: Default::default(),
+            shard_id: shard_uid.shard_id(),
+            epoch_id: Default::default(),
+            epoch_height: 0,
+            gas_price: GAS_PRICE,
+            block_timestamp: 100,
+            gas_limit: Some(Gas::from_teragas(1000)),
+            random_seed: Default::default(),
+            current_protocol_version: protocol_version,
+            config: config.clone(),
+            cache: Some(Box::new(contract_cache)),
+            is_new_chunk: true,
+            congestion_info: BlockCongestionInfo::new(shards_congestion_info),
+            bandwidth_requests: BlockBandwidthRequests::empty(),
+            trie_access_tracker_state: Default::default(),
+            on_post_state_ready: None,
+        };
+
+        let make_fc_tx = |nonce, receiver| {
+            SignedTransaction::from_actions(
+                nonce,
+                alice_account(),
+                receiver,
+                &*alice_signer,
+                vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                    method_name: "hello".to_string(),
+                    args: vec![],
+                    gas: DEFAULT_MINIMAL_GAS_ATTACHMENT,
+                    deposit: Balance::ZERO,
+                }))],
+                CryptoHash::default(),
+            )
+        };
+
+        // tx1: wrong receiver → fails at verify_function_call_permission
+        // tx2: correct receiver → should succeed if allowance is intact
+        let tx1 = make_fc_tx(1, alice_account()); // wrong receiver
+        let tx2 = make_fc_tx(2, bob_account()); // correct receiver
+        let txs = vec![tx1.clone(), tx2.clone()];
+        let signed_valid_period_txs = SignedValidPeriodTransactions::new(txs, vec![true, true]);
+
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(shard_uid, root),
+                &None,
+                &apply_state,
+                &[],
+                signed_valid_period_txs,
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+
+        if expect_tx2_success {
+            // After the fix (also after InvalidTxGenerateOutcomes): both outcomes are recorded.
+            assert_eq!(apply_result.outcomes.len(), 2, "protocol_version={protocol_version}");
+            let tx1_outcome = &apply_result.outcomes[0];
+            assert_eq!(tx1_outcome.id, tx1.get_hash());
+            assert_matches!(
+                &tx1_outcome.outcome.status,
+                ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                    InvalidTxError::InvalidAccessKeyError(
+                        near_primitives::errors::InvalidAccessKeyError::ReceiverMismatch { .. }
+                    )
+                ))
+            );
+            let tx2_outcome = &apply_result.outcomes[1];
+            assert_eq!(tx2_outcome.id, tx2.get_hash());
+            assert_matches!(
+                &tx2_outcome.outcome.status,
+                ExecutionStatus::SuccessReceiptId(_),
+                "protocol_version={protocol_version}: tx2 should succeed after fix"
+            );
+        } else {
+            // Before the fix (also before InvalidTxGenerateOutcomes): failed tx outcomes
+            // are not recorded. Both txs fail (tx1 with ReceiverMismatch, tx2 with
+            // NotEnoughAllowance due to tx1's buggy allowance mutation), so no outcomes
+            // or outgoing receipts are produced.
+            assert_eq!(apply_result.outcomes.len(), 0);
+            assert_eq!(apply_result.outgoing_receipts.len(), 0);
+        }
+
+        // Verify the access key state after apply.
+        // State is only written to trie for successful transactions (via set_access_key
+        // on the success path). So the trie reflects whether tx2 succeeded or not.
+        let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+        let state = tries.new_trie_update(shard_uid, root);
+        let ak =
+            get_access_key(&state, &alice_account(), &alice_signer.public_key()).unwrap().unwrap();
+        let final_allowance = ak.permission.function_call_permission().unwrap().allowance.unwrap();
+        if expect_tx2_success {
+            // After the fix: tx2 succeeded → allowance was consumed and written to trie.
+            assert!(
+                final_allowance < allowance,
+                "protocol_version={protocol_version}: allowance should decrease after successful tx2"
+            );
+        } else {
+            // Before the fix: tx1's buggy allowance mutation prevented tx2 from succeeding.
+            // Neither tx wrote to trie, so trie allowance is unchanged.
+            assert_eq!(
+                final_allowance, allowance,
+                "protocol_version={protocol_version}: trie allowance unchanged (both txs failed)"
+            );
+        }
+    }
 }
 
 #[test]
