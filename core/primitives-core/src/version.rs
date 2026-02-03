@@ -338,6 +338,11 @@ pub enum ProtocolFeature {
     InvalidTxGenerateOutcomes,
     DynamicResharding,
     GasKeys,
+    /// Fix access key allowance mutation in verify_and_charge_tx_ephemeral.
+    /// Previously, the allowance was decremented in-place before later checks
+    /// (storage stake, function call permission) that could return an error,
+    /// violating the documented contract of no mutation on error.
+    FixAccessKeyAllowanceCharging,
     Spice,
     ContinuousEpochSync,
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
@@ -442,7 +447,8 @@ impl ProtocolFeature {
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
             ProtocolFeature::StatePartsCompression | ProtocolFeature::DeterministicAccountIds => 82,
             ProtocolFeature::InvalidTxGenerateOutcomes
-            | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 83,
+            | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen
+            | ProtocolFeature::FixAccessKeyAllowanceCharging => 83,
             ProtocolFeature::Wasmtime => 84,
 
             // Nightly features:
