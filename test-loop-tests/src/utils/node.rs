@@ -14,7 +14,9 @@ use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_u
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
+use near_primitives::transaction::{
+    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
+};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
@@ -125,6 +127,28 @@ impl<'a> TestLoopNode<'a> {
             .iter_raw()
             .map(|chunk_header| chain.get_chunk(chunk_header.chunk_hash()).unwrap())
             .collect()
+    }
+
+    pub fn execution_outcome(
+        &self,
+        test_loop_data: &TestLoopData,
+        tx_hash_or_receipt_id: CryptoHash,
+    ) -> ExecutionOutcomeWithId {
+        self.client(test_loop_data)
+            .chain
+            .get_execution_outcome(&tx_hash_or_receipt_id)
+            .unwrap_or_else(|err| {
+                panic!("outcome with id {tx_hash_or_receipt_id} is not available: {err}")
+            })
+            .outcome_with_id
+    }
+
+    pub fn tx_receipt_id(&self, test_loop_data: &TestLoopData, tx_hash: CryptoHash) -> CryptoHash {
+        let tx_execution_outcome = self.execution_outcome(test_loop_data, tx_hash);
+        let [receipt_id] = tx_execution_outcome.outcome.receipt_ids[..] else {
+            panic!("expected single receipt")
+        };
+        receipt_id
     }
 
     pub fn run_until_head_height(&self, test_loop: &mut TestLoopV2, height: BlockHeight) {
