@@ -391,7 +391,7 @@ impl Runtime {
         //
         let implicit_account_creation_eligible = !is_refund
             && (is_the_only_action
-                // Deterministic AccountIds can be created by incoming transfer regardless
+                // Deterministic AccountIds can be created by incoming transfers regardless
                 // of number of actions in the current receipt. For instance, this sequence
                 // of actions is considered valid:
                 // 1. Transfer
