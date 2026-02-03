@@ -1,5 +1,6 @@
 use super::GAS_PRICE;
 use crate::access_keys::initial_nonce_value;
+use crate::config::tx_cost;
 use crate::congestion_control::{compute_receipt_congestion_gas, compute_receipt_size};
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
@@ -3488,6 +3489,16 @@ fn test_apply_gas_key_transaction() {
         &add_key_action,
     )
     .unwrap();
+
+    // Fund the gas key
+    let gas_key_balance = Balance::from_millinear(1);
+    let mut access_key =
+        get_access_key(&state_update, &alice_account(), &gas_key_signer.public_key())
+            .unwrap()
+            .unwrap();
+    access_key.gas_key_info_mut().unwrap().balance = gas_key_balance;
+    set_access_key(&mut state_update, alice_account(), gas_key_signer.public_key(), &access_key);
+
     set_account(&mut state_update, alice_account(), &alice_account_state);
 
     // Commit the state changes
@@ -3510,6 +3521,8 @@ fn test_apply_gas_key_transaction() {
         vec![Action::Transfer(TransferAction { deposit: transfer_amount })],
         CryptoHash::default(),
     );
+    let transaction_cost =
+        tx_cost(&apply_state.config, &gas_key_tx.transaction, apply_state.gas_price).unwrap();
 
     // Apply the transaction
     let signed_valid_period_txs = SignedValidPeriodTransactions::new(vec![gas_key_tx], vec![true]);
@@ -3552,4 +3565,18 @@ fn test_apply_gas_key_transaction() {
                 .expect("gas key nonce should exist");
         assert_eq!(other_nonce, initial_nonce, "other gas key nonce should be unchanged");
     }
+
+    assert!(!transaction_cost.gas_cost.is_zero());
+    assert_eq!(transaction_cost.deposit_cost, transfer_amount);
+
+    // Verify account pays for deposit, gas key balance pays for gas
+    let account = get_account(&state, &alice_account()).unwrap().unwrap();
+    assert_eq!(
+        account.amount(),
+        initial_balance.checked_sub(transaction_cost.deposit_cost).unwrap()
+    );
+    let access_key =
+        get_access_key(&state, &alice_account(), &gas_key_signer.public_key()).unwrap().unwrap();
+    let remaining = access_key.gas_key_info().unwrap().balance;
+    assert_eq!(remaining, gas_key_balance.checked_sub(transaction_cost.gas_cost).unwrap());
 }

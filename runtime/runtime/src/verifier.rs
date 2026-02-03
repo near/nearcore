@@ -270,8 +270,14 @@ pub fn verify_and_charge_tx_ephemeral(
             num_nonces: gas_key_info.num_nonces,
         });
     }
-    let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
-        *transaction_cost;
+    let TransactionCost {
+        gas_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        total_cost,
+        burnt_amount,
+        ..
+    } = *transaction_cost;
     let account_id = tx.signer_id();
     let tx_nonce = tx.nonce().nonce();
     verify_nonce(tx_nonce, access_key.nonce, block_height)?;
@@ -336,12 +342,10 @@ pub fn verify_and_charge_tx_ephemeral(
 /// is stored separately from the access key.
 ///
 /// The new nonce is returned in `VerificationResult.gas_key_nonce_update`.
-///
-/// TODO(gas-keys): Charge gas key balance instead of account balance.
 pub fn verify_and_charge_gas_key_tx_ephemeral(
     config: &RuntimeConfig,
     account: &mut Account,
-    access_key: &AccessKey,
+    access_key: &mut AccessKey,
     current_nonce: Nonce,
     tx: &Transaction,
     transaction_cost: &TransactionCost,
@@ -353,8 +357,15 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
         panic!("verify_and_charge_gas_key_tx_ephemeral called for non-gas key transaction")
     };
 
-    let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
-        *transaction_cost;
+    let TransactionCost {
+        gas_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        burnt_amount,
+        gas_cost,
+        deposit_cost,
+        ..
+    } = *transaction_cost;
     let account_id = tx.signer_id();
 
     // Validate that access key is a gas key
@@ -378,20 +389,28 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
     let tx_nonce = tx.nonce().nonce();
     verify_nonce(tx_nonce, current_nonce, block_height)?;
 
-    // Check and deduct balance
-    // TODO(gas-keys): Charge gas key balance instead of account balance
-    let balance = account.amount();
-    let Some(new_amount) = balance.checked_sub(total_cost) else {
+    // Check gas key has enough balance for gas costs
+    let Some(new_gas_key_balance) = gas_key_info.balance.checked_sub(gas_cost) else {
+        return Err(InvalidTxError::NotEnoughGasKeyBalance {
+            signer_id: account_id.clone(),
+            balance: gas_key_info.balance,
+            cost: gas_cost,
+        });
+    };
+
+    // Check account has enough balance for deposits
+    let account_balance = account.amount();
+    let Some(new_account_amount) = account_balance.checked_sub(deposit_cost) else {
         return Err(InvalidTxError::NotEnoughBalance {
             signer_id: account_id.clone(),
-            balance,
-            cost: total_cost,
+            balance: account_balance,
+            cost: deposit_cost,
         });
     };
 
     // Gas keys don't have allowance (it's always None for GasKeyFullAccess/GasKeyFunctionCall)
 
-    match check_storage_stake(account, new_amount, config) {
+    match check_storage_stake(account, new_account_amount, config) {
         Ok(()) => {}
         Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
             return Err(InvalidTxError::LackBalanceForState {
@@ -409,7 +428,9 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
         verify_function_call_permission(function_call_permission, tx)?;
     }
 
-    account.set_amount(new_amount);
+    // Deduct gas cost from gas key balance and deposit from account balance
+    access_key.gas_key_info_mut().unwrap().balance = new_gas_key_balance;
+    account.set_amount(new_account_amount);
     Ok(VerificationResult {
         gas_burnt,
         gas_remaining,
@@ -918,8 +939,8 @@ mod tests {
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
-    /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = Balance::from_near(1_000_000_000);
+    const TESTING_GAS_KEY_BALANCE: Balance = Balance::from_millinear(1);
 
     fn test_limit_config() -> LimitConfig {
         let store = near_parameters::RuntimeConfigStore::test();
@@ -1055,6 +1076,7 @@ mod tests {
     /// Returns (signer, state_update, gas_price, initial_nonce).
     fn setup_gas_key_account(
         initial_balance: Balance,
+        gas_key_balance: Balance,
         num_nonces: NonceIndex,
         function_call_permission: Option<FunctionCallPermission>,
     ) -> (Arc<Signer>, TrieUpdate, Balance, Nonce) {
@@ -1085,6 +1107,15 @@ mod tests {
         )
         .unwrap();
         assert!(result.result.is_ok(), "action_add_key failed: {:?}", result.result);
+
+        // Fund the gas key balance
+        if gas_key_balance > Balance::ZERO {
+            let mut access_key =
+                get_access_key(&state_update, &account_id, &signer.public_key()).unwrap().unwrap();
+            access_key.gas_key_info_mut().unwrap().balance = gas_key_balance;
+            set_access_key(&mut state_update, account_id.clone(), signer.public_key(), &access_key);
+        }
+
         set_account(&mut state_update, account_id.clone(), &account);
 
         // Commit initial state
@@ -1172,7 +1203,7 @@ mod tests {
             verify_and_charge_gas_key_tx_ephemeral(
                 config,
                 &mut signer,
-                &access_key,
+                &mut access_key,
                 current_nonce,
                 tx,
                 &transaction_cost,
@@ -2792,8 +2823,9 @@ mod tests {
     fn test_gas_key_tx_valid_full_access() {
         let config = RuntimeConfig::test();
         let num_nonces = 5;
+        let gas_key_balance = TESTING_GAS_KEY_BALANCE;
         let (signer, mut state_update, gas_price, initial_nonce) =
-            setup_gas_key_account(TESTING_INIT_BALANCE, num_nonces, None);
+            setup_gas_key_account(TESTING_INIT_BALANCE, gas_key_balance, num_nonces, None);
 
         let deposit = Balance::from_yoctonear(100);
         let nonce_index = 2;
@@ -2829,8 +2861,12 @@ mod tests {
             receiver_id: bob_account().to_string(),
             method_names: vec!["do_something".to_string()],
         };
-        let (signer, mut state_update, gas_price, initial_nonce) =
-            setup_gas_key_account(TESTING_INIT_BALANCE, num_nonces, Some(permission));
+        let (signer, mut state_update, gas_price, initial_nonce) = setup_gas_key_account(
+            TESTING_INIT_BALANCE,
+            TESTING_GAS_KEY_BALANCE,
+            num_nonces,
+            Some(permission),
+        );
 
         let nonce_index = 0;
         let signed_tx = SignedTransaction::from_actions_v1(
@@ -2865,7 +2901,7 @@ mod tests {
         let config = RuntimeConfig::test();
         let num_nonces = 2;
         let (signer, mut state_update, gas_price, initial_nonce) =
-            setup_gas_key_account(TESTING_INIT_BALANCE, num_nonces, None);
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, num_nonces, None);
 
         // Send first transaction with nonce_index 0
         let nonce_index = 0;
@@ -2953,7 +2989,7 @@ mod tests {
         let config = RuntimeConfig::test();
         let num_nonces = 3;
         let (signer, mut state_update, gas_price, initial_nonce) =
-            setup_gas_key_account(TESTING_INIT_BALANCE, num_nonces, None);
+            setup_gas_key_account(TESTING_INIT_BALANCE, Balance::ZERO, num_nonces, None);
 
         // Use TransactionNonce::Nonce (no nonce_index) on a gas key
         let signed_tx = SignedTransaction::from_actions_v1(
@@ -2984,7 +3020,7 @@ mod tests {
         let config = RuntimeConfig::test();
         let num_nonces = 3;
         let (signer, mut state_update, gas_price, initial_nonce) =
-            setup_gas_key_account(TESTING_INIT_BALANCE, num_nonces, None);
+            setup_gas_key_account(TESTING_INIT_BALANCE, Balance::ZERO, num_nonces, None);
 
         // Use nonce_index = 5 when only 3 nonces exist
         let signed_tx = SignedTransaction::from_actions_v1(
@@ -3014,7 +3050,7 @@ mod tests {
         let config = RuntimeConfig::test();
         let num_nonces = 2;
         let (signer, mut state_update, gas_price, initial_nonce) =
-            setup_gas_key_account(TESTING_INIT_BALANCE, num_nonces, None);
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, num_nonces, None);
 
         // Use nonce <= current_nonce
         let signed_tx = SignedTransaction::from_actions_v1(
@@ -3043,12 +3079,51 @@ mod tests {
     }
 
     #[test]
-    fn test_gas_key_tx_not_enough_balance() {
+    fn test_gas_key_tx_not_enough_gas_key_balance() {
         let config = RuntimeConfig::test();
         let num_nonces = 2;
-        let small_balance = Balance::from_yoctonear(1);
+        // Gas key has zero balance, so any transaction should fail the gas key balance check.
         let (signer, mut state_update, gas_price, initial_nonce) =
-            setup_gas_key_account(small_balance, num_nonces, None);
+            setup_gas_key_account(TESTING_INIT_BALANCE, Balance::ZERO, num_nonces, None);
+
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, 0),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(1) })],
+            CryptoHash::default(),
+        );
+
+        let tx_cost = tx_cost(&config, &signed_tx.transaction, gas_price).unwrap();
+        let err = validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .expect_err("should fail with not enough gas key balance");
+
+        match err {
+            InvalidTxError::NotEnoughGasKeyBalance { signer_id, balance, cost } => {
+                assert_eq!(signer_id, alice_account());
+                assert_eq!(balance, Balance::ZERO);
+                assert_eq!(cost, tx_cost.gas_cost);
+            }
+            _ => panic!("unexpected error: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_gas_key_tx_not_enough_account_balance_for_deposit() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 2;
+        let small_account_balance = Balance::from_yoctonear(1);
+        // Gas key has plenty for gas, but account has almost nothing for deposit.
+        let (signer, mut state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(small_account_balance, TESTING_GAS_KEY_BALANCE, num_nonces, None);
 
         let signed_tx = SignedTransaction::from_actions_v1(
             TransactionNonce::from_nonce_and_index(initial_nonce + 1, 0),
@@ -3067,7 +3142,7 @@ mod tests {
             None,
             ProtocolFeature::GasKeys.protocol_version(),
         )
-        .expect_err("should fail with not enough balance");
+        .expect_err("should fail with not enough account balance for deposit");
 
         match err {
             InvalidTxError::NotEnoughBalance { signer_id, .. } => {
@@ -3075,6 +3150,46 @@ mod tests {
             }
             _ => panic!("unexpected error: {:?}", err),
         }
+    }
+
+    #[test]
+    fn test_gas_key_tx_balance_split() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 2;
+        let (signer, mut state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(TESTING_INIT_BALANCE, TESTING_GAS_KEY_BALANCE, num_nonces, None);
+
+        let deposit = Balance::from_near(5);
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, 0),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit })],
+            CryptoHash::default(),
+        );
+
+        let tx_cost = tx_cost(&config, &signed_tx.transaction, gas_price).unwrap();
+        validate_verify_and_charge_transaction(
+            &config,
+            &mut state_update,
+            signed_tx,
+            gas_price,
+            None,
+            ProtocolFeature::GasKeys.protocol_version(),
+        )
+        .unwrap();
+
+        // Verify account balance pays for deposit, gas key balance pays for gas
+        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+        assert_eq!(account.amount(), TESTING_INIT_BALANCE.checked_sub(deposit).unwrap());
+        let access_key =
+            get_access_key(&state_update, &alice_account(), &signer.public_key()).unwrap().unwrap();
+        let remaining_gas_key_balance = access_key.gas_key_info().unwrap().balance;
+        assert_eq!(
+            remaining_gas_key_balance,
+            TESTING_GAS_KEY_BALANCE.checked_sub(tx_cost.gas_cost).unwrap()
+        );
     }
 
     #[test]
