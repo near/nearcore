@@ -578,8 +578,12 @@ impl IterState {
     }
 
     pub fn print_path(&self) {
+        if self.trie_path.is_empty() {
+            println!("\n--> Missing trie root node");
+            return;
+        }
         println!(
-            "\n{}",
+            "\n--> Trie path to missing node: {}",
             self.trie_path.iter().map(|v| format!("{:?}", v)).collect::<Vec<_>>().join(" | ")
         );
     }
@@ -632,8 +636,10 @@ impl CheckStateRootCmd {
         for height in heights {
             let block_hash_key = match get_block_hash_key(&storage.get_hot_store(), height) {
                 Ok(key) => key,
-                Err(_) => {
-                    println!("\n## Block at height {height} is missing, skipping.\n");
+                Err(err) => {
+                    println!(
+                        "\n## Skipping block at height {height} as it is missing. Error: {err}\n"
+                    );
                     continue;
                 }
             };
@@ -719,7 +725,6 @@ impl CheckStateRootCmd {
                 }
             }
             near_store::RawTrieNode::Extension(key, child) => {
-                //println!("Extension {key:?}");
                 // Record in iter state that we are visiting a child node
                 iter_state.down(key);
                 // Visit a child node
