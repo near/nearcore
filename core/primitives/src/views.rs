@@ -2137,7 +2137,7 @@ impl FinalExecutionOutcomeView {
         std::iter::once(&self.transaction_outcome)
             .chain(&self.receipts_outcome)
             .map(|o| o.outcome.tokens_burnt)
-            .fold(Balance::ZERO, |a, b| a.checked_add(b).unwrap())
+            .fold(Balance::ZERO, |a, b| a.saturating_add(b))
     }
 }
 
