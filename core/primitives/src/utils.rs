@@ -454,7 +454,7 @@ where
 }
 
 /// This function is a wrapper for `is_implicit` method so that we can easily differentiate its behavior
-/// based on whether specifcic implicit accounts are enabled.
+/// based on whether specific implicit accounts are enabled.
 pub fn account_is_implicit(
     account_id: &AccountId,
     eth_implicit_accounts_enabled: bool,
