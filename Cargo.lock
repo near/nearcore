@@ -1111,6 +1111,7 @@ dependencies = [
  "anyhow",
  "borsh",
  "clap",
+ "near-chain",
  "near-chain-configs",
  "near-epoch-manager",
  "near-primitives",

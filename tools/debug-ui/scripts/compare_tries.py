@@ -13,8 +13,14 @@ class EntityAPI:
             args = None
         query = {
             query_name: args,
+            "use_cold_storage": True,
         }
+        #print(self.endpoint, query)
         result = requests.post(self.endpoint, json=query)
+        #print("STATUS:", result.status_code)
+        #print("HEADERS:", result.headers.get("content-type"))
+        #print("\nTEXT:", result.text)
+        #print()
         return EntityDataValue.of(result.json())
     
     def get_trie_node(self, shard_uid, trie_node_hash):
@@ -112,15 +118,16 @@ class IterWithCurrent:
             self.done = True
 
 class TrieDiffer:
-    def __init__(self, api_a: EntityAPI, api_b: EntityAPI, shard_uid: str):
+    def __init__(self, api_a: EntityAPI, api_b: EntityAPI, a_shard_uid: str, b_shard_uid: str):
         self.api_a = api_a
         self.api_b = api_b
-        self.shard_uid = shard_uid
+        self.a_shard_uid = a_shard_uid
+        self.b_shard_uid = b_shard_uid
 
     def diff_tries(self, root_a: str, root_b: str):
         diffs = []
-        iter_a = IterWithCurrent(TrieIterator(self.api_a, self.shard_uid, root_a).iterate())
-        iter_b = IterWithCurrent(TrieIterator(self.api_b, self.shard_uid, root_b).iterate())
+        iter_a = IterWithCurrent(TrieIterator(self.api_a, self.a_shard_uid, root_a).iterate())
+        iter_b = IterWithCurrent(TrieIterator(self.api_b, self.b_shard_uid, root_b).iterate())
         while not iter_a.done or not iter_b.done:
             if len(diffs) > 100:
                 print("Too many diffs; stopping.")
@@ -149,29 +156,32 @@ class TrieDiffer:
         print()
         return diffs
 
-good_node_addr = input('Enter the address of the good node, including port (e.g. 127.0.0.1:3030): ')
-stuck_node_addr = input('Enter the address of the stuck node, including port (e.g. 127.0.0.1:3030): ')
+node_addr = '127.0.0.1:4040'
 
-good_node = EntityAPI(good_node_addr)
-stuck_node = EntityAPI(stuck_node_addr)
+good_node = EntityAPI(node_addr)
+stuck_node = EntityAPI(node_addr)
 
-print("[Sanity check] Good node head is at ", good_node.query('TipAtHead')['height'])
-print("[Sanity check] Stuck node head is at ", stuck_node.query('TipAtHead')['height'])
+good_state_root = '3Sc1igi1cNt36d53nuaNNUEZyvYTwuRRKnwb2mBoECNc'
+stuck_state_root = '71rNPzSR2ZCJ4CRSvMTT87zs4puD6ntzw25FEowpNXgM'
+good_shard_uid = 's0.v2'
+stuck_shard_uid = 's0.v3'
 
-good_state_root = input('Enter the good state root available on the good node: ')
-stuck_state_root = input('Enter the bad state root available on the stuck node: ')
-shard_uid = input('Enter the shard UID (e.g. s0.v3): ')
+# good_state_root = 'J4hfzonQNPhnCjFWAvmXdHkirnTUx7WpFHgi3TmkhetV'
+# stuck_state_root = '3Sc1igi1cNt36d53nuaNNUEZyvYTwuRRKnwb2mBoECNc'
+# good_shard_uid = 's0.v2'
+# stuck_shard_uid = 's0.v2'
+
 
 print('[Sanity check] Querying good state root...', end='')
-good_node.query('RawTrieNodeByHash', shard_uid=shard_uid, trie_node_hash=good_state_root)
+good_node.query('RawTrieNodeByHash', shard_uid=good_shard_uid, trie_node_hash=good_state_root)
 print('valid.')
 print('[Sanity check] Querying bad state root...', end='')
-stuck_node.query('RawTrieNodeByHash', shard_uid=shard_uid, trie_node_hash=stuck_state_root)
+stuck_node.query('RawTrieNodeByHash', shard_uid=stuck_shard_uid, trie_node_hash=stuck_state_root)
 print('valid.')
 
 print('Comparing trie roots:', good_state_root, stuck_state_root)
 
-differ = TrieDiffer(good_node, stuck_node, shard_uid)
+differ = TrieDiffer(good_node, stuck_node, good_shard_uid, stuck_shard_uid)
 diffs = differ.diff_tries(good_state_root, stuck_state_root)
 for (path, value_a, value_b) in diffs:
     print('Mismatch in trie at path:', path)

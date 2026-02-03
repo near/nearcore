@@ -13,6 +13,7 @@ use crate::NearConfig;
 
 const BATCH_SIZE: u64 = 100_000;
 
+#[allow(unused)]
 pub(super) struct Migrator<'a> {
     config: &'a NearConfig,
 }
@@ -32,6 +33,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
         }
     }
 
+    #[allow(unused)]
     fn migrate(
         &self,
         hot_store: &Store,
@@ -41,12 +43,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
         match version {
             0..MIN_SUPPORTED_DB_VERSION => unreachable!(),
             45 => Ok(()), // DBCol::StatePartsApplied column added, no need to perform a migration
-            46 => near_chain::resharding::migrations::migrate_46_to_47(
-                hot_store,
-                cold_db,
-                &self.config.genesis.config,
-                &self.config.config.store,
-            ),
+            46 => Ok(()),
             DB_VERSION.. => unreachable!(),
         }
     }
