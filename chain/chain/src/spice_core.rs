@@ -408,7 +408,8 @@ impl SpiceCoreReader {
         }
 
         let last_certified_hash = *last_certified_block_header.hash();
-        let num_shards = self.epoch_manager.shard_ids(block_header.epoch_id())?.len();
+        let num_shards =
+            self.epoch_manager.shard_ids(last_certified_block_header.epoch_id())?.len();
         let mut execution_results: HashMap<ShardId, Arc<ChunkExecutionResult>> = HashMap::new();
         collect_execution_results_for_block(
             &last_certified_hash,
