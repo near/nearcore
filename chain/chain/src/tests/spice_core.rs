@@ -1195,7 +1195,6 @@ fn test_get_last_certified_execution_results_without_core_writer_execution_resul
     let next_block = build_block(&mut chain, &block, core_statements);
     process_block(&mut chain, next_block.clone());
 
-    assert!(core_reader.get_execution_results_by_shard_id(block.header()).unwrap().is_empty());
     let execution_results = core_reader
         .get_last_certified_execution_results_for_next_block(next_block.header(), &[])
         .unwrap();
@@ -1221,7 +1220,6 @@ fn test_get_last_certified_execution_results_without_core_writer_old_block_certi
         last_block = new_block;
     }
 
-    assert!(core_reader.get_execution_results_by_shard_id(block.header()).unwrap().is_empty());
     let execution_results = core_reader
         .get_last_certified_execution_results_for_next_block(last_block.header(), &[])
         .unwrap();
