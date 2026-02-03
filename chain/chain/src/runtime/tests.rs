@@ -27,6 +27,7 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::receipt::{ActionReceipt, ReceiptV0};
 use near_primitives::state::PartialState;
+use near_primitives::state_part::RawStatePart;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::create_test_signer;
@@ -909,7 +910,7 @@ fn test_state_sync() {
             ShardId::new(0),
             &Trie::EMPTY_ROOT,
             PartId::new(0, 1),
-            &state_part
+            &RawStatePart(state_part.to_bytes(PROTOCOL_VERSION)).parse(PROTOCOL_VERSION).unwrap(),
         ),
         StatePartValidationResult::Invalid
     ));
@@ -918,13 +919,13 @@ fn test_state_sync() {
             ShardId::new(0),
             &env.state_roots[0],
             PartId::new(0, 1),
-            &state_part,
+             &RawStatePart(state_part.to_bytes(PROTOCOL_VERSION)).parse(PROTOCOL_VERSION).unwrap(),
         ),
-        StatePartValidationResult::Valid
+        StatePartValidationResult::Valid(_)
     ));
     // After validation succeeds, wrap as ValidatedStatePart
     let validated_part =
-        near_primitives::state_part::ValidatedStatePart::from_trusted_source(state_part);
+        near_primitives::state_part::ValidatedStatePart::from_trusted_source(state_part.state_part().clone());
     let epoch_id = &new_env.head.epoch_id;
     new_env
         .runtime

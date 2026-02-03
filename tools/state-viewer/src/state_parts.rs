@@ -413,9 +413,9 @@ async fn load_state_parts(
                         shard_id,
                         &state_root,
                         PartId::new(part_id, num_parts),
-                        &part
+                        &near_primitives::state_part::ParsedStatePart(part),
                     ),
-                    near_chain::types::StatePartValidationResult::Valid
+                    near_chain::types::StatePartValidationResult::Valid(_)
                 ));
                 tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "validated a state part");
             }
@@ -530,7 +530,7 @@ async fn dump_state_parts(
         external.put_file(file_type, &bytes, shard_id, &location).await.unwrap();
         // part_storage.write(&state_part, part_id, num_parts);
         let elapsed_sec = timer.elapsed().as_secs_f64();
-        let trie_nodes = state_part.to_partial_state().unwrap();
+        let trie_nodes = state_part.state_part().to_partial_state().unwrap();
         let first_state_record = get_first_state_record(&state_root, trie_nodes);
         tracing::info!(
             target: "state-parts",

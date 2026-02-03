@@ -29,7 +29,9 @@ use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::ParsedStatePart;
+use near_primitives::state_part::ValidatedStatePart;
+use near_primitives::state_part::PartId;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
@@ -87,9 +89,9 @@ pub enum Provenance {
     PRODUCED,
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StatePartValidationResult {
-    Valid,
+    Valid(ValidatedStatePart),
     Invalid,
 }
 
@@ -595,7 +597,7 @@ pub trait RuntimeAdapter: Send + Sync {
         prev_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: PartId,
-    ) -> Result<StatePart, Error>;
+    ) -> Result<ValidatedStatePart, Error>;
 
     /// Validate state part that expected to be given state root with provided data.
     /// Returns false if the resulting part doesn't match the expected one.
@@ -605,22 +607,8 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         state_root: &StateRoot,
         part_id: PartId,
-        part: &StatePart,
+        part: &ParsedStatePart,
     ) -> StatePartValidationResult;
-
-    /// Validate raw state part bytes and return a ValidatedStatePart if successful.
-    /// This is the new validation method that encapsulates parsing and validation.
-    fn validate_state_part_bytes(
-        &self,
-        shard_id: ShardId,
-        state_root: &StateRoot,
-        part_id: PartId,
-        protocol_version: near_primitives::version::ProtocolVersion,
-        bytes: &[u8],
-    ) -> Result<
-        near_primitives::state_part::ValidatedStatePart,
-        near_primitives::state_part::ValidationError,
-    >;
 
     /// Should be executed after accepting all the parts to set up a new state.
     /// Takes a ValidatedStatePart to ensure the part was validated before being applied.

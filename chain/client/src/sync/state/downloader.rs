@@ -6,13 +6,13 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use near_async::messaging::AsyncSender;
 use near_async::time::{Clock, Duration};
-use near_chain::types::RuntimeAdapter;
+use near_chain::types::{RuntimeAdapter, StatePartValidationResult};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_part::PartId;
+use near_primitives::state_part::{ParsedStatePart, PartId};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StatePartKey};
 use near_primitives::types::ShardId;
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_store::{DBCol, Store};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -145,7 +145,7 @@ impl StateSyncDownloader {
         part_id: u64,
         num_prior_attempts: usize,
         cancel: CancellationToken,
-        protocol_version: ProtocolVersion,
+        _protocol_version: ProtocolVersion,
     ) -> BoxFuture<'static, Result<(), near_chain::Error>> {
         let store = self.store.clone();
         let runtime_adapter = self.runtime.clone();
@@ -188,28 +188,24 @@ impl StateSyncDownloader {
                         cancel.clone(),
                     )
                     .await?;
-                // Convert to bytes first
-                let bytes = part.to_bytes(protocol_version);
-
                 // Validate bytes and get ValidatedStatePart
-                match runtime_adapter.validate_state_part_bytes(
+                match runtime_adapter.validate_state_part(
                     shard_id,
                     &state_root,
                     PartId { idx: part_id, total: num_state_parts },
-                    protocol_version,
-                    &bytes,
+                    &ParsedStatePart(part.clone()),
                 ) {
-                    Ok(_validated_part) => {
+                    StatePartValidationResult::Valid(_) => {
                         // Store the bytes
                         let mut store_update = store.store_update();
                         let key =
                             borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
-                        store_update.set(DBCol::StateParts, &key, &bytes);
+                        store_update.set(DBCol::StateParts, &key, &part.to_bytes(PROTOCOL_VERSION));
                         store_update.commit().map_err(|e| {
                             near_chain::Error::Other(format!("Failed to store part: {}", e))
                         })?;
                     }
-                    Err(_) => {
+                    StatePartValidationResult::Invalid => {
                         return Err(near_chain::Error::Other(
                             "Part data failed validation".to_owned(),
                         ));

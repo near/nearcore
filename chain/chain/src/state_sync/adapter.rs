@@ -3,7 +3,7 @@ use crate::store::utils::{
     get_block_header_on_chain_by_height, get_chunk_clone_from_header,
     get_incoming_receipts_for_shard,
 };
-use crate::types::{RuntimeAdapter, StateRootNodeValidationResult};
+use crate::types::{RuntimeAdapter, StatePartValidationResult, StateRootNodeValidationResult};
 use crate::validate::validate_chunk_proofs;
 use crate::{ReceiptFilter, byzantine_assert, metrics};
 use near_async::time::{Clock, Instant};
@@ -15,7 +15,7 @@ use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::sharding::{
     ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::{PartId, RawStatePart, StatePart};
 use near_primitives::state_sync::{
     ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2,
     StateHeaderKey, StatePartKey, get_num_state_parts,
@@ -348,7 +348,7 @@ impl ChainStateSyncAdapter {
         store_update.set(DBCol::StateParts, &key, &bytes);
         store_update.commit()?;
 
-        Ok(state_part)
+        Ok(state_part.state_part().clone())
     }
 
     pub fn get_state_header(
@@ -540,16 +540,16 @@ impl ChainStateSyncAdapter {
 
         // Convert to bytes first
         let bytes = part.to_bytes(protocol_version);
+        let part = RawStatePart(bytes.clone()).parse(protocol_version)?;
 
         // Validate bytes and get ValidatedStatePart
-        match self.runtime_adapter.validate_state_part_bytes(
+        match self.runtime_adapter.validate_state_part(
             shard_id,
             &state_root,
             part_id,
-            protocol_version,
-            &bytes,
+            &part,
         ) {
-            Ok(_validated_part) => {
+            StatePartValidationResult::Valid(_validated_part) => {
                 // Saving the part data.
                 let mut store_update = self.chain_store.store().store_update();
                 let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.idx))?;
@@ -557,7 +557,7 @@ impl ChainStateSyncAdapter {
                 store_update.commit()?;
                 Ok(())
             }
-            Err(_) => {
+            StatePartValidationResult::Invalid => {
                 byzantine_assert!(false);
                 Err(Error::Other(format!(
                     "set_state_part failed: validate_state_part_bytes failed. state_root={:?}",

@@ -1252,7 +1252,7 @@ fn slow_test_process_block_after_state_sync() {
         .unwrap();
     // Wrap in ValidatedStatePart - this part was locally generated so it's inherently valid
     let validated_part =
-        near_primitives::state_part::ValidatedStatePart::from_trusted_source(state_part);
+        near_primitives::state_part::ValidatedStatePart::from_trusted_source(state_part.state_part().clone());
     // reset cache
     for i in epoch_length * 3 - 1..sync_block.header().height() - 1 {
         let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
@@ -3330,7 +3330,7 @@ mod contract_precompilation_tests {
             .unwrap();
         // Wrap in ValidatedStatePart - this part was locally generated so it's inherently valid
         let validated_part =
-            near_primitives::state_part::ValidatedStatePart::from_trusted_source(state_part);
+            near_primitives::state_part::ValidatedStatePart::from_trusted_source(state_part.state_part().clone());
         env.clients[1]
             .runtime_adapter
             .apply_state_part(shard_id, &state_root, PartId::new(0, 1), &validated_part, &epoch_id)

@@ -25,7 +25,7 @@ use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::{ParsedStatePart, PartId, StatePart, ValidatedStatePart};
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
@@ -474,54 +474,21 @@ impl NightshadeRuntime {
         &self,
         state_root: &StateRoot,
         part_id: PartId,
-        part: &StatePart,
+        part: &ParsedStatePart,
     ) -> StatePartValidationResult {
-        let partial_state = part.to_partial_state();
-        let Ok(partial_state) = part.to_partial_state() else {
+        let partial_state = part.state_part().to_partial_state();
+        let Ok(partial_state) = part.state_part().to_partial_state() else {
             // Deserialization error means we've got the data from malicious peer
             tracing::error!(target: "state-parts", ?partial_state, "state part deserialization error");
             return StatePartValidationResult::Invalid;
         };
         match Trie::validate_state_part(state_root, part_id, partial_state) {
-            Ok(_) => StatePartValidationResult::Valid,
+            Ok(_) => StatePartValidationResult::Valid(near_primitives::state_part::ValidatedStatePart(part.state_part().clone())),
             // Storage error should not happen
             Err(err) => {
                 tracing::error!(target: "state-parts", ?err, "state part storage error");
                 StatePartValidationResult::Invalid
             }
-        }
-    }
-
-    fn validate_state_part_bytes_impl(
-        &self,
-        _shard_id: ShardId,
-        state_root: &StateRoot,
-        part_id: PartId,
-        protocol_version: ProtocolVersion,
-        bytes: &[u8],
-    ) -> Result<
-        near_primitives::state_part::ValidatedStatePart,
-        near_primitives::state_part::ValidationError,
-    > {
-        use near_primitives::state_part::RawStatePart;
-
-        // Parse raw bytes into a StatePart
-        let raw_part = RawStatePart(bytes.to_vec());
-        let parsed_part = raw_part
-            .parse(protocol_version)
-            .map_err(|_| near_primitives::state_part::ValidationError::DeserializationFailed)?;
-
-        // Convert to PartialState and validate via Trie to ensure correctness
-        let partial_state = parsed_part
-            .state_part()
-            .to_partial_state()
-            .map_err(|_| near_primitives::state_part::ValidationError::DeserializationFailed)?;
-
-        match Trie::validate_state_part(state_root, part_id, partial_state) {
-            Ok(()) => Ok(near_primitives::state_part::ValidatedStatePart(
-                parsed_part.state_part().clone(),
-            )),
-            Err(_) => Err(near_primitives::state_part::ValidationError::TrieValidationFailed),
         }
     }
 
@@ -1383,7 +1350,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: PartId,
-    ) -> Result<StatePart, Error> {
+    ) -> Result<ValidatedStatePart, Error> {
         let _span = tracing::debug_span!(
             target: "runtime",
             "obtain_state_part",
@@ -1400,7 +1367,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         metrics::STATE_SYNC_OBTAIN_PART_DELAY
             .with_label_values(&[&shard_id.to_string(), is_ok])
             .observe(elapsed.as_secs_f64());
-        res
+        res.map(|part| ValidatedStatePart::from_trusted_source(part))
     }
 
     fn validate_state_part(
@@ -1408,42 +1375,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         state_root: &StateRoot,
         part_id: PartId,
-        part: &StatePart,
+        part: &ParsedStatePart,
     ) -> StatePartValidationResult {
         let instant = Instant::now();
         let res = self.validate_state_part_impl(state_root, part_id, part);
         let elapsed = instant.elapsed();
         let is_ok = match res {
-            StatePartValidationResult::Valid => "ok",
+            StatePartValidationResult::Valid(_) => "ok",
             StatePartValidationResult::Invalid => "error",
         };
-        metrics::STATE_SYNC_VALIDATE_PART_DELAY
-            .with_label_values(&[&shard_id.to_string(), is_ok])
-            .observe(elapsed.as_secs_f64());
-        res
-    }
-
-    fn validate_state_part_bytes(
-        &self,
-        shard_id: ShardId,
-        state_root: &StateRoot,
-        part_id: PartId,
-        protocol_version: ProtocolVersion,
-        bytes: &[u8],
-    ) -> Result<
-        near_primitives::state_part::ValidatedStatePart,
-        near_primitives::state_part::ValidationError,
-    > {
-        let instant = Instant::now();
-        let res = self.validate_state_part_bytes_impl(
-            shard_id,
-            state_root,
-            part_id,
-            protocol_version,
-            bytes,
-        );
-        let elapsed = instant.elapsed();
-        let is_ok = if res.is_ok() { "ok" } else { "error" };
         metrics::STATE_SYNC_VALIDATE_PART_DELAY
             .with_label_values(&[&shard_id.to_string(), is_ok])
             .observe(elapsed.as_secs_f64());
