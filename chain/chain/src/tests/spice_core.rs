@@ -1179,6 +1179,10 @@ fn test_get_last_certified_execution_results_for_next_block_with_certification_s
     assert_eq!(block_execution_results, execution_results);
 }
 
+// This test verifies `get_last_certified_execution_results_for_next_block` works without
+// `SpiceCoreWriterActor` having processed the blocks. This matters during orphan processing,
+// when multiple blocks can be processed in quick succession and the core writer (which
+// runs asynchronously) may not have caught up yet.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_get_last_certified_execution_results_without_core_writer_execution_result_in_core() {
