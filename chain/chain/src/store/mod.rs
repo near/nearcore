@@ -171,6 +171,12 @@ pub trait ChainStoreAccess {
         shard_id: ShardId,
     ) -> Result<Arc<Vec<Receipt>>, Error>;
 
+    fn get_processed_local_receipts(
+        &self,
+        hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Arc<Vec<Receipt>>, Error>;
+
     fn get_incoming_receipts(
         &self,
         hash: &CryptoHash,
@@ -974,6 +980,14 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_outgoing_receipts(self, prev_block_hash, shard_id)
     }
 
+    fn get_processed_local_receipts(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Arc<Vec<Receipt>>, Error> {
+        ChainStoreAdapter::get_processed_local_receipts(self, block_hash, shard_id)
+    }
+
     fn get_incoming_receipts(
         &self,
         block_hash: &CryptoHash,
@@ -1040,6 +1054,7 @@ pub(crate) struct ChainStoreCacheUpdate {
     next_block_hashes: HashMap<CryptoHash, CryptoHash>,
     epoch_light_client_blocks: HashMap<CryptoHash, Arc<LightClientBlockView>>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<Receipt>>>,
+    processed_local_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<Receipt>>>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<ReceiptProof>>>,
     outcomes: HashMap<(CryptoHash, CryptoHash), ExecutionOutcomeWithProof>,
     outcome_ids: HashMap<(CryptoHash, ShardId), Vec<CryptoHash>>,
@@ -1347,6 +1362,20 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(Arc::clone(receipts))
         } else {
             self.chain_store.get_outgoing_receipts(hash, shard_id)
+        }
+    }
+
+    fn get_processed_local_receipts(
+        &self,
+        hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Arc<Vec<Receipt>>, Error> {
+        if let Some(receipts) =
+            self.chain_store_cache_update.processed_local_receipts.get(&(*hash, shard_id))
+        {
+            Ok(Arc::clone(receipts))
+        } else {
+            self.chain_store.get_processed_local_receipts(hash, shard_id)
         }
     }
 
@@ -1665,6 +1694,17 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert((*hash, shard_id), Arc::new(outgoing_receipts));
     }
 
+    pub fn save_processed_local_receipts(
+        &mut self,
+        hash: &CryptoHash,
+        shard_id: ShardId,
+        local_receipts: Vec<Receipt>,
+    ) {
+        self.chain_store_cache_update
+            .processed_local_receipts
+            .insert((*hash, shard_id), Arc::new(local_receipts));
+    }
+
     pub fn save_incoming_receipt(
         &mut self,
         hash: &CryptoHash,
@@ -1981,17 +2021,9 @@ impl<'a> ChainStoreUpdate<'a> {
                     partial_chunk,
                 )?;
 
-                // We'd like the Receipts column to be exactly the same collection of receipts as
-                // the partial encoded chunks. This way, if we only track a subset of shards, we
-                // can still have all the incoming receipts for the shards we do track.
                 for receipts in partial_chunk.prev_outgoing_receipts() {
                     for receipt in &receipts.0 {
-                        let bytes = borsh::to_vec(&receipt).expect("Borsh cannot fail");
-                        store_update.increment_refcount(
-                            DBCol::Receipts,
-                            receipt.get_hash().as_ref(),
-                            &bytes,
-                        );
+                        save_receipt(&mut store_update, receipt);
                     }
                 }
             }
@@ -2017,9 +2049,7 @@ impl<'a> ChainStoreUpdate<'a> {
             )?;
         }
         {
-            let _span =
-                tracing::trace_span!(target: "store", "write_incoming_and_outgoing_receipts")
-                    .entered();
+            let _span = tracing::trace_span!(target: "store", "write receipts").entered();
 
             for ((block_hash, shard_id), receipt) in
                 &self.chain_store_cache_update.outgoing_receipts
@@ -2038,6 +2068,19 @@ impl<'a> ChainStoreUpdate<'a> {
                     &get_block_shard_id(block_hash, *shard_id),
                     receipt,
                 )?;
+            }
+
+            for ((block_hash, shard_id), receipts) in
+                &self.chain_store_cache_update.processed_local_receipts
+            {
+                store_update.set_ser(
+                    DBCol::ProcessedLocalReceipts,
+                    &get_block_shard_id(block_hash, *shard_id),
+                    receipts,
+                )?;
+                for receipt in receipts.as_ref() {
+                    save_receipt(&mut store_update, receipt);
+                }
             }
         }
 
@@ -2210,6 +2253,11 @@ impl<'a> ChainStoreUpdate<'a> {
         store_update.commit()?;
         Ok(())
     }
+}
+
+fn save_receipt(store_update: &mut StoreUpdate, receipt: &Receipt) {
+    let bytes = borsh::to_vec(&receipt).expect("borsh cannot fail");
+    store_update.increment_refcount(DBCol::Receipts, receipt.get_hash().as_ref(), &bytes);
 }
 
 #[cfg(test)]

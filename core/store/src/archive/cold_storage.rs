@@ -7,6 +7,7 @@ use crate::{DBCol, DBTransaction, Database, Store, TrieChanges, metrics};
 use borsh::BorshDeserialize;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -557,12 +558,28 @@ fn get_keys_from_store(
                         c.to_transactions().iter().map(|t| t.get_hash().as_bytes().to_vec())
                     })
                     .collect(),
-                DBKeyType::ReceiptHash => chunks
-                    .iter()
-                    .flat_map(|c| {
-                        c.prev_outgoing_receipts().iter().map(|r| r.get_hash().as_bytes().to_vec())
-                    })
-                    .collect(),
+                DBKeyType::ReceiptHash => {
+                    let mut receipt_ids = vec![];
+                    for chunk in &chunks {
+                        let local_receipts: Vec<Receipt> = if let Ok(Some(receipts)) = store
+                            .get_ser(
+                                DBCol::ProcessedLocalReceipts,
+                                &join_two_keys(&block_hash_key, &chunk.shard_id().to_le_bytes()),
+                            ) {
+                            receipts
+                        } else {
+                            vec![]
+                        };
+                        receipt_ids.extend(
+                            chunk
+                                .prev_outgoing_receipts()
+                                .iter()
+                                .chain(local_receipts.iter())
+                                .map(|r| r.get_hash().as_bytes().to_vec()),
+                        );
+                    }
+                    receipt_ids
+                }
                 DBKeyType::ChunkHash => {
                     chunk_hashes.iter().map(|chunk_hash| chunk_hash.as_bytes().to_vec()).collect()
                 }
