@@ -329,7 +329,7 @@ impl ChainStoreAdapter {
         Ok(self
             .store
             .get_ser(DBCol::OutcomeIds, &get_block_shard_id(block_hash, shard_id))?
-        .unwrap_or_default())
+            .unwrap_or_default())
     }
 
     /// Returns a vector of all known processed next block hashes.
