@@ -15,7 +15,7 @@ where
     fn send(&self, message: M) {
         let seq = next_message_sequence_num();
         let message_type = pretty_type_name::<M>();
-        tracing::trace!(target: "multithread_runtime", seq, message_type, "sending sync message");
+        tracing::trace!(seq, message_type, "sending sync message");
 
         let function = |actor: &mut A| {
             actor.handle(message);
@@ -28,7 +28,7 @@ where
             function: Box::new(function),
         };
         if let Err(_) = self.send_message(message) {
-            tracing::info!(target: "multithread_runtime", seq, "ignoring sync message, receiving actor is being shut down");
+            tracing::info!(seq, "ignoring sync message, receiving actor is being shut down");
         }
     }
 }
@@ -42,7 +42,7 @@ where
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
         let seq = next_message_sequence_num();
         let message_type = pretty_type_name::<M>();
-        tracing::trace!(target: "multithread_runtime", seq, message_type, ?message, "sending async message");
+        tracing::trace!(seq, message_type, ?message, "sending async message");
 
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let future = async move { receiver.await.map_err(|_| AsyncSendError::Dropped) };

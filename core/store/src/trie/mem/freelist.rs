@@ -66,7 +66,10 @@ impl VecU8Freelist {
                 if cfg!(debug_assertions) {
                     panic!("Too many freelist allocations; expected {}", self.expected_allocs);
                 } else {
-                    tracing::error!(target: "memtrie", expected_allocs = self.expected_allocs, "too many freelist allocations");
+                    tracing::error!(
+                        expected_allocs = self.expected_allocs,
+                        "too many freelist allocations"
+                    );
                 }
             }
             ReusableVecU8 { vec: Vec::new() }

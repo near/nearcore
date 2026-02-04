@@ -143,7 +143,6 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
     fn flush(&mut self) -> StateRoot {
         let Self { changes, state_root, state_update, .. } = self;
         tracing::info!(
-            target: "runtime",
             shard_uid=?self.shard_uid,
             %state_root,
             %changes,
@@ -185,11 +184,7 @@ impl GenesisStateApplier {
     ) {
         let mut postponed_receipts: Vec<Receipt> = vec![];
         let mut storage_computer = StorageComputer::new(config);
-        tracing::info!(
-            target: "runtime",
-            ?shard_uid,
-            "processing records…"
-        );
+        tracing::info!(?shard_uid, "processing records…");
         genesis.for_each_record(|record: &StateRecord| {
             if !account_ids.contains(state_record_to_account_id(record)) {
                 return;
@@ -224,7 +219,6 @@ impl GenesisStateApplier {
                             );
                         } else {
                             tracing::error!(
-                                target: "runtime",
                                 %account_id,
                                 code_hash = %code.hash(),
                                 message = "code for non-existent account",
@@ -273,11 +267,7 @@ impl GenesisStateApplier {
             }
         });
 
-        tracing::info!(
-            target: "runtime",
-            ?shard_uid,
-            "processing account storage…"
-        );
+        tracing::info!(?shard_uid, "processing account storage…");
         for (account_id, storage_usage) in storage_computer.finalize() {
             storage.modify(|state_update| {
                 let mut account = get_account(state_update, &account_id)
@@ -289,11 +279,7 @@ impl GenesisStateApplier {
         }
 
         // Processing postponed receipts after we stored all received data
-        tracing::info!(
-            target: "runtime",
-            ?shard_uid,
-            "processing postponed receipts…"
-        );
+        tracing::info!(?shard_uid, "processing postponed receipts…");
         for receipt in postponed_receipts {
             let account_id = receipt.receiver_id();
 

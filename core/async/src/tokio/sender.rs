@@ -20,7 +20,7 @@ where
     fn send(&self, message: M) {
         let seq = next_message_sequence_num();
         let message_type = pretty_type_name::<M>();
-        tracing::trace!(target: "tokio_runtime", seq, message_type, ?message, "sending sync message");
+        tracing::trace!(seq, message_type, ?message, "sending sync message");
 
         let function = |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
             actor.handle(message, ctx);
@@ -33,7 +33,7 @@ where
             function: Box::new(function),
         };
         if let Err(_) = self.send_message(message) {
-            tracing::info!(target: "tokio_runtime", seq, "ignoring sync message, receiving actor is being shut down");
+            tracing::info!(seq, "ignoring sync message, receiving actor is being shut down");
         }
     }
 }
@@ -47,7 +47,7 @@ where
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
         let seq = next_message_sequence_num();
         let message_type = pretty_type_name::<M>();
-        tracing::trace!(target: "tokio_runtime", seq, message_type, ?message, "sending async message");
+        tracing::trace!(seq, message_type, ?message, "sending async message");
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let future = async move { receiver.await.map_err(|_| AsyncSendError::Dropped) };
         let function = move |actor: &mut A, ctx: &mut dyn DelayedActionRunner<A>| {
@@ -70,7 +70,7 @@ where
 
 impl<A> FutureSpawner for TokioRuntimeHandle<A> {
     fn spawn_boxed(&self, description: &'static str, f: BoxFuture<'static, ()>) {
-        tracing::trace!(target: "tokio_runtime", description, "spawning future");
+        tracing::trace!(description, "spawning future");
         self.runtime_handle.spawn(InstrumentingFuture::new(
             description,
             f,
@@ -90,7 +90,7 @@ where
         f: Box<dyn FnOnce(&mut A, &mut dyn DelayedActionRunner<A>) + Send + 'static>,
     ) {
         let seq = next_message_sequence_num();
-        tracing::debug!(target: "tokio_runtime", seq, name, "sending delayed action");
+        tracing::debug!(seq, name, "sending delayed action");
         let handle = self.clone();
         self.runtime_handle.spawn(async move {
             tokio::time::sleep(dur.unsigned_abs()).await;

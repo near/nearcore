@@ -203,7 +203,7 @@ impl TestLoopV2 {
         });
         let shutting_down = Arc::new(AtomicBool::new(false));
         // Needed for the log visualizer to know when the test loop starts.
-        tracing::info!(target: "test_loop", "TEST_LOOP_INIT");
+        tracing::info!("TEST_LOOP_INIT");
         Self {
             data: TestLoopData::new(raw_pending_events_sender.clone(), shutting_down.clone()),
             events: BinaryHeap::new(),
@@ -363,7 +363,7 @@ impl TestLoopV2 {
         })
         .unwrap();
         // TODO(logging): testloop visualizer may have a dependency on seeing the trace in this specific format
-        tracing::info!(target: "test_loop", "TEST_LOOP_EVENT_START {}", start_json);
+        tracing::info!("TEST_LOOP_EVENT_START {}", start_json);
         assert_eq!(self.current_time, event.due);
 
         if !event_ignored {
@@ -382,7 +382,7 @@ impl TestLoopV2 {
             serde_json::to_string(&EventEndLogOutput { total_events: self.next_event_index })
                 .unwrap();
         // TODO(logging): testloop visualizer may have a dependency on seeing the trace in this specific format
-        tracing::info!(target: "test_loop", "TEST_LOOP_EVENT_END {}", end_json);
+        tracing::info!("TEST_LOOP_EVENT_END {}", end_json);
     }
 
     /// Runs the test loop for the given duration. This function may be called
@@ -456,7 +456,7 @@ impl Drop for TestLoopV2 {
             }
         }
         // Needed for the log visualizer to know when the test loop ends.
-        tracing::info!(target: "test_loop", "TEST_LOOP_SHUTDOWN");
+        tracing::info!("TEST_LOOP_SHUTDOWN");
     }
 }
 

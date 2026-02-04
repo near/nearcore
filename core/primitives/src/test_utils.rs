@@ -967,7 +967,7 @@ impl TestBlockBuilder {
     }
 
     pub fn build(self) -> Arc<Block> {
-        tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
+        tracing::debug!(height=self.height, ?self.epoch_id, "produce block");
         let last_certified_block_execution_results = BlockExecutionResults(
             self.chunks
                 .iter()

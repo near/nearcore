@@ -1387,7 +1387,6 @@ impl EncodedShardChunk {
 
     pub fn decode_chunk(&self) -> Result<ShardChunk, std::io::Error> {
         let _span = debug_span!(
-            target: "sharding",
             "decode_chunk",
             height_included = self.cloned_header().height_included(),
             shard_id = %self.cloned_header().shard_id(),

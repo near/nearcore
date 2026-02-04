@@ -80,7 +80,7 @@ impl FlatStorageManager {
     /// TODO (#7327): this behavior may change when we implement support for state sync
     /// and resharding.
     pub fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
-        tracing::debug!(target: "store", ?shard_uid, "creating flat storage for shard");
+        tracing::debug!(?shard_uid, "creating flat storage for shard");
         let want_snapshot = self.0.want_snapshot.lock();
         let disable_updates = want_snapshot.is_some();
 
@@ -93,7 +93,10 @@ impl FlatStorageManager {
         if original_value.is_some() {
             // Generally speaking this shouldn't happen. Starting from resharding V3 it shouldn't
             // happen even if the node is restarted.
-            tracing::warn!(target: "store", ?shard_uid, "creating flat storage for shard that already has flat storage");
+            tracing::warn!(
+                ?shard_uid,
+                "creating flat storage for shard that already has flat storage"
+            );
         }
         Ok(())
     }
@@ -162,7 +165,6 @@ impl FlatStorageManager {
                         // call `update_flat_head(2)` because (2) will be last visible final block from it.
                         // In such case, just log an error.
                         tracing::debug!(
-                            target: "store",
                             ?new_flat_head,
                             ?err,
                             ?shard_uid,
@@ -175,7 +177,7 @@ impl FlatStorageManager {
                 }
             });
         } else {
-            tracing::debug!(target: "store", ?shard_uid, ?new_flat_head, "no flat storage");
+            tracing::debug!(?shard_uid, ?new_flat_head, "no flat storage");
         }
         Ok(())
     }
@@ -214,7 +216,7 @@ impl FlatStorageManager {
             flat_storage.add_delta(delta).map_err(|e| StorageError::from(e))?
         } else {
             // Otherwise, save delta to disk so it will be used for flat storage creation later.
-            tracing::debug!(target: "store", %shard_uid, "add delta for flat storage creation");
+            tracing::debug!(%shard_uid, "add delta for flat storage creation");
             let mut store_update = self.0.store.store_update();
             store_update.set_delta(shard_uid, &delta);
             store_update
@@ -243,7 +245,7 @@ impl FlatStorageManager {
             match flat_storages.get(&shard_uid) {
                 Some(flat_storage) => flat_storage.clone(),
                 None => {
-                    tracing::debug!(target: "store", "flat storage is not ready");
+                    tracing::debug!("flat storage is not ready");
                     return None;
                 }
             }
@@ -268,7 +270,7 @@ impl FlatStorageManager {
         let mut flat_storages = self.0.flat_storages.lock();
         if let Some(flat_store) = flat_storages.remove(&shard_uid) {
             flat_store.clear_state(store_update)?;
-            tracing::info!(target: "store", ?shard_uid, "remove_flat_storage_for_shard successful");
+            tracing::info!(?shard_uid, "remove_flat_storage_for_shard successful");
             Ok(true)
         } else {
             Ok(false)
@@ -316,7 +318,7 @@ impl FlatStorageManager {
         for flat_storage in flat_storages.values() {
             flat_storage.set_flat_head_update_mode(false);
         }
-        tracing::debug!(target: "store", "locked flat head updates");
+        tracing::debug!("locked flat head updates");
     }
 
     /// Should be called when we're done taking a state snapshot. If `block_hash` was the most recently requested snapshot, this
@@ -329,7 +331,7 @@ impl FlatStorageManager {
                     return;
                 }
             } else {
-                tracing::warn!(target: "store", %block_hash, "state snapshot being marked as taken without a corresponding pending request set");
+                tracing::warn!(%block_hash, "state snapshot being marked as taken without a corresponding pending request set");
             }
             *want_snapshot = None;
         }
@@ -337,7 +339,7 @@ impl FlatStorageManager {
         for flat_storage in flat_storages.values() {
             flat_storage.set_flat_head_update_mode(true);
         }
-        tracing::debug!(target: "store", "unlocked flat head updates");
+        tracing::debug!("unlocked flat head updates");
     }
 
     // Returns Some() if a state snapshot should be taken, and therefore any resharding flat storage code should not advance
