@@ -2,12 +2,14 @@ use near_async::time::Duration;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::AccessKey;
-use near_primitives::action::AddKeyAction;
+use near_primitives::action::{AddKeyAction, TransferToGasKeyAction};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{Action, SignedTransaction, TransactionNonce, TransferAction};
 use near_primitives::types::{AccountId, Balance, Nonce, NonceIndex};
-use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_primitives::views::{
+    AccessKeyPermissionView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind,
+};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -16,6 +18,21 @@ use crate::utils::account::{
 };
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::get_shared_block_hash;
+
+fn gas_key_balance(permission: &AccessKeyPermissionView) -> Option<Balance> {
+    match permission {
+        AccessKeyPermissionView::GasKeyFullAccess { balance, .. }
+        | AccessKeyPermissionView::GasKeyFunctionCall { balance, .. } => Some(*balance),
+        _ => None,
+    }
+}
+
+fn total_tokens_burnt(outcome: &FinalExecutionOutcomeView) -> Balance {
+    std::iter::once(&outcome.transaction_outcome)
+        .chain(&outcome.receipts_outcome)
+        .map(|o| o.outcome.tokens_burnt)
+        .fold(Balance::ZERO, |a, b| a.saturating_add(b))
+}
 
 /// Get the nonce for a gas key with specific nonce_index.
 fn get_gas_key_nonce(
@@ -50,12 +67,14 @@ fn test_gas_key_transaction() {
     let shard_layout = ShardLayout::single_shard();
     let user_accounts = create_account_ids(["account0", "account1", "account2", "account3"]);
     let initial_balance = Balance::from_near(1_000_000);
+    let gas_price = Balance::from_yoctonear(1);
     let validators_spec = create_validators_spec(shard_layout.num_shards() as usize, 0);
     let clients = validators_spec_clients_with_rpc(&validators_spec);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&user_accounts, initial_balance)
+        .gas_prices(gas_price, gas_price)
         .build();
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
@@ -87,6 +106,37 @@ fn test_gas_key_transaction() {
     // Run for 1 more block for the access key to be reflected in chunks prev state root.
     rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
 
+    // Fund the gas key
+    let gas_key_fund_amount = Balance::from_near(100);
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let fund_tx = SignedTransaction::from_actions(
+        2, // nonce
+        sender.clone(),
+        sender.clone(),
+        &create_user_test_signer(sender),
+        vec![Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+            public_key: gas_key_signer.public_key(),
+            deposit: gas_key_fund_amount,
+        }))],
+        block_hash,
+    );
+    rpc_node.run_tx(&mut env.test_loop, fund_tx, Duration::seconds(5));
+    rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
+
+    // Record balances before the gas key transaction
+    let sender_balance_before = rpc_node.view_account_query(env.test_loop_data(), sender).amount;
+    let gas_key_info_before = rpc_node.runtime_query(
+        env.test_loop_data(),
+        sender,
+        QueryRequest::ViewAccessKey {
+            account_id: sender.clone(),
+            public_key: gas_key_signer.public_key(),
+        },
+    );
+    let QueryResponseKind::AccessKey(access_key_view_before) = gas_key_info_before.kind else {
+        panic!("expected AccessKey response");
+    };
+
     // Send a transfer using the gas key
     let nonce_index = 0;
     let gas_key_nonce =
@@ -101,7 +151,8 @@ fn test_gas_key_transaction() {
         vec![Action::Transfer(TransferAction { deposit: transfer_amount })],
         block_hash,
     );
-    rpc_node.run_tx(&mut env.test_loop, gas_key_tx, Duration::seconds(5));
+    let outcome =
+        rpc_node.execute_tx(&mut env.test_loop, gas_key_tx, Duration::seconds(5)).unwrap();
     // Run for 1 more block for the transfer to be reflected in chunks prev state root.
     rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
 
@@ -110,9 +161,27 @@ fn test_gas_key_transaction() {
         get_gas_key_nonce(&env, &rpc_node, sender, &gas_key_signer.public_key(), nonce_index);
     assert_eq!(updated_gas_key_nonce, gas_key_nonce + 1);
 
-    // Check the balances of sender and receiver
-    let sender_balance = rpc_node.view_account_query(env.test_loop_data(), sender).amount;
-    assert_eq!(sender_balance, initial_balance.checked_sub(transfer_amount).unwrap());
+    // Verify account balance pays for deposit, gas key balance pays for gas.
+    let sender_balance_after = rpc_node.view_account_query(env.test_loop_data(), sender).amount;
+    assert_eq!(sender_balance_after, sender_balance_before.checked_sub(transfer_amount).unwrap());
+    let gas_key_info_after = rpc_node.runtime_query(
+        env.test_loop_data(),
+        sender,
+        QueryRequest::ViewAccessKey {
+            account_id: sender.clone(),
+            public_key: gas_key_signer.public_key(),
+        },
+    );
+    let QueryResponseKind::AccessKey(access_key_view_after) = gas_key_info_after.kind else {
+        panic!("expected AccessKey response");
+    };
+    let gas_cost = total_tokens_burnt(&outcome);
+    assert!(!gas_cost.is_zero());
+    let gas_key_balance_before = gas_key_balance(&access_key_view_before.permission).unwrap();
+    let gas_key_balance_after = gas_key_balance(&access_key_view_after.permission).unwrap();
+    assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_sub(gas_cost).unwrap());
+
+    // Verify receiver got the transfer
     let receiver_balance = rpc_node.view_account_query(env.test_loop_data(), receiver).amount;
     assert_eq!(receiver_balance, initial_balance.checked_add(transfer_amount).unwrap());
 

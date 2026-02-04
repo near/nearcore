@@ -279,6 +279,12 @@ pub enum InvalidTxError {
         /// Number of nonces supported by the key. 0 means no nonce_index allowed (regular key).
         num_nonces: NonceIndex,
     } = 18,
+    /// Gas key does not have enough balance to cover gas costs.
+    NotEnoughGasKeyBalance {
+        signer_id: AccountId,
+        balance: Balance,
+        cost: Balance,
+    } = 19,
 }
 
 impl From<StorageError> for InvalidTxError {
@@ -863,6 +869,11 @@ impl Display for InvalidTxError {
             InvalidTxError::InvalidNonceIndex { tx_nonce_index, num_nonces } => {
                 write!(f, "Invalid nonce_index {tx_nonce_index:?} for key with {num_nonces} nonces")
             }
+            InvalidTxError::NotEnoughGasKeyBalance { signer_id, balance, cost } => write!(
+                f,
+                "Gas key for {:?} does not have enough balance {} for gas cost {}",
+                signer_id, balance, cost
+            ),
         }
     }
 }
