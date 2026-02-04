@@ -40,6 +40,7 @@ mod resharding_v3;
 mod single_shard_tracking;
 mod spice;
 mod spice_resharding;
+mod spice_utils;
 mod state_sync;
 mod syncing;
 mod view_requests;

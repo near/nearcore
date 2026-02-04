@@ -15,7 +15,7 @@ use crate::utils::account::{create_validators_spec, validators_spec_clients};
 use crate::utils::node::TestLoopNode;
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 
-use super::spice::delay_endorsements_propagation;
+use super::spice_utils::delay_endorsements_propagation;
 
 /// Regression test: verifies that block processing works across a resharding
 /// boundary in SPICE mode. A bug in get_last_certified_execution_results_for_next_block
