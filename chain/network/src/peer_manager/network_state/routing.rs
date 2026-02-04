@@ -5,7 +5,7 @@ use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutedMessage, RoutingTableUpdate,
 };
 use crate::peer_manager::connection;
-use crate::peer_manager::network_state::PeerIdOrHash;
+use crate::peer_manager::network_state::{EdgesWithSource, PeerIdOrHash};
 #[cfg(feature = "distance_vector_routing")]
 use crate::routing::NetworkTopologyChange;
 use crate::routing::routing_table_view::FindRouteError;
@@ -96,7 +96,7 @@ impl NetworkState {
             &self.config.node_key,
             edge_info.signature,
         );
-        self.add_edges(&clock, vec![edge.clone()]).await?;
+        self.add_edges(&clock, EdgesWithSource::Local(vec![edge.clone()])).await?;
         #[cfg(feature = "distance_vector_routing")]
         self.update_routes(NetworkTopologyChange::PeerConnected(peer_id.clone(), edge.clone()))
             .await?;
@@ -110,7 +110,7 @@ impl NetworkState {
     pub async fn add_edges(
         self: &Arc<Self>,
         clock: &time::Clock,
-        edges: Vec<Edge>,
+        edges: EdgesWithSource,
     ) -> Result<(), ReasonForBan> {
         if edges.is_empty() {
             return Ok(());
@@ -118,7 +118,7 @@ impl NetworkState {
         let this = self.clone();
         let clock = clock.clone();
         self.add_edges_demux
-            .call(edges, |edges: Vec<Vec<Edge>>| async move {
+            .call(edges, |edges: Vec<EdgesWithSource>| async move {
                 let (mut edges, oks) = this.graph.update(edges).await;
                 // Don't send tombstones during the initial time.
                 // Most of the network is created during this time, which results

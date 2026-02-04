@@ -69,7 +69,7 @@ fn test_not_process_height_twice() {
 /// block can't be put in processing.
 #[cfg(feature = "test_features")]
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_not_process_same_block_twice() {
     let mut env = TestEnv::default_builder().build();

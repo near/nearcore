@@ -16,6 +16,7 @@ use parking_lot::Mutex;
 use crate::utils::network::{
     block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
 };
+use crate::utils::peer_manager_actor::NetworkRequestHandler;
 
 use super::state::NodeExecutionData;
 
@@ -146,12 +147,10 @@ impl NodeExecutionData {
             is_chunk_validated_by(inner_epoch_manager.as_ref(), chunk, account_id.clone())
         });
 
-        let peer_actor = test_loop_data.get_mut(&self.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(chunk_endorsement_dropper_by_hash(
-            chunks_storage,
-            epoch_manager,
-            drop_chunks_condition,
-        ));
+        self.register_override_handler(
+            test_loop_data,
+            chunk_endorsement_dropper_by_hash(chunks_storage, epoch_manager, drop_chunks_condition),
+        );
     }
 
     fn register_drop_endorsements_from(
@@ -159,8 +158,10 @@ impl NodeExecutionData {
         test_loop_data: &mut TestLoopData,
         account_id: &AccountId,
     ) {
-        let peer_actor = test_loop_data.get_mut(&self.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(chunk_endorsement_dropper(account_id.clone()));
+        self.register_override_handler(
+            test_loop_data,
+            chunk_endorsement_dropper(account_id.clone()),
+        );
     }
 
     fn register_drop_protocol_upgrade_chunks(
@@ -183,12 +184,10 @@ impl NodeExecutionData {
             )
         });
 
-        let peer_actor = test_loop_data.get_mut(&self.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(chunk_endorsement_dropper_by_hash(
-            chunks_storage,
-            epoch_manager,
-            drop_chunks_condition,
-        ));
+        self.register_override_handler(
+            test_loop_data,
+            chunk_endorsement_dropper_by_hash(chunks_storage, epoch_manager, drop_chunks_condition),
+        );
     }
 
     fn register_drop_chunks_by_height(
@@ -209,12 +208,14 @@ impl NodeExecutionData {
             )
         });
 
-        let peer_actor = test_loop_data.get_mut(&self.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(chunk_endorsement_dropper_by_hash(
-            chunks_storage,
-            epoch_manager.clone(),
-            drop_chunks_condition.clone(),
-        ));
+        self.register_override_handler(
+            test_loop_data,
+            chunk_endorsement_dropper_by_hash(
+                chunks_storage,
+                epoch_manager.clone(),
+                drop_chunks_condition.clone(),
+            ),
+        );
     }
 
     fn register_drop_blocks_by_height(
@@ -222,8 +223,16 @@ impl NodeExecutionData {
         test_loop_data: &mut TestLoopData,
         heights: &HashSet<BlockHeight>,
     ) {
+        self.register_override_handler(test_loop_data, block_dropper_by_height(heights.clone()));
+    }
+
+    pub fn register_override_handler(
+        &self,
+        test_loop_data: &mut TestLoopData,
+        handler: NetworkRequestHandler,
+    ) {
         let peer_actor = test_loop_data.get_mut(&self.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(block_dropper_by_height(heights.clone()));
+        peer_actor.register_override_handler(handler);
     }
 }
 

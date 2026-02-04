@@ -826,7 +826,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> ShardLayout {
         debug_assert!(!ProtocolFeature::DynamicResharding.enabled(protocol_version));
         let epoch_manager = self.read();
-        epoch_manager.get_epoch_config(protocol_version).legacy_shard_layout()
+        epoch_manager.get_epoch_config(protocol_version).static_shard_layout()
     }
 
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {

@@ -8,6 +8,8 @@ use crate::archive::cloud_storage::CloudStorage;
 pub enum CloudStorageFileID {
     /// Identifier of the metadata file storing the current archival head.
     Head,
+    /// Identifier of the epoch file for the given epoch ID.
+    Epoch(EpochId),
     /// Identifier of the block file for the given block height.
     Block(BlockHeight),
     /// Identifier of the shard file for the given block height and shard.
@@ -21,6 +23,9 @@ impl CloudStorage {
     pub fn location_dir_and_file(&self, file_id: &CloudStorageFileID) -> (String, String) {
         let (mut dir_path, file_name) = match file_id {
             CloudStorageFileID::Head => ("metadata".into(), "head".into()),
+            CloudStorageFileID::Epoch(epoch_id) => {
+                (format!("epoch_id={}", epoch_id.0), "epoch_data".into())
+            }
             CloudStorageFileID::Block(height) => {
                 (format!("block_height={height}"), "block_data".into())
             }

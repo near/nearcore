@@ -4,10 +4,10 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, MerkleHash,
+    AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, MerkleHash, Nonce,
 };
 use near_primitives::version::ProtocolVersion;
-use near_primitives::views::{GasKeyInfoView, GasKeyView, ViewStateResult};
+use near_primitives::views::ViewStateResult;
 use near_vm_runner::ContractCode;
 
 /// Adapter for querying runtime.
@@ -58,20 +58,13 @@ pub trait ViewRuntimeAdapter {
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, crate::state_viewer::errors::ViewAccessKeyError>;
 
-    fn view_gas_key(
+    fn view_gas_key_nonces(
         &self,
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<GasKeyView, crate::state_viewer::errors::ViewGasKeyError>;
-
-    fn view_gas_keys(
-        &self,
-        shard_uid: &ShardUId,
-        state_root: MerkleHash,
-        account_id: &AccountId,
-    ) -> Result<Vec<GasKeyInfoView>, crate::state_viewer::errors::ViewGasKeyError>;
+    ) -> Result<Vec<Nonce>, crate::state_viewer::errors::ViewAccessKeyError>;
 
     fn view_state(
         &self,

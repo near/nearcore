@@ -30,7 +30,7 @@ class TestReleaseCandidate(TestSetup):
         super().__init__(args)
         self.node_hardware_config = NodeHardware.SameConfig(
             num_chunk_producer_seats=9, num_chunk_validator_seats=11)
-        self.epoch_len = 10000  # 10000 blocks / 2 bps / 60 / 60 = 1h 40m
+        self.epoch_len = 14500  # 14500 blocks / 2 bps / 60 / 60 = 2h
         self.has_state_dumper = False
         self.has_archival = True
         self.regions = "us-east1,europe-west4,asia-east1,us-west1"

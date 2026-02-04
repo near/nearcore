@@ -21,7 +21,7 @@ use crate::env::test_env::TestEnv;
 /// * per-receipt hard storage proof size limit
 /// * per-chunk soft storage proof size limit
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_storage_proof_size_limit() {
     near_o11y::testonly::init_test_logger();
@@ -73,7 +73,6 @@ fn test_storage_proof_size_limit() {
             &signer,
             vec![action],
             env.clients[0].chain.head().unwrap().last_block_hash,
-            0,
         );
         nonce += 1;
         let res = env.execute_tx(tx).unwrap();
@@ -96,7 +95,6 @@ fn test_storage_proof_size_limit() {
             &signer,
             vec![action],
             after_writes_block_hash,
-            0,
         );
         nonce += 1;
         tx

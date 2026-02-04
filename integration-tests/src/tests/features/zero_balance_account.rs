@@ -119,7 +119,7 @@ fn test_zero_balance_account_creation() {
 /// it has to pay for storage cost of the account structure and the keys that
 /// it didn't have to pay while it was a zero balance account.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_zero_balance_account_add_key() {
     let epoch_length = 1000;
@@ -203,7 +203,6 @@ fn test_zero_balance_account_add_key() {
         &new_signer,
         actions,
         *genesis_block.hash(),
-        0,
     );
     assert_eq!(
         env.rpc_handlers[0].process_tx(add_key_tx, false, false),
@@ -237,7 +236,6 @@ fn test_zero_balance_account_add_key() {
             public_key: keys.last().unwrap().clone(),
         }))],
         *genesis_block.hash(),
-        0,
     );
     assert_eq!(
         env.rpc_handlers[0].process_tx(delete_key_tx, false, false),

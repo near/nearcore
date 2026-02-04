@@ -32,7 +32,7 @@ use crate::utils::transactions::{TransactionRunner, execute_tx, get_shared_block
 /// The real threshold for missing chunks is 100, but it would make test very
 /// slow.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_tx_inclusion() {
     init_test_logger();

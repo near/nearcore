@@ -12,7 +12,7 @@ use crate::{
 use itertools::Itertools;
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, ReceiptEnum, ReceiptV1};
+use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::TrieKey;
@@ -334,7 +334,7 @@ pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
     accounts
         .iter()
         .map(|account_id| {
-            Receipt::V1(ReceiptV1 {
+            Receipt::V0(ReceiptV0 {
                 predecessor_id: account_id.clone(),
                 receiver_id: account_id.clone(),
                 receipt_id: CryptoHash::default(),
@@ -342,7 +342,6 @@ pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
                     data_id: CryptoHash::default(),
                     data: None,
                 }),
-                priority: 0,
             })
         })
         .collect()

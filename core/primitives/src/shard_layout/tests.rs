@@ -26,7 +26,7 @@ impl ShardLayout {
     /// Constructor for tests that need a shard layout for a specific protocol version.
     pub fn for_protocol_version(protocol_version: ProtocolVersion) -> Self {
         let config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-        config_store.get_config(protocol_version).legacy_shard_layout()
+        config_store.get_config(protocol_version).static_shard_layout()
     }
 }
 

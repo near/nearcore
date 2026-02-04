@@ -1,10 +1,11 @@
 use near_primitives::errors::EpochError;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, EpochId};
 
 use crate::Store;
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::block_data::build_block_data;
+use crate::archive::cloud_storage::epoch_data::build_epoch_data;
 use crate::archive::cloud_storage::file_id::CloudStorageFileID;
 use crate::archive::cloud_storage::shard_data::build_shard_data;
 
@@ -40,6 +41,19 @@ impl From<EpochError> for CloudArchivingError {
 }
 
 impl CloudStorage {
+    /// Saves the archival data associated with the given epoch ID.
+    pub async fn archive_epoch_data(
+        &self,
+        hot_store: &Store,
+        shard_layout: &ShardLayout,
+        epoch_id: EpochId,
+    ) -> Result<(), CloudArchivingError> {
+        let epoch_data = build_epoch_data(hot_store, shard_layout.clone(), epoch_id)?;
+        let file_id = CloudStorageFileID::Epoch(epoch_id);
+        let blob = borsh::to_vec(&epoch_data)?;
+        self.upload(file_id, blob).await
+    }
+
     /// Saves the archival data associated with the block at the given height.
     pub async fn archive_block_data(
         &self,

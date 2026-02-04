@@ -84,6 +84,8 @@ fn test_raw_client_test_loop_setup() {
     let apply_chunks_iteration_mode = ApplyChunksIterationMode::Sequential;
     let sync_jobs_actor =
         SyncJobsActor::new(client_adapter.as_multi_sender(), apply_chunks_iteration_mode);
+    let (block_notification_watch_sender, _block_notification_watch_receiver) =
+        tokio::sync::watch::channel(None);
 
     let protocol_upgrade_schedule = get_protocol_upgrade_schedule(&chain_genesis.chain_id);
     let multi_spawner = AsyncComputationMultiSpawner::all_custom(Arc::new(
@@ -110,6 +112,7 @@ fn test_raw_client_test_loop_setup() {
         noop().into_multi_sender(),
         client_adapter.as_multi_sender(),
         noop().into_multi_sender(),
+        block_notification_watch_sender,
         protocol_upgrade_schedule,
     )
     .unwrap();

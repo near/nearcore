@@ -28,7 +28,7 @@ use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessag
 use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptPriority};
+use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
@@ -42,7 +42,9 @@ use std::str::FromStr as _;
 use std::sync::Arc;
 
 use crate::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
-use crate::chunk_executor_actor::{ChunkExecutorActor, is_descendant_of_final_execution_head};
+use crate::chunk_executor_actor::{
+    ChunkExecutorActor, ChunkExecutorConfig, is_descendant_of_final_execution_head,
+};
 use crate::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
 use crate::spice_data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice_data_distributor_actor::SpiceDistributorOutgoingReceipts;
@@ -192,6 +194,7 @@ impl TestActor {
             chunk_executor_adapter,
             core_writer_sender,
             data_distributor_adapter,
+            ChunkExecutorConfig::default(),
         );
         TestActor { chain, actor, actor_rc, tasks_rc }
     }
@@ -803,7 +806,6 @@ fn test_not_executing_with_bad_receipts() {
         receipt_proofs[0].0.push(Receipt::new_balance_refund(
             &AccountId::from_str("test1").unwrap(),
             Balance::from_near(1),
-            ReceiptPriority::NoPriority,
         ));
         simulate_single_outgoing_message(&mut actors, &message);
     }
@@ -838,7 +840,6 @@ fn test_extra_pending_bad_receipt_proof_does_not_prevent_execution() {
         extra_proof.0.push(Receipt::new_balance_refund(
             &AccountId::from_str("test1").unwrap(),
             Balance::from_near(1),
-            ReceiptPriority::NoPriority,
         ));
         receipt_proofs.push(extra_proof);
         simulate_single_outgoing_message(&mut actors, &message);
