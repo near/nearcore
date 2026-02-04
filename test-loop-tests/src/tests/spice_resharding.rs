@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use near_async::time::Duration;
+use near_chain::spice_core::get_last_certified_block_header;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -71,10 +72,23 @@ fn test_spice_certified_results_across_resharding() {
         },
         Duration::seconds((3 * epoch_length) as i64),
     );
+    let new_epoch_start = node.head(env.test_loop_data()).height;
 
     // Run a few more blocks in the resharded epoch to exercise the code path
     // where last_certified_block is in the old epoch but current block is in the new epoch.
     node.run_for_number_of_blocks(&mut env.test_loop, 5);
+
+    // Assert that the first block of the resharded epoch has its last certified
+    // block in the previous epoch with a different number of shards.
+    let chain_store = &node.client(env.test_loop_data()).chain.chain_store;
+    let header = chain_store.get_block_header_by_height(new_epoch_start).unwrap();
+    let last_certified = get_last_certified_block_header(chain_store, header.hash()).unwrap();
+    let certified_shard_layout = epoch_manager.get_shard_layout(last_certified.epoch_id()).unwrap();
+    assert_ne!(
+        epoch_manager.get_shard_layout(header.epoch_id()).unwrap(),
+        certified_shard_layout,
+        "expected the first block of the resharded epoch to have its last certified block in the previous epoch with different shard count"
+    );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
