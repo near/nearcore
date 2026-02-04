@@ -379,20 +379,13 @@ impl SpiceCoreReader {
         block_header: &BlockHeader,
         core_statements_for_next_block: &[SpiceCoreStatement],
     ) -> Result<BlockExecutionResults, Error> {
-        let new_execution_results: HashMap<_, _> = core_statements_for_next_block
-            .iter()
-            .filter_map(|core_statement| match core_statement {
-                SpiceCoreStatement::ChunkExecutionResult { execution_result, chunk_id } => {
-                    Some((chunk_id, execution_result))
-                }
-                _ => None,
-            })
-            .collect();
+        let newly_certified_chunks: HashSet<&SpiceChunkId> =
+            iter_execution_results(core_statements_for_next_block).map(|(id, _)| id).collect();
 
         let mut uncertified_chunks =
             get_uncertified_chunks(&self.chain_store, block_header.hash())?;
         uncertified_chunks
-            .retain(|chunk_info| !new_execution_results.contains_key(&chunk_info.chunk_id));
+            .retain(|chunk_info| !newly_certified_chunks.contains(&chunk_info.chunk_id));
         let oldest_uncertified_block_header =
             find_oldest_uncertified_block_header(&self.chain_store, uncertified_chunks)?;
         let last_certified_block_header =
@@ -403,23 +396,64 @@ impl SpiceCoreReader {
                 block_header
             };
 
-        let mut execution_results =
-            self.get_execution_results_by_shard_id(last_certified_block_header)?;
-
-        for shard_id in self.epoch_manager.shard_ids(block_header.epoch_id())? {
-            if execution_results.contains_key(&shard_id) {
-                continue;
-            }
-            let execution_result = new_execution_results
-            .get(&SpiceChunkId { block_hash: *last_certified_block_header.hash(), shard_id })
-            .expect(
-                "for certified block we should have execution either in store or core statements",
-            );
-            execution_results.insert(shard_id, Arc::new((*execution_result).clone()));
+        if last_certified_block_header.is_genesis() {
+            return Ok(BlockExecutionResults(
+                self.get_execution_results_by_shard_id(last_certified_block_header)?,
+            ));
         }
 
+        let last_certified_hash = *last_certified_block_header.hash();
+        let num_shards =
+            self.epoch_manager.shard_ids(last_certified_block_header.epoch_id())?.len();
+        let mut execution_results: HashMap<ShardId, Arc<ChunkExecutionResult>> = HashMap::new();
+        for (chunk_id, result) in iter_execution_results(core_statements_for_next_block) {
+            if chunk_id.block_hash != last_certified_hash {
+                continue;
+            }
+            execution_results.entry(chunk_id.shard_id).or_insert_with(|| Arc::new(result.clone()));
+        }
+
+        // Walk backwards from block_header, collecting execution results from
+        // each block's core statements. We can't depend on reading from
+        // DBCol::execution_results, which SpiceCoreWriterActor writes
+        // asynchronously. So, during orphan processing, the results we need
+        // here may not be persisted to that column yet.
+        let mut current_hash = *block_header.hash();
+        while execution_results.len() < num_shards && current_hash != last_certified_hash {
+            let block = self.chain_store.get_block(&current_hash)?;
+            for (chunk_id, result) in iter_execution_results(block.spice_core_statements()) {
+                if chunk_id.block_hash != last_certified_hash {
+                    continue;
+                }
+                execution_results
+                    .entry(chunk_id.shard_id)
+                    .or_insert_with(|| Arc::new(result.clone()));
+            }
+            current_hash = *block.header().prev_hash();
+        }
+
+        assert_eq!(
+            execution_results.len(),
+            num_shards,
+            "should have found all shard's execution results for last certified block"
+        );
         Ok(BlockExecutionResults(execution_results))
     }
+}
+
+fn iter_execution_results(
+    core_statements: &[SpiceCoreStatement],
+) -> impl Iterator<Item = (&SpiceChunkId, &ChunkExecutionResult)> {
+    // TODO(spice): Consider making a newtype wrapper for list of
+    // SpiceCoreStatements. Would also be good if it worked with any iterators
+    // generally (i.e. generics implementing IntoIterator trait). so we can
+    // write: block.spice_core_statements().iter_execution_results()
+    core_statements.iter().filter_map(|s| match s {
+        SpiceCoreStatement::ChunkExecutionResult { chunk_id, execution_result } => {
+            Some((chunk_id, execution_result))
+        }
+        _ => None,
+    })
 }
 
 fn get_uncertified_chunks(
@@ -446,16 +480,7 @@ fn get_uncertified_chunks(
 }
 
 fn get_block_execution_results(block: &Block) -> HashMap<&SpiceChunkId, &ChunkExecutionResult> {
-    block
-        .spice_core_statements()
-        .iter()
-        .filter_map(|core_statement| match core_statement {
-            SpiceCoreStatement::ChunkExecutionResult { execution_result, chunk_id } => {
-                Some((chunk_id, execution_result))
-            }
-            _ => None,
-        })
-        .collect()
+    iter_execution_results(block.spice_core_statements()).collect()
 }
 
 fn get_block_endorsements(

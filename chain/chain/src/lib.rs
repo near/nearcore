@@ -43,6 +43,7 @@ pub mod runtime;
 pub mod sharding;
 pub mod signature_verification;
 mod soft_realtime_thread_pool;
+pub mod spice_chain;
 pub mod spice_chunk_application;
 pub mod spice_core;
 pub mod spice_core_writer_actor;
