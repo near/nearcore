@@ -1578,7 +1578,7 @@ impl Chain {
         let new_chunk_tail = tail_block.chunks().min_height_included().unwrap();
         tracing::debug!(target: "sync", ?new_tail, ?new_chunk_tail, "adjusting tail for sync blocks");
 
-        // Populate ChunkProducers: current epoch for [tail_height, sync_height]
+        // Populate ChunkProducers for head and 2 blocks in the future
         let sync_height = header.height();
         let current_epoch_id = *header.epoch_id();
         let current_shard_layout = self.epoch_manager.get_shard_layout(&current_epoch_id)?;
@@ -1587,7 +1587,6 @@ impl Chain {
         let mut chunk_producers_to_save: Vec<(EpochId, ShardId, BlockHeight, ValidatorId)> =
             Vec::new();
 
-        // head and 2 blocks in the future
         let is_next_epoch = self.epoch_manager.is_next_block_epoch_start(&sync_hash)?;
         let (epoch_id, shard_layout, epoch_info) = if is_next_epoch {
             let next_epoch_id = self.epoch_manager.get_next_epoch_id(&sync_hash)?;
@@ -1595,7 +1594,7 @@ impl Chain {
             let info = self.epoch_manager.get_epoch_info(&next_epoch_id)?;
             (next_epoch_id, layout, info)
         } else {
-            (current_epoch_id, current_shard_layout.clone(), Arc::clone(&current_epoch_info))
+            (current_epoch_id, current_shard_layout, Arc::clone(&current_epoch_info))
         };
         for height in [sync_height, sync_height + 1, sync_height + 2] {
             for shard_id in shard_layout.shard_ids() {

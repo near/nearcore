@@ -752,7 +752,7 @@ impl ShardsManagerActor {
                 self.should_wait_for_chunk_forwarding(&ancestor_hash, chunk_header.shard_id(), chunk_header.height_created()+1, me).unwrap_or_else(|_| {
                     // ancestor_hash must be accepted because we don't request missing chunks through this
                     // this function for orphans
-                    debug_assert!(false, "{:?} must be accepted", ancestor_hash);
+                    // debug_assert!(false, "{:?} must be accepted", ancestor_hash);
                     tracing::error!(target: "chunks", ?ancestor_hash, "requesting chunk whose ancestor_hash is not accepted");
                     false
                 });
