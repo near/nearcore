@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -10,23 +10,18 @@ use near_chain::spice_core::get_last_certified_block_header;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{GetBlock, ProcessTxRequest, Query, QueryError, ViewClientActor};
 use near_client_primitives::types::GetBlockError;
-use near_network::client::SpiceChunkEndorsementMessage;
-use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockId, BlockReference, Finality, ShardId,
-};
+use near_primitives::types::{AccountId, Balance, BlockId, BlockReference, Finality, ShardId};
 use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind};
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -37,6 +32,8 @@ use crate::utils::account::{
 use crate::utils::get_node_data;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{TransactionRunner, get_anchor_hash};
+
+use super::spice_utils::delay_endorsements_propagation;
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -211,54 +208,6 @@ fn test_spice_chain_with_delayed_execution() {
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
-}
-
-fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height: u64) {
-    let core_writer_senders: HashMap<_, _> = env
-        .node_datas
-        .iter()
-        .map(|datas| (datas.account_id.clone(), datas.spice_core_writer_sender.clone()))
-        .collect();
-
-    for node in &env.node_datas {
-        let senders = core_writer_senders.clone();
-        let block_heights: Arc<RwLock<HashMap<CryptoHash, BlockHeight>>> =
-            Arc::new(RwLock::new(HashMap::new()));
-        let delayed_endorsements: Arc<
-            RwLock<VecDeque<(CryptoHash, AccountId, SpiceChunkEndorsement)>>,
-        > = Arc::new(RwLock::new(VecDeque::new()));
-        let peer_actor = env.test_loop.data.get_mut(&node.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
-            match request {
-                NetworkRequests::Block { ref block } => {
-                    block_heights.write().insert(*block.hash(), block.header().height());
-
-                    let mut delayed_endorsements = delayed_endorsements.write();
-                    loop {
-                        let Some(front) = delayed_endorsements.front() else {
-                            break;
-                        };
-                        let height = block_heights.read()[&front.0];
-                        if height + delay_height >= block.header().height() {
-                            break;
-                        }
-                        let (_, target, endorsement) = delayed_endorsements.pop_front().unwrap();
-                        senders[&target].send(SpiceChunkEndorsementMessage(endorsement));
-                    }
-                    Some(request)
-                }
-                NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
-                    delayed_endorsements.write().push_back((
-                        *endorsement.block_hash(),
-                        target,
-                        endorsement,
-                    ));
-                    None
-                }
-                _ => Some(request),
-            }
-        }));
-    }
 }
 
 /// Sets up a spice env with delayed endorsements so execution lags behind
