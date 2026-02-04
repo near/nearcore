@@ -142,9 +142,9 @@ impl Block {
         let mut gas_limit = Gas::ZERO;
         for chunk in &chunks {
             if chunk.height_included() == height {
-                prev_validator_proposals.extend(chunk.prev_validator_proposals());
                 gas_used = gas_used.checked_add(chunk.prev_gas_used()).unwrap();
                 if spice_info.is_none() {
+                    prev_validator_proposals.extend(chunk.prev_validator_proposals());
                     gas_limit = gas_limit.checked_add(chunk.gas_limit()).unwrap();
                 }
                 balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
@@ -159,6 +159,7 @@ impl Block {
             for (_shard_id, execution_result) in
                 &spice_info.last_certified_block_execution_results.0
             {
+                prev_validator_proposals.extend(execution_result.chunk_extra.validator_proposals());
                 gas_limit =
                     gas_limit.checked_add(execution_result.chunk_extra.gas_limit()).unwrap();
             }

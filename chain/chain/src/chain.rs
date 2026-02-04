@@ -59,6 +59,7 @@ use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::block::{
     Block, BlockValidityError, ChunkType, Chunks, Tip, compute_bp_hash_from_validator_stakes,
 };
+use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{ChunkProofs, MaybeEncodedShardChunk};
 use near_primitives::epoch_block_info::BlockInfo;
@@ -353,6 +354,38 @@ enum SnapshotAction {
     /// Make a new snapshot. Contains the prev_hash of the sync_hash that is used for state sync
     MakeSnapshot(CryptoHash),
     None,
+}
+
+/// Verify that validator proposals in the block header match expectations.
+/// Non-SPICE: proposals come from new chunk headers.
+/// SPICE: proposals come from core statements' execution results.
+fn validate_block_proposals(block: &Block) -> Result<(), Error> {
+    let expected: Vec<_> = if block.is_spice_block() {
+        block
+            .spice_core_statements()
+            .iter()
+            .filter_map(|s| match s {
+                SpiceCoreStatement::ChunkExecutionResult { execution_result, .. } => {
+                    Some(execution_result.chunk_extra.validator_proposals())
+                }
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    } else {
+        block.chunks().iter_new().flat_map(|chunk| chunk.prev_validator_proposals()).collect()
+    };
+    for pair in expected.iter().zip_longest(block.header().prev_validator_proposals()) {
+        match pair {
+            itertools::EitherOrBoth::Both(cp, hp) => {
+                if hp != *cp {
+                    return Err(Error::InvalidValidatorProposals);
+                }
+            }
+            _ => return Err(Error::InvalidValidatorProposals),
+        }
+    }
+    Ok(())
 }
 
 impl Chain {
@@ -1045,27 +1078,7 @@ impl Chain {
             }
         }
 
-        // Verify that proposals from chunks match block header proposals.
-        for pair in block
-            .chunks()
-            .iter_new()
-            .flat_map(|chunk| chunk.prev_validator_proposals())
-            .zip_longest(block.header().prev_validator_proposals())
-        {
-            match pair {
-                itertools::EitherOrBoth::Both(cp, hp) => {
-                    if hp != cp {
-                        // Proposals differed!
-                        return Err(Error::InvalidValidatorProposals);
-                    }
-                }
-                _ => {
-                    // Can only occur if there were a different number of proposals in the header
-                    // and chunks
-                    return Err(Error::InvalidValidatorProposals);
-                }
-            }
-        }
+        validate_block_proposals(block)?;
 
         Ok(())
     }
