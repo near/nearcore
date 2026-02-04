@@ -23,7 +23,8 @@ pub struct SpiceTimer {
     /// Maximum time to wait before producing a block regardless of certification lag
     max_block_time: Duration,
     /// Cached certification head height to avoid frequent recalculation
-    cached_certification_height: Option<(BlockHeight, Instant)>,
+    /// Tuple contains: (head_hash, certification_height, cached_time)
+    cached_certification_height: Option<(CryptoHash, BlockHeight, Instant)>,
 }
 
 impl SpiceTimer {
@@ -55,8 +56,8 @@ impl SpiceTimer {
         let now = self.clock.now();
 
         const CACHE_TTL: Duration = Duration::milliseconds(100);
-        if let Some((cached_height, cached_time)) = self.cached_certification_height {
-            if now.duration_since(cached_time) < CACHE_TTL {
+        if let Some((cached_head_hash, cached_height, cached_time)) = self.cached_certification_height {
+            if cached_head_hash == *head_hash && now.duration_since(cached_time) < CACHE_TTL {
                 return Ok(cached_height);
             }
         }
@@ -65,7 +66,7 @@ impl SpiceTimer {
         let cert_header = get_last_certified_block_header(chain_store, head_hash)?;
         let cert_height = cert_header.height();
 
-        self.cached_certification_height = Some((cert_height, now));
+        self.cached_certification_height = Some((*head_hash, cert_height, now));
 
         Ok(cert_height)
     }
