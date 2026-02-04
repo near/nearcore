@@ -88,7 +88,7 @@ pub(crate) fn action_stake(
 
 /// Tries to refund gas to a gas key's balance.
 /// Returns true if the key exists and is a gas key (balance was credited).
-/// Returns false otherwise (key not found or is a not a gas key).
+/// Returns false otherwise (key not found or is not a gas key).
 pub(crate) fn try_refund_gas_key_balance(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
