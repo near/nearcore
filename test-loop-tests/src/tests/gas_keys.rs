@@ -23,12 +23,12 @@ use crate::utils::account::{
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::get_shared_block_hash;
 
-fn query_key_and_gas_balance(
+fn query_gas_key_and_balance(
     env: &TestLoopEnv,
     node: &TestLoopNode<'_>,
     account_id: &AccountId,
     public_key: &PublicKey,
-) -> (AccessKeyView, Option<Balance>) {
+) -> (AccessKeyView, Balance) {
     let response = node.runtime_query(
         env.test_loop_data(),
         account_id,
@@ -40,12 +40,12 @@ fn query_key_and_gas_balance(
     let QueryResponseKind::AccessKey(view) = response.kind else {
         panic!("expected AccessKey response");
     };
-    let gas_key_balance = match &view.permission {
+    let balance = match &view.permission {
         AccessKeyPermissionView::GasKeyFullAccess { balance, .. }
-        | AccessKeyPermissionView::GasKeyFunctionCall { balance, .. } => Some(*balance),
-        _ => None,
+        | AccessKeyPermissionView::GasKeyFunctionCall { balance, .. } => *balance,
+        _ => panic!("expected gas key, got {:?}", view.permission),
     };
-    (view, gas_key_balance)
+    (view, balance)
 }
 
 fn total_tokens_burnt(outcome: &FinalExecutionOutcomeView) -> Balance {
@@ -147,8 +147,7 @@ fn test_gas_key_transaction() {
     // Record balances before the gas key transaction
     let sender_balance_before = rpc_node.view_account_query(env.test_loop_data(), sender).amount;
     let (_, gas_key_balance_before) =
-        query_key_and_gas_balance(&env, &rpc_node, sender, &gas_key_signer.public_key());
-    let gas_key_balance_before = gas_key_balance_before.unwrap();
+        query_gas_key_and_balance(&env, &rpc_node, sender, &gas_key_signer.public_key());
 
     // Send a transfer using the gas key
     let nonce_index = 0;
@@ -180,8 +179,7 @@ fn test_gas_key_transaction() {
     let gas_cost = total_tokens_burnt(&outcome);
     assert!(!gas_cost.is_zero());
     let (_, gas_key_balance_after) =
-        query_key_and_gas_balance(&env, &rpc_node, sender, &gas_key_signer.public_key());
-    let gas_key_balance_after = gas_key_balance_after.unwrap();
+        query_gas_key_and_balance(&env, &rpc_node, sender, &gas_key_signer.public_key());
     assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_sub(gas_cost).unwrap());
 
     // Verify receiver got the transfer
@@ -260,8 +258,7 @@ fn test_gas_key_refund() {
     // Record balances before the gas key transaction
     let sender_balance_before = rpc_node.view_account_query(env.test_loop_data(), sender).amount;
     let (_, gas_key_balance_before) =
-        query_key_and_gas_balance(&env, &rpc_node, sender, &gas_key_signer.public_key());
-    let gas_key_balance_before = gas_key_balance_before.unwrap();
+        query_gas_key_and_balance(&env, &rpc_node, sender, &gas_key_signer.public_key());
 
     // Call a non-existing function on receiver (no contract deployed) with a deposit.
     // This will fail, producing both a balance refund (to account) and a gas refund (to gas key).
@@ -302,8 +299,7 @@ fn test_gas_key_refund() {
 
     // Verify gas key balance: should be initial minus tokens_burnt (gas refund went back to gas key).
     let (_, gas_key_balance_after) =
-        query_key_and_gas_balance(&env, &rpc_node, sender, &gas_key_signer.public_key());
-    let gas_key_balance_after = gas_key_balance_after.unwrap();
+        query_gas_key_and_balance(&env, &rpc_node, sender, &gas_key_signer.public_key());
     assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_sub(tokens_burnt).unwrap());
 
     // Verify sender account balance is unchanged: deposit was deducted when the tx was
