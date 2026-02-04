@@ -5,7 +5,7 @@ use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_client::Client;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::config::TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
-use near_parameters::{RuntimeConfig, RuntimeConfigStore, vm};
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
@@ -165,11 +165,11 @@ fn prepare_env_with_yield(
         genesis_builder.build()
     };
 
-    // Set yield timeout to 10 blocks
-    let mut runtime_config = RuntimeConfig::test();
-    let mut wasm_config = vm::Config::clone(&runtime_config.wasm_config);
-    wasm_config.limit_config.yield_timeout_length_in_blocks = 10;
-    runtime_config.wasm_config = Arc::new(wasm_config);
+    let runtime_config = RuntimeConfig::test();
+    assert_eq!(
+        runtime_config.wasm_config.limit_config.yield_timeout_length_in_blocks,
+        TEST_CONFIG_YIELD_TIMEOUT_LENGTH
+    );
     let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
 
     let mut env = TestLoopBuilder::new()
