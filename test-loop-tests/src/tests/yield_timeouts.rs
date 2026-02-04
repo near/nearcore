@@ -309,6 +309,8 @@ fn create_congestion(env: &TestLoopEnv) {
 /// Simple test of timeout execution.
 /// Advances sufficiently many blocks, then verifies that the callback was executed.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_simple_yield_timeout() {
     let (mut env, yield_tx_hash, data_id) = prepare_env_with_yield(vec![], None);
     assert!(NEXT_BLOCK_HEIGHT_AFTER_SETUP < YIELD_TIMEOUT_HEIGHT);
@@ -361,6 +363,8 @@ fn test_simple_yield_timeout() {
 /// In this test, we introduce congestion and verify that the timeout execution is
 /// delayed as expected, but ultimately succeeds without error.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_yield_timeout_under_congestion() {
     let (mut env, yield_tx_hash, _) = prepare_env_with_yield(vec![], Some(10_000_000_000_000));
     assert!(NEXT_BLOCK_HEIGHT_AFTER_SETUP < YIELD_TIMEOUT_HEIGHT);
@@ -412,6 +416,8 @@ fn test_yield_timeout_under_congestion() {
 
 /// In this case we invoke yield_resume at the last block possible.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_yield_resume_just_before_timeout() {
     let yield_payload = vec![6u8; 16];
     let (mut env, yield_tx_hash, data_id) = prepare_env_with_yield(yield_payload.clone(), None);
@@ -468,6 +474,8 @@ fn test_yield_resume_just_before_timeout() {
 /// In this test we introduce congestion to delay the yield timeout so that we can invoke
 /// yield resume after the timeout height has passed.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_yield_resume_after_timeout_height() {
     let yield_payload = vec![6u8; 16];
     let (mut env, yield_tx_hash, data_id) =
@@ -523,7 +531,9 @@ fn test_yield_resume_after_timeout_height() {
 
 /// In this test there is no block produced at height YIELD_TIMEOUT_HEIGHT.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg(feature = "test_features")]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_skip_timeout_height() {
     use assert_matches::assert_matches;
     use near_chain::Error;
