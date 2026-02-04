@@ -78,7 +78,7 @@ impl Store {
             return self.get_ser::<T>(column, key).map(|v| v.map(Into::into));
         };
 
-        let generation_before = {
+        let can_cache = {
             let mut lock = cache.lock();
             if let Some(value) = lock.values.get(key) {
                 if let Some(value) = value {
@@ -100,7 +100,9 @@ impl Store {
                     return Ok(None);
                 }
             }
-            lock.generation
+            // If a write is already in progress, the DB may contain stale data
+            // that we must not cache. Use a generation that can never match.
+            if lock.active_flushes > 0 { None } else { Some(lock.generation) }
         };
 
         let value = match self.get_ser::<T>(column, key) {
@@ -110,7 +112,11 @@ impl Store {
         };
 
         let mut lock = cache.lock();
-        if lock.active_flushes == 0 && lock.generation == generation_before {
+        let safe_to_cache = match can_cache {
+            Some(g) => lock.active_flushes == 0 && lock.generation == g,
+            None => false,
+        };
+        if safe_to_cache {
             if let Some(v) = value.as_ref() {
                 lock.values.put(key.into(), Some(Arc::clone(v) as _));
             } else if lock.store_none_values() {
@@ -752,5 +758,95 @@ mod tests {
         // Without the generation counter fix, the cache would contain 1.
         let fresh: Arc<u64> = store.caching_get_ser(col, key).unwrap().unwrap();
         assert_eq!(*fresh, 2, "cache returned stale value");
+    }
+
+    /// Regression test for the second interleaving: the writer starts (pops
+    /// cache, bumps generation) BEFORE the reader records the generation. The
+    /// reader then sees the bumped generation, reads stale data from DB (writer
+    /// hasn't written yet), and would cache it because the generation matches.
+    /// The fix: if `active_flushes > 0` when we record the generation, we skip
+    /// caching entirely.
+    #[test]
+    fn test_caching_race_writer_starts_first() {
+        let col = DBCol::BlockMisc;
+        let key = b"test_key2";
+
+        let db = Arc::new(SyncReadDatabase::new());
+        let store = Store::new(db.clone() as Arc<dyn Database>);
+
+        // Seed the DB with value 1.
+        {
+            let mut su = store.store_update();
+            su.set_ser(col, key, &1u64).unwrap();
+            store.write(su.transaction).unwrap();
+        }
+
+        // We need to simulate: writer pops cache and increments active_flushes,
+        // THEN reader records generation, THEN reader reads from DB (old value),
+        // THEN writer writes to DB and decrements active_flushes, THEN reader
+        // tries to cache.
+        //
+        // We achieve this by:
+        // 1. Writer pops cache (via Store::write pre-phase) — we simulate this
+        //    by manually manipulating the cache.
+        // 2. Reader does caching_get_ser with a slow DB read.
+        // 3. During the slow read, writer finishes.
+        //
+        // But Store::write does pop+write+decrement atomically from the caller's
+        // perspective. To split them, we use SyncReadDatabase on the WRITER side:
+        // make the writer's DB write block until the reader has started.
+        //
+        // Actually, the simplest approach: manipulate the cache directly.
+
+        // Step 1: Simulate writer's pre-write phase: pop key, bump generation,
+        // set active_flushes.
+        {
+            let cache = store.cache.work_with(col).unwrap();
+            let mut lock = cache.lock();
+            lock.values.pop(key.as_ref());
+            lock.active_flushes += 1;
+            lock.generation += 1;
+        }
+
+        // Step 2: Reader calls caching_get_ser. It will:
+        // - Cache miss (key was popped)
+        // - Record generation (the bumped one). If active_flushes > 0, can_cache = None.
+        // - Read from DB → gets 1 (writer hasn't written yet)
+        // But we need the writer to finish before the reader tries to cache.
+        // Use the SyncReadDatabase: arm it so the reader pauses during DB read.
+        let read_done = Arc::new(Barrier::new(2));
+        let cont = Arc::new(Barrier::new(2));
+        db.arm(read_done.clone(), cont.clone());
+
+        let store2 = store.clone();
+        let reader = std::thread::spawn(move || {
+            let result: Option<Arc<u64>> = store2.caching_get_ser(col, key).unwrap();
+            *result.unwrap()
+        });
+
+        // Wait for reader to finish DB read (still has old value 1).
+        read_done.wait();
+
+        // Step 3: Simulate writer finishing: write new value to DB, decrement
+        // active_flushes.
+        {
+            // Write directly to inner DB.
+            let data = borsh::to_vec(&2u64).unwrap();
+            db.inner.write(DBTransaction {
+                ops: vec![DBOp::Set { col, key: key.to_vec(), value: data }],
+            });
+            let cache = store.cache.work_with(col).unwrap();
+            cache.lock().active_flushes -= 1;
+        }
+
+        // Let reader continue to try caching.
+        cont.wait();
+
+        let reader_result = reader.join().unwrap();
+        assert_eq!(reader_result, 1); // reader's in-flight result is old, that's OK
+
+        // Critical: fresh read must return 2, not stale cached 1.
+        let fresh: Arc<u64> = store.caching_get_ser(col, key).unwrap().unwrap();
+        assert_eq!(*fresh, 2, "cache returned stale value (writer-starts-first race)");
     }
 }
