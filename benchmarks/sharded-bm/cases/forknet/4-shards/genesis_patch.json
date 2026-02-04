@@ -1,7 +1,7 @@
 {
   "chain_id": "benchmarknet",
   "transaction_validity_period": 500,
-  "epoch_length": 50000,
+  "epoch_length": 500,
   "gas_limit": "30000000000000000",
   "shard_layout": {
     "V2": {
