@@ -804,10 +804,22 @@ impl ChunkExecutorActor {
         };
 
         let prev_chunk_chunk_extra = chunk_context.prev_chunk_chunk_extra;
+        // In SPICE, uncertified chunks at epoch boundary may contain staking
+        // proposals that haven't been processed by EpochManager. Append them
+        // so the runtime's last_proposals fold picks the most recent per account.
+        let is_epoch_start =
+            self.epoch_manager.is_next_block_epoch_start(&block_context.prev_block_hash)?;
+        let prev_validator_proposals = if is_epoch_start {
+            let shard_id = chunk_context.shard_uid.shard_id();
+            self.core_reader
+                .get_uncertified_validator_proposals(&block_context.prev_block_hash, shard_id)?
+        } else {
+            vec![]
+        };
         let shard_update_reason = ShardUpdateReason::NewChunk(NewChunkData {
             gas_limit: prev_chunk_chunk_extra.gas_limit(),
             prev_state_root: *prev_chunk_chunk_extra.state_root(),
-            prev_validator_proposals: prev_chunk_chunk_extra.validator_proposals().collect(),
+            prev_validator_proposals,
             chunk_hash,
             transactions,
             receipts,
