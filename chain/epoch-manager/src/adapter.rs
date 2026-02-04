@@ -92,7 +92,7 @@ pub trait EpochManagerAdapter: Send + Sync {
             Err(err @ EpochError::IOErr(_)) => Err(err),
             Err(EpochError::EpochOutOfBounds(_) | EpochError::MissingBlock(_)) => Ok(false),
             Err(err) => {
-                tracing::warn!(target: "epoch_manager", ?err, "unexpected error in is_last_block_in_finished_epoch");
+                tracing::warn!(?err, "unexpected error in is_last_block_in_finished_epoch");
                 Ok(false)
             }
         }

@@ -153,9 +153,13 @@ pub(super) async fn run_state_sync_for_shard(
         store.exists(DBCol::StatePartsApplied, &key_bytes)
     });
     if apply_parts_started {
-        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "not clearing flat storage before applying state parts because some parts were already applied");
+        tracing::debug!(
+            ?shard_id,
+            ?sync_hash,
+            "not clearing flat storage before applying state parts because some parts were already applied"
+        );
     } else {
-        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, "clearing flat storage before applying state parts");
+        tracing::debug!(?shard_id, ?sync_hash, "clearing flat storage before applying state parts");
         let mut store_update = store.store_update();
         runtime
             .get_flat_storage_manager()
@@ -255,7 +259,12 @@ fn create_flat_storage_for_shard(
     let flat_head_prev_hash = *flat_head_header.prev_hash();
     let flat_head_height = flat_head_header.height();
 
-    tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
+    tracing::debug!(
+        ?shard_uid,
+        ?flat_head_hash,
+        flat_head_height,
+        "set_state_finalize - initialized flat storage"
+    );
 
     let mut store_update = store.flat_store().store_update();
     store_update.set_flat_storage_status(
@@ -296,7 +305,7 @@ async fn apply_state_part(
     let key_bytes = borsh::to_vec(&key).unwrap();
     let already_applied = store.exists(DBCol::StatePartsApplied, &key_bytes);
     if already_applied {
-        tracing::debug!(target: "sync", ?key, "state part already applied, skipping");
+        tracing::debug!(?key, "state part already applied, skipping");
         return Ok(StatePartApplyResult::AlreadyApplied);
     }
     return_if_cancelled!(cancel);
@@ -322,7 +331,7 @@ async fn apply_state_part(
         &state_part,
         &epoch_id,
     )?;
-    tracing::debug!(target: "sync", ?key, "applied state part");
+    tracing::debug!(?key, "applied state part");
 
     // Mark part as applied.
     let mut store_update = store.store_update();

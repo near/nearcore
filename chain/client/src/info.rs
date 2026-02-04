@@ -255,7 +255,7 @@ impl InfoHelper {
                 let chunk_producers_settlement = &epoch_info.chunk_producers_settlement();
                 let chunk_producers = chunk_producers_settlement.get(shard_index);
                 let Some(chunk_producers) = chunk_producers else {
-                    tracing::warn!(target: "stats", %shard_id, ?chunk_producers_settlement, "invalid shard id, not found in the shard settlement");
+                    tracing::warn!(%shard_id, ?chunk_producers_settlement, "invalid shard id, not found in the shard settlement");
                     continue;
                 };
                 for &id in chunk_producers {
@@ -450,7 +450,7 @@ impl InfoHelper {
             blocks_info_log,
             machine_info_log
         );
-        tracing::info!(target: "stats", ?node_status);
+        tracing::info!(?node_status);
         log_catchup_status(catchup_status);
         if let Some(config_updater) = &config_updater {
             config_updater.report_status();
@@ -620,7 +620,6 @@ impl InfoHelper {
         let info = chain.get_chain_processing_info();
         let blocks_info = BlocksInfo { blocks_info: info.blocks_info };
         tracing::debug!(
-            target: "stats",
             "{:?} Orphans: {} With missing chunks: {} In processing {}{}",
             epoch_id,
             info.num_orphans,

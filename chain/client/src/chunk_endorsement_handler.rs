@@ -10,7 +10,7 @@ use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 impl Handler<ChunkEndorsementMessage> for ChunkEndorsementHandlerActor {
     fn handle(&mut self, msg: ChunkEndorsementMessage) {
         if let Err(err) = self.chunk_endorsement_tracker.process_chunk_endorsement(msg.0) {
-            tracing::error!(target: "client", ?err, "error processing chunk endorsement");
+            tracing::error!(?err, "error processing chunk endorsement");
         }
     }
 }

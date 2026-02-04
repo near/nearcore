@@ -48,7 +48,7 @@ impl ChunkEndorsementTracker {
         {
             let cache = self.chunk_endorsements.lock();
             if cache.peek(&key).is_some_and(|entry| entry.contains_key(account_id)) {
-                tracing::debug!(target: "client", ?endorsement, "already received chunk endorsement");
+                tracing::debug!(?endorsement, "already received chunk endorsement");
                 return Ok(());
             }
         }

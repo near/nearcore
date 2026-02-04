@@ -68,8 +68,7 @@ impl EpochInfoAggregator {
         shard_layout: &ShardLayout,
         prev_block_height: BlockHeight,
     ) {
-        let _span = tracing::debug_span!(target: "epoch_tracker", "update_tail", prev_block_height)
-            .entered();
+        let _span = tracing::debug_span!("update_tail", prev_block_height).entered();
 
         // Step 1: update block tracer (block-production stats)
 
@@ -86,7 +85,6 @@ impl EpochInfoAggregator {
                     .or_insert(ValidatorStats { produced: 1, expected: 1 });
             } else {
                 tracing::debug!(
-                    target: "epoch_tracker",
                     block_producer = ?epoch_info.validator_account_id(block_producer_id),
                     block_height = height, "missed block");
                 entry
@@ -113,7 +111,6 @@ impl EpochInfoAggregator {
                         *stats.produced_mut() += 1;
                     } else {
                         tracing::debug!(
-                            target: "epoch_tracker",
                             chunk_validator = ?epoch_info.validator_account_id(chunk_producer_id),
                             %shard_id,
                             block_height = prev_block_height + 1,

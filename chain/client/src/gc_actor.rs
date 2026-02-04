@@ -81,17 +81,17 @@ impl GCActor {
 
     fn gc(&mut self) {
         if self.no_gc {
-            tracing::warn!(target: "garbage collection", "GC is disabled");
+            tracing::warn!("GC is disabled");
             return;
         }
         if self.store.head().is_err() {
-            tracing::warn!(target: "garbage collection", "state not initialized yet, head doesn't exist");
+            tracing::warn!("state not initialized yet, head doesn't exist");
             return;
         }
 
         let timer = metrics::GC_TIME.start_timer();
         if let Err(e) = self.clear_data() {
-            tracing::error!(target: "garbage collection", ?e, "error in gc");
+            tracing::error!(?e, "error in gc");
             debug_assert!(false, "Error in GCActor");
         }
         timer.observe_duration();

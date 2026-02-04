@@ -24,7 +24,7 @@ use std::collections::HashMap;
 macro_rules! unwrap_and_report_state_sync_result (($obj: ident) => (match $obj {
     Ok(v) => v,
     Err(err) => {
-        tracing::error!(target: "sync", obj = stringify!($obj), ?err, "sync: unexpected error");
+        tracing::error!(obj = stringify!($obj), ?err, "sync: unexpected error");
         return None;
     }
 }));
@@ -146,7 +146,7 @@ impl SyncHandler {
         // Waiting for all the sync blocks to be available because they are
         // needed to finalize state sync.
         if !blocks_to_request.is_empty() {
-            tracing::debug!(target: "sync", ?blocks_to_request, "waiting for sync blocks");
+            tracing::debug!(?blocks_to_request, "waiting for sync blocks");
             return Some(SyncHandlerRequest::NeedRequestBlocks(blocks_to_request));
         }
 
@@ -156,7 +156,7 @@ impl SyncHandler {
             return None;
         }
 
-        tracing::info!(target: "sync", "state sync: all shards are done");
+        tracing::info!("state sync: all shards are done");
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
         let reset_heads_result = chain.reset_heads_post_state_sync(
@@ -287,7 +287,6 @@ impl SyncHandler {
 
         if (now - *last_time) >= timeout {
             tracing::error!(
-                target: "sync",
                 %block_hash,
                 ?timeout,
                 "state sync: block request timed out"
@@ -313,26 +312,30 @@ impl SyncHandler {
 
         let mut needed_block_hashes = vec![prev_hash, sync_hash];
         let mut extra_block_hashes = chain.get_extra_sync_block_hashes(&prev_hash);
-        tracing::trace!(target: "sync", ?needed_block_hashes, ?extra_block_hashes, "request_sync_blocks: block hashes for state sync");
+        tracing::trace!(
+            ?needed_block_hashes,
+            ?extra_block_hashes,
+            "request_sync_blocks: block hashes for state sync"
+        );
         needed_block_hashes.append(&mut extra_block_hashes);
         let mut blocks_to_request = vec![];
 
         for hash in needed_block_hashes.clone() {
             let (request_block, have_block) = self.sync_block_status(chain, &sync_hash, &hash, now);
-            tracing::trace!(target: "sync", ?hash, ?request_block, ?have_block, "request_sync_blocks");
+            tracing::trace!(?hash, ?request_block, ?have_block, "request_sync_blocks");
 
             if have_block {
                 self.last_time_sync_block_requested.remove(&hash);
             }
 
             if !request_block {
-                tracing::trace!(target: "sync", ?hash, ?have_block, "request_sync_blocks: skipping - no request");
+                tracing::trace!(?hash, ?have_block, "request_sync_blocks: skipping - no request");
                 continue;
             }
 
             let peer_info = highest_height_peers.choose(&mut thread_rng());
             let Some(peer_info) = peer_info else {
-                tracing::trace!(target: "sync", ?hash, "request_sync_blocks: skipping - no peer");
+                tracing::trace!(?hash, "request_sync_blocks: skipping - no peer");
                 continue;
             };
             let peer_id = peer_info.peer_info.id.clone();
@@ -340,7 +343,10 @@ impl SyncHandler {
             blocks_to_request.push((hash, peer_id));
         }
 
-        tracing::trace!(target: "sync", num_blocks_to_request = blocks_to_request.len(), "request_sync_blocks: done");
+        tracing::trace!(
+            num_blocks_to_request = blocks_to_request.len(),
+            "request_sync_blocks: done"
+        );
 
         blocks_to_request
     }

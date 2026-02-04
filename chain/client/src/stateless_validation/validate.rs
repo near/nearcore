@@ -69,7 +69,6 @@ pub fn validate_partial_encoded_state_witness(
     let ChunkProductionKey { shard_id, epoch_id, height_created } =
         partial_witness.chunk_production_key();
     let _span = tracing::debug_span!(
-        target: "client",
         "validate_partial_encoded_state_witness",
         height = %height_created,
         shard_id = %shard_id,
@@ -135,7 +134,6 @@ pub fn validate_chunk_endorsement(
     store: &Store,
 ) -> Result<ChunkRelevance, Error> {
     let _span = tracing::debug_span!(
-        target: "stateless_validation",
         "validate_chunk_endorsement",
         height = endorsement.chunk_production_key().height_created,
         shard_id = %endorsement.chunk_production_key().shard_id,
@@ -236,11 +234,7 @@ fn validate_chunk_relevant(
     let height_created = chunk_production_key.height_created;
 
     if !epoch_manager.get_shard_layout(&epoch_id)?.shard_ids().contains(&shard_id) {
-        tracing::error!(
-            target: "stateless_validation",
-            ?chunk_production_key,
-            "shard id is not in the shard layout of the epoch"
-        );
+        tracing::error!(?chunk_production_key, "shard id is not in the shard layout of the epoch");
         return Err(Error::InvalidShardId(shard_id));
     }
 
@@ -257,7 +251,6 @@ fn validate_chunk_relevant(
     if let Some(final_head) = final_head {
         if height_created <= final_head.height {
             tracing::debug!(
-                target: "stateless_validation",
                 ?chunk_production_key,
                 final_head_height = final_head.height,
                 "skipping because height created is not greater than final head height",
@@ -268,7 +261,6 @@ fn validate_chunk_relevant(
     if let Some(head) = head {
         if height_created > head.height + MAX_HEIGHTS_AHEAD {
             tracing::debug!(
-                target: "stateless_validation",
                 ?chunk_production_key,
                 head_height = head.height,
                 %MAX_HEIGHTS_AHEAD,
@@ -286,7 +278,6 @@ fn validate_chunk_relevant(
             epoch_manager.possible_epochs_of_height_around_tip(&head, height_created)?;
         if !possible_epochs.contains(&epoch_id) {
             tracing::debug!(
-                target: "stateless_validation",
                 ?chunk_production_key,
                 ?possible_epochs,
                 "skipping because epoch id is not in the possible list of epochs"

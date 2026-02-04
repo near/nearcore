@@ -144,10 +144,7 @@ impl StateRequestActor {
     /// Validates sync hash and returns appropriate action to take.
     fn validate_sync_hash(&self, sync_hash: &CryptoHash) -> SyncHashValidationResult {
         if self.is_sync_hash_from_old_epoch(sync_hash).unwrap_or(false) {
-            tracing::info!(
-                target: "sync",
-                "sync_hash didn't pass validation; belongs to an old epoch"
-            );
+            tracing::info!("sync_hash didn't pass validation; belongs to an old epoch");
             return SyncHashValidationResult::BadRequest;
         }
 
@@ -155,7 +152,6 @@ impl StateRequestActor {
             Ok(true) => SyncHashValidationResult::Valid,
             Ok(false) => {
                 tracing::warn!(
-                    target: "sync",
                     "sync_hash didn't pass validation; possible divergence in sync hash computation"
                 );
                 SyncHashValidationResult::BadRequest
@@ -163,11 +159,11 @@ impl StateRequestActor {
             Err(near_chain::Error::DBNotFoundErr(_)) => {
                 // This case may appear in case of latency in epoch switching.
                 // Request sender is ready to sync but we still didn't get the block.
-                tracing::info!(target: "sync", "can't get sync_hash block for state request");
+                tracing::info!("can't get sync_hash block for state request");
                 SyncHashValidationResult::Invalid
             }
             Err(err) => {
-                tracing::error!(target: "sync", ?err, "failed to verify sync_hash validity");
+                tracing::error!(?err, "failed to verify sync_hash validity");
                 SyncHashValidationResult::Invalid
             }
         }
@@ -238,12 +234,10 @@ impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActo
         let _timer = metrics::STATE_SYNC_REQUEST_TIME
             .with_label_values(&["StateRequestHeader"])
             .start_timer();
-        let _span =
-            tracing::debug_span!(target: "sync", "StateRequestHeader", ?shard_id, ?sync_hash)
-                .entered();
+        let _span = tracing::debug_span!("StateRequestHeader", ?shard_id, ?sync_hash).entered();
 
         if self.throttle_state_sync_request() {
-            tracing::debug!(target: "sync", "throttling state sync request for shard");
+            tracing::debug!("throttling state sync request for shard");
             metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
             return None;
         }
@@ -251,7 +245,7 @@ impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActo
         let protocol_version = self
             .get_protocol_version_from_sync_hash(&sync_hash)
             .inspect_err(|err| {
-                tracing::error!(target: "sync", ?err, "failed to get sync_hash protocol version");
+                tracing::error!(?err, "failed to get sync_hash protocol version");
             })
             .ok()?;
 
@@ -271,11 +265,11 @@ impl Handler<StateRequestHeader, Option<StatePartOrHeader>> for StateRequestActo
 
         let header = self.state_sync_adapter.get_state_response_header(shard_id, sync_hash);
         let Ok(header) = header else {
-            tracing::error!(target: "sync", "cannot build state sync header");
+            tracing::error!("cannot build state sync header");
             return Some(new_header_response_empty(shard_id, sync_hash, protocol_version));
         };
         let ShardStateSyncResponseHeader::V2(header) = header else {
-            tracing::error!(target: "sync", "invalid state sync header format");
+            tracing::error!("invalid state sync header format");
             return None;
         };
 
@@ -290,10 +284,9 @@ impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor 
         let _timer =
             metrics::STATE_SYNC_REQUEST_TIME.with_label_values(&["StateRequestPart"]).start_timer();
         let _span =
-            tracing::debug_span!(target: "sync", "StateRequestPart", ?shard_id, ?sync_hash, part_id)
-                .entered();
+            tracing::debug_span!("StateRequestPart", ?shard_id, ?sync_hash, part_id).entered();
 
-        tracing::debug!(target: "sync", "handle state request part");
+        tracing::debug!("handle state request part");
 
         if self.throttle_state_sync_request() {
             metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
@@ -303,11 +296,11 @@ impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor 
         let protocol_version = self
             .get_protocol_version_from_sync_hash(&sync_hash)
             .inspect_err(|err| {
-                tracing::error!(target: "sync", ?err, "failed to get sync_hash protocol version");
+                tracing::error!(?err, "failed to get sync_hash protocol version");
             })
             .ok()?;
 
-        tracing::debug!(target: "sync", "computing state request part");
+        tracing::debug!("computing state request part");
         match self.validate_sync_hash(&sync_hash) {
             SyncHashValidationResult::Valid => {
                 // The request is valid - proceed.
@@ -324,10 +317,10 @@ impl Handler<StateRequestPart, Option<StatePartOrHeader>> for StateRequestActor 
 
         let part = self.state_sync_adapter.get_state_response_part(shard_id, part_id, sync_hash);
         let Ok(part) = part else {
-            tracing::error!(target: "sync", ?part, "cannot build state part");
+            tracing::error!(?part, "cannot build state part");
             return Some(new_part_response_empty(shard_id, sync_hash, protocol_version));
         };
-        tracing::trace!(target: "sync", "finished computation for state request part");
+        tracing::trace!("finished computation for state request part");
 
         let response =
             new_part_response(shard_id, sync_hash, part_id, Some(part), protocol_version);
