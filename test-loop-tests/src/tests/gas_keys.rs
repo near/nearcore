@@ -48,6 +48,20 @@ fn query_gas_key_and_balance(
     (view, balance)
 }
 
+fn assert_function_call_error(outcome: &FinalExecutionOutcomeView) {
+    assert!(
+        matches!(
+            outcome.status,
+            FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+                kind: ActionErrorKind::FunctionCallError(_),
+                ..
+            }))
+        ),
+        "expected FunctionCallError, got {:?}",
+        outcome.status,
+    );
+}
+
 fn total_tokens_burnt(outcome: &FinalExecutionOutcomeView) -> Balance {
     std::iter::once(&outcome.transaction_outcome)
         .chain(&outcome.receipts_outcome)
@@ -287,13 +301,7 @@ fn test_gas_key_refund() {
     rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
 
     // The function call should have failed (no contract on receiver).
-    assert!(matches!(
-        outcome.status,
-        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
-            kind: ActionErrorKind::FunctionCallError(_),
-            ..
-        }))
-    ));
+    assert_function_call_error(&outcome);
     let tokens_burnt = total_tokens_burnt(&outcome);
     assert!(!tokens_burnt.is_zero());
 
