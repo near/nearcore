@@ -898,6 +898,278 @@ fn test_spice_chain_with_missing_chunks() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_staking() {
+    init_test_logger();
+    let builder = TestLoopBuilder::new();
+
+    let num_block_producers = 4;
+    let num_validators = 5;
+    let epoch_length = 10;
+    let genesis_height = 10000;
+
+    let block_and_chunk_producers: Vec<AccountId> =
+        (0..num_block_producers).map(|i| format!("account{i}").parse().unwrap()).collect_vec();
+    let validators_only: Vec<AccountId> =
+        (0..num_validators).map(|i| format!("validator{i}").parse().unwrap()).collect_vec();
+    let new_staker: AccountId = "new-staker".parse().unwrap();
+
+    let clients: Vec<AccountId> = block_and_chunk_producers
+        .iter()
+        .chain(validators_only.iter())
+        .chain(std::iter::once(&new_staker))
+        .cloned()
+        .collect();
+
+    let shard_layout =
+        ShardLayout::multi_shard_custom(vec!["boundary".parse::<AccountId>().unwrap()], 1);
+    let validators_spec = ValidatorsSpec::desired_roles(
+        &block_and_chunk_producers.iter().map(|a| a.as_str()).collect_vec(),
+        &validators_only.iter().map(|a| a.as_str()).collect_vec(),
+    );
+
+    const INITIAL_BALANCE: Balance = Balance::from_near(1_000_000);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&[new_staker.clone()], INITIAL_BALANCE)
+        .genesis_height(genesis_height)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .build()
+        .warmup();
+
+    let client_handles =
+        node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
+
+    // Verify new_staker is NOT in the initial validator set.
+    {
+        let client = &test_loop.data.get(&client_handles[0]).client;
+        let validators = crate::utils::validators::get_epoch_all_validators(client);
+        assert!(
+            !validators.contains(&new_staker.to_string()),
+            "new_staker should not be a validator initially"
+        );
+    }
+
+    // Submit stake transaction.
+    let node_data = Arc::new(node_datas.to_vec());
+    let new_staker_clone = new_staker.clone();
+    test_loop.send_adhoc_event("stake_transaction".to_string(), move |data| {
+        let clients: Vec<&near_client::Client> =
+            node_data.iter().map(|d| &data.get(&d.client_sender.actor_handle()).client).collect();
+        let anchor_hash = get_anchor_hash(&clients);
+        let signer = create_user_test_signer(&new_staker_clone);
+        let tx = SignedTransaction::stake(
+            1,
+            new_staker_clone.clone(),
+            &signer,
+            Balance::from_near(10_000),
+            signer.public_key(),
+            anchor_hash,
+        );
+        let process_tx_request =
+            ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+        node_data[0].rpc_handler_sender.send(process_tx_request);
+    });
+
+    // Run for enough epochs for the staking proposal to take effect.
+    // Stake in epoch 0 -> proposal processed at epoch 0->1 boundary -> active in epoch 2.
+    test_loop.run_until(
+        |test_loop_data| {
+            let client = &test_loop_data.get(&client_handles[0]).client;
+            let head = client.chain.head().unwrap();
+            head.height > genesis_height + epoch_length * 2
+        },
+        Duration::seconds(60),
+    );
+
+    // Verify new_staker IS now in the validator set.
+    let client = &test_loop.data.get(&client_handles[0]).client;
+    let validators = crate::utils::validators::get_epoch_all_validators(client);
+    assert!(
+        validators.contains(&new_staker.to_string()),
+        "new_staker should be a validator after staking, validators: {:?}",
+        validators
+    );
+
+    TestLoopEnv { test_loop, node_datas, shared_state }
+        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_uncertified_restake_prevents_stake_return() {
+    init_test_logger();
+
+    let num_block_producers = 4;
+    let num_validators = 5;
+    let epoch_length: u64 = 10;
+    let genesis_height: u64 = 10000;
+    let endorsement_delay: u64 = 4;
+
+    let block_and_chunk_producers: Vec<AccountId> =
+        (0..num_block_producers).map(|i| format!("account{i}").parse().unwrap()).collect_vec();
+    let validators_only: Vec<AccountId> =
+        (0..num_validators).map(|i| format!("validator{i}").parse().unwrap()).collect_vec();
+
+    // validator0 will unstake and later re-stake in an uncertified chunk.
+    let unstaker: AccountId = "validator0".parse().unwrap();
+    let unstaker_initial_stake = Balance::from_near(10000 - num_block_producers as u128);
+
+    let clients: Vec<AccountId> =
+        block_and_chunk_producers.iter().chain(validators_only.iter()).cloned().collect();
+
+    let validators_spec = ValidatorsSpec::desired_roles(
+        &block_and_chunk_producers.iter().map(|a| a.as_str()).collect_vec(),
+        &validators_only.iter().map(|a| a.as_str()).collect_vec(),
+    );
+
+    const INITIAL_BALANCE: Balance = Balance::from_near(1_000_000);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(epoch_length)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&[unstaker.clone()], INITIAL_BALANCE)
+        .genesis_height(genesis_height)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
+
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .build();
+
+    delay_endorsements_propagation(&mut env, endorsement_delay);
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = env.warmup();
+
+    let client_handles =
+        node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
+
+    // Submit unstake transaction (stake = 0) in the first epoch.
+    {
+        let node_data = Arc::new(node_datas.to_vec());
+        let unstaker = unstaker.clone();
+        test_loop.send_adhoc_event("unstake_tx".to_string(), move |data| {
+            let clients: Vec<&near_client::Client> = node_data
+                .iter()
+                .map(|d| &data.get(&d.client_sender.actor_handle()).client)
+                .collect();
+            let anchor_hash = get_anchor_hash(&clients);
+            let signer = create_user_test_signer(&unstaker);
+            let tx = SignedTransaction::stake(
+                1,
+                unstaker.clone(),
+                &signer,
+                Balance::ZERO,
+                signer.public_key(),
+                anchor_hash,
+            );
+            node_data[0].rpc_handler_sender.send(ProcessTxRequest {
+                transaction: tx,
+                is_forwarded: false,
+                check_only: false,
+            });
+        });
+    }
+
+    // Run until a few blocks before the E4->E5 boundary where stake return would
+    // happen (max_of_stakes across the 3-epoch window becomes 0 at this boundary).
+    // Unstake in E0 -> active in E0,E1 -> inactive from E2 -> 3-epoch window
+    // covers E2,E3,E4 with 0 stake -> return at E4->E5 boundary.
+    let epoch_boundary = genesis_height + 5 * epoch_length;
+    let restake_submit_height = epoch_boundary - 3;
+    {
+        let client_handles = client_handles.clone();
+        test_loop.run_until(
+            move |test_loop_data| {
+                let client = &test_loop_data.get(&client_handles[0]).client;
+                client.chain.head().unwrap().height >= restake_submit_height
+            },
+            Duration::seconds(60),
+        );
+    }
+
+    // Submit re-stake transaction near the end of E4. With endorsement delay,
+    // this tx will land in an uncertified chunk, and its stake proposal should
+    // be picked up by get_uncertified_validator_proposals at the epoch boundary.
+    {
+        let node_data = Arc::new(node_datas.to_vec());
+        let unstaker = unstaker.clone();
+        test_loop.send_adhoc_event("restake_tx".to_string(), move |data| {
+            let clients: Vec<&near_client::Client> = node_data
+                .iter()
+                .map(|d| &data.get(&d.client_sender.actor_handle()).client)
+                .collect();
+            let anchor_hash = get_anchor_hash(&clients);
+            let signer = create_user_test_signer(&unstaker);
+            let tx = SignedTransaction::stake(
+                2,
+                unstaker.clone(),
+                &signer,
+                unstaker_initial_stake,
+                signer.public_key(),
+                anchor_hash,
+            );
+            node_data[0].rpc_handler_sender.send(ProcessTxRequest {
+                transaction: tx,
+                is_forwarded: false,
+                check_only: false,
+            });
+        });
+    }
+
+    // Run past the epoch boundary, plus extra blocks for execution to process it.
+    {
+        let client_handles = client_handles.clone();
+        let target_height = epoch_boundary + endorsement_delay + 2;
+        test_loop.run_until(
+            move |test_loop_data| {
+                let client = &test_loop_data.get(&client_handles[0]).client;
+                client.chain.head().unwrap().height > target_height
+            },
+            Duration::seconds(60),
+        );
+    }
+
+    // Verify the re-stake proposal landed in an uncertified chunk at the epoch boundary.
+    let client = &test_loop.data.get(&client_handles[0]).client;
+    let last_block_hash =
+        client.chain.chain_store.get_block_hash_by_height(epoch_boundary - 1).unwrap();
+    let uncertified_proposals = client
+        .chain
+        .spice_core_reader
+        .get_uncertified_validator_proposals(&last_block_hash, ShardId::new(0))
+        .unwrap();
+    assert!(
+        uncertified_proposals.iter().any(|p| p.account_id() == &unstaker),
+        "re-stake proposal should be in uncertified chunks, got: {:?}",
+        uncertified_proposals
+    );
+
+    // Verify that the unstaker's locked balance was NOT returned. Without the
+    // uncertified re-stake proposal in last_proposals, the return_stake formula
+    // (locked - max(max_of_stakes, last_proposal)) would have returned the full
+    // locked balance since max_of_stakes = 0 at this boundary.
+    let view_client_handle = node_datas[0].view_client_sender.actor_handle();
+    let view_client = test_loop.data.get_mut(&view_client_handle);
+    let account = query_view_account(view_client, unstaker);
+    assert!(
+        account.locked > Balance::ZERO,
+        "stake should NOT have been returned due to uncertified re-stake, locked = {}",
+        account.locked
+    );
+
+    TestLoopEnv { test_loop, node_datas, shared_state }
+        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
 fn schedule_send_money_txs(
     node_datas: &[crate::setup::state::NodeExecutionData],
     accounts: &[AccountId],
