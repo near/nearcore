@@ -78,7 +78,7 @@ impl Store {
             return self.get_ser::<T>(column, key).map(|v| v.map(Into::into));
         };
 
-        {
+        let cached_generation = {
             let mut lock = cache.lock();
             if let Some(value) = lock.values.get(key) {
                 if let Some(value) = value {
@@ -100,7 +100,12 @@ impl Store {
                     return Ok(None);
                 }
             }
-        }
+            // If a writer is in progress (active_flushes > 0) the DB may contain
+            // stale data, so we must not cache. Otherwise, we snapshot the
+            // generation counter and will verify it hasn't changed after the
+            // (potentially slow) DB read completes.
+            if lock.active_flushes > 0 { None } else { Some(lock.generation) }
+        };
 
         let value = match self.get_ser::<T>(column, key) {
             Ok(Some(value)) => Some(Arc::from(value)),
@@ -109,7 +114,7 @@ impl Store {
         };
 
         let mut lock = cache.lock();
-        if lock.active_flushes == 0 {
+        if cached_generation == Some(lock.generation) && lock.active_flushes == 0 {
             if let Some(v) = value.as_ref() {
                 lock.values.put(key.into(), Some(Arc::clone(v) as _));
             } else if lock.store_none_values() {
@@ -238,6 +243,7 @@ impl Store {
                     let Some(cache) = self.cache.work_with(*col) else { continue };
                     let mut lock = cache.lock();
                     lock.active_flushes += 1;
+                    lock.generation += 1;
                     keys_flushed[*col] += 1;
                     lock.values.pop(key);
                 }
@@ -245,6 +251,7 @@ impl Store {
                     let Some(cache) = self.cache.work_with(*col) else { continue };
                     let mut lock = cache.lock();
                     lock.active_flushes += 1;
+                    lock.generation += 1;
                     keys_flushed[*col] += 1;
                     lock.values.clear();
                 }
@@ -605,5 +612,147 @@ impl fmt::Debug for StoreUpdate {
             }
         }
         writeln!(f, "}}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::TestDB;
+    use crate::deserialized_column::Cache;
+    use parking_lot::Mutex;
+
+    const COL: DBCol = DBCol::BlockMisc;
+    type Hook = Box<dyn FnOnce() + Send>;
+
+    /// Database wrapper that runs a callback between reading from the DB and
+    /// returning the value, allowing a test to inject writes at that exact point.
+    struct HookDatabase {
+        inner: TestDB,
+        hook: Mutex<Option<Hook>>,
+    }
+
+    impl HookDatabase {
+        fn new() -> Self {
+            Self { inner: TestDB::default(), hook: Mutex::new(None) }
+        }
+        fn set_hook(&self, f: Hook) {
+            *self.hook.lock() = Some(f);
+        }
+    }
+
+    impl Database for HookDatabase {
+        fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
+            let value = self.inner.get_raw_bytes(col, key);
+            if let Some(hook) = self.hook.lock().take() {
+                hook();
+            }
+            value
+        }
+        fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+            self.inner.iter(col)
+        }
+        fn iter_prefix<'a>(&'a self, col: DBCol, p: &'a [u8]) -> DBIterator<'a> {
+            self.inner.iter_prefix(col, p)
+        }
+        fn iter_range<'a>(
+            &'a self,
+            col: DBCol,
+            lo: Option<&[u8]>,
+            hi: Option<&[u8]>,
+        ) -> DBIterator<'a> {
+            self.inner.iter_range(col, lo, hi)
+        }
+        fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+            self.inner.iter_raw_bytes(col)
+        }
+        fn write(&self, batch: DBTransaction) {
+            self.inner.write(batch)
+        }
+        fn flush(&self) {}
+        fn compact(&self) {}
+        fn get_store_statistics(&self) -> Option<StoreStatistics> {
+            None
+        }
+        fn create_checkpoint(
+            &self,
+            _: &std::path::Path,
+            _: Option<&[DBCol]>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn deserialized_column_cache(&self) -> Arc<Cache> {
+            self.inner.deserialized_column_cache()
+        }
+    }
+
+    fn new_store() -> (Arc<HookDatabase>, Store) {
+        let db = Arc::new(HookDatabase::new());
+        let store = Store::new(db.clone() as Arc<dyn Database>);
+        (db, store)
+    }
+
+    fn set_and_write(store: &Store, key: &[u8], val: u64) {
+        let mut su = store.store_update();
+        su.set_ser(COL, key, &val).unwrap();
+        store.write(su.transaction).unwrap();
+    }
+
+    fn read_cached(store: &Store, key: &[u8]) -> u64 {
+        *store.caching_get_ser::<u64>(COL, key).unwrap().unwrap()
+    }
+
+    /// Writer completes a full write cycle while the reader is between its DB
+    /// read and cache store. Without the generation counter the reader would
+    /// cache the stale value it read.
+    #[test]
+    fn test_caching_race_stale_value() {
+        let key = b"test_key";
+        let (db, store) = new_store();
+        set_and_write(&store, key, 1);
+
+        // The hook fires after the DB read returns 1 but before caching_get_ser
+        // tries to store it in the cache. We write value 2 in this window.
+        let store2 = store.clone();
+        db.set_hook(Box::new(move || {
+            set_and_write(&store2, key, 2);
+        }));
+
+        // This call reads 1 from DB, the hook writes 2, then it tries to cache.
+        assert_eq!(read_cached(&store, key), 1);
+        // A fresh read must see 2, not a stale cached 1.
+        assert_eq!(read_cached(&store, key), 2, "cache returned stale value");
+    }
+
+    /// Writer is already in progress (active_flushes > 0) when the reader
+    /// snapshots the generation, so the reader must skip caching entirely.
+    #[test]
+    fn test_caching_race_writer_starts_first() {
+        let key = b"test_key2";
+        let (db, store) = new_store();
+        set_and_write(&store, key, 1);
+
+        // Simulate writer's pre-write phase: pop key, bump generation.
+        {
+            let mut lock = store.cache.work_with(COL).unwrap().lock();
+            lock.values.pop(key.as_ref());
+            lock.active_flushes += 1;
+            lock.generation += 1;
+        }
+
+        // The hook fires after the DB read (returning stale 1). We simulate the
+        // writer finishing: write 2 to DB and decrement active_flushes.
+        let db2 = db.clone();
+        let store2 = store.clone();
+        db.set_hook(Box::new(move || {
+            let data = borsh::to_vec(&2u64).unwrap();
+            db2.inner.write(DBTransaction {
+                ops: vec![DBOp::Set { col: COL, key: key.to_vec(), value: data }],
+            });
+            store2.cache.work_with(COL).unwrap().lock().active_flushes -= 1;
+        }));
+
+        assert_eq!(read_cached(&store, key), 1);
+        assert_eq!(read_cached(&store, key), 2, "cache returned stale value");
     }
 }
