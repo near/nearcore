@@ -5,12 +5,15 @@ use near_async::time::Clock;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Block;
 use near_primitives::block_body::SpiceCoreStatement;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::spice_chunk_endorsement::testonly_create_endorsement_core_statement;
 use near_primitives::stateless_validation::spice_chunk_endorsement::{
@@ -18,8 +21,10 @@ use near_primitives::stateless_validation::spice_chunk_endorsement::{
 };
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    BlockExecutionResults, ChunkExecutionResult, ChunkExecutionResultHash, SpiceChunkId,
+    Balance, BlockExecutionResults, ChunkExecutionResult, ChunkExecutionResultHash, ShardId,
+    SpiceChunkId,
 };
 use near_store::adapter::StoreAdapter as _;
 use std::collections::HashMap;
@@ -1369,4 +1374,131 @@ fn endorsement_into_core_statement(endorsement: SpiceChunkEndorsement) -> SpiceC
     verified
         .to_stored()
         .into_core_statement(verified.chunk_id().clone(), verified.account_id().clone())
+}
+
+fn make_chunk_extra_with_proposals(proposals: Vec<ValidatorStake>) -> ChunkExtra {
+    ChunkExtra::new(
+        &CryptoHash::default(),
+        CryptoHash::default(),
+        proposals,
+        Gas::ZERO,
+        Gas::ZERO,
+        Balance::ZERO,
+        Some(CongestionInfo::default()),
+        BandwidthRequests::empty(),
+        None,
+    )
+}
+
+fn save_chunk_extra_for_block(
+    chain: &mut Chain,
+    block: &Block,
+    shard_id: ShardId,
+    chunk_extra: ChunkExtra,
+) {
+    let epoch_id = chain.epoch_manager.get_epoch_id(block.hash()).unwrap();
+    let shard_layout = chain.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+    let mut store_update = chain.chain_store.store_update();
+    store_update.save_chunk_extra(block.hash(), &shard_uid, Arc::new(chunk_extra));
+    store_update.commit().unwrap();
+}
+
+fn test_proposal(account: &str, stake: u128) -> ValidatorStake {
+    let signer = create_test_signer(account);
+    ValidatorStake::new(account.parse().unwrap(), signer.public_key(), Balance::from_near(stake))
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_uncertified_validator_proposals_single_chunk() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+    let block = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block.clone());
+
+    let shard_id = ShardId::new(0);
+    let proposals = vec![test_proposal("test0", 100)];
+    save_chunk_extra_for_block(
+        &mut chain,
+        &block,
+        shard_id,
+        make_chunk_extra_with_proposals(proposals.clone()),
+    );
+
+    let result = core_reader.get_uncertified_validator_proposals(block.hash(), shard_id).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].account_id().as_str(), "test0");
+    assert_eq!(result[0].stake(), Balance::from_near(100));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_uncertified_validator_proposals_multiple_heights_different_accounts() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+
+    let block1 = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block1.clone());
+
+    let block2 = build_block(&mut chain, &block1, vec![]);
+    process_block(&mut chain, block2.clone());
+
+    let shard_id = ShardId::new(0);
+    save_chunk_extra_for_block(
+        &mut chain,
+        &block1,
+        shard_id,
+        make_chunk_extra_with_proposals(vec![test_proposal("test0", 100)]),
+    );
+    save_chunk_extra_for_block(
+        &mut chain,
+        &block2,
+        shard_id,
+        make_chunk_extra_with_proposals(vec![test_proposal("test1", 200)]),
+    );
+
+    let result = core_reader.get_uncertified_validator_proposals(block2.hash(), shard_id).unwrap();
+    assert_eq!(result.len(), 2);
+    // Sorted by height ascending: block1 proposals first, then block2.
+    assert_eq!(result[0].account_id().as_str(), "test0");
+    assert_eq!(result[0].stake(), Balance::from_near(100));
+    assert_eq!(result[1].account_id().as_str(), "test1");
+    assert_eq!(result[1].stake(), Balance::from_near(200));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_uncertified_validator_proposals_multiple_heights_same_account() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+
+    let block1 = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block1.clone());
+
+    let block2 = build_block(&mut chain, &block1, vec![]);
+    process_block(&mut chain, block2.clone());
+
+    let shard_id = ShardId::new(0);
+    save_chunk_extra_for_block(
+        &mut chain,
+        &block1,
+        shard_id,
+        make_chunk_extra_with_proposals(vec![test_proposal("test0", 100)]),
+    );
+    save_chunk_extra_for_block(
+        &mut chain,
+        &block2,
+        shard_id,
+        make_chunk_extra_with_proposals(vec![test_proposal("test0", 200)]),
+    );
+
+    let result = core_reader.get_uncertified_validator_proposals(block2.hash(), shard_id).unwrap();
+    // Both proposals returned in height order. The caller's fold/insert keeps
+    // the last one (height of block2, stake=200) for "test0".
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].account_id().as_str(), "test0");
+    assert_eq!(result[0].stake(), Balance::from_near(100));
+    assert_eq!(result[1].account_id().as_str(), "test0");
+    assert_eq!(result[1].stake(), Balance::from_near(200));
 }
