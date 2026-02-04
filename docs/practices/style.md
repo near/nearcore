@@ -348,14 +348,18 @@ Definitely don't use soft-wrapping. While markdown mostly ignores source level l
 ## [Tracing](https://tracing.rs)
 
 When emitting events and spans with `tracing`, use structured fields rather than
-string formatting to include variable data. Always specify the `target`
-explicitly, using the crate name or module path (e.g. `chain::client`) to group
-related events.
+string formatting to include variable data.
+
+**Do not specify a `target` unless necessary.** By default `tracing` uses the
+module path as the target, which is sufficient for filtering and grouping in
+virtually all cases. Only add an explicit `target:` when there is a concrete
+functional reason, such as a custom subscriber layer that dispatches on a
+specific target string (e.g. `io_tracer`). Adding targets everywhere makes the
+codebase harder to refactor and obscures the actual source of each log line.
 
 ```rust
 // GOOD - structured fields with lowercase message
 debug!(
-    target: "client",
     validator_id = self.client.validator_signer.get().map(|vs| {
         tracing::field::display(vs.validator_id())
     }),
@@ -369,7 +373,6 @@ debug!(
 
 // BAD - inline string formatting with capitalization
 debug!(
-    target: "client",
     "{:?} Received block {} <- {} at {} from {}, requested: {}",
     self.client.validator_signer.get().map(|vs| vs.validator_id()),
     hash,
@@ -390,12 +393,12 @@ when logs are enabled.
 
 ```rust
 // GOOD - explicit qualifier
-tracing::error!(target: "client", ?err, "failed to process");
-tracing::warn!(target: "sync", height, "state sync started");
+tracing::error!(?err, "failed to process");
+tracing::warn!(height, "state sync started");
 
 // BAD - unqualified macros
-error!(target: "client", ?err, "failed to process");
-warn!(target: "sync", height, "state sync started");
+error!(?err, "failed to process");
+warn!(height, "state sync started");
 ```
 
 **Rationale:** Explicit qualification improves code clarity by making it immediately obvious that tracing infrastructure is being used. It also prevents naming conflicts with other logging libraries or macros, and makes the code easier to search and refactor.
@@ -410,27 +413,27 @@ Follow these conventions for consistent, machine-friendly log messages:
 
 ```rust
 // GOOD - comma for continuation
-tracing::warn!(target: "sync", "failed to connect, retrying in 200ms");
-tracing::error!(target: "store", "database locked, waiting for release");
+tracing::warn!("failed to connect, retrying in 200ms");
+tracing::error!("database locked, waiting for release");
 
 // BAD - period creates sentence fragment
-tracing::warn!(target: "sync", "failed to connect. retrying in 200ms");
-tracing::error!(target: "store", "database locked. waiting for release");
+tracing::warn!("failed to connect. retrying in 200ms");
+tracing::error!("database locked. waiting for release");
 ```
 
 **Rationale:** Using commas instead of periods maintains message flow and avoids creating sentence fragments. This keeps messages concise and parsable while still conveying multiple pieces of information.
 
-4. **Fields before message** - Place all structured fields before the message string
-5. **Remove redundant prefixes** - Don't repeat context from `target` or log level
+1. **Fields before message** - Place all structured fields before the message string
+2. **Remove redundant prefixes** - Don't repeat context from log level
 
 ```rust
 // GOOD
-debug!(target: "sync", height, "transition to state sync");
-error!(target: "client", ?err, "failed to process block");
+debug!(height, "transition to state sync");
+error!(?err, "failed to process block");
 
 // BAD
-debug!(target: "sync", "Sync: Transition to State Sync...");
-error!(target: "client", "Error: failed to process block: {:?}", err);
+debug!("Sync: Transition to State Sync...");
+error!("Error: failed to process block: {:?}", err);
 ```
 
 ### Field Formatting
@@ -446,12 +449,11 @@ Use the appropriate prefix for each field type:
 
 ```rust
 log_macro!(
-    target: "target_name",     // 1. Target (always required)
-    field1,                     // 2. Simple field references
-    field2 = expr,              // 3. Computed fields
-    ?debug_field,               // 4. Debug-formatted fields
-    %display_field,             // 5. Display-formatted fields
-    "message string"            // 6. Message always last
+    field1,                     // 1. Simple field references
+    field2 = expr,              // 2. Computed fields
+    ?debug_field,               // 3. Debug-formatted fields
+    %display_field,             // 4. Display-formatted fields
+    "message string"            // 5. Message always last
 );
 ```
 
@@ -462,7 +464,6 @@ log_macro!(
 ```rust
 // GOOD
 warn!(
-    target: "sync",
     %peer = peer.peer_info,
     peer_height = peer.highest_block_height,
     "banning peer for insufficient headers"
@@ -470,7 +471,6 @@ warn!(
 
 // BAD
 warn!(
-    target: "sync",
     "ban a peer: {}, for not providing enough headers. Peer's height: {}",
     peer.peer_info,
     peer.highest_block_height
@@ -482,7 +482,6 @@ warn!(
 ```rust
 // GOOD
 error!(
-    target: "runtime",
     thread_name = "worker",
     task_id = task.id,
     ?err,
@@ -490,7 +489,7 @@ error!(
 );
 
 // BAD - missing context
-error!(target: "runtime", "failed to spawn the thread: {}", err);
+error!("failed to spawn the thread: {}", err);
 ```
 
 **Rationale for these conventions:**
@@ -520,17 +519,19 @@ When instrumenting asynchronous functions the [`#[tracing::instrument]`][instrum
 of yield points will result in incorrect span data and could lead to difficult to troubleshoot
 issues such as stack overflows.
 
-Always explicitly specify the `level`, `target`, and `skip_all` options and do not rely on the
+Always explicitly specify the `level` and `skip_all` options and do not rely on the
 default values. `skip_all` avoids adding all function arguments as span fields which can lead
 recording potentially unnecessary and expensive information. Carefully consider which information
 needs recording and the cost of recording the information when using the `fields` option.
+
+Do not set `target` — the module path default is sufficient. See the note on
+targets in the section above for the rare exception.
 
 [instrument]: https://docs.rs/tracing-attributes/latest/tracing_attributes/attr.instrument.html
 
 ```rust
 #[tracing::instrument(
     level = "trace",
-    target = "network",
     "handle_sync_routing_table",
     skip_all
 )]
@@ -551,7 +552,7 @@ portions of a function without affecting the code structure:
 fn compile_and_serialize_wasmer(code: &[u8]) -> Result<wasmer::Module> {
     // Some code...
     {
-        let _span = tracing::debug_span!(target: "vm", "compile_wasmer").entered();
+        let _span = tracing::debug_span!("compile_wasmer").entered();
         // ...
         // _span will be dropped when this scope ends, terminating the span created above.
         // You can also `drop` it manually, to end the span early with `drop(_span)`.
