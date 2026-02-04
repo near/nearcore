@@ -3827,7 +3827,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     #[cfg(feature = "sandbox")]
     pub fn sandbox_debug_log(&mut self, len: u64, ptr: u64) -> Result<()> {
         let message = self.sandbox_get_utf8_string(len, ptr)?;
-        tracing::debug!(target: "sandbox", message = &message[..]);
+        tracing::debug!(message = &message[..]);
         Ok(())
     }
 

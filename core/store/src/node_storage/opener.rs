@@ -274,7 +274,7 @@ impl<'a> StoreOpener<'a> {
     /// - If the state snapshot is already migrated
     fn migrate_state_snapshots(&self) -> Result<(), StoreOpenerError> {
         if self.migrator.is_none() {
-            tracing::debug!(target: "db_opener", "no migrator found, skipping state snapshots migration");
+            tracing::debug!("no migrator found, skipping state snapshots migration");
             return Ok(());
         }
 
@@ -285,14 +285,13 @@ impl<'a> StoreOpener<'a> {
                 config.state_snapshots_dir().unwrap().to_path_buf()
             }
             StateSnapshotType::Disabled => {
-                tracing::debug!(target: "db_opener", "state snapshots are disabled, skipping state snapshots migration");
+                tracing::debug!("state snapshots are disabled, skipping state snapshots migration");
                 return Ok(());
             }
         };
 
         if !state_snapshots_dir.exists() {
             tracing::debug!(
-                target: "db_opener",
                 ?state_snapshots_dir,
                 "state snapshots directory does not exist, skipping state snapshots migration"
             );
@@ -304,11 +303,7 @@ impl<'a> StoreOpener<'a> {
             let entry = entry?;
             let snapshot_path = entry.path();
             if !entry.file_type()?.is_dir() {
-                tracing::trace!(
-                    target: "db_opener",
-                    ?snapshot_path,
-                    "this entry is not a directory, skipping"
-                );
+                tracing::trace!(?snapshot_path, "this entry is not a directory, skipping");
                 continue;
             }
 
@@ -329,7 +324,7 @@ impl<'a> StoreOpener<'a> {
                 Some(cold) => cold.path.display().to_string(),
                 None => String::from("none"),
             };
-            tracing::info!(target: "db_opener", path=hot_path, cold_path=cold_path, "opening node storage");
+            tracing::info!(path = hot_path, cold_path = cold_path, "opening node storage");
         }
 
         Self::ensure_created(mode, &self.hot)?;
@@ -344,7 +339,7 @@ impl<'a> StoreOpener<'a> {
 
         if let Err(error) = self.migrate_state_snapshots() {
             // If migration fails the node may not be able to share state parts.
-            tracing::error!(target: "db_opener", ?error, "error migrating state snapshots");
+            tracing::error!(?error, "error migrating state snapshots");
         }
 
         let (hot_db, _) = self.hot.open(mode, DB_VERSION)?;
@@ -383,7 +378,11 @@ impl<'a> StoreOpener<'a> {
                 Some(cold) => cold.path.display().to_string(),
                 None => String::from("none"),
             };
-            tracing::info!(target: "db_opener", path=hot_path, cold_path=cold_path, "creating node storage snapshots");
+            tracing::info!(
+                path = hot_path,
+                cold_path = cold_path,
+                "creating node storage snapshots"
+            );
         }
 
         Self::ensure_created(mode, &self.hot)?;
@@ -414,14 +413,14 @@ impl<'a> StoreOpener<'a> {
         let meta = opener.get_metadata()?;
         match meta {
             Some(_) if !mode.must_create() => {
-                tracing::info!(target: "db_opener", path=%opener.path.display(), "the database exists");
+                tracing::info!(path=%opener.path.display(), "the database exists");
                 return Ok(());
             }
             Some(_) => {
                 return Err(StoreOpenerError::DbAlreadyExists);
             }
             None if mode.can_create() => {
-                tracing::info!(target: "db_opener", path=%opener.path.display(), "the database doesn't exist, creating it");
+                tracing::info!(path=%opener.path.display(), "the database doesn't exist, creating it");
 
                 let db = opener.create()?;
                 let store = Store::new(Arc::new(db));
@@ -443,7 +442,7 @@ impl<'a> StoreOpener<'a> {
         temp: Temperature,
     ) -> Result<(), StoreOpenerError> {
         let which: &'static str = temp.into();
-        tracing::debug!(target: "db_opener", path = %opener.path.display(), archive, which, "ensure db kind is correct and set");
+        tracing::debug!(path = %opener.path.display(), archive, which, "ensure db kind is correct and set");
         let store = Self::open_store_unsafe(mode, opener)?;
 
         let current_kind = store.get_db_kind()?;
@@ -464,7 +463,7 @@ impl<'a> StoreOpener<'a> {
 
         // Kind is not set, set it.
         if mode.read_write() {
-            tracing::info!(target: "db_opener", archive, which, ?default_kind, "setting the db kind");
+            tracing::info!(archive, which, ?default_kind, "setting the db kind");
 
             store.set_db_kind(default_kind)?;
             return Ok(());
@@ -486,7 +485,6 @@ impl<'a> StoreOpener<'a> {
         migrator: &Option<&dyn StoreMigrator>,
     ) -> Result<(Snapshot, Snapshot), StoreOpenerError> {
         tracing::debug!(
-            target: "db_opener",
             hot_path = %hot_opener.path.display(),
             cold_path = ?cold_opener.map(|opener| opener.path.display()),
             "ensure db version",
@@ -549,7 +547,6 @@ impl<'a> StoreOpener<'a> {
         // Migrate both stores in lockstep
         for version in version..DB_VERSION {
             tracing::info!(
-                target: "db_opener",
                 hot_path = %hot_opener.path.display(),
                 cold_path = ?cold_opener.map(|opener| opener.path.display()),
                 %version,
@@ -583,7 +580,7 @@ impl<'a> StoreOpener<'a> {
         // Handle nightly version for both stores
         if cfg!(feature = "nightly") {
             let version = 10000;
-            tracing::info!(target: "db_opener", %version, "setting the database version for nightly");
+            tracing::info!(%version, "setting the database version for nightly");
 
             let hot_store = Self::open_store(mode, hot_opener, DB_VERSION)?;
             hot_store.set_db_version(version)?;
@@ -728,9 +725,7 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     checkpoint_base_path: &std::path::Path,
     columns_to_keep: Option<&[DBCol]>,
 ) -> Result<NodeStorage, StoreOpenerError> {
-    let _span =
-        tracing::info_span!(target: "state_snapshot", "checkpoint_hot_storage_and_cleanup_columns")
-            .entered();
+    let _span = tracing::info_span!("checkpoint_hot_storage_and_cleanup_columns").entered();
     if let Some(storage) = hot_store.database().copy_if_test(columns_to_keep) {
         return Ok(NodeStorage::new(storage));
     }

@@ -38,7 +38,7 @@ fn init_flat_storage_for_current_epoch(
     flat_storage_manager: &FlatStorageManager,
 ) -> Result<(), Error> {
     let epoch_id = &chain_head.epoch_id;
-    tracing::debug!(target: "chain", ?epoch_id, "init flat storage for the current epoch");
+    tracing::debug!(?epoch_id, "init flat storage for the current epoch");
 
     let shard_ids = epoch_manager.shard_ids(epoch_id)?;
     for shard_id in shard_ids {
@@ -70,7 +70,7 @@ fn init_flat_storage_for_next_epoch(
     }
 
     let next_epoch_id = &chain_head.next_epoch_id;
-    tracing::debug!(target: "chain", ?next_epoch_id, "init flat storage for the next epoch");
+    tracing::debug!(?next_epoch_id, "init flat storage for the next epoch");
 
     let shard_ids = epoch_manager.shard_ids(next_epoch_id)?;
     for shard_id in shard_ids {

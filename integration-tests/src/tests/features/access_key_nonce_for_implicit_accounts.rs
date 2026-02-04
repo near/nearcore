@@ -487,7 +487,7 @@ fn test_processing_chunks_sanity() {
             .iter()
             .map(|chunk| format!("{:?}", chunk.chunk_hash()))
             .collect::<Vec<_>>();
-        tracing::debug!(target: "chunks", block = %i, chunks = %chunks.join(", "));
+        tracing::debug!(block = %i, chunks = %chunks.join(", "));
         blocks.push(block.clone());
         env.process_block(0, block, Provenance::PRODUCED);
     }
@@ -609,7 +609,6 @@ impl ChunkForwardingOptimizationTestData {
                     );
                 }
                 tracing::debug!(
-                    target: "test",
                     %client_id,
                     ?target,
                     chunk_hash_hex = %hex::encode(&request.chunk_hash.as_bytes()[..4]),
@@ -625,7 +624,6 @@ impl ChunkForwardingOptimizationTestData {
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
                 tracing::debug!(
-                    target: "test",
                     %client_id,
                     %account_id,
                     height = %partial_encoded_chunk.header.height_created(),
@@ -652,7 +650,6 @@ impl ChunkForwardingOptimizationTestData {
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                 tracing::debug!(
-                    target: "test",
                     %client_id,
                     %account_id,
                     hash = %hex::encode(&forward.chunk_hash.as_bytes()[..4]),
@@ -712,7 +709,7 @@ fn test_chunk_forwarding_optimization() {
         if height >= 31 {
             break;
         }
-        tracing::debug!(target: "test", height = %(height + 1), "======= height ======");
+        tracing::debug!(height = %(height + 1), "======= height ======");
         let block = test.env.clients[0].produce_block(height + 1).unwrap().unwrap();
         if block.header().height() > 1 {
             // For any block except the first, the previous block's application at each
@@ -726,7 +723,7 @@ fn test_chunk_forwarding_optimization() {
         }
         // The block producer of course has the complete block so we can process that.
         for i in 0..test.num_validators {
-            tracing::debug!(target: "test", height = %block.header().height(), %i, "processing block as validator");
+            tracing::debug!(height = %block.header().height(), %i, "processing block as validator");
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
@@ -757,7 +754,7 @@ fn test_chunk_forwarding_optimization() {
         test.env.propagate_chunk_state_witnesses_and_endorsements(false);
     }
 
-    tracing::debug!(target: "test",
+    tracing::debug!(
         num_part_ords_requested = %test.num_part_ords_requested,
         num_part_ords_sent_as_partial_encoded_chunk = %test.num_part_ords_sent_as_partial_encoded_chunk,
         num_part_ords_forwarded = %test.num_part_ords_forwarded,

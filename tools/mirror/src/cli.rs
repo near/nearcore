@@ -271,7 +271,9 @@ fn run_async<F: std::future::Future + 'static>(f: F) -> F::Output {
 
 impl MirrorCommand {
     pub fn run(self) -> anyhow::Result<()> {
-        tracing::warn!(target: "mirror", "the mirror command is not stable, and may be removed or changed arbitrarily at any time");
+        tracing::warn!(
+            "the mirror command is not stable, and may be removed or changed arbitrarily at any time"
+        );
 
         match self.subcmd {
             SubCommand::Prepare(r) => r.run(),

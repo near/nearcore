@@ -122,7 +122,6 @@ impl Trie {
             .as_ref()
             .map_or_else(ShardId::max, |chunk_view| chunk_view.shard_uid().shard_id());
         let _span = tracing::debug_span!(
-            target: "state-parts",
             "get_state_part_boundaries",
             %shard_id,
             part_id = part_id.idx,
@@ -144,13 +143,7 @@ impl Trie {
         let boundaries_read_duration = boundaries_read_timer.stop_and_record();
         let recorded_trie = recording_trie.recorded_storage().unwrap();
 
-        tracing::debug!(
-            target: "state-parts",
-            idx,
-            total,
-            ?boundaries_read_duration,
-            "found state part boundaries",
-        );
+        tracing::debug!(idx, total, ?boundaries_read_duration, "found state part boundaries",);
         Ok((recorded_trie.nodes, path_begin, path_end))
     }
 
@@ -169,7 +162,6 @@ impl Trie {
             .as_ref()
             .map_or_else(ShardId::max, |chunk_view| chunk_view.shard_uid().shard_id());
         let _span = tracing::debug_span!(
-            target: "state-parts",
             "get_trie_nodes_for_part_with_flat_storage",
             %shard_id,
             part_id = part_id.idx,
@@ -269,7 +261,6 @@ impl Trie {
         let in_memory_created_nodes =
             trie_values.iter().filter(|entry| !disk_read_hashes.contains(&hash(*entry))).count();
         tracing::debug!(
-            target: "state-parts",
             ?part_id,
             values_ref = value_refs.len(),
             %values_inlined,
@@ -315,7 +306,7 @@ impl Trie {
         let mut iterator = self.disk_iter()?;
         let nodes_list =
             iterator.visit_nodes_interval(path_begin.as_deref(), path_end.as_deref())?;
-        tracing::debug!(target: "state-parts", num_nodes = nodes_list.len());
+        tracing::debug!(num_nodes = nodes_list.len());
 
         Ok(())
     }

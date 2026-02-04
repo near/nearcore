@@ -100,7 +100,7 @@ fn dump_state_changes(
             state_changes_per_shard[shard_index].push(value);
         }
 
-        tracing::info!(target: "state-changes", block_height = block_header.height(), num_state_changes_per_shard = ?state_changes_per_shard.iter().map(|v|v.len()).collect::<Vec<usize>>());
+        tracing::info!(block_height = block_header.height(), num_state_changes_per_shard = ?state_changes_per_shard.iter().map(|v|v.len()).collect::<Vec<usize>>());
         let state_changes : Vec<StateChangesForShard> = state_changes_per_shard.into_iter().enumerate().filter_map(|(shard_index,state_changes)|{
             if state_changes.is_empty() {
                 // Skip serializing state changes for a shard if no state changes were found for this shard in this block.
@@ -121,7 +121,7 @@ fn dump_state_changes(
 
     let state_changes_for_block_range = StateChangesForBlockRange { blocks };
 
-    tracing::info!(target: "state-changes", ?file, "writing state changes to a file");
+    tracing::info!(?file, "writing state changes to a file");
     let data: Vec<u8> = borsh::to_vec(&state_changes_for_block_range).unwrap();
     std::fs::write(&file, data).unwrap();
 }
@@ -178,16 +178,23 @@ fn apply_state_changes(
             if let Ok(block) = chain_store.get_block(block_hash) {
                 let known_state_root = block.chunks()[shard_index].prev_state_root();
                 assert_eq!(known_state_root, state_root);
-                tracing::debug!(target: "state-changes", block_height, ?state_root, "known state root matches");
+                tracing::debug!(block_height, ?state_root, "known state root matches");
             }
 
-            tracing::info!(target: "state-changes", block_height, ?block_hash, ?shard_uid, ?state_root, num_changes = state_changes.len(), "applying state changes");
+            tracing::info!(
+                block_height,
+                ?block_hash,
+                ?shard_uid,
+                ?state_root,
+                num_changes = state_changes.len(),
+                "applying state changes"
+            );
             let trie = runtime.get_trie_for_shard(shard_id, block_hash, state_root, false).unwrap();
 
             let trie_update = trie
                 .update(
                     state_changes.iter().map(|raw_state_changes_with_trie_key| {
-                        tracing::debug!(target: "state-changes", ?raw_state_changes_with_trie_key);
+                        tracing::debug!(?raw_state_changes_with_trie_key);
                         let raw_key = raw_state_changes_with_trie_key.trie_key.to_vec();
                         let data =
                             raw_state_changes_with_trie_key.changes.last().unwrap().data.clone();
@@ -197,7 +204,7 @@ fn apply_state_changes(
                 )
                 .unwrap();
 
-            tracing::info!(target: "state-change", block_height, ?block_hash, ?shard_uid, old_state_root = ?trie_update.old_root, new_state_root = ?trie_update.new_root, "applied state changes");
+            tracing::info!(block_height, ?block_hash, ?shard_uid, old_state_root = ?trie_update.old_root, new_state_root = ?trie_update.new_root, "applied state changes");
             state_root = trie_update.new_root;
 
             let wrapped_trie_changes = WrappedTrieChanges::new(
@@ -213,7 +220,7 @@ fn apply_state_changes(
         }
     }
 
-    tracing::info!(target: "state-changes", ?file, %shard_id, ?state_root, "done applying changes");
+    tracing::info!(?file, %shard_id, ?state_root, "done applying changes");
 }
 
 /// Determines the shard id which produced the StateChange based the row key,

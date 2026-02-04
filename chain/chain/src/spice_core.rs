@@ -207,7 +207,7 @@ impl SpiceCoreReader {
         let prev_uncertified_chunks = self
             .get_uncertified_chunks(block.header().prev_hash())
             .map_err(|err| {
-                tracing::debug!(target: "spice_core", prev_hash=?block.header().prev_hash(), ?err, "failed getting uncertified_chunks");
+                tracing::debug!(prev_hash=?block.header().prev_hash(), ?err, "failed getting uncertified_chunks");
                 NoPrevUncertifiedChunks
             })?;
         let waiting_on_endorsements: HashSet<_> = prev_uncertified_chunks

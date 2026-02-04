@@ -203,7 +203,7 @@ pub fn record_witness_size_metrics(
     witness: &ChunkStateWitness,
 ) {
     if let Err(err) = record_witness_size_metrics_fallible(decoded_size, encoded_size, witness) {
-        tracing::warn!(target: "client", ?err, "failed to record witness size metrics");
+        tracing::warn!(?err, "failed to record witness size metrics");
     }
 }
 

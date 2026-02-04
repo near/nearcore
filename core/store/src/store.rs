@@ -56,7 +56,6 @@ impl Store {
             self.storage.get_raw_bytes(column, &key)
         };
         tracing::trace!(
-            target: "store",
             db_op = "get",
             col = %column,
             key = %StorageKey(key),
@@ -88,7 +87,6 @@ impl Store {
                         Ok(result) => return Ok(Some(result)),
                         Err(_) => {
                             tracing::debug!(
-                                target: "store",
                                 requested = std::any::type_name::<T>(),
                                 "could not downcast an available cached deserialized value"
                             );
@@ -203,7 +201,6 @@ impl Store {
         level = "info",
         // FIXME: start moving things into tighter modules so that its easier to selectively trace
         // specific things.
-        target = "store",
         "Store::load_state_from_file",
         skip_all,
         fields(filename = %filename.display())
@@ -472,7 +469,6 @@ impl StoreUpdate {
 
     #[tracing::instrument(
         level = "trace",
-        target = "store::update",
         // FIXME: start moving things into tighter modules so that its easier to selectively trace
         // specific things.
         "StoreUpdate::commit",
@@ -535,11 +531,10 @@ impl StoreUpdate {
             span.record("delete_range_ops", delete_range_count);
             span.record("total_bytes", total_bytes);
         }
-        if tracing::event_enabled!(target: "store::update::transactions", tracing::Level::TRACE) {
+        if tracing::event_enabled!(tracing::Level::TRACE) {
             for op in &self.transaction.ops {
                 match op {
                     DBOp::Insert { col, key, value } => tracing::trace!(
-                        target: "store::update::transactions",
                         db_op = "insert",
                         %col,
                         key = %StorageKey(key),
@@ -547,7 +542,6 @@ impl StoreUpdate {
                         value = %AbbrBytes(value),
                     ),
                     DBOp::Set { col, key, value } => tracing::trace!(
-                        target: "store::update::transactions",
                         db_op = "set",
                         %col,
                         key = %StorageKey(key),
@@ -555,7 +549,6 @@ impl StoreUpdate {
                         value = %AbbrBytes(value)
                     ),
                     DBOp::UpdateRefcount { col, key, value } => tracing::trace!(
-                        target: "store::update::transactions",
                         db_op = "update_rc",
                         %col,
                         key = %StorageKey(key),
@@ -563,18 +556,15 @@ impl StoreUpdate {
                         value = %AbbrBytes(value)
                     ),
                     DBOp::Delete { col, key } => tracing::trace!(
-                        target: "store::update::transactions",
                         db_op = "delete",
                         %col,
                         key = %StorageKey(key)
                     ),
                     DBOp::DeleteAll { col } => tracing::trace!(
-                        target: "store::update::transactions",
                         db_op = "delete_all",
                         %col
                     ),
                     DBOp::DeleteRange { col, from, to } => tracing::trace!(
-                        target: "store::update::transactions",
                         db_op = "delete_range",
                         %col,
                         from = %StorageKey(from),

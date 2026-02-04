@@ -51,7 +51,6 @@ impl ChainStore {
     ) -> Result<CreateWitnessResult, Error> {
         let chunk_header = chunk.cloned_header();
         let _span = tracing::debug_span!(
-            target: "client",
             "create_state_witness",
             chunk_hash = ?chunk_header.chunk_hash(),
             height = chunk_header.height_created(),

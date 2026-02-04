@@ -162,17 +162,13 @@ impl ChunkProducer {
             .unwrap()
             .take_account_id();
         if signer.validator_id() != &chunk_proposer {
-            tracing::debug!(
-                target: "client",
-                ?chunk_proposer,
-                "not a chunk producer for this height"
-            );
+            tracing::debug!(?chunk_proposer, "not a chunk producer for this height");
             return Ok(None);
         }
 
         #[cfg(feature = "test_features")]
         if self.should_skip_chunk_production(next_height, shard_id) {
-            tracing::debug!(target: "client", "skip chunk production");
+            tracing::debug!("skip chunk production");
             return Ok(None);
         }
 
@@ -233,7 +229,7 @@ impl ChunkProducer {
         Ok(receipts_root)
     }
 
-    #[instrument(target = "client", level = "debug", "produce_chunk_internal", skip_all, fields(
+    #[instrument(level = "debug", "produce_chunk_internal", skip_all, fields(
         height=%next_height,
         %shard_id,
         ?epoch_id,
@@ -265,7 +261,7 @@ impl ChunkProducer {
             // apply block with the new chunk, so we also skip chunk production.
             if !ChainStore::prev_block_is_caught_up(&self.chain, &prev_prev_hash, &prev_block_hash)?
             {
-                tracing::debug!(target: "client", "prev block is not caught up");
+                tracing::debug!("prev block is not caught up");
                 return Err(Error::ChunkProducer(
                     "State for the epoch is not downloaded yet, skipping chunk production"
                         .to_string(),
@@ -273,7 +269,7 @@ impl ChunkProducer {
             }
         }
 
-        tracing::debug!(target: "client", "start producing the chunk");
+        tracing::debug!("start producing the chunk");
 
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
@@ -391,7 +387,6 @@ impl ChunkProducer {
         span.record("chunk_hash", tracing::field::debug(encoded_chunk.chunk_hash()));
         span.record("transactions_num", tracing::field::display(num_filtered_transactions));
         tracing::debug!(
-            target: "client",
             num_filtered_transactions,
             num_outgoing_receipts = outgoing_receipts.len(),
             "finished producing the chunk"
@@ -427,7 +422,6 @@ impl ChunkProducer {
 
     /// Prepares an ordered list of valid transactions from the pool up the limits.
     #[instrument(
-        target = "client",
         level = "debug",
         "producer_prepare_transactions",
         skip_all,
@@ -487,7 +481,6 @@ impl ChunkProducer {
 
         if reintroduced_count < prepared_transactions.transactions.len() {
             tracing::debug!(
-                target: "client",
                 reintroduced_count,
                 num_tx = prepared_transactions.transactions.len(),
                 "reintroduced transactions"
@@ -508,7 +501,6 @@ impl ChunkProducer {
         match adv_produce_chunks {
             AdvProduceChunksMode::StopProduce => {
                 tracing::info!(
-                    target: "adversary",
                     next_block_height,
                     "skipping chunk production due to adversary configuration"
                 );
@@ -550,17 +542,10 @@ impl ChunkProducer {
         };
         let skip_start = window_start + offset;
         let skip_end = skip_start + skip_length;
-        tracing::debug!(
-            target: "adversary",
-            window_start,
-            skip_start,
-            skip_end,
-            "computed chunk skipping window"
-        );
+        tracing::debug!(window_start, skip_start, skip_end, "computed chunk skipping window");
         let should_skip = next_block_height >= skip_start && next_block_height < skip_end;
         if should_skip {
             tracing::info!(
-                target: "adversary",
                 next_block_height,
                 skip_start,
                 skip_end,
@@ -606,7 +591,6 @@ impl ChunkProducer {
 
         let next_height = prev_block_context.height + 1;
         let _span = tracing::debug_span!(
-            target: "client",
             "start_prepare_transactions_job",
             height = next_height,
             shard_id = %shard_uid.shard_id(),
@@ -635,7 +619,7 @@ impl ChunkProducer {
         // Run the preparation job on a separate thread
         self.prepare_transactions_spawner.spawn("prepare_transactions", move || {
             let _span = tracing::debug_span!(
-                target: "client", "run_prepare_transactions_job",
+                "run_prepare_transactions_job",
                 height = next_height,
                 shard_id = %shard_uid.shard_id(),
                 tag_block_production = true)
@@ -677,7 +661,6 @@ impl ChunkProducer {
         let next_height = prev_block.header().height() + 1;
         let Some(result) = self.prepare_transactions_jobs.pop_job_result(prepare_job_key) else {
             tracing::debug!(
-                target: "client",
                 %next_height,
                 %shard_id,
                 ?prev_chunk_shard_update_key,
@@ -691,7 +674,6 @@ impl ChunkProducer {
         match result {
             Err(err) => {
                 tracing::warn!(
-                    target: "client",
                     %next_height,
                     %shard_id,
                     ?prev_chunk_shard_update_key,
@@ -705,7 +687,6 @@ impl ChunkProducer {
             }
             Ok(txs) => {
                 tracing::debug!(
-                    target: "client",
                     %next_height,
                     %shard_id,
                     ?prev_chunk_shard_update_key,

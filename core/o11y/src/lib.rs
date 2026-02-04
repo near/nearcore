@@ -27,8 +27,8 @@ pub mod testonly;
 #[macro_export]
 #[cfg(feature = "io_trace")]
 macro_rules! io_trace {
-    (count: $name:expr) => { tracing::trace!( target: "io_tracer_count", counter = $name) };
-    ($($fields:tt)*) => { tracing::trace!( target: "io_tracer", $($fields)*) };
+    (count: $name:expr) => { tracing::trace!(target: "io_tracer_count", counter = $name) };
+    ($($fields:tt)*) => { tracing::trace!(target: "io_tracer", $($fields)*) };
 }
 
 #[macro_export]

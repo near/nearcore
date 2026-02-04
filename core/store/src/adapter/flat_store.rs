@@ -118,7 +118,7 @@ impl FlatStoreAdapter {
                         if flat_head.hash == prev_hash {
                             Some(BlockWithChangesInfo { hash: prev_hash, height: flat_head.height })
                         } else {
-                            tracing::error!(target: "store", ?block_hash, ?prev_hash, "missing delta metadata");
+                            tracing::error!(?block_hash, ?prev_hash, "missing delta metadata");
                             None
                         }
                     }

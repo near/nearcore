@@ -241,7 +241,6 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::StreamerMessage>
         //     ],
         // }
         tracing::info!(
-            target: "indexer_example",
             height = %streamer_message.block.header.height,
             hash = ?streamer_message.block.header.hash,
             num_shards = %streamer_message.shards.len(),

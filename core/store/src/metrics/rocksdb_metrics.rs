@@ -13,7 +13,7 @@ pub fn export_stats_as_metrics(stats: StoreStatistics, temperature: Temperature)
     match ROCKSDB_METRICS.lock().export_stats_as_metrics(stats, temperature) {
         Ok(_) => {}
         Err(err) => {
-            tracing::warn!(target:"stats", ?temperature, ?err, "failed to export store statistics");
+            tracing::warn!(?temperature, ?err, "failed to export store statistics");
         }
     }
 }

@@ -35,24 +35,24 @@ async fn simple() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "start two nodes");
+    tracing::info!("start two nodes");
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
 
     let id0 = pm0.cfg.node_id();
     let id1 = pm1.cfg.node_id();
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[]).await;
-    tracing::info!(target:"test", %id1, "wait for routing table");
+    tracing::info!(%id1, "wait for routing table");
     pm1.wait_for_routing_table(&[]).await;
 
-    tracing::info!(target:"test", "connect the nodes");
+    tracing::info!("connect the nodes");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[(id1.clone(), vec![id1.clone()])]).await;
-    tracing::info!(target:"test", %id1, "wait for routing table");
+    tracing::info!(%id1, "wait for routing table");
     pm1.wait_for_routing_table(&[(id0.clone(), vec![id0.clone()])]).await;
 }
 
@@ -65,7 +65,7 @@ async fn three_nodes_path() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "connect three nodes in a line");
+    tracing::info!("connect three nodes in a line");
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
@@ -77,19 +77,19 @@ async fn three_nodes_path() {
     let id1 = pm1.cfg.node_id();
     let id2 = pm2.cfg.node_id();
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[
         (id1.clone(), vec![id1.clone()]),
         (id2.clone(), vec![id1.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id1, "wait for routing table");
+    tracing::info!(%id1, "wait for routing table");
     pm1.wait_for_routing_table(&[
         (id0.clone(), vec![id0.clone()]),
         (id2.clone(), vec![id2.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id2, "wait for routing table");
+    tracing::info!(%id2, "wait for routing table");
     pm2.wait_for_routing_table(&[
         (id0.clone(), vec![id1.clone()]),
         (id1.clone(), vec![id1.clone()]),
@@ -106,7 +106,7 @@ async fn three_nodes_star() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "connect three nodes in a line");
+    tracing::info!("connect three nodes in a line");
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
@@ -118,41 +118,41 @@ async fn three_nodes_star() {
     let id1 = pm1.cfg.node_id();
     let id2 = pm2.cfg.node_id();
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[
         (id1.clone(), vec![id1.clone()]),
         (id2.clone(), vec![id1.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id1, "wait for routing table");
+    tracing::info!(%id1, "wait for routing table");
     pm1.wait_for_routing_table(&[
         (id0.clone(), vec![id0.clone()]),
         (id2.clone(), vec![id2.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id2, "wait for routing table");
+    tracing::info!(%id2, "wait for routing table");
     pm2.wait_for_routing_table(&[
         (id0.clone(), vec![id1.clone()]),
         (id1.clone(), vec![id1.clone()]),
     ])
     .await;
 
-    tracing::info!(target:"test", %id0, %id2, "connect nodes");
+    tracing::info!(%id0, %id2, "connect nodes");
     pm0.connect_to(&pm2.peer_info(), tcp::Tier::T2).await;
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[
         (id1.clone(), vec![id1.clone()]),
         (id2.clone(), vec![id2.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id1, "wait for routing table");
+    tracing::info!(%id1, "wait for routing table");
     pm1.wait_for_routing_table(&[
         (id0.clone(), vec![id0.clone()]),
         (id2.clone(), vec![id2.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id2, "wait for routing table");
+    tracing::info!(%id2, "wait for routing table");
     pm2.wait_for_routing_table(&[
         (id0.clone(), vec![id0.clone()]),
         (id1.clone(), vec![id1.clone()]),
@@ -170,7 +170,7 @@ async fn join_components() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "create two connected components having two nodes each");
+    tracing::info!("create two connected components having two nodes each");
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
@@ -184,42 +184,42 @@ async fn join_components() {
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
     pm2.connect_to(&pm3.peer_info(), tcp::Tier::T2).await;
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[(id1.clone(), vec![id1.clone()])]).await;
-    tracing::info!(target:"test", %id1, "wait for routing table");
+    tracing::info!(%id1, "wait for routing table");
     pm1.wait_for_routing_table(&[(id0.clone(), vec![id0.clone()])]).await;
 
-    tracing::info!(target:"test", %id2, "wait for routing table");
+    tracing::info!(%id2, "wait for routing table");
     pm2.wait_for_routing_table(&[(id3.clone(), vec![id3.clone()])]).await;
-    tracing::info!(target:"test", %id3, "wait for routing table");
+    tracing::info!(%id3, "wait for routing table");
     pm3.wait_for_routing_table(&[(id2.clone(), vec![id2.clone()])]).await;
 
-    tracing::info!(target:"test", "join the two components into a square");
+    tracing::info!("join the two components into a square");
     pm0.connect_to(&pm2.peer_info(), tcp::Tier::T2).await;
     pm3.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[
         (id1.clone(), vec![id1.clone()]),
         (id2.clone(), vec![id2.clone()]),
         (id3.clone(), vec![id1.clone(), id2.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id1, "wait for routing table");
+    tracing::info!(%id1, "wait for routing table");
     pm1.wait_for_routing_table(&[
         (id0.clone(), vec![id0.clone()]),
         (id2.clone(), vec![id0.clone(), id3.clone()]),
         (id3.clone(), vec![id3.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id2, "wait for routing table");
+    tracing::info!(%id2, "wait for routing table");
     pm2.wait_for_routing_table(&[
         (id0.clone(), vec![id0.clone()]),
         (id1.clone(), vec![id0.clone(), id3.clone()]),
         (id3.clone(), vec![id3.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id3, "wait for routing table");
+    tracing::info!(%id3, "wait for routing table");
     pm3.wait_for_routing_table(&[
         (id0.clone(), vec![id1.clone(), id2.clone()]),
         (id1.clone(), vec![id1.clone()]),
@@ -241,7 +241,7 @@ async fn simple_remove() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "connect 3 nodes in a line");
+    tracing::info!("connect 3 nodes in a line");
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
@@ -253,31 +253,31 @@ async fn simple_remove() {
     let id1 = pm1.cfg.node_id();
     let id2 = pm2.cfg.node_id();
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[
         (id1.clone(), vec![id1.clone()]),
         (id2.clone(), vec![id1.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id1, "wait for routing table");
+    tracing::info!(%id1, "wait for routing table");
     pm1.wait_for_routing_table(&[
         (id0.clone(), vec![id0.clone()]),
         (id2.clone(), vec![id2.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id2, "wait for routing table");
+    tracing::info!(%id2, "wait for routing table");
     pm2.wait_for_routing_table(&[
         (id0.clone(), vec![id1.clone()]),
         (id1.clone(), vec![id1.clone()]),
     ])
     .await;
 
-    tracing::info!(target:"test", %id1, "stop node");
+    tracing::info!(%id1, "stop node");
     drop(pm1);
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[]).await;
-    tracing::info!(target:"test", %id2, "wait for routing table");
+    tracing::info!(%id2, "wait for routing table");
     pm2.wait_for_routing_table(&[]).await;
 }
 
@@ -332,7 +332,7 @@ async fn ping_simple() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "start two nodes");
+    tracing::info!("start two nodes");
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
 
@@ -341,20 +341,20 @@ async fn ping_simple() {
 
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[(id1.clone(), vec![id1.clone()])]).await;
 
     // capture event streams before pinging
     let mut pm0_ev = pm0.events.from_now();
     let mut pm1_ev = pm1.events.from_now();
 
-    tracing::info!(target:"test", %id0, %id1, "send ping");
+    tracing::info!(%id0, %id1, "send ping");
     pm0.send_ping(&clock.clock(), 0, id1.clone()).await;
 
-    tracing::info!(target:"test", %id1, "await ping");
+    tracing::info!(%id1, "await ping");
     wait_for_ping(&mut pm1_ev, Ping { nonce: 0, source: id0.clone() }).await;
 
-    tracing::info!(target:"test", %id0, "await pong");
+    tracing::info!(%id0, "await pong");
     wait_for_pong(&mut pm0_ev, Pong { nonce: 0, source: id1.clone() }).await;
 
     drop(pm0);
@@ -370,7 +370,7 @@ async fn ping_jump() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "start three nodes");
+    tracing::info!("start three nodes");
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
@@ -379,23 +379,23 @@ async fn ping_jump() {
     let id1 = pm1.cfg.node_id();
     let id2 = pm2.cfg.node_id();
 
-    tracing::info!(target:"test", "connect nodes in a line");
+    tracing::info!("connect nodes in a line");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
     pm1.connect_to(&pm2.peer_info(), tcp::Tier::T2).await;
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[
         (id1.clone(), vec![id1.clone()]),
         (id2.clone(), vec![id1.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id1, "wait for routing table");
+    tracing::info!(%id1, "wait for routing table");
     pm1.wait_for_routing_table(&[
         (id0.clone(), vec![id0.clone()]),
         (id2.clone(), vec![id2.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id2, "wait for routing table");
+    tracing::info!(%id2, "wait for routing table");
     pm2.wait_for_routing_table(&[
         (id0.clone(), vec![id1.clone()]),
         (id1.clone(), vec![id1.clone()]),
@@ -406,13 +406,13 @@ async fn ping_jump() {
     let mut pm0_ev = pm0.events.from_now();
     let mut pm2_ev = pm2.events.from_now();
 
-    tracing::info!(target:"test", %id0, %id2, "send ping");
+    tracing::info!(%id0, %id2, "send ping");
     pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
 
-    tracing::info!(target:"test", %id2, "await ping");
+    tracing::info!(%id2, "await ping");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 0, source: id0.clone() }).await;
 
-    tracing::info!(target:"test", %id0, "await pong");
+    tracing::info!(%id0, "await pong");
     wait_for_pong(&mut pm0_ev, Pong { nonce: 0, source: id2.clone() }).await;
 }
 
@@ -425,7 +425,7 @@ async fn test_dont_drop_after_ttl() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "start three nodes");
+    tracing::info!("start three nodes");
     let mut cfg0 = chain.make_config(rng);
     cfg0.routed_message_ttl = 2;
     let pm0 = start_pm(clock.clock(), TestDB::new(), cfg0, chain.clone()).await;
@@ -436,23 +436,23 @@ async fn test_dont_drop_after_ttl() {
     let id1 = pm1.cfg.node_id();
     let id2 = pm2.cfg.node_id();
 
-    tracing::info!(target:"test", "connect nodes in a line");
+    tracing::info!("connect nodes in a line");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
     pm1.connect_to(&pm2.peer_info(), tcp::Tier::T2).await;
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[
         (id1.clone(), vec![id1.clone()]),
         (id2.clone(), vec![id1.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id1, "wait for routing table");
+    tracing::info!(%id1, "wait for routing table");
     pm1.wait_for_routing_table(&[
         (id0.clone(), vec![id0.clone()]),
         (id2.clone(), vec![id2.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id2, "wait for routing table");
+    tracing::info!(%id2, "wait for routing table");
     pm2.wait_for_routing_table(&[
         (id0.clone(), vec![id1.clone()]),
         (id1.clone(), vec![id1.clone()]),
@@ -463,13 +463,13 @@ async fn test_dont_drop_after_ttl() {
     let mut pm0_ev = pm0.events.from_now();
     let mut pm2_ev = pm2.events.from_now();
 
-    tracing::info!(target:"test", %id0, %id2, "send ping");
+    tracing::info!(%id0, %id2, "send ping");
     pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
 
-    tracing::info!(target:"test", %id2, "await ping");
+    tracing::info!(%id2, "await ping");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 0, source: id0.clone() }).await;
 
-    tracing::info!(target:"test", %id0, "await pong");
+    tracing::info!(%id0, "await pong");
     wait_for_pong(&mut pm0_ev, Pong { nonce: 0, source: id2.clone() }).await;
 }
 
@@ -482,7 +482,7 @@ async fn test_drop_after_ttl() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "start three nodes");
+    tracing::info!("start three nodes");
     let mut cfg0 = chain.make_config(rng);
     cfg0.routed_message_ttl = 1;
     let pm0 = start_pm(clock.clock(), TestDB::new(), cfg0, chain.clone()).await;
@@ -493,23 +493,23 @@ async fn test_drop_after_ttl() {
     let id1 = pm1.cfg.node_id();
     let id2 = pm2.cfg.node_id();
 
-    tracing::info!(target:"test", "connect nodes in a line");
+    tracing::info!("connect nodes in a line");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
     pm1.connect_to(&pm2.peer_info(), tcp::Tier::T2).await;
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[
         (id1.clone(), vec![id1.clone()]),
         (id2.clone(), vec![id1.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id1, "wait for routing table");
+    tracing::info!(%id1, "wait for routing table");
     pm1.wait_for_routing_table(&[
         (id0.clone(), vec![id0.clone()]),
         (id2.clone(), vec![id2.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id2, "wait for routing table");
+    tracing::info!(%id2, "wait for routing table");
     pm2.wait_for_routing_table(&[
         (id0.clone(), vec![id1.clone()]),
         (id1.clone(), vec![id1.clone()]),
@@ -519,10 +519,10 @@ async fn test_drop_after_ttl() {
     // capture event stream before pinging
     let mut pm1_ev = pm1.events.from_now();
 
-    tracing::info!(target:"test", %id0, %id2, "send ping");
+    tracing::info!(%id0, %id2, "send ping");
     pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
 
-    tracing::info!(target:"test", %id1, "await message dropped");
+    tracing::info!(%id1, "await message dropped");
     wait_for_message_dropped(&mut pm1_ev).await;
 }
 
@@ -535,7 +535,7 @@ async fn test_dropping_duplicate_messages() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "start three nodes");
+    tracing::info!("start three nodes");
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
@@ -544,23 +544,23 @@ async fn test_dropping_duplicate_messages() {
     let id1 = pm1.cfg.node_id();
     let id2 = pm2.cfg.node_id();
 
-    tracing::info!(target:"test", "connect nodes in a line");
+    tracing::info!("connect nodes in a line");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
     pm1.connect_to(&pm2.peer_info(), tcp::Tier::T2).await;
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[
         (id1.clone(), vec![id1.clone()]),
         (id2.clone(), vec![id1.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id1, "wait for routing table");
+    tracing::info!(%id1, "wait for routing table");
     pm1.wait_for_routing_table(&[
         (id0.clone(), vec![id0.clone()]),
         (id2.clone(), vec![id2.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id2, "wait for routing table");
+    tracing::info!(%id2, "wait for routing table");
     pm2.wait_for_routing_table(&[
         (id0.clone(), vec![id1.clone()]),
         (id1.clone(), vec![id1.clone()]),
@@ -573,33 +573,33 @@ async fn test_dropping_duplicate_messages() {
     let mut pm2_ev = pm2.events.from_now();
 
     // Send two identical messages. One will be dropped, because the delay between them was less than 50ms.
-    tracing::info!(target:"test", %id0, %id2, "send ping");
+    tracing::info!(%id0, %id2, "send ping");
     pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
-    tracing::info!(target:"test", %id2, "await ping");
+    tracing::info!(%id2, "await ping");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 0, source: id0.clone() }).await;
-    tracing::info!(target:"test", %id0, "await pong");
+    tracing::info!(%id0, "await pong");
     wait_for_pong(&mut pm0_ev, Pong { nonce: 0, source: id2.clone() }).await;
 
-    tracing::info!(target:"test", %id0, %id2, "send ping");
+    tracing::info!(%id0, %id2, "send ping");
     pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
-    tracing::info!(target:"test", %id1, "await message dropped");
+    tracing::info!(%id1, "await message dropped");
     wait_for_message_dropped(&mut pm1_ev).await;
 
     // Send two identical messages but with 300ms delay so they don't get dropped.
-    tracing::info!(target:"test", %id0, %id2, "send ping");
+    tracing::info!(%id0, %id2, "send ping");
     pm0.send_ping(&clock.clock(), 1, id2.clone()).await;
-    tracing::info!(target:"test", %id2, "await ping");
+    tracing::info!(%id2, "await ping");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 1, source: id0.clone() }).await;
-    tracing::info!(target:"test", %id0, "await pong");
+    tracing::info!(%id0, "await pong");
     wait_for_pong(&mut pm0_ev, Pong { nonce: 1, source: id2.clone() }).await;
 
     clock.advance(DROP_DUPLICATED_MESSAGES_PERIOD + time::Duration::milliseconds(1));
 
-    tracing::info!(target:"test", %id0, %id2, "send ping");
+    tracing::info!(%id0, %id2, "send ping");
     pm0.send_ping(&clock.clock(), 1, id2.clone()).await;
-    tracing::info!(target:"test", %id2, "await ping");
+    tracing::info!(%id2, "await ping");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 1, source: id0.clone() }).await;
-    tracing::info!(target:"test", %id0, "await pong");
+    tracing::info!(%id0, "await pong");
     wait_for_pong(&mut pm0_ev, Pong { nonce: 1, source: id2.clone() }).await;
 }
 
@@ -655,7 +655,7 @@ async fn from_boot_nodes() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "start two nodes");
+    tracing::info!("start two nodes");
     let configs = make_configs(&chain, rng, 2, 1, true);
     let pm0 = start_pm(clock.clock(), TestDB::new(), configs[0].clone(), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), configs[1].clone(), chain.clone()).await;
@@ -663,9 +663,9 @@ async fn from_boot_nodes() {
     let id0 = pm0.cfg.node_id();
     let id1 = pm1.cfg.node_id();
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[(id1.clone(), vec![id1.clone()])]).await;
-    tracing::info!(target:"test", %id1, "wait for routing table");
+    tracing::info!(%id1, "wait for routing table");
     pm1.wait_for_routing_table(&[(id0.clone(), vec![id0.clone()])]).await;
 }
 
@@ -678,7 +678,7 @@ async fn blacklist_01() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "start two nodes with 0 blacklisting 1");
+    tracing::info!("start two nodes with 0 blacklisting 1");
     let mut configs = make_configs(&chain, rng, 2, 2, true);
     configs[0].peer_store.blacklist =
         [blacklist::Entry::from_addr(**configs[1].node_addr.as_ref().unwrap())]
@@ -691,16 +691,16 @@ async fn blacklist_01() {
     let id0 = pm0.cfg.node_id();
     let id1 = pm1.cfg.node_id();
 
-    tracing::info!(target:"test", "wait for the connection to be attempted and rejected");
+    tracing::info!("wait for the connection to be attempted and rejected");
     wait_for_connection_closed(
         &mut pm0.events.clone(),
         ClosingReason::RejectedByPeerManager(RegisterPeerError::Blacklisted),
     )
     .await;
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[]).await;
-    tracing::info!(target:"test", %id1, "wait for routing table");
+    tracing::info!(%id1, "wait for routing table");
     pm1.wait_for_routing_table(&[]).await;
 }
 
@@ -713,7 +713,7 @@ async fn blacklist_10() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "start two nodes with 1 blacklisting 0");
+    tracing::info!("start two nodes with 1 blacklisting 0");
     let mut configs = make_configs(&chain, rng, 2, 2, true);
     configs[1].peer_store.blacklist =
         [blacklist::Entry::from_addr(**configs[0].node_addr.as_ref().unwrap())]
@@ -726,16 +726,16 @@ async fn blacklist_10() {
     let id0 = pm0.cfg.node_id();
     let id1 = pm1.cfg.node_id();
 
-    tracing::info!(target:"test", "wait for the connection to be attempted and rejected");
+    tracing::info!("wait for the connection to be attempted and rejected");
     wait_for_connection_closed(
         &mut pm1.events.clone(),
         ClosingReason::RejectedByPeerManager(RegisterPeerError::Blacklisted),
     )
     .await;
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[]).await;
-    tracing::info!(target:"test", %id1, "wait for routing table");
+    tracing::info!(%id1, "wait for routing table");
     pm1.wait_for_routing_table(&[]).await;
 }
 
@@ -748,7 +748,7 @@ async fn blacklist_all() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "start two nodes with 0 blacklisting everything");
+    tracing::info!("start two nodes with 0 blacklisting everything");
     let mut configs = make_configs(&chain, rng, 2, 2, true);
     configs[0].peer_store.blacklist =
         [blacklist::Entry::from_ip(Ipv6Addr::LOCALHOST.into())].into_iter().collect();
@@ -759,16 +759,16 @@ async fn blacklist_all() {
     let id0 = pm0.cfg.node_id();
     let id1 = pm1.cfg.node_id();
 
-    tracing::info!(target:"test", "wait for the connection to be attempted and rejected");
+    tracing::info!("wait for the connection to be attempted and rejected");
     wait_for_connection_closed(
         &mut pm0.events.clone(),
         ClosingReason::RejectedByPeerManager(RegisterPeerError::Blacklisted),
     )
     .await;
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[]).await;
-    tracing::info!(target:"test", %id1, "wait for routing table");
+    tracing::info!(%id1, "wait for routing table");
     pm1.wait_for_routing_table(&[]).await;
 }
 
@@ -782,7 +782,7 @@ async fn max_num_peers_limit() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "start three nodes with max_num_peers=2");
+    tracing::info!("start three nodes with max_num_peers=2");
     let mut configs = make_configs(&chain, rng, 4, 4, false);
     for config in &mut configs {
         config.max_num_peers = 2;
@@ -802,19 +802,19 @@ async fn max_num_peers_limit() {
     pm0.connect_to(&pm2.peer_info(), tcp::Tier::T2).await;
     pm1.connect_to(&pm2.peer_info(), tcp::Tier::T2).await;
 
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[
         (id1.clone(), vec![id1.clone()]),
         (id2.clone(), vec![id2.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id1, "wait for routing table");
+    tracing::info!(%id1, "wait for routing table");
     pm1.wait_for_routing_table(&[
         (id0.clone(), vec![id0.clone()]),
         (id2.clone(), vec![id2.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id2, "wait for routing table");
+    tracing::info!(%id2, "wait for routing table");
     pm2.wait_for_routing_table(&[
         (id0.clone(), vec![id0.clone()]),
         (id1.clone(), vec![id1.clone()]),
@@ -825,26 +825,26 @@ async fn max_num_peers_limit() {
     let mut pm1_ev = pm1.events.from_now();
     let mut pm2_ev = pm2.events.from_now();
 
-    tracing::info!(target:"test", "start a fourth node");
+    tracing::info!("start a fourth node");
     let pm3 = start_pm(clock.clock(), TestDB::new(), configs[3].clone(), chain.clone()).await;
 
     let id3 = pm3.cfg.node_id();
 
-    tracing::info!(target:"test", %id0, "wait to reject attempted connection");
+    tracing::info!(%id0, "wait to reject attempted connection");
     pm3.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
     wait_for_connection_closed(
         &mut pm0_ev,
         ClosingReason::RejectedByPeerManager(RegisterPeerError::ConnectionLimitExceeded),
     )
     .await;
-    tracing::info!(target:"test", %id1, "wait to reject attempted connection");
+    tracing::info!(%id1, "wait to reject attempted connection");
     pm3.send_outbound_connect(&pm1.peer_info(), tcp::Tier::T2).await;
     wait_for_connection_closed(
         &mut pm1_ev,
         ClosingReason::RejectedByPeerManager(RegisterPeerError::ConnectionLimitExceeded),
     )
     .await;
-    tracing::info!(target:"test", %id2, "wait to reject attempted connection");
+    tracing::info!(%id2, "wait to reject attempted connection");
     pm3.send_outbound_connect(&pm2.peer_info(), tcp::Tier::T2).await;
     wait_for_connection_closed(
         &mut pm2_ev,
@@ -852,7 +852,7 @@ async fn max_num_peers_limit() {
     )
     .await;
 
-    tracing::info!(target:"test", %id3, "wait for routing table");
+    tracing::info!(%id3, "wait for routing table");
     pm3.wait_for_routing_table(&[]).await;
 
     // These drop() calls fix the place at which we want the values to be dropped,
@@ -959,7 +959,7 @@ async fn repeated_data_in_sync_routing_table() {
 
     // Gradually increment the amount of data in the system and then broadcast it.
     for i in 0..10 {
-        tracing::info!(target: "test", %i, "iteration");
+        tracing::info!(%i, "iteration");
         // Wait for the new data to be broadcasted.
         // Note that in the first iteration we expect just 1 edge, without sending anything before.
         // It is important because the first SyncRoutingTable contains snapshot of all data known to
@@ -1014,7 +1014,7 @@ async fn square() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "connect 4 nodes in a square");
+    tracing::info!("connect 4 nodes in a square");
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
@@ -1034,21 +1034,21 @@ async fn square() {
         (id2.clone(), vec![id1.clone(), id3.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id1, "stop node");
+    tracing::info!(%id1, "stop node");
     drop(pm1);
-    tracing::info!(target:"test", %id0, "wait for routing table");
+    tracing::info!(%id0, "wait for routing table");
     pm0.wait_for_routing_table(&[
         (id3.clone(), vec![id3.clone()]),
         (id2.clone(), vec![id3.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id2, "wait for routing table");
+    tracing::info!(%id2, "wait for routing table");
     pm2.wait_for_routing_table(&[
         (id3.clone(), vec![id3.clone()]),
         (id0.clone(), vec![id3.clone()]),
     ])
     .await;
-    tracing::info!(target:"test", %id3, "wait for routing table");
+    tracing::info!(%id3, "wait for routing table");
     pm3.wait_for_routing_table(&[
         (id2.clone(), vec![id2.clone()]),
         (id0.clone(), vec![id0.clone()]),
@@ -1090,7 +1090,7 @@ async fn fix_local_edges() {
         edge2.clone(),
     ]));
 
-    tracing::info!(target:"test", "waiting for fake edges to be processed");
+    tracing::info!("waiting for fake edges to be processed");
     let mut events = pm.events.from_now();
     conn.send(msg.clone()).await;
     events
@@ -1100,7 +1100,7 @@ async fn fix_local_edges() {
         })
         .await;
 
-    tracing::info!(target:"test", "waiting for fake edges to be fixed");
+    tracing::info!("waiting for fake edges to be fixed");
     let mut events = pm.events.from_now();
     pm.fix_local_edges(&clock.clock(), time::Duration::ZERO).await;
     // TODO(gprusak): make fix_local_edges await closing of the connections, so
@@ -1112,7 +1112,7 @@ async fn fix_local_edges() {
         })
         .await;
 
-    tracing::info!(target:"test", "checking the consistency");
+    tracing::info!("checking the consistency");
     pm.check_consistency().await;
     drop(conn);
 }
@@ -1129,7 +1129,7 @@ async fn do_not_block_announce_account_broadcast() {
     let db1 = TestDB::new();
     let aa = data::make_announce_account(rng);
 
-    tracing::info!(target:"test", "spawn 2 nodes and announce the account");
+    tracing::info!("spawn 2 nodes and announce the account");
     let pm0 = start_pm(clock.clock(), db0.clone(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), db1.clone(), chain.make_config(rng), chain.clone()).await;
     pm1.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
@@ -1138,7 +1138,7 @@ async fn do_not_block_announce_account_broadcast() {
     drop(pm0);
     drop(pm1);
 
-    tracing::info!(target:"test", "spawn 3 nodes and re-announce the account");
+    tracing::info!("spawn 3 nodes and re-announce the account");
     // Even though the account was previously announced (pm0 and pm1 have it in DB),
     // the nodes should allow to let the broadcast through.
     let pm0 = start_pm(clock.clock(), db0, chain.make_config(rng), chain.clone()).await;
@@ -1174,7 +1174,7 @@ async fn archival_node() {
     configs[0].archive = true;
     configs[1].archive = true;
 
-    tracing::info!(target:"test", "start five nodes, the first two of which are archival nodes");
+    tracing::info!("start five nodes, the first two of which are archival nodes");
     let pm0 = start_pm(clock.clock(), TestDB::new(), configs[0].clone(), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), configs[1].clone(), chain.clone()).await;
     let pm2 = start_pm(clock.clock(), TestDB::new(), configs[2].clone(), chain.clone()).await;
@@ -1186,24 +1186,24 @@ async fn archival_node() {
     // capture pm0 event stream
     let mut pm0_ev = pm0.events.from_now();
 
-    tracing::info!(target:"test", "connect node 2 to node 0");
+    tracing::info!("connect node 2 to node 0");
     pm2.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
-    tracing::info!(target:"test", "connect node 3 to node 0");
+    tracing::info!("connect node 3 to node 0");
     pm3.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
 
-    tracing::info!(target:"test", "connect node 4 to node 0 and wait for pm0 to close a connection");
+    tracing::info!("connect node 4 to node 0 and wait for pm0 to close a connection");
     pm4.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
     wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManagerRequest).await;
 
-    tracing::info!(target:"test", "connect node 1 to node 0 and wait for pm0 to close a connection");
+    tracing::info!("connect node 1 to node 0 and wait for pm0 to close a connection");
     pm1.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
     wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManagerRequest).await;
 
-    tracing::info!(target:"test", "check that node 0 and node 1 are still connected");
+    tracing::info!("check that node 0 and node 1 are still connected");
     pm0.wait_for_direct_connection(id1.clone()).await;
 
     for _step in 0..10 {
-        tracing::info!(target:"test", %_step, "select a node which node 0 is not connected to");
+        tracing::info!(%_step, "select a node which node 0 is not connected to");
         let pm0_connections: HashSet<PeerId> =
             pm0.with_state(|s| async move { s.tier2.load().ready.keys().cloned().collect() }).await;
 
@@ -1214,14 +1214,14 @@ async fn archival_node() {
             .choose(rng)
             .unwrap();
 
-        tracing::info!(target:"test", %_step, "wait for the chosen node to finish disconnecting from node 0");
+        tracing::info!(%_step, "wait for the chosen node to finish disconnecting from node 0");
         chosen.wait_for_num_connected_peers(0).await;
 
-        tracing::info!(target:"test", %_step, "connect the chosen node to node 0 and wait for pm0 to close a connection");
+        tracing::info!(%_step, "connect the chosen node to node 0 and wait for pm0 to close a connection");
         chosen.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
         wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManagerRequest).await;
 
-        tracing::info!(target:"test", %_step, "check that node 0 and node 1 are still connected");
+        tracing::info!(%_step, "check that node 0 and node 1 are still connected");
         pm0.wait_for_direct_connection(id1.clone()).await;
     }
 
@@ -1259,10 +1259,10 @@ async fn connect_to_unbanned_peer() {
     let mut pm1 =
         start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
 
-    tracing::info!(target:"test", "pm0 connects to pm1");
+    tracing::info!("pm0 connects to pm1");
     let stream_id = pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 
-    tracing::info!(target:"test", "pm1 bans pm0");
+    tracing::info!("pm1 bans pm0");
     let ban_reason = ReasonForBan::BadBlock;
     pm1.disconnect_and_ban(&clock.clock(), &pm0.cfg.node_id(), ban_reason).await;
     wait_for_stream_closed(&mut pm0.events, stream_id).await;
@@ -1271,7 +1271,7 @@ async fn connect_to_unbanned_peer() {
         wait_for_stream_closed(&mut pm1.events, stream_id).await
     );
 
-    tracing::info!(target:"test", "pm0 fails to reconnect to pm1");
+    tracing::info!("pm0 fails to reconnect to pm1");
     let got_reason = pm1
         .start_inbound(chain.clone(), pm0.cfg.clone())
         .await
@@ -1280,11 +1280,11 @@ async fn connect_to_unbanned_peer() {
     assert_eq!(ClosingReason::RejectedByPeerManager(RegisterPeerError::Banned), got_reason);
 
     // cspell:words unbans
-    tracing::info!(target:"test", "pm1 unbans pm0");
+    tracing::info!("pm1 unbans pm0");
     clock.advance(pm1.cfg.peer_store.ban_window);
     pm1.peer_store_update(&clock.clock()).await;
 
-    tracing::info!(target:"test", "pm0 reconnects to pm1");
+    tracing::info!("pm0 reconnects to pm1");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 
     drop(pm0);
@@ -1315,7 +1315,7 @@ async fn peer_connect_send_distance_vector() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    tracing::info!(target:"test", "start two nodes");
+    tracing::info!("start two nodes");
     let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
 
@@ -1326,7 +1326,7 @@ async fn peer_connect_send_distance_vector() {
     let mut pm0_ev = pm0.events.from_now();
     let mut pm1_ev = pm1.events.from_now();
 
-    tracing::info!(target:"test", "connect the nodes");
+    tracing::info!("connect the nodes");
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 
     wait_for_distance_vector(&mut pm0_ev, id1).await;

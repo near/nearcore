@@ -182,7 +182,7 @@ impl FilterRateExponentialSmoothing {
                 *rate += self.gain * (new_rate - *rate);
                 *data = new_data;
                 *at_time = now;
-                tracing::debug!(target: "transaction-generator", rate=*rate, "filtered measurement");
+                tracing::debug!(rate = *rate, "filtered measurement");
                 Some(*rate)
             }
         }
@@ -211,7 +211,7 @@ impl FilterRateWindow {
             self.data.push_back(ValueAtTime { value: new_data, at_time_ns: timestamp_ns });
             let time_diff_ns = timestamp_ns.checked_sub(old_timestamp_ns).unwrap();
             if time_diff_ns == 0 {
-                tracing::warn!(target: "transaction-generator", "zero time difference in rate measurement");
+                tracing::warn!("zero time difference in rate measurement");
                 return None;
             }
             Some((new_data - old_value) as f64 * 1e9 / (time_diff_ns as f64))
@@ -233,7 +233,7 @@ impl FilteredRateController {
     pub fn register(&mut self, block_height_sampled: u64, block_at_ns: u64) -> f64 {
         if let Some(bps) = self.filter.register(block_height_sampled, block_at_ns) {
             if bps < 0.1 {
-                tracing::warn!(target: "transaction-generator", bps, "filtered bps measurement is too low ");
+                tracing::warn!(bps, "filtered bps measurement is too low ");
                 // this will cause the controller to suggest a large decrease in tps
                 return self.controller.update(1000.0);
             }
@@ -347,14 +347,12 @@ impl NativeTokenTxSender {
             Ok(res) => match res {
                 ProcessTxResponse::ValidTx => true,
                 _ => {
-                    tracing::debug!(target: "transaction-generator",
-                        request_rsp=?res);
+                    tracing::debug!(request_rsp=?res);
                     false
                 }
             },
             Err(err) => {
-                tracing::debug!(target: "transaction-generator",
-                    request_err=format!("{err}"), "error");
+                tracing::debug!(request_err = format!("{err}"), "error");
                 false
             }
         }
@@ -380,8 +378,7 @@ async fn wait_for_transaction_finalization(
     let mut best_status = None; // best status seen so far
     loop {
         if start.elapsed() > timeout {
-            tracing::debug!(target: "transaction-generator",
-                tx_hash=?&tx_hash,
+            tracing::debug!(tx_hash=?&tx_hash,
                 best_status=?best_status,
                 "timeout waiting for transaction finalization");
             return Ok(false);
@@ -420,8 +417,7 @@ async fn ft_contract_account_create(
     let ft_contract_account_id: AccountId =
         format!("{}_ft_contract.{}", prefix, creator_id).parse()?;
 
-    tracing::info!(target: "transaction-generator",
-        wasm_path=?&wasm_path,
+    tracing::info!(wasm_path=?&wasm_path,
         owner_id=?&creator_id,
         ft_contract_account_id=?&ft_contract_account_id,
         "creating ft contract account",
@@ -475,7 +471,7 @@ async fn ft_contract_account_create(
     .await
     {
         Ok(true) => {
-            tracing::info!(target: "transaction-generator", "create+deploy tx accepted");
+            tracing::info!("create+deploy tx accepted");
             Ok(ft_contract_account_id)
         }
         Ok(false) => Err(anyhow::anyhow!("timeout waiting for create+deploy tx to be finalized")),
@@ -490,8 +486,7 @@ async fn ft_contract_account_init(
     creator: &Account,
     ft_contract_account_id: &AccountId,
 ) -> anyhow::Result<()> {
-    tracing::info!(target: "transaction-generator",
-        ft_contract_account_id=?&ft_contract_account_id,
+    tracing::info!(ft_contract_account_id=?&ft_contract_account_id,
         "initializing ft contract"
     );
     let creator_signer = creator.as_signer();
@@ -554,7 +549,7 @@ async fn ft_contract_account_init(
     .await
     {
         Ok(true) => {
-            tracing::info!(target: "transaction-generator", "ft init tx accepted");
+            tracing::info!("ft init tx accepted");
             Ok(())
         }
         Ok(false) => Err(anyhow::anyhow!("timeout waiting for ft init tx to be finalized")),
@@ -574,7 +569,7 @@ async fn ft_contract_register_accounts(
 ) -> anyhow::Result<()> {
     let mut tasks = JoinSet::new();
 
-    tracing::info!(target: "transaction-generator",
+    tracing::info!(
         total_receiver_accounts = receiver_ids.len(),
         "registering accounts with the ft contract"
     );
@@ -585,10 +580,7 @@ async fn ft_contract_register_accounts(
     let mut to_register = receiver_ids.clone();
 
     while !to_register.is_empty() {
-        tracing::info!(target: "transaction-generator",
-            remaining_accounts = to_register.len(),
-            "registrations pending"
-        );
+        tracing::info!(remaining_accounts = to_register.len(), "registrations pending");
 
         let mut another_round = Vec::<AccountId>::new();
 
@@ -657,9 +649,10 @@ async fn ft_contract_register_accounts(
                 {
                     Ok(true) => Ok(None),
                     Ok(false) => {
-                        tracing::trace!(target: "transaction-generator",
+                        tracing::trace!(
                             "timeout waiting for storage_deposit tx to be finalized for {}",
-                            receiver_id);
+                            receiver_id
+                        );
                         Ok(Some(receiver_id))
                     }
                     Err(err) => Err(anyhow::anyhow!(
@@ -706,8 +699,8 @@ async fn ft_contract_fund_accounts(
 ) -> anyhow::Result<()> {
     let mut tasks = JoinSet::new();
 
-    tracing::info!(target: "transaction-generator",
-        total_receiver_accounts=receiver_ids.len(),
+    tracing::info!(
+        total_receiver_accounts = receiver_ids.len(),
         "funding accounts with the fungible tokens"
     );
 
@@ -808,11 +801,7 @@ async fn ft_contract_fund_accounts(
         }
     }
 
-    tracing::info!(target: "transaction-generator",
-        failed,
-        total = receiver_ids.len(),
-        "ft contract funding completed",
-    );
+    tracing::info!(failed, total = receiver_ids.len(), "ft contract funding completed",);
 
     Ok(())
 }
@@ -842,7 +831,7 @@ async fn wait_chain_warm_up(
         let block_hash = match TxGenerator::get_latest_block(&view_client_sender).await {
             Ok(block) => block.hash,
             Err(err) => {
-                tracing::debug!(target: "transaction-generator", ?err, "get latest block failed");
+                tracing::debug!(?err, "get latest block failed");
                 continue;
             }
         };
@@ -870,11 +859,11 @@ async fn wait_chain_warm_up(
             Ok(ProcessTxResponse::ValidTx) => {}
             Ok(rsp) => {
                 success_count = 0;
-                tracing::debug!(target: "transaction-generator", ?rsp, "warmup tx rejected");
+                tracing::debug!(?rsp, "warmup tx rejected");
             }
             Err(err) => {
                 success_count = 0;
-                tracing::debug!(target: "transaction-generator", ?err, "warmup tx failed");
+                tracing::debug!(?err, "warmup tx failed");
             }
         }
 
@@ -888,19 +877,19 @@ async fn wait_chain_warm_up(
         {
             Ok(true) => {
                 success_count += 1;
-                tracing::debug!(target: "transaction-generator", success_count, "warmup tx finalized");
+                tracing::debug!(success_count, "warmup tx finalized");
                 if TARGET_SUCCESS_COUNT <= success_count {
-                    tracing::info!(target: "transaction-generator", "chain warmed up");
+                    tracing::info!("chain warmed up");
                     return true;
                 }
             }
             Ok(false) => {
                 success_count = 0;
-                tracing::debug!(target: "transaction-generator", "native token tx timed out");
+                tracing::debug!("native token tx timed out");
             }
             Err(err) => {
                 success_count = 0;
-                tracing::debug!(target: "transaction-generator", ?err, "native token tx failed");
+                tracing::debug!(?err, "native token tx failed");
             }
         }
     }
@@ -960,10 +949,7 @@ impl FungibleTokenTxSender {
         )
         .await?;
 
-        tracing::info!(target: "transaction-generator",
-            ft_contract_account_id=?&ft_contract_account_id,
-            "fungible token transaction sender initialized",
-        );
+        tracing::info!(?ft_contract_account_id, "fungible token transaction sender initialized",);
 
         Ok(Self {
             client_sender,
@@ -1025,11 +1011,11 @@ impl FungibleTokenTxSender {
         {
             Ok(ProcessTxResponse::ValidTx) => true,
             Ok(rsp) => {
-                tracing::debug!(target: "transaction-generator", ?rsp, "invalid transaction");
+                tracing::debug!(?rsp, "invalid transaction");
                 false
             }
             Err(err) => {
-                tracing::debug!(target: "transaction-generator", ?err, "error");
+                tracing::debug!(?err, "error");
                 false
             }
         }
@@ -1100,11 +1086,11 @@ impl TxGenerator {
             loop {
                 match Self::get_latest_block(view_client).await {
                     Ok(block_header_view) => {
-                        tracing::debug!(target: "transaction-generator", height=block_header_view.height, "block update received");
+                        tracing::debug!(height = block_header_view.height, "block update received");
                         let _ = tx_latest_block.send(block_header_view);
                     }
                     Err(err) => {
-                        tracing::warn!(target: "transaction-generator", ?err, "block hash update failed");
+                        tracing::warn!(?err, "block hash update failed");
                     }
                 }
                 block_update_interval.tick().await;
@@ -1122,8 +1108,7 @@ impl TxGenerator {
     {
         let mut accounts =
             account::accounts_from_path(accounts_path).context("accounts from path")?;
-        tracing::info!(target: "transaction-generator",
-            total_accounts=accounts.len(),
+        tracing::info!(total_accounts=accounts.len(),
             path=?accounts_path,
             "loaded source accounts"
         );
@@ -1135,8 +1120,7 @@ impl TxGenerator {
         let receiver_ids = if let Some(receiver_accounts_path) = receiver_accounts_path {
             let mut receivers = account::account_ids_from_path(receiver_accounts_path)
                 .context("loading receiver account ids")?;
-            tracing::info!(target: "transaction-generator",
-                total_receiver_accounts = receivers.len(),
+            tracing::info!(total_receiver_accounts = receivers.len(),
                 path = ?receiver_accounts_path,
                 "loaded receiver accounts"
             );
@@ -1148,7 +1132,7 @@ impl TxGenerator {
             receivers.shuffle(&mut StdRng::from_entropy());
             receivers
         } else {
-            tracing::info!(target: "transaction-generator",
+            tracing::info!(
                 "no receiver accounts path provided, using source accounts as receivers"
             );
 
@@ -1164,8 +1148,7 @@ impl TxGenerator {
                         account.nonce = nonce.into();
                     }
                     Err(err) => {
-                        tracing::debug!(target: "transaction-generator",
-                            ?err, "nonce update failed");
+                        tracing::debug!(?err, "nonce update failed");
                     }
                 }
             }
@@ -1222,7 +1205,7 @@ impl TxGenerator {
         stats: Arc<Stats>,
         tx_generator: Arc<TransactionSender>,
     ) {
-        tracing::info!(target: "transaction-generator", ?load, "starting the static load schedule");
+        tracing::info!(?load, "starting the static load schedule");
 
         let mut tasks = JoinSet::new();
 
@@ -1251,7 +1234,7 @@ impl TxGenerator {
         let (tx_tps_values, rx_tps_values) = tokio::sync::watch::channel(
             tokio::time::Duration::from_micros(1_000_000 * TX_GENERATOR_TASK_COUNT / rate as u64),
         );
-        tracing::debug!(target: "transaction-generator", rate, "starting controller");
+        tracing::debug!(rate, "starting controller");
 
         let _ = rx_block
             .wait_for(|BlockHeaderView { hash, .. }| *hash != CryptoHash::default())
@@ -1284,7 +1267,7 @@ impl TxGenerator {
                                         tx_tps_values
                                             .send(tokio::time::Duration::from_secs(100))
                                             .unwrap();
-                                        tracing::warn!(target: "transaction-generator", dt=?dt, "long delay between blocks, skipping controller update and pausing transaction generation");
+                                        tracing::warn!(dt=?dt, "long delay between blocks, skipping controller update and pausing transaction generation");
                                     }
                                 }
 
@@ -1296,7 +1279,7 @@ impl TxGenerator {
 
                         rate += controller.register(height, timestamp_nanosec);
                         if rate < 1.0 || rate > 100000.0 {
-                            tracing::warn!(target: "transaction-generator", rate, "controller suggested tps is out of range, clamping");
+                            tracing::warn!(rate, "controller suggested tps is out of range, clamping");
                             rate = rate.clamp(1.0, 100000.0);
                         }
                         let _span = tracing::debug_span!(
@@ -1324,7 +1307,7 @@ impl TxGenerator {
         stats: Arc<Stats>,
         token_load: Arc<TransactionSender>,
     ) {
-        tracing::info!(target: "transaction-generator", "starting the controlled loop");
+        tracing::info!("starting the controlled loop");
 
         let rx_intervals =
             Self::run_controller_loop(controller, initial_rate, rx_block.clone()).await;
@@ -1465,9 +1448,7 @@ impl TxGenerator {
                 .await;
             }
 
-            tracing::info!(target: "transaction-generator",
-                "completed running the schedule"
-            );
+            tracing::info!("completed running the schedule");
 
             // if controller is configured, start the controlled loop
             if let Some(controller) = controller {
@@ -1480,9 +1461,7 @@ impl TxGenerator {
                 )
                 .await;
             } else {
-                tracing::info!(target: "transaction-generator",
-                "no 'controller' settings provided, stopping the `neard`"
-                );
+                tracing::info!("no 'controller' settings provided, stopping the `neard`");
                 std::process::exit(0);
             }
         });
@@ -1505,13 +1484,10 @@ impl TxGenerator {
                     stats.failed = TRANSACTION_PROCESSED_FAILED_TOTAL.get();
                     stats
                 };
-                tracing::info!(target: "transaction-generator", total = ?stats);
+                tracing::info!(total = ?stats);
                 let diff = stats.clone() - stats_prev;
                 let rate = tps_filter.register(stats.included_in_chunk);
-                tracing::info!(target: "transaction-generator",
-                    ?diff,
-                    rate,
-                );
+                tracing::info!(?diff, rate,);
                 stats_prev = stats.clone();
             }
         })

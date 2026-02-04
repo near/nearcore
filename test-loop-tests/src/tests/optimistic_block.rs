@@ -206,7 +206,7 @@ fn test_optimistic_block_after_missing_block() {
     env.test_loop.run_for(Duration::seconds(10));
 
     let (height_to_skip, producer, next_producer) = get_height_to_skip_and_producers(&env);
-    tracing::info!(target: "test", ?height_to_skip, ?producer, "skipping block at height");
+    tracing::info!(?height_to_skip, ?producer, "skipping block at height");
     env = env.drop(DropCondition::BlocksByHeight([height_to_skip].into_iter().collect()));
 
     let client_handle = &env
@@ -305,7 +305,7 @@ fn test_optimistic_block_with_invalidated_outcome() {
 
     let (height_to_skip, producer, next_producer) = get_height_to_skip_and_producers(&env);
 
-    tracing::info!(target: "test", ?height_to_skip, ?producer, "alter optimistic block at height");
+    tracing::info!(?height_to_skip, ?producer, "alter optimistic block at height");
 
     let producer_client_handle = &env
         .get_node_data_by_account_id(producer.account_id())

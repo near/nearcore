@@ -29,7 +29,7 @@ impl RpcFrom<GetGasPriceError> for RpcGasPriceError {
                 Self::InternalError { error_message }
             }
             GetGasPriceError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
+                tracing::warn!(%error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcGasPriceError"])
                     .inc();

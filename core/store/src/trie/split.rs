@@ -257,7 +257,7 @@ impl<NodePtr: Debug + Copy> TrieDescentStage<NodePtr> {
     where
         Getter: Fn(NodePtr) -> Result<GenericTrieNodeWithSize<NodePtr, Value>, StorageError>,
     {
-        tracing::trace!(target = "memtrie", ?self, %nibble, "descending");
+        tracing::trace!(?self, %nibble, "descending");
         match self {
             Self::CutOff => {}
             Self::AtLeaf { .. } => *self = Self::CutOff,
@@ -409,7 +409,7 @@ where
     fn next_step(&self) -> FindSplitResult<Option<(u8, u64, u64)>> {
         // Stop when a leaf is reached in the accounts subtree
         if !self.accounts().can_descend() {
-            tracing::debug!(target = "memtrie", "leaf reached in accounts subtree");
+            tracing::debug!("leaf reached in accounts subtree");
             return Ok(None);
         }
 
@@ -421,14 +421,14 @@ where
         let children_mem_usage = self.aggregate_children_mem_usage()?;
 
         // Find the middle child
-        tracing::debug!(target = "memtrie", ?children_mem_usage, %threshold, "finding middle child");
+        tracing::debug!(?children_mem_usage, %threshold, "finding middle child");
         let Some((middle_child, left_mem_usage)) =
             find_middle_child(&children_mem_usage, threshold)
         else {
             return Ok(None);
         };
         let child_mem_usage = children_mem_usage[middle_child];
-        tracing::debug!(target = "memtrie", %middle_child, %child_mem_usage, %left_mem_usage, "middle child found");
+        tracing::debug!(%middle_child, %child_mem_usage, %left_mem_usage, "middle child found");
 
         // Stop if the further path does not exist in the accounts subtree
         let middle_child = middle_child as u8;
@@ -518,7 +518,7 @@ where
         self.right_memory +=
             self.middle_memory - left_mem_usage - child_mem_usage - parent_mem_usage;
         self.middle_memory = child_mem_usage;
-        tracing::debug!(target = "memtrie", %self.left_memory, %self.right_memory, %self.middle_memory, "remaining memory updated");
+        tracing::debug!(%self.left_memory, %self.right_memory, %self.middle_memory, "remaining memory updated");
 
         // Update descent stages for all subtrees
         let get_node = |ptr| self.trie_storage.get_node_with_size(ptr, AccessOptions::DEFAULT);
@@ -526,7 +526,7 @@ where
             stage.descend(nibble, get_node)?;
         }
         self.nibbles.push(nibble);
-        tracing::debug!(target = "memtrie", ?self.nibbles, nibble_str = String::from_utf8_lossy(&nibbles_to_bytes(&self.nibbles)).to_string(), "nibbles updated");
+        tracing::debug!(?self.nibbles, nibble_str = String::from_utf8_lossy(&nibbles_to_bytes(&self.nibbles)).to_string(), "nibbles updated");
         Ok(())
     }
 }

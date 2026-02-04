@@ -61,7 +61,9 @@ pub struct StatePartsCommand {
 
 impl StatePartsCommand {
     pub fn run(&self) -> anyhow::Result<()> {
-        tracing::warn!(target: "state-parts", "the state-parts command is not stable, and may be removed or changed arbitrarily at any time");
+        tracing::warn!(
+            "the state-parts command is not stable, and may be removed or changed arbitrarily at any time"
+        );
 
         let mut chain_info = None;
         for info in CHAIN_INFO {
@@ -95,7 +97,7 @@ impl StatePartsCommand {
         if peer.addr.is_none() {
             anyhow::bail!("--peer should be in the form [public key]@[socket addr]");
         }
-        tracing::info!(target: "state-parts", ?genesis_hash, ?peer);
+        tracing::info!(?genesis_hash, ?peer);
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async move {
             crate::state_parts_from_node(

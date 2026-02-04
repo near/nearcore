@@ -609,23 +609,26 @@ pub static ROCKS_CURRENT_ITERATORS: LazyLock<IntGauge> = LazyLock::new(|| {
 
 fn export_store_stats(store: &Store, temperature: Temperature) {
     if let Some(stats) = store.get_store_statistics() {
-        tracing::debug!(target:"metrics", ?temperature, "exporting the db metrics for store");
+        tracing::debug!(?temperature, "exporting the db metrics for store");
         export_stats_as_metrics(stats, temperature);
     } else {
         // TODO Does that happen under normal circumstances?
         // Should this log be a warning or error instead?
-        tracing::debug!(target:"metrics", ?temperature, "exporting the db metrics for store failed, the statistics are missing");
+        tracing::debug!(
+            ?temperature,
+            "exporting the db metrics for store failed, the statistics are missing"
+        );
     }
 }
 
 pub fn spawn_db_metrics_loop(actor_system: ActorSystem, storage: &NodeStorage, period: Duration) {
-    tracing::debug!(target:"metrics", "spawning the db metrics loop");
+    tracing::debug!("spawning the db metrics loop");
 
     let hot_store = storage.get_hot_store();
     let cold_store = storage.get_cold_store();
 
     actor_system.new_future_spawner("db metrics loop").spawn("db metrics loop", async move {
-        tracing::debug!(target:"metrics", "starting the db metrics loop");
+        tracing::debug!("starting the db metrics loop");
         let start = tokio::time::Instant::now();
         let mut interval = tokio::time::interval_at(start, period.unsigned_abs());
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);

@@ -342,18 +342,18 @@ impl PrepareHotCmd {
         home_dir: &Path,
         near_config: &NearConfig,
     ) -> anyhow::Result<()> {
-        let _span = tracing::info_span!(target: "prepare-hot", "run");
+        let _span = tracing::info_span!("run");
 
         let path = Path::new(&self.store_relative_path);
-        tracing::info!(target: "prepare-hot", rpc_path=?path, "preparing a hot db from the rpc db");
+        tracing::info!(rpc_path=?path, "preparing a hot db from the rpc db");
 
-        tracing::info!(target: "prepare-hot", "opening hot and cold");
+        tracing::info!("opening hot and cold");
         let hot_store = storage.get_hot_store();
         let cold_store = storage.get_cold_store();
         let cold_store =
             cold_store.ok_or_else(|| anyhow::anyhow!("The cold store is not configured!"))?;
 
-        tracing::info!(target: "prepare-hot", "opening rpc");
+        tracing::info!("opening rpc");
         // Open the rpc_storage using the near_config with the path swapped.
         let mut rpc_store_config = near_config.config.store.clone();
         rpc_store_config.path = Some(path.to_path_buf());
@@ -361,10 +361,10 @@ impl PrepareHotCmd {
         let rpc_storage = rpc_opener.open()?;
         let rpc_store = rpc_storage.get_hot_store();
 
-        tracing::info!(target: "prepare-hot", "checking db kind");
+        tracing::info!("checking db kind");
         Self::check_db_kind(&hot_store, &cold_store, &rpc_store)?;
 
-        tracing::info!(target: "prepare-hot", "checking up to date");
+        tracing::info!("checking up to date");
         Self::check_up_to_date(&cold_store, &rpc_store)?;
 
         // TODO may be worth doing some simple sanity check that the rpc store
@@ -373,11 +373,14 @@ impl PrepareHotCmd {
         // with the node owner still. We don't want to do a full check here
         // as it would take too long.
 
-        tracing::info!(target: "prepare-hot", "the hot, cold and RPC stores are suitable for cold storage migration");
-        tracing::info!(target: "prepare-hot", "changing the db kind of the rpc store to hot");
+        tracing::info!("the hot, cold and RPC stores are suitable for cold storage migration");
+        tracing::info!("changing the db kind of the rpc store to hot");
         rpc_store.set_db_kind(DbKind::Hot)?;
 
-        tracing::info!(target: "prepare-hot", ?path, "successfully prepared the hot store for migration, you can now set the `config.store.path` in neard config");
+        tracing::info!(
+            ?path,
+            "successfully prepared the hot store for migration, you can now set the `config.store.path` in neard config"
+        );
 
         Ok(())
     }
@@ -463,7 +466,7 @@ impl PrepareHotCmd {
         // COLD  . . . . . . . . . H
 
         if cold_head.height > rpc_head.height {
-            tracing::warn!(target: "prepare-hot",
+            tracing::warn!(
                 cold_head_height = cold_head.height,
                 rpc_head_height = rpc_head.height,
                 "the cold head is ahead of the RPC head, this should fix itself when the node catches up and becomes in sync"
@@ -690,10 +693,10 @@ impl CheckStateRootCmd {
         hash: &CryptoHash,
         iter_state: &mut IterState,
     ) -> anyhow::Result<()> {
-        tracing::debug!(target: "check_trie", ?hash, ?iter_state, "checking trie");
+        tracing::debug!(?hash, ?iter_state, "checking trie");
         let CheckTrieContext { store, shard_uid, prune_condition } = &context;
         if iter_state.should_prune(prune_condition) {
-            tracing::debug!(target: "check_trie", ?prune_condition, "reached prune condition");
+            tracing::debug!(?prune_condition, "reached prune condition");
             return Ok(());
         }
 
@@ -708,7 +711,7 @@ impl CheckStateRootCmd {
         let node = near_store::RawTrieNodeWithSize::try_from_slice(&bytes)?;
         match node.node {
             near_store::RawTrieNode::Leaf(..) => {
-                tracing::debug!(target: "check_trie", "reached leaf node");
+                tracing::debug!("reached leaf node");
                 return Ok(());
             }
             near_store::RawTrieNode::BranchNoValue(children)

@@ -32,7 +32,7 @@ impl Inner {
 
         match self.store.get_account_announcement(&account_id) {
             Err(err) => {
-                tracing::warn!(target: "network", ?err, "error loading announce account from store");
+                tracing::warn!(?err, "error loading announce account from store");
                 None
             }
             Ok(None) => None,

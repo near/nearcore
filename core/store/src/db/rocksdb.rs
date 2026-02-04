@@ -284,7 +284,6 @@ impl<'a> Drop for RocksDBIterator<'a> {
         let elapsed = self.creation_time.elapsed().as_secs_f64();
         if elapsed > 30.0 {
             tracing::warn!(
-                target: "store::db::rocksdb",
                 elapsed,
                 backtrace = %std::backtrace::Backtrace::force_capture(),
                 "rocksdb iterator held open for a long time (may cause excessive disk usage)"
@@ -333,12 +332,11 @@ impl RocksDB {
 
     pub fn compact_column(&self, col: DBCol) {
         let none = Option::<&[u8]>::None;
-        tracing::info!(target: "store::db::rocksdb", col = %col, "compacting a column");
+        tracing::info!(col = %col, "compacting a column");
         self.db.compact_range_cf(self.cf_handle(col), none, none);
     }
 
     #[tracing::instrument(
-        target = "store::db::rocksdb",
         level = "trace",
         "RocksDB::build_write_batch",
         skip_all,
@@ -422,19 +420,13 @@ impl Database for RocksDB {
         refcount::iter_with_rc_logic(col, iter)
     }
 
-    #[tracing::instrument(
-        target = "store::db::rocksdb",
-        level = "trace",
-        "RocksDB::write",
-        skip_all
-    )]
+    #[tracing::instrument(level = "trace", "RocksDB::write", skip_all)]
     fn write(&self, transaction: DBTransaction) {
         let write_batch_start = std::time::Instant::now();
         let batch = self.build_write_batch(transaction);
         let elapsed = write_batch_start.elapsed();
         if elapsed.as_secs_f32() > 0.15 {
             tracing::debug!(
-                target = "store::db::rocksdb",
                 message = "making a write batch took a very long time, make smaller transactions",
                 ?elapsed,
                 backtrace = %std::backtrace::Backtrace::force_capture()
@@ -443,24 +435,14 @@ impl Database for RocksDB {
         self.db.write(batch).unwrap_or_else(|err| panic!("RocksDB::write failed: {err}"));
     }
 
-    #[tracing::instrument(
-        target = "store::db::rocksdb",
-        level = "info",
-        "RocksDB::compact",
-        skip_all
-    )]
+    #[tracing::instrument(level = "info", "RocksDB::compact", skip_all)]
     fn compact(&self) {
         for col in DBCol::iter() {
             self.compact_column(col);
         }
     }
 
-    #[tracing::instrument(
-        target = "store::db::rocksdb",
-        level = "debug",
-        "RocksDB::flush",
-        skip_all
-    )]
+    #[tracing::instrument(level = "debug", "RocksDB::flush", skip_all)]
     fn flush(&self) {
         // Need to iterator over all CFs because the normal `flush()` only
         // flushes the default column family.
@@ -478,7 +460,7 @@ impl Database for RocksDB {
         let mut result = StoreStatistics { data: vec![] };
         if let Some(stats_str) = self.db_opt.get_statistics() {
             if let Err(err) = parse_statistics(&stats_str, &mut result) {
-                tracing::warn!(target: "store", ?err, "failed to parse store statistics");
+                tracing::warn!(?err, "failed to parse store statistics");
             }
         }
         self.get_cf_statistics(&mut result);
@@ -486,7 +468,6 @@ impl Database for RocksDB {
     }
 
     #[tracing::instrument(
-        target = "store::db::rocksdb",
         level = "debug",
         "RocksDB::create_checkpoint",
         skip_all,
@@ -517,7 +498,6 @@ impl Database for RocksDB {
                     // We need to keep DbVersion because it's expected to be there when
                     // we check the metadata in DBOpener::get_metadata()
                     tracing::debug!(
-                        target: "store::db::rocksdb",
                         "create_checkpoint called with columns to keep not including DBCol::DbVersion, including it anyway"
                     );
                     continue;
@@ -810,7 +790,7 @@ fn parse_statistics(
                         val.parse::<f64>()?,
                     )),
                     _ => {
-                        tracing::warn!(target: "stats", %key, %line, "unsupported stats value");
+                        tracing::warn!(%key, %line, "unsupported stats value");
                     }
                 }
             }

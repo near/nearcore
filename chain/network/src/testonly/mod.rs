@@ -53,7 +53,7 @@ pub(crate) fn abort_on_panic() {
     if nextest != "1" || nextest_execution_mode != "process-per-test" {
         return;
     }
-    tracing::info!(target:"test", "[panic=abort] enabled");
+    tracing::info!("[panic=abort] enabled");
     let orig_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         orig_hook(panic_info);

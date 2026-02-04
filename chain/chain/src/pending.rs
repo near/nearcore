@@ -25,7 +25,7 @@ impl<Block: BlockLike> PendingBlocksPool<Block> {
     pub fn add_block(&mut self, block: Block) {
         let height = block.height();
         if self.blocks.contains_key(&height) {
-            tracing::debug!(target: "chain", block_hash = ?block.hash(), "block already exists in pending blocks pool");
+            tracing::debug!(block_hash = ?block.hash(), "block already exists in pending blocks pool");
             return;
         }
         self.block_hashes.insert(block.hash());
