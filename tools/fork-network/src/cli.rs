@@ -933,7 +933,7 @@ impl ForkNetworkCommand {
             None,
             &epoch_config_dir,
         );
-        tracing::info!(target: "near", epoch_config_dir = %epoch_config_dir.display(), "generated epoch configs files");
+        tracing::info!(epoch_config_dir = %epoch_config_dir.display(), "generated epoch configs files");
         Ok(first_config)
     }
 

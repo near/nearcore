@@ -594,7 +594,6 @@ pub fn apply_chain_range(
     storage: StorageSource,
 ) {
     let parent_span = tracing::debug_span!(
-        target: "state_viewer",
         "apply_chain_range",
         ?mode,
         ?start_height,
@@ -713,7 +712,6 @@ pub fn apply_chain_range(
         ApplyRangeMode::Sequential { .. } => {
             range.clone().into_iter().for_each(|height| {
                 let _span = tracing::debug_span!(
-                    target: "state_viewer",
                     parent: &parent_span,
                     "process_block",
                     height)
@@ -724,7 +722,6 @@ pub fn apply_chain_range(
         ApplyRangeMode::Parallel => {
             range.clone().into_par_iter().for_each(|height| {
                 let _span = tracing::debug_span!(
-                target: "mock_node",
                 parent: &parent_span,
                 "process_block",
                 height)
@@ -802,7 +799,6 @@ fn benchmark_chunk_application(
         let cur_input = input.clone();
 
         let _span = tracing::debug_span!(
-            target: "state_viewer",
             parent: &parent_span,
             "process_block",
             height)

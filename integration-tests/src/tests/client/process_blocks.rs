@@ -735,7 +735,7 @@ fn test_bad_chunk_mask() {
     let first_epoch_id = &EpochId::default();
 
     let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&first_epoch_id).unwrap();
-    tracing::info!(target: "test", ?shard_layout, "shard layout");
+    tracing::info!(?shard_layout, "shard layout");
 
     let [s0, s1] = shard_layout.shard_ids().collect_vec()[..] else { panic!("Expected 2 shards") };
     assert_eq!(s0, shard_layout.account_id_to_shard_id(&account0));
@@ -746,7 +746,7 @@ fn test_bad_chunk_mask() {
 
     let tip = env.clients[0].chain.get_block_by_height(0).unwrap();
     for chunk_header in tip.chunks().iter() {
-        tracing::info!(target: "test", ?chunk_header, "chunk header");
+        tracing::info!(?chunk_header, "chunk header");
     }
 
     for height in 1..5 {
@@ -2539,7 +2539,7 @@ fn test_epoch_multi_protocol_version_change() {
     let protocol_version_override =
         format!("{}={},{}={}", v1_upgrade_time, v1, v2_upgrade_time, v2);
 
-    tracing::debug!(target: "test", ?protocol_version_override, "setting the protocol_version_override");
+    tracing::debug!(?protocol_version_override, "setting the protocol_version_override");
     unsafe { std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", protocol_version_override) };
 
     let epoch_length = 5;
@@ -2575,7 +2575,7 @@ fn test_epoch_multi_protocol_version_change() {
             seen_v2 = true;
         }
 
-        tracing::debug!(target: "test", ?height, ?protocol_version, "loop iter finished");
+        tracing::debug!(?height, ?protocol_version, "loop iter finished");
 
         height += 1;
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -2614,7 +2614,7 @@ fn slow_test_epoch_multi_protocol_version_change_epoch_overlap() {
     let protocol_version_override =
         format!("{}={},{}={}", v1_upgrade_time, v1, v2_upgrade_time, v2);
 
-    tracing::debug!(target: "test", ?protocol_version_override, "setting the protocol_version_override");
+    tracing::debug!(?protocol_version_override, "setting the protocol_version_override");
     unsafe { std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", protocol_version_override) };
 
     let epoch_length = 5;
@@ -2663,7 +2663,7 @@ fn slow_test_epoch_multi_protocol_version_change_epoch_overlap() {
             );
         }
 
-        tracing::debug!(target: "test", ?height, ?protocol_version, "loop iter finished");
+        tracing::debug!(?height, ?protocol_version, "loop iter finished");
 
         height += 1;
         current_epoch_id = epoch_id;

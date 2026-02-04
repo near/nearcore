@@ -67,7 +67,6 @@ impl NeardCmd {
         .local();
 
         tracing::info!(
-            target: "neard",
             version = crate::NEARD_VERSION,
             build = crate::NEARD_BUILD,
             commit = crate::NEARD_COMMIT,
@@ -205,7 +204,9 @@ impl NeardOpts {
     // TODO(nikurt): Delete in 1.38 or later.
     pub fn verbose_target(&self) -> Option<&str> {
         self.verbose.as_ref().map(|inner| {
-            tracing::error!(target: "neard", "--verbose flag is deprecated, please use RUST_LOG or log_config.json instead");
+            tracing::error!(
+                "--verbose flag is deprecated, please use RUST_LOG or log_config.json instead"
+            );
             inner.as_ref().map_or("", String::as_str)
         })
     }
@@ -367,18 +368,14 @@ fn check_release_build(chain: &str) {
         && [near_primitives::chains::MAINNET, near_primitives::chains::TESTNET].contains(&chain)
     {
         tracing::warn!(
-            target: "neard",
             %chain,
             "running a neard executable which wasn't built with `make release` command isn't supported"
         );
         tracing::warn!(
-            target: "neard",
             %chain,
             "note that `cargo build --release` builds lack optimizations which may be needed to run properly"
         );
-        tracing::warn!(
-            target: "neard",
-            "consider recompiling the binary using `make release` command");
+        tracing::warn!("consider recompiling the binary using `make release` command");
     }
 }
 
@@ -596,7 +593,7 @@ impl RunCmd {
                     break sig;
                 }
             };
-            tracing::warn!(target: "neard", %sig, "stopping, this may take a few minutes");
+            tracing::warn!(%sig, "stopping, this may take a few minutes");
             if let Some(handle) = cold_store_loop_handle {
                 handle.store(false, std::sync::atomic::Ordering::Relaxed);
             }
@@ -605,7 +602,7 @@ impl RunCmd {
             // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some("off"), None).unwrap();
         });
-        tracing::info!(target: "neard", "waiting for rocksdb to gracefully shutdown");
+        tracing::info!("waiting for rocksdb to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
     }
 }

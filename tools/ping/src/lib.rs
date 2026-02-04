@@ -178,7 +178,7 @@ impl AppInfo {
                 match pending_pings.entry(nonce) {
                     Entry::Occupied(_) => {
                         tracing::warn!(
-                            target: "ping", %nonce, ?peer_id, "internal error, sent two pings with same nonce, \
+                            %nonce, ?peer_id, "internal error, sent two pings with same nonce, \
                             latency stats will probably be wrong"
                         );
                     }
@@ -234,7 +234,6 @@ impl AppInfo {
                     }
                     None => {
                         tracing::warn!(
-                            target: "ping",
                             %nonce, peer = %peer_str(&peer_id, state.account_id.as_ref()),
                             "received pong after probably treating it as timed out previously"
                         );
@@ -243,7 +242,7 @@ impl AppInfo {
                 }
             }
             None => {
-                tracing::warn!(target: "ping", ?peer_id, "received pong but don't know of this peer");
+                tracing::warn!(?peer_id, "received pong but don't know of this peer");
                 None
             }
         }
@@ -269,7 +268,7 @@ impl AppInfo {
         if let Some(filter) = self.account_filter.as_ref() {
             if let Some(account_id) = account_id.as_ref() {
                 if !filter.contains(account_id) {
-                    tracing::debug!(target: "ping", %account_id, "skipping announce account");
+                    tracing::debug!(%account_id, "skipping announce account");
                     return;
                 }
             }
@@ -285,7 +284,7 @@ impl AppInfo {
                             // We only use the accounts in the account filter and when displaying
                             // ping targets, so theres no reason we cant keep track of all of them
                             tracing::warn!(
-                                target: "ping", ?peer_id, %account_id, old_account_id = %old,
+                                ?peer_id, %account_id, old_account_id = %old,
                                 "received announce account mapping but already knew of account id, keeping old value"
                             );
                         }

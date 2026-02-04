@@ -541,7 +541,6 @@ fn network_message_to_client_handler(
         NetworkRequests::BanPeer { peer_id, ban_reason } => {
             let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
             tracing::debug!(
-                target: "test_loop",
                 account = %my_account_id,
                 ?peer_id,
                 ?ban_reason,

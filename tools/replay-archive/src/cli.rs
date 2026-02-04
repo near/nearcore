@@ -185,13 +185,13 @@ impl ReplayController {
         let mut total_gas_burnt: Option<Gas> = None;
         match self.replay_block(self.next_height)? {
             ReplayBlockOutput::Genesis(block) => {
-                tracing::debug!(target: "replay-archive", height = %block.header().height(), "skipping genesis block at height");
+                tracing::debug!(height = %block.header().height(), "skipping genesis block at height");
             }
             ReplayBlockOutput::Missing(height) => {
-                tracing::debug!(target: "replay-archive", %height, "skipping missing block at height");
+                tracing::debug!(%height, "skipping missing block at height");
             }
             ReplayBlockOutput::Replayed(block, gas_burnt) => {
-                tracing::debug!(target: "replay-archive", height = %block.header().height(), "replayed block at height");
+                tracing::debug!(height = %block.header().height(), "replayed block at height");
                 total_gas_burnt = Some(gas_burnt);
             }
         }
@@ -202,7 +202,7 @@ impl ReplayController {
     }
 
     fn replay_block(&mut self, height: BlockHeight) -> Result<ReplayBlockOutput> {
-        tracing::info!(target: "replay-archive", height = %self.next_height, "replaying block at height");
+        tracing::info!(height = %self.next_height, "replaying block at height");
 
         let Ok(block_hash) = self.chain_store.get_block_hash_by_height(height) else {
             return Ok(ReplayBlockOutput::Missing(height));
@@ -267,7 +267,7 @@ impl ReplayController {
         chunk_header: &ShardChunkHeader,
         prev_chunk_header: &ShardChunkHeader,
     ) -> Result<ReplayChunkOutput> {
-        let span = tracing::debug_span!(target: "replay-archive", "replay_chunk").entered();
+        let span = tracing::debug_span!("replay_chunk").entered();
 
         // Collect receipts and transactions.
         let chunk_hash = chunk_header.chunk_hash();

@@ -63,7 +63,7 @@ pub fn derive_new_epoch_config_from_boundary(
     let base_shard_layout = &base_epoch_config.static_shard_layout();
     let new_shard_layout =
         ShardLayout::derive_shard_layout(&base_shard_layout, boundary_account.clone());
-    tracing::info!(target: "test", ?base_shard_layout, ?new_shard_layout, "shard layout");
+    tracing::info!(?base_shard_layout, ?new_shard_layout, "shard layout");
     let epoch_config = base_epoch_config.clone().with_shard_layout(new_shard_layout.clone());
     (epoch_config, new_shard_layout)
 }

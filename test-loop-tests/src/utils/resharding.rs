@@ -290,7 +290,7 @@ pub(crate) fn call_burn_gas_contract(
                             client_actor.client.chain.get_partial_transaction_result(&tx);
                         let status = tx_outcome.as_ref().map(|o| o.status.clone());
                         let status = status.unwrap();
-                        tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
+                        tracing::debug!(?tx_height, ?tx, ?status, "transaction status");
                         assert_matches!(status, FinalExecutionStatus::SuccessValue(_));
                     }
                     checked_transactions.set(true);
@@ -298,7 +298,7 @@ pub(crate) fn call_burn_gas_contract(
             } else {
                 if next_block_has_new_shard_layout(client_actor.client.epoch_manager.as_ref(), &tip)
                 {
-                    tracing::debug!(target: "test", height=tip.height, "resharding height set");
+                    tracing::debug!(height = tip.height, "resharding height set");
                     resharding_height.set(Some(tip.height));
                 }
             }
@@ -375,7 +375,7 @@ pub(crate) fn send_large_cross_shard_receipts(
             if resharding_height.get().is_none()
                 && next_block_has_new_shard_layout(epoch_manager.as_ref(), &tip)
             {
-                tracing::debug!(target: "test", height=tip.height, "resharding height set");
+                tracing::debug!(height = tip.height, "resharding height set");
                 resharding_height.set(Some(tip.height));
             }
 
@@ -400,7 +400,7 @@ pub(crate) fn send_large_cross_shard_receipts(
                         outgoing_receipt_sizes.insert(target_shard, receipt_sizes);
                     }
                 }
-                tracing::info!(target: "test", shard_id = %shard_uid.shard_id(), ?outgoing_receipt_sizes, "outgoing buffers from shard");
+                tracing::info!(shard_id = %shard_uid.shard_id(), ?outgoing_receipt_sizes, "outgoing buffers from shard");
             }
 
             let is_epoch_before_resharding =
@@ -445,7 +445,6 @@ pub(crate) fn send_large_cross_shard_receipts(
                             tip.last_block_hash,
                         );
                         tracing::info!(
-                            target: "test",
                             %signer_id,
                             %receiver_id,
                             tx_hash = ?tx.get_hash(),
@@ -557,7 +556,7 @@ pub(crate) fn call_promise_yield(
                             client_actor.client.chain.get_partial_transaction_result(&tx);
                         let status = tx_outcome.as_ref().map(|o| o.status.clone());
                         let status = status.unwrap();
-                        tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
+                        tracing::debug!(?tx_height, ?tx, ?status, "transaction status");
                         assert_matches!(status, FinalExecutionStatus::SuccessValue(_));
                     }
                     checked_transactions.set(true);
@@ -568,7 +567,7 @@ pub(crate) fn call_promise_yield(
                     let epoch_manager = client_actor.client.epoch_manager.as_ref();
                     // Check if resharding will happen in this block.
                     if next_block_has_new_shard_layout(epoch_manager, &tip) {
-                        tracing::debug!(target: "test", height=tip.height, "resharding height set");
+                        tracing::debug!(height = tip.height, "resharding height set");
                         resharding_height.set(Some(tip.height));
                         return;
                     }
@@ -814,7 +813,7 @@ pub(crate) fn check_resharding_skipped_when_no_children_tracked(
             if resharding_height.get().is_none() {
                 if next_block_has_new_shard_layout(client.epoch_manager.as_ref(), &tip) {
                     resharding_height.set(Some(tip.height));
-                    tracing::debug!(target: "test", height=tip.height, "resharding height set");
+                    tracing::debug!(height = tip.height, "resharding height set");
                 }
             }
 
@@ -969,7 +968,12 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                         tx,
                     );
                     sent_flag.map(|flag| flag.set(true));
-                    tracing::debug!(target: "test", height=tip.height, ?signer_account, ?receiver_account, "sent promise yield tx");
+                    tracing::debug!(
+                        height = tip.height,
+                        ?signer_account,
+                        ?receiver_account,
+                        "sent promise yield tx"
+                    );
                 };
 
             // Run this action only once at every block height.
@@ -991,7 +995,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
             let indices_left_child_shard = get_promise_yield_indices(left_child_shard_uid);
             let indices_right_child_shard = get_promise_yield_indices(right_child_shard_uid);
 
-            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id, 
+            tracing::debug!(height=tip.height, epoch=?tip.epoch_id,
                     ?indices_parent_shard, ?indices_left_child_shard, ?indices_right_child_shard, "promise yield indices");
 
             // At any height, if the shard exists and it is tracked, the promise yield indices trie
@@ -1056,7 +1060,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                         let tx_outcome =
                             client_actor.client.chain.get_partial_transaction_result(&tx);
                         let status = tx_outcome.as_ref().map(|o| o.status.clone());
-                        tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
+                        tracing::debug!(?tx_height, ?tx, ?status, "transaction status");
                         // First two txs should have been GC'd, so these cannot be found.
                         if index <= 1 {
                             assert_matches!(status, Err(_));
@@ -1073,7 +1077,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                     let epoch_manager = client_actor.client.epoch_manager.as_ref();
                     // Check if resharding will happen in this block.
                     if next_block_has_new_shard_layout(epoch_manager, &tip) {
-                        tracing::debug!(target: "test", height=tip.height, "resharding height set");
+                        tracing::debug!(height = tip.height, "resharding height set");
                         resharding_height.set(Some(tip.height));
                         return;
                     }
@@ -1178,7 +1182,12 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
                     );
                 }
                 sent_flag.map(|flag| flag.set(true));
-                tracing::debug!(target: "test", height=tip.height, ?signer_account, ?receiver_account, "sent burn gas txs");
+                tracing::debug!(
+                    height = tip.height,
+                    ?signer_account,
+                    ?receiver_account,
+                    "sent burn gas txs"
+                );
             };
 
             let get_delayed_receipts_indices = |shard_uid| {
@@ -1194,7 +1203,7 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
             let indices_left_child_shard = get_delayed_receipts_indices(left_child_shard_uid);
             let indices_right_child_shard = get_delayed_receipts_indices(right_child_shard_uid);
 
-            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id, 
+            tracing::debug!(height=tip.height, epoch=?tip.epoch_id,
                     ?indices_parent_shard, ?indices_left_child_shard, ?indices_right_child_shard, "delayed receipts indices");
 
             // At any height, if the shard exists and it is tracked, the delayed receipts indices
@@ -1220,7 +1229,7 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
                         let tx_outcome =
                             client_actor.client.chain.get_partial_transaction_result(&tx);
                         let status = tx_outcome.as_ref().map(|o| o.status.clone());
-                        tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
+                        tracing::debug!(?tx_height, ?tx, ?status, "transaction status");
                         assert_matches!(status, Ok(FinalExecutionStatus::SuccessValue(_)));
                     }
                 }
@@ -1237,7 +1246,7 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
                     let epoch_manager = client_actor.client.epoch_manager.as_ref();
                     // Check if resharding will happen in this block.
                     if next_block_has_new_shard_layout(epoch_manager, &tip) {
-                        tracing::debug!(target: "test", height=tip.height, "resharding height set");
+                        tracing::debug!(height = tip.height, "resharding height set");
                         resharding_height.set(Some(tip.height));
                         return;
                     }

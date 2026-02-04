@@ -194,7 +194,6 @@ impl TrieIterationBenchmarkCmd {
                 }
             };
             tracing::trace!(
-                target: "trie-iteration-benchmark",
                 column = &state_record.get_type_string(),
                 account_id = %state_record_to_account_id(&state_record),
                 "visiting column and account id"
@@ -280,7 +279,6 @@ impl TrieIterationBenchmarkCmd {
         match parse_account_id_from_trie_key_with_separator(col, &key, "") {
             Ok(account_id) => {
                 tracing::trace!(
-                    target: "trie-iteration-benchmark",
                     %col_name,
                     ?account_id,
                     "pruning column and account id"
@@ -296,7 +294,6 @@ impl TrieIterationBenchmarkCmd {
         match parse_account_id_from_access_key_key(&key) {
             Ok(account_id) => {
                 tracing::trace!(
-                    target: "trie-iteration-benchmark",
                     %col_name,
                     ?account_id,
                     "pruning column and account id"
