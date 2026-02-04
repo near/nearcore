@@ -873,8 +873,16 @@ impl ShardsManagerActor {
             ) {
                 Ok(()) => {}
                 Err(err) => {
-                    debug_assert!(false);
-                    tracing::error!(target: "chunks", ?err, "error during requesting partial encoded chunk");
+                    // This can happen during block sync when chunk producer data is not yet
+                    // available. The data will be populated when earlier blocks finish processing,
+                    // so we just log and retry on the next resend cycle.
+                    tracing::debug!(
+                        target: "chunks",
+                        ?err,
+                        ?chunk_hash,
+                        height = chunk_request.height,
+                        "chunk producer not yet available, will retry"
+                    );
                 }
             }
         }
