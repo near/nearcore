@@ -28,7 +28,7 @@ impl RpcFrom<GetMaintenanceWindowsError> for RpcMaintenanceWindowsError {
                 Self::InternalError { error_message }
             }
             GetMaintenanceWindowsError::Unreachable(ref error_message) => {
-                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
+                tracing::warn!(%error_message, "unreachable error occurred");
                 Self::InternalError { error_message: error.to_string() }
             }
         }

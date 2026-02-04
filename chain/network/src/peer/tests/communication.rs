@@ -50,7 +50,7 @@ async fn test_peer_communication() -> anyhow::Result<()> {
         }
     };
 
-    tracing::info!(target:"test", "request update nonce");
+    tracing::info!("request update nonce");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
         &outbound.cfg.network.node_id(),
@@ -61,13 +61,13 @@ async fn test_peer_communication() -> anyhow::Result<()> {
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test", "peers request");
+    tracing::info!("peers request");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::PeersRequest(PeersRequest { max_peers: None, max_direct_peers: None });
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test", "peers response");
+    tracing::info!("peers response");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::PeersResponse(PeersResponse {
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
@@ -76,37 +76,37 @@ async fn test_peer_communication() -> anyhow::Result<()> {
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test", "block request");
+    tracing::info!("block request");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::BlockRequest(*chain.blocks[5].hash());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target: "test", "block");
+    tracing::info!("block");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::Block(chain.blocks[5].clone());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test", "block headers request");
+    tracing::info!("block headers request");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| *b.hash()).collect());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test", "block headers");
+    tracing::info!("block headers");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::BlockHeaders(chain.get_block_headers().map(Into::into).collect());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test", "sync routing table");
+    tracing::info!("sync routing table");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::SyncRoutingTable(data::make_routing_table(&mut rng));
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test", "partial encoded chunk request");
+    tracing::info!("partial encoded chunk request");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::Routed(Box::new(
         outbound.routed_message(
@@ -124,7 +124,7 @@ async fn test_peer_communication() -> anyhow::Result<()> {
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target:"test", "partial encoded chunk response");
+    tracing::info!("partial encoded chunk response");
     let mut events = inbound.events.from_now();
     let want_hash = chain.blocks[3].chunks()[0].chunk_hash().clone();
     let want_parts = data::make_chunk_parts(chain.chunks[&want_hash].clone());
@@ -144,7 +144,7 @@ async fn test_peer_communication() -> anyhow::Result<()> {
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    tracing::info!(target: "test", "transaction");
+    tracing::info!("transaction");
     let mut events = inbound.events.from_now();
     let want = data::make_signed_transaction(&mut rng);
     let want = PeerMessage::Transaction(want);
