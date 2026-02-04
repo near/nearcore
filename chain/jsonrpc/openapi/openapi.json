@@ -8526,6 +8526,35 @@
               "InvalidNonceIndex"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key does not have enough balance to cover gas costs.",
+            "properties": {
+              "NotEnoughGasKeyBalance": {
+                "properties": {
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "cost": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "signer_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "signer_id",
+                  "balance",
+                  "cost"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "NotEnoughGasKeyBalance"
+            ],
+            "type": "object"
           }
         ]
       },
