@@ -78,7 +78,7 @@ impl Store {
             return self.get_ser::<T>(column, key).map(|v| v.map(Into::into));
         };
 
-        {
+        let generation_before = {
             let mut lock = cache.lock();
             if let Some(value) = lock.values.get(key) {
                 if let Some(value) = value {
@@ -100,7 +100,8 @@ impl Store {
                     return Ok(None);
                 }
             }
-        }
+            lock.generation
+        };
 
         let value = match self.get_ser::<T>(column, key) {
             Ok(Some(value)) => Some(Arc::from(value)),
@@ -109,7 +110,7 @@ impl Store {
         };
 
         let mut lock = cache.lock();
-        if lock.active_flushes == 0 {
+        if lock.active_flushes == 0 && lock.generation == generation_before {
             if let Some(v) = value.as_ref() {
                 lock.values.put(key.into(), Some(Arc::clone(v) as _));
             } else if lock.store_none_values() {
@@ -238,6 +239,7 @@ impl Store {
                     let Some(cache) = self.cache.work_with(*col) else { continue };
                     let mut lock = cache.lock();
                     lock.active_flushes += 1;
+                    lock.generation += 1;
                     keys_flushed[*col] += 1;
                     lock.values.pop(key);
                 }
@@ -245,6 +247,7 @@ impl Store {
                     let Some(cache) = self.cache.work_with(*col) else { continue };
                     let mut lock = cache.lock();
                     lock.active_flushes += 1;
+                    lock.generation += 1;
                     keys_flushed[*col] += 1;
                     lock.values.clear();
                 }
@@ -605,5 +608,149 @@ impl fmt::Debug for StoreUpdate {
             }
         }
         writeln!(f, "}}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::TestDB;
+    use std::sync::{Arc, Barrier};
+
+    /// A Database wrapper that pauses during reads to allow testing race conditions
+    /// in the caching layer. After reading from the inner DB, it waits for a
+    /// barrier synchronization before returning, giving another thread time to
+    /// complete a write in between.
+    struct SyncReadDatabase {
+        inner: TestDB,
+        /// (read_done_barrier, continue_barrier, armed)
+        /// When armed, get_raw_bytes will: read value, wait on read_done_barrier,
+        /// then wait on continue_barrier, then return.
+        sync: parking_lot::Mutex<Option<(Arc<Barrier>, Arc<Barrier>)>>,
+    }
+
+    impl SyncReadDatabase {
+        fn new() -> Self {
+            Self { inner: TestDB::default(), sync: parking_lot::Mutex::new(None) }
+        }
+
+        fn arm(&self, read_done: Arc<Barrier>, cont: Arc<Barrier>) {
+            *self.sync.lock() = Some((read_done, cont));
+        }
+    }
+
+    impl Database for SyncReadDatabase {
+        fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<crate::db::DBSlice<'_>> {
+            let value = self.inner.get_raw_bytes(col, key);
+            if let Some((read_done, cont)) = self.sync.lock().take() {
+                read_done.wait();
+                cont.wait();
+            }
+            value
+        }
+
+        fn iter<'a>(&'a self, col: DBCol) -> crate::db::DBIterator<'a> {
+            self.inner.iter(col)
+        }
+        fn iter_prefix<'a>(&'a self, col: DBCol, p: &'a [u8]) -> crate::db::DBIterator<'a> {
+            self.inner.iter_prefix(col, p)
+        }
+        fn iter_range<'a>(
+            &'a self,
+            col: DBCol,
+            lo: Option<&[u8]>,
+            hi: Option<&[u8]>,
+        ) -> crate::db::DBIterator<'a> {
+            self.inner.iter_range(col, lo, hi)
+        }
+        fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> crate::db::DBIterator<'a> {
+            self.inner.iter_raw_bytes(col)
+        }
+        fn write(&self, batch: crate::db::DBTransaction) {
+            self.inner.write(batch)
+        }
+        fn flush(&self) {}
+        fn compact(&self) {}
+        fn get_store_statistics(&self) -> Option<crate::StoreStatistics> {
+            None
+        }
+        fn create_checkpoint(
+            &self,
+            _: &std::path::Path,
+            _: Option<&[DBCol]>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn deserialized_column_cache(&self) -> Arc<deserialized_column::Cache> {
+            self.inner.deserialized_column_cache()
+        }
+    }
+
+    /// Regression test for a race condition in `caching_get_ser`:
+    ///
+    /// Thread A reads an old value from DB (cache miss, lock released during IO).
+    /// Thread B completes a full write cycle (pop cache, write DB, decrement
+    /// active_flushes). Thread A then tries to cache its stale value and sees
+    /// active_flushes == 0, so it stores the stale entry. Subsequent reads hit
+    /// the cache and return stale data.
+    ///
+    /// The fix adds a `generation` counter that is bumped on every write. The
+    /// reader records the generation before its DB read and refuses to cache if
+    /// the generation has changed.
+    #[test]
+    fn test_caching_race_stale_value() {
+        let col = DBCol::BlockMisc; // cached column
+        let key = b"test_key";
+
+        let db = Arc::new(SyncReadDatabase::new());
+        let store = Store::new(db.clone() as Arc<dyn Database>);
+
+        // Seed the DB with value 1. Don't go through cache.
+        {
+            let mut su = store.store_update();
+            su.set_ser(col, key, &1u64).unwrap();
+            store.write(su.transaction).unwrap();
+        }
+
+        // Set up synchronization: two barriers of size 2.
+        let read_done = Arc::new(Barrier::new(2));
+        let cont = Arc::new(Barrier::new(2));
+        db.arm(read_done.clone(), cont.clone());
+
+        // Spawn a reader thread. It will:
+        // 1. caching_get_ser → cache miss (first read of this key)
+        // 2. Read from DB → gets 1
+        // 3. Wait on read_done barrier
+        // 4. Wait on cont barrier
+        // 5. Try to cache the value
+        let store2 = store.clone();
+        let reader = std::thread::spawn(move || {
+            let result: Option<Arc<u64>> = store2.caching_get_ser(col, key).unwrap();
+            *result.unwrap()
+        });
+
+        // Main thread: wait for reader to complete its DB read.
+        read_done.wait();
+
+        // While the reader is paused, write value 2 through the Store.
+        // This pops the key from cache, increments active_flushes,
+        // writes to DB, and decrements active_flushes back to 0.
+        {
+            let mut su = store.store_update();
+            su.set_ser(col, key, &2u64).unwrap();
+            su.commit().unwrap();
+        }
+
+        // Let the reader continue. It will now try to cache the old value (1).
+        cont.wait();
+
+        // The reader's in-flight result is 1 (it read before the write). That's OK.
+        let reader_result = reader.join().unwrap();
+        assert_eq!(reader_result, 1);
+
+        // The critical check: a fresh read must return the NEW value (2).
+        // Without the generation counter fix, the cache would contain 1.
+        let fresh: Arc<u64> = store.caching_get_ser(col, key).unwrap().unwrap();
+        assert_eq!(*fresh, 2, "cache returned stale value");
     }
 }
