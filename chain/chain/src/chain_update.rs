@@ -525,6 +525,7 @@ impl<'a> ChainUpdate<'a> {
                 block_type: BlockType::Normal,
                 height: chunk_header.height_included(),
                 prev_block_hash: *chunk_header.prev_block_hash(),
+                last_final_block_hash: *block_header.last_final_block(),
                 block_timestamp: block_header.raw_timestamp(),
                 gas_price,
                 random_seed: *block_header.random_value(),

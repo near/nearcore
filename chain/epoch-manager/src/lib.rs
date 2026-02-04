@@ -866,7 +866,7 @@ impl EpochManager {
                     *block_info.epoch_id_mut() = EpochId::default();
                     *block_info.epoch_first_block_mut() = current_hash;
                     is_epoch_start = true;
-                } else if self.is_next_epoch_after_n_blocks(&prev_block_info, 1)? {
+                } else if self.is_next_block_in_next_epoch(&prev_block_info)? {
                     // Current block is in the new epoch, finalize the one in prev_block.
                     *block_info.epoch_id_mut() =
                         self.get_next_epoch_id_from_info(&prev_block_info)?;
@@ -903,7 +903,7 @@ impl EpochManager {
                 }
 
                 // If this is the last block in the epoch, finalize this epoch.
-                if self.is_next_epoch_after_n_blocks(&block_info, 1)? {
+                if self.is_next_block_in_next_epoch(&block_info)? {
                     self.finalize_epoch(&mut store_update, &block_info, &current_hash, rng_seed)?;
                 }
             }
@@ -1082,16 +1082,25 @@ impl EpochManager {
     /// Returns true if next block after the given `block_hash` is in the new epoch.
     pub fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {
         let block_info = self.get_block_info(block_hash)?;
-        self.is_next_epoch_after_n_blocks(&block_info, 1)
+        self.is_next_block_in_next_epoch(&block_info)
     }
 
-    /// Returns true if the block two blocks after the given `block_hash` belongs to a new epoch.
-    pub fn is_next_next_block_epoch_start(
+    /// Returns true if the block after the one being produced will belong to a new epoch.
+    ///
+    /// Parameters:
+    ///  - `height`: the height of the block being produced
+    ///  - `parent_hash`: hash of the parent block (the block we're building on top of)
+    ///  - `last_final_block_hash`: hash of the last final block
+    pub fn is_produced_block_last_in_epoch(
         &self,
-        block_hash: &CryptoHash,
+        height: BlockHeight,
+        parent_hash: &CryptoHash,
+        last_final_block_hash: &CryptoHash,
     ) -> Result<bool, EpochError> {
-        let block_info = self.get_block_info(block_hash)?;
-        self.is_next_epoch_after_n_blocks(&block_info, 2)
+        let last_final_block_height = self.get_block_info(last_final_block_hash)?.height();
+        let parent_info = self.get_block_info(parent_hash)?;
+        let epoch_first_block = parent_info.epoch_first_block();
+        self.is_next_block_in_next_epoch_impl(height, last_final_block_height, epoch_first_block)
     }
 
     pub fn get_next_epoch_id_from_prev_block(
@@ -1441,29 +1450,43 @@ impl EpochManager {
 
 /// Private utilities for EpochManager.
 impl EpochManager {
-    /// Returns true if the block `offset` positions after `block_info` is in the next epoch.
-    /// For example, offset=1 checks if the next block is in the next epoch,
-    /// offset=2 checks if the block after the next is in the next epoch.
-    fn is_next_epoch_after_n_blocks(
+    /// Returns true if the next block after the given block will be in the next epoch.
+    ///
+    /// Parameters:
+    /// - `height`: the height of the block
+    /// - `last_finalized_height`: the height of the last finalized block for the block in question
+    /// - `epoch_first_block`: the first block of the current epoch
+    fn is_next_block_in_next_epoch_impl(
         &self,
-        block_info: &BlockInfo,
-        offset: u64,
+        height: BlockHeight,
+        last_finalized_height: BlockHeight,
+        epoch_first_block: &CryptoHash,
     ) -> Result<bool, EpochError> {
-        if block_info.is_genesis() {
-            return Ok(true);
-        }
-        let protocol_version = self.get_epoch_info_from_hash(block_info.hash())?.protocol_version();
+        let epoch_first_block_info = self.get_block_info(epoch_first_block)?;
+        let protocol_version =
+            self.get_epoch_info(&epoch_first_block_info.epoch_id())?.protocol_version();
         let epoch_length = self.config.for_protocol_version(protocol_version).epoch_length;
-        let estimated_next_epoch_start =
-            self.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
+        let estimated_next_epoch_start = epoch_first_block_info.height() + epoch_length;
 
         if epoch_length <= 3 {
             // This is here to make epoch_manager tests pass. Needs to be removed, tracked in
             // https://github.com/nearprotocol/nearcore/issues/2522
-            return Ok(block_info.height() + offset >= estimated_next_epoch_start);
+            return Ok(height + 1 >= estimated_next_epoch_start);
         }
 
-        Ok(block_info.last_finalized_height() + 2 + offset >= estimated_next_epoch_start)
+        Ok(last_finalized_height + 3 >= estimated_next_epoch_start)
+    }
+
+    /// Returns true if the next block after `block_info` will be in the next epoch.
+    fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
+        if block_info.is_genesis() {
+            return Ok(true);
+        }
+        self.is_next_block_in_next_epoch_impl(
+            block_info.height(),
+            block_info.last_finalized_height(),
+            block_info.epoch_first_block(),
+        )
     }
 
     /// Returns true, if given current block info, next block must include the approvals from the next
@@ -1472,7 +1495,7 @@ impl EpochManager {
         &self,
         block_info: &BlockInfo,
     ) -> Result<bool, EpochError> {
-        if self.is_next_epoch_after_n_blocks(block_info, 1)? {
+        if self.is_next_block_in_next_epoch(block_info)? {
             return Ok(false);
         }
         let epoch_length = {
@@ -1748,11 +1771,6 @@ impl EpochManager {
         parent_hash: &CryptoHash,
         proposed_splits: &HashMap<ShardId, TrieSplit>,
     ) -> Result<Option<(ShardId, AccountId)>, EpochError> {
-        // Only compute shard_split if this block will be the last block of the epoch
-        if !self.is_next_next_block_epoch_start(parent_hash)? {
-            return Ok(None);
-        }
-
         let epoch_id = self.get_epoch_id(parent_hash)?;
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let next_next_epoch_version = self.get_next_next_epoch_protocol_version(parent_hash)?;

@@ -934,8 +934,15 @@ impl Client {
             None
         };
 
+        let last_final_block = prev.last_final_block_for_height(height);
+        let is_produced_block_last_in_epoch = self.epoch_manager.is_produced_block_last_in_epoch(
+            &prev_hash,
+            height,
+            &last_final_block,
+        )?;
+
         // Compute shard_split if this is the last block of the epoch
-        let shard_split = if self.epoch_manager.is_next_next_block_epoch_start(&prev_hash)? {
+        let shard_split = if is_produced_block_last_in_epoch {
             // Collect proposed splits from chunk headers
             let proposed_splits = chunk_headers
                 .iter()

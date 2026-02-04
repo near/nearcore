@@ -1333,6 +1333,9 @@ impl Chain {
                 block_type: BlockType::Optimistic,
                 height: block_height,
                 prev_block_hash: *block.prev_block_hash(),
+                last_final_block_hash: *prev_block
+                    .header()
+                    .last_final_block_for_height(block_height),
                 block_timestamp: block.block_timestamp(),
                 gas_price: prev_block.header().next_gas_price(),
                 random_seed: *block.random_value(),

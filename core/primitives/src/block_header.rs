@@ -1292,6 +1292,17 @@ impl BlockHeader {
     }
 
     #[inline]
+    // Get last final block for producing a block at `target_height`, assuming that this
+    // block is previous than the one being produced
+    pub fn last_final_block_for_height(&self, target_height: BlockHeight) -> &CryptoHash {
+        if target_height == self.height() + 1 && self.last_ds_final_block() == self.prev_hash() {
+            self.prev_hash()
+        } else {
+            self.last_final_block()
+        }
+    }
+
+    #[inline]
     pub fn last_ds_final_block(&self) -> &CryptoHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.last_ds_final_block,
