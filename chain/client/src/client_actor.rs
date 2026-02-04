@@ -1191,7 +1191,7 @@ impl ClientActor {
 
         let prev_block_hash = &head.last_block_hash;
         let head_header = self.client.chain.get_block_header(prev_block_hash)?;
-        let chunks_readiness = self.client.prepare_chunk_headers(prev_block_hash, &epoch_id)?;  
+        let chunks_readiness = self.client.prepare_chunk_headers(prev_block_hash, &epoch_id)?;
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {

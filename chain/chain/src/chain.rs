@@ -1804,6 +1804,15 @@ impl Chain {
             chain_update.check_protocol_version(&block_hash, epoch_to_check)?;
         }
         chain_update.commit()?;
+        let committed_head = self.chain_store.head()?;
+        tracing::debug!(
+            target: "chain",
+            ?block_hash,
+            new_head_height = new_head.as_ref().map(|t| t.height),
+            committed_head_height = committed_head.height,
+            committed_head_hash = ?committed_head.last_block_hash,
+            "postprocess_block_only after commit"
+        );
         Ok(new_head)
     }
 

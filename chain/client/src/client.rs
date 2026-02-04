@@ -1271,6 +1271,17 @@ impl Client {
         let (accepted_blocks, errors) = self
             .chain
             .postprocess_ready_blocks(&mut block_processing_artifacts, apply_chunks_done_sender);
+        if !accepted_blocks.is_empty() {
+            let head = self.chain.head().unwrap();
+            tracing::debug!(
+                target: "client",
+                num_accepted = accepted_blocks.len(),
+                head_height = head.height,
+                head_hash = ?head.last_block_hash,
+                blocks = ?accepted_blocks.iter().map(|b| format!("{}:{:?}:{:?}", b.hash, b.status, b.provenance)).collect::<Vec<_>>(),
+                "postprocess_ready_blocks after chain processing"
+            );
+        }
         if accepted_blocks.iter().any(|accepted_block| accepted_block.status.is_new_head()) {
             let head = self.chain.head().unwrap();
             let header_head = self.chain.header_head().unwrap();
@@ -1283,6 +1294,16 @@ impl Client {
         let accepted_blocks_hashes =
             accepted_blocks.iter().map(|accepted_block| accepted_block.hash).collect();
         for accepted_block in accepted_blocks {
+            if let Ok(head) = self.chain.head() {
+                tracing::debug!(
+                    target: "client",
+                    accepted_block_hash = ?accepted_block.hash,
+                    accepted_block_status = ?accepted_block.status,
+                    head_height = head.height,
+                    head_hash = ?head.last_block_hash,
+                    "before on_block_accepted"
+                );
+            }
             self.on_block_accepted_with_optional_chunk_produce(
                 accepted_block.hash,
                 accepted_block.status,
@@ -1454,6 +1475,15 @@ impl Client {
             tracing::warn!(target: "client", ?e, "check_and_update_doomslug_tip: failed to get head");
         })?;
         let (ds_hash, ds_height) = self.doomslug.get_tip();
+        tracing::debug!(
+            target: "client",
+            head_height = tip.height,
+            head_hash = ?tip.last_block_hash,
+            ds_height,
+            ds_hash = ?ds_hash,
+            hashes_match = (tip.last_block_hash == ds_hash),
+            "check_and_update_doomslug_tip"
+        );
         if tip.last_block_hash != ds_hash {
             let head_header = self.chain.get_block_header(&tip.last_block_hash).inspect_err(|e| {
                 tracing::warn!(target: "client", ?e, head_height = tip.height, head_hash = ?tip.last_block_hash, "check_and_update_doomslug_tip: failed to get head header");

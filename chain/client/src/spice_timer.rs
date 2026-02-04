@@ -182,7 +182,6 @@ mod tests {
         assert_eq!(delay, Duration::milliseconds(2000));
     }
 
-
     #[test]
     #[should_panic(expected = "min_block_time must be <= max_block_time")]
     fn test_invalid_config_panics() {

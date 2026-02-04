@@ -1835,6 +1835,14 @@ impl<'a> ChainStoreUpdate<'a> {
 
     #[tracing::instrument(level = "debug", target = "store", "ChainUpdate::finalize", skip_all)]
     fn finalize(&mut self) -> Result<StoreUpdate, Error> {
+        if let Some(head) = &self.head {
+            tracing::debug!(
+                target: "chain",
+                head_height = head.height,
+                head_hash = ?head.last_block_hash,
+                "ChainStoreUpdate::finalize writing head"
+            );
+        }
         let mut store_update = self.store().store_update();
         {
             let _span = tracing::trace_span!(target: "store", "write_col_misc").entered();
