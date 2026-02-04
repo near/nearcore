@@ -458,7 +458,7 @@ impl WasmtimeVM {
         hasher.finish()
     }
 
-    #[tracing::instrument(target = "vm", level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
+    #[tracing::instrument(level = "debug", "WasmtimeVM::compile_uncached", skip_all)]
     pub(crate) fn compile_uncached(
         &self,
         code: &ContractCode,
@@ -866,7 +866,7 @@ fn link(linker: &mut wasmtime::Linker<Ctx>, config: &Config) {
             fn $name(mut caller: wasmtime::Caller<'_, Ctx>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
                 const TRACE: bool = imports::should_trace_host_function(stringify!($name));
                 let _span = TRACE.then(|| {
-                    tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
+                    tracing::trace_span!(stringify!($name)).entered()
                 });
                 match logic::$func(&mut caller, $( $arg_name as $arg_type, )*) {
                     Ok(result) => Ok(result as ($( $returns ),* ) ),

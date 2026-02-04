@@ -358,7 +358,7 @@ impl Runtime {
         if log.is_empty() {
             return;
         }
-        tracing::debug!(target: "runtime", logs = %log.join("\n"));
+        tracing::debug!(logs = %log.join("\n"));
     }
 
     fn apply_action(
@@ -1261,13 +1261,13 @@ impl Runtime {
         for (account_id, max_of_stakes) in &validator_accounts_update.stake_info {
             if let Some(mut account) = get_account(state_update, account_id)? {
                 if let Some(reward) = validator_accounts_update.validator_rewards.get(account_id) {
-                    tracing::debug!(target: "runtime", %account_id, %reward, locked = %account.locked(), "account adding reward to stake");
+                    tracing::debug!(%account_id, %reward, locked = %account.locked(), "account adding reward to stake");
                     account.set_locked(account.locked().checked_add(*reward).ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow("update_validator_accounts".into())
                     })?);
                 }
 
-                tracing::debug!(target: "runtime",
+                tracing::debug!(
                        %account_id, locked = %account.locked(), %max_of_stakes,
                        "account stake and max of stakes"
                 );
@@ -1290,7 +1290,7 @@ impl Runtime {
                             "update_validator_accounts - return stake".into(),
                         )
                     })?;
-                tracing::debug!(target: "runtime", %account_id, %return_stake, "account return stake");
+                tracing::debug!(%account_id, %return_stake, "account return stake");
                 account.set_locked(account.locked().checked_sub(return_stake).ok_or_else(
                     || {
                         RuntimeError::UnexpectedIntegerOverflow(
@@ -1364,7 +1364,7 @@ impl Runtime {
     /// containing invalid transactions does make it to here, these transactions are skipped. This
     /// does pollute the chain with junk data, but it also allows the protocol to make progress, as
     /// the only alternative way to handle these transactions is to make the entire chunk invalid.
-    #[instrument(target = "runtime", level = "debug", "apply", skip_all, fields(
+    #[instrument(level = "debug", "apply", skip_all, fields(
         protocol_version = apply_state.current_protocol_version,
         num_transactions = signed_txs.len(),
         gas_burnt = tracing::field::Empty,
@@ -1530,7 +1530,6 @@ impl Runtime {
     /// Any transactions that fail to validate (e.g. invalid nonces, unknown signing keys,
     /// insufficient NEAR balance, etc.) will be skipped, producing no receipts.
     #[instrument(
-        target = "runtime",
         level = "debug",
         "process_transactions",
         skip_all,
@@ -1923,7 +1922,6 @@ impl Runtime {
                     // This should never happen unless there is a bug in the code.
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::error!(
-                        target: "runtime",
                         tx_hash=?tx.hash(),
                         tx_burnt_amount=?verification_result.burnt_amount,
                         ?err,
@@ -1994,7 +1992,6 @@ impl Runtime {
         mut validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<(), RuntimeError> {
         let span = tracing::debug_span!(
-            target: "runtime",
             "process_receipt",
             receipt_id = %receipt.receipt_id(),
             predecessor = %receipt.predecessor_id(),
@@ -2055,7 +2052,7 @@ impl Runtime {
         Ok(())
     }
 
-    #[instrument(target = "runtime", level = "debug", "process_local_receipts", skip_all, fields(
+    #[instrument(level = "debug", "process_local_receipts", skip_all, fields(
         num_receipts = processing_state.local_receipts.len(),
         gas_burnt = tracing::field::Empty,
         compute_usage = tracing::field::Empty,
@@ -2134,7 +2131,6 @@ impl Runtime {
     }
 
     #[instrument(
-        target = "runtime",
         level = "debug",
         "process_delayed_receipts",
         skip_all,
@@ -2234,7 +2230,7 @@ impl Runtime {
         Ok(processed_delayed_receipts)
     }
 
-    #[instrument(target = "runtime", level = "debug", "process_incoming_receipts", skip_all, fields(
+    #[instrument(level = "debug", "process_incoming_receipts", skip_all, fields(
         num_receipts = processing_state.incoming_receipts.len(),
         gas_burnt = tracing::field::Empty,
         compute_usage = tracing::field::Empty,
@@ -2346,7 +2342,6 @@ impl Runtime {
     /// Processes all receipts (local, delayed and incoming).
     /// Returns a structure containing the result of the processing.
     #[instrument(
-        target = "runtime",
         level = "debug",
         "process_receipts",
         skip_all,
@@ -2415,7 +2410,6 @@ impl Runtime {
     }
 
     #[instrument(
-        target = "runtime",
         level = "debug",
         "validate_apply_state_update",
         skip_all,
@@ -2504,7 +2498,7 @@ impl Runtime {
             // queues: one for data that is going to be required soon, and the other that it would
             // only work when otherwise idle.
             let discarded_prefetch_requests = prefetcher.clear();
-            tracing::debug!(target: "runtime", discarded_prefetch_requests);
+            tracing::debug!(discarded_prefetch_requests);
         }
 
         // Dedup proposals from the same account.
@@ -2587,11 +2581,11 @@ impl ApplyState {
             return Ok(congestion_info.congestion_info);
         }
 
-        tracing::warn!(target: "runtime", "starting to bootstrap congestion info, this might take a while");
+        tracing::warn!("starting to bootstrap congestion info, this might take a while");
         let start = std::time::Instant::now();
         let result = bootstrap_congestion_info(trie, &self.config, self.shard_id);
         let time = start.elapsed();
-        tracing::warn!(target: "runtime", ?time, "bootstrapping congestion info done");
+        tracing::warn!(?time, "bootstrapping congestion info done");
         let computed = result?;
         Ok(computed)
     }

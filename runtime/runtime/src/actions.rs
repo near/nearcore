@@ -252,7 +252,7 @@ pub(crate) fn action_deploy_contract(
     cache: Option<&dyn ContractRuntimeCache>,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
-    let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
+    let _span = tracing::debug_span!("action_deploy_contract").entered();
     clear_account_contract_storage_usage(
         state_update,
         account_id,

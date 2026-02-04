@@ -1670,7 +1670,7 @@ impl<'a> FuncGen<'a> {
         });
     }
 
-    #[tracing::instrument(target = "near_vm", level = "trace", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn new(
         assembler: &'a mut Assembler,
         module: &'a ModuleInfo,
@@ -1778,7 +1778,7 @@ impl<'a> FuncGen<'a> {
     }
 
     #[allow(clippy::large_stack_frames)]
-    #[tracing::instrument(target = "near_vm", level = "trace", skip(self))]
+    #[tracing::instrument(level = "trace", skip(self))]
     pub(crate) fn feed_operator(&mut self, op: Operator) -> Result<(), CodegenError> {
         assert!(self.fp_stack.len() <= self.value_stack.len());
 
@@ -7611,7 +7611,7 @@ impl<'a> FuncGen<'a> {
         Ok(())
     }
 
-    #[tracing::instrument(target = "near_vm", level = "trace", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn finalize(mut self, data: &FunctionBodyData) -> CompiledFunction {
         debug_assert!(
             self.gas_iter.next().is_none(),
@@ -7724,7 +7724,7 @@ fn sort_call_movs(movs: &mut [(Location, GPR)]) {
 }
 
 // Standard entry trampoline.
-#[tracing::instrument(target = "near_vm", level = "trace")]
+#[tracing::instrument(level = "trace")]
 pub(crate) fn gen_std_trampoline(
     sig: &FunctionType,
     calling_convention: CallingConvention,
@@ -7817,7 +7817,7 @@ pub(crate) fn gen_std_trampoline(
 }
 
 /// Generates dynamic import function call trampoline for a function type.
-#[tracing::instrument(target = "near_vm", level = "trace", skip(vmoffsets))]
+#[tracing::instrument(level = "trace", skip(vmoffsets))]
 pub(crate) fn gen_std_dynamic_import_trampoline(
     vmoffsets: &VMOffsets,
     sig: &FunctionType,
@@ -7935,7 +7935,7 @@ pub(crate) fn gen_std_dynamic_import_trampoline(
 }
 
 // Singlepass calls import functions through a trampoline.
-#[tracing::instrument(target = "near_vm", level = "trace", skip(vmoffsets))]
+#[tracing::instrument(level = "trace", skip(vmoffsets))]
 pub(crate) fn gen_import_call_trampoline(
     vmoffsets: &VMOffsets,
     index: FunctionIndex,

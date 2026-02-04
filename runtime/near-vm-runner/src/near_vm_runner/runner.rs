@@ -157,7 +157,7 @@ impl NearVM {
         &self,
         code: &ContractCode,
     ) -> Result<UniversalExecutable, CompilationError> {
-        let _span = tracing::debug_span!(target: "vm", "NearVM::compile_uncached").entered();
+        let _span = tracing::debug_span!("NearVM::compile_uncached").entered();
         let start = std::time::Instant::now();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::NearVm)
             .map_err(CompilationError::PrepareError)?;
@@ -200,12 +200,7 @@ impl NearVM {
         Ok(executable_or_error)
     }
 
-    #[tracing::instrument(
-        level = "debug",
-        target = "vm",
-        name = "NearVM::with_compiled_and_loaded",
-        skip_all
-    )]
+    #[tracing::instrument(level = "debug", name = "NearVM::with_compiled_and_loaded", skip_all)]
     fn with_compiled_and_loaded(
         self: Box<Self>,
         cache: &dyn ContractRuntimeCache,
@@ -229,15 +224,13 @@ impl NearVM {
                 // Caches also cache _compilation_ errors, so that we don't have to
                 // re-parse invalid code (invalid code, in a sense, is a normal
                 // outcome). And `cache`, being a database, can fail with an `io::Error`.
-                let _span =
-                    tracing::debug_span!(target: "vm", "NearVM::fetch_from_cache").entered();
+                let _span = tracing::debug_span!("NearVM::fetch_from_cache").entered();
                 let cache_record = cache.get(&key).map_err(CacheError::ReadError)?;
                 let Some(compiled_contract_info) = cache_record else {
                     let Some(code) = contract.get_code() else {
                         return Err(VMRunnerError::ContractCodeNotPresent);
                     };
-                    let _span =
-                        tracing::debug_span!(target: "vm", "NearVM::build_from_source").entered();
+                    let _span = tracing::debug_span!("NearVM::build_from_source").entered();
                     is_cache_hit = false;
                     return Ok(to_any((
                         code.code().len() as u64,
@@ -258,9 +251,7 @@ impl NearVM {
                         Err(err.clone()),
                     ))),
                     CompiledContract::Code(serialized_module) => {
-                        let _span =
-                            tracing::debug_span!(target: "vm", "NearVM::load_from_fs_cache")
-                                .entered();
+                        let _span = tracing::debug_span!("NearVM::load_from_fs_cache").entered();
                         unsafe {
                             // (UN-)SAFETY: the `serialized_module` must have been produced by
                             // a prior call to `serialize`.
@@ -286,8 +277,7 @@ impl NearVM {
                 }
             },
             move |value| {
-                let _span =
-                    tracing::debug_span!(target: "vm", "NearVM::load_from_mem_cache").entered();
+                let _span = tracing::debug_span!("NearVM::load_from_mem_cache").entered();
                 let &(wasm_bytes, ref downcast) = value
                     .downcast_ref::<MemoryCacheType>()
                     .expect("downcast should always succeed");
@@ -326,7 +316,7 @@ impl NearVM {
         mut import: NearVmImports<'_, '_, '_>,
         entrypoint: FunctionIndex,
     ) -> Result<Result<(), FunctionCallError>, VMRunnerError> {
-        let _span = tracing::debug_span!(target: "vm", "NearVM::run_method").entered();
+        let _span = tracing::debug_span!("NearVM::run_method").entered();
 
         // FastGasCounter in Nearcore must be reinterpret_cast-able to the one in NearVm.
         assert_eq!(
@@ -344,8 +334,7 @@ impl NearVM {
         let gas = import.vmlogic.gas_counter().fast_counter_raw_ptr();
         unsafe {
             let instance = {
-                let _span =
-                    tracing::debug_span!(target: "vm", "NearVM::run_method/instantiate").entered();
+                let _span = tracing::debug_span!("NearVM::run_method/instantiate").entered();
                 // An important caveat is that the `'static` lifetime here refers to the lifetime
                 // of `VMLogic` reference to which is retained by the `InstanceHandle` we create.
                 // However this `InstanceHandle` only lives during the execution of this body, so
@@ -392,7 +381,7 @@ impl NearVM {
                 handle
             };
             if let Some(function) = instance.function_by_index(entrypoint) {
-                let _span = tracing::debug_span!(target: "vm", "NearVM::run_method/call").entered();
+                let _span = tracing::debug_span!("NearVM::run_method/call").entered();
                 // Signature for the entry point should be `() -> ()`. This is only a sanity check
                 // – this should've been already checked by `get_entrypoint_index`.
                 let signature = artifact
@@ -749,7 +738,7 @@ impl<'e, 'l, 'lr> Resolver for NearVmImports<'e, 'l, 'lr> {
                         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             const TRACE: bool = $crate::imports::should_trace_host_function(stringify!($name));
                             let _span = TRACE.then(|| {
-                                tracing::trace_span!(target: "vm::host_function", stringify!($name)).entered()
+                                tracing::trace_span!(stringify!($name)).entered()
                             });
 
                             // SAFETY: This code should only be executable within `'vmlogic`

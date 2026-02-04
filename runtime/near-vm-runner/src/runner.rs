@@ -44,7 +44,7 @@ pub fn contract_cached(
 /// module.
 ///
 /// Contract preparation and execution need not to be executed on the same thread.
-#[tracing::instrument(target = "vm", level = "debug", "prepare", skip_all, fields(
+#[tracing::instrument(level = "debug", "prepare", skip_all, fields(
     code.hash = %contract.hash(),
     method_name,
     vm_kind = ?wasm_config.vm_kind,
@@ -81,7 +81,7 @@ pub fn prepare(
 ///
 /// The gas cost for contract preparation will be subtracted by the VM
 /// implementation.
-#[tracing::instrument(target = "vm", level = "debug", "run", skip_all, fields(
+#[tracing::instrument(level = "debug", "run", skip_all, fields(
     method_name,
     burnt_gas = tracing::field::Empty,
     compute_usage = tracing::field::Empty,
