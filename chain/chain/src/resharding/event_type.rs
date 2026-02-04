@@ -50,7 +50,7 @@ impl ReshardingEventType {
         resharding_block: BlockInfo,
     ) -> Result<Option<ReshardingEventType>, Error> {
         let log_and_error = |err_msg: &str| {
-            tracing::error!(target: "resharding", ?next_shard_layout, err_msg);
+            tracing::error!(?next_shard_layout, err_msg);
             Err(Error::ReshardingError(err_msg.to_owned()))
         };
 

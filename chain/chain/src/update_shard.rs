@@ -137,7 +137,6 @@ pub fn apply_new_chunk(
     } = data;
     let shard_id = shard_context.shard_uid.shard_id();
     let _span = tracing::debug_span!(
-        target: "chain",
         parent: parent_span,
         "apply_new_chunk",
         height = block.height,
@@ -191,7 +190,6 @@ pub fn apply_old_chunk(
     let OldChunkData { prev_chunk_extra, block, storage_context } = data;
     let shard_id = shard_context.shard_uid.shard_id();
     let _span = tracing::debug_span!(
-        target: "chain",
         parent: parent_span,
         "apply_old_chunk",
         height = block.height,

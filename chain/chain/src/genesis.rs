@@ -160,7 +160,7 @@ impl Chain {
         }
         store_update.merge(tmp_store_update);
         store_update.commit()?;
-        tracing::info!(target: "chain", height = %block_head.height, ?block_head.last_block_hash, ?state_roots, "genesis has been saved");
+        tracing::info!(height = %block_head.height, ?block_head.last_block_hash, ?state_roots, "genesis has been saved");
         Ok(())
     }
 
@@ -278,7 +278,7 @@ pub fn get_genesis_congestion_infos(
     state_roots: &Vec<CryptoHash>,
 ) -> Result<Vec<CongestionInfo>, Error> {
     get_genesis_congestion_infos_impl(epoch_manager, runtime, state_roots).map_err(|err| {
-        tracing::error!(target: "chain", ?err, "failed to get the genesis congestion infos");
+        tracing::error!(?err, "failed to get the genesis congestion infos");
         err
     })
 }
@@ -295,7 +295,7 @@ fn get_genesis_congestion_infos_impl(
 
     // Check we had already computed the congestion infos from the genesis state roots.
     if let Some(saved_infos) = near_store::get_genesis_congestion_infos(runtime.store())? {
-        tracing::debug!(target: "chain", "reading genesis congestion infos from database");
+        tracing::debug!("reading genesis congestion infos from database");
         return Ok(saved_infos);
     }
 
@@ -312,7 +312,6 @@ fn get_genesis_congestion_infos_impl(
             Ok(info) => info,
             Err(_) => {
                 tracing::info!(
-                    target: "chain",
                     %shard_id,
                     "genesis state unavailable, using default congestion info"
                 );
@@ -325,7 +324,7 @@ fn get_genesis_congestion_infos_impl(
     // Store it in DB so that we can read it later, instead of recomputing from genesis state roots.
     // Note that this is necessary because genesis state roots will be garbage-collected and will not
     // be available, for example, when the node restarts later.
-    tracing::debug!(target: "chain", "saving genesis congestion infos to database");
+    tracing::debug!("saving genesis congestion infos to database");
     let mut store_update = runtime.store().store_update();
     near_store::set_genesis_congestion_infos(&mut store_update, &new_infos);
     store_update.commit()?;
@@ -345,7 +344,7 @@ fn get_genesis_congestion_info(
     let trie = runtime.get_view_trie_for_shard(shard_id, prev_hash, state_root)?;
     let runtime_config = runtime.get_runtime_config(protocol_version);
     let congestion_info = bootstrap_congestion_info(&trie, runtime_config, shard_id)?;
-    tracing::debug!(target: "chain", %shard_id, ?state_root, ?congestion_info, "computed genesis congestion info");
+    tracing::debug!(%shard_id, ?state_root, ?congestion_info, "computed genesis congestion info");
     Ok(congestion_info)
 }
 

@@ -99,7 +99,9 @@ impl<'a> ChainUpdate<'a> {
         apply_results: Vec<ShardUpdateResult>,
         should_save_state_transition_data: bool,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing", height=block.header().height()).entered();
+        let _span =
+            tracing::debug_span!("apply_chunk_postprocessing", height = block.header().height())
+                .entered();
         Self::bandwidth_scheduler_state_sanity_check(&apply_results);
         for result in apply_results {
             self.process_apply_chunk_result(block, result, should_save_state_transition_data)?;
@@ -236,12 +238,7 @@ impl<'a> ChainUpdate<'a> {
     }
     /// This is the last step of process_block_single, where we take the preprocess block info
     /// apply chunk results and store the results on chain.
-    #[tracing::instrument(
-        level = "debug",
-        target = "chain",
-        "ChainUpdate::postprocess_block",
-        skip_all
-    )]
+    #[tracing::instrument(level = "debug", "ChainUpdate::postprocess_block", skip_all)]
     pub(crate) fn postprocess_block(
         &mut self,
         block: Arc<Block>,
@@ -252,7 +249,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|(shard_id, x)| {
             if let Err(err) = &x {
-                tracing::warn!(target: "chain", %shard_id, hash = %block.hash(), %err, "error in applying chunk for block");
+                tracing::warn!(%shard_id, hash = %block.hash(), %err, "error in applying chunk for block");
             }
             x
         }).collect::<Result<Vec<_>, Error>>()?;
@@ -262,7 +259,7 @@ impl<'a> ChainUpdate<'a> {
             block_preprocess_info;
 
         if !is_caught_up {
-            tracing::debug!(target: "chain", %prev_hash, hash = %*block.hash(), "add block to catch up");
+            tracing::debug!(%prev_hash, hash = %*block.hash(), "add block to catch up");
             self.chain_store_update.add_block_to_catchup(*prev_hash, *block.hash());
         }
 
@@ -401,7 +398,7 @@ impl<'a> ChainUpdate<'a> {
         if header.height() > header_head.height {
             let tip = Tip::from_header(header);
             self.chain_store_update.save_header_head(&tip)?;
-            tracing::debug!(target: "chain", last_block_hash = ?tip.last_block_hash, height = %tip.height, "header head updated");
+            tracing::debug!(last_block_hash = ?tip.last_block_hash, height = %tip.height, "header head updated");
             metrics::HEADER_HEAD_HEIGHT.set(tip.height as i64);
 
             Ok(Some(tip))
@@ -440,7 +437,7 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.save_body_head(&tip)?;
             metrics::BLOCK_HEIGHT_HEAD.set(tip.height as i64);
             metrics::BLOCK_ORDINAL_HEAD.set(header.block_ordinal() as i64);
-            tracing::debug!(target: "chain", last_block_hash = ?tip.last_block_hash, height = %tip.height, "head updated");
+            tracing::debug!(last_block_hash = ?tip.last_block_hash, height = %tip.height, "head updated");
             Ok(Some(tip))
         } else {
             Ok(None)
@@ -456,8 +453,8 @@ impl<'a> ChainUpdate<'a> {
         sync_hash: CryptoHash,
         shard_state_header: ShardStateSyncResponseHeader,
     ) -> Result<ShardUId, Error> {
-        let _span =
-            tracing::debug_span!(target: "sync", "chain_update_set_state_finalize", %shard_id, ?sync_hash).entered();
+        let _span = tracing::debug_span!("chain_update_set_state_finalize", %shard_id, ?sync_hash)
+            .entered();
         let (chunk, incoming_receipts_proofs) = match shard_state_header {
             ShardStateSyncResponseHeader::V1(shard_state_header) => (
                 ShardChunk::V1(shard_state_header.chunk),
@@ -594,8 +591,7 @@ impl<'a> ChainUpdate<'a> {
         sync_hash: CryptoHash,
     ) -> Result<bool, Error> {
         let _span =
-            tracing::debug_span!(target: "sync", "set_state_finalize_on_height", height, %shard_id)
-                .entered();
+            tracing::debug_span!("set_state_finalize_on_height", height, %shard_id).entered();
         // Note that block headers are already synced and can be taken
         // from store on disk.
         let block_header_result = get_block_header_on_chain_by_height(

@@ -58,7 +58,7 @@ impl near_async::messaging::Actor for SpiceCoreWriterActor {}
 impl Handler<ProcessedBlock> for SpiceCoreWriterActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         if let Err(err) = self.handle_processed_block(block_hash) {
-            tracing::error!(target: "spice_core_writer", ?err, "error handling processed block");
+            tracing::error!(?err, "error handling processed block");
         }
     }
 }
@@ -66,7 +66,7 @@ impl Handler<ProcessedBlock> for SpiceCoreWriterActor {
 impl Handler<SpiceChunkEndorsementMessage> for SpiceCoreWriterActor {
     fn handle(&mut self, msg: SpiceChunkEndorsementMessage) {
         if let Err(err) = self.process_chunk_endorsement(msg.0) {
-            tracing::error!(target: "spice_core_writer", ?err, "error processing spice chunk endorsement");
+            tracing::error!(?err, "error processing spice chunk endorsement");
         }
     }
 }
@@ -355,7 +355,6 @@ impl SpiceCoreWriterActor {
                     Ok(()) => true,
                     Err(err) => {
                         tracing::info!(
-                            target: "spice_core_writer",
                             chunk_id = ?endorsement.chunk_id(),
                             ?err,
                             "encountered invalid pending endorsement"
@@ -391,7 +390,6 @@ impl SpiceCoreWriterActor {
             Ok(block) => block,
             Err(Error::DBNotFoundErr(_)) => {
                 tracing::debug!(
-                    target: "spice_core_writer",
                     block_hash = ?endorsement.block_hash(),
                     "not processing endorsement immediately since haven't received relevant block yet"
                 );

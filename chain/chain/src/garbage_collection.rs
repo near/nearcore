@@ -199,7 +199,6 @@ impl ChainStore {
         let last_known_gc_heigh = self.gc_stop_height()?;
         if last_known_gc_heigh != gc_stop_height {
             tracing::debug!(
-                target: "garbage_collection",
                 gc_stop_height,
                 last_known_gc_heigh,
                 "update last known gc_stop_height"
@@ -207,12 +206,7 @@ impl ChainStore {
             let mut chain_store_update = self.store_update();
             chain_store_update.update_gc_stop_height(gc_stop_height);
             if fork_tail < gc_stop_height {
-                tracing::debug!(
-                    target: "garbage_collection",
-                    fork_tail,
-                    gc_stop_height,
-                    "update fork_tail"
-                );
+                tracing::debug!(fork_tail, gc_stop_height, "update fork_tail");
                 chain_store_update.update_fork_tail(gc_stop_height);
                 fork_tail = gc_stop_height;
             }
@@ -220,7 +214,6 @@ impl ChainStore {
         }
         let mut gc_blocks_remaining = gc_config.gc_blocks_limit;
         let _span = tracing::debug_span!(
-            target: "garbage_collection",
             "clear_old_blocks_data",
             tail,
             fork_tail,
@@ -232,12 +225,7 @@ impl ChainStore {
 
         let gc_fork_clean_step = gc_config.gc_fork_clean_step;
         let stop_height = tail.max(fork_tail.saturating_sub(gc_fork_clean_step));
-        tracing::debug!(
-            target: "garbage_collection",
-            stop_height,
-            gc_fork_clean_step,
-            "start fork cleaning"
-        );
+        tracing::debug!(stop_height, gc_fork_clean_step, "start fork cleaning");
         for height in (stop_height..fork_tail).rev() {
             self.clear_forks_data(
                 tries.clone(),
@@ -253,11 +241,7 @@ impl ChainStore {
             chain_store_update.commit()?;
         }
 
-        tracing::debug!(
-            target: "garbage_collection",
-            gc_blocks_remaining,
-            "start canonical chain clearing"
-        );
+        tracing::debug!(gc_blocks_remaining, "start canonical chain clearing");
         for height in tail + 1..gc_stop_height {
             if gc_blocks_remaining == 0 {
                 return Ok(());
@@ -276,7 +260,6 @@ impl ChainStore {
                 let prev_block_refcount = chain_store_update.get_block_refcount(&prev_hash)?;
                 if prev_block_refcount > 1 {
                     tracing::debug!(
-                        target: "garbage_collection",
                         ?prev_hash,
                         height,
                         prev_block_refcount,
@@ -317,7 +300,7 @@ impl ChainStore {
         Ok(())
     }
 
-    #[tracing::instrument(target = "garbage_collection", level = "debug", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     fn clear_state_transition_data(
         &self,
         epoch_manager: &dyn EpochManagerAdapter,
@@ -331,7 +314,7 @@ impl ChainStore {
         }
         let Ok(final_block) = self.get_block(&final_block_hash) else {
             // This can happen if the node just did state sync.
-            tracing::debug!(target: "garbage_collection", ?final_block_hash, "could not get final block");
+            tracing::debug!(?final_block_hash, "could not get final block");
             return Ok(());
         };
         let final_block_chunk_created_heights: HashMap<_, _> = final_block
@@ -389,7 +372,7 @@ impl ChainStore {
     /// Witnesses should be garbage collected with higher cadence because there is
     /// no need to retain witnesses once the corresponding chunks are certified
     /// by the final block.
-    #[tracing::instrument(target = "garbage_collection", level = "debug", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     fn clear_witnesses_data(&self) -> Result<(), Error> {
         let _metric_timer = metrics::WITNESSES_GC_TIME.start_timer();
         // Use binary version to determine whether Spice related GC should run.
@@ -402,7 +385,7 @@ impl ChainStore {
             get_last_certified_block_header(&self, &final_head.last_block_hash)
                 .map(|header| header.height())
         else {
-            tracing::debug!(target: "garbage_collection", "could not get last certified block height");
+            tracing::debug!("could not get last certified block height");
             return Ok(());
         };
 
@@ -443,8 +426,7 @@ impl ChainStore {
         gc_height_limit: BlockHeightDelta,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
     ) -> Result<(), Error> {
-        let _span =
-            tracing::debug_span!(target: "chain", "clear_archive_data", gc_height_limit).entered();
+        let _span = tracing::debug_span!("clear_archive_data", gc_height_limit).entered();
 
         let head = self.head()?;
         let gc_stop_height = runtime_adapter.get_gc_stop_height(&head.last_block_hash);
@@ -503,7 +485,6 @@ impl ChainStore {
                     current_hash = prev_hash;
                 } else {
                     tracing::debug!(
-                        target: "garbage_collection",
                         ?current_hash,
                         height,
                         current_block_refcount,
@@ -523,7 +504,7 @@ impl ChainStore {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "sync", "reset_data_pre_state_sync").entered();
+        let _span = tracing::debug_span!("reset_data_pre_state_sync").entered();
         let head = self.head()?;
         if head.prev_block_hash == CryptoHash::default() {
             // This is genesis. It means we are state syncing right after epoch sync. Don't clear
@@ -738,7 +719,7 @@ impl<'a> ChainStoreUpdate<'a> {
     ) -> Result<(), Error> {
         let mut store_update = self.store().trie_store().store_update();
 
-        tracing::debug!(target: "garbage_collection", ?gc_mode, ?block_hash, "GC block_hash");
+        tracing::debug!(?gc_mode, ?block_hash, "GC block_hash");
 
         // 1. Garbage collect TrieChanges.
         self.gc_trie_changes(epoch_manager, block_hash, &gc_mode, &mut store_update)?;
@@ -1309,7 +1290,7 @@ fn gc_parent_shard_after_resharding(
         return Ok(());
     }
 
-    tracing::debug!(target: "garbage_collection", ?block_hash, "resharding state cleanup");
+    tracing::debug!(?block_hash, "resharding state cleanup");
     // Given block_hash is the resharding block, shard_layout is the shard layout of the next epoch
     // Important: We are not allowed to call `epoch_manager.get_shard_layout_from_prev_block()` as
     // the function relies on `self.get_block_info(block_info.epoch_first_block())` but epoch_first_block
@@ -1331,10 +1312,13 @@ fn gc_parent_shard_after_resharding(
         });
         if !has_active_mapping {
             // Delete the state of the parent shard
-            tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "resharding state cleanup for shard");
+            tracing::debug!(?parent_shard_uid, "resharding state cleanup for shard");
             trie_store_update.delete_shard_uid_prefixed_state(parent_shard_uid);
         } else {
-            tracing::debug!(target: "garbage_collection", ?parent_shard_uid, "skipping parent shard cleanup - active mappings exist");
+            tracing::debug!(
+                ?parent_shard_uid,
+                "skipping parent shard cleanup - active mappings exist"
+            );
         }
     }
 
@@ -1360,7 +1344,7 @@ fn gc_state(
         return Ok(());
     }
 
-    tracing::debug!(target: "garbage_collection", "GC state");
+    tracing::debug!("GC state");
     let latest_block_hash = chain_store_update.head()?.last_block_hash;
     let last_block_hash_in_gc_epoch = block_hash;
 
@@ -1395,7 +1379,7 @@ fn gc_state(
     }
 
     // Delete State of `shards_to_cleanup` and associated ShardUId mapping.
-    tracing::debug!(target: "garbage_collection", ?shards_to_cleanup, "state shards cleanup");
+    tracing::debug!(?shards_to_cleanup, "state shards cleanup");
     let mut trie_store_update = store.trie_store().store_update();
     for shard_uid_prefix in shards_to_cleanup {
         trie_store_update.delete_shard_uid_prefixed_state(shard_uid_prefix);

@@ -53,10 +53,8 @@ impl ReshardingManager {
     ) -> Result<(), Error> {
         let block_hash = block.hash();
         let block_height = block.header().height();
-        let _span = tracing::debug_span!(
-            target: "resharding", "start_resharding",
-            ?block_hash, block_height, ?shard_uid)
-        .entered();
+        let _span = tracing::debug_span!("start_resharding", ?block_hash, block_height, ?shard_uid)
+            .entered();
 
         let prev_hash = block.header().prev_hash();
         let shard_layout = self.epoch_manager.get_shard_layout(&block.header().epoch_id())?;
@@ -70,12 +68,12 @@ impl ReshardingManager {
 
         let will_shard_layout_change = shard_layout != next_shard_layout;
         if !will_shard_layout_change {
-            tracing::debug!(target: "resharding", ?prev_hash, "prev block has the same shard layout, skipping");
+            tracing::debug!(?prev_hash, "prev block has the same shard layout, skipping");
             return Ok(());
         }
 
         if !matches!(next_shard_layout, ShardLayout::V2(_)) {
-            tracing::debug!(target: "resharding", ?next_shard_layout, "next shard layout is not v2, skipping");
+            tracing::debug!(?next_shard_layout, "next shard layout is not v2, skipping");
             return Ok(());
         }
 
@@ -98,7 +96,10 @@ impl ReshardingManager {
                 )?;
             }
             None => {
-                tracing::warn!(target: "resharding", ?resharding_event_type, "unsupported resharding event type, skipping");
+                tracing::warn!(
+                    ?resharding_event_type,
+                    "unsupported resharding event type, skipping"
+                );
             }
         };
         Ok(())
@@ -115,7 +116,11 @@ impl ReshardingManager {
     ) -> Result<SplitShardTrieChanges, Error> {
         if split_shard_event.parent_shard != shard_uid {
             let parent_shard = split_shard_event.parent_shard;
-            tracing::debug!(target: "resharding", ?shard_uid, ?parent_shard, "shard does not match event parent shard, skipping");
+            tracing::debug!(
+                ?shard_uid,
+                ?parent_shard,
+                "shard does not match event parent shard, skipping"
+            );
             return Ok(Default::default());
         }
 
@@ -132,7 +137,7 @@ impl ReshardingManager {
             .collect_vec();
 
         if tracked_children_shards.is_empty() {
-            tracing::debug!(target: "resharding", "not tracking any child shards, skipping");
+            tracing::debug!("not tracking any child shards, skipping");
             return Ok(Default::default());
         }
 
@@ -192,8 +197,11 @@ impl ReshardingManager {
             ..
         } = split_shard_event;
         let _span = tracing::debug_span!(
-            target: "resharding", "process_memtrie_resharding_storage_update",
-            ?block_hash, block_height, ?parent_shard_uid)
+            "process_memtrie_resharding_storage_update",
+            ?block_hash,
+            block_height,
+            ?parent_shard_uid
+        )
         .entered();
 
         let parent_chunk_extra =
@@ -219,7 +227,8 @@ impl ReshardingManager {
             }
 
             tracing::info!(
-                target: "resharding", ?new_shard_uid, ?retain_mode,
+                ?new_shard_uid,
+                ?retain_mode,
                 "creating child trie by retaining nodes in parent memtrie"
             );
 
@@ -269,7 +278,7 @@ impl ReshardingManager {
                 Default::default(),
             );
 
-            tracing::info!(target: "resharding", ?new_shard_uid, ?trie_changes.new_root, "child trie created");
+            tracing::info!(?new_shard_uid, ?trie_changes.new_root, "child trie created");
 
             split_shard_trie_changes.trie_changes.insert(*new_shard_uid, trie_changes);
         }
