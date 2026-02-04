@@ -1088,19 +1088,23 @@ impl EpochManager {
     /// Returns true if the block after the one being produced will belong to a new epoch.
     ///
     /// Parameters:
-    ///  - `height`: the height of the block being produced
+    ///  - `block_height`: the height of the block being produced
     ///  - `parent_hash`: hash of the parent block (the block we're building on top of)
-    ///  - `last_final_block_hash`: hash of the last final block
+    ///  - `last_final_block_hash`: hash of the last final block after this block is produced
     pub fn is_produced_block_last_in_epoch(
         &self,
-        height: BlockHeight,
+        block_height: BlockHeight,
         parent_hash: &CryptoHash,
         last_final_block_hash: &CryptoHash,
     ) -> Result<bool, EpochError> {
         let last_final_block_height = self.get_block_info(last_final_block_hash)?.height();
         let parent_info = self.get_block_info(parent_hash)?;
         let epoch_first_block = parent_info.epoch_first_block();
-        self.is_next_block_in_next_epoch_impl(height, last_final_block_height, epoch_first_block)
+        self.is_next_block_in_next_epoch_impl(
+            block_height,
+            last_final_block_height,
+            epoch_first_block,
+        )
     }
 
     pub fn get_next_epoch_id_from_prev_block(
@@ -1453,13 +1457,13 @@ impl EpochManager {
     /// Returns true if the next block after the given block will be in the next epoch.
     ///
     /// Parameters:
-    /// - `height`: the height of the block
-    /// - `last_finalized_height`: the height of the last finalized block for the block in question
+    /// - `block_height`: the height of the block
+    /// - `last_final_height`: the height of the last final block for the block in question
     /// - `epoch_first_block`: the first block of the current epoch
     fn is_next_block_in_next_epoch_impl(
         &self,
-        height: BlockHeight,
-        last_finalized_height: BlockHeight,
+        block_height: BlockHeight,
+        last_final_height: BlockHeight,
         epoch_first_block: &CryptoHash,
     ) -> Result<bool, EpochError> {
         let epoch_first_block_info = self.get_block_info(epoch_first_block)?;
@@ -1471,10 +1475,10 @@ impl EpochManager {
         if epoch_length <= 3 {
             // This is here to make epoch_manager tests pass. Needs to be removed, tracked in
             // https://github.com/nearprotocol/nearcore/issues/2522
-            return Ok(height + 1 >= estimated_next_epoch_start);
+            return Ok(block_height + 1 >= estimated_next_epoch_start);
         }
 
-        Ok(last_finalized_height + 3 >= estimated_next_epoch_start)
+        Ok(last_final_height + 3 >= estimated_next_epoch_start)
     }
 
     /// Returns true if the next block after `block_info` will be in the next epoch.

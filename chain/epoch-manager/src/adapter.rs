@@ -107,11 +107,11 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Parameters:
     ///  - `height`: the height of the block being produced
     ///  - `parent_hash`: hash of the parent block (the block we're building on top of)
-    ///  - `last_final_block_hash`: hash of the last final block
+    ///  - `last_final_block_hash`: hash of the last final block after this block is produced
     fn is_produced_block_last_in_epoch(
         &self,
+        block_height: BlockHeight,
         parent_hash: &CryptoHash,
-        height: BlockHeight,
         last_final_block_hash: &CryptoHash,
     ) -> Result<bool, EpochError>;
 
@@ -786,8 +786,11 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     /// Returns the shard split to include in the block header, if any.
+    ///
     /// This is called during block production to compute the `shard_split` field.
+    ///
     /// Returns `Some((shard_id, boundary_account))` if a shard split should be scheduled.
+    ///
     /// The proposed split should be included in the header of the next block  after the one
     /// identified by `parent_hash`. It will be used to derive layout for epoch `N+2`
     /// (where `N` is the current epoch).
@@ -843,12 +846,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn is_produced_block_last_in_epoch(
         &self,
+        block_height: BlockHeight,
         parent_hash: &CryptoHash,
-        height: BlockHeight,
         last_final_block_hash: &CryptoHash,
     ) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.is_produced_block_last_in_epoch(height, parent_hash, last_final_block_hash)
+        epoch_manager.is_produced_block_last_in_epoch(
+            block_height,
+            parent_hash,
+            last_final_block_hash,
+        )
     }
 
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {

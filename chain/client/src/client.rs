@@ -934,23 +934,23 @@ impl Client {
             None
         };
 
+        // Last final block **after this block is produced**
         let last_final_block = prev.last_final_block_for_height(height);
         let is_produced_block_last_in_epoch = self.epoch_manager.is_produced_block_last_in_epoch(
-            &prev_hash,
             height,
+            &prev_hash,
             &last_final_block,
         )?;
 
         // Compute shard_split if this is the last block of the epoch
         let shard_split = if is_produced_block_last_in_epoch {
             // Collect proposed splits from chunk headers
-            let proposed_splits = chunk_headers
-                .iter()
-                .filter_map(|header| {
-                    header.proposed_split().map(|split| (header.shard_id(), split.clone()))
-                })
-                .collect();
-
+            let mut proposed_splits = HashMap::new();
+            for header in &chunk_headers {
+                if let Some(split) = header.proposed_split() {
+                    proposed_splits.insert(header.shard_id(), split.clone());
+                }
+            }
             self.epoch_manager.get_upcoming_shard_split(&prev_hash, &proposed_splits)?
         } else {
             None

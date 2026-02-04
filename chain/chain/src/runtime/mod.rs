@@ -538,8 +538,8 @@ impl NightshadeRuntime {
             return Ok(None);
         }
         if !self.epoch_manager.is_produced_block_last_in_epoch(
-            prev_block_hash,
             height,
+            prev_block_hash,
             last_final_block_hash,
         )? {
             return Ok(None);
