@@ -229,17 +229,6 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
     }
 }
 
-impl AccessKeyPermissionView {
-    pub fn gas_key_balance(&self) -> Option<Balance> {
-        match self {
-            Self::GasKeyFullAccess { balance, .. } | Self::GasKeyFunctionCall { balance, .. } => {
-                Some(*balance)
-            }
-            _ => None,
-        }
-    }
-}
-
 /// Describes access key permission scope and nonce.
 #[derive(
     BorshSerialize,
@@ -2129,15 +2118,6 @@ impl fmt::Debug for FinalExecutionOutcomeView {
             .field("transaction_outcome", &self.transaction_outcome)
             .field("receipts_outcome", &Slice(&self.receipts_outcome))
             .finish()
-    }
-}
-
-impl FinalExecutionOutcomeView {
-    pub fn total_tokens_burnt(&self) -> Balance {
-        std::iter::once(&self.transaction_outcome)
-            .chain(&self.receipts_outcome)
-            .map(|o| o.outcome.tokens_burnt)
-            .fold(Balance::ZERO, |a, b| a.saturating_add(b))
     }
 }
 

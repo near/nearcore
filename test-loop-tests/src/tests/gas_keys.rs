@@ -7,7 +7,9 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{Action, SignedTransaction, TransactionNonce, TransferAction};
 use near_primitives::types::{AccountId, Balance, Nonce, NonceIndex};
-use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_primitives::views::{
+    AccessKeyPermissionView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind,
+};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -16,6 +18,21 @@ use crate::utils::account::{
 };
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::get_shared_block_hash;
+
+fn gas_key_balance(permission: &AccessKeyPermissionView) -> Option<Balance> {
+    match permission {
+        AccessKeyPermissionView::GasKeyFullAccess { balance, .. }
+        | AccessKeyPermissionView::GasKeyFunctionCall { balance, .. } => Some(*balance),
+        _ => None,
+    }
+}
+
+fn total_tokens_burnt(outcome: &FinalExecutionOutcomeView) -> Balance {
+    std::iter::once(&outcome.transaction_outcome)
+        .chain(&outcome.receipts_outcome)
+        .map(|o| o.outcome.tokens_burnt)
+        .fold(Balance::ZERO, |a, b| a.saturating_add(b))
+}
 
 /// Get the nonce for a gas key with specific nonce_index.
 fn get_gas_key_nonce(
@@ -158,10 +175,10 @@ fn test_gas_key_transaction() {
     let QueryResponseKind::AccessKey(access_key_view_after) = gas_key_info_after.kind else {
         panic!("expected AccessKey response");
     };
-    let gas_cost = outcome.total_tokens_burnt();
+    let gas_cost = total_tokens_burnt(&outcome);
     assert!(!gas_cost.is_zero());
-    let gas_key_balance_before = access_key_view_before.permission.gas_key_balance().unwrap();
-    let gas_key_balance_after = access_key_view_after.permission.gas_key_balance().unwrap();
+    let gas_key_balance_before = gas_key_balance(&access_key_view_before.permission).unwrap();
+    let gas_key_balance_after = gas_key_balance(&access_key_view_after.permission).unwrap();
     assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_sub(gas_cost).unwrap());
 
     // Verify receiver got the transfer
