@@ -2,7 +2,7 @@ use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::block_body::SpiceCoreStatement;
+use near_primitives::block_body::{SpiceCoreStatement, SpiceCoreStatements};
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
@@ -147,7 +147,7 @@ impl SpiceCoreReader {
         Ok(Some(BlockExecutionResults(results)))
     }
 
-    pub fn core_statement_for_next_block(
+    pub fn core_statements_for_next_block(
         &self,
         block_header: &BlockHeader,
     ) -> Result<Vec<SpiceCoreStatement>, Error> {
@@ -377,10 +377,10 @@ impl SpiceCoreReader {
     pub fn get_last_certified_execution_results_for_next_block(
         &self,
         block_header: &BlockHeader,
-        core_statements_for_next_block: &[SpiceCoreStatement],
+        core_statements_for_next_block: SpiceCoreStatements<'_>,
     ) -> Result<BlockExecutionResults, Error> {
         let newly_certified_chunks: HashSet<&SpiceChunkId> =
-            iter_execution_results(core_statements_for_next_block).map(|(id, _)| id).collect();
+            core_statements_for_next_block.iter_execution_results().map(|(id, _)| id).collect();
 
         let mut uncertified_chunks =
             get_uncertified_chunks(&self.chain_store, block_header.hash())?;
@@ -406,7 +406,7 @@ impl SpiceCoreReader {
         let num_shards =
             self.epoch_manager.shard_ids(last_certified_block_header.epoch_id())?.len();
         let mut execution_results: HashMap<ShardId, Arc<ChunkExecutionResult>> = HashMap::new();
-        for (chunk_id, result) in iter_execution_results(core_statements_for_next_block) {
+        for (chunk_id, result) in core_statements_for_next_block.iter_execution_results() {
             if chunk_id.block_hash != last_certified_hash {
                 continue;
             }
@@ -421,7 +421,7 @@ impl SpiceCoreReader {
         let mut current_hash = *block_header.hash();
         while execution_results.len() < num_shards && current_hash != last_certified_hash {
             let block = self.chain_store.get_block(&current_hash)?;
-            for (chunk_id, result) in iter_execution_results(block.spice_core_statements()) {
+            for (chunk_id, result) in block.spice_core_statements().iter_execution_results() {
                 if chunk_id.block_hash != last_certified_hash {
                     continue;
                 }
@@ -439,21 +439,6 @@ impl SpiceCoreReader {
         );
         Ok(BlockExecutionResults(execution_results))
     }
-}
-
-fn iter_execution_results(
-    core_statements: &[SpiceCoreStatement],
-) -> impl Iterator<Item = (&SpiceChunkId, &ChunkExecutionResult)> {
-    // TODO(spice): Consider making a newtype wrapper for list of
-    // SpiceCoreStatements. Would also be good if it worked with any iterators
-    // generally (i.e. generics implementing IntoIterator trait). so we can
-    // write: block.spice_core_statements().iter_execution_results()
-    core_statements.iter().filter_map(|s| match s {
-        SpiceCoreStatement::ChunkExecutionResult { chunk_id, execution_result } => {
-            Some((chunk_id, execution_result))
-        }
-        _ => None,
-    })
 }
 
 fn get_uncertified_chunks(
@@ -479,33 +464,20 @@ fn get_uncertified_chunks(
     }
 }
 
-fn get_block_execution_results(block: &Block) -> HashMap<&SpiceChunkId, &ChunkExecutionResult> {
-    iter_execution_results(block.spice_core_statements()).collect()
-}
-
-fn get_block_endorsements(
-    block: &Block,
-) -> HashMap<(&SpiceChunkId, &AccountId), &SpiceEndorsementCoreStatement> {
-    block
-        .spice_core_statements()
-        .iter()
-        .filter_map(|core_statement| match core_statement {
-            SpiceCoreStatement::Endorsement(endorsement) => {
-                Some(((endorsement.chunk_id(), endorsement.account_id()), endorsement))
-            }
-            _ => None,
-        })
-        .collect()
-}
-
 /// Uncertified chunks for block should always be saved together with the block itself for spice.
 pub fn record_uncertified_chunks_for_block(
     chain_store_update: &mut ChainStoreUpdate,
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
 ) -> Result<(), Error> {
-    let block_endorsements = get_block_endorsements(block);
-    let block_execution_results = get_block_execution_results(block);
+    let block_endorsements: HashMap<(&SpiceChunkId, &AccountId), &SpiceEndorsementCoreStatement> =
+        block
+            .spice_core_statements()
+            .iter_endorsements()
+            .map(|e| ((e.chunk_id(), e.account_id()), e))
+            .collect();
+    let block_execution_results: HashMap<&SpiceChunkId, &ChunkExecutionResult> =
+        block.spice_core_statements().iter_execution_results().collect();
 
     let prev_hash = block.header().prev_hash();
     let mut uncertified_chunks =
