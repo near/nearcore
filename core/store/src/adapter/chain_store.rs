@@ -236,6 +236,18 @@ impl ChainStoreAdapter {
         )
     }
 
+    pub fn get_processed_local_receipts(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Arc<Vec<Receipt>>, Error> {
+        option_to_not_found(
+            self.store
+                .get_ser(DBCol::ProcessedLocalReceipts, &get_block_shard_id(block_hash, shard_id)),
+            format_args!("PROCESSED LOCAL RECEIPTS: {} {}", block_hash, shard_id),
+        )
+    }
+
     pub fn get_incoming_receipts(
         &self,
         block_hash: &CryptoHash,

@@ -254,6 +254,7 @@ pub struct ApplyResult {
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
     pub stats: ChunkApplyStatsV0,
     pub processed_delayed_receipts: Vec<Receipt>,
+    pub processed_local_receipts: Vec<Receipt>,
     pub processed_yield_timeouts: Vec<PromiseYieldTimeout>,
     pub proof: Option<PartialStorage>,
     pub delayed_receipts_count: u64,
@@ -2066,7 +2067,7 @@ impl Runtime {
         receipt_sink: &mut ReceiptSink,
         compute_limit: u64,
         validator_proposals: &mut Vec<ValidatorStake>,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<Vec<Receipt>, RuntimeError> {
         let local_processing_start = std::time::Instant::now();
         let local_receipt_count = processing_state.local_receipts.len();
         let local_receipts = std::mem::take(&mut processing_state.local_receipts);
@@ -2087,6 +2088,7 @@ impl Runtime {
             &mut prep_lookahead_iter,
         );
 
+        let mut processed_local_receipts = vec![];
         for receipt in &local_receipts {
             if processing_state.total.compute >= compute_limit
                 || processing_state.state_update.trie.check_proof_size_limit_exceed()
@@ -2117,7 +2119,8 @@ impl Runtime {
                     &mut processing_state,
                     receipt_sink,
                     validator_proposals,
-                )?
+                )?;
+                processed_local_receipts.push(receipt.clone());
             }
         }
 
@@ -2130,7 +2133,7 @@ impl Runtime {
             processing_state.total.gas,
             processing_state.total.compute,
         );
-        Ok(())
+        Ok(processed_local_receipts)
     }
 
     #[instrument(
@@ -2365,7 +2368,7 @@ impl Runtime {
         let compute_limit = apply_state.gas_limit.map(|g| g.as_gas()).unwrap_or(u64::MAX);
 
         // We first process local receipts. They contain staking, local contract calls, etc.
-        self.process_local_receipts(
+        let processed_local_receipts = self.process_local_receipts(
             processing_state,
             receipt_sink,
             compute_limit,
@@ -2411,6 +2414,7 @@ impl Runtime {
             promise_yield_result,
             validator_proposals,
             processed_delayed_receipts,
+            processed_local_receipts,
         })
     }
 
@@ -2428,13 +2432,21 @@ impl Runtime {
         receipt_sink: ReceiptSink,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
-        let apply_state = processing_state.apply_state;
-        let epoch_info_provider = processing_state.epoch_info_provider;
-        let mut stats = processing_state.stats;
-        let mut state_update = processing_state.state_update;
-        let pending_delayed_receipts = processing_state.delayed_receipts;
-        let processed_delayed_receipts = process_receipts_result.processed_delayed_receipts;
-        let promise_yield_result = process_receipts_result.promise_yield_result;
+        let ApplyProcessingReceiptState {
+            apply_state,
+            epoch_info_provider,
+            mut stats,
+            mut state_update,
+            delayed_receipts: pending_delayed_receipts,
+            prefetcher,
+            ..
+        } = processing_state;
+        let ProcessReceiptsResult {
+            promise_yield_result,
+            processed_delayed_receipts,
+            processed_local_receipts,
+            ..
+        } = process_receipts_result;
         let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
 
         if promise_yield_result.promise_yield_indices
@@ -2492,7 +2504,7 @@ impl Runtime {
         let TrieUpdateResult { trie, trie_changes, state_changes, contract_updates } =
             state_update.finalize()?;
 
-        if let Some(prefetcher) = &processing_state.prefetcher {
+        if let Some(prefetcher) = &prefetcher {
             // Only clear the prefetcher queue after finalize is done because as part of receipt
             // processing we also prefetch account data and access keys that are accessed in
             // finalize. This data can take a very long time otherwise if not prefetched.
@@ -2551,6 +2563,7 @@ impl Runtime {
             state_changes,
             stats,
             processed_delayed_receipts,
+            processed_local_receipts,
             processed_yield_timeouts,
             proof,
             delayed_receipts_count,
@@ -2672,6 +2685,7 @@ fn missing_chunk_apply_result(
         state_changes,
         stats: processing_state.stats,
         processed_delayed_receipts: vec![],
+        processed_local_receipts: vec![],
         processed_yield_timeouts: vec![],
         proof,
         delayed_receipts_count: delayed_receipts.upper_bound_len(),
@@ -2799,6 +2813,7 @@ struct ProcessReceiptsResult {
     promise_yield_result: ResolvePromiseYieldTimeoutsResult,
     validator_proposals: Vec<ValidatorStake>,
     processed_delayed_receipts: Vec<Receipt>,
+    processed_local_receipts: Vec<Receipt>,
 }
 
 struct ResolvePromiseYieldTimeoutsResult {
