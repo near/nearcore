@@ -81,7 +81,7 @@ pub struct TestLoopNetworkBlockInfo {
     pub block_header: BlockHeader,
 }
 
-type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>>;
+pub type NetworkRequestHandler = Box<dyn Fn(NetworkRequests) -> Option<NetworkRequests>>;
 
 /// A custom actor for the TestLoop framework that can be used to send network messages across clients
 /// in a multi-node test.

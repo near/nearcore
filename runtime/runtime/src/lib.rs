@@ -376,7 +376,6 @@ impl Runtime {
         action_index: usize,
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
-        stats: &mut ChunkApplyStatsV0,
     ) -> Result<ActionResult, RuntimeError> {
         let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id());
         let mut result = ActionResult::default();
@@ -439,7 +438,6 @@ impl Runtime {
                     apply_state,
                     deploy_global_contract,
                     &mut result,
-                    stats,
                 )?;
             }
             Action::UseGlobalContract(use_global_contract) => {
@@ -669,7 +667,6 @@ impl Runtime {
                 action_index,
                 &action_receipt.actions(),
                 epoch_info_provider,
-                stats,
             )?;
             if new_result.result.is_ok() {
                 if let Err(e) = new_result.new_receipts.iter().try_for_each(|receipt| {
@@ -1863,6 +1860,7 @@ impl Runtime {
                     &tx.transaction,
                     &cost,
                     Some(block_height),
+                    processing_state.protocol_version,
                 ) {
                     Ok(vr) => vr,
                     Err(error) => {

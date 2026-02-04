@@ -419,8 +419,8 @@ pub enum ActionsValidationError {
         limit: u64,
     } = 16,
     GasKeyInvalidNumNonces {
-        requested_nonces: u32,
-        limit: u32,
+        requested_nonces: NonceIndex,
+        limit: NonceIndex,
     } = 17,
     AddGasKeyWithNonZeroBalance {
         balance: Balance,

@@ -1,6 +1,7 @@
 use crate::VerificationResult;
 use crate::config::{TransactionCost, total_prepaid_gas};
 use crate::near_primitives::account::Account;
+use near_crypto::PublicKey;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -245,6 +246,29 @@ fn verify_nonce(
     Ok(())
 }
 
+fn check_and_compute_new_allowance(
+    access_key: &AccessKey,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+    total_cost: Balance,
+) -> Result<Option<Balance>, InvalidTxError> {
+    let Some(fc) = access_key.permission.function_call_permission() else {
+        return Ok(None);
+    };
+    let Some(allowance) = fc.allowance else {
+        return Ok(None);
+    };
+    let new_allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
+        InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
+            account_id: account_id.clone(),
+            public_key: public_key.clone().into(),
+            allowance,
+            cost: total_cost,
+        })
+    })?;
+    Ok(Some(new_allowance))
+}
+
 /// Verify nonce, balance and access key for the transaction given the account state.
 ///
 /// This will only modify the `account` and `access_key` with the new state if the
@@ -256,6 +280,7 @@ pub fn verify_and_charge_tx_ephemeral(
     tx: &Transaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
+    protocol_version: ProtocolVersion,
 ) -> Result<VerificationResult, InvalidTxError> {
     // It's the caller's responsibility to NOT call this function for transactions with
     // nonce_index (i.e. gas key transactions).
@@ -292,18 +317,13 @@ pub fn verify_and_charge_tx_ephemeral(
         });
     };
 
-    // Check and deduct allowance (only for FunctionCall permission)
-    if let Some(allowance) =
-        access_key.permission.function_call_permission_mut().and_then(|fc| fc.allowance.as_mut())
-    {
-        *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
-            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
-                account_id: account_id.clone(),
-                public_key: tx.public_key().clone().into(),
-                allowance: *allowance,
-                cost: total_cost,
-            })
-        })?;
+    let new_allowance =
+        check_and_compute_new_allowance(&access_key, account_id, tx.public_key(), total_cost)?;
+    let fix_allowance = ProtocolFeature::FixAccessKeyAllowanceCharging.enabled(protocol_version);
+    if !fix_allowance {
+        if let Some(new) = new_allowance {
+            access_key.permission.function_call_permission_mut().unwrap().allowance = Some(new);
+        }
     }
 
     match check_storage_stake(account, new_amount, config) {
@@ -325,6 +345,11 @@ pub fn verify_and_charge_tx_ephemeral(
     }
 
     // Update state
+    if fix_allowance {
+        if let Some(new) = new_allowance {
+            access_key.permission.function_call_permission_mut().unwrap().allowance = Some(new);
+        }
+    }
     access_key.nonce = tx_nonce;
     account.set_amount(new_amount);
     Ok(VerificationResult {
@@ -1174,6 +1199,7 @@ mod tests {
             validated_tx.to_tx(),
             &cost,
             None,
+            current_protocol_version,
         )
         .expect_err("expected an error");
         assert_eq!(err, expected_err);
@@ -1217,6 +1243,7 @@ mod tests {
                 tx,
                 &transaction_cost,
                 block_height,
+                current_protocol_version,
             )?
         };
         set_tx_state_changes(state_update, &validated_tx, &signer, &access_key);
