@@ -350,13 +350,6 @@ Definitely don't use soft-wrapping. While markdown mostly ignores source level l
 When emitting events and spans with `tracing`, use structured fields rather than
 string formatting to include variable data.
 
-**Do not specify a `target` unless necessary.** By default `tracing` uses the
-module path as the target, which is sufficient for filtering and grouping in
-virtually all cases. Only add an explicit `target:` when there is a concrete
-functional reason, such as a custom subscriber layer that dispatches on a
-specific target string (e.g. `io_tracer`). Adding targets everywhere makes the
-codebase harder to refactor and obscures the actual source of each log line.
-
 ```rust
 // GOOD - structured fields with lowercase message
 debug!(
@@ -388,6 +381,23 @@ ecosystem. They allow for immediately actionable data without post-processing,
 especially with advanced subscribers that output JSON or publish to distributed
 systems like OpenTelemetry. Structured logging also generally executes faster
 when logs are enabled.
+
+**Do not specify a `target` unless necessary.** - By default `tracing` uses the
+module path as the target, which is sufficient for filtering and grouping in
+virtually all cases. Only add an explicit `target:` when there is a concrete
+functional reason, such as a custom subscriber layer that dispatches on a
+specific target string (e.g. `io_tracer`). Adding targets everywhere makes the
+codebase harder to refactor and obscures the actual source of each log line.
+
+```rust
+// GOOD - no target specified, default target used based on module
+tracing::error!(?err, "failed to process");
+tracing::warn!(height, "state sync started");
+
+// BAD - explicit target set
+tracing::error!(target: "client", ?err, "failed to process");
+tracing::warn!(target: "sync", height, "state sync started");
+```
 
 **Always use the `tracing::` qualifier** - Never use unqualified logging macros:
 
