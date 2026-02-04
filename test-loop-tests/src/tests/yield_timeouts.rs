@@ -285,8 +285,6 @@ fn create_congestion(env: &TestLoopEnv) {
     let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
     let genesis_block = node.client(env.test_loop_data()).chain.get_block_by_height(0).unwrap();
 
-    let mut tx_hashes = vec![];
-
     for i in 0..25 {
         let signed_transaction = SignedTransaction::from_actions(
             i + 100,
@@ -301,7 +299,6 @@ fn create_congestion(env: &TestLoopEnv) {
             }))],
             *genesis_block.hash(),
         );
-        tx_hashes.push(signed_transaction.get_hash());
         node.submit_tx(signed_transaction);
     }
 }
