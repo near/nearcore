@@ -12238,14 +12238,11 @@ Definitely don't use soft-wrapping. While markdown mostly ignores source level l
 </code></pre>
 <h2 id="tracing"><a class="header" href="#tracing"><a href="https://tracing.rs">Tracing</a></a></h2>
 <p>When emitting events and spans with <code>tracing</code>, use structured fields rather than
-string formatting to include variable data. Always specify the <code>target</code>
-explicitly, using the crate name or module path (e.g. <code>chain::client</code>) to group
-related events.</p>
+string formatting to include variable data.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// GOOD - structured fields with lowercase message
 debug!(
-    target: &quot;client&quot;,
     validator_id = self.client.validator_signer.get().map(|vs| {
         tracing::field::display(vs.validator_id())
     }),
@@ -12259,7 +12256,6 @@ debug!(
 
 // BAD - inline string formatting with capitalization
 debug!(
-    target: &quot;client&quot;,
     &quot;{:?} Received block {} &lt;- {} at {} from {}, requested: {}&quot;,
     self.client.validator_signer.get().map(|vs| vs.validator_id()),
     hash,
@@ -12275,16 +12271,33 @@ ecosystem. They allow for immediately actionable data without post-processing,
 especially with advanced subscribers that output JSON or publish to distributed
 systems like OpenTelemetry. Structured logging also generally executes faster
 when logs are enabled.</p>
+<p><strong>Do not specify a <code>target</code> unless necessary.</strong> - By default <code>tracing</code> uses the
+module path as the target, which is sufficient for filtering and grouping in
+virtually all cases. Only add an explicit <code>target:</code> when there is a concrete
+functional reason, such as a custom subscriber layer that dispatches on a
+specific target string (e.g. <code>io_tracer</code>). Adding targets everywhere makes the
+codebase harder to refactor and obscures the actual source of each log line.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD - no target specified, default target used based on module
+tracing::error!(?err, &quot;failed to process&quot;);
+tracing::warn!(height, &quot;state sync started&quot;);
+
+// BAD - explicit target set
+tracing::error!(target: &quot;client&quot;, ?err, &quot;failed to process&quot;);
+tracing::warn!(target: &quot;sync&quot;, height, &quot;state sync started&quot;);
+<span class="boring">}
+</span></code></pre></pre>
 <p><strong>Always use the <code>tracing::</code> qualifier</strong> - Never use unqualified logging macros:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// GOOD - explicit qualifier
-tracing::error!(target: &quot;client&quot;, ?err, &quot;failed to process&quot;);
-tracing::warn!(target: &quot;sync&quot;, height, &quot;state sync started&quot;);
+tracing::error!(?err, &quot;failed to process&quot;);
+tracing::warn!(height, &quot;state sync started&quot;);
 
 // BAD - unqualified macros
-error!(target: &quot;client&quot;, ?err, &quot;failed to process&quot;);
-warn!(target: &quot;sync&quot;, height, &quot;state sync started&quot;);
+error!(?err, &quot;failed to process&quot;);
+warn!(height, &quot;state sync started&quot;);
 <span class="boring">}
 </span></code></pre></pre>
 <p><strong>Rationale:</strong> Explicit qualification improves code clarity by making it immediately obvious that tracing infrastructure is being used. It also prevents naming conflicts with other logging libraries or macros, and makes the code easier to search and refactor.</p>
@@ -12298,28 +12311,28 @@ warn!(target: &quot;sync&quot;, height, &quot;state sync started&quot;);
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// GOOD - comma for continuation
-tracing::warn!(target: &quot;sync&quot;, &quot;failed to connect, retrying in 200ms&quot;);
-tracing::error!(target: &quot;store&quot;, &quot;database locked, waiting for release&quot;);
+tracing::warn!(&quot;failed to connect, retrying in 200ms&quot;);
+tracing::error!(&quot;database locked, waiting for release&quot;);
 
 // BAD - period creates sentence fragment
-tracing::warn!(target: &quot;sync&quot;, &quot;failed to connect. retrying in 200ms&quot;);
-tracing::error!(target: &quot;store&quot;, &quot;database locked. waiting for release&quot;);
+tracing::warn!(&quot;failed to connect. retrying in 200ms&quot;);
+tracing::error!(&quot;database locked. waiting for release&quot;);
 <span class="boring">}
 </span></code></pre></pre>
 <p><strong>Rationale:</strong> Using commas instead of periods maintains message flow and avoids creating sentence fragments. This keeps messages concise and parsable while still conveying multiple pieces of information.</p>
-<ol start="4">
+<ol>
 <li><strong>Fields before message</strong> - Place all structured fields before the message string</li>
-<li><strong>Remove redundant prefixes</strong> - Don't repeat context from <code>target</code> or log level</li>
+<li><strong>Remove redundant prefixes</strong> - Don't repeat context from log level</li>
 </ol>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// GOOD
-debug!(target: &quot;sync&quot;, height, &quot;transition to state sync&quot;);
-error!(target: &quot;client&quot;, ?err, &quot;failed to process block&quot;);
+debug!(height, &quot;transition to state sync&quot;);
+error!(?err, &quot;failed to process block&quot;);
 
 // BAD
-debug!(target: &quot;sync&quot;, &quot;Sync: Transition to State Sync...&quot;);
-error!(target: &quot;client&quot;, &quot;Error: failed to process block: {:?}&quot;, err);
+debug!(&quot;Sync: Transition to State Sync...&quot;);
+error!(&quot;Error: failed to process block: {:?}&quot;, err);
 <span class="boring">}
 </span></code></pre></pre>
 <h3 id="field-formatting"><a class="header" href="#field-formatting">Field Formatting</a></h3>
@@ -12334,12 +12347,11 @@ error!(target: &quot;client&quot;, &quot;Error: failed to process block: {:?}&qu
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>log_macro!(
-    target: &quot;target_name&quot;,     // 1. Target (always required)
-    field1,                     // 2. Simple field references
-    field2 = expr,              // 3. Computed fields
-    ?debug_field,               // 4. Debug-formatted fields
-    %display_field,             // 5. Display-formatted fields
-    &quot;message string&quot;            // 6. Message always last
+    field1,                     // 1. Simple field references
+    field2 = expr,              // 2. Computed fields
+    ?debug_field,               // 3. Debug-formatted fields
+    %display_field,             // 4. Display-formatted fields
+    &quot;message string&quot;            // 5. Message always last
 );
 <span class="boring">}
 </span></code></pre></pre>
@@ -12349,7 +12361,6 @@ error!(target: &quot;client&quot;, &quot;Error: failed to process block: {:?}&qu
 </span><span class="boring">fn main() {
 </span>// GOOD
 warn!(
-    target: &quot;sync&quot;,
     %peer = peer.peer_info,
     peer_height = peer.highest_block_height,
     &quot;banning peer for insufficient headers&quot;
@@ -12357,7 +12368,6 @@ warn!(
 
 // BAD
 warn!(
-    target: &quot;sync&quot;,
     &quot;ban a peer: {}, for not providing enough headers. Peer's height: {}&quot;,
     peer.peer_info,
     peer.highest_block_height
@@ -12369,7 +12379,6 @@ warn!(
 </span><span class="boring">fn main() {
 </span>// GOOD
 error!(
-    target: &quot;runtime&quot;,
     thread_name = &quot;worker&quot;,
     task_id = task.id,
     ?err,
@@ -12377,7 +12386,7 @@ error!(
 );
 
 // BAD - missing context
-error!(target: &quot;runtime&quot;, &quot;failed to spawn the thread: {}&quot;, err);
+error!(&quot;failed to spawn the thread: {}&quot;, err);
 <span class="boring">}
 </span></code></pre></pre>
 <p><strong>Rationale for these conventions:</strong></p>
@@ -12403,15 +12412,16 @@ otherwise prefer a <code>snake_case</code> name.</p>
 <code>Future::instrument</code> is <strong>required</strong>. Using <code>Span::entered</code> or a similar method that is not aware
 of yield points will result in incorrect span data and could lead to difficult to troubleshoot
 issues such as stack overflows.</p>
-<p>Always explicitly specify the <code>level</code>, <code>target</code>, and <code>skip_all</code> options and do not rely on the
+<p>Always explicitly specify the <code>level</code> and <code>skip_all</code> options and do not rely on the
 default values. <code>skip_all</code> avoids adding all function arguments as span fields which can lead
 recording potentially unnecessary and expensive information. Carefully consider which information
 needs recording and the cost of recording the information when using the <code>fields</code> option.</p>
+<p>Do not set <code>target</code> — the module path default is sufficient. See the note on
+targets in the section above for the rare exception.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>#[tracing::instrument(
     level = &quot;trace&quot;,
-    target = &quot;network&quot;,
     &quot;handle_sync_routing_table&quot;,
     skip_all
 )]
@@ -12432,7 +12442,7 @@ portions of a function without affecting the code structure:</p>
 </span>fn compile_and_serialize_wasmer(code: &amp;[u8]) -&gt; Result&lt;wasmer::Module&gt; {
     // Some code...
     {
-        let _span = tracing::debug_span!(target: &quot;vm&quot;, &quot;compile_wasmer&quot;).entered();
+        let _span = tracing::debug_span!(&quot;compile_wasmer&quot;).entered();
         // ...
         // _span will be dropped when this scope ends, terminating the span created above.
         // You can also `drop` it manually, to end the span early with `drop(_span)`.
