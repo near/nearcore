@@ -59,7 +59,6 @@ use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::block::{
     Block, BlockValidityError, ChunkType, Chunks, Tip, compute_bp_hash_from_validator_stakes,
 };
-use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{ChunkProofs, MaybeEncodedShardChunk};
 use near_primitives::epoch_block_info::BlockInfo;
@@ -363,26 +362,19 @@ fn validate_block_proposals(block: &Block) -> Result<(), Error> {
     let expected: Vec<_> = if block.is_spice_block() {
         block
             .spice_core_statements()
-            .iter()
-            .filter_map(|s| match s {
-                SpiceCoreStatement::ChunkExecutionResult { execution_result, .. } => {
-                    Some(execution_result.chunk_extra.validator_proposals())
-                }
-                _ => None,
-            })
+            .iter_execution_results()
+            .map(|(_chunk_id, execution_result)| execution_result.chunk_extra.validator_proposals())
             .flatten()
             .collect()
     } else {
         block.chunks().iter_new().flat_map(|chunk| chunk.prev_validator_proposals()).collect()
     };
     for pair in expected.iter().zip_longest(block.header().prev_validator_proposals()) {
-        match pair {
-            itertools::EitherOrBoth::Both(cp, hp) => {
-                if hp != *cp {
-                    return Err(Error::InvalidValidatorProposals);
-                }
-            }
-            _ => return Err(Error::InvalidValidatorProposals),
+        let itertools::EitherOrBoth::Both(cp, hp) = pair else {
+            return Err(Error::InvalidValidatorProposals);
+        };
+        if hp != *cp {
+            return Err(Error::InvalidValidatorProposals);
         }
     }
     Ok(())
