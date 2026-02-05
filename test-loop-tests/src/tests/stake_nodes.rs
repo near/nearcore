@@ -35,16 +35,14 @@ fn test_stake_nodes() {
     let accounts = accounts(2);
     let epoch_length = 10;
 
-    let validators: Vec<AccountInfo> = vec![AccountInfo {
+    let validators = vec![AccountInfo {
         account_id: accounts[0].clone(),
         public_key: create_test_signer(accounts[0].as_str()).public_key(),
         amount: TESTING_INIT_STAKE,
     }];
-    let validators_spec = ValidatorsSpec::raw(validators, 2, 2, 2);
-
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
-        .validators_spec(validators_spec)
+        .validators_spec(ValidatorsSpec::raw(validators, 2, 2, 2))
         .add_user_accounts_simple(&accounts, TESTING_INIT_BALANCE)
         .build();
 
@@ -105,11 +103,9 @@ fn test_validator_kickout() {
             amount: TESTING_INIT_STAKE,
         })
         .collect();
-    let validators_spec = ValidatorsSpec::raw(validators, 4, 4, 4);
-
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
-        .validators_spec(validators_spec)
+        .validators_spec(ValidatorsSpec::raw(validators, 4, 4, 4))
         .add_user_accounts_simple(&accounts, TESTING_INIT_BALANCE)
         .build();
 
@@ -218,11 +214,9 @@ fn test_validator_join() {
             amount: TESTING_INIT_STAKE,
         })
         .collect();
-    let validators_spec = ValidatorsSpec::raw(validators, 2, 2, 2);
-
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
-        .validators_spec(validators_spec)
+        .validators_spec(ValidatorsSpec::raw(validators, 2, 2, 2))
         .add_user_accounts_simple(&accounts, TESTING_INIT_BALANCE)
         .build();
 
@@ -295,19 +289,17 @@ fn test_inflation() {
     let accounts = accounts(1);
     let epoch_length: u64 = 10;
 
-    let validators: Vec<AccountInfo> = vec![AccountInfo {
+    let validators = vec![AccountInfo {
         account_id: accounts[0].clone(),
         public_key: create_test_signer(accounts[0].as_str()).public_key(),
         amount: TESTING_INIT_STAKE,
     }];
-    let validators_spec = ValidatorsSpec::raw(validators, 1, 1, 1);
-
     let max_inflation_rate = Rational32::new(1, 10);
     let protocol_reward_rate = Rational32::new(1, 10);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .genesis_height(0)
         .epoch_length(epoch_length)
-        .validators_spec(validators_spec)
+        .validators_spec(ValidatorsSpec::raw(validators, 1, 1, 1))
         .add_user_accounts_simple(&accounts, TESTING_INIT_BALANCE)
         .max_inflation_rate(max_inflation_rate)
         .protocol_reward_rate(protocol_reward_rate)
