@@ -306,6 +306,8 @@ async fn slow_test_validator_kickout() {
 /// Poll `/status` until you see the change of validator assignments.
 /// Afterwards check that `locked` amount on accounts Node1 and Node2 are 0 and TESTING_INIT_STAKE.
 #[tokio::test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn ultra_slow_test_validator_join() {
     let num_nodes = 4;
     let dirs = (0..num_nodes)

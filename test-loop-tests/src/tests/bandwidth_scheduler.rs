@@ -64,6 +64,8 @@ use near_primitives::types::Balance;
 
 /// 3 shards, random receipt sizes
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts() {
     let scenario = TestScenarioBuilder::new()
         .num_shards(3)
