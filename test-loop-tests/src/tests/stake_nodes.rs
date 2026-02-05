@@ -307,12 +307,7 @@ fn test_inflation() {
         .build();
 
     let initial_total_supply = genesis.config.total_supply;
-
-    // Build epoch config with matching inflation rate (from_genesis doesn't copy it)
-    let mut epoch_config = TestEpochConfigBuilder::from_genesis(&genesis).build();
-    epoch_config.max_inflation_rate = max_inflation_rate;
-    let epoch_config_store =
-        EpochConfigStore::test_single_version(genesis.config.protocol_version, epoch_config);
+    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)

@@ -159,6 +159,9 @@ impl TestEpochConfigBuilder {
         builder.num_chunk_producer_seats = genesis.config.num_chunk_producer_seats;
         builder.num_chunk_validator_seats = genesis.config.num_chunk_validator_seats;
         builder.genesis_protocol_version = Some(genesis.config.protocol_version);
+        builder.max_inflation_rate = genesis.config.max_inflation_rate;
+        builder.minimum_stake_divisor = genesis.config.minimum_stake_divisor;
+        builder.minimum_stake_ratio = genesis.config.minimum_stake_ratio;
         builder
     }
 
