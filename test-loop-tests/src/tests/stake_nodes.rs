@@ -62,12 +62,12 @@ fn test_stake_nodes() {
     );
     run_tx(&mut env.test_loop, &accounts[0], tx, &env.node_datas, Duration::seconds(30));
 
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
+    let node = TestLoopNode::from(&env.node_datas[0]);
     let expected: Vec<String> = vec!["validator0".to_string(), "validator1".to_string()];
 
     env.test_loop.run_until(
         |test_loop_data| {
-            let client = &test_loop_data.get(&client_handle).client;
+            let client = node.client(test_loop_data);
             get_validators_sorted(client) == expected
         },
         Duration::seconds(60),
@@ -291,21 +291,11 @@ fn test_inflation() {
         .build()
         .warmup();
 
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-
-    // Wait until we're in epoch 1 (height 1 to epoch_length)
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let client = &test_loop_data.get(&client_handle).client;
-            let head = client.chain.head().unwrap();
-            head.height >= 2 && head.height <= epoch_length
-        },
-        Duration::seconds(30),
-    );
+    let node = TestLoopNode::from(&env.node_datas[0]);
 
     // Check total_supply unchanged in epoch 1
     {
-        let client = &env.test_loop.data.get(&client_handle).client;
+        let client = node.client(&env.test_loop.data);
         let head = client.chain.head().unwrap();
         let block = client.chain.get_block(&head.last_block_hash).unwrap();
         assert_eq!(
@@ -315,19 +305,12 @@ fn test_inflation() {
         );
     }
 
-    // Wait until we're in epoch 2 (height > epoch_length)
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let client = &test_loop_data.get(&client_handle).client;
-            let head = client.chain.head().unwrap();
-            head.height > epoch_length && head.height < epoch_length * 2
-        },
-        Duration::seconds(60),
-    );
+    // Advance to epoch 2
+    node.run_until_new_epoch(&mut env.test_loop);
 
     // Check total_supply matches expected inflation in epoch 2
     {
-        let client = &env.test_loop.data.get(&client_handle).client;
+        let client = node.client(&env.test_loop.data);
         let head = client.chain.head().unwrap();
         let block = client.chain.get_block(&head.last_block_hash).unwrap();
 
