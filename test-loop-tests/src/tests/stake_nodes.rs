@@ -349,10 +349,9 @@ fn test_inflation() {
         let head = client.chain.head().unwrap();
         let block = client.chain.get_block(&head.last_block_hash).unwrap();
 
-        // Get timestamps for inflation calculation (same formula as original test)
+        // Get timestamps for inflation calculation
         let genesis_block = client.chain.genesis_block();
         let epoch_end_block = client.chain.get_block_by_height(epoch_length).unwrap();
-
         let genesis_timestamp = genesis_block.header().raw_timestamp();
         let epoch_end_timestamp = epoch_end_block.header().raw_timestamp();
 
