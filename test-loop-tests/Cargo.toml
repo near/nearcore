@@ -19,6 +19,7 @@ derive_builder.workspace = true
 futures.workspace = true
 itertools.workspace = true
 parking_lot.workspace = true
+primitive-types.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 serde_json.workspace = true
