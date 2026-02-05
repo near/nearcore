@@ -6,19 +6,16 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::num_rational::Rational32;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, AccountInfo, Balance};
+use near_primitives::types::{AccountInfo, Balance};
 use primitive_types::U256;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
 use crate::setup::builder::TestLoopBuilder;
+use crate::utils::account::create_validator_ids;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{get_shared_block_hash, run_tx, run_txs_parallel};
 use crate::utils::validators::get_epoch_all_validators;
-
-fn accounts(n: usize) -> Vec<AccountId> {
-    (0..n).map(|i| format!("near.{}", i).parse().unwrap()).collect()
-}
 
 fn get_validators_sorted(client: &near_client::Client) -> Vec<String> {
     get_epoch_all_validators(client).into_iter().sorted().collect()
@@ -31,7 +28,7 @@ fn get_validators_sorted(client: &near_client::Client) -> Vec<String> {
 fn test_stake_nodes() {
     init_test_logger();
 
-    let accounts = accounts(2);
+    let accounts = create_validator_ids(2);
     let epoch_length = 10;
 
     let validators = vec![AccountInfo {
@@ -66,7 +63,7 @@ fn test_stake_nodes() {
     run_tx(&mut env.test_loop, &accounts[0], tx, &env.node_datas, Duration::seconds(30));
 
     let client_handle = env.node_datas[0].client_sender.actor_handle();
-    let expected: Vec<String> = vec!["near.0".to_string(), "near.1".to_string()];
+    let expected: Vec<String> = vec!["validator0".to_string(), "validator1".to_string()];
 
     env.test_loop.run_until(
         |test_loop_data| {
@@ -87,7 +84,7 @@ fn test_stake_nodes() {
 fn test_validator_kickout() {
     init_test_logger();
 
-    let accounts = accounts(4);
+    let accounts = create_validator_ids(4);
     let epoch_length = 15;
 
     let validators: Vec<AccountInfo> = accounts
@@ -138,7 +135,7 @@ fn test_validator_kickout() {
     run_txs_parallel(&mut env.test_loop, txs, &env.node_datas, Duration::seconds(30));
 
     let node = TestLoopNode::from(&env.node_datas[0]);
-    let expected: Vec<String> = vec!["near.2".to_string(), "near.3".to_string()];
+    let expected: Vec<String> = vec!["validator2".to_string(), "validator3".to_string()];
 
     env.test_loop.run_until(
         |test_loop_data| {
@@ -187,7 +184,7 @@ fn test_validator_kickout() {
 fn test_validator_join() {
     init_test_logger();
 
-    let accounts = accounts(4);
+    let accounts = create_validator_ids(4);
     let epoch_length = 30;
 
     let validators: Vec<AccountInfo> = accounts[..2]
@@ -236,7 +233,7 @@ fn test_validator_join() {
     run_txs_parallel(&mut env.test_loop, txs, &env.node_datas, Duration::seconds(30));
 
     let node = TestLoopNode::from(&env.node_datas[0]);
-    let expected: Vec<String> = vec!["near.0".to_string(), "near.2".to_string()];
+    let expected: Vec<String> = vec!["validator0".to_string(), "validator2".to_string()];
 
     env.test_loop.run_until(
         |test_loop_data| {
@@ -266,7 +263,7 @@ fn test_validator_join() {
 fn test_inflation() {
     init_test_logger();
 
-    let accounts = accounts(1);
+    let accounts = create_validator_ids(1);
     let epoch_length: u64 = 10;
 
     let validators = vec![AccountInfo {
