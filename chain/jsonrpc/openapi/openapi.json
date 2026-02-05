@@ -1271,7 +1271,8 @@
                     "type": "array"
                   },
                   "num_nonces": {
-                    "format": "uint32",
+                    "format": "uint16",
+                    "maximum": 65535,
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -1302,7 +1303,8 @@
                     "$ref": "#/components/schemas/NearToken"
                   },
                   "num_nonces": {
-                    "format": "uint32",
+                    "format": "uint16",
+                    "maximum": 65535,
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -2931,15 +2933,17 @@
           {
             "additionalProperties": false,
             "properties": {
-              "GasKeyTooManyNoncesRequested": {
+              "GasKeyInvalidNumNonces": {
                 "properties": {
                   "limit": {
-                    "format": "uint32",
+                    "format": "uint16",
+                    "maximum": 65535,
                     "minimum": 0,
                     "type": "integer"
                   },
                   "requested_nonces": {
-                    "format": "uint32",
+                    "format": "uint16",
+                    "maximum": 65535,
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -2952,7 +2956,7 @@
               }
             },
             "required": [
-              "GasKeyTooManyNoncesRequested"
+              "GasKeyInvalidNumNonces"
             ],
             "type": "object"
           },
@@ -6966,7 +6970,8 @@
             "$ref": "#/components/schemas/NearToken"
           },
           "num_nonces": {
-            "format": "uint32",
+            "format": "uint16",
+            "maximum": 65535,
             "minimum": 0,
             "type": "integer"
           }
@@ -8493,6 +8498,68 @@
             },
             "required": [
               "ShardStuck"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Transaction is specifying an invalid nonce index. Gas key transactions\nmust have a nonce_index in valid range, regular transactions must not.",
+            "properties": {
+              "InvalidNonceIndex": {
+                "properties": {
+                  "num_nonces": {
+                    "description": "Number of nonces supported by the key. 0 means no nonce_index allowed (regular key).",
+                    "format": "uint16",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "tx_nonce_index": {
+                    "description": "The nonce_index from the transaction (None if missing).",
+                    "format": "uint16",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "nullable": true,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "num_nonces"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "InvalidNonceIndex"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key does not have enough balance to cover gas costs.",
+            "properties": {
+              "NotEnoughGasKeyBalance": {
+                "properties": {
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "cost": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "signer_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "signer_id",
+                  "balance",
+                  "cost"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "NotEnoughGasKeyBalance"
             ],
             "type": "object"
           }
@@ -18631,7 +18698,8 @@
             "type": "integer"
           },
           "nonce_index": {
-            "format": "uint32",
+            "format": "uint16",
+            "maximum": 65535,
             "minimum": 0,
             "nullable": true,
             "type": "integer"
@@ -19142,7 +19210,8 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "index": {
-                    "format": "uint32",
+                    "format": "uint16",
+                    "maximum": 65535,
                     "minimum": 0,
                     "type": "integer"
                   },

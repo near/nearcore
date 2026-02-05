@@ -9,6 +9,7 @@ use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
 use near_primitives_core::types::{Gas, ProtocolVersion};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -469,12 +470,12 @@ impl Receipt {
     /// The expectation is that applying an instant receipt is a quick operation (e.g. setting a few values in the state).
     /// Instant receipts generally shouldn't emit new instant receipts, as it could lead to
     /// infinitely many receipts being executed in a single chunk.
-    pub fn is_instant_receipt(&self, _protocol_version: ProtocolVersion) -> bool {
+    pub fn is_instant_receipt(&self, protocol_version: ProtocolVersion) -> bool {
         match self.versioned_receipt() {
             VersionedReceiptEnum::PromiseYield(_) => {
-                // PromiseYield will be instant receipts in an upcoming protocol version.
-                // For now set to false, will be done in follow-up PR.
-                false
+                // PromiseYield receipts are instant receipts.
+                // Applying a PromiseYield receipt is one trie write, it's okay to make it an instant receipt.
+                ProtocolFeature::InstantPromiseYield.enabled(protocol_version)
             }
             VersionedReceiptEnum::Action(_)
             | VersionedReceiptEnum::Data(_)

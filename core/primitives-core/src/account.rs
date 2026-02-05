@@ -563,9 +563,17 @@ pub enum AccessKeyPermission {
 }
 
 impl AccessKeyPermission {
-    pub const MAX_NONCES_FOR_GAS_KEY: u32 = 1024;
+    pub const MAX_NONCES_FOR_GAS_KEY: NonceIndex = 1024;
 
     pub fn function_call_permission(&self) -> Option<&FunctionCallPermission> {
+        match self {
+            AccessKeyPermission::FunctionCall(permission)
+            | AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),
+            _ => None,
+        }
+    }
+
+    pub fn function_call_permission_mut(&mut self) -> Option<&mut FunctionCallPermission> {
         match self {
             AccessKeyPermission::FunctionCall(permission)
             | AccessKeyPermission::GasKeyFunctionCall(_, permission) => Some(permission),

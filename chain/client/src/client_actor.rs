@@ -39,6 +39,7 @@ use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
 };
 use near_chain::resharding::types::ReshardingSender;
+use near_chain::spice_chain::SpiceChainReader;
 use near_chain::spice_core_writer_actor::ProcessedBlock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
@@ -78,6 +79,7 @@ use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
+use near_store::adapter::StoreAdapter as _;
 use near_telemetry::TelemetryEvent;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
@@ -303,8 +305,10 @@ pub struct ClientActor {
     sync_started: bool,
     sync_jobs_sender: SyncJobsSenderForClient,
 
+    /// The target block height we're waiting for during fast-forward.
+    /// Some iff sandbox fast forward is in progress.
     #[cfg(feature = "sandbox")]
-    fastforward_delta: near_primitives::types::BlockHeightDelta,
+    fastforward_target_height: Option<near_primitives::types::BlockHeight>,
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
@@ -330,6 +334,9 @@ pub struct ClientActor {
     /// With spice, spice core writer processes all core statements.
     /// Should be noop sender otherwise.
     spice_core_writer_sender: Sender<ProcessedBlock>,
+
+    /// Reader for spice chain information.
+    spice_chain_reader: SpiceChainReader,
 }
 
 impl messaging::Actor for ClientActor {
@@ -412,6 +419,11 @@ impl ClientActor {
             check_validator_tracked_shards(&client, vs.validator_id())?;
         }
         let info_helper = InfoHelper::new(clock.clone(), telemetry_sender, &client.config);
+        let spice_chain_reader = SpiceChainReader::new(
+            client.runtime_adapter.store().chain_store(),
+            client.epoch_manager.clone(),
+            client.shard_tracker.clone(),
+        );
 
         let now = clock.now_utc();
         Ok(ClientActor {
@@ -440,7 +452,7 @@ impl ClientActor {
             sync_timer_next_attempt: now,
             sync_started: false,
             #[cfg(feature = "sandbox")]
-            fastforward_delta: 0,
+            fastforward_target_height: None,
             shutdown_signal,
             config_updater,
             sync_jobs_sender,
@@ -448,6 +460,7 @@ impl ClientActor {
             spice_chunk_validator_sender,
             spice_data_distributor_sender,
             spice_core_writer_sender,
+            spice_chain_reader,
         })
     }
 }
@@ -721,17 +734,21 @@ impl
                 )
             }
             near_client_primitives::types::SandboxMessage::SandboxFastForward(delta_height) => {
-                if self.fastforward_delta > 0 {
+                if self.fastforward_target_height.is_some() {
                     return near_client_primitives::types::SandboxResponse::SandboxFastForwardFailed(
                         "Consecutive fast_forward requests cannot be made while a current one is going on.".to_string());
                 }
 
-                self.fastforward_delta = delta_height;
+                let Ok(head) = self.client.chain.head() else {
+                    return near_client_primitives::types::SandboxResponse::SandboxFastForwardFailed(
+                        "Failed to get current head height.".to_string());
+                };
+                self.fastforward_target_height = Some(head.height + delta_height);
                 near_client_primitives::types::SandboxResponse::SandboxNoResponse
             }
             near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus => {
                 near_client_primitives::types::SandboxResponse::SandboxFastForwardFinished(
-                    self.fastforward_delta == 0,
+                    self.fastforward_target_height.is_none(),
                 )
             }
         }
@@ -742,7 +759,11 @@ impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for Clien
     fn handle(&mut self, msg: SpanWrapped<Status>) -> Result<StatusResponse, StatusError> {
         let msg = msg.span_unwrap();
         let head = self.client.chain.head()?;
-        let head_header = self.client.chain.get_block_header(&head.last_block_hash)?;
+        // For spice, walk back to find the latest executed block for the status
+        // response, since the consensus head may not be executed yet.
+        // In non-spice, this is just the head block as all blocks are considered executed.
+        let head_header =
+            self.spice_chain_reader.find_first_executed_ancestor(&head.last_block_hash)?;
         let latest_block_time = head_header.raw_timestamp();
         let latest_state_root = *head_header.prev_state_root();
         if msg.is_health_check {
@@ -833,8 +854,8 @@ impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for Clien
             rpc_addr: self.client.config.rpc_addr.clone(),
             validators,
             sync_info: StatusSyncInfo {
-                latest_block_hash: head.last_block_hash,
-                latest_block_height: head.height,
+                latest_block_hash: *head_header.hash(),
+                latest_block_height: head_header.height(),
                 latest_state_root,
                 latest_block_time: Utc::from_unix_timestamp_nanos(latest_block_time as i128)
                     .unwrap(),
@@ -842,7 +863,7 @@ impl Handler<SpanWrapped<Status>, Result<StatusResponse, StatusError>> for Clien
                 earliest_block_hash,
                 earliest_block_height,
                 earliest_block_time,
-                epoch_id: Some(head.epoch_id),
+                epoch_id: Some(*head_header.epoch_id()),
                 epoch_start_height,
             },
             validator_account_id,
@@ -1034,7 +1055,12 @@ impl ClientActor {
         &mut self,
         block_height: BlockHeight,
     ) -> Result<Option<near_chain::types::LatestKnown>, Error> {
-        let mut delta_height = std::mem::replace(&mut self.fastforward_delta, 0);
+        let Some(target) = self.fastforward_target_height else {
+            return Ok(None);
+        };
+
+        // Compute remaining delta from target
+        let delta_height = target.saturating_sub(block_height);
         if delta_height == 0 {
             return Ok(None);
         }
@@ -1047,12 +1073,10 @@ impl ClientActor {
         }
 
         // Check if we are at epoch boundary. If we are, do not fast forward until new
-        // epoch is here. Decrement the fast_forward count by 1 when a block is produced
-        // during this period of waiting
+        // epoch is here. Blocks will be produced normally until we cross the boundary.
         let block_height_wrt_epoch = block_height % epoch_length;
         if epoch_length - block_height_wrt_epoch <= 3 || block_height_wrt_epoch == 0 {
             // wait for doomslug to call into produce block
-            self.fastforward_delta = delta_height;
             return Ok(None);
         }
 
@@ -1060,11 +1084,7 @@ impl ClientActor {
             // fast forward to just right before epoch boundary to have epoch_manager
             // handle the epoch_height updates as normal. `- 3` since this is being
             // done 3 blocks before the epoch ends.
-            let right_before_epoch_update = epoch_length - block_height_wrt_epoch - 3;
-
-            delta_height -= right_before_epoch_update;
-            self.fastforward_delta = delta_height;
-            right_before_epoch_update
+            epoch_length - block_height_wrt_epoch - 3
         } else {
             delta_height
         };
@@ -1097,12 +1117,12 @@ impl ClientActor {
     #[allow(clippy::needless_pass_by_ref_mut)] // &mut self is needed with the sandbox feature
     fn post_block_production(&mut self) {
         #[cfg(feature = "sandbox")]
-        if self.fastforward_delta > 0 {
-            // Decrease the delta_height by 1 since we've produced a single block. This
-            // ensures that we advanced the right amount of blocks when fast forwarding
-            // and fast forwarding triggers regular block production in the case of
-            // stepping between epoch boundaries.
-            self.fastforward_delta -= 1;
+        if let Some(target) = self.fastforward_target_height {
+            if let Ok(head) = self.client.chain.head() {
+                if head.height >= target {
+                    self.fastforward_target_height = None;
+                }
+            }
         }
     }
 

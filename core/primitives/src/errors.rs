@@ -7,7 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 pub use near_primitives_core::errors::IntegerOverflowError;
 use near_primitives_core::types::Gas;
-use near_primitives_core::types::{BlockHeight, ProtocolVersion, ShardId};
+use near_primitives_core::types::{BlockHeight, NonceIndex, ProtocolVersion, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Display};
 use std::io;
@@ -271,6 +271,20 @@ pub enum InvalidTxError {
         /// The number of blocks since the last included chunk of the shard.
         missed_chunks: u64,
     } = 17,
+    /// Transaction is specifying an invalid nonce index. Gas key transactions
+    /// must have a nonce_index in valid range, regular transactions must not.
+    InvalidNonceIndex {
+        /// The nonce_index from the transaction (None if missing).
+        tx_nonce_index: Option<NonceIndex>,
+        /// Number of nonces supported by the key. 0 means no nonce_index allowed (regular key).
+        num_nonces: NonceIndex,
+    } = 18,
+    /// Gas key does not have enough balance to cover gas costs.
+    NotEnoughGasKeyBalance {
+        signer_id: AccountId,
+        balance: Balance,
+        cost: Balance,
+    } = 19,
 }
 
 impl From<StorageError> for InvalidTxError {
@@ -404,9 +418,9 @@ pub enum ActionsValidationError {
         length: u64,
         limit: u64,
     } = 16,
-    GasKeyTooManyNoncesRequested {
-        requested_nonces: u32,
-        limit: u32,
+    GasKeyInvalidNumNonces {
+        requested_nonces: NonceIndex,
+        limit: NonceIndex,
     } = 17,
     AddGasKeyWithNonZeroBalance {
         balance: Balance,
@@ -591,10 +605,10 @@ impl Display for ActionsValidationError {
                     "DeterministicStateInit contains value of length {length} but at most {limit} is allowed",
                 )
             }
-            ActionsValidationError::GasKeyTooManyNoncesRequested { requested_nonces, limit } => {
+            ActionsValidationError::GasKeyInvalidNumNonces { requested_nonces, limit } => {
                 write!(
                     f,
-                    "Gas key requested too many nonces: {} requested, but limit is {}",
+                    "gas key requested invalid number of nonces: {} (must be between 1 and {})",
                     requested_nonces, limit
                 )
             }
@@ -852,6 +866,14 @@ impl Display for InvalidTxError {
                     "Shard {shard_id} missed {missed_chunks} chunks and rejects new transactions."
                 )
             }
+            InvalidTxError::InvalidNonceIndex { tx_nonce_index, num_nonces } => {
+                write!(f, "Invalid nonce_index {tx_nonce_index:?} for key with {num_nonces} nonces")
+            }
+            InvalidTxError::NotEnoughGasKeyBalance { signer_id, balance, cost } => write!(
+                f,
+                "Gas key for {:?} does not have enough balance {} for gas cost {}",
+                signer_id, balance, cost
+            ),
         }
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -8,22 +8,20 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::spice_core::get_last_certified_block_header;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::{ProcessTxRequest, Query, ViewClientActor};
-use near_network::client::SpiceChunkEndorsementMessage;
-use near_network::types::NetworkRequests;
+use near_client::{GetBlock, ProcessTxRequest, Query, QueryError, ViewClientActor};
+use near_client_primitives::types::GetBlockError;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockReference, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockId, BlockReference, Finality, ShardId};
 use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind};
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -34,6 +32,8 @@ use crate::utils::account::{
 use crate::utils::get_node_data;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{TransactionRunner, get_anchor_hash};
+
+use super::spice_utils::delay_endorsements_propagation;
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -210,52 +210,117 @@ fn test_spice_chain_with_delayed_execution() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
-fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height: u64) {
-    let core_writer_senders: HashMap<_, _> = env
-        .node_datas
-        .iter()
-        .map(|datas| (datas.account_id.clone(), datas.spice_core_writer_sender.clone()))
-        .collect();
+/// Sets up a spice env with delayed endorsements so execution lags behind
+/// consensus, and runs until there is a gap of at least 3 blocks.
+fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, TestLoopNode<'static>) {
+    let num_producers = 2;
+    let num_validators = 0;
+    let validators_spec = create_validators_spec(num_producers, num_validators);
+    let clients = validators_spec_clients(&validators_spec);
 
-    for node in &env.node_datas {
-        let senders = core_writer_senders.clone();
-        let block_heights: Arc<RwLock<HashMap<CryptoHash, BlockHeight>>> =
-            Arc::new(RwLock::new(HashMap::new()));
-        let delayed_endorsements: Arc<
-            RwLock<VecDeque<(CryptoHash, AccountId, SpiceChunkEndorsement)>>,
-        > = Arc::new(RwLock::new(VecDeque::new()));
-        let peer_actor = env.test_loop.data.get_mut(&node.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
-            match request {
-                NetworkRequests::Block { ref block } => {
-                    block_heights.write().insert(*block.hash(), block.header().height());
+    let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
 
-                    let mut delayed_endorsements = delayed_endorsements.write();
-                    loop {
-                        let Some(front) = delayed_endorsements.front() else {
-                            break;
-                        };
-                        let height = block_heights.read()[&front.0];
-                        if height + delay_height >= block.header().height() {
-                            break;
-                        }
-                        let (_, target, endorsement) = delayed_endorsements.pop_front().unwrap();
-                        senders[&target].send(SpiceChunkEndorsementMessage(endorsement));
-                    }
-                    Some(request)
-                }
-                NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
-                    delayed_endorsements.write().push_back((
-                        *endorsement.block_hash(),
-                        target,
-                        endorsement,
-                    ));
-                    None
-                }
-                _ => Some(request),
-            }
-        }));
-    }
+    let producer_account = clients[0].clone();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .build();
+
+    let execution_delay = 4;
+    delay_endorsements_propagation(&mut env, execution_delay);
+
+    let mut env = env.warmup();
+
+    let node = TestLoopNode::for_account(&env.node_datas, &producer_account).into_owned();
+
+    env.test_loop.run_until(
+        |test_loop_data| {
+            let head = node.head(test_loop_data);
+            let execution_head = node.last_executed(test_loop_data);
+            head.height > execution_head.height + 2
+        },
+        Duration::seconds(20),
+    );
+
+    (env, node)
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_rpc_get_block_by_finality() {
+    init_test_logger();
+    let (mut env, node) = setup_spice_env_with_execution_delay();
+
+    let test_loop_data = env.test_loop_data();
+    let execution_head = node.last_executed(test_loop_data);
+    let final_head = node.client(test_loop_data).chain.final_head().unwrap();
+
+    let view_client = env.test_loop.data.get_mut(&node.data().view_client_sender.actor_handle());
+    let block_none =
+        view_client.handle(GetBlock(BlockReference::Finality(Finality::None))).unwrap();
+    assert_eq!(block_none.header.height, execution_head.height);
+    let block_final =
+        view_client.handle(GetBlock(BlockReference::Finality(Finality::Final))).unwrap();
+    assert!(block_final.header.height <= execution_head.height);
+    assert!(block_final.header.height <= final_head.height);
+    let block_doomslug =
+        view_client.handle(GetBlock(BlockReference::Finality(Finality::DoomSlug))).unwrap();
+    assert!(block_doomslug.header.height <= execution_head.height);
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_rpc_unknown_block_past_execution_head() {
+    init_test_logger();
+    let (mut env, node) = setup_spice_env_with_execution_delay();
+
+    let test_loop_data = env.test_loop_data();
+    let execution_head = node.last_executed(test_loop_data);
+    let consensus_head = node.head(test_loop_data);
+    assert!(consensus_head.height > execution_head.height + 1);
+
+    let view_client = env.test_loop.data.get_mut(&node.data().view_client_sender.actor_handle());
+
+    // Query by height within execution head: should succeed
+    let result = view_client
+        .handle(GetBlock(BlockReference::BlockId(BlockId::Height(execution_head.height))));
+    assert!(result.is_ok(), "block at execution_head height should be found");
+
+    // Query by height past execution head: should return UnknownBlock
+    let result = view_client
+        .handle(GetBlock(BlockReference::BlockId(BlockId::Height(consensus_head.height))));
+    assert!(
+        matches!(result, Err(GetBlockError::UnknownBlock { .. })),
+        "block past execution_head should be unknown, got: {result:?}"
+    );
+
+    // Query by hash of the consensus head (not yet executed): should return UnknownBlock
+    let result = view_client
+        .handle(GetBlock(BlockReference::BlockId(BlockId::Hash(consensus_head.last_block_hash))));
+    assert!(
+        matches!(result, Err(GetBlockError::UnknownBlock { .. })),
+        "block at consensus_head hash should be unknown, got: {result:?}"
+    );
+
+    // Query by finality None: should succeed and return execution head
+    let block_none =
+        view_client.handle(GetBlock(BlockReference::Finality(Finality::None))).unwrap();
+    assert_eq!(block_none.header.height, execution_head.height);
+
+    // Query handle_query by height past execution head: should return UnknownBlock
+    let query_result = view_client.handle(Query::new(
+        BlockReference::BlockId(BlockId::Height(consensus_head.height)),
+        QueryRequest::ViewAccount { account_id: "account0".parse().unwrap() },
+    ));
+    assert!(
+        matches!(query_result, Err(QueryError::UnknownBlock { .. })),
+        "query past execution_head should be unknown block, got: {query_result:?}"
+    );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]

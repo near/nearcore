@@ -4,7 +4,7 @@ use near_crypto::PublicKey;
 use near_parameters::RuntimeFeesConfig;
 use near_primitives::account::{AccessKey, Account, GasKeyInfo};
 use near_primitives::action::{TransferToGasKeyAction, WithdrawFromGasKeyAction};
-use near_primitives::errors::{ActionErrorKind, RuntimeError};
+use near_primitives::errors::{ActionErrorKind, IntegerOverflowError, RuntimeError};
 use near_primitives::transaction::{AddKeyAction, DeleteKeyAction};
 use near_primitives::types::{AccountId, BlockHeight, Compute, Nonce, NonceIndex, StorageUsage};
 
@@ -105,6 +105,8 @@ fn delete_gas_key(
     access_key: &AccessKey,
     gas_key_info: &GasKeyInfo,
 ) -> Result<(), RuntimeError> {
+    result.tokens_burnt =
+        result.tokens_burnt.checked_add(gas_key_info.balance).ok_or(IntegerOverflowError)?;
     for i in 0..gas_key_info.num_nonces {
         remove_gas_key_nonce(state_update, account_id.clone(), public_key.clone(), i);
     }
@@ -562,6 +564,39 @@ mod tests {
     }
 
     #[test]
+    fn test_delete_gas_key_burns_balance() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account =
+            get_account(&state_update, &account_id).expect("failed to get account").unwrap();
+
+        let gas_key_public_key =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "gas_key").public_key();
+        add_gas_key_to_account(&mut state_update, &mut account, &account_id, &gas_key_public_key);
+
+        // Fund the gas key
+        let deposit_amount = Balance::from_yoctonear(1_000_000);
+        transfer_to_gas_key(&mut state_update, &account_id, &gas_key_public_key, deposit_amount);
+
+        // Delete the gas key
+        let mut result = ActionResult::default();
+        let action = DeleteKeyAction { public_key: gas_key_public_key.clone() };
+        action_delete_key(
+            &RuntimeFeesConfig::test(),
+            &mut state_update,
+            &mut account,
+            &mut result,
+            &account_id,
+            &action,
+        )
+        .unwrap();
+        assert!(result.result.is_ok());
+
+        // Verify the balance was burned
+        assert_eq!(result.tokens_burnt, deposit_amount);
+    }
+
+    #[test]
     fn test_delete_nonexistent_gas_key() {
         let (account_id, public_key, access_key) = test_account_keys();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
@@ -595,7 +630,6 @@ mod tests {
 
     #[test]
     fn test_delete_account_removes_gas_keys() {
-        // TODO(gas-keys): This test will change when account deletion fails if gas keys exist.
         let (account_id, public_key, access_key) = test_account_keys();
         let public_keys: Vec<PublicKey> =
             (0..3).map(|_| SecretKey::from_random(KeyType::ED25519).public_key()).collect();
@@ -617,6 +651,38 @@ mod tests {
             .expect("could not get trie iterator")
             .count();
         assert_eq!(trie_key_count, 0);
+    }
+
+    #[test]
+    fn test_delete_account_burns_gas_key_balances() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let public_keys: Vec<PublicKey> =
+            (0..3).map(|_| SecretKey::from_random(KeyType::ED25519).public_key()).collect();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        for public_key in &public_keys {
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, public_key);
+        }
+
+        // Fund each gas key with different amounts
+        let deposit_amounts = [
+            Balance::from_yoctonear(100_000),
+            Balance::from_yoctonear(200_000),
+            Balance::from_yoctonear(300_000),
+        ];
+        for (public_key, amount) in public_keys.iter().zip(deposit_amounts.iter()) {
+            transfer_to_gas_key(&mut state_update, &account_id, public_key, *amount);
+        }
+        state_update.commit(StateChangeCause::InitialState);
+
+        let action_result =
+            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
+        assert!(action_result.result.is_ok());
+
+        // Verify total burned balance equals sum of all gas key balances
+        let expected_burnt =
+            deposit_amounts.iter().fold(Balance::ZERO, |acc, x| acc.checked_add(*x).unwrap());
+        assert_eq!(action_result.tokens_burnt, expected_burnt);
     }
 
     #[test]

@@ -192,6 +192,16 @@ impl BorshDeserialize for Transaction {
 
         let read_signer_id = |buf: [u8; 4], reader: &mut R| -> std::io::Result<AccountId> {
             let str_len = u32::from_le_bytes(buf);
+            if str_len > AccountId::MAX_LEN as u32 {
+                return Err(Error::new(
+                    ErrorKind::InvalidData,
+                    format!(
+                        "AccountId length {} exceeds maximum length {}",
+                        str_len,
+                        AccountId::MAX_LEN
+                    ),
+                ));
+            }
             let mut str_vec = Vec::with_capacity(str_len as usize);
             for _ in 0..str_len {
                 str_vec.push(u8::deserialize_reader(reader)?);
@@ -535,9 +545,14 @@ pub struct ExecutionOutcome {
     // set and any code that attempts to use it will crash.
     #[borsh(skip)]
     pub compute_usage: Option<Compute>,
-    /// The amount of tokens burnt corresponding to the burnt gas amount.
-    /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
-    /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
+    /// Sum of tokens burnt for:
+    /// - Gas: This value doesn't always equal to the `gas_burnt` multiplied by the gas price,
+    ///   because the prepaid gas price might be lower than the actual gas price and it creates
+    ///   a deficit.
+    /// - Deleted gas keys: When a gas key or an account with gas keys is deleted, the remaining
+    ///   balance on the gas key(s) is burnt.
+    /// - Deployed global contracts: Tokens are burnt when deploying a global contract to
+    ///   compensate for permanently storing contract code in the state.
     pub tokens_burnt: Balance,
     /// The id of the account on which the execution happens. For transaction this is signer_id,
     /// for receipt this is receiver_id.
@@ -787,6 +802,24 @@ mod tests {
         let serialized_tx_v1 = borsh::to_vec(&transaction_v1).unwrap();
         let deserialized_tx_v1 = Transaction::try_from_slice(&serialized_tx_v1).unwrap();
         assert_eq!(transaction_v1, deserialized_tx_v1);
+    }
+
+    #[test]
+    fn test_deserialize_invalid_account_id_length() {
+        // Create a serialized transaction with an invalid account ID length
+        let mut serialized_tx = vec![];
+        // Version byte for V0
+        serialized_tx.push(0u8);
+        // Invalid length (e.g., 100 which exceeds MAX_LEN of 64)
+        serialized_tx.extend_from_slice(&100u32.to_le_bytes());
+        // The rest of the fields can be empty or default for this test
+        serialized_tx.extend_from_slice(&[0u8; 100]); // Placeholder bytes
+
+        let result = Transaction::try_from_slice(&serialized_tx);
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+        assert!(err.to_string().contains("exceeds maximum length"));
     }
 
     #[test]

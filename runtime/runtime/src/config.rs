@@ -22,10 +22,14 @@ pub struct TransactionCost {
     pub gas_remaining: Gas,
     /// The gas price at which the gas was purchased in the receipt.
     pub receipt_gas_price: Balance,
-    /// Total costs in tokens for this transaction (including all deposits).
-    pub total_cost: Balance,
     /// The amount of tokens burnt by converting this transaction to a receipt.
     pub burnt_amount: Balance,
+    /// The total gas cost in tokens (burnt_amount + remaining gas amount).
+    pub gas_cost: Balance,
+    /// The total deposit cost in tokens (sum of action deposits).
+    pub deposit_cost: Balance,
+    /// Total costs in tokens for this transaction (including all deposits).
+    pub total_cost: Balance,
 }
 
 pub fn safe_gas_to_balance(gas_price: Balance, gas: Gas) -> Result<Balance, IntegerOverflowError> {
@@ -337,9 +341,18 @@ pub fn calculate_tx_cost(
         gas_remaining.checked_add_result(total_prepaid_exec_fees(config, actions, receiver_id)?)?;
     let burnt_amount = safe_gas_to_balance(receipt_gas_price, gas_burnt)?;
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
-    let mut total_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
-    total_cost = safe_add_balance(total_cost, total_deposit(actions)?)?;
-    Ok(TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount })
+    let gas_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
+    let deposit_cost = total_deposit(actions)?;
+    let total_cost = safe_add_balance(gas_cost, deposit_cost)?;
+    Ok(TransactionCost {
+        gas_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        burnt_amount,
+        gas_cost,
+        deposit_cost,
+        total_cost,
+    })
 }
 
 /// Total sum of gas that would need to be burnt before we start executing the given actions.
