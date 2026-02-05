@@ -677,7 +677,6 @@ impl EpochManager {
     /// Returns `true` if no resharding occurred in the last N epochs.
     fn can_reshard(
         &self,
-        epoch_info: &EpochInfo,
         block_info: &BlockInfo,
         next_shard_layout: &ShardLayout,
         min_epochs_between_resharding: u64,
@@ -686,18 +685,18 @@ impl EpochManager {
             return Ok(true);
         }
 
-        // If we don't have enough epoch history, allow resharding
-        if epoch_info.epoch_height() < min_epochs_between_resharding {
-            return Ok(true);
-        }
-
         // Check if the layout changed during the last `min_epochs_between_resharding` epochs.
         let mut current_layout = next_shard_layout.clone();
         let mut current_block_info = block_info.clone();
 
         for _ in 0..min_epochs_between_resharding {
-            let prev_epoch_last_block_hash =
-                *self.get_block_info(current_block_info.epoch_first_block())?.prev_hash();
+            let epoch_first_block_hash = current_block_info.epoch_first_block();
+            let epoch_first_block_info = self.get_block_info(epoch_first_block_hash)?;
+            if epoch_first_block_info.is_genesis() {
+                return Ok(true);
+            }
+
+            let prev_epoch_last_block_hash = *epoch_first_block_info.prev_hash();
             let prev_epoch_last_block_info = self.get_block_info(&prev_epoch_last_block_hash)?;
             let prev_epoch_id = prev_epoch_last_block_info.epoch_id();
             let prev_layout = self.get_shard_layout(prev_epoch_id)?;
@@ -1764,19 +1763,22 @@ impl EpochManager {
         }))
     }
 
-    /// Returns the shard split to include in the block header, if any.
-    /// This is called during block production to compute the `shard_split` field.
+    /// Get the shard split to include in the block header, if any.
+    ///
+    /// This method is expected to be called during the production of the last block of an epoch.
+    /// The returned split should be included in the header of the produced block. It will be used
+    /// to derive layout for epoch `N+2` (where `N` is the current epoch).
+    ///
+    /// Parameters:
+    ///  - `parent_hash`: hash of the parent of the block being produced
+    ///  - `proposed_splits`: mapping containing all proposed shard splits from chunk headers
+    ///
     /// Returns `Some((shard_id, boundary_account))` if a shard split should be scheduled.
-    /// The proposed split should be included in the header of the next block  after the one
-    /// identified by `parent_hash`. It will be used to derive layout for epoch `N+2`
-    /// (where `N` is the current epoch).
     pub fn get_upcoming_shard_split(
         &self,
         parent_hash: &CryptoHash,
         proposed_splits: &HashMap<ShardId, TrieSplit>,
     ) -> Result<Option<(ShardId, AccountId)>, EpochError> {
-        let epoch_id = self.get_epoch_id(parent_hash)?;
-        let epoch_info = self.get_epoch_info(&epoch_id)?;
         let next_next_epoch_version = self.get_next_next_epoch_protocol_version(parent_hash)?;
         let next_next_epoch_config = self.config.for_protocol_version(next_next_epoch_version);
 
@@ -1787,12 +1789,11 @@ impl EpochManager {
         };
 
         // Check if resharding is allowed based on epoch constraints
-        let block_info = self.get_block_info(parent_hash)?;
+        let parent_block_info = self.get_block_info(parent_hash)?;
         let next_epoch_id = self.get_next_epoch_id(parent_hash)?;
         let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
         let can_reshard = self.can_reshard(
-            &epoch_info,
-            &block_info,
+            &parent_block_info,
             &next_shard_layout,
             dynamic_resharding_config.min_epochs_between_resharding,
         )?;
@@ -1811,11 +1812,14 @@ impl EpochManager {
     }
 
     /// Returns the protocol version for the epoch after the next one.
+    ///
+    /// Parameters:
+    ///  - `block_hash`: hash of any block belonging to the current epoch
     fn get_next_next_epoch_protocol_version(
         &self,
-        parent_hash: &CryptoHash,
+        block_hash: &CryptoHash,
     ) -> Result<ProtocolVersion, EpochError> {
-        let next_epoch_id = self.get_next_epoch_id(parent_hash)?;
+        let next_epoch_id = self.get_next_epoch_id(block_hash)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
         Ok(next_epoch_info.protocol_version())
     }

@@ -105,7 +105,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Returns true if the block after the one being produced will belong to a new epoch.
     ///
     /// Parameters:
-    ///  - `height`: the height of the block being produced
+    ///  - `block_height`: the height of the block being produced
     ///  - `parent_hash`: hash of the parent block (the block we're building on top of)
     ///  - `last_final_block_hash`: hash of the last final block after this block is produced
     fn is_produced_block_last_in_epoch(
@@ -785,15 +785,17 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(result)
     }
 
-    /// Returns the shard split to include in the block header, if any.
+    /// Get the shard split to include in the block header, if any.
     ///
-    /// This is called during block production to compute the `shard_split` field.
+    /// This method is expected to be called during the production of the last block of an epoch.
+    /// The returned split should be included in the header of the produced block. It will be used
+    /// to derive layout for epoch `N+2` (where `N` is the current epoch).
+    ///
+    /// Parameters:
+    ///  - `parent_hash`: hash of the parent of the block being produced
+    ///  - `proposed_splits`: mapping containing all proposed shard splits from chunk headers
     ///
     /// Returns `Some((shard_id, boundary_account))` if a shard split should be scheduled.
-    ///
-    /// The proposed split should be included in the header of the next block  after the one
-    /// identified by `parent_hash`. It will be used to derive layout for epoch `N+2`
-    /// (where `N` is the current epoch).
     fn get_upcoming_shard_split(
         &self,
         parent_hash: &CryptoHash,
