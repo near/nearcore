@@ -1,9 +1,8 @@
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::num_rational::Rational32;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
@@ -44,16 +43,12 @@ fn test_stake_nodes() {
         .epoch_length(epoch_length)
         .validators_spec(ValidatorsSpec::raw(validators, 2, 2, 2))
         .add_user_accounts_simple(&accounts, TESTING_INIT_BALANCE)
+        .max_inflation_rate(Rational32::new(0, 1))
         .build();
-
-    let mut epoch_config = TestEpochConfigBuilder::from_genesis(&genesis).build();
-    epoch_config.max_inflation_rate = Rational32::new(0, 1);
-    let epoch_config_store =
-        EpochConfigStore::test_single_version(genesis.config.protocol_version, epoch_config);
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
+        .epoch_config_store_from_genesis()
         .clients(accounts.clone())
         .build()
         .warmup();
@@ -103,24 +98,20 @@ fn test_validator_kickout() {
             amount: TESTING_INIT_STAKE,
         })
         .collect();
+    // Use very high minimum_stake_divisor to allow low stakes
+    // and zero inflation to avoid reward accumulation affecting locked amounts.
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
         .validators_spec(ValidatorsSpec::raw(validators, 4, 4, 4))
         .add_user_accounts_simple(&accounts, TESTING_INIT_BALANCE)
+        .max_inflation_rate(Rational32::new(0, 1))
+        .minimum_stake_divisor(1_000_000_000)
+        .minimum_stake_ratio(Rational32::new(1, 100))
         .build();
-
-    // Build epoch config with very high minimum_stake_divisor to allow low stakes
-    // and zero inflation to avoid reward accumulation affecting locked amounts.
-    let mut epoch_config = TestEpochConfigBuilder::from_genesis(&genesis).build();
-    epoch_config.max_inflation_rate = Rational32::new(0, 1);
-    epoch_config.minimum_stake_divisor = 1_000_000_000;
-    epoch_config.minimum_stake_ratio = Rational32::new(1, 100);
-    let epoch_config_store =
-        EpochConfigStore::test_single_version(genesis.config.protocol_version, epoch_config);
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
+        .epoch_config_store_from_genesis()
         .clients(accounts.clone())
         .track_all_shards()
         .build()
@@ -211,16 +202,12 @@ fn test_validator_join() {
         .epoch_length(epoch_length)
         .validators_spec(ValidatorsSpec::raw(validators, 2, 2, 2))
         .add_user_accounts_simple(&accounts, TESTING_INIT_BALANCE)
+        .max_inflation_rate(Rational32::new(0, 1))
         .build();
-
-    let mut epoch_config = TestEpochConfigBuilder::from_genesis(&genesis).build();
-    epoch_config.max_inflation_rate = Rational32::new(0, 1);
-    let epoch_config_store =
-        EpochConfigStore::test_single_version(genesis.config.protocol_version, epoch_config);
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
+        .epoch_config_store_from_genesis()
         .clients(accounts.clone())
         .track_all_shards()
         .build()
@@ -298,13 +285,11 @@ fn test_inflation() {
         .protocol_reward_rate(protocol_reward_rate)
         .gas_prices(Balance::from_yoctonear(100_000_000), Balance::from_yoctonear(100_000_000))
         .build();
-
     let initial_total_supply = genesis.config.total_supply;
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
+        .epoch_config_store_from_genesis()
         .clients(accounts)
         .build()
         .warmup();
