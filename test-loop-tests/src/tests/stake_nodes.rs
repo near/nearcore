@@ -316,7 +316,7 @@ fn test_inflation() {
         |test_loop_data| {
             let client = &test_loop_data.get(&client_handle).client;
             let head = client.chain.head().unwrap();
-            head.height >= 1 && head.height <= epoch_length
+            head.height >= 2 && head.height <= epoch_length
         },
         Duration::seconds(30),
     );
