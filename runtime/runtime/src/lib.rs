@@ -2623,9 +2623,21 @@ fn action_transfer_or_implicit_account_creation(
     epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
     Ok(if let Some(account) = account.as_mut() {
+        let is_gas_refund = is_refund && action_receipt.signer_id() == receipt.receiver_id();
+        // For gas refunds, try to refund to the gas key first. If the signer key is a gas key,
+        // the refund goes to the gas key balance and we skip crediting the account balance.
+        if is_gas_refund
+            && try_refund_gas_key_balance(
+                state_update,
+                receipt.receiver_id(),
+                &action_receipt.signer_public_key(),
+                deposit,
+            )?
+        {
+            return Ok(());
+        }
         action_transfer(account, deposit)?;
-        // Check if this is a gas refund, then try to refund the access key allowance.
-        if is_refund && action_receipt.signer_id() == receipt.receiver_id() {
+        if is_gas_refund {
             try_refund_allowance(
                 state_update,
                 receipt.receiver_id(),

@@ -86,7 +86,28 @@ pub(crate) fn action_stake(
     Ok(())
 }
 
-/// Tries to refunds the allowance of the access key for a gas refund action.
+/// Tries to refund gas to a gas key's balance.
+/// Returns true if the key exists and is a gas key (balance was credited).
+/// Returns false otherwise (key not found or is not a gas key).
+pub(crate) fn try_refund_gas_key_balance(
+    state_update: &mut TrieUpdate,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+    deposit: Balance,
+) -> Result<bool, StorageError> {
+    let Some(mut access_key) = get_access_key(state_update, account_id, public_key)? else {
+        return Ok(false);
+    };
+    let Some(gas_key_info) = access_key.gas_key_info_mut() else {
+        return Ok(false);
+    };
+    gas_key_info.balance = gas_key_info.balance.checked_add(deposit).ok_or_else(|| {
+        StorageError::StorageInconsistentState("gas key balance integer overflow".to_string())
+    })?;
+    set_access_key(state_update, account_id.clone(), public_key.clone(), &access_key);
+    Ok(true)
+}
+
 pub(crate) fn try_refund_allowance(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
