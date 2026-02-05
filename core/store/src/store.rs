@@ -114,7 +114,7 @@ impl Store {
         };
 
         let mut lock = cache.lock();
-        if cached_generation == Some(lock.generation) && lock.active_flushes == 0 {
+        if cached_generation == Some(lock.generation) {
             if let Some(v) = value.as_ref() {
                 lock.values.put(key.into(), Some(Arc::clone(v) as _));
             } else if lock.store_none_values() {
