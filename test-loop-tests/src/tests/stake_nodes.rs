@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -15,11 +14,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_validator_ids;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{get_shared_block_hash, run_tx, run_txs_parallel};
-use crate::utils::validators::get_epoch_all_validators;
-
-fn get_validators_sorted(client: &near_client::Client) -> Vec<String> {
-    get_epoch_all_validators(client).into_iter().sorted().collect()
-}
+use crate::utils::validators::get_epoch_all_validators_sorted;
 
 /// Runs one validator network, sends staking transaction for the second node and
 /// waits until it becomes a validator.
@@ -68,7 +63,7 @@ fn test_stake_nodes() {
     env.test_loop.run_until(
         |test_loop_data| {
             let client = node.client(test_loop_data);
-            get_validators_sorted(client) == expected
+            get_epoch_all_validators_sorted(client) == expected
         },
         Duration::seconds(60),
     );
@@ -140,7 +135,7 @@ fn test_validator_kickout() {
     env.test_loop.run_until(
         |test_loop_data| {
             let client = node.client(test_loop_data);
-            if get_validators_sorted(client) != expected {
+            if get_epoch_all_validators_sorted(client) != expected {
                 return false;
             }
             // Also wait for kicked nodes' locked amounts to return to zero
@@ -238,7 +233,7 @@ fn test_validator_join() {
     env.test_loop.run_until(
         |test_loop_data| {
             let client = node.client(test_loop_data);
-            if get_validators_sorted(client) != expected {
+            if get_epoch_all_validators_sorted(client) != expected {
                 return false;
             }
             // Wait for node1's locked amount to return to zero
