@@ -396,7 +396,10 @@ impl Runtime {
                 // 2. DeterministicStateInit
                 // 3. FunctionCall
                 // 4. etc...
-                || apply_state.config.wasm_config.deterministic_account_ids && account_id.get_account_type() == AccountType::NearDeterministicAccount);
+                || (ProtocolFeature::FixDeterministicAccountIdCreation
+                    .enabled(apply_state.current_protocol_version)
+                    && apply_state.config.wasm_config.deterministic_account_ids
+                    && account_id.get_account_type() == AccountType::NearDeterministicAccount));
 
         // Account validation
         if let Err(e) = check_account_existence(
