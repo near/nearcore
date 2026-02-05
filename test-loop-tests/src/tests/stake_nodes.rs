@@ -14,7 +14,7 @@ use rand::{Rng, SeedableRng};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::node::TestLoopNode;
-use crate::utils::transactions::{get_shared_block_hash, run_txs_parallel};
+use crate::utils::transactions::{get_shared_block_hash, run_tx, run_txs_parallel};
 use crate::utils::validators::get_epoch_all_validators;
 
 fn accounts(n: usize) -> Vec<AccountId> {
@@ -68,7 +68,7 @@ fn test_stake_nodes() {
         create_test_signer(accounts[1].as_str()).public_key(),
         block_hash,
     );
-    run_txs_parallel(&mut env.test_loop, vec![tx], &env.node_datas, Duration::seconds(30));
+    run_tx(&mut env.test_loop, &accounts[0], tx, &env.node_datas, Duration::seconds(30));
 
     let client_handle = env.node_datas[0].client_sender.actor_handle();
     let expected: Vec<String> = vec!["near.0".to_string(), "near.1".to_string()];
@@ -167,27 +167,20 @@ fn test_validator_kickout() {
         Duration::seconds(120),
     );
 
-    // Verify kicked nodes have locked == 0
+    // Verify kicked nodes have locked == 0 and stake returned to balance
+    let expected_balance = TESTING_INIT_BALANCE.checked_add(TESTING_INIT_STAKE).unwrap();
     for i in 0..2 {
         let view = node.view_account_query(&env.test_loop.data, &accounts[i]);
-        assert!(view.locked.is_zero(), "expected locked == 0 for kicked node {}", i);
-        assert!(view.amount > Balance::ZERO, "expected non-zero amount for node {}", i);
+        assert!(view.locked.is_zero(), "kicked node {i}");
+        assert_eq!(view.amount, expected_balance, "kicked node {i}");
     }
 
     // Verify remaining validators have locked == TESTING_INIT_STAKE
     // Note: Genesis builder sets amount separately from validator stake (not deducted)
     for i in 2..4 {
         let view = node.view_account_query(&env.test_loop.data, &accounts[i]);
-        assert_eq!(
-            view.locked, TESTING_INIT_STAKE,
-            "expected locked == TESTING_INIT_STAKE for node {}",
-            i
-        );
-        assert_eq!(
-            view.amount, TESTING_INIT_BALANCE,
-            "expected amount == TESTING_INIT_BALANCE for node {}",
-            i
-        );
+        assert_eq!(view.locked, TESTING_INIT_STAKE, "remaining validator {i}");
+        assert_eq!(view.amount, TESTING_INIT_BALANCE, "remaining validator {i}");
     }
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
