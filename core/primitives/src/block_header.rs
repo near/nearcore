@@ -1292,8 +1292,8 @@ impl BlockHeader {
     }
 
     #[inline]
-    // Get last final block for producing a block at `target_height`, assuming that this
-    // block is previous than the one being produced
+    /// Get the hash of what will be considered the last final block after a new block with
+    /// `target_height` is produced on top of this (`self`) block.
     pub fn last_final_block_for_height(&self, target_height: BlockHeight) -> &CryptoHash {
         if target_height == self.height() + 1 && self.last_ds_final_block() == self.prev_hash() {
             self.prev_hash()
