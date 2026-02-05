@@ -68,7 +68,7 @@ impl std::fmt::Debug for CreateSnapshotRequest {
 
 impl StateSnapshotActor {
     pub fn handle_delete_snapshot_request(&mut self, msg: DeleteSnapshotRequest) {
-        tracing::debug!(target: "state_snapshot", ?msg);
+        tracing::debug!(?msg);
 
         // We don't need to acquire any locks on flat storage or snapshot.
         self.tries.delete_state_snapshot();
@@ -102,7 +102,10 @@ impl StateSnapshotActor {
                     }
                 })
                 .collect();
-            tracing::debug!(target: "state_snapshot", ?not_ready_shards, "waiting for resharding: shards not in catchup phase");
+            tracing::debug!(
+                ?not_ready_shards,
+                "waiting for resharding: shards not in catchup phase"
+            );
             return Ok(true);
         };
         // Proceed if the catchup code is already reasonably close to being finished. This is not a correctness issue,
@@ -112,7 +115,7 @@ impl StateSnapshotActor {
         // come back later after most of that work has already been done.
         let should_wait = min_height + 10 < min_chunk_prev_height;
         if should_wait {
-            tracing::debug!(target: "state_snapshot", min_height, min_chunk_prev_height, "waiting for resharding catchup");
+            tracing::debug!(min_height, min_chunk_prev_height, "waiting for resharding catchup");
         }
         Ok(should_wait)
     }
@@ -129,12 +132,12 @@ impl StateSnapshotActor {
         ));
 
         if let StateSnapshotConfig::Disabled = self.tries.state_snapshot_config() {
-            tracing::info!(target: "state_snapshot", ?msg, "snapshots are disabled");
+            tracing::info!(?msg, "snapshots are disabled");
             return;
         }
         if let Some(last_requested_hash) = self.flat_storage_manager.snapshot_hash_wanted() {
             if last_requested_hash != msg.prev_block_hash {
-                tracing::info!(target: "state_snapshot", ?msg, %last_requested_hash, "skipping state snapshot in favor of more recent request");
+                tracing::info!(?msg, %last_requested_hash, "skipping state snapshot in favor of more recent request");
                 return;
             }
         }
@@ -144,14 +147,17 @@ impl StateSnapshotActor {
         ) {
             Ok(s) => s,
             Err(err) => {
-                tracing::error!(target: "state_snapshot", ?err, "state snapshot actor failed to check resharding status, not making snapshot");
+                tracing::error!(
+                    ?err,
+                    "state snapshot actor failed to check resharding status, not making snapshot"
+                );
                 return;
             }
         };
         // TODO: instead of resending the same message over and over, wait on a Condvar.
         // This would require making testloop work with Condvars that normally are meant to be woken up by another thread
         if should_wait {
-            tracing::debug!(target: "state_snapshot", prev_block_hash = ?&msg.prev_block_hash, "postpone create snapshot request");
+            tracing::debug!(prev_block_hash = ?&msg.prev_block_hash, "postpone create snapshot request");
             ctx.run_later(
                 "ReshardingActor FlatStorageSplitShard",
                 Duration::seconds(1),
@@ -162,7 +168,7 @@ impl StateSnapshotActor {
             return;
         }
 
-        tracing::debug!(target: "state_snapshot", prev_block_hash = ?&msg.prev_block_hash, "handle create snapshot request");
+        tracing::debug!(prev_block_hash = ?&msg.prev_block_hash, "handle create snapshot request");
         let CreateSnapshotRequest {
             prev_block_hash,
             epoch_height,
@@ -194,7 +200,7 @@ impl StateSnapshotActor {
                 ));
             }
             Err(err) => {
-                tracing::error!(target: "state_snapshot", ?err, "state snapshot creation failed")
+                tracing::error!(?err, "state snapshot creation failed")
             }
         }
     }
@@ -245,10 +251,10 @@ pub fn get_make_snapshot_callback(
     Arc::new(move |min_chunk_prev_height, epoch_height, shard_indexes_and_uids, block| {
         let prev_block_hash = *block.header().prev_hash();
         tracing::info!(
-            target: "state_snapshot",
             ?prev_block_hash,
             ?shard_indexes_and_uids,
-            "make_snapshot_callback sends `CreateSnapshotRequest` to state_snapshot_addr");
+            "make_snapshot_callback sends `CreateSnapshotRequest` to state_snapshot_addr"
+        );
         // We need to stop flat head updates synchronously in the client thread.
         // Async update in state_snapshot_actor can potentially lead to flat head progressing beyond prev_block_hash
         // This also prevents post-resharding flat storage catchup from advancing past `prev_block_hash`
@@ -270,8 +276,8 @@ pub fn get_delete_snapshot_callback(
 ) -> DeleteSnapshotCallback {
     Arc::new(move || {
         tracing::info!(
-            target: "state_snapshot",
-            "delete_snapshot_callback sends `DeleteSnapshotRequest` to state_snapshot_addr");
+            "delete_snapshot_callback sends `DeleteSnapshotRequest` to state_snapshot_addr"
+        );
         sender.send(DeleteSnapshotRequest {});
     })
 }

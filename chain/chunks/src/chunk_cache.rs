@@ -145,7 +145,7 @@ impl EncodedChunksCache {
             let previous_block_hash = &entry.header.prev_block_hash().clone();
             self.remove_chunk_from_incomplete_chunks(previous_block_hash, chunk_hash);
         } else {
-            tracing::warn!(target: "chunks", ?chunk_hash, "cannot mark non-existent entry as complete");
+            tracing::warn!(?chunk_hash, "cannot mark non-existent entry as complete");
         }
     }
 

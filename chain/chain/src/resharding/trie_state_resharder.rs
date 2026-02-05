@@ -147,7 +147,6 @@ impl TrieStateResharder {
         // regular node operation.
         std::thread::sleep(batch_delay);
         let _span = tracing::debug_span!(
-            target: "resharding",
             "TrieStateResharder::process_batch_and_update_status",
             parent_shard_uid = ?status.parent_shard_uid,
             child_shard_uid = ?child.shard_uid,
@@ -275,7 +274,6 @@ impl TrieStateResharder {
             *store.get_chunk_extra(&block_hash, &event.parent_shard)?.state_root();
 
         tracing::debug!(
-            target: "resharding",
             ?left_state_root,
             ?right_state_root,
             ?parent_state_root,
@@ -328,7 +326,7 @@ impl TrieStateResharder {
             );
         };
 
-        tracing::info!(target: "resharding", ?status, ?event, "start_resharding_blocking");
+        tracing::info!(?status, ?event, "start_resharding_blocking");
 
         let mut status = status.with_metrics();
         self.resharding_blocking_impl(&mut status)
@@ -337,7 +335,7 @@ impl TrieStateResharder {
     /// Resume an interrupted resharding operation.
     pub fn resume(&self, parent_shard_uid: ShardUId) -> Result<(), Error> {
         let Some(status) = self.load_status()? else {
-            tracing::info!(target: "resharding", "resharding status not found, nothing to resume");
+            tracing::info!("resharding status not found, nothing to resume");
             return Ok(());
         };
 
@@ -388,7 +386,6 @@ impl TrieStateResharder {
         // Parent memtrie must be loaded before proceeding.
         if tries.get_memtries(parent_shard_uid).is_none() {
             tracing::info!(
-                target: "resharding",
                 ?parent_shard_uid,
                 parent_state_root = ?status.parent_state_root,
                 "parent memtrie not loaded, loading it now"
@@ -413,7 +410,6 @@ impl TrieStateResharder {
         // Recreate each missing child memtrie.
         for (child_shard_uid, retain_mode) in &missing_children {
             tracing::info!(
-                target: "resharding",
                 ?child_shard_uid,
                 ?parent_shard_uid,
                 ?boundary_account,
@@ -429,7 +425,6 @@ impl TrieStateResharder {
             tries.apply_memtrie_changes(&trie_changes, parent_shard_uid, block_height);
 
             tracing::info!(
-                target: "resharding",
                 ?child_shard_uid,
                 new_root = ?trie_changes.new_root,
                 "successfully recreated child memtrie from parent"
@@ -464,7 +459,6 @@ impl TrieStateResharder {
     /// Cleans up parent flat storage after trie state resharding is complete.
     fn cleanup_parent_flat_storage(&self, parent_shard_uid: ShardUId) {
         tracing::info!(
-            target: "resharding",
             ?parent_shard_uid,
             "trie state resharding complete, cleaning up parent flat storage"
         );

@@ -263,12 +263,7 @@ impl Chain {
         };
 
         let genesis_hash = self.genesis().hash();
-        tracing::debug!(
-            target: "sync",
-            ?header_head,
-            ?sync_hash,
-            ?genesis_hash,
-            "find_sync_hash");
+        tracing::debug!(?header_head, ?sync_hash, ?genesis_hash, "find_sync_hash");
         assert_ne!(&sync_hash, genesis_hash);
         Ok(Some(sync_hash))
     }
@@ -289,7 +284,7 @@ impl Chain {
         };
 
         let Some(min_height_included) = sync_prev_block.chunks().min_height_included() else {
-            tracing::warn!(target: "sync", ?sync_prev_hash, "cannot find the min block height to sync from");
+            tracing::warn!(?sync_prev_hash, "cannot find the min block height to sync from");
             return vec![];
         };
 
@@ -298,7 +293,7 @@ impl Chain {
         loop {
             let next_header = self.get_block_header(&next_hash);
             let Ok(next_header) = next_header else {
-                tracing::error!(target: "sync", hash=?next_hash, "cannot get block header to sync");
+                tracing::error!(hash=?next_hash, "cannot get block header to sync");
                 break;
             };
 

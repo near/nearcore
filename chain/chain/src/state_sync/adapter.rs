@@ -281,7 +281,6 @@ impl ChainStateSyncAdapter {
         sync_hash: CryptoHash,
     ) -> Result<StatePart, Error> {
         let _span = tracing::debug_span!(
-            target: "sync",
             "get_state_response_part",
             %shard_id,
             part_id,

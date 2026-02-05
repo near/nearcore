@@ -124,7 +124,7 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
     }
 }
 
-#[instrument(target = "chunks", level = "debug", "create_partial_chunk", skip_all, fields(
+#[instrument(level = "debug", "create_partial_chunk", skip_all, fields(
     height = chunk.to_shard_chunk().height_created(),
     shard_id = %chunk.to_shard_chunk().shard_id(),
     chunk_hash = ?chunk.to_shard_chunk().chunk_hash(),
@@ -180,7 +180,7 @@ pub fn create_partial_chunk(
     ))
 }
 
-#[instrument(target = "client", level = "debug", "persist_chunk", skip_all, fields(
+#[instrument(level = "debug", "persist_chunk", skip_all, fields(
     height = partial_chunk.height_created(),
     shard_id = %partial_chunk.shard_id(),
     chunk_hash = ?partial_chunk.chunk_hash(),

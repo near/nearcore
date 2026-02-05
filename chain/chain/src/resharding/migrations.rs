@@ -41,17 +41,17 @@ pub fn migrate_46_to_47(
     store_config: &StoreConfig,
 ) -> anyhow::Result<()> {
     let Some(cold_db) = cold_db else {
-        tracing::info!(target: "migrations", "skipping migration 46->47 for hot store only",);
+        tracing::info!("skipping migration 46->47 for hot store only",);
         return Ok(());
     };
 
     // Current migration is targeted only for mainnet
     if genesis_config.chain_id != MAINNET {
-        tracing::info!(target: "migrations", chain_id = ?genesis_config.chain_id, "skipping migration 46->47",);
+        tracing::info!(chain_id = ?genesis_config.chain_id, "skipping migration 46->47",);
         return Ok(());
     }
 
-    tracing::info!(target: "migrations", "starting migration 46->47 for cold store");
+    tracing::info!("starting migration 46->47 for cold store");
 
     let cold_store = cold_db.as_store();
     let epoch_config_store =
@@ -65,7 +65,7 @@ pub fn migrate_46_to_47(
 
     let mut transaction = DBTransaction::new();
     for (protocol_version, resharding_block_hash) in MAINNET_RESHARDING_BLOCK_HASHES {
-        tracing::info!(target: "migrations", ?resharding_block_hash, "processing resharding block");
+        tracing::info!(?resharding_block_hash, "processing resharding block");
 
         let resharding_block_hash = CryptoHash::from_str(resharding_block_hash).unwrap();
         let shard_layout = &epoch_config_store.get_config(protocol_version).static_shard_layout();
@@ -108,7 +108,7 @@ pub fn migrate_46_to_47(
         }
     }
 
-    tracing::info!(target: "migrations", "Writing changes to the database");
+    tracing::info!("Writing changes to the database");
     cold_db.write(transaction);
 
     Ok(())

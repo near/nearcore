@@ -150,7 +150,9 @@ impl ChainStore {
         let start_time = std::time::Instant::now();
         let ChunkProductionKey { shard_id, epoch_id, height_created } =
             witness.chunk_production_key();
-        let _span = tracing::info_span!(target: "client", "save_latest_chunk_state_witness", ?height_created, %shard_id).entered();
+        let _span =
+            tracing::info_span!("save_latest_chunk_state_witness", ?height_created, %shard_id)
+                .entered();
 
         let serialized_witness = borsh::to_vec(witness)?;
         let witness_size: u64 =
@@ -330,7 +332,6 @@ pub fn save_invalid_chunk_state_witness(
 ) -> Result<(), std::io::Error> {
     let start_time = std::time::Instant::now();
     let _span = tracing::info_span!(
-        target: "client",
         "save_invalid_chunk_state_witness",
         witness_height = witness.chunk_header().height_created(),
         witness_shard = ?witness.chunk_header().shard_id(),

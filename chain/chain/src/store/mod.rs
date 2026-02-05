@@ -258,10 +258,10 @@ pub fn filter_incoming_receipts_for_shard(
         let ReceiptProof(receipts, shard_proof) = receipt_proof.clone();
         for receipt in receipts {
             if receipt.receiver_shard_id(target_shard_layout)? == target_shard_id {
-                tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id(), "including receipt");
+                tracing::trace!(receipt_id=?receipt.receipt_id(), "including receipt");
                 filtered_receipts.push(receipt);
             } else {
-                tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id(), "excluding receipt");
+                tracing::trace!(receipt_id=?receipt.receipt_id(), "excluding receipt");
             }
         }
         let receipt_proof = ReceiptProof(filtered_receipts, shard_proof);
@@ -452,7 +452,7 @@ impl ChainStore {
         shard_id: ShardId,
         receipts_shard_id: ShardId,
     ) -> Result<(), Error> {
-        tracing::debug!(target: "resharding", %shard_id, ?receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
+        tracing::debug!(%shard_id, ?receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
 
         let split_shard_ids = shard_layout.get_children_shards_ids(receipts_shard_id);
         let split_shard_ids =
@@ -1833,11 +1833,11 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", target = "store", "ChainUpdate::finalize", skip_all)]
+    #[tracing::instrument(level = "debug", "ChainUpdate::finalize", skip_all)]
     fn finalize(&mut self) -> Result<StoreUpdate, Error> {
         let mut store_update = self.store().store_update();
         {
-            let _span = tracing::trace_span!(target: "store", "write_col_misc").entered();
+            let _span = tracing::trace_span!("write_col_misc").entered();
             Self::write_col_misc(&mut store_update, HEAD_KEY, &mut self.head)?;
             Self::write_col_misc(&mut store_update, TAIL_KEY, &mut self.tail)?;
             Self::write_col_misc(&mut store_update, CHUNK_TAIL_KEY, &mut self.chunk_tail)?;
@@ -1862,7 +1862,7 @@ impl<'a> ChainStoreUpdate<'a> {
             Self::write_col_misc(&mut store_update, GC_STOP_HEIGHT_KEY, &mut self.gc_stop_height)?;
         }
         {
-            let _span = tracing::trace_span!(target: "store", "write_block").entered();
+            let _span = tracing::trace_span!("write_block").entered();
             if let Some(block) = &self.chain_store_cache_update.block {
                 let mut map = HashMap::clone(
                     self.chain_store
@@ -1928,7 +1928,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         {
-            let _span = tracing::trace_span!(target: "store", "write_chunk").entered();
+            let _span = tracing::trace_span!("write_chunk").entered();
 
             let mut chunk_hashes_by_height: HashMap<BlockHeight, HashSet<ChunkHash>> =
                 HashMap::new();
@@ -2017,9 +2017,7 @@ impl<'a> ChainStoreUpdate<'a> {
             )?;
         }
         {
-            let _span =
-                tracing::trace_span!(target: "store", "write_incoming_and_outgoing_receipts")
-                    .entered();
+            let _span = tracing::trace_span!("write_incoming_and_outgoing_receipts").entered();
 
             for ((block_hash, shard_id), receipt) in
                 &self.chain_store_cache_update.outgoing_receipts
@@ -2042,7 +2040,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         {
-            let _span = tracing::trace_span!(target: "store", "write_outcomes").entered();
+            let _span = tracing::trace_span!("write_outcomes").entered();
 
             for ((outcome_id, block_hash), outcome_with_proof) in
                 &self.chain_store_cache_update.outcomes
@@ -2080,7 +2078,7 @@ impl<'a> ChainStoreUpdate<'a> {
         // Create separate store update for deletions, because we want to update cache and don't want to remove nodes
         // from the store.
         {
-            let _span = tracing::trace_span!(target: "store", "write_trie_changes").entered();
+            let _span = tracing::trace_span!("write_trie_changes").entered();
             let mut deletions_store_update = self.store().trie_store().store_update();
             for (block_hash, mut wrapped_trie_changes) in self.trie_changes.drain(..) {
                 wrapped_trie_changes.apply_mem_changes();
@@ -2109,7 +2107,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
         {
-            let _span = tracing::trace_span!(target: "store", "write_catchup").entered();
+            let _span = tracing::trace_span!("write_catchup").entered();
 
             let mut affected_catchup_blocks = HashSet::new();
             for (prev_hash, hash) in self.remove_blocks_to_catchup.drain(..) {
@@ -2204,7 +2202,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(store_update)
     }
 
-    #[tracing::instrument(level = "debug", target = "store", "ChainStoreUpdate::commit", skip_all)]
+    #[tracing::instrument(level = "debug", "ChainStoreUpdate::commit", skip_all)]
     pub fn commit(mut self) -> Result<(), Error> {
         let store_update = self.finalize()?;
         store_update.commit()?;

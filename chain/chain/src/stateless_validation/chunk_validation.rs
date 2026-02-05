@@ -551,7 +551,6 @@ pub fn validate_chunk_state_witness_impl(
         .with_label_values(&[&witness_chunk_shard_id.to_string()])
         .start_timer();
     let span = tracing::debug_span!(
-        target: "client",
         "validate_chunk_state_witness",
         height = height_created,
         shard_id = %witness_chunk_shard_id,
@@ -782,11 +781,7 @@ pub fn validate_chunk_state_witness(
     );
     if result.is_err() {
         if let Err(storage_err) = save_invalid_chunk_state_witness(store, &state_witness) {
-            tracing::error!(
-                target: "stateless_validation",
-                ?storage_err,
-                "failed to store invalid state witness"
-            );
+            tracing::error!(?storage_err, "failed to store invalid state witness");
         }
     }
     result
@@ -804,7 +799,7 @@ impl Chain {
         let height_created = witness.chunk_header().height_created();
         let chunk_hash = witness.chunk_header().chunk_hash().clone();
         let parent_span = tracing::debug_span!(
-            target: "chain", "shadow_validate", %shard_id, height_created);
+            "shadow_validate", %shard_id, height_created);
         let (encoded_witness, raw_witness_size) = {
             let shard_id_label = shard_id.to_string();
             let encode_timer =

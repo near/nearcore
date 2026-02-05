@@ -165,7 +165,6 @@ pub fn spice_pre_validate_chunk_state_witness(
 #[tracing::instrument(
     level = tracing::Level::DEBUG,
     skip_all,
-    target = "spice_chunk_validator",
     fields(
         chunk_id = ?state_witness.chunk_id(),
     )

@@ -244,7 +244,7 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.dropped = Some(reason);
         } else {
-            tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was dropped but was not marked received");
+            tracing::error!(?block_hash, "block was dropped but was not marked received");
         }
     }
 
@@ -252,7 +252,7 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.error = Some(err);
         } else {
-            tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was errored but was not marked received");
+            tracing::error!(?block_hash, "block was errored but was not marked received");
         }
     }
 
@@ -260,7 +260,7 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.orphaned_timestamp = Some(self.clock.now());
         } else {
-            tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was orphaned but was not marked received");
+            tracing::error!(?block_hash, "block was orphaned but was not marked received");
         }
     }
 
@@ -268,7 +268,7 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.removed_from_orphan_timestamp = Some(self.clock.now());
         } else {
-            tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was unorphaned but was not marked received");
+            tracing::error!(?block_hash, "block was unorphaned but was not marked received");
         }
     }
 
@@ -276,7 +276,10 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.missing_chunks_timestamp = Some(self.clock.now());
         } else {
-            tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was marked as having missing chunks but was not marked received");
+            tracing::error!(
+                ?block_hash,
+                "block was marked as having missing chunks but was not marked received"
+            );
         }
     }
 
@@ -284,7 +287,10 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.pending_execution_timestamp = Some(self.clock.now());
         } else {
-            tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was marked as pending execution but was not marked received");
+            tracing::error!(
+                ?block_hash,
+                "block was marked as pending execution but was not marked received"
+            );
         }
     }
 
@@ -292,7 +298,10 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.removed_from_pending_timestamp = Some(self.clock.now());
         } else {
-            tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was marked as completed pending execution but was not marked received");
+            tracing::error!(
+                ?block_hash,
+                "block was marked as completed pending execution but was not marked received"
+            );
         }
     }
 
@@ -300,7 +309,10 @@ impl BlocksDelayTracker {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
             block_entry.removed_from_missing_chunks_timestamp = Some(self.clock.now());
         } else {
-            tracing::error!(target: "blocks_delay_tracker", ?block_hash, "block was marked as having no missing chunks but was not marked received");
+            tracing::error!(
+                ?block_hash,
+                "block was marked as having no missing chunks but was not marked received"
+            );
         }
     }
 
@@ -360,7 +372,7 @@ impl BlocksDelayTracker {
                     }
                 } else {
                     debug_assert!(false);
-                    tracing::error!(target: "block_delay_tracker", ?block_hash, "block in height map but not in blocks");
+                    tracing::error!(?block_hash, "block in height map but not in blocks");
                 }
             }
 
@@ -395,7 +407,7 @@ impl BlocksDelayTracker {
                 if let Some(chunk_hash) = chunk_hash {
                     if let Some(processed_chunk) = self.chunks.get(&chunk_hash) {
                         let Ok(shard_id) = shard_layout.get_shard_id(shard_index) else {
-                            tracing::error!(target: "block_delay_tracker", ?shard_index, "invalid shard index");
+                            tracing::error!(?shard_index, "invalid shard index");
                             continue;
                         };
                         self.update_chunk_metrics(processed_chunk, shard_id);

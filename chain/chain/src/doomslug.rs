@@ -726,32 +726,32 @@ impl Doomslug {
         verbose: bool,
     ) -> bool {
         let span = debug_span!(
-            target: "doomslug",
             "ready_to_produce_block",
             target_height,
             enough_chunks_for = field::Empty,
             enough_approvals_for = field::Empty,
             ready_to_produce_block = field::Empty,
-            need_to_wait = field::Empty)
+            need_to_wait = field::Empty
+        )
         .entered();
         let now = self.clock.now();
         let hash_or_height =
             ApprovalInner::new(&self.tip.block_hash, self.tip.height, target_height);
         let Some(approval_trackers_at_height) = self.approval_trackers.get_mut(&target_height)
         else {
-            tracing::debug!(target: "doomslug", target_height, "no approval trackers at height");
+            tracing::debug!(target_height, "no approval trackers at height");
             return false;
         };
         let Some(approval_tracker) =
             approval_trackers_at_height.approval_trackers.get_mut(&hash_or_height)
         else {
-            tracing::debug!(target: "doomslug", target_height, ?hash_or_height, "no approval tracker");
+            tracing::debug!(target_height, ?hash_or_height, "no approval tracker");
             return false;
         };
 
         let when = match approval_tracker.get_block_production_readiness() {
             DoomslugBlockProductionReadiness::NotReady => {
-                tracing::debug!(target: "doomslug", target_height, ?hash_or_height, "not ready to produce block");
+                tracing::debug!(target_height, ?hash_or_height, "not ready to produce block");
                 return false;
             }
             DoomslugBlockProductionReadiness::ReadySince(when) => when,
@@ -766,7 +766,9 @@ impl Doomslug {
             metrics::BLOCK_APPROVAL_DELAY.observe(enough_chunks_for.as_seconds_f64());
             if verbose {
                 tracing::info!(
-                    target: "doomslug", target_height, ?enough_approvals_for, ?enough_chunks_for,
+                    target_height,
+                    ?enough_approvals_for,
+                    ?enough_chunks_for,
                     "ready to produce block, has enough approvals, has enough chunks"
                 );
             }
@@ -783,12 +785,13 @@ impl Doomslug {
         if verbose {
             if ready {
                 tracing::info!(
-                    target: "doomslug", target_height, ?enough_approvals_for,
+                    target_height,
+                    ?enough_approvals_for,
                     "ready to produce block, but does not have enough chunks"
                 );
             } else {
                 tracing::info!(
-                    target: "doomslug", target_height, need_to_wait_for = ?(when + delay - now),
+                    target_height, need_to_wait_for = ?(when + delay - now),
                     ?enough_approvals_for, "not ready to produce block, need to wait"
                 );
             }

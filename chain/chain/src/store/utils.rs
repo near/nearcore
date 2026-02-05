@@ -169,8 +169,13 @@ pub fn get_incoming_receipts_for_shard(
     last_chunk_height_included: BlockHeight,
     receipts_filter: ReceiptFilter,
 ) -> Result<Vec<ReceiptProofResponse>, Error> {
-    let _span =
-            tracing::debug_span!(target: "chain", "get_incoming_receipts_for_shard", ?target_shard_id, ?block_hash, last_chunk_height_included).entered();
+    let _span = tracing::debug_span!(
+        "get_incoming_receipts_for_shard",
+        ?target_shard_id,
+        ?block_hash,
+        last_chunk_height_included
+    )
+    .entered();
 
     let mut ret = vec![];
 
@@ -195,7 +200,6 @@ pub fn get_incoming_receipts_for_shard(
         if prev_shard_layout != current_shard_layout {
             let parent_shard_id = current_shard_layout.get_parent_shard_id(current_shard_id)?;
             tracing::info!(
-                target: "chain",
                 version = current_shard_layout.version(),
                 prev_version = prev_shard_layout.version(),
                 ?current_shard_id,
@@ -210,18 +214,11 @@ pub fn get_incoming_receipts_for_shard(
             chain_store.get_incoming_receipts(&current_block_hash, current_shard_id);
         let receipts_proofs = match maybe_receipts_proofs {
             Ok(receipts_proofs) => {
-                tracing::debug!(
-                    target: "chain",
-                    "found receipts from block with missing chunks",
-                );
+                tracing::debug!("found receipts from block with missing chunks",);
                 receipts_proofs
             }
             Err(err) => {
-                tracing::debug!(
-                    target: "chain",
-                    ?err,
-                    "could not find receipts from block with missing chunks"
-                );
+                tracing::debug!(?err, "could not find receipts from block with missing chunks");
 
                 // This can happen when all chunks are missing in a block
                 // and then we can safely assume that there aren't any
