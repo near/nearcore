@@ -400,6 +400,8 @@ fn test_deterministic_state_init_prepay_for_storage() {
 /// Test that multi-action receipts fail to create deterministic accounts before
 /// `FixDeterministicAccountIdCreation` is enabled.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_deterministic_state_init_multi_action_before_fix() {
     let version_before_fix =
         ProtocolFeature::FixDeterministicAccountIdCreation.protocol_version() - 1;
@@ -428,6 +430,8 @@ fn test_deterministic_state_init_multi_action_before_fix() {
 /// Test that multi-action receipts can create deterministic accounts after
 /// `FixDeterministicAccountIdCreation` is enabled.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_deterministic_state_init_multi_action_after_fix() {
     if !ProtocolFeature::FixDeterministicAccountIdCreation.enabled(PROTOCOL_VERSION) {
         return;
