@@ -3,8 +3,8 @@ use crate::block::BlockValidityError::{
     InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot, InvalidStateRoot,
     InvalidTransactionRoot,
 };
-use crate::block_body::SpiceCoreStatement;
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
+use crate::block_body::{SpiceCoreStatement, SpiceCoreStatements};
 pub use crate::block_header::*;
 use crate::challenge::Challenge;
 use crate::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
@@ -14,6 +14,8 @@ use crate::num_rational::Rational32;
 #[cfg(feature = "clock")]
 use crate::optimistic_block::OptimisticBlock;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
+#[cfg(feature = "clock")]
+use crate::types::AccountId;
 use crate::types::{Balance, BlockExecutionResults, BlockHeight, EpochId, Gas};
 #[cfg(feature = "clock")]
 use crate::{
@@ -24,6 +26,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 #[cfg(feature = "clock")]
 use near_primitives_core::types::ProtocolVersion;
+#[cfg(feature = "clock")]
+use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
 use primitive_types::U256;
 use std::collections::BTreeMap;
@@ -123,6 +127,7 @@ impl Block {
         clock: near_time::Clock,
         sandbox_delta_time: Option<near_time::Duration>,
         optimistic_block: Option<OptimisticBlock>,
+        shard_split: Option<(ShardId, AccountId)>,
         // TODO(spice): Once spice is released remove Option.
         // Spice block is created IFF this is Some.
         spice_info: Option<SpiceNewBlockProductionInfo>,
@@ -208,7 +213,8 @@ impl Block {
             }
             BlockHeader::BlockHeaderV3(_)
             | BlockHeader::BlockHeaderV4(_)
-            | BlockHeader::BlockHeaderV5(_) => {
+            | BlockHeader::BlockHeaderV5(_)
+            | BlockHeader::BlockHeaderV6(_) => {
                 debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
             }
         };
@@ -276,6 +282,7 @@ impl Block {
             block_merkle_root,
             prev.height(),
             chunk_endorsements_bitmap,
+            shard_split,
         );
 
         Self::new_block(header, body)
@@ -423,9 +430,11 @@ impl Block {
     }
 
     #[inline]
-    pub fn spice_core_statements(&self) -> &[SpiceCoreStatement] {
+    pub fn spice_core_statements(&self) -> SpiceCoreStatements<'_> {
         match self {
-            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => &[],
+            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => {
+                SpiceCoreStatements::new(&[])
+            }
             Block::BlockV4(block) => block.body.spice_core_statements(),
         }
     }

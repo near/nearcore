@@ -25,9 +25,10 @@ use near_primitives::block::Tip;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
-use near_primitives::receipt::{ActionReceipt, ReceiptV1};
+use near_primitives::receipt::{ActionReceipt, ReceiptV0};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
 use near_primitives::trie_key::TrieKey;
@@ -147,13 +148,12 @@ impl TestEnv {
         let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
         let genesis_hash = hash(&[0]);
 
+        let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         if config.create_flat_storage {
             // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behavior
             // and use a mock chain, so we need to initialize flat storage manually.
             let flat_storage_manager = runtime.get_flat_storage_manager();
-            for shard_uid in
-                epoch_manager.get_shard_layout(&EpochId::default()).unwrap().shard_uids()
-            {
+            for shard_uid in shard_layout.shard_uids() {
                 let mut store_update = store.store_update();
                 flat_storage_manager.set_flat_storage_for_genesis(
                     &mut store_update.flat_store_update(),
@@ -183,7 +183,14 @@ impl TestEnv {
                     genesis_total_supply,
                     genesis_protocol_version,
                     0,
-                    None,
+                    ChunkEndorsementsBitmap::from_endorsements(vec![
+                        vec![
+                            true;
+                            validators_len as usize
+                        ];
+                        shard_layout.num_shards()
+                            as usize
+                    ]),
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
@@ -306,9 +313,22 @@ impl TestEnv {
     }
 
     pub fn step(&mut self, transactions: Vec<Vec<SignedTransaction>>, chunk_mask: Vec<bool>) {
-        let new_hash = hash(&[(self.head.height + 1) as u8]);
+        let new_height = self.head.height + 1;
+        let new_hash = hash(&[new_height as u8]);
         let shard_ids = self.epoch_manager.shard_ids(&self.head.epoch_id).unwrap();
         let shard_layout = self.epoch_manager.get_shard_layout(&self.head.epoch_id).unwrap();
+        let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
+            shard_ids
+                .iter()
+                .map(|shard_id| {
+                    let assignments = self
+                        .epoch_manager
+                        .get_chunk_validator_assignments(&self.head.epoch_id, *shard_id, new_height)
+                        .unwrap();
+                    vec![true; assignments.assignments().iter().len()]
+                })
+                .collect(),
+        );
         assert_eq!(transactions.len(), shard_ids.len());
         assert_eq!(chunk_mask.len(), shard_ids.len());
         let mut all_proposals = vec![];
@@ -330,7 +350,7 @@ impl TestEnv {
             .add_validator_proposals(
                 BlockInfo::new(
                     new_hash,
-                    self.head.height + 1,
+                    new_height,
                     self.head.height.saturating_sub(1),
                     self.head.last_block_hash,
                     self.head.last_block_hash,
@@ -339,7 +359,7 @@ impl TestEnv {
                     self.runtime.genesis_config.total_supply,
                     self.runtime.genesis_config.protocol_version,
                     self.time + 10u64.pow(9),
-                    None,
+                    chunk_endorsements,
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
@@ -852,7 +872,11 @@ fn test_state_sync() {
                     new_env.runtime.genesis_config.total_supply,
                     new_env.runtime.genesis_config.protocol_version,
                     new_env.time,
-                    None,
+                    ChunkEndorsementsBitmap::from_endorsements(vec![
+                        vec![true; num_nodes as usize];
+                        shard_layout.num_shards()
+                            as usize
+                    ]),
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
@@ -1328,7 +1352,6 @@ fn test_delete_account_after_unstake() {
         })],
         // runtime does not validate block history
         CryptoHash::default(),
-        0,
     );
     env.step_default(vec![delete_account_transaction]);
     for _ in 15..=17 {
@@ -1424,7 +1447,6 @@ fn test_trie_and_flat_state_equality() {
         vec![Action::Transfer(TransferAction { deposit: Balance::from_yoctonear(10) })],
         // runtime does not validate block history
         CryptoHash::default(),
-        0,
     );
     env.step_default(vec![transfer_tx]);
     for _ in 1..=5 {
@@ -1665,7 +1687,7 @@ fn test_prepare_transactions_duplicate_nonces() {
     let group = iter.next().unwrap();
     let first_tx = group.peek_next().unwrap();
     let duplicate_nonce_tx = SignedTransaction::send_money(
-        first_tx.nonce(),
+        first_tx.nonce().nonce(),
         first_tx.signer_id().clone(),
         first_tx.receiver_id().clone(),
         &InMemorySigner::test_signer(&first_tx.signer_id()),
@@ -1689,12 +1711,12 @@ fn test_prepare_transactions_duplicate_nonces() {
     // Collect (public key, nonce) pairs to check for duplicates.
     let mut pk_nonce_set = HashSet::new();
     for tx in &txs.transactions {
-        let pk_nonce = (tx.public_key(), tx.nonce());
+        let pk_nonce = (tx.public_key(), tx.nonce().nonce());
         assert!(
             pk_nonce_set.insert(pk_nonce),
             "Duplicate transaction with public key {:?} and nonce {} found in prepared transactions",
             tx.public_key(),
-            tx.nonce()
+            tx.nonce().nonce()
         );
     }
 }
@@ -1829,7 +1851,7 @@ fn test_storage_proof_garbage() {
     let signer = create_test_signer("test1");
     let env = TestEnv::new(vec![vec![signer.validator_id().clone()]], 100, false);
     let garbage_size_mb = 50usize;
-    let receipt = Receipt::V1(ReceiptV1 {
+    let receipt = Receipt::V0(ReceiptV0 {
         predecessor_id: signer.validator_id().clone(),
         receiver_id: signer.validator_id().clone(),
         receipt_id: CryptoHash::hash_bytes(&[42]),
@@ -1849,7 +1871,6 @@ fn test_storage_proof_garbage() {
                 .into(),
             )],
         }),
-        priority: 0,
     });
     let apply_result = env.apply_new_chunk(shard_id, vec![], &[receipt]);
     let PartialState::TrieValues(storage_proof) = apply_result.proof.unwrap().nodes;
@@ -1913,12 +1934,11 @@ fn stake(
         vec![Action::Stake(Box::new(StakeAction { stake, public_key: sender.public_key() }))],
         // runtime does not validate block history
         CryptoHash::default(),
-        0,
     )
 }
 
 mod check_dynamic_resharding {
-    use near_parameters::config::DynamicReshardingConfig;
+    use near_primitives::epoch_manager::DynamicReshardingConfig;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::ShardId;

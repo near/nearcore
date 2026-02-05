@@ -285,23 +285,6 @@ impl JsonRpcClient {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_call_function", request)
     }
 
-    #[allow(non_snake_case)]
-    pub fn EXPERIMENTAL_view_gas_key(
-        &self,
-        request: near_jsonrpc_primitives::types::view_gas_key::RpcViewGasKeyRequest,
-    ) -> RpcRequest<near_jsonrpc_primitives::types::view_gas_key::RpcViewGasKeyResponse> {
-        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_view_gas_key", request)
-    }
-
-    #[allow(non_snake_case)]
-    pub fn EXPERIMENTAL_view_gas_key_list(
-        &self,
-        request: near_jsonrpc_primitives::types::view_gas_key_list::RpcViewGasKeyListRequest,
-    ) -> RpcRequest<near_jsonrpc_primitives::types::view_gas_key_list::RpcViewGasKeyListResponse>
-    {
-        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_view_gas_key_list", request)
-    }
-
     pub fn validators(
         &self,
         epoch_id_or_block_id: Option<EpochReference>,

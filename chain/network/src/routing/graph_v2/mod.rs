@@ -68,7 +68,7 @@ impl Inner {
     /// Returns true iff all the edges provided were valid.
     ///
     /// This method implements a security measure against an adversary sending invalid edges.
-    /// It verifies edges in parallel until the first invalid edge is found. It adds nonces
+    /// It verifies edges until the first invalid edge is found. It adds nonces
     /// for all the edges verified so far to the cache, but drops all the remaining ones. This way
     /// the wasted work (verification of invalid edges) is constant, no matter how large the input
     /// size is.

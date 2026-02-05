@@ -338,8 +338,19 @@ pub enum ProtocolFeature {
     InvalidTxGenerateOutcomes,
     DynamicResharding,
     GasKeys,
+    /// Fix access key allowance mutation in verify_and_charge_tx_ephemeral.
+    /// Previously, the allowance was decremented in-place before later checks
+    /// (storage stake, function call permission) that could return an error,
+    /// violating the documented contract of no mutation on error.
+    FixAccessKeyAllowanceCharging,
     Spice,
     ContinuousEpochSync,
+    /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
+    /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
+    InstantPromiseYield,
+    /// Includes tokens burnt as part of global contract deploys into corresponding
+    /// execution outcome's `tokens_burnt`.
+    IncludeDeployGlobalContractOutcomeBurntStorage,
 }
 
 impl ProtocolFeature {
@@ -438,16 +449,19 @@ impl ProtocolFeature {
             | ProtocolFeature::_DeprecatedReducedGasRefunds => 78,
             ProtocolFeature::IncreaseMaxCongestionMissedChunks => 79,
             ProtocolFeature::StatePartsCompression | ProtocolFeature::DeterministicAccountIds => 82,
-            ProtocolFeature::Wasmtime => 83,
-            ProtocolFeature::InvalidTxGenerateOutcomes => 84,
+            ProtocolFeature::InvalidTxGenerateOutcomes
+            | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen
+            | ProtocolFeature::FixAccessKeyAllowanceCharging
+            | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage => 83,
+            ProtocolFeature::Wasmtime => 84,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
-            ProtocolFeature::ContinuousEpochSync => 130,
+            ProtocolFeature::InstantPromiseYield => 130,
+            ProtocolFeature::ContinuousEpochSync => 131,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
             ProtocolFeature::GasKeys => 149,
 
             // Spice is setup to include nightly, but not be part of it for now so that features

@@ -2,7 +2,8 @@
 This script is used to run a forknet scenario.
 """
 
-from argparse import ArgumentParser, ArgumentTypeError
+from argparse import ArgumentParser, ArgumentTypeError, FileType
+import json
 import sys
 import pathlib
 import subprocess
@@ -28,31 +29,11 @@ class Action(Enum):
         return self.value
 
 
-def call_gh_workflow(action: Action,
-                     unique_id,
-                     start_height,
-                     hardware_config=None,
-                     regions=None,
-                     has_archival=None,
-                     has_state_dumper=None,
-                     tracing_server=None):
+def call_gh_workflow(wf_params: dict):
     cmd = "gh workflow run mocknet_terraform.yml --repo Near-One/infra-ops "
-    cmd += f"-f action={action} "
-    cmd += f"-f unique_id={unique_id} "
-    cmd += f"-f start_height={start_height} "
-    if regions != None:
-        cmd += f"-f location_set={regions} "
-
-    if hardware_config != None:
-        cmd += f"-f chunk_producers={hardware_config.chunk_producers_hosts()} "
-        cmd += f"-f chunk_validators={hardware_config.only_chunk_validators_hosts()} "
-
-    if has_archival != None:
-        cmd += f"-f archival_nodes={'true' if has_archival else 'false'} "
-    if has_state_dumper != None:
-        cmd += f"-f state_dumper={'true' if has_state_dumper else 'false'} "
-    if tracing_server != None:
-        cmd += f"-f tracing_server={'true' if tracing_server else 'false'} "
+    cmd += " ".join([
+        f"-f {key}={value}" for key, value in wf_params.items() if value != None
+    ])
     logger.info(f"Calling GH workflow with command: {cmd}")
     result = subprocess.run(cmd, shell=True)
     logger.info(
@@ -60,24 +41,45 @@ def call_gh_workflow(action: Action,
     return result.returncode
 
 
-def handle_create(test_setup):
+def handle_create(test_setup, dump_workflow_params=None):
     """
     Create the infrastructure for the test case.
     """
-    unique_id = test_setup.unique_id
-    start_height = test_setup.start_height
-    if start_height is None:
+    if test_setup.start_height is None:
         raise ValueError("Start height is not set")
-    regions = test_setup.regions
-    has_archival = test_setup.has_archival
-    has_state_dumper = test_setup.has_state_dumper
-    tracing_server = test_setup.tracing_server
-    hardware_config = test_setup.node_hardware_config
-    call_gh_workflow(Action.APPLY, unique_id, start_height, hardware_config,
-                     regions, has_archival, has_state_dumper, tracing_server)
+
+    workflow_params = {
+        "action": Action.APPLY.value,
+        "unique_id": test_setup.unique_id,
+        "start_height": test_setup.start_height,
+    }
+    if test_setup.regions != None:
+        workflow_params["location_set"] = test_setup.regions
+    if test_setup.node_hardware_config != None:
+        workflow_params[
+            "chunk_producers"] = test_setup.node_hardware_config.chunk_producers_hosts(
+            )
+        workflow_params[
+            "chunk_validators"] = test_setup.node_hardware_config.only_chunk_validators_hosts(
+            )
+    if test_setup.has_archival != None:
+        workflow_params[
+            "archival_nodes"] = "true" if test_setup.has_archival else "false"
+    if test_setup.has_state_dumper != None:
+        workflow_params[
+            "state_dumper"] = "true" if test_setup.has_state_dumper else "false"
+    if test_setup.tracing_server != None:
+        workflow_params[
+            "tracing_server"] = "true" if test_setup.tracing_server else "false"
+
+    if dump_workflow_params:
+        json.dump(workflow_params, dump_workflow_params)
+        return
+
+    call_gh_workflow(workflow_params)
 
 
-def handle_destroy(test_setup):
+def handle_destroy(test_setup, dump_workflow_params=None):
     unique_id = test_setup.unique_id
     start_height = test_setup.start_height
     if start_height is None:
@@ -96,7 +98,17 @@ def handle_destroy(test_setup):
     else:
         logger.info(f"Successfully removed bucket directory {bucket_path}")
 
-    call_gh_workflow(Action.DESTROY, unique_id, start_height)
+    workflow_params = {
+        "action": Action.DESTROY.value,
+        "unique_id": unique_id,
+        "start_height": start_height,
+    }
+
+    if dump_workflow_params:
+        json.dump(workflow_params, dump_workflow_params)
+        return
+
+    call_gh_workflow(workflow_params)
 
 
 def handle_start_test(test_setup):
@@ -139,6 +151,16 @@ def main():
         host_type="all",
         host_filter=None,
         select_partition=None,
+    )
+
+    parser.add_argument(
+        '--dump-workflow-params',
+        help=
+        'Print infra-ops workflow JSON parameters for the selected command to the specified file (or stdout if not given) without dispatching it.',
+        type=FileType('w'),
+        nargs='?',
+        const='-',
+        default=None,
     )
 
     parser.add_argument(
@@ -201,9 +223,11 @@ def main():
     test_setup = get_test_case(args.test_case, args)
     # Route to appropriate handler based on command
     if args.command == 'create':
-        handle_create(test_setup)
+        handle_create(test_setup,
+                      dump_workflow_params=args.dump_workflow_params)
     elif args.command == 'destroy':
-        handle_destroy(test_setup)
+        handle_destroy(test_setup,
+                       dump_workflow_params=args.dump_workflow_params)
     elif args.command == 'start':
         handle_start_test(test_setup)
     else:

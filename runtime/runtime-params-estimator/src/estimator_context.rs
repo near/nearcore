@@ -31,7 +31,7 @@ use node_runtime::{
     ApplyState, Runtime, SignedValidPeriodTransactions, get_signer_and_access_key,
     set_tx_state_changes, verify_and_charge_tx_ephemeral,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::iter;
 use std::sync::Arc;
 
@@ -470,6 +470,7 @@ impl Testbed<'_> {
             validated_tx.to_tx(),
             &cost,
             block_height,
+            PROTOCOL_VERSION,
         )
         .expect("tx verification should not fail in estimator");
         set_tx_state_changes(&mut state_update, &validated_tx, &signer, &access_key);
@@ -482,6 +483,7 @@ impl Testbed<'_> {
     pub(crate) fn apply_action_receipt(&self, receipt: &Receipt, metric: GasMetric) -> GasCost {
         let mut state_update = TrieUpdate::new(self.trie());
         let mut outgoing_receipts = vec![];
+        let mut instant_receipts = VecDeque::new();
         let mut validator_proposals = vec![];
         let mut stats =
             ChunkApplyStatsV0::new(self.apply_state.block_height, self.apply_state.shard_id);
@@ -493,6 +495,7 @@ impl Testbed<'_> {
             &self.apply_state,
             receipt,
             &mut outgoing_receipts,
+            &mut instant_receipts,
             &mut validator_proposals,
             &mut stats,
             &epoch_info_provider,

@@ -5,6 +5,7 @@ use borsh::BorshDeserialize;
 
 use crate::archive::cloud_storage::CloudStorage;
 use crate::archive::cloud_storage::block_data::BlockData;
+use crate::archive::cloud_storage::epoch_data::EpochData;
 use crate::archive::cloud_storage::file_id::CloudStorageFileID;
 use crate::archive::cloud_storage::shard_data::ShardData;
 
@@ -44,6 +45,14 @@ impl CloudStorage {
         shard_id: ShardId,
     ) -> Result<ShardStateSyncResponseHeader, CloudRetrievalError> {
         let file_id = CloudStorageFileID::StateHeader(epoch_height, epoch_id, shard_id);
+        self.retrieve(&file_id).await
+    }
+
+    pub(super) async fn retrieve_epoch_data(
+        &self,
+        epoch_id: EpochId,
+    ) -> Result<EpochData, CloudRetrievalError> {
+        let file_id = CloudStorageFileID::Epoch(epoch_id);
         self.retrieve(&file_id).await
     }
 

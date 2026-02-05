@@ -11,7 +11,6 @@ use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfi
 use near_crypto::PublicKey;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use near_parameters::config::DynamicReshardingConfig;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -20,6 +19,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::congestion_info::{
     CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
 };
+use near_primitives::epoch_manager::{DynamicReshardingConfig, EpochConfig};
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
@@ -30,12 +30,12 @@ use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    ShardId, StateRoot, StateRootNode,
+    Nonce, NonceIndex, ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, ContractCodeView, GasKeyInfoView, GasKeyList, GasKeyView,
-    QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
+    AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
+    QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::CLOUD_HEAD_KEY;
@@ -44,8 +44,8 @@ use near_store::flat::FlatStorageManager;
 use near_store::trie::{FindSplitError, find_trie_split, total_mem_usage};
 use near_store::{
     ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
-    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, set_access_key,
-    set_account,
+    TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account, get_gas_key_nonce,
+    set_access_key, set_account, set_gas_key_nonce,
 };
 use near_vm_runner::ContractCode;
 use near_vm_runner::{ContractRuntimeCache, precompile_contract};
@@ -54,7 +54,8 @@ use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
-    get_signer_and_access_key, validate_transaction, verify_and_charge_tx_ephemeral,
+    get_signer_and_access_key, validate_transaction, verify_and_charge_gas_key_tx_ephemeral,
+    verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -243,12 +244,13 @@ impl NightshadeRuntime {
         let is_first_block_of_version = current_protocol_version != prev_block_protocol_version;
 
         let config = self.runtime_config_store.get_config(current_protocol_version);
+        let epoch_config = self.epoch_manager.get_epoch_config(&epoch_id)?;
         let proposed_split = self.check_dynamic_resharding(
             &trie,
             shard_id,
             &epoch_id,
             current_protocol_version,
-            &config.dynamic_resharding_config,
+            &epoch_config,
             &prev_block_hash,
         )?;
 
@@ -272,7 +274,7 @@ impl NightshadeRuntime {
             gas_limit: Some(gas_limit),
             random_seed,
             current_protocol_version,
-            config: self.runtime_config_store.get_config(current_protocol_version).clone(),
+            config: config.clone(),
             cache: Some(self.compiled_contract_cache.handle()),
             is_new_chunk,
             congestion_info,
@@ -524,7 +526,7 @@ impl NightshadeRuntime {
         shard_id: ShardId,
         epoch_id: &EpochId,
         protocol_version: ProtocolVersion,
-        config: &DynamicReshardingConfig,
+        epoch_config: &EpochConfig,
         prev_block_hash: &CryptoHash,
     ) -> Result<Option<TrieSplit>, Error> {
         if !ProtocolFeature::DynamicResharding.enabled(protocol_version) {
@@ -536,6 +538,11 @@ impl NightshadeRuntime {
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
 
         // TODO(dynamic_resharding): Check how many epochs since last resharding
+
+        let Some(config) = epoch_config.dynamic_resharding_config() else {
+            tracing::error!(target: "runtime", "dynamic resharding config missing");
+            return Ok(None);
+        };
         match check_dynamic_resharding(shard_trie, shard_id, shard_layout, config) {
             Err(FindSplitError::Storage(err)) => Err(err)?,
             Err(err) => {
@@ -659,23 +666,50 @@ impl RuntimeAdapter for NightshadeRuntime {
         current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
-
-        let cost = tx_cost(runtime_config, &validated_tx.to_tx(), gas_price)?;
+        let tx = validated_tx.to_tx();
+        let cost = tx_cost(runtime_config, &tx, gas_price)?;
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
         let (mut signer, mut access_key) = get_signer_and_access_key(&trie, &validated_tx)?;
-        verify_and_charge_tx_ephemeral(
-            runtime_config,
-            &mut signer,
-            &mut access_key,
-            validated_tx.to_tx(),
-            &cost,
-            // here we do not know which block the transaction will be included
-            // and therefore skip the check on the nonce upper bound.
-            None,
-        )
-        .map(|_vr| ())
+        // Here we do not know which block the transaction will be included and
+        // therefore use `None` as `block_height` to skip the check on the nonce
+        // upper bound.
+        let block_height: Option<BlockHeight> = None;
+        if let Some(nonce_index) = tx.nonce().nonce_index() {
+            let current_nonce =
+                get_gas_key_nonce(&trie, tx.signer_id(), tx.public_key(), nonce_index)?
+                    .ok_or_else(|| {
+                        let num_nonces = access_key
+                            .gas_key_info()
+                            .map_or(0, |gas_key_info| gas_key_info.num_nonces);
+                        InvalidTxError::InvalidNonceIndex {
+                            tx_nonce_index: Some(nonce_index),
+                            num_nonces,
+                        }
+                    })?;
+            verify_and_charge_gas_key_tx_ephemeral(
+                runtime_config,
+                &mut signer,
+                &mut access_key,
+                current_nonce,
+                &tx,
+                &cost,
+                block_height,
+            )
+            .map(|_vr| ())
+        } else {
+            verify_and_charge_tx_ephemeral(
+                runtime_config,
+                &mut signer,
+                &mut access_key,
+                &tx,
+                &cost,
+                block_height,
+                current_protocol_version,
+            )
+            .map(|_vr| ())
+        }
     }
 
     #[instrument(
@@ -826,7 +860,16 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            let mut signer_access_key = None;
+            // Cache for signer account and access key, reused within the same transaction group.
+            // For gas key transactions, also caches the current nonce and its index.
+            struct SignerCache {
+                account_id: AccountId,
+                account: Account,
+                access_key: AccessKey,
+                public_key: PublicKey,
+                gas_key_nonce: Option<(NonceIndex, Nonce)>,
+            }
+            let mut signer_cache: Option<SignerCache> = None;
 
             // Take a single transaction from this transaction group
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
@@ -870,38 +913,82 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
 
                 let signer_id = validated_tx.signer_id();
-                let (signer, access_key) =
-                    if let Some((id, signer, key, _)) = &mut signer_access_key {
-                        debug_assert_eq!(signer_id, id);
-                        (signer, key)
-                    } else {
-                        let signer = get_account(&state_update, signer_id);
-                        let signer = signer.transpose().and_then(|v| v.ok());
+                let nonce_index = validated_tx.nonce().nonce_index();
+                let cache = match &mut signer_cache {
+                    Some(cache) => {
+                        // Check that the cached signer matches the current transaction
+                        debug_assert_eq!(signer_id, &cache.account_id);
+                        debug_assert_eq!(nonce_index, cache.gas_key_nonce.map(|(idx, _)| idx));
+                        cache
+                    }
+                    None => {
+                        let account = get_account(&state_update, signer_id);
+                        let account = account.transpose().and_then(|v| v.ok());
                         let access_key =
                             get_access_key(&state_update, signer_id, validated_tx.public_key());
                         let access_key = access_key.transpose().and_then(|v| v.ok());
-                        let inserted = signer_access_key.insert((
-                            signer_id.clone(),
-                            signer.ok_or(Error::InvalidTransactions)?,
-                            access_key.ok_or(Error::InvalidTransactions)?,
-                            validated_tx.public_key().clone(),
-                        ));
-                        (&mut inserted.1, &mut inserted.2)
-                    };
+                        // For gas key transactions, also load the gas key nonce
+                        let gas_key_nonce = if let Some(idx) = nonce_index {
+                            let nonce = get_gas_key_nonce(
+                                &state_update,
+                                signer_id,
+                                validated_tx.public_key(),
+                                idx,
+                            );
+                            let nonce = nonce.transpose().and_then(|v| v.ok());
+                            Some((idx, nonce.ok_or(Error::InvalidTransactions)?))
+                        } else {
+                            None
+                        };
+                        signer_cache.insert(SignerCache {
+                            account_id: signer_id.clone(),
+                            account: account.ok_or(Error::InvalidTransactions)?,
+                            access_key: access_key.ok_or(Error::InvalidTransactions)?,
+                            public_key: validated_tx.public_key().clone(),
+                            gas_key_nonce,
+                        })
+                    }
+                };
 
-                let verify_result =
-                    tx_cost(runtime_config, &validated_tx.to_tx(), prev_block.next_gas_price)
-                        .map_err(InvalidTxError::from)
-                        .and_then(|cost| {
-                            verify_and_charge_tx_ephemeral(
-                                runtime_config,
-                                signer,
-                                access_key,
-                                validated_tx.to_tx(),
-                                &cost,
-                                Some(next_block_height),
-                            )
-                        });
+                let cost = match tx_cost(
+                    runtime_config,
+                    &validated_tx.to_tx(),
+                    prev_block.next_gas_price,
+                ) {
+                    Ok(cost) => cost,
+                    Err(e) => {
+                        tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), ?e, "discarding transaction that failed cost computation");
+                        rejected_invalid_tx += 1;
+                        continue;
+                    }
+                };
+                let verify_result = if let Some((_, current_nonce)) = cache.gas_key_nonce {
+                    verify_and_charge_gas_key_tx_ephemeral(
+                        runtime_config,
+                        &mut cache.account,
+                        &mut cache.access_key,
+                        current_nonce,
+                        validated_tx.to_tx(),
+                        &cost,
+                        Some(next_block_height),
+                    )
+                } else {
+                    verify_and_charge_tx_ephemeral(
+                        runtime_config,
+                        &mut cache.account,
+                        &mut cache.access_key,
+                        validated_tx.to_tx(),
+                        &cost,
+                        Some(next_block_height),
+                        protocol_version,
+                    )
+                };
+                // Update cached gas key nonce for subsequent transactions
+                if let Ok(ref vr) = verify_result {
+                    if let Some(update) = vr.gas_key_nonce_update {
+                        cache.gas_key_nonce = Some(update);
+                    }
+                }
 
                 match verify_result {
                     Ok(cost) => {
@@ -919,9 +1006,27 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            if let Some((signer_id, account, access_key, public_key)) = signer_access_key {
-                set_account(&mut state_update.trie_update, signer_id.clone(), &account);
-                set_access_key(&mut state_update.trie_update, signer_id, public_key, &access_key);
+            if let Some(cache) = signer_cache {
+                set_account(
+                    &mut state_update.trie_update,
+                    cache.account_id.clone(),
+                    &cache.account,
+                );
+                if let Some((nonce_index, nonce)) = cache.gas_key_nonce {
+                    set_gas_key_nonce(
+                        &mut state_update.trie_update,
+                        cache.account_id.clone(),
+                        cache.public_key.clone(),
+                        nonce_index,
+                        nonce,
+                    )
+                };
+                set_access_key(
+                    &mut state_update.trie_update,
+                    cache.account_id,
+                    cache.public_key,
+                    &cache.access_key,
+                );
             }
         }
 
@@ -1205,33 +1310,18 @@ impl RuntimeAdapter for NightshadeRuntime {
                     block_hash: *block_hash,
                 })
             }
-            QueryRequest::ViewGasKeyList { account_id } => {
-                let gas_key_list =
-                    self.view_gas_keys(&shard_uid, *state_root, account_id).map_err(|err| {
-                        crate::near_chain_primitives::error::QueryError::from_view_gas_key_error(
-                            err,
-                            block_height,
-                            *block_hash,
-                        )
-                    })?;
-                Ok(QueryResponse {
-                    kind: QueryResponseKind::GasKeyList(GasKeyList { keys: gas_key_list }),
-                    block_height,
-                    block_hash: *block_hash,
-                })
-            }
-            QueryRequest::ViewGasKey { account_id, public_key } => {
-                let gas_key = self
-                    .view_gas_key(&shard_uid, *state_root, account_id, public_key)
+            QueryRequest::ViewGasKeyNonces { account_id, public_key } => {
+                let gas_key_nonces = self
+                    .view_gas_key_nonces(&shard_uid, *state_root, account_id, public_key)
                     .map_err(|err| {
-                        crate::near_chain_primitives::error::QueryError::from_view_gas_key_error(
+                        crate::near_chain_primitives::error::QueryError::from_view_access_key_error(
                             err,
                             block_height,
                             *block_hash,
                         )
                     })?;
                 Ok(QueryResponse {
-                    kind: QueryResponseKind::GasKey(gas_key),
+                    kind: QueryResponseKind::GasKeyNonces(gas_key_nonces),
                     block_height,
                     block_hash: *block_hash,
                 })
@@ -1629,25 +1719,15 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         self.trie_viewer.view_access_keys(&state_update, account_id)
     }
 
-    fn view_gas_key(
+    fn view_gas_key_nonces(
         &self,
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<GasKeyView, node_runtime::state_viewer::errors::ViewGasKeyError> {
+    ) -> Result<Vec<Nonce>, node_runtime::state_viewer::errors::ViewAccessKeyError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
-        self.trie_viewer.view_gas_key(&state_update, account_id, public_key)
-    }
-
-    fn view_gas_keys(
-        &self,
-        shard_uid: &ShardUId,
-        state_root: MerkleHash,
-        account_id: &AccountId,
-    ) -> Result<Vec<GasKeyInfoView>, node_runtime::state_viewer::errors::ViewGasKeyError> {
-        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
-        self.trie_viewer.view_gas_keys(&state_update, account_id)
+        self.trie_viewer.view_gas_key_nonces(&state_update, account_id, public_key)
     }
 
     fn view_state(

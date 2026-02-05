@@ -9,6 +9,7 @@ use crate::chunk_producer::AdvProduceChunksMode;
 use crate::chunk_producer::ChunkProducer;
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
+use crate::spice_timer::SpiceTimer;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSender;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
@@ -50,6 +51,7 @@ use near_network::types::{NetworkRequests, PeerManagerAdapter, ReasonForBan};
 use near_primitives::block::{
     Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, SpiceNewBlockProductionInfo, Tip,
 };
+use near_primitives::block_body::SpiceCoreStatements;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::EpochError;
@@ -120,6 +122,7 @@ pub struct Client {
     pub config: ClientConfig,
     pub chain: Chain,
     pub doomslug: Doomslug,
+    pub spice_timer: SpiceTimer,
     pub epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub shard_tracker: ShardTracker,
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -364,6 +367,12 @@ impl Client {
             config.chunk_wait_mult,
             doomslug_threshold_mode,
         );
+        let spice_timer = SpiceTimer::new(
+            clock.clone(),
+            config.min_block_production_delay,
+            config.max_block_production_delay,
+            (config.max_block_production_delay - config.min_block_production_delay) / 10,
+        );
         let chunk_endorsement_tracker = Arc::new(ChunkEndorsementTracker::new(
             epoch_manager.clone(),
             chain.chain_store().store(),
@@ -389,6 +398,7 @@ impl Client {
             config: config.clone(),
             chain,
             doomslug,
+            spice_timer,
             epoch_manager,
             shard_tracker,
             runtime_adapter,
@@ -486,16 +496,18 @@ impl Client {
                     .to_transactions()
                     .into_iter()
                     .cloned()
-                    .filter_map(|signed_tx| match ValidatedTransaction::new(&config, signed_tx) {
-                        Ok(validated_tx) => Some(validated_tx),
-                        Err((err, signed_tx)) => {
-                            tracing::debug!(
-                                target: "client",
-                                ?signed_tx,
-                                ?err,
-                                "validating signed tx failed with error"
-                            );
-                            None
+                    .filter_map(|signed_tx| {
+                        match ValidatedTransaction::new(&config, signed_tx, protocol_version) {
+                            Ok(validated_tx) => Some(validated_tx),
+                            Err((err, signed_tx)) => {
+                                tracing::debug!(
+                                    target: "client",
+                                    ?signed_tx,
+                                    ?err,
+                                    "validating signed tx failed with error"
+                                );
+                                None
+                            }
                         }
                     })
                     .collect::<Vec<_>>();
@@ -937,11 +949,11 @@ impl Client {
 
         let spice_info = if ProtocolFeature::Spice.enabled(protocol_version) {
             let core_statements =
-                self.chain.spice_core_reader.core_statement_for_next_block(&prev_header)?;
+                self.chain.spice_core_reader.core_statements_for_next_block(&prev_header)?;
             let last_certified_block_execution_results =
                 self.chain.spice_core_reader.get_last_certified_execution_results_for_next_block(
                     prev_header,
-                    &core_statements,
+                    SpiceCoreStatements::new(&core_statements),
                 )?;
 
             Some(SpiceNewBlockProductionInfo {
@@ -974,6 +986,7 @@ impl Client {
             self.clock.clone(),
             sandbox_delta_time,
             optimistic_block,
+            None,
             spice_info,
         ));
 

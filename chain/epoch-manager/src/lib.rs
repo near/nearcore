@@ -674,8 +674,8 @@ impl EpochManager {
                 }
             }
             let epoch_config = self.get_epoch_config(epoch_protocol_version);
-            // If ChunkEndorsementsInBlockHeader feature is enabled, we use the chunk validator kickout threshold
-            // as the cutoff threshold for the endorsement ratio to remap the ratio to 0 or 1.
+            // We use the chunk validator kickout threshold as the cutoff threshold for the
+            // endorsement ratio to remap the ratio to 0 or 1.
             let online_thresholds = ValidatorOnlineThresholds {
                 online_min_threshold: epoch_config.online_min_threshold,
                 online_max_threshold: epoch_config.online_max_threshold,
@@ -701,7 +701,7 @@ impl EpochManager {
                 // TODO(dynamic_resharding): adjust layout if a shard was marked for splitting
                 (next_shard_layout, true)
             } else {
-                let layout = next_next_epoch_config.legacy_shard_layout();
+                let layout = next_next_epoch_config.static_shard_layout();
                 let has_same_layout = layout == next_shard_layout;
                 (layout, has_same_layout)
             };
@@ -1399,7 +1399,7 @@ impl EpochManager {
             Ok(shard_layout.clone())
         } else {
             let protocol_version = epoch_info.protocol_version();
-            Ok(self.config.for_protocol_version(protocol_version).legacy_shard_layout())
+            Ok(self.config.for_protocol_version(protocol_version).static_shard_layout())
         }
     }
 
@@ -1408,7 +1408,7 @@ impl EpochManager {
         &self,
         protocol_version: ProtocolVersion,
     ) -> ShardLayout {
-        self.config.for_protocol_version(protocol_version).legacy_shard_layout()
+        self.config.for_protocol_version(protocol_version).static_shard_layout()
     }
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {

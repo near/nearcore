@@ -78,6 +78,45 @@ impl SpiceCoreStatement {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct SpiceCoreStatements<'a>(&'a [SpiceCoreStatement]);
+
+impl<'a> SpiceCoreStatements<'a> {
+    pub fn new(statements: &'a [SpiceCoreStatement]) -> Self {
+        Self(statements)
+    }
+
+    pub fn iter(self) -> std::slice::Iter<'a, SpiceCoreStatement> {
+        self.0.iter()
+    }
+
+    pub fn iter_execution_results(
+        self,
+    ) -> impl Iterator<Item = (&'a SpiceChunkId, &'a ChunkExecutionResult)> {
+        self.0.iter().filter_map(|s| match s {
+            SpiceCoreStatement::ChunkExecutionResult { chunk_id, execution_result } => {
+                Some((chunk_id, execution_result))
+            }
+            _ => None,
+        })
+    }
+
+    pub fn iter_endorsements(self) -> impl Iterator<Item = &'a SpiceEndorsementCoreStatement> {
+        self.0.iter().filter_map(|s| match s {
+            SpiceCoreStatement::Endorsement(e) => Some(e),
+            _ => None,
+        })
+    }
+}
+
+impl<'a> IntoIterator for SpiceCoreStatements<'a> {
+    type Item = &'a SpiceCoreStatement;
+    type IntoIter = std::slice::Iter<'a, SpiceCoreStatement>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
@@ -150,11 +189,11 @@ impl BlockBody {
     }
 
     #[inline]
-    pub fn spice_core_statements(&self) -> &[SpiceCoreStatement] {
-        match self {
+    pub fn spice_core_statements(&self) -> SpiceCoreStatements<'_> {
+        SpiceCoreStatements::new(match self {
             BlockBody::V1(_) | BlockBody::V2(_) => &[],
             BlockBody::V3(body) => &body.core_statements,
-        }
+        })
     }
 
     #[inline]
