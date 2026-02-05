@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
@@ -30,6 +30,8 @@ pub struct EpochInfoAggregator {
     pub epoch_id: EpochId,
     /// Last block hash recorded.
     pub last_block_hash: CryptoHash,
+    /// Blacklist of chunk producers.
+    pub excluded_chunk_producers: HashMap<ShardId, HashSet<ValidatorId>>,
 }
 
 impl EpochInfoAggregator {
@@ -41,7 +43,52 @@ impl EpochInfoAggregator {
             all_proposals: BTreeMap::default(),
             epoch_id,
             last_block_hash,
+            excluded_chunk_producers: Default::default(),
         }
+    }
+
+    /// Returns a set of validators that have missed more than the threshold number of chunks
+    /// in the current epoch.
+    pub fn get_excluded_chunk_producers_for_shard(
+        &self,
+        shard_id: &ShardId,
+    ) -> HashSet<ValidatorId> {
+        self.excluded_chunk_producers.get(shard_id).cloned().unwrap_or_default()
+    }
+
+    pub fn blacklist_chunk_producer(
+        &mut self,
+        shard_id: ShardId,
+        chunk_producer_id: ValidatorId,
+        producers_count: usize,
+    ) {
+        let excluded = self.excluded_chunk_producers.entry(shard_id).or_insert_with(HashSet::new);
+        if excluded.contains(&chunk_producer_id) {
+            return;
+        }
+
+        excluded.insert(chunk_producer_id);
+
+        // If all producers are excluded, unban one
+        if excluded.len() == producers_count {
+            // TODO: find a fairer way to unban a producer
+            let unbanned = excluded.iter().next().cloned().unwrap();
+            excluded.remove(&unbanned);
+        }
+    }
+
+    pub fn should_ban_chunk_producer(
+        &self,
+        shard_id: ShardId,
+        chunk_producer_id: ValidatorId,
+    ) -> bool {
+        let Some(shard_info) = self.shard_tracker.get(&shard_id) else { return false };
+        let Some(producer_stats) = shard_info.get(&chunk_producer_id) else { return false };
+
+        let produced = producer_stats.produced();
+        let expected = producer_stats.expected();
+
+        expected - produced >= 20 && (produced as f64 / expected as f64) < 0.95
     }
 
     /// Aggregates data from a block which directly precede the first block this
@@ -102,8 +149,9 @@ impl EpochInfoAggregator {
 
         for (shard_index, mask) in block_info.chunk_mask().iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
+            let blacklist = self.get_excluded_chunk_producers_for_shard(&shard_id);
             let chunk_producer_id = epoch_info
-                .sample_chunk_producer(shard_layout, shard_id, prev_block_height + 1)
+                .sample_chunk_producer(shard_layout, shard_id, prev_block_height + 1, blacklist)
                 .unwrap();
             let tracker = self.shard_tracker.entry(shard_id).or_insert_with(HashMap::new);
             tracker
@@ -182,6 +230,13 @@ impl EpochInfoAggregator {
                     .or_insert_with(|| {
                         ChunkStats::new_with_endorsement(u64::from(endorsement_produced), 1)
                     });
+            }
+
+            // Check if the chunk producers should be banned
+            if self.should_ban_chunk_producer(shard_id, chunk_producer_id) {
+                let producers_count =
+                    epoch_info.chunk_producers_settlement().get(shard_index).unwrap().len();
+                self.blacklist_chunk_producer(shard_id, chunk_producer_id, producers_count);
             }
         }
 
@@ -300,6 +355,30 @@ impl EpochInfoAggregator {
                     }
                 })
                 .or_insert_with(|| stats.clone());
+        }
+
+        // merge excluded chunk producers
+        for (shard_id, excluded) in &other.excluded_chunk_producers {
+            self.excluded_chunk_producers
+                .entry(*shard_id)
+                .and_modify(|entry| {
+                    entry.extend(excluded.iter().copied());
+                })
+                .or_insert_with(|| excluded.clone());
+        }
+
+        // Re-check bans after merging chunk stats.
+        let mut to_ban: Vec<(ShardId, ValidatorId, usize)> = Vec::new();
+        for (shard_id, stats) in &self.shard_tracker {
+            let producers_count = stats.len();
+            for (chunk_producer_id, _) in stats {
+                if self.should_ban_chunk_producer(*shard_id, *chunk_producer_id) {
+                    to_ban.push((*shard_id, *chunk_producer_id, producers_count));
+                }
+            }
+        }
+        for (shard_id, chunk_producer_id, producers_count) in to_ban {
+            self.blacklist_chunk_producer(shard_id, chunk_producer_id, producers_count);
         }
     }
 }

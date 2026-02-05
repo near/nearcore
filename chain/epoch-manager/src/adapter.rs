@@ -13,7 +13,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
+    AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex, ValidatorId,
     ValidatorInfoIdentifier,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
@@ -430,6 +430,8 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(epoch_info.get_validator(validator_id))
     }
 
+    fn get_excluded_chunk_producers_for_shard(&self, shard_id: &ShardId) -> HashSet<ValidatorId>;
+
     /// Chunk producer info for given height for given shard. Return EpochError if outside of known boundaries.
     fn get_chunk_producer_info(
         &self,
@@ -437,9 +439,13 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(&key.epoch_id)?;
         let shard_layout = self.get_shard_layout(&key.epoch_id)?;
-        let Some(validator_id) =
-            epoch_info.sample_chunk_producer(&shard_layout, key.shard_id, key.height_created)
-        else {
+        let blacklist = self.get_excluded_chunk_producers_for_shard(&key.shard_id);
+        let Some(validator_id) = epoch_info.sample_chunk_producer(
+            &shard_layout,
+            key.shard_id,
+            key.height_created,
+            blacklist,
+        ) else {
             return Err(EpochError::ChunkProducerSelectionError(format!(
                 "Invalid shard {} for height {}",
                 key.shard_id, key.height_created,
@@ -923,5 +929,10 @@ impl EpochManagerAdapter for EpochManagerHandle {
             next_epoch_id,
             next_epoch_info,
         )
+    }
+
+    fn get_excluded_chunk_producers_for_shard(&self, shard_id: &ShardId) -> HashSet<ValidatorId> {
+        let epoch_manager = self.read();
+        epoch_manager.epoch_info_aggregator.get_excluded_chunk_producers_for_shard(shard_id)
     }
 }
