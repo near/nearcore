@@ -581,6 +581,262 @@ impl schemars::transform::Transform for MergePropertiesIntoOneOf {
     }
 }
 
+/// Configuration for collapsing a cartesian product explosion back to composed types.
+struct CartesianCollapseConfig {
+    /// Name of the type with the explosion (e.g., "RpcQueryRequest")
+    type_name: &'static str,
+    /// Component types that were flattened together
+    components: &'static [ComponentConfig],
+}
+
+struct ComponentConfig {
+    /// Name of the component type (e.g., "BlockReference")
+    name: &'static str,
+    /// Properties that discriminate this component's variants
+    discriminator_props: &'static [&'static str],
+    /// If internally tagged, the tag property name (e.g., "request_type")
+    tag_prop: Option<&'static str>,
+}
+
+/// Known cartesian product explosions to collapse
+const CARTESIAN_COLLAPSE_CONFIGS: &[CartesianCollapseConfig] = &[
+    CartesianCollapseConfig {
+        type_name: "RpcQueryRequest",
+        components: &[
+            ComponentConfig {
+                name: "BlockReference",
+                discriminator_props: &["block_id", "finality", "sync_checkpoint"],
+                tag_prop: None,
+            },
+            ComponentConfig {
+                name: "QueryRequest",
+                discriminator_props: &["request_type"],
+                tag_prop: Some("request_type"),
+            },
+        ],
+    },
+    CartesianCollapseConfig {
+        type_name: "RpcStateChangesInBlockByTypeRequest",
+        components: &[
+            ComponentConfig {
+                name: "BlockReference",
+                discriminator_props: &["block_id", "finality", "sync_checkpoint"],
+                tag_prop: None,
+            },
+            ComponentConfig {
+                name: "StateChangesRequestView",
+                discriminator_props: &["changes_type"],
+                tag_prop: Some("changes_type"),
+            },
+        ],
+    },
+];
+
+fn to_pascal_case(s: &str) -> String {
+    s.split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().chain(chars).collect(),
+            }
+        })
+        .collect()
+}
+
+/// Collapse cartesian product explosions in the schema.
+fn collapse_cartesian_products(schemas: &mut serde_json::Map<String, serde_json::Value>) {
+    for config in CARTESIAN_COLLAPSE_CONFIGS {
+        let type_schema = match schemas.get(config.type_name) {
+            Some(s) => s.clone(),
+            None => continue,
+        };
+
+        let variants = match type_schema.get("oneOf").and_then(|v| v.as_array()) {
+            Some(arr) => arr.clone(),
+            None => continue,
+        };
+
+        // Extract unique variants for each component
+        let mut component_variants: std::collections::HashMap<&str, Vec<serde_json::Value>> =
+            std::collections::HashMap::new();
+        let mut seen: std::collections::HashMap<&str, std::collections::HashSet<String>> =
+            std::collections::HashMap::new();
+
+        for comp in config.components {
+            component_variants.insert(comp.name, Vec::new());
+            seen.insert(comp.name, std::collections::HashSet::new());
+        }
+
+        for variant in &variants {
+            // Handle both direct properties and allOf-wrapped variants
+            let props = if let Some(p) = variant.get("properties").and_then(|p| p.as_object()) {
+                p.clone()
+            } else if let Some(all_of) = variant.get("allOf").and_then(|a| a.as_array()) {
+                // Merge all properties from allOf subschemas
+                let mut merged = serde_json::Map::new();
+                for sub in all_of {
+                    if let Some(sub_props) = sub.get("properties").and_then(|p| p.as_object()) {
+                        for (k, v) in sub_props {
+                            merged.insert(k.clone(), v.clone());
+                        }
+                    }
+                }
+                merged
+            } else {
+                continue;
+            };
+
+            let required = variant
+                .get("required")
+                .and_then(|r| r.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
+                .or_else(|| {
+                    // Also check allOf subschemas for required
+                    variant.get("allOf").and_then(|a| a.as_array()).map(|arr| {
+                        arr.iter()
+                            .filter_map(|sub| sub.get("required").and_then(|r| r.as_array()))
+                            .flat_map(|r| r.iter().filter_map(|v| v.as_str()))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .unwrap_or_default();
+
+            for comp in config.components {
+                // Find which discriminator property this variant has for this component
+                let discriminator_prop =
+                    comp.discriminator_props.iter().find(|&&p| props.contains_key(p));
+                let discriminator_prop = match discriminator_prop {
+                    Some(p) => *p,
+                    None => continue,
+                };
+
+                // Build signature for deduplication
+                let signature = if let Some(tag_prop) = comp.tag_prop {
+                    if let Some(tag_schema) = props.get(tag_prop) {
+                        let tag_value =
+                            tag_schema.get("const").and_then(|v| v.as_str()).or_else(|| {
+                                tag_schema
+                                    .get("enum")
+                                    .and_then(|e| e.as_array())
+                                    .and_then(|arr| arr.first())
+                                    .and_then(|v| v.as_str())
+                            });
+                        match tag_value {
+                            Some(v) => format!("{}:{}", tag_prop, v),
+                            None => discriminator_prop.to_string(),
+                        }
+                    } else {
+                        discriminator_prop.to_string()
+                    }
+                } else {
+                    discriminator_prop.to_string()
+                };
+
+                if seen.get(comp.name).unwrap().contains(&signature) {
+                    continue;
+                }
+                seen.get_mut(comp.name).unwrap().insert(signature.clone());
+
+                // Extract only the properties relevant to this component
+                let mut comp_props = serde_json::Map::new();
+                let mut comp_required = Vec::new();
+
+                for (prop_name, prop_value) in &props {
+                    // Check if this property belongs to this component
+                    let belongs_to_comp = comp.discriminator_props.contains(&prop_name.as_str());
+
+                    // For internally tagged enums, also include non-discriminator props
+                    let is_shared = !config
+                        .components
+                        .iter()
+                        .any(|c| c.discriminator_props.contains(&prop_name.as_str()));
+
+                    if belongs_to_comp || (comp.tag_prop.is_some() && is_shared) {
+                        comp_props.insert(prop_name.clone(), prop_value.clone());
+                        if required.contains(&prop_name.as_str()) {
+                            comp_required.push(prop_name.clone());
+                        }
+                    }
+                }
+
+                // Only add if we have meaningful properties
+                if !comp_props.is_empty() {
+                    let mut comp_variant = serde_json::Map::new();
+                    comp_variant.insert("type".to_string(), json!("object"));
+                    comp_variant
+                        .insert("properties".to_string(), serde_json::Value::Object(comp_props));
+                    if !comp_required.is_empty() {
+                        comp_variant.insert("required".to_string(), json!(comp_required));
+                    }
+
+                    // Add title based on signature
+                    let title = if let Some(tag_prop) = comp.tag_prop {
+                        if let Some(tag_schema) = props.get(tag_prop) {
+                            tag_schema
+                                .get("const")
+                                .and_then(|v| v.as_str())
+                                .or_else(|| {
+                                    tag_schema
+                                        .get("enum")
+                                        .and_then(|e| e.as_array())
+                                        .and_then(|arr| arr.first())
+                                        .and_then(|v| v.as_str())
+                                })
+                                .map(|v| to_pascal_case(v))
+                        } else {
+                            Some(to_pascal_case(discriminator_prop))
+                        }
+                    } else {
+                        Some(to_pascal_case(discriminator_prop))
+                    };
+
+                    if let Some(t) = title {
+                        comp_variant.insert("title".to_string(), json!(t));
+                    }
+
+                    component_variants
+                        .get_mut(comp.name)
+                        .unwrap()
+                        .push(serde_json::Value::Object(comp_variant));
+                }
+            }
+        }
+
+        // Add component schemas if they don't exist
+        for comp in config.components {
+            let comp_variants = component_variants.get(comp.name).unwrap();
+            if comp_variants.is_empty() {
+                continue;
+            }
+
+            if !schemas.contains_key(comp.name) {
+                schemas.insert(
+                    comp.name.to_string(),
+                    json!({
+                        "oneOf": comp_variants,
+                        "title": comp.name
+                    }),
+                );
+            }
+        }
+
+        // Replace the explosion with allOf refs
+        let all_of_refs: Vec<serde_json::Value> = config
+            .components
+            .iter()
+            .map(|comp| json!({"$ref": format!("#/components/schemas/{}", comp.name)}))
+            .collect();
+
+        if let Some(type_schema) = schemas.get_mut(config.type_name) {
+            if let Some(obj) = type_schema.as_object_mut() {
+                obj.remove("oneOf");
+                obj.insert("allOf".to_string(), json!(all_of_refs));
+            }
+        }
+    }
+}
+
 /// Generates the OpenRPC specification.
 pub fn generate_openrpc() -> serde_json::Value {
     let mut methods = Vec::new();
@@ -1015,6 +1271,12 @@ pub fn generate_openrpc() -> serde_json::Value {
             all_schemas.insert((*new_name).to_string(), updated_def);
         }
     }
+
+    // Collapse cartesian product explosions back into composed allOf references.
+    // When Rust has `#[serde(flatten)]` on multiple enum fields, schemars generates
+    // the cartesian product (e.g., 3 × 8 = 24 variants). We detect these patterns
+    // and collapse them back to `allOf[BlockReference, QueryRequest]`.
+    collapse_cartesian_products(&mut all_schemas);
 
     // Build final OpenRPC document
     let mut openrpc = json!({

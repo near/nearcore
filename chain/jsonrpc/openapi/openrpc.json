@@ -2473,6 +2473,47 @@
         ],
         "title": "BlockId"
       },
+      "BlockReference": {
+        "oneOf": [
+          {
+            "properties": {
+              "block_id": {
+                "$ref": "#/components/schemas/BlockId"
+              }
+            },
+            "required": [
+              "block_id"
+            ],
+            "title": "BlockId",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "finality": {
+                "$ref": "#/components/schemas/Finality"
+              }
+            },
+            "required": [
+              "finality"
+            ],
+            "title": "Finality",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "sync_checkpoint": {
+                "$ref": "#/components/schemas/SyncCheckpoint"
+              }
+            },
+            "required": [
+              "sync_checkpoint"
+            ],
+            "title": "SyncCheckpoint",
+            "type": "object"
+          }
+        ],
+        "title": "BlockReference"
+      },
       "BlockStatusView": {
         "description": "Height and hash of a block",
         "properties": {
@@ -7209,6 +7250,187 @@
         "title": "PublicKey",
         "type": "string"
       },
+      "QueryRequest": {
+        "oneOf": [
+          {
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "request_type": {
+                "const": "view_account",
+                "type": "string"
+              }
+            },
+            "required": [
+              "account_id",
+              "request_type"
+            ],
+            "title": "ViewAccount",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "request_type": {
+                "const": "view_code",
+                "type": "string"
+              }
+            },
+            "required": [
+              "account_id",
+              "request_type"
+            ],
+            "title": "ViewCode",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "include_proof": {
+                "type": "boolean"
+              },
+              "prefix_base64": {
+                "$ref": "#/components/schemas/StoreKey"
+              },
+              "request_type": {
+                "const": "view_state",
+                "type": "string"
+              }
+            },
+            "required": [
+              "account_id",
+              "prefix_base64",
+              "request_type"
+            ],
+            "title": "ViewState",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "public_key": {
+                "$ref": "#/components/schemas/PublicKey"
+              },
+              "request_type": {
+                "const": "view_access_key",
+                "type": "string"
+              }
+            },
+            "required": [
+              "account_id",
+              "public_key",
+              "request_type"
+            ],
+            "title": "ViewAccessKey",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "request_type": {
+                "const": "view_access_key_list",
+                "type": "string"
+              }
+            },
+            "required": [
+              "account_id",
+              "request_type"
+            ],
+            "title": "ViewAccessKeyList",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "public_key": {
+                "$ref": "#/components/schemas/PublicKey"
+              },
+              "request_type": {
+                "const": "view_gas_key_nonces",
+                "type": "string"
+              }
+            },
+            "required": [
+              "account_id",
+              "public_key",
+              "request_type"
+            ],
+            "title": "ViewGasKeyNonces",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "args_base64": {
+                "$ref": "#/components/schemas/FunctionArgs"
+              },
+              "method_name": {
+                "type": "string"
+              },
+              "request_type": {
+                "const": "call_function",
+                "type": "string"
+              }
+            },
+            "required": [
+              "account_id",
+              "args_base64",
+              "method_name",
+              "request_type"
+            ],
+            "title": "CallFunction",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "code_hash": {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              "request_type": {
+                "const": "view_global_contract_code",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code_hash",
+              "request_type"
+            ],
+            "title": "ViewGlobalContractCode",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
+              "request_type": {
+                "const": "view_global_contract_code_by_account_id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "account_id",
+              "request_type"
+            ],
+            "title": "ViewGlobalContractCodeByAccountId",
+            "type": "object"
+          }
+        ],
+        "title": "QueryRequest"
+      },
       "ReceiptEnumView": {
         "oneOf": [
           {
@@ -9018,642 +9240,12 @@
         "type": "object"
       },
       "RpcQueryRequest": {
-        "oneOf": [
+        "allOf": [
           {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "block_id": {
-                "$ref": "#/components/schemas/BlockId"
-              },
-              "request_type": {
-                "const": "view_account",
-                "type": "string"
-              }
-            },
-            "required": [
-              "block_id",
-              "request_type",
-              "account_id"
-            ],
-            "title": "BlockIdViewAccount",
-            "type": "object"
+            "$ref": "#/components/schemas/BlockReference"
           },
           {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "block_id": {
-                "$ref": "#/components/schemas/BlockId"
-              },
-              "request_type": {
-                "const": "view_code",
-                "type": "string"
-              }
-            },
-            "required": [
-              "block_id",
-              "request_type",
-              "account_id"
-            ],
-            "title": "BlockIdViewCode",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "block_id": {
-                "$ref": "#/components/schemas/BlockId"
-              },
-              "include_proof": {
-                "type": "boolean"
-              },
-              "prefix_base64": {
-                "$ref": "#/components/schemas/StoreKey"
-              },
-              "request_type": {
-                "const": "view_state",
-                "type": "string"
-              }
-            },
-            "required": [
-              "block_id",
-              "request_type",
-              "account_id",
-              "prefix_base64"
-            ],
-            "title": "BlockIdViewState",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "block_id": {
-                "$ref": "#/components/schemas/BlockId"
-              },
-              "public_key": {
-                "$ref": "#/components/schemas/PublicKey"
-              },
-              "request_type": {
-                "const": "view_access_key",
-                "type": "string"
-              }
-            },
-            "required": [
-              "block_id",
-              "request_type",
-              "account_id",
-              "public_key"
-            ],
-            "title": "BlockIdViewAccessKey",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "block_id": {
-                "$ref": "#/components/schemas/BlockId"
-              },
-              "request_type": {
-                "const": "view_access_key_list",
-                "type": "string"
-              }
-            },
-            "required": [
-              "block_id",
-              "request_type",
-              "account_id"
-            ],
-            "title": "BlockIdViewAccessKeyList",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "block_id": {
-                "$ref": "#/components/schemas/BlockId"
-              },
-              "public_key": {
-                "$ref": "#/components/schemas/PublicKey"
-              },
-              "request_type": {
-                "const": "view_gas_key_nonces",
-                "type": "string"
-              }
-            },
-            "required": [
-              "block_id",
-              "request_type",
-              "account_id",
-              "public_key"
-            ],
-            "title": "BlockIdViewGasKeyNonces",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "args_base64": {
-                "$ref": "#/components/schemas/FunctionArgs"
-              },
-              "block_id": {
-                "$ref": "#/components/schemas/BlockId"
-              },
-              "method_name": {
-                "type": "string"
-              },
-              "request_type": {
-                "const": "call_function",
-                "type": "string"
-              }
-            },
-            "required": [
-              "block_id",
-              "request_type",
-              "account_id",
-              "method_name",
-              "args_base64"
-            ],
-            "title": "BlockIdCallFunction",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "block_id": {
-                "$ref": "#/components/schemas/BlockId"
-              },
-              "code_hash": {
-                "$ref": "#/components/schemas/CryptoHash"
-              },
-              "request_type": {
-                "const": "view_global_contract_code",
-                "type": "string"
-              }
-            },
-            "required": [
-              "block_id",
-              "request_type",
-              "code_hash"
-            ],
-            "title": "BlockIdViewGlobalContractCode",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "block_id": {
-                "$ref": "#/components/schemas/BlockId"
-              },
-              "request_type": {
-                "const": "view_global_contract_code_by_account_id",
-                "type": "string"
-              }
-            },
-            "required": [
-              "block_id",
-              "request_type",
-              "account_id"
-            ],
-            "title": "BlockIdViewGlobalContractCodeByAccountId",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "finality": {
-                "$ref": "#/components/schemas/Finality"
-              },
-              "request_type": {
-                "const": "view_account",
-                "type": "string"
-              }
-            },
-            "required": [
-              "finality",
-              "request_type",
-              "account_id"
-            ],
-            "title": "FinalityViewAccount",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "finality": {
-                "$ref": "#/components/schemas/Finality"
-              },
-              "request_type": {
-                "const": "view_code",
-                "type": "string"
-              }
-            },
-            "required": [
-              "finality",
-              "request_type",
-              "account_id"
-            ],
-            "title": "FinalityViewCode",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "finality": {
-                "$ref": "#/components/schemas/Finality"
-              },
-              "include_proof": {
-                "type": "boolean"
-              },
-              "prefix_base64": {
-                "$ref": "#/components/schemas/StoreKey"
-              },
-              "request_type": {
-                "const": "view_state",
-                "type": "string"
-              }
-            },
-            "required": [
-              "finality",
-              "request_type",
-              "account_id",
-              "prefix_base64"
-            ],
-            "title": "FinalityViewState",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "finality": {
-                "$ref": "#/components/schemas/Finality"
-              },
-              "public_key": {
-                "$ref": "#/components/schemas/PublicKey"
-              },
-              "request_type": {
-                "const": "view_access_key",
-                "type": "string"
-              }
-            },
-            "required": [
-              "finality",
-              "request_type",
-              "account_id",
-              "public_key"
-            ],
-            "title": "FinalityViewAccessKey",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "finality": {
-                "$ref": "#/components/schemas/Finality"
-              },
-              "request_type": {
-                "const": "view_access_key_list",
-                "type": "string"
-              }
-            },
-            "required": [
-              "finality",
-              "request_type",
-              "account_id"
-            ],
-            "title": "FinalityViewAccessKeyList",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "finality": {
-                "$ref": "#/components/schemas/Finality"
-              },
-              "public_key": {
-                "$ref": "#/components/schemas/PublicKey"
-              },
-              "request_type": {
-                "const": "view_gas_key_nonces",
-                "type": "string"
-              }
-            },
-            "required": [
-              "finality",
-              "request_type",
-              "account_id",
-              "public_key"
-            ],
-            "title": "FinalityViewGasKeyNonces",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "args_base64": {
-                "$ref": "#/components/schemas/FunctionArgs"
-              },
-              "finality": {
-                "$ref": "#/components/schemas/Finality"
-              },
-              "method_name": {
-                "type": "string"
-              },
-              "request_type": {
-                "const": "call_function",
-                "type": "string"
-              }
-            },
-            "required": [
-              "finality",
-              "request_type",
-              "account_id",
-              "method_name",
-              "args_base64"
-            ],
-            "title": "FinalityCallFunction",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "code_hash": {
-                "$ref": "#/components/schemas/CryptoHash"
-              },
-              "finality": {
-                "$ref": "#/components/schemas/Finality"
-              },
-              "request_type": {
-                "const": "view_global_contract_code",
-                "type": "string"
-              }
-            },
-            "required": [
-              "finality",
-              "request_type",
-              "code_hash"
-            ],
-            "title": "FinalityViewGlobalContractCode",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "finality": {
-                "$ref": "#/components/schemas/Finality"
-              },
-              "request_type": {
-                "const": "view_global_contract_code_by_account_id",
-                "type": "string"
-              }
-            },
-            "required": [
-              "finality",
-              "request_type",
-              "account_id"
-            ],
-            "title": "FinalityViewGlobalContractCodeByAccountId",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "request_type": {
-                "const": "view_account",
-                "type": "string"
-              },
-              "sync_checkpoint": {
-                "$ref": "#/components/schemas/SyncCheckpoint"
-              }
-            },
-            "required": [
-              "sync_checkpoint",
-              "request_type",
-              "account_id"
-            ],
-            "title": "SyncCheckpointViewAccount",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "request_type": {
-                "const": "view_code",
-                "type": "string"
-              },
-              "sync_checkpoint": {
-                "$ref": "#/components/schemas/SyncCheckpoint"
-              }
-            },
-            "required": [
-              "sync_checkpoint",
-              "request_type",
-              "account_id"
-            ],
-            "title": "SyncCheckpointViewCode",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "include_proof": {
-                "type": "boolean"
-              },
-              "prefix_base64": {
-                "$ref": "#/components/schemas/StoreKey"
-              },
-              "request_type": {
-                "const": "view_state",
-                "type": "string"
-              },
-              "sync_checkpoint": {
-                "$ref": "#/components/schemas/SyncCheckpoint"
-              }
-            },
-            "required": [
-              "sync_checkpoint",
-              "request_type",
-              "account_id",
-              "prefix_base64"
-            ],
-            "title": "SyncCheckpointViewState",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "public_key": {
-                "$ref": "#/components/schemas/PublicKey"
-              },
-              "request_type": {
-                "const": "view_access_key",
-                "type": "string"
-              },
-              "sync_checkpoint": {
-                "$ref": "#/components/schemas/SyncCheckpoint"
-              }
-            },
-            "required": [
-              "sync_checkpoint",
-              "request_type",
-              "account_id",
-              "public_key"
-            ],
-            "title": "SyncCheckpointViewAccessKey",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "request_type": {
-                "const": "view_access_key_list",
-                "type": "string"
-              },
-              "sync_checkpoint": {
-                "$ref": "#/components/schemas/SyncCheckpoint"
-              }
-            },
-            "required": [
-              "sync_checkpoint",
-              "request_type",
-              "account_id"
-            ],
-            "title": "SyncCheckpointViewAccessKeyList",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "public_key": {
-                "$ref": "#/components/schemas/PublicKey"
-              },
-              "request_type": {
-                "const": "view_gas_key_nonces",
-                "type": "string"
-              },
-              "sync_checkpoint": {
-                "$ref": "#/components/schemas/SyncCheckpoint"
-              }
-            },
-            "required": [
-              "sync_checkpoint",
-              "request_type",
-              "account_id",
-              "public_key"
-            ],
-            "title": "SyncCheckpointViewGasKeyNonces",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "args_base64": {
-                "$ref": "#/components/schemas/FunctionArgs"
-              },
-              "method_name": {
-                "type": "string"
-              },
-              "request_type": {
-                "const": "call_function",
-                "type": "string"
-              },
-              "sync_checkpoint": {
-                "$ref": "#/components/schemas/SyncCheckpoint"
-              }
-            },
-            "required": [
-              "sync_checkpoint",
-              "request_type",
-              "account_id",
-              "method_name",
-              "args_base64"
-            ],
-            "title": "SyncCheckpointCallFunction",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "code_hash": {
-                "$ref": "#/components/schemas/CryptoHash"
-              },
-              "request_type": {
-                "const": "view_global_contract_code",
-                "type": "string"
-              },
-              "sync_checkpoint": {
-                "$ref": "#/components/schemas/SyncCheckpoint"
-              }
-            },
-            "required": [
-              "sync_checkpoint",
-              "request_type",
-              "code_hash"
-            ],
-            "title": "SyncCheckpointViewGlobalContractCode",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_id": {
-                "$ref": "#/components/schemas/AccountId"
-              },
-              "request_type": {
-                "const": "view_global_contract_code_by_account_id",
-                "type": "string"
-              },
-              "sync_checkpoint": {
-                "$ref": "#/components/schemas/SyncCheckpoint"
-              }
-            },
-            "required": [
-              "sync_checkpoint",
-              "request_type",
-              "account_id"
-            ],
-            "title": "SyncCheckpointViewGlobalContractCodeByAccountId",
-            "type": "object"
+            "$ref": "#/components/schemas/QueryRequest"
           }
         ],
         "title": "RpcQueryRequest",
@@ -9950,381 +9542,15 @@
         "type": "object"
       },
       "RpcStateChangesInBlockByTypeRequest": {
-        "description": "It is a [serializable view] of [`StateChangesRequest`].\n\n[serializable view]: ./index.html\n[`StateChangesRequest`]: ../types/struct.StateChangesRequest.html",
-        "oneOf": [
+        "allOf": [
           {
-            "properties": {
-              "account_ids": {
-                "items": {
-                  "$ref": "#/components/schemas/AccountId"
-                },
-                "type": "array"
-              },
-              "block_id": {
-                "$ref": "#/components/schemas/BlockId"
-              },
-              "changes_type": {
-                "const": "account_changes",
-                "type": "string"
-              }
-            },
-            "required": [
-              "block_id",
-              "changes_type",
-              "account_ids"
-            ],
-            "title": "BlockIdAccountChanges",
-            "type": "object"
+            "$ref": "#/components/schemas/BlockReference"
           },
           {
-            "properties": {
-              "block_id": {
-                "$ref": "#/components/schemas/BlockId"
-              },
-              "changes_type": {
-                "const": "single_access_key_changes",
-                "type": "string"
-              },
-              "keys": {
-                "items": {
-                  "$ref": "#/components/schemas/AccountWithPublicKey"
-                },
-                "type": "array"
-              }
-            },
-            "required": [
-              "block_id",
-              "changes_type",
-              "keys"
-            ],
-            "title": "BlockIdSingleAccessKeyChanges",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_ids": {
-                "items": {
-                  "$ref": "#/components/schemas/AccountId"
-                },
-                "type": "array"
-              },
-              "block_id": {
-                "$ref": "#/components/schemas/BlockId"
-              },
-              "changes_type": {
-                "const": "all_access_key_changes",
-                "type": "string"
-              }
-            },
-            "required": [
-              "block_id",
-              "changes_type",
-              "account_ids"
-            ],
-            "title": "BlockIdAllAccessKeyChanges",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_ids": {
-                "items": {
-                  "$ref": "#/components/schemas/AccountId"
-                },
-                "type": "array"
-              },
-              "block_id": {
-                "$ref": "#/components/schemas/BlockId"
-              },
-              "changes_type": {
-                "const": "contract_code_changes",
-                "type": "string"
-              }
-            },
-            "required": [
-              "block_id",
-              "changes_type",
-              "account_ids"
-            ],
-            "title": "BlockIdContractCodeChanges",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_ids": {
-                "items": {
-                  "$ref": "#/components/schemas/AccountId"
-                },
-                "type": "array"
-              },
-              "block_id": {
-                "$ref": "#/components/schemas/BlockId"
-              },
-              "changes_type": {
-                "const": "data_changes",
-                "type": "string"
-              },
-              "key_prefix_base64": {
-                "$ref": "#/components/schemas/StoreKey"
-              }
-            },
-            "required": [
-              "block_id",
-              "changes_type",
-              "account_ids",
-              "key_prefix_base64"
-            ],
-            "title": "BlockIdDataChanges",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_ids": {
-                "items": {
-                  "$ref": "#/components/schemas/AccountId"
-                },
-                "type": "array"
-              },
-              "changes_type": {
-                "const": "account_changes",
-                "type": "string"
-              },
-              "finality": {
-                "$ref": "#/components/schemas/Finality"
-              }
-            },
-            "required": [
-              "finality",
-              "changes_type",
-              "account_ids"
-            ],
-            "title": "FinalityAccountChanges",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "changes_type": {
-                "const": "single_access_key_changes",
-                "type": "string"
-              },
-              "finality": {
-                "$ref": "#/components/schemas/Finality"
-              },
-              "keys": {
-                "items": {
-                  "$ref": "#/components/schemas/AccountWithPublicKey"
-                },
-                "type": "array"
-              }
-            },
-            "required": [
-              "finality",
-              "changes_type",
-              "keys"
-            ],
-            "title": "FinalitySingleAccessKeyChanges",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_ids": {
-                "items": {
-                  "$ref": "#/components/schemas/AccountId"
-                },
-                "type": "array"
-              },
-              "changes_type": {
-                "const": "all_access_key_changes",
-                "type": "string"
-              },
-              "finality": {
-                "$ref": "#/components/schemas/Finality"
-              }
-            },
-            "required": [
-              "finality",
-              "changes_type",
-              "account_ids"
-            ],
-            "title": "FinalityAllAccessKeyChanges",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_ids": {
-                "items": {
-                  "$ref": "#/components/schemas/AccountId"
-                },
-                "type": "array"
-              },
-              "changes_type": {
-                "const": "contract_code_changes",
-                "type": "string"
-              },
-              "finality": {
-                "$ref": "#/components/schemas/Finality"
-              }
-            },
-            "required": [
-              "finality",
-              "changes_type",
-              "account_ids"
-            ],
-            "title": "FinalityContractCodeChanges",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_ids": {
-                "items": {
-                  "$ref": "#/components/schemas/AccountId"
-                },
-                "type": "array"
-              },
-              "changes_type": {
-                "const": "data_changes",
-                "type": "string"
-              },
-              "finality": {
-                "$ref": "#/components/schemas/Finality"
-              },
-              "key_prefix_base64": {
-                "$ref": "#/components/schemas/StoreKey"
-              }
-            },
-            "required": [
-              "finality",
-              "changes_type",
-              "account_ids",
-              "key_prefix_base64"
-            ],
-            "title": "FinalityDataChanges",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_ids": {
-                "items": {
-                  "$ref": "#/components/schemas/AccountId"
-                },
-                "type": "array"
-              },
-              "changes_type": {
-                "const": "account_changes",
-                "type": "string"
-              },
-              "sync_checkpoint": {
-                "$ref": "#/components/schemas/SyncCheckpoint"
-              }
-            },
-            "required": [
-              "sync_checkpoint",
-              "changes_type",
-              "account_ids"
-            ],
-            "title": "SyncCheckpointAccountChanges",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "changes_type": {
-                "const": "single_access_key_changes",
-                "type": "string"
-              },
-              "keys": {
-                "items": {
-                  "$ref": "#/components/schemas/AccountWithPublicKey"
-                },
-                "type": "array"
-              },
-              "sync_checkpoint": {
-                "$ref": "#/components/schemas/SyncCheckpoint"
-              }
-            },
-            "required": [
-              "sync_checkpoint",
-              "changes_type",
-              "keys"
-            ],
-            "title": "SyncCheckpointSingleAccessKeyChanges",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_ids": {
-                "items": {
-                  "$ref": "#/components/schemas/AccountId"
-                },
-                "type": "array"
-              },
-              "changes_type": {
-                "const": "all_access_key_changes",
-                "type": "string"
-              },
-              "sync_checkpoint": {
-                "$ref": "#/components/schemas/SyncCheckpoint"
-              }
-            },
-            "required": [
-              "sync_checkpoint",
-              "changes_type",
-              "account_ids"
-            ],
-            "title": "SyncCheckpointAllAccessKeyChanges",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_ids": {
-                "items": {
-                  "$ref": "#/components/schemas/AccountId"
-                },
-                "type": "array"
-              },
-              "changes_type": {
-                "const": "contract_code_changes",
-                "type": "string"
-              },
-              "sync_checkpoint": {
-                "$ref": "#/components/schemas/SyncCheckpoint"
-              }
-            },
-            "required": [
-              "sync_checkpoint",
-              "changes_type",
-              "account_ids"
-            ],
-            "title": "SyncCheckpointContractCodeChanges",
-            "type": "object"
-          },
-          {
-            "properties": {
-              "account_ids": {
-                "items": {
-                  "$ref": "#/components/schemas/AccountId"
-                },
-                "type": "array"
-              },
-              "changes_type": {
-                "const": "data_changes",
-                "type": "string"
-              },
-              "key_prefix_base64": {
-                "$ref": "#/components/schemas/StoreKey"
-              },
-              "sync_checkpoint": {
-                "$ref": "#/components/schemas/SyncCheckpoint"
-              }
-            },
-            "required": [
-              "sync_checkpoint",
-              "changes_type",
-              "account_ids",
-              "key_prefix_base64"
-            ],
-            "title": "SyncCheckpointDataChanges",
-            "type": "object"
+            "$ref": "#/components/schemas/StateChangesRequestView"
           }
         ],
+        "description": "It is a [serializable view] of [`StateChangesRequest`].\n\n[serializable view]: ./index.html\n[`StateChangesRequest`]: ../types/struct.StateChangesRequest.html",
         "title": "RpcStateChangesInBlockByTypeRequest",
         "type": "object"
       },
@@ -11915,6 +11141,115 @@
         ],
         "title": "StateChangeWithCauseView",
         "type": "object"
+      },
+      "StateChangesRequestView": {
+        "oneOf": [
+          {
+            "properties": {
+              "account_ids": {
+                "items": {
+                  "$ref": "#/components/schemas/AccountId"
+                },
+                "type": "array"
+              },
+              "changes_type": {
+                "const": "account_changes",
+                "type": "string"
+              }
+            },
+            "required": [
+              "account_ids",
+              "changes_type"
+            ],
+            "title": "AccountChanges",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "changes_type": {
+                "const": "single_access_key_changes",
+                "type": "string"
+              },
+              "keys": {
+                "items": {
+                  "$ref": "#/components/schemas/AccountWithPublicKey"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "changes_type",
+              "keys"
+            ],
+            "title": "SingleAccessKeyChanges",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "account_ids": {
+                "items": {
+                  "$ref": "#/components/schemas/AccountId"
+                },
+                "type": "array"
+              },
+              "changes_type": {
+                "const": "all_access_key_changes",
+                "type": "string"
+              }
+            },
+            "required": [
+              "account_ids",
+              "changes_type"
+            ],
+            "title": "AllAccessKeyChanges",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "account_ids": {
+                "items": {
+                  "$ref": "#/components/schemas/AccountId"
+                },
+                "type": "array"
+              },
+              "changes_type": {
+                "const": "contract_code_changes",
+                "type": "string"
+              }
+            },
+            "required": [
+              "account_ids",
+              "changes_type"
+            ],
+            "title": "ContractCodeChanges",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "account_ids": {
+                "items": {
+                  "$ref": "#/components/schemas/AccountId"
+                },
+                "type": "array"
+              },
+              "changes_type": {
+                "const": "data_changes",
+                "type": "string"
+              },
+              "key_prefix_base64": {
+                "$ref": "#/components/schemas/StoreKey"
+              }
+            },
+            "required": [
+              "account_ids",
+              "changes_type",
+              "key_prefix_base64"
+            ],
+            "title": "DataChanges",
+            "type": "object"
+          }
+        ],
+        "title": "StateChangesRequestView"
       },
       "StateItem": {
         "description": "Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.",
