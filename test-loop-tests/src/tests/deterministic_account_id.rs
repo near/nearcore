@@ -405,10 +405,10 @@ fn test_deterministic_state_init_prepay_for_storage() {
 fn test_deterministic_state_init_multi_action_before_fix() {
     let version_before_fix =
         ProtocolFeature::FixDeterministicAccountIdCreation.protocol_version() - 1;
-
-    if !ProtocolFeature::DeterministicAccountIds.enabled(version_before_fix) {
-        return;
-    }
+    assert!(
+        ProtocolFeature::DeterministicAccountIds.enabled(version_before_fix),
+        "DeterministicAccountIds must be enabled before FixDeterministicAccountIdCreation"
+    );
 
     let mut env = TestEnv::setup_with_protocol_version(Balance::from_near(100), version_before_fix);
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);
@@ -433,10 +433,6 @@ fn test_deterministic_state_init_multi_action_before_fix() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_deterministic_state_init_multi_action_after_fix() {
-    if !ProtocolFeature::FixDeterministicAccountIdCreation.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let version_with_fix = ProtocolFeature::FixDeterministicAccountIdCreation.protocol_version();
     let mut env = TestEnv::setup_with_protocol_version(Balance::from_near(100), version_with_fix);
     env.deploy_global_contract(GlobalContractDeployMode::AccountId);

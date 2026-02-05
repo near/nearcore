@@ -387,19 +387,20 @@ impl Runtime {
         let account_id = receipt.receiver_id();
         let is_refund = receipt.predecessor_id().is_system();
         let is_the_only_action = actions.len() == 1;
-        let implicit_account_creation_eligible = !is_refund
-            && (is_the_only_action
-                // Deterministic AccountIds can be created by incoming transfers regardless
-                // of number of actions in the current receipt. For instance, this sequence
-                // of actions within a single receipt is considered valid:
-                // 1. Transfer
-                // 2. DeterministicStateInit
-                // 3. FunctionCall
-                // 4. etc...
-                || (ProtocolFeature::FixDeterministicAccountIdCreation
-                    .enabled(apply_state.current_protocol_version)
-                    && apply_state.config.wasm_config.deterministic_account_ids
-                    && account_id.get_account_type() == AccountType::NearDeterministicAccount));
+        // Deterministic AccountIds can be created by incoming transfers regardless
+        // of number of actions in the current receipt. For instance, this sequence
+        // of actions within a single receipt is considered valid:
+        // 1. Transfer
+        // 2. DeterministicStateInit
+        // 3. FunctionCall
+        // 4. etc...
+        let is_deterministic_account_multi_action_eligible =
+            ProtocolFeature::FixDeterministicAccountIdCreation
+                .enabled(apply_state.current_protocol_version)
+                && apply_state.config.wasm_config.deterministic_account_ids
+                && account_id.get_account_type() == AccountType::NearDeterministicAccount;
+        let implicit_account_creation_eligible =
+            !is_refund && (is_the_only_action || is_deterministic_account_multi_action_eligible);
 
         // Account validation
         if let Err(e) = check_account_existence(
