@@ -50,6 +50,7 @@ use near_network::types::{NetworkRequests, PeerManagerAdapter, ReasonForBan};
 use near_primitives::block::{
     Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, SpiceNewBlockProductionInfo, Tip,
 };
+use near_primitives::block_body::SpiceCoreStatements;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::EpochError;
@@ -961,11 +962,11 @@ impl Client {
 
         let spice_info = if ProtocolFeature::Spice.enabled(protocol_version) {
             let core_statements =
-                self.chain.spice_core_reader.core_statement_for_next_block(&prev_header)?;
+                self.chain.spice_core_reader.core_statements_for_next_block(&prev_header)?;
             let last_certified_block_execution_results =
                 self.chain.spice_core_reader.get_last_certified_execution_results_for_next_block(
                     prev_header,
-                    &core_statements,
+                    SpiceCoreStatements::new(&core_statements),
                 )?;
 
             Some(SpiceNewBlockProductionInfo {

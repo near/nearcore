@@ -6,7 +6,7 @@ use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
-use near_primitives::block_body::SpiceCoreStatement;
+use near_primitives::block_body::{SpiceCoreStatement, SpiceCoreStatements};
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
@@ -190,45 +190,45 @@ fn test_all_execution_results_exist_when_some_are_missing() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_for_genesis() {
+fn test_core_statements_for_next_block_for_genesis() {
     let (chain, core_reader) = setup();
     let genesis = chain.genesis_block();
-    assert_eq!(core_reader.core_statement_for_next_block(genesis.header()).unwrap(), vec![]);
+    assert_eq!(core_reader.core_statements_for_next_block(genesis.header()).unwrap(), vec![]);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_for_non_spice_block() {
+fn test_core_statements_for_next_block_for_non_spice_block() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_non_spice_block(&mut chain, &genesis);
     process_block(&mut chain, block.clone());
-    assert_eq!(core_reader.core_statement_for_next_block(block.header()).unwrap(), vec![]);
+    assert_eq!(core_reader.core_statements_for_next_block(block.header()).unwrap(), vec![]);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_when_block_is_not_recorded() {
+fn test_core_statements_for_next_block_when_block_is_not_recorded() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
-    assert!(core_reader.core_statement_for_next_block(block.header()).is_err());
+    assert!(core_reader.core_statements_for_next_block(block.header()).is_err());
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_no_endorsements() {
+fn test_core_statements_for_next_block_contains_no_endorsements() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
-    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     assert_eq!(core_statements, vec![]);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_new_endorsements() {
+fn test_core_statements_for_next_block_contains_new_endorsements() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -240,14 +240,14 @@ fn test_core_statement_for_next_block_contains_new_endorsements() {
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
     core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
 
-    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     assert_eq!(core_statements.len(), 1);
     assert_eq!(core_statements[0], endorsement_into_core_statement(endorsement));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_no_endorsements_for_fork_block() {
+fn test_core_statements_for_next_block_contains_no_endorsements_for_fork_block() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
@@ -267,13 +267,13 @@ fn test_core_statement_for_next_block_contains_no_endorsements_for_fork_block() 
     let endorsement = test_chunk_endorsement(&test_validators()[0], &fork_block, fork_chunk_header);
     core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
 
-    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     assert_eq!(core_statements.len(), 0);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_new_endorsement() {
+fn test_core_statements_for_next_block_contains_new_endorsement() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -285,14 +285,14 @@ fn test_core_statement_for_next_block_contains_new_endorsement() {
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
     core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
 
-    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     assert_eq!(core_statements.len(), 1);
     assert_eq!(core_statements[0], endorsement_into_core_statement(endorsement));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_new_execution_results() {
+fn test_core_statements_for_next_block_contains_new_execution_results() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -308,7 +308,7 @@ fn test_core_statement_for_next_block_contains_new_execution_results() {
     }
 
     let execution_result = test_execution_result_for_chunk(&chunk_header);
-    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     assert!(core_statements.contains(&SpiceCoreStatement::ChunkExecutionResult {
         chunk_id: SpiceChunkId { block_hash: *block.hash(), shard_id: chunk_header.shard_id() },
         execution_result,
@@ -317,7 +317,7 @@ fn test_core_statement_for_next_block_contains_new_execution_results() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_with_endorsements_creates_valid_block() {
+fn test_core_statements_for_next_block_with_endorsements_creates_valid_block() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -329,14 +329,14 @@ fn test_core_statement_for_next_block_with_endorsements_creates_valid_block() {
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
     core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
 
-    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     let next_block = build_block(&chain, &block, core_statements);
     assert!(core_reader.validate_core_statements_in_block(&next_block).is_ok());
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_with_execution_results_creates_valid_block() {
+fn test_core_statements_for_next_block_with_execution_results_creates_valid_block() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -351,14 +351,14 @@ fn test_core_statement_for_next_block_with_execution_results_creates_valid_block
         core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
     }
 
-    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     let next_block = build_block(&chain, &block, core_statements);
     assert!(core_reader.validate_core_statements_in_block(&next_block).is_ok());
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_no_already_included_execution_results() {
+fn test_core_statements_for_next_block_contains_no_already_included_execution_results() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -373,16 +373,16 @@ fn test_core_statement_for_next_block_contains_no_already_included_execution_res
         core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
     }
 
-    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     let next_block = build_block(&chain, &block, core_statements);
     process_block(&mut chain, next_block.clone());
 
-    assert_eq!(core_reader.core_statement_for_next_block(next_block.header()).unwrap(), vec![]);
+    assert_eq!(core_reader.core_statements_for_next_block(next_block.header()).unwrap(), vec![]);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_no_already_included_endorsement() {
+fn test_core_statements_for_next_block_contains_no_already_included_endorsement() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -394,16 +394,16 @@ fn test_core_statement_for_next_block_contains_no_already_included_endorsement()
     let endorsement = test_chunk_endorsement(&test_validators()[0], &block, chunk_header);
     core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
 
-    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     let next_block = build_block(&chain, &block, core_statements);
     process_block(&mut chain, next_block.clone());
 
-    assert_eq!(core_reader.core_statement_for_next_block(next_block.header()).unwrap(), vec![]);
+    assert_eq!(core_reader.core_statements_for_next_block(next_block.header()).unwrap(), vec![]);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_no_endorsements_for_included_execution_result() {
+fn test_core_statements_for_next_block_contains_no_endorsements_for_included_execution_result() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -419,19 +419,19 @@ fn test_core_statement_for_next_block_contains_no_endorsements_for_included_exec
         core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement.clone()));
     }
 
-    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     let next_block = build_block(&chain, &block, core_statements);
     process_block(&mut chain, next_block.clone());
 
     let endorsement = test_chunk_endorsement(&last_validator, &block, chunk_header);
     core_writer_actor.handle(SpiceChunkEndorsementMessage(endorsement));
 
-    assert_eq!(core_reader.core_statement_for_next_block(next_block.header()).unwrap(), vec![]);
+    assert_eq!(core_reader.core_statements_for_next_block(next_block.header()).unwrap(), vec![]);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_core_statement_for_next_block_contains_all_endorsements() {
+fn test_core_statements_for_next_block_contains_all_endorsements() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -448,7 +448,7 @@ fn test_core_statement_for_next_block_contains_all_endorsements() {
         all_endorsements.push(endorsement_into_core_statement(endorsement));
     }
 
-    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     for endorsement in &all_endorsements {
         assert!(core_statements.contains(endorsement));
     }
@@ -558,7 +558,7 @@ fn test_endorsements_from_forks_can_be_used_in_other_forks() {
     process_block(&mut chain, fork_block.clone());
     core_writer_actor.handle(ProcessedBlock { block_hash: *fork_block.hash() });
 
-    let core_statements = core_reader.core_statement_for_next_block(block.header()).unwrap();
+    let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
     assert_eq!(core_statements, vec![core_endorsement]);
 }
 
@@ -1076,7 +1076,10 @@ fn test_get_last_certified_execution_results_for_next_block_with_no_certificatio
     process_block(&mut chain, block.clone());
 
     let execution_results = core_reader
-        .get_last_certified_execution_results_for_next_block(block.header(), &[])
+        .get_last_certified_execution_results_for_next_block(
+            block.header(),
+            SpiceCoreStatements::new(&[]),
+        )
         .unwrap();
     let genesis_execution_results =
         core_reader.get_block_execution_results(genesis.header()).unwrap();
@@ -1099,7 +1102,10 @@ fn test_get_last_certified_execution_results_for_next_block_with_execution_resul
     core_writer_actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
 
     let execution_results = core_reader
-        .get_last_certified_execution_results_for_next_block(next_block.header(), &[])
+        .get_last_certified_execution_results_for_next_block(
+            next_block.header(),
+            SpiceCoreStatements::new(&[]),
+        )
         .unwrap();
     let block_execution_results = block_execution_results(&block);
     assert_eq!(block_execution_results, execution_results);
@@ -1115,7 +1121,10 @@ fn test_get_last_certified_execution_results_for_next_block_with_last_block_cert
 
     let core_statements = block_certification_core_statements(&block);
     let execution_results = core_reader
-        .get_last_certified_execution_results_for_next_block(block.header(), &core_statements)
+        .get_last_certified_execution_results_for_next_block(
+            block.header(),
+            SpiceCoreStatements::new(&core_statements),
+        )
         .unwrap();
     let block_execution_results = block_execution_results(&block);
     assert_eq!(block_execution_results, execution_results);
@@ -1142,7 +1151,10 @@ fn test_get_last_certified_execution_results_for_next_block_with_old_block_certi
     }
 
     let execution_results = core_reader
-        .get_last_certified_execution_results_for_next_block(last_block.header(), &[])
+        .get_last_certified_execution_results_for_next_block(
+            last_block.header(),
+            SpiceCoreStatements::new(&[]),
+        )
         .unwrap();
     let block_execution_results = block_execution_results(&block);
     assert_eq!(block_execution_results, execution_results);
@@ -1172,7 +1184,7 @@ fn test_get_last_certified_execution_results_for_next_block_with_certification_s
     let execution_results = core_reader
         .get_last_certified_execution_results_for_next_block(
             next_block.header(),
-            &last_shard_core_statements,
+            SpiceCoreStatements::new(&last_shard_core_statements),
         )
         .unwrap();
     let block_execution_results = block_execution_results(&block);
@@ -1197,7 +1209,10 @@ fn test_get_last_certified_execution_results_without_core_writer_execution_resul
 
     assert!(core_reader.get_execution_results_by_shard_id(block.header()).unwrap().is_empty());
     let execution_results = core_reader
-        .get_last_certified_execution_results_for_next_block(next_block.header(), &[])
+        .get_last_certified_execution_results_for_next_block(
+            next_block.header(),
+            SpiceCoreStatements::new(&[]),
+        )
         .unwrap();
     let block_execution_results = block_execution_results(&block);
     assert_eq!(block_execution_results, execution_results);
@@ -1223,7 +1238,10 @@ fn test_get_last_certified_execution_results_without_core_writer_old_block_certi
 
     assert!(core_reader.get_execution_results_by_shard_id(block.header()).unwrap().is_empty());
     let execution_results = core_reader
-        .get_last_certified_execution_results_for_next_block(last_block.header(), &[])
+        .get_last_certified_execution_results_for_next_block(
+            last_block.header(),
+            SpiceCoreStatements::new(&[]),
+        )
         .unwrap();
     let block_execution_results = block_execution_results(&block);
     assert_eq!(block_execution_results, execution_results);

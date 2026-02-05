@@ -3,8 +3,8 @@ use crate::block::BlockValidityError::{
     InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot, InvalidStateRoot,
     InvalidTransactionRoot,
 };
-use crate::block_body::SpiceCoreStatement;
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
+use crate::block_body::{SpiceCoreStatement, SpiceCoreStatements};
 pub use crate::block_header::*;
 use crate::challenge::Challenge;
 use crate::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
@@ -425,9 +425,11 @@ impl Block {
     }
 
     #[inline]
-    pub fn spice_core_statements(&self) -> &[SpiceCoreStatement] {
+    pub fn spice_core_statements(&self) -> SpiceCoreStatements<'_> {
         match self {
-            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => &[],
+            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => {
+                SpiceCoreStatements::new(&[])
+            }
             Block::BlockV4(block) => block.body.spice_core_statements(),
         }
     }
