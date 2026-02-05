@@ -453,14 +453,18 @@ where
     Serializable(object)
 }
 
-/// From `near-account-id` version `1.0.0-alpha.2`, `is_implicit` returns true for ETH-implicit accounts.
 /// This function is a wrapper for `is_implicit` method so that we can easily differentiate its behavior
-/// based on whether ETH-implicit accounts are enabled.
-pub fn account_is_implicit(account_id: &AccountId, eth_implicit_accounts_enabled: bool) -> bool {
-    if eth_implicit_accounts_enabled {
-        account_id.get_account_type().is_implicit()
-    } else {
-        account_id.get_account_type() == AccountType::NearImplicitAccount
+/// based on whether specific implicit accounts are enabled.
+pub fn account_is_implicit(
+    account_id: &AccountId,
+    eth_implicit_accounts_enabled: bool,
+    deterministic_account_ids_enabled: bool,
+) -> bool {
+    match account_id.get_account_type() {
+        AccountType::NamedAccount => false,
+        AccountType::NearImplicitAccount => true,
+        AccountType::EthImplicitAccount => eth_implicit_accounts_enabled,
+        AccountType::NearDeterministicAccount => deterministic_account_ids_enabled,
     }
 }
 
@@ -533,6 +537,39 @@ mod tests {
         let expected: AccountId = "0x96791e923f8cf697ad9c3290f2c9059f0231b24c".parse().unwrap();
         let account_id = derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1());
         assert_eq!(account_id, expected);
+    }
+
+    #[test]
+    fn test_account_is_implicit() {
+        // Named accounts are never implicit
+        let named: AccountId = "alice.near".parse().unwrap();
+        assert!(!account_is_implicit(&named, false, false));
+        assert!(!account_is_implicit(&named, true, false));
+        assert!(!account_is_implicit(&named, false, true));
+        assert!(!account_is_implicit(&named, true, true));
+
+        // NEAR implicit accounts are always implicit (64 hex chars)
+        let near_implicit: AccountId =
+            "bb4dc639b212e075a751685b26bdcea5920a504181ff2910e8549742127092a0".parse().unwrap();
+        assert!(account_is_implicit(&near_implicit, false, false));
+        assert!(account_is_implicit(&near_implicit, true, false));
+        assert!(account_is_implicit(&near_implicit, false, true));
+        assert!(account_is_implicit(&near_implicit, true, true));
+
+        // ETH implicit accounts depend on eth_implicit_accounts_enabled flag
+        let eth_implicit: AccountId = "0x96791e923f8cf697ad9c3290f2c9059f0231b24c".parse().unwrap();
+        assert!(!account_is_implicit(&eth_implicit, false, false));
+        assert!(account_is_implicit(&eth_implicit, true, false));
+        assert!(!account_is_implicit(&eth_implicit, false, true));
+        assert!(account_is_implicit(&eth_implicit, true, true));
+
+        // Deterministic accounts depend on deterministic_account_ids_enabled flag (0s prefix)
+        let deterministic: AccountId =
+            "0s1234567890123456789012345678901234567890".parse().unwrap();
+        assert!(!account_is_implicit(&deterministic, false, false));
+        assert!(!account_is_implicit(&deterministic, true, false));
+        assert!(account_is_implicit(&deterministic, false, true));
+        assert!(account_is_implicit(&deterministic, true, true));
     }
 
     #[test]

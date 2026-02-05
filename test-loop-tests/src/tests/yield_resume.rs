@@ -1,63 +1,68 @@
-use near_chain_configs::Genesis;
-use near_client::ProcessTxResponse;
-use near_crypto::InMemorySigner;
+use std::str::FromStr;
+
+use near_async::time::Duration;
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::block::ChunkType;
+use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::Receipt;
-use near_primitives::receipt::ReceiptEnum::PromiseResume;
-use near_primitives::receipt::VersionedReceiptEnum::PromiseYield;
-use near_primitives::transaction::{
-    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
-};
-use near_primitives::types::AccountId;
-use near_primitives::types::{Balance, Gas};
+use near_primitives::receipt::{Receipt, ReceiptEnum, VersionedReceiptEnum};
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::test_utils::create_user_test_signer;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 
-use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
-use crate::tests::features::yield_timeouts::get_yield_data_ids_in_latest_state;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
+use crate::tests::yield_timeouts::get_yield_data_ids_in_latest_state;
+use crate::utils::account::validators_spec_clients;
+use crate::utils::node::TestLoopNode;
 
 // The height of the next block after environment setup is complete.
 const NEXT_BLOCK_HEIGHT_AFTER_SETUP: u64 = 3;
 
-fn get_outgoing_receipts_from_latest_block(env: &TestEnv) -> Vec<Receipt> {
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+fn get_outgoing_receipts_from_latest_block(env: &TestLoopEnv) -> Vec<Receipt> {
+    let client = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap())
+        .client(env.test_loop_data());
+    let genesis_block = client.chain.get_block_by_height(0).unwrap();
     let epoch_id = *genesis_block.header().epoch_id();
-    let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
     let shard_id = shard_layout.account_id_to_shard_id(&"test0".parse::<AccountId>().unwrap());
-    let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
-    let last_block_height = env.clients[0].chain.head().unwrap().height;
+    let last_block_hash = client.chain.head().unwrap().last_block_hash;
+    let last_block_height = client.chain.head().unwrap().height;
 
-    env.clients[0]
+    client
         .chain
         .get_outgoing_receipts_for_shard(last_block_hash, shard_id, last_block_height)
         .unwrap()
 }
 
-fn get_promise_yield_data_ids_from_latest_block(env: &TestEnv) -> Vec<CryptoHash> {
+fn get_promise_yield_data_ids_from_latest_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
     let mut result = vec![];
-    for receipt in get_outgoing_receipts_from_latest_block(&env) {
-        if let PromiseYield(action_receipt) = receipt.versioned_receipt() {
+    for receipt in get_outgoing_receipts_from_latest_block(env) {
+        if let VersionedReceiptEnum::PromiseYield(action_receipt) = receipt.versioned_receipt() {
             result.push(action_receipt.input_data_ids()[0]);
         }
     }
     result
 }
 
-fn get_promise_resume_data_ids_from_latest_block(env: &TestEnv) -> Vec<CryptoHash> {
+fn get_promise_resume_data_ids_from_latest_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
     let mut result = vec![];
-    for receipt in get_outgoing_receipts_from_latest_block(&env) {
-        if let PromiseResume(data_receipt) = receipt.receipt() {
+    for receipt in get_outgoing_receipts_from_latest_block(env) {
+        if let ReceiptEnum::PromiseResume(data_receipt) = receipt.receipt() {
             result.push(data_receipt.data_id);
         }
     }
     result
 }
 
-fn get_transaction_hashes_in_latest_block(env: &TestEnv) -> Vec<CryptoHash> {
-    let client = &env.clients[0];
+fn get_transaction_hashes_in_latest_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
+    let client = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap())
+        .client(env.test_loop_data());
     let chain = &client.chain;
     let block = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
 
@@ -75,40 +80,59 @@ fn get_transaction_hashes_in_latest_block(env: &TestEnv) -> Vec<CryptoHash> {
 }
 
 /// Create environment with deployed test contract.
-fn prepare_env(test_env_gas_limit: Option<u64>) -> TestEnv {
+fn prepare_env() -> TestLoopEnv {
     init_test_logger();
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    if let Some(gas_limit) = test_env_gas_limit {
-        genesis.config.gas_limit = Gas::from_gas(gas_limit);
-    }
-    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
 
-    // Submit transaction deploying contract to test0
-    let tx = SignedTransaction::from_actions(
+    let test_account: AccountId = "test0".parse().unwrap();
+    let test_account_signer = create_user_test_signer(&test_account).into();
+
+    let shard_layout = ShardLayout::single_shard();
+    let user_accounts = vec![test_account.clone()];
+    let initial_balance = Balance::from_near(1_000_000);
+    let validators_spec = ValidatorsSpec::DesiredRoles {
+        block_and_chunk_producers: vec!["validator0".parse().unwrap()],
+        chunk_validators_only: Vec::new(),
+    };
+    let clients = validators_spec_clients(&validators_spec);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .genesis_height(0)
+        .add_user_accounts_simple(&user_accounts, initial_balance)
+        .build();
+
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients.clone())
+        .skip_warmup()
+        .build();
+
+    let node = TestLoopNode::for_account(&env.node_datas, &clients[0]);
+    assert_eq!(node.head(env.test_loop_data()).height, 0);
+
+    let genesis_block = node.client(env.test_loop_data()).chain.get_block_by_height(0).unwrap();
+    let deploy_contract_tx = SignedTransaction::deploy_contract(
         1,
-        "test0".parse().unwrap(),
-        "test0".parse().unwrap(),
-        &signer,
-        vec![Action::DeployContract(DeployContractAction {
-            code: near_test_contracts::rs_contract().to_vec(),
-        })],
+        &test_account,
+        near_test_contracts::rs_contract().into(),
+        &test_account_signer,
         *genesis_block.hash(),
     );
-    let tx_hash = tx.get_hash();
-    assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    node.submit_tx(deploy_contract_tx.clone());
 
     // Allow two blocks for the contract to be deployed
-    for i in 1..3 {
-        env.produce_block(0, i);
-    }
+    node.run_until_head_height(&mut env.test_loop, 2);
     assert!(matches!(
-        env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap().status,
+        node.client(env.test_loop_data())
+            .chain
+            .get_final_transaction_result(&deploy_contract_tx.get_hash())
+            .unwrap()
+            .status,
         FinalExecutionStatus::SuccessValue(_),
     ));
 
-    let last_block_height = env.clients[0].chain.head().unwrap().height;
+    let last_block_height = node.client(env.test_loop_data()).chain.head().unwrap().height;
     assert_eq!(NEXT_BLOCK_HEIGHT_AFTER_SETUP, last_block_height + 1);
 
     env
@@ -119,10 +143,13 @@ fn prepare_env(test_env_gas_limit: Option<u64>) -> TestEnv {
 /// Submit another transaction which reads data_id from state and resumes.
 /// Yield-resume should work.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_yield_then_resume_one_block_apart() {
-    let mut env = prepare_env(None);
-    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let mut env = prepare_env();
+    let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
+    let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
+    let genesis_block = node.client(env.test_loop_data()).chain.get_block_by_height(0).unwrap();
     let mut next_block_height = NEXT_BLOCK_HEIGHT_AFTER_SETUP;
     let yield_payload = vec![6u8; 16];
 
@@ -141,18 +168,19 @@ fn test_yield_then_resume_one_block_apart() {
         *genesis_block.hash(),
     );
     let yield_tx_hash = yield_transaction.get_hash();
-    assert_eq!(
-        env.rpc_handlers[0].process_tx(yield_transaction, false, false),
-        ProcessTxResponse::ValidTx
-    );
+    node.submit_tx(yield_transaction);
 
     // Allow the yield create to be included and processed.
     for _ in 0..2 {
-        env.produce_block(0, next_block_height);
+        node.run_until_head_height(&mut env.test_loop, next_block_height);
         next_block_height += 1;
     }
     assert_eq!(
-        env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
+        node.client(env.test_loop_data())
+            .chain
+            .get_partial_transaction_result(&yield_tx_hash)
+            .unwrap()
+            .status,
         FinalExecutionStatus::Started
     );
     if ProtocolFeature::InstantPromiseYield.enabled(PROTOCOL_VERSION) {
@@ -182,24 +210,27 @@ fn test_yield_then_resume_one_block_apart() {
         }))],
         *genesis_block.hash(),
     );
-    assert_eq!(
-        env.rpc_handlers[0].process_tx(resume_transaction, false, false),
-        ProcessTxResponse::ValidTx
-    );
+    node.submit_tx(resume_transaction);
 
     // Allow the yield resume to be included and processed.
     for _ in 0..2 {
-        env.produce_block(0, next_block_height);
+        node.run_until_head_height(&mut env.test_loop, next_block_height);
         next_block_height += 1;
     }
     assert_eq!(get_promise_resume_data_ids_from_latest_block(&env).len(), 1);
 
     // In the next block the callback is executed and the promise resolves to its final result.
-    env.produce_block(0, next_block_height);
+    node.run_until_head_height(&mut env.test_loop, next_block_height);
     assert_eq!(
-        env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
+        node.client(env.test_loop_data())
+            .chain
+            .get_partial_transaction_result(&yield_tx_hash)
+            .unwrap()
+            .status,
         FinalExecutionStatus::SuccessValue(vec![16u8]),
     );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 /// Submit one transaction which yields and saves data_id to state.
@@ -210,10 +241,13 @@ fn test_yield_then_resume_one_block_apart() {
 /// With the feature everything should work fine.
 /// See https://github.com/near/nearcore/issues/14904, this test reproduces case 2)
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_yield_then_resume_same_block() {
-    let mut env = prepare_env(None);
-    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let mut env = prepare_env();
+    let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
+    let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
+    let genesis_block = node.client(env.test_loop_data()).chain.get_block_by_height(0).unwrap();
     let mut next_block_height = NEXT_BLOCK_HEIGHT_AFTER_SETUP;
     let yield_payload = vec![6u8; 16];
 
@@ -232,10 +266,7 @@ fn test_yield_then_resume_same_block() {
         *genesis_block.hash(),
     );
     let yield_tx_hash = yield_transaction.get_hash();
-    assert_eq!(
-        env.rpc_handlers[0].process_tx(yield_transaction, false, false),
-        ProcessTxResponse::ValidTx
-    );
+    node.submit_tx(yield_transaction);
 
     // Add another transaction invoking `yield_resume`.
     let resume_transaction = SignedTransaction::from_actions(
@@ -252,14 +283,11 @@ fn test_yield_then_resume_same_block() {
         *genesis_block.hash(),
     );
     let resume_tx_hash = resume_transaction.get_hash();
-    assert_eq!(
-        env.rpc_handlers[0].process_tx(resume_transaction, false, false),
-        ProcessTxResponse::ValidTx
-    );
+    node.submit_tx(resume_transaction);
 
     // Allow the yield create and resume to be included and processed.
     for _ in 0..2 {
-        env.produce_block(0, next_block_height);
+        node.run_until_head_height(&mut env.test_loop, next_block_height);
         next_block_height += 1;
     }
 
@@ -269,29 +297,32 @@ fn test_yield_then_resume_same_block() {
     assert_eq!(get_transaction_hashes_in_latest_block(&env), expected_txs);
 
     // Run one more block to execute the resume callback.
-    env.produce_block(0, next_block_height);
+    node.run_until_head_height(&mut env.test_loop, next_block_height);
 
+    let client = node.client(env.test_loop_data());
     if ProtocolFeature::InstantPromiseYield.enabled(PROTOCOL_VERSION) {
         // Resumed callback executed, transaction finished successfully
         assert_eq!(
-            env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
+            client.chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
             FinalExecutionStatus::SuccessValue(vec![16u8]),
         );
         // promise_yield_resume returned 1 (resumption succeeded)
         assert_eq!(
-            env.clients[0].chain.get_partial_transaction_result(&resume_tx_hash).unwrap().status,
+            client.chain.get_partial_transaction_result(&resume_tx_hash).unwrap().status,
             FinalExecutionStatus::SuccessValue(vec![1u8]),
         );
     } else {
         // Resume callback has not executed, transaction is still waiting for resume
         assert_eq!(
-            env.clients[0].chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
+            client.chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
             FinalExecutionStatus::Started,
         );
         // promise_yield_resume returned 0 (resumption failed)
         assert_eq!(
-            env.clients[0].chain.get_partial_transaction_result(&resume_tx_hash).unwrap().status,
+            client.chain.get_partial_transaction_result(&resume_tx_hash).unwrap().status,
             FinalExecutionStatus::SuccessValue(vec![0u8]),
         );
     }
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
