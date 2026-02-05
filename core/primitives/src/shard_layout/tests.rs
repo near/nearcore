@@ -334,7 +334,7 @@ fn derive_v3() {
 
     // derive layout: split shard 2 into 3 & 4 on account "test3"
     let boundary: AccountId = "test3.near".parse().unwrap();
-    let derived_layout = ShardLayout::derive_v3(&base_layout, boundary).unwrap();
+    let derived_layout = base_layout.derive_v3(boundary, || unreachable!());
 
     assert_eq!(derived_layout.shard_ids().collect_vec(), to_shard_ids([1, 3, 4]));
     assert_eq!(
@@ -371,7 +371,7 @@ fn derive_v3() {
     // derive layout: split shard 3 into 5 & 6 on account  "test2"
     let base_layout = derived_layout;
     let boundary: AccountId = "test2.near".parse().unwrap();
-    let derived_layout = ShardLayout::derive_v3(&base_layout, boundary).unwrap();
+    let derived_layout = base_layout.derive_v3(boundary, || unreachable!());
 
     assert_eq!(derived_layout.shard_ids().collect_vec(), to_shard_ids([1, 5, 6, 4]));
     assert_eq!(
@@ -422,4 +422,31 @@ fn multi_shard_non_contiguous() {
         let shard_layout = ShardLayout::multi_shard(n, 0);
         assert!(!shard_layout.shard_ids().is_sorted());
     }
+}
+
+#[test]
+fn build_shard_split_map_v3() {
+    use crate::shard_layout::v3::build_shard_split_map;
+
+    let layout1 = ShardLayout::v2(vec![], vec![ShardId::new(0)], None);
+    let layout2 = ShardLayout::v2(
+        to_boundary_accounts(["test1.near"]),
+        to_shard_ids([1, 2]),
+        Some(to_shards_split_map([(0, vec![1, 2])])),
+    );
+    let layout3 = ShardLayout::v2(
+        to_boundary_accounts(["test1.near", "test2.near"]),
+        to_shard_ids([1, 3, 4]),
+        Some(to_shards_split_map([(1, vec![1]), (2, vec![3, 4])])),
+    );
+
+    let layouts = vec![layout3, layout2, layout1]; // sorted from newest to oldest
+
+    assert!(build_shard_split_map(&[]).is_empty());
+    assert!(build_shard_split_map(&layouts[2..]).is_empty());
+    assert_eq!(build_shard_split_map(&layouts[1..]), to_shards_split_map([(0, vec![1, 2])]));
+    assert_eq!(
+        build_shard_split_map(&layouts),
+        to_shards_split_map([(0, vec![1, 2]), (2, vec![3, 4])])
+    );
 }

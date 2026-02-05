@@ -256,12 +256,29 @@ impl ShardLayout {
         Self::V2(ShardLayoutV2::derive(base_shard_layout, new_boundary_account))
     }
 
+    /// Derive a new V3 shard layout from an existing one.
+    ///
+    /// If the base layout is already V3, derivation uses its existing split history.
+    ///
+    /// Otherwise, `get_layout_history` is called to reconstruct the split history.
+    /// The layout history is expected to be ordered from newest to oldest.
     pub fn derive_v3(
-        base_shard_layout: &Self,
+        &self,
         new_boundary_account: AccountId,
-    ) -> Result<Self, ShardLayoutError> {
-        let v3 = ShardLayoutV3::derive(base_shard_layout, new_boundary_account)?;
-        Ok(Self::V3(v3))
+        get_layout_history: impl FnOnce() -> Vec<Self>,
+    ) -> Self {
+        let v3 = match self {
+            Self::V3(v3) => ShardLayoutV3::derive(v3, new_boundary_account),
+            Self::V0(_) | Self::V1(_) | Self::V2(_) => {
+                let layout_history = get_layout_history();
+                ShardLayoutV3::derive_with_layout_history(
+                    self,
+                    new_boundary_account,
+                    &layout_history,
+                )
+            }
+        };
+        Self::V3(v3)
     }
 
     #[inline]
