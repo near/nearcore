@@ -16,7 +16,9 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 /// `delay = min(max_block_time, min_block_time + block_time_step *(certification_lag - 2))`
 pub struct SpiceTimer {
     clock: Clock,
-    /// Minimum time to wait before producing a block when certification is up-to-date
+    /// Minimum time to wait before producing a block when certification is up-to-date. This should
+    /// normally be set to >= of the doomslug min block time, to not produce delays that will be
+    /// masked by doomslug anyway.
     min_block_time: Duration,
     /// Incremental delay added per block of certification lag
     block_time_step: Duration,
