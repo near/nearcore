@@ -11,7 +11,9 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::{create_validator_ids, create_validators_spec, validators_spec_clients};
+use crate::utils::account::{
+    create_validator_ids, create_validators_spec, validators_spec_clients,
+};
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{get_shared_block_hash, run_tx, run_txs_parallel};
 use crate::utils::validators::get_epoch_all_validators_sorted;
