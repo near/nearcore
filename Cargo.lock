@@ -4012,7 +4012,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bf7d8c37ea9408d536af7e998bd0d4f9699de1f6b0d12280d28ae46977c4501"
 dependencies = [
  "borsh",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde",
 ]
 
@@ -4143,7 +4143,7 @@ dependencies = [
  "near-time",
  "num-rational 0.3.2",
  "parking_lot 0.12.1",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "sha2 0.10.6",
@@ -4295,7 +4295,7 @@ dependencies = [
  "near-stdx",
  "primitive-types 0.10.1",
  "rand 0.8.5",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "secp256k1",
  "serde",
  "serde_json",
@@ -4561,7 +4561,7 @@ dependencies = [
  "near-jsonrpc-primitives",
  "near-primitives",
  "okapi",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde_json",
 ]
 
@@ -4576,7 +4576,7 @@ dependencies = [
  "near-primitives",
  "near-schema-checker-lib",
  "near-time",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "thiserror 2.0.16",
@@ -4757,7 +4757,7 @@ dependencies = [
  "near-primitives-core",
  "near-schema-checker-lib",
  "num-rational 0.3.2",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde",
  "serde_repr",
  "serde_yaml",
@@ -4832,7 +4832,7 @@ dependencies = [
  "rand_chacha 0.3.1",
  "reed-solomon-erasure",
  "regex",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "serde_with",
@@ -4863,7 +4863,7 @@ dependencies = [
  "near-schema-checker-lib",
  "near-token",
  "num-rational 0.3.2",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "serde_repr",
@@ -5083,7 +5083,7 @@ name = "near-time"
 version = "0.0.0"
 dependencies = [
  "parking_lot 0.12.1",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "time",
@@ -5097,7 +5097,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "133a293baa70b78db8c4325753ca8012f84e67de6c84c013960722a937985615"
 dependencies = [
  "borsh",
- "schemars 1.0.3",
+ "schemars 1.2.1",
  "serde",
 ]
 
@@ -7287,14 +7287,14 @@ dependencies = [
 
 [[package]]
 name = "schemars"
-version = "1.0.3"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1375ba8ef45a6f15d83fa8748f1079428295d403d6ea991d09ab100155fbc06d"
+checksum = "a2b42f36aa1cd011945615b92222f6bf73c599a102a300334cd7f8dbeec726cc"
 dependencies = [
  "chrono",
  "dyn-clone",
  "ref-cast",
- "schemars_derive 1.0.3",
+ "schemars_derive 1.2.1",
  "serde",
  "serde_json",
 ]
@@ -7313,9 +7313,9 @@ dependencies = [
 
 [[package]]
 name = "schemars_derive"
-version = "1.0.3"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b13ed22d6d49fe23712e068770b5c4df4a693a2b02eeff8e7ca3135627a24f6"
+checksum = "7d115b50f4aaeea07e79c1912f645c7513d81715d0420f8bc77a18c6260b307f"
 dependencies = [
  "proc-macro2",
  "quote",
