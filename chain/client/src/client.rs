@@ -9,6 +9,7 @@ use crate::chunk_producer::AdvProduceChunksMode;
 use crate::chunk_producer::ChunkProducer;
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
+use crate::spice_timer::SpiceTimer;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSender;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
@@ -121,6 +122,7 @@ pub struct Client {
     pub config: ClientConfig,
     pub chain: Chain,
     pub doomslug: Doomslug,
+    pub spice_timer: SpiceTimer,
     pub epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub shard_tracker: ShardTracker,
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -365,6 +367,12 @@ impl Client {
             config.chunk_wait_mult,
             doomslug_threshold_mode,
         );
+        let spice_timer = SpiceTimer::new(
+            clock.clone(),
+            config.min_block_production_delay,
+            config.max_block_production_delay,
+            (config.max_block_production_delay - config.min_block_production_delay) / 10,
+        );
         let chunk_endorsement_tracker = Arc::new(ChunkEndorsementTracker::new(
             epoch_manager.clone(),
             chain.chain_store().store(),
@@ -390,6 +398,7 @@ impl Client {
             config: config.clone(),
             chain,
             doomslug,
+            spice_timer,
             epoch_manager,
             shard_tracker,
             runtime_adapter,

@@ -192,6 +192,16 @@ impl BorshDeserialize for Transaction {
 
         let read_signer_id = |buf: [u8; 4], reader: &mut R| -> std::io::Result<AccountId> {
             let str_len = u32::from_le_bytes(buf);
+            if str_len > AccountId::MAX_LEN as u32 {
+                return Err(Error::new(
+                    ErrorKind::InvalidData,
+                    format!(
+                        "AccountId length {} exceeds maximum length {}",
+                        str_len,
+                        AccountId::MAX_LEN
+                    ),
+                ));
+            }
             let mut str_vec = Vec::with_capacity(str_len as usize);
             for _ in 0..str_len {
                 str_vec.push(u8::deserialize_reader(reader)?);
@@ -792,6 +802,24 @@ mod tests {
         let serialized_tx_v1 = borsh::to_vec(&transaction_v1).unwrap();
         let deserialized_tx_v1 = Transaction::try_from_slice(&serialized_tx_v1).unwrap();
         assert_eq!(transaction_v1, deserialized_tx_v1);
+    }
+
+    #[test]
+    fn test_deserialize_invalid_account_id_length() {
+        // Create a serialized transaction with an invalid account ID length
+        let mut serialized_tx = vec![];
+        // Version byte for V0
+        serialized_tx.push(0u8);
+        // Invalid length (e.g., 100 which exceeds MAX_LEN of 64)
+        serialized_tx.extend_from_slice(&100u32.to_le_bytes());
+        // The rest of the fields can be empty or default for this test
+        serialized_tx.extend_from_slice(&[0u8; 100]); // Placeholder bytes
+
+        let result = Transaction::try_from_slice(&serialized_tx);
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+        assert!(err.to_string().contains("exceeds maximum length"));
     }
 
     #[test]
