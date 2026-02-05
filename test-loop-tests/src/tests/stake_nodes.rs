@@ -11,7 +11,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::create_validator_ids;
+use crate::utils::account::{create_validator_ids, create_validators_spec, validators_spec_clients};
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{get_shared_block_hash, run_tx, run_txs_parallel};
 use crate::utils::validators::get_epoch_all_validators_sorted;
@@ -26,6 +26,7 @@ fn test_stake_nodes() {
     let accounts = create_validator_ids(2);
     let epoch_length = 10;
 
+    // Build validators with explicit stake amounts for precise balance assertions
     let validators = vec![AccountInfo {
         account_id: accounts[0].clone(),
         public_key: create_test_signer(accounts[0].as_str()).public_key(),
@@ -82,6 +83,7 @@ fn test_validator_kickout() {
     let accounts = create_validator_ids(4);
     let epoch_length = 15;
 
+    // Build validators with explicit stake amounts for precise balance assertions
     let validators: Vec<AccountInfo> = accounts
         .iter()
         .map(|account| AccountInfo {
@@ -182,6 +184,7 @@ fn test_validator_join() {
     let accounts = create_validator_ids(4);
     let epoch_length = 30;
 
+    // Build validators with explicit stake amounts for precise balance assertions
     let validators: Vec<AccountInfo> = accounts[..2]
         .iter()
         .map(|account| AccountInfo {
@@ -258,20 +261,16 @@ fn test_validator_join() {
 fn test_inflation() {
     init_test_logger();
 
-    let accounts = create_validator_ids(1);
     let epoch_length: u64 = 10;
+    let validators_spec = create_validators_spec(1, 0);
+    let accounts = validators_spec_clients(&validators_spec);
 
-    let validators = vec![AccountInfo {
-        account_id: accounts[0].clone(),
-        public_key: create_test_signer(accounts[0].as_str()).public_key(),
-        amount: TESTING_INIT_STAKE,
-    }];
     let max_inflation_rate = Rational32::new(1, 10);
     let protocol_reward_rate = Rational32::new(1, 10);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .genesis_height(0)
         .epoch_length(epoch_length)
-        .validators_spec(ValidatorsSpec::raw(validators, 1, 1, 1))
+        .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, TESTING_INIT_BALANCE)
         .max_inflation_rate(max_inflation_rate)
         .protocol_reward_rate(protocol_reward_rate)
