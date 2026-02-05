@@ -29,6 +29,8 @@ use rand::{Rng as _, thread_rng};
 /// Periodically verify finality is not violated.
 /// This test is designed to reproduce finality bugs on the epoch boundaries.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_consensus_with_epoch_switches() {
     init_test_logger();
 

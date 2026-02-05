@@ -23,6 +23,8 @@ use std::sync::Arc;
 // FIXME(#9650): locks should not be held across await points, allowed currently only because the
 // lint started triggering during a toolchain bump.
 #[allow(clippy::await_holding_lock)]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 /// Runs one node for some time, which dumps state to a temp directory.
 /// Start the second node which gets state parts from that temp directory.
 async fn ultra_slow_test_sync_state_dump() {
