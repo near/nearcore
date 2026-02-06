@@ -201,10 +201,12 @@ fn test_indexer_deploy_contract_local_tx() {
     else {
         panic!("expected single action receipt")
     };
-    let [ActionView::DeployContract { code }] = actions.as_slice() else {
+    #[allow(deprecated)]
+    let [ActionView::DeployContract { code, code_hash }] = actions.as_slice() else {
         panic!("expected single deploy contract action")
     };
     assert_eq!(code, CryptoHash::hash_bytes(near_test_contracts::rs_contract()).as_bytes());
+    assert_eq!(code_hash, &CryptoHash::hash_bytes(near_test_contracts::rs_contract()));
 
     shutdown(env);
 }
