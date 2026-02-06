@@ -1560,3 +1560,76 @@ fn test_uncertified_validator_proposals_from_on_chain_execution_results() {
     assert_eq!(result[0].account_id().as_str(), "test0");
     assert_eq!(result[0].stake(), Balance::from_near(100));
 }
+
+/// Verifies that execution results for other shards don't interfere with
+/// resolving the target shard's uncertified proposals. The other shard's
+/// result is in a later block (closer to head) so the backward walk
+/// encounters it first.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_uncertified_validator_proposals_ignores_other_shards() {
+    let (mut chain, _) = setup();
+    let genesis = chain.genesis_block();
+
+    let block1 = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block1.clone());
+
+    let target_shard = ShardId::new(0);
+    let other_shard = ShardId::new(1);
+
+    let target_result = ChunkExecutionResult {
+        chunk_extra: make_chunk_extra_with_proposals(vec![test_proposal("test0", 100)]),
+        outgoing_receipts_root: CryptoHash::default(),
+    };
+    let other_result = ChunkExecutionResult {
+        chunk_extra: make_chunk_extra_with_proposals(vec![]),
+        outgoing_receipts_root: CryptoHash::default(),
+    };
+    let target_chunk_id = SpiceChunkId { block_hash: *block1.hash(), shard_id: target_shard };
+    let other_chunk_id = SpiceChunkId { block_hash: *block1.hash(), shard_id: other_shard };
+
+    // block2: endorsements + execution result for the target shard.
+    let mut target_statements: Vec<_> = test_validators()
+        .iter()
+        .map(|v| {
+            endorsement_into_core_statement(SpiceChunkEndorsement::new(
+                target_chunk_id.clone(),
+                target_result.clone(),
+                &create_test_signer(v),
+            ))
+        })
+        .collect();
+    target_statements.push(SpiceCoreStatement::ChunkExecutionResult {
+        chunk_id: target_chunk_id,
+        execution_result: target_result,
+    });
+    let block2 = build_block(&mut chain, &block1, target_statements);
+    process_block(&mut chain, block2.clone());
+
+    // block3 (head): endorsements + execution result for the other shard.  The
+    // backward walk hits block3 first, but it shouldn't interfere with finding
+    // the target shard's result in block2.
+    let mut other_statements: Vec<_> = test_validators()
+        .iter()
+        .map(|v| {
+            endorsement_into_core_statement(SpiceChunkEndorsement::new(
+                other_chunk_id.clone(),
+                other_result.clone(),
+                &create_test_signer(v),
+            ))
+        })
+        .collect();
+    other_statements.push(SpiceCoreStatement::ChunkExecutionResult {
+        chunk_id: other_chunk_id,
+        execution_result: other_result,
+    });
+    let block3 = build_block(&mut chain, &block2, other_statements);
+    process_block(&mut chain, block3);
+
+    let core_reader = core_reader(&chain);
+    let result =
+        core_reader.get_uncertified_validator_proposals(block1.hash(), target_shard).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].account_id().as_str(), "test0");
+    assert_eq!(result[0].stake(), Balance::from_near(100));
+}

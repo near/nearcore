@@ -132,8 +132,9 @@ impl SpiceCoreReader {
             .collect();
 
         // Resolve ChunkExtra for each uncertified chunk. Try ChunkExtra column
-        // first (available on tracking nodes), then do a single forward block
-        // scan for on-chain certified execution results.
+        // first (available on tracking nodes). For any remaining chunks, perform
+        // a backward scan from the current chain head toward `block_hash` to find
+        // on-chain certified execution results in blocks' core statements.
         let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
@@ -153,7 +154,7 @@ impl SpiceCoreReader {
         while chunk_extras.len() < shard_uncertified_chunks.len() && current_hash != *block_hash {
             let block = self.chain_store.get_block(&current_hash)?;
             for (cid, result) in block.spice_core_statements().iter_execution_results() {
-                if !chunk_extras.contains_key(cid) {
+                if cid.shard_id == shard_id && !chunk_extras.contains_key(cid) {
                     chunk_extras.insert(cid.clone(), Arc::new(result.chunk_extra.clone()));
                 }
             }
