@@ -319,7 +319,7 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
 
     let epoch_length: u64 = 10;
     let endorsement_delay: u64 = 4;
-    let validators_spec = create_validators_spec(4, 0);
+    let validators_spec = create_validators_spec(4, 1);
     let accounts = validators_spec_clients(&validators_spec);
     let clients = validators_spec_clients_with_rpc(&validators_spec);
     let unstaker = accounts[0].clone();
