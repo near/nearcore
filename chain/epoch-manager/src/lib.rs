@@ -689,6 +689,7 @@ impl EpochManager {
         let mut current_layout = next_shard_layout.clone();
         let mut current_block_info = block_info.clone();
 
+        // TODO(dynamic_resharding): store last resharding in `EpochInfo` to avoid this iteration
         for _ in 0..min_epochs_between_resharding {
             let epoch_first_block_hash = current_block_info.epoch_first_block();
             let epoch_first_block_info = self.get_block_info(epoch_first_block_hash)?;
@@ -1770,20 +1771,20 @@ impl EpochManager {
     /// to derive layout for epoch `N+2` (where `N` is the current epoch).
     ///
     /// Parameters:
+    ///  - `protocol_version`: protocol version of the current epoch
     ///  - `parent_hash`: hash of the parent of the block being produced
     ///  - `proposed_splits`: mapping containing all proposed shard splits from chunk headers
     ///
     /// Returns `Some((shard_id, boundary_account))` if a shard split should be scheduled.
     pub fn get_upcoming_shard_split(
         &self,
+        protocol_version: ProtocolVersion,
         parent_hash: &CryptoHash,
         proposed_splits: &HashMap<ShardId, TrieSplit>,
     ) -> Result<Option<(ShardId, AccountId)>, EpochError> {
-        let next_next_epoch_version = self.get_next_next_epoch_protocol_version(parent_hash)?;
-        let next_next_epoch_config = self.config.for_protocol_version(next_next_epoch_version);
-
-        // Check if dynamic resharding is enabled for the next_next epoch
-        let dynamic_resharding_config = match &next_next_epoch_config.shard_layout_config {
+        // Check if dynamic resharding is enabled
+        let epoch_config = self.get_epoch_config(protocol_version);
+        let dynamic_resharding_config = match &epoch_config.shard_layout_config {
             ShardLayoutConfig::Static { .. } => return Ok(None),
             ShardLayoutConfig::Dynamic { dynamic_resharding_config } => dynamic_resharding_config,
         };
@@ -1809,19 +1810,6 @@ impl EpochManager {
         };
 
         Ok(Some((shard_id, split.boundary_account)))
-    }
-
-    /// Returns the protocol version for the epoch after the next one.
-    ///
-    /// Parameters:
-    ///  - `block_hash`: hash of any block belonging to the current epoch
-    fn get_next_next_epoch_protocol_version(
-        &self,
-        block_hash: &CryptoHash,
-    ) -> Result<ProtocolVersion, EpochError> {
-        let next_epoch_id = self.get_next_epoch_id(block_hash)?;
-        let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
-        Ok(next_epoch_info.protocol_version())
     }
 }
 

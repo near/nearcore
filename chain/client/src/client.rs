@@ -952,7 +952,11 @@ impl Client {
                     proposed_splits.insert(header.shard_id(), split.clone());
                 }
             }
-            self.epoch_manager.get_upcoming_shard_split(&prev_hash, &proposed_splits)?
+            self.epoch_manager.get_upcoming_shard_split(
+                protocol_version,
+                &prev_hash,
+                &proposed_splits,
+            )?
         } else {
             None
         };

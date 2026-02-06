@@ -792,12 +792,14 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// to derive layout for epoch `N+2` (where `N` is the current epoch).
     ///
     /// Parameters:
+    ///  - `protocol_version`: protocol version of the current epoch
     ///  - `parent_hash`: hash of the parent of the block being produced
     ///  - `proposed_splits`: mapping containing all proposed shard splits from chunk headers
     ///
     /// Returns `Some((shard_id, boundary_account))` if a shard split should be scheduled.
     fn get_upcoming_shard_split(
         &self,
+        protocol_version: ProtocolVersion,
         parent_hash: &CryptoHash,
         proposed_splits: &HashMap<ShardId, TrieSplit>,
     ) -> Result<Option<(ShardId, AccountId)>, EpochError>;
@@ -972,10 +974,11 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn get_upcoming_shard_split(
         &self,
+        protocol_version: ProtocolVersion,
         parent_hash: &CryptoHash,
         proposed_splits: &HashMap<ShardId, TrieSplit>,
     ) -> Result<Option<(ShardId, AccountId)>, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_upcoming_shard_split(parent_hash, proposed_splits)
+        epoch_manager.get_upcoming_shard_split(protocol_version, parent_hash, proposed_splits)
     }
 }
