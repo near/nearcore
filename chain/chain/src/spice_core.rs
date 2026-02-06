@@ -377,7 +377,7 @@ impl SpiceCoreReader {
     pub fn get_last_certified_execution_results_for_next_block(
         &self,
         block_header: &BlockHeader,
-        core_statements_for_next_block: SpiceCoreStatements<'_>,
+        core_statements_for_next_block: &SpiceCoreStatements,
     ) -> Result<BlockExecutionResults, Error> {
         let newly_certified_chunks: HashSet<&SpiceChunkId> =
             core_statements_for_next_block.iter_execution_results().map(|(id, _)| id).collect();
