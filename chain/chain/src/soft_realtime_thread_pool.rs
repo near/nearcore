@@ -412,4 +412,27 @@ mod tests {
         let outcome2 = handle2.wait_executed();
         assert_eq!(outcome1.thread_id, outcome2.thread_id);
     }
+
+    #[test]
+    fn drop_shuts_down_threads() {
+        // Use a very long idle timeout so threads won't exit naturally.
+        let idle_timeout = Duration::from_secs(1000);
+        let pool = ThreadPool::new(POOL_NAME, idle_timeout, DEFAULT_LIMIT, DEFAULT_PRIORITY);
+
+        // Run a job to completion — the worker thread becomes idle.
+        execute_job(&pool);
+
+        // Grab a clone of the Arc<ThreadPoolState> so we can observe state after pool is dropped.
+        let state = pool.state.clone();
+        wait_for(|| state.inner.lock().idle_threads == 1, "thread to become idle");
+
+        // Drop the pool. If drop correctly signals shutdown, the idle thread
+        // should wake up and exit almost immediately.
+        drop(pool);
+
+        // wait_for has a 1-second timeout. With the bug, the thread is stuck
+        // in a condvar wait for 1000 seconds, so this will panic.
+        // With the fix, the thread exits promptly.
+        wait_for(|| state.inner.lock().total_threads == 0, "threads to shut down after drop");
+    }
 }
