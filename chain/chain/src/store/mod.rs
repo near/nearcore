@@ -9,7 +9,7 @@ use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV0};
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource};
 use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
     ArcedShardChunk, ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk,
@@ -171,11 +171,11 @@ pub trait ChainStoreAccess {
         shard_id: ShardId,
     ) -> Result<Arc<Vec<Receipt>>, Error>;
 
-    fn get_processed_local_receipts(
+    fn get_processed_receipt_ids(
         &self,
         hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<Arc<Vec<Receipt>>, Error>;
+    ) -> Result<Arc<Vec<ProcessedReceiptMetadata>>, Error>;
 
     fn get_incoming_receipts(
         &self,
@@ -980,12 +980,12 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_outgoing_receipts(self, prev_block_hash, shard_id)
     }
 
-    fn get_processed_local_receipts(
+    fn get_processed_receipt_ids(
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<Arc<Vec<Receipt>>, Error> {
-        ChainStoreAdapter::get_processed_local_receipts(self, block_hash, shard_id)
+    ) -> Result<Arc<Vec<ProcessedReceiptMetadata>>, Error> {
+        ChainStoreAdapter::get_processed_receipt_ids(self, block_hash, shard_id)
     }
 
     fn get_incoming_receipts(
@@ -1054,7 +1054,8 @@ pub(crate) struct ChainStoreCacheUpdate {
     next_block_hashes: HashMap<CryptoHash, CryptoHash>,
     epoch_light_client_blocks: HashMap<CryptoHash, Arc<LightClientBlockView>>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<Receipt>>>,
-    processed_local_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<Receipt>>>,
+    processed_receipt_ids: HashMap<(CryptoHash, ShardId), Arc<Vec<ProcessedReceiptMetadata>>>,
+    processed_receipts_to_save: Vec<Receipt>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<ReceiptProof>>>,
     outcomes: HashMap<(CryptoHash, CryptoHash), ExecutionOutcomeWithProof>,
     outcome_ids: HashMap<(CryptoHash, ShardId), Vec<CryptoHash>>,
@@ -1365,17 +1366,17 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_processed_local_receipts(
+    fn get_processed_receipt_ids(
         &self,
         hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<Arc<Vec<Receipt>>, Error> {
-        if let Some(receipts) =
-            self.chain_store_cache_update.processed_local_receipts.get(&(*hash, shard_id))
+    ) -> Result<Arc<Vec<ProcessedReceiptMetadata>>, Error> {
+        if let Some(metadata) =
+            self.chain_store_cache_update.processed_receipt_ids.get(&(*hash, shard_id))
         {
-            Ok(Arc::clone(receipts))
+            Ok(Arc::clone(metadata))
         } else {
-            self.chain_store.get_processed_local_receipts(hash, shard_id)
+            self.chain_store.get_processed_receipt_ids(hash, shard_id)
         }
     }
 
@@ -1694,15 +1695,22 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert((*hash, shard_id), Arc::new(outgoing_receipts));
     }
 
-    pub fn save_processed_local_receipts(
+    pub fn save_processed_receipt_ids(
         &mut self,
         hash: &CryptoHash,
         shard_id: ShardId,
-        local_receipts: Vec<Receipt>,
+        receipts: Vec<(Receipt, ReceiptSource)>,
     ) {
+        let metadata: Vec<ProcessedReceiptMetadata> = receipts
+            .iter()
+            .map(|(r, source)| ProcessedReceiptMetadata::new(*r.receipt_id(), source.clone()))
+            .collect();
         self.chain_store_cache_update
-            .processed_local_receipts
-            .insert((*hash, shard_id), Arc::new(local_receipts));
+            .processed_receipts_to_save
+            .extend(receipts.into_iter().map(|(r, _)| r));
+        self.chain_store_cache_update
+            .processed_receipt_ids
+            .insert((*hash, shard_id), Arc::new(metadata));
     }
 
     pub fn save_incoming_receipt(
@@ -2070,17 +2078,17 @@ impl<'a> ChainStoreUpdate<'a> {
                 )?;
             }
 
-            for ((block_hash, shard_id), receipts) in
-                &self.chain_store_cache_update.processed_local_receipts
+            for ((block_hash, shard_id), metadata) in
+                &self.chain_store_cache_update.processed_receipt_ids
             {
                 store_update.set_ser(
-                    DBCol::ProcessedLocalReceipts,
+                    DBCol::ProcessedReceiptIds,
                     &get_block_shard_id(block_hash, *shard_id),
-                    receipts,
+                    metadata,
                 )?;
-                for receipt in receipts.as_ref() {
-                    save_receipt(&mut store_update, receipt);
-                }
+            }
+            for receipt in &self.chain_store_cache_update.processed_receipts_to_save {
+                save_receipt(&mut store_update, receipt);
             }
         }
 

@@ -147,10 +147,14 @@ impl<'a> ChainUpdate<'a> {
                     shard_id,
                     apply_result.outgoing_receipts,
                 );
-                self.chain_store_update.save_processed_local_receipts(
+                self.chain_store_update.save_processed_receipt_ids(
                     block_hash,
                     shard_id,
-                    apply_result.processed_local_receipts,
+                    apply_result
+                        .processed_local_receipts
+                        .into_iter()
+                        .map(|r| (r, near_primitives::receipt::ReceiptSource::Local))
+                        .collect(),
                 );
                 // Save receipt and transaction results.
                 self.chain_store_update.save_outcomes_with_proofs(
