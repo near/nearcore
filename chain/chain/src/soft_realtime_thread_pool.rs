@@ -178,10 +178,22 @@ impl AsyncComputationSpawner for ThreadPool {
     }
 }
 
+struct ThreadCountGuard(Arc<ThreadPoolState>);
+
+impl Drop for ThreadCountGuard {
+    fn drop(&mut self) {
+        self.0.inner.lock().dec_total_threads();
+    }
+}
+
 /// Start a worker thread. It will then pick up jobs from the queue one a time in
 /// a loop. The thread will terminate if it's idle for `idle_timeout` or when
 /// shutdown is triggered via `shutdown` flag.
 fn run_worker(state: Arc<ThreadPoolState>, idle_timeout: Duration) {
+    // `_thread_count_guard` must be declared before `state_guard` so that
+    // the mutex lock is dropped first during unwinding (reverse declaration
+    // order), avoiding deadlock when the guard acquires the lock in its Drop.
+    let _thread_count_guard = ThreadCountGuard(state.clone());
     let mut state_guard = state.inner.lock();
     loop {
         if state_guard.shutdown {
@@ -214,7 +226,6 @@ fn run_worker(state: Arc<ThreadPoolState>, idle_timeout: Duration) {
             }
         }
     }
-    state_guard.dec_total_threads();
 }
 
 /// Async computation spawner to be used for chunk applying tasks.
