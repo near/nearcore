@@ -154,6 +154,21 @@ impl SpiceCoreReader {
         Ok(height_proposals.into_iter().flat_map(|(_, proposals)| proposals).collect())
     }
 
+    /// Returns validator proposals to use as `prev_validator_proposals` when
+    /// constructing `NewChunkData`. At epoch boundaries, returns proposals from
+    /// uncertified chunks; otherwise returns an empty vec.
+    pub fn prev_validator_proposals(
+        &self,
+        prev_block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Vec<ValidatorStake>, Error> {
+        if self.epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
+            self.get_uncertified_validator_proposals(prev_block_hash, shard_id)
+        } else {
+            Ok(vec![])
+        }
+    }
+
     pub fn get_execution_results_by_shard_id(
         &self,
         block_header: &BlockHeader,
