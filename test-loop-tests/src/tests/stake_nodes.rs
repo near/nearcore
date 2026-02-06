@@ -13,6 +13,7 @@ use rand::{Rng, SeedableRng};
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{
     create_validator_ids, create_validators_spec, validators_spec_clients,
+    validators_spec_clients_with_rpc,
 };
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{get_shared_block_hash, run_tx, run_txs_parallel};
@@ -320,6 +321,7 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
     let endorsement_delay: u64 = 4;
     let validators_spec = create_validators_spec(4, 0);
     let accounts = validators_spec_clients(&validators_spec);
+    let clients = validators_spec_clients_with_rpc(&validators_spec);
     let unstaker = accounts[0].clone();
 
     let genesis = TestLoopBuilder::new_genesis_builder()
@@ -333,16 +335,15 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
-        .clients(accounts.clone())
-        .track_all_shards()
+        .clients(clients)
         .build();
     delay_endorsements_propagation(&mut env, endorsement_delay);
     let mut env = env.warmup();
 
     let node = TestLoopNode::from(&env.node_datas[0]);
+    let rpc = TestLoopNode::rpc(&env.node_datas);
     let initial_stake =
-        query_view_account(node.view_client_actor(&mut env.test_loop.data), unstaker.clone())
-            .locked;
+        query_view_account(rpc.view_client_actor(&mut env.test_loop.data), unstaker.clone()).locked;
 
     // Submit unstake (stake = 0) in the first epoch.
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
@@ -399,7 +400,7 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
     );
 
     // Verify that the unstaker's locked balance was NOT returned.
-    let view_client = node.view_client_actor(&mut env.test_loop.data);
+    let view_client = rpc.view_client_actor(&mut env.test_loop.data);
     let account = query_view_account(view_client, unstaker);
     assert_eq!(account.locked, initial_stake, "stake should NOT have been returned");
 
