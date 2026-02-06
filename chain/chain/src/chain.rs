@@ -1916,27 +1916,6 @@ impl Chain {
 
         if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
             // Keep in memory only these tries that we care about this or next epoch.
-            // TODO(spice): For spice, we also retain memtries for shards that
-            // we used to care about in the prior epoch but not anymore. This
-            // allows the node to continue executing uncertified blocks of the
-            // prior epoch. We should change this to wait only for certification
-            // of the last block of the prior instead of retaining memtrie for
-            // an additional epoch.
-            if block.is_spice_block() {
-                let prev_hash = block.header().prev_hash();
-                for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
-                    if self
-                        .shard_tracker
-                        .cared_about_shard_in_prev_epoch_from_prev_hash(prev_hash, shard_id)
-                    {
-                        let shard_uid =
-                            shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
-                        if !memtrie_retained_shards.contains(&shard_uid) {
-                            memtrie_retained_shards.push(shard_uid);
-                        }
-                    }
-                }
-            }
             self.runtime_adapter.get_tries().retain_memtries(&memtrie_retained_shards);
         }
 

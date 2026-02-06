@@ -1,4 +1,5 @@
 use near_async::time::Duration;
+use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_o11y::testonly::init_test_logger;
@@ -319,10 +320,11 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
 
     let epoch_length: u64 = 10;
     let endorsement_delay: u64 = 4;
+    let unstaker_idx = 0;
     let validators_spec = create_validators_spec(4, 1);
     let accounts = validators_spec_clients(&validators_spec);
     let clients = validators_spec_clients_with_rpc(&validators_spec);
-    let unstaker = accounts[0].clone();
+    let unstaker = accounts[unstaker_idx].clone();
 
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
@@ -336,11 +338,19 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(clients)
+        .config_modifier(move |config, idx| {
+            // TODO(spice): Force unstaker to retain memtrie for the unloaded
+            // shard. Memtrie retention needs to be fixed for spice to wait
+            // until certification of the last block of the prior epoch.
+            if idx == unstaker_idx {
+                config.tracked_shards_config = TrackedShardsConfig::AllShards;
+            }
+        })
         .build();
     delay_endorsements_propagation(&mut env, endorsement_delay);
     let mut env = env.warmup();
 
-    let node = TestLoopNode::from(&env.node_datas[0]);
+    let node = TestLoopNode::from(&env.node_datas[unstaker_idx]);
     let rpc = TestLoopNode::rpc(&env.node_datas);
     let initial_stake =
         query_view_account(rpc.view_client_actor(&mut env.test_loop.data), unstaker.clone()).locked;
@@ -355,7 +365,7 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
         create_test_signer(unstaker.as_str()).public_key(),
         block_hash,
     );
-    run_tx(&mut env.test_loop, &accounts[0], unstake_tx, &env.node_datas, Duration::seconds(30));
+    rpc.run_tx(&mut env.test_loop, unstake_tx, Duration::seconds(30));
 
     // Advance to a few blocks before the E4->E5 boundary where stake return would
     // happen. Unstake in E0 -> active in E0,E1 -> inactive from E2 -> 3-epoch window
