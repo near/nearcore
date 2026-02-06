@@ -985,6 +985,7 @@ impl TestBlockBuilder {
         );
         Arc::new(Block::produce(
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
             &self.prev_header,
             self.height,
             self.prev_header.block_ordinal() + 1,

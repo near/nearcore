@@ -80,6 +80,7 @@ fn build_chain_with_orphans() {
     let last_block = &blocks[blocks.len() - 1];
     let block = Arc::new(Block::produce(
         PROTOCOL_VERSION,
+        PROTOCOL_VERSION,
         last_block.header(),
         10,
         last_block.header().block_ordinal() + 1,

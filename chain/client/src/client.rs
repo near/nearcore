@@ -944,6 +944,32 @@ impl Client {
             None
         };
 
+        // Last final block **after this block is produced**
+        let last_final_block = prev.last_final_block_for_height(height);
+        let is_produced_block_last_in_epoch = self.epoch_manager.is_produced_block_last_in_epoch(
+            height,
+            &prev_hash,
+            &last_final_block,
+        )?;
+
+        // Compute shard_split if this is the last block of the epoch
+        let shard_split = if is_produced_block_last_in_epoch {
+            // Collect proposed splits from chunk headers
+            let mut proposed_splits = HashMap::new();
+            for header in &chunk_headers {
+                if let Some(split) = header.proposed_split() {
+                    proposed_splits.insert(header.shard_id(), split.clone());
+                }
+            }
+            self.epoch_manager.get_upcoming_shard_split(
+                protocol_version,
+                &prev_hash,
+                &proposed_splits,
+            )?
+        } else {
+            None
+        };
+
         let next_epoch_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
@@ -965,6 +991,7 @@ impl Client {
         };
 
         let block = Arc::new(Block::produce(
+            protocol_version,
             self.upgrade_schedule
                 .protocol_version_to_vote_for(self.clock.now_utc(), next_epoch_protocol_version),
             prev_header,
@@ -986,7 +1013,7 @@ impl Client {
             self.clock.clone(),
             sandbox_delta_time,
             optimistic_block,
-            None,
+            shard_split,
             spice_info,
         ));
 

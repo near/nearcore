@@ -125,10 +125,13 @@ impl Chain {
         for chunk in genesis_chunks {
             store_update.save_chunk(chunk.clone());
         }
+        let genesis_protocol_version =
+            epoch_manager.get_epoch_protocol_version(genesis.header().epoch_id())?;
         let block_info = BlockInfo::from_header(
             genesis.header(),
             // genesis height is considered final
             genesis.header().height(),
+            genesis_protocol_version,
         );
         store_update.merge(
             epoch_manager

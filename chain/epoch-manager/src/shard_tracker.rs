@@ -641,8 +641,10 @@ mod tests {
                     vec![],
                     DEFAULT_TOTAL_SUPPLY,
                     protocol_version,
+                    protocol_version,
                     height * 10u64.pow(9),
                     chunk_endorsements,
+                    None,
                 ),
                 [0; 32],
             )

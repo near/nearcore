@@ -1339,6 +1339,9 @@ impl Chain {
                 block_type: BlockType::Optimistic,
                 height: block_height,
                 prev_block_hash: *block.prev_block_hash(),
+                last_final_block_hash: *prev_block
+                    .header()
+                    .last_final_block_for_height(block_height),
                 block_timestamp: block.block_timestamp(),
                 gas_price: prev_block.header().next_gas_price(),
                 random_seed: *block.random_value(),
@@ -1505,8 +1508,10 @@ impl Chain {
             // Add validator proposals for given header.
             let last_finalized_height =
                 chain_store_update.get_block_height(header.last_final_block())?;
+            let current_protocol_version =
+                self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
             let epoch_manager_update = self.epoch_manager.add_validator_proposals(
-                BlockInfo::from_header(header, last_finalized_height),
+                BlockInfo::from_header(header, last_finalized_height, current_protocol_version),
                 *header.random_value(),
             )?;
             chain_store_update.merge(epoch_manager_update.into());

@@ -284,8 +284,10 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.get_block_header(last_final_block)?.height()
         };
 
+        let current_protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
         let epoch_manager_update = self.epoch_manager.add_validator_proposals(
-            BlockInfo::from_header(block.header(), last_finalized_height),
+            BlockInfo::from_header(block.header(), last_finalized_height, current_protocol_version),
             *block.header().random_value(),
         )?;
         self.chain_store_update.merge(epoch_manager_update.into());
@@ -525,6 +527,7 @@ impl<'a> ChainUpdate<'a> {
                 block_type: BlockType::Normal,
                 height: chunk_header.height_included(),
                 prev_block_hash: *chunk_header.prev_block_hash(),
+                last_final_block_hash: *block_header.last_final_block(),
                 block_timestamp: block_header.raw_timestamp(),
                 gas_price,
                 random_seed: *block_header.random_value(),

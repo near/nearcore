@@ -10,11 +10,15 @@ use near_cache::SyncLruCache;
 use near_chain_configs::{Genesis, GenesisConfig};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::{EpochInfo, RngSeed};
-use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary};
+use near_primitives::epoch_manager::{
+    AllEpochConfig, DynamicReshardingConfig, EpochConfig, EpochConfigStore, EpochSummary,
+    ShardLayoutConfig,
+};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
+use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, ChunkStats, EpochId,
@@ -630,6 +634,86 @@ impl EpochManager {
         })
     }
 
+    /// Compute the shard layout for the epoch after the next one.
+    /// If static layout is defined in `next_next_epoch_config`, that will be used.
+    /// If dynamic resharding is enabled it will either:
+    ///   a) derive a new layout based on the split defined in `block_info`, or
+    ///   b) return `next_shard_layout` (if there is no split specified there).
+    ///
+    /// Parameters `next_next_epoch_version`, `next_next_epoch_config` and `next_shard_layout`
+    /// are relative to the epoch of `block_info`.
+    fn next_next_shard_layout(
+        &self,
+        next_next_epoch_version: ProtocolVersion,
+        next_next_epoch_config: &EpochConfig,
+        next_shard_layout: &ShardLayout,
+        block_info: &BlockInfo,
+    ) -> Result<ShardLayout, EpochError> {
+        // TODO(dynamic_resharding): use current epoch's config and fix failing tests
+        match &next_next_epoch_config.shard_layout_config {
+            ShardLayoutConfig::Static { shard_layout } => {
+                debug_assert!(!ProtocolFeature::DynamicResharding.enabled(next_next_epoch_version));
+                return Ok(shard_layout.clone());
+            }
+            ShardLayoutConfig::Dynamic { .. } => {}
+        };
+
+        let Some((shard_id, boundary_account)) = block_info.shard_split() else {
+            return Ok(next_shard_layout.clone());
+        };
+
+        tracing::info!(
+            target: "epoch_manager",
+            ?shard_id,
+            %boundary_account,
+            "dynamic resharding: shard selected for split, deriving new layout"
+        );
+        // TODO(dynamic_resharding): ShardLayoutV3 cannot be derived from V2. Use hard-coded layout as bootstrap.
+        let new_layout =
+            ShardLayout::derive_shard_layout(next_shard_layout, boundary_account.clone());
+        Ok(new_layout)
+    }
+
+    /// Checks if resharding is allowed based on `min_epochs_between_resharding`.
+    /// Returns `true` if no resharding occurred in the last N epochs.
+    fn can_reshard(
+        &self,
+        block_info: &BlockInfo,
+        next_shard_layout: &ShardLayout,
+        min_epochs_between_resharding: u64,
+    ) -> Result<bool, EpochError> {
+        if min_epochs_between_resharding == 0 {
+            return Ok(true);
+        }
+
+        // Check if the layout changed during the last `min_epochs_between_resharding` epochs.
+        let mut current_layout = next_shard_layout.clone();
+        let mut current_block_info = block_info.clone();
+
+        // TODO(dynamic_resharding): store last resharding in `EpochInfo` to avoid this iteration
+        for _ in 0..min_epochs_between_resharding {
+            let epoch_first_block_hash = current_block_info.epoch_first_block();
+            let epoch_first_block_info = self.get_block_info(epoch_first_block_hash)?;
+            if epoch_first_block_info.is_genesis() {
+                return Ok(true);
+            }
+
+            let prev_epoch_last_block_hash = *epoch_first_block_info.prev_hash();
+            let prev_epoch_last_block_info = self.get_block_info(&prev_epoch_last_block_hash)?;
+            let prev_epoch_id = prev_epoch_last_block_info.epoch_id();
+            let prev_layout = self.get_shard_layout(prev_epoch_id)?;
+
+            if current_layout != prev_layout {
+                return Ok(false);
+            }
+
+            current_layout = prev_layout;
+            current_block_info = (*prev_epoch_last_block_info).clone();
+        }
+
+        Ok(true)
+    }
+
     /// Finalize epoch (T), where given last block hash is given
     /// Store ID and `EpochInfo` for epoch (T + 2).
     fn finalize_epoch(
@@ -696,15 +780,13 @@ impl EpochManager {
         let next_next_epoch_config = self.config.for_protocol_version(next_next_epoch_version);
         let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
 
-        let (next_next_shard_layout, has_same_shard_layout) =
-            if ProtocolFeature::DynamicResharding.enabled(next_next_epoch_version) {
-                // TODO(dynamic_resharding): adjust layout if a shard was marked for splitting
-                (next_shard_layout, true)
-            } else {
-                let layout = next_next_epoch_config.static_shard_layout();
-                let has_same_layout = layout == next_shard_layout;
-                (layout, has_same_layout)
-            };
+        let next_next_shard_layout = self.next_next_shard_layout(
+            next_next_epoch_version,
+            &next_next_epoch_config,
+            &next_shard_layout,
+            block_info,
+        )?;
+        let has_same_shard_layout = next_next_shard_layout == next_shard_layout;
 
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
@@ -749,6 +831,14 @@ impl EpochManager {
     }
 
     pub fn record_block_info(
+        &mut self,
+        block_info: BlockInfo,
+        rng_seed: RngSeed,
+    ) -> Result<EpochStoreUpdateAdapter<'static>, EpochError> {
+        self.record_block_info_impl(block_info, rng_seed)
+    }
+
+    fn record_block_info_impl(
         &mut self,
         mut block_info: BlockInfo,
         rng_seed: RngSeed,
@@ -990,10 +1080,32 @@ impl EpochManager {
         self.get_epoch_info(&epoch_id)
     }
 
-    /// Returns true if next block after given block hash is in the new epoch.
-    pub fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
-        let block_info = self.get_block_info(parent_hash)?;
+    /// Returns true if next block after the given `block_hash` is in the new epoch.
+    pub fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {
+        let block_info = self.get_block_info(block_hash)?;
         self.is_next_block_in_next_epoch(&block_info)
+    }
+
+    /// Returns true if the block after the one being produced will belong to a new epoch.
+    ///
+    /// Parameters:
+    ///  - `block_height`: the height of the block being produced
+    ///  - `parent_hash`: hash of the parent block (the block we're building on top of)
+    ///  - `last_final_block_hash`: hash of the last final block after this block is produced
+    pub fn is_produced_block_last_in_epoch(
+        &self,
+        block_height: BlockHeight,
+        parent_hash: &CryptoHash,
+        last_final_block_hash: &CryptoHash,
+    ) -> Result<bool, EpochError> {
+        let last_final_block_height = self.get_block_info(last_final_block_hash)?.height();
+        let parent_info = self.get_block_info(parent_hash)?;
+        let epoch_first_block = parent_info.epoch_first_block();
+        self.is_next_block_in_next_epoch_impl(
+            block_height,
+            last_final_block_height,
+            epoch_first_block,
+        )
     }
 
     pub fn get_next_epoch_id_from_prev_block(
@@ -1343,23 +1455,43 @@ impl EpochManager {
 
 /// Private utilities for EpochManager.
 impl EpochManager {
-    /// Returns true, if given current block info, next block supposed to be in the next epoch.
-    fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
-        if block_info.is_genesis() {
-            return Ok(true);
-        }
-        let protocol_version = self.get_epoch_info_from_hash(block_info.hash())?.protocol_version();
+    /// Returns true if the next block after the given block will be in the next epoch.
+    ///
+    /// Parameters:
+    /// - `block_height`: the height of the block
+    /// - `last_final_height`: the height of the last final block for the block in question
+    /// - `epoch_first_block`: the first block of the current epoch
+    fn is_next_block_in_next_epoch_impl(
+        &self,
+        block_height: BlockHeight,
+        last_final_height: BlockHeight,
+        epoch_first_block: &CryptoHash,
+    ) -> Result<bool, EpochError> {
+        let epoch_first_block_info = self.get_block_info(epoch_first_block)?;
+        let protocol_version =
+            self.get_epoch_info(&epoch_first_block_info.epoch_id())?.protocol_version();
         let epoch_length = self.config.for_protocol_version(protocol_version).epoch_length;
-        let estimated_next_epoch_start =
-            self.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
+        let estimated_next_epoch_start = epoch_first_block_info.height() + epoch_length;
 
         if epoch_length <= 3 {
             // This is here to make epoch_manager tests pass. Needs to be removed, tracked in
             // https://github.com/nearprotocol/nearcore/issues/2522
-            return Ok(block_info.height() + 1 >= estimated_next_epoch_start);
+            return Ok(block_height + 1 >= estimated_next_epoch_start);
         }
 
-        Ok(block_info.last_finalized_height() + 3 >= estimated_next_epoch_start)
+        Ok(last_final_height + 3 >= estimated_next_epoch_start)
+    }
+
+    /// Returns true if the next block after `block_info` will be in the next epoch.
+    fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
+        if block_info.is_genesis() {
+            return Ok(true);
+        }
+        self.is_next_block_in_next_epoch_impl(
+            block_info.height(),
+            block_info.last_finalized_height(),
+            block_info.epoch_first_block(),
+        )
     }
 
     /// Returns true, if given current block info, next block must include the approvals from the next
@@ -1632,4 +1764,78 @@ impl EpochManager {
             cur_hash = prev_hash;
         }))
     }
+
+    /// Get the shard split to include in the block header, if any.
+    ///
+    /// This method is expected to be called during the production of the last block of an epoch.
+    /// The returned split should be included in the header of the produced block. It will be used
+    /// to derive layout for epoch `N+2` (where `N` is the current epoch).
+    ///
+    /// Parameters:
+    ///  - `protocol_version`: protocol version of the current epoch
+    ///  - `parent_hash`: hash of the parent of the block being produced
+    ///  - `proposed_splits`: mapping containing all proposed shard splits from chunk headers
+    ///
+    /// Returns `Some((shard_id, boundary_account))` if a shard split should be scheduled.
+    pub fn get_upcoming_shard_split(
+        &self,
+        protocol_version: ProtocolVersion,
+        parent_hash: &CryptoHash,
+        proposed_splits: &HashMap<ShardId, TrieSplit>,
+    ) -> Result<Option<(ShardId, AccountId)>, EpochError> {
+        // Check if dynamic resharding is enabled
+        let epoch_config = self.get_epoch_config(protocol_version);
+        let dynamic_resharding_config = match &epoch_config.shard_layout_config {
+            ShardLayoutConfig::Static { .. } => return Ok(None),
+            ShardLayoutConfig::Dynamic { dynamic_resharding_config } => dynamic_resharding_config,
+        };
+
+        // Check if resharding is allowed based on epoch constraints
+        let parent_block_info = self.get_block_info(parent_hash)?;
+        let next_epoch_id = self.get_next_epoch_id(parent_hash)?;
+        let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
+        let can_reshard = self.can_reshard(
+            &parent_block_info,
+            &next_shard_layout,
+            dynamic_resharding_config.min_epochs_between_resharding,
+        )?;
+        if !can_reshard {
+            return Ok(None);
+        }
+
+        // Pick the shard to split
+        let Some((shard_id, split)) =
+            pick_shard_to_split(proposed_splits, dynamic_resharding_config)
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some((shard_id, split.boundary_account)))
+    }
+}
+
+/// Pick which shard to split if there are proposed splits for multiple shards.
+/// Shards in `force_split_shards` have top priority.
+/// Otherwise, the shard with the highest memory usage is selected.
+///
+/// Returns `None` if there are no proposed splits.
+pub fn pick_shard_to_split(
+    proposed_splits: &HashMap<ShardId, TrieSplit>,
+    config: &DynamicReshardingConfig,
+) -> Option<(ShardId, TrieSplit)> {
+    if proposed_splits.is_empty() {
+        return None;
+    }
+
+    for shard_id in &config.force_split_shards {
+        if let Some(split) = proposed_splits.get(shard_id) {
+            debug_assert!(!config.block_split_shards.contains(shard_id));
+            return Some((*shard_id, split.clone()));
+        }
+    }
+
+    proposed_splits.iter().max_by_key(|(_, split)| split.total_memory()).map(|(shard_id, split)| {
+        debug_assert!(!config.block_split_shards.contains(shard_id));
+        (*shard_id, split.clone())
+    })
 }

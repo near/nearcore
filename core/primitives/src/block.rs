@@ -107,6 +107,7 @@ impl Block {
     /// Produces new block from header of previous block, current state root and set of transactions.
     #[cfg(feature = "clock")]
     pub fn produce(
+        current_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
@@ -210,12 +211,7 @@ impl Block {
         let last_ds_final_block =
             if height == prev.height() + 1 { prev.hash() } else { prev.last_ds_final_block() };
 
-        let last_final_block =
-            if height == prev.height() + 1 && prev.last_ds_final_block() == prev.prev_hash() {
-                prev.prev_hash()
-            } else {
-                prev.last_final_block()
-            };
+        let last_final_block = prev.last_final_block_for_height(height);
 
         match prev {
             BlockHeader::BlockHeaderV1(_) | BlockHeader::BlockHeaderV2(_) => {
@@ -265,6 +261,7 @@ impl Block {
         };
 
         let header = BlockHeader::new(
+            current_protocol_version,
             latest_protocol_version,
             height,
             *prev.hash(),
