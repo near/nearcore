@@ -78,6 +78,13 @@ impl Store {
             return self.get_ser::<T>(column, key).map(|v| v.map(Into::into));
         };
 
+        // For insert-only columns the value for a given key never changes
+        // (only None->Some(V) once), so a concurrent write for the same key
+        // must write the same value the reader already obtained from the DB.
+        // None results are safe too because no insert-only column enables
+        // store_none_values. This lets us skip the generation check and avoid
+        // the performance cost of invalidating the cache on every write.
+        let skip_generation_check = column.is_insert_only();
         let cached_generation = {
             let mut lock = cache.lock();
             if let Some(value) = lock.values.get(key) {
@@ -100,11 +107,13 @@ impl Store {
                     return Ok(None);
                 }
             }
-            // If a writer is in progress (active_flushes > 0) the DB may contain
-            // stale data, so we must not cache. Otherwise, we snapshot the
-            // generation counter and will verify it hasn't changed after the
-            // (potentially slow) DB read completes.
-            if lock.active_flushes > 0 { None } else { Some(lock.generation) }
+            if skip_generation_check {
+                Some(0)
+            } else if lock.active_flushes > 0 {
+                None
+            } else {
+                Some(lock.generation)
+            }
         };
 
         let value = match self.get_ser::<T>(column, key) {
@@ -114,7 +123,7 @@ impl Store {
         };
 
         let mut lock = cache.lock();
-        if cached_generation == Some(lock.generation) {
+        if skip_generation_check || cached_generation == Some(lock.generation) {
             if let Some(v) = value.as_ref() {
                 lock.values.put(key.into(), Some(Arc::clone(v) as _));
             } else if lock.store_none_values() {

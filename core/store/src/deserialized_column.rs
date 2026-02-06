@@ -77,7 +77,7 @@ pub struct Cache {
 
 impl Cache {
     pub(crate) fn enabled() -> Self {
-        Self {
+        let cache = Self {
             column_map: enum_map::enum_map! {
                 | DBCol::BlockHeader
                 | DBCol::BlockHeight
@@ -96,7 +96,20 @@ impl Cache {
                 | DBCol::EpochSyncProof => ColumnCache::with_none_values(ColumnCache::new(1)),
                 _ => ColumnCache::disabled(),
             },
+        };
+        // Safety invariant: insert-only columns skip the generation check in
+        // caching_get_ser, which is only safe if they don't cache None values.
+        for (col, entry) in &cache.column_map {
+            if col.is_insert_only() {
+                if let Some(c) = entry {
+                    debug_assert!(
+                        !c.lock().store_none_values(),
+                        "insert-only column {col:?} must not enable store_none_values"
+                    );
+                }
+            }
         }
+        cache
     }
 
     pub fn disabled() -> Arc<Self> {
