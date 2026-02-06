@@ -24,13 +24,17 @@ use super::spice_utils::{delay_endorsements_propagation, query_view_account};
 /// waits until it becomes a validator.
 #[test]
 fn test_stake_nodes() {
-    test_stake_nodes_impl(10, 0);
+    let epoch_length = 10;
+    let execution_delay = 0;
+    test_stake_nodes_impl(epoch_length, execution_delay);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_stake_nodes_delayed_execution() {
-    test_stake_nodes_impl(10, 4);
+    let epoch_length = 10;
+    let execution_delay = 4;
+    test_stake_nodes_impl(epoch_length, execution_delay);
 }
 
 fn test_stake_nodes_impl(epoch_length: u64, execution_delay: u64) {
@@ -92,13 +96,17 @@ fn test_stake_nodes_impl(epoch_length: u64, execution_delay: u64) {
 /// Verifies locked == 0 for kicked nodes and locked == TESTING_INIT_STAKE for remaining.
 #[test]
 fn test_validator_kickout() {
-    test_validator_kickout_impl(15, 0);
+    let epoch_length = 15;
+    let execution_delay = 0;
+    test_validator_kickout_impl(epoch_length, execution_delay);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validator_kickout_delayed_execution() {
-    test_validator_kickout_impl(15, 4);
+    let epoch_length = 15;
+    let execution_delay = 4;
+    test_validator_kickout_impl(epoch_length, execution_delay);
 }
 
 fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
@@ -207,13 +215,17 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
 /// Afterwards check that `locked` amount on accounts Node1 and Node2 are 0 and TESTING_INIT_STAKE.
 #[test]
 fn test_validator_join() {
-    test_validator_join_impl(30, 0);
+    let epoch_length = 30;
+    let execution_delay = 0;
+    test_validator_join_impl(epoch_length, execution_delay);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_validator_join_delayed_execution() {
-    test_validator_join_impl(30, 4);
+    let epoch_length = 30;
+    let execution_delay = 4;
+    test_validator_join_impl(epoch_length, execution_delay);
 }
 
 fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
