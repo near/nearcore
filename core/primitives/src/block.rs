@@ -3,8 +3,8 @@ use crate::block::BlockValidityError::{
     InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot, InvalidStateRoot,
     InvalidTransactionRoot,
 };
+use crate::block_body::SpiceCoreStatements;
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
-use crate::block_body::{SpiceCoreStatement, SpiceCoreStatements};
 pub use crate::block_header::*;
 use crate::challenge::Challenge;
 use crate::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
@@ -154,10 +154,13 @@ impl Block {
             }
         }
         if let Some(ref spice_info) = spice_info {
-            let core_statements = SpiceCoreStatements::new(&spice_info.core_statements);
-            prev_validator_proposals.extend(core_statements.iter_execution_results().flat_map(
-                |(_chunk_id, execution_result)| execution_result.chunk_extra.validator_proposals(),
-            ));
+            prev_validator_proposals.extend(
+                spice_info.core_statements.iter_execution_results().flat_map(
+                    |(_chunk_id, execution_result)| {
+                        execution_result.chunk_extra.validator_proposals()
+                    },
+                ),
+            );
         }
 
         // TODO(spice): Use gas_used and other relevant fields from spice_info last
@@ -437,10 +440,10 @@ impl Block {
     }
 
     #[inline]
-    pub fn spice_core_statements(&self) -> SpiceCoreStatements<'_> {
+    pub fn spice_core_statements(&self) -> &SpiceCoreStatements {
         match self {
             Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => {
-                SpiceCoreStatements::new(&[])
+                SpiceCoreStatements::empty()
             }
             Block::BlockV4(block) => block.body.spice_core_statements(),
         }
@@ -523,7 +526,7 @@ impl Block {
 }
 
 pub struct SpiceNewBlockProductionInfo {
-    pub core_statements: Vec<SpiceCoreStatement>,
+    pub core_statements: SpiceCoreStatements,
     pub last_certified_block_execution_results: BlockExecutionResults,
 }
 

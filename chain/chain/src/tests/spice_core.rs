@@ -1078,7 +1078,7 @@ fn test_get_last_certified_execution_results_for_next_block_with_no_certificatio
     let execution_results = core_reader
         .get_last_certified_execution_results_for_next_block(
             block.header(),
-            SpiceCoreStatements::new(&[]),
+            SpiceCoreStatements::empty(),
         )
         .unwrap();
     let genesis_execution_results =
@@ -1104,7 +1104,7 @@ fn test_get_last_certified_execution_results_for_next_block_with_execution_resul
     let execution_results = core_reader
         .get_last_certified_execution_results_for_next_block(
             next_block.header(),
-            SpiceCoreStatements::new(&[]),
+            SpiceCoreStatements::empty(),
         )
         .unwrap();
     let block_execution_results = block_execution_results(&block);
@@ -1119,12 +1119,9 @@ fn test_get_last_certified_execution_results_for_next_block_with_last_block_cert
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
 
-    let core_statements = block_certification_core_statements(&block);
+    let core_statements = SpiceCoreStatements::new(block_certification_core_statements(&block));
     let execution_results = core_reader
-        .get_last_certified_execution_results_for_next_block(
-            block.header(),
-            SpiceCoreStatements::new(&core_statements),
-        )
+        .get_last_certified_execution_results_for_next_block(block.header(), &core_statements)
         .unwrap();
     let block_execution_results = block_execution_results(&block);
     assert_eq!(block_execution_results, execution_results);
@@ -1153,7 +1150,7 @@ fn test_get_last_certified_execution_results_for_next_block_with_old_block_certi
     let execution_results = core_reader
         .get_last_certified_execution_results_for_next_block(
             last_block.header(),
-            SpiceCoreStatements::new(&[]),
+            SpiceCoreStatements::empty(),
         )
         .unwrap();
     let block_execution_results = block_execution_results(&block);
@@ -1181,10 +1178,11 @@ fn test_get_last_certified_execution_results_for_next_block_with_certification_s
     process_block(&mut chain, next_block.clone());
     core_writer_actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
 
+    let last_shard_core_statements = SpiceCoreStatements::new(last_shard_core_statements);
     let execution_results = core_reader
         .get_last_certified_execution_results_for_next_block(
             next_block.header(),
-            SpiceCoreStatements::new(&last_shard_core_statements),
+            &last_shard_core_statements,
         )
         .unwrap();
     let block_execution_results = block_execution_results(&block);
@@ -1211,7 +1209,7 @@ fn test_get_last_certified_execution_results_without_core_writer_execution_resul
     let execution_results = core_reader
         .get_last_certified_execution_results_for_next_block(
             next_block.header(),
-            SpiceCoreStatements::new(&[]),
+            SpiceCoreStatements::empty(),
         )
         .unwrap();
     let block_execution_results = block_execution_results(&block);
@@ -1240,7 +1238,7 @@ fn test_get_last_certified_execution_results_without_core_writer_old_block_certi
     let execution_results = core_reader
         .get_last_certified_execution_results_for_next_block(
             last_block.header(),
-            SpiceCoreStatements::new(&[]),
+            SpiceCoreStatements::empty(),
         )
         .unwrap();
     let block_execution_results = block_execution_results(&block);
