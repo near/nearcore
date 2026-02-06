@@ -83,7 +83,7 @@ use near_primitives::stateless_validation::state_witness::{
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, ShardIndex,
+    Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, ShardIndex, ValidatorId,
 };
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -1578,6 +1578,34 @@ impl Chain {
         let new_chunk_tail = tail_block.chunks().min_height_included().unwrap();
         tracing::debug!(target: "sync", ?new_tail, ?new_chunk_tail, "adjusting tail for sync blocks");
 
+        // Populate ChunkProducers for head and 2 blocks in the future
+        let sync_height = header.height();
+        let current_epoch_id = *header.epoch_id();
+        let current_shard_layout = self.epoch_manager.get_shard_layout(&current_epoch_id)?;
+        let current_epoch_info = self.epoch_manager.get_epoch_info(&current_epoch_id)?;
+
+        let mut chunk_producers_to_save: Vec<(EpochId, ShardId, BlockHeight, ValidatorId)> =
+            Vec::new();
+
+        let is_next_epoch = self.epoch_manager.is_next_block_epoch_start(&sync_hash)?;
+        let (epoch_id, shard_layout, epoch_info) = if is_next_epoch {
+            let next_epoch_id = self.epoch_manager.get_next_epoch_id(&sync_hash)?;
+            let layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
+            let info = self.epoch_manager.get_epoch_info(&next_epoch_id)?;
+            (next_epoch_id, layout, info)
+        } else {
+            (current_epoch_id, current_shard_layout, Arc::clone(&current_epoch_info))
+        };
+        for height in [sync_height, sync_height + 1, sync_height + 2] {
+            for shard_id in shard_layout.shard_ids() {
+                if let Some(producer_id) =
+                    epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+                {
+                    chunk_producers_to_save.push((epoch_id, shard_id, height, producer_id));
+                }
+            }
+        }
+
         let tip = Tip::from_header(prev_block.header());
         let final_head = Tip::from_header(self.genesis.header());
         // Update related heads now.
@@ -1589,6 +1617,9 @@ impl Chain {
         chain_store_update.update_tail(new_tail)?;
         // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
         chain_store_update.update_chunk_tail(new_chunk_tail);
+        for (epoch_id, shard_id, height, producer_id) in chunk_producers_to_save {
+            chain_store_update.save_chunk_producer(epoch_id, shard_id, height, producer_id);
+        }
         chain_store_update.commit()?;
 
         // Check if there are any orphans unlocked by this state sync.

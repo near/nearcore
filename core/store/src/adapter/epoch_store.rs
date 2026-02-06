@@ -7,10 +7,11 @@ use near_primitives::epoch_manager::{AGGREGATOR_KEY, EpochSummary};
 use near_primitives::epoch_sync::{CompressedEpochSyncProof, EpochSyncProof, EpochSyncProofV1};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId, ValidatorId};
 use near_primitives::utils::compression::CompressedData;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
+use crate::adapter::chunk_producer_key;
 use crate::db::COMPRESSED_EPOCH_SYNC_PROOF_KEY;
 use crate::{DBCol, Store, StoreUpdate, metrics};
 
@@ -114,6 +115,21 @@ impl EpochStoreAdapter {
                 .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])?
                 .map(|proof| proof.into_v1()))
         }
+    }
+
+    pub fn get_chunk_producer(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: &ShardId,
+        height: &BlockHeight,
+    ) -> Result<ValidatorId, EpochError> {
+        let key = chunk_producer_key(epoch_id, shard_id, height);
+        self.store.get_ser::<ValidatorId>(DBCol::ChunkProducers, &key)?.ok_or_else(|| {
+            EpochError::ChunkProducerSelectionError(format!(
+                "Chunk producer not found for epoch {:?} shard {} height {}",
+                epoch_id, shard_id, height
+            ))
+        })
     }
 }
 

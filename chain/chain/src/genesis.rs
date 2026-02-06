@@ -125,6 +125,27 @@ impl Chain {
         for chunk in genesis_chunks {
             store_update.save_chunk(chunk.clone());
         }
+
+        // Store chunk producers for genesis and the next two heights (H, H+1, H+2)
+        let genesis_epoch_id = genesis.header().epoch_id();
+        let genesis_height = genesis.header().height();
+        let shard_layout = epoch_manager.get_shard_layout(genesis_epoch_id)?;
+        let epoch_info = epoch_manager.get_epoch_info(genesis_epoch_id)?;
+        for shard_id in shard_layout.shard_ids() {
+            for height_offset in 0..=2 {
+                let height = genesis_height + height_offset;
+                if let Some(producer_id) =
+                    epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+                {
+                    store_update.save_chunk_producer(
+                        *genesis_epoch_id,
+                        shard_id,
+                        height,
+                        producer_id,
+                    );
+                }
+            }
+        }
         let block_info = BlockInfo::from_header(
             genesis.header(),
             // genesis height is considered final
