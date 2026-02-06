@@ -61,6 +61,18 @@ struct RpcClientConfigRequest {}
 #[derive(JsonSchema)]
 struct GenesisConfigRequest {}
 
+fn to_pascal_case(s: &str) -> String {
+    s.split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().chain(chars).collect(),
+            }
+        })
+        .collect()
+}
+
 /// Transform that fixes `#[serde(flatten)] Option<UntaggedEnum>` patterns for code generators.
 #[derive(Debug, Clone)]
 struct FlattenOptionFix;
@@ -73,93 +85,78 @@ impl FlattenOptionFix {
             .and_then(|s| s.rsplit('/').next())
             .map(|s| s.to_string())
     }
-
-    fn to_pascal_case(s: &str) -> String {
-        s.split('_')
-            .map(|word| {
-                let mut chars = word.chars();
-                match chars.next() {
-                    None => String::new(),
-                    Some(first) => first.to_uppercase().chain(chars).collect(),
-                }
-            })
-            .collect()
-    }
 }
 
 impl schemars::transform::Transform for FlattenOptionFix {
     fn transform(&mut self, schema: &mut schemars::Schema) {
         transform_subschemas(self, schema);
 
-        let has_any_of = schema.get("anyOf").is_some();
+        if schema.get("anyOf").is_none() {
+            return;
+        }
+
         let has_properties = schema.get("properties").is_some();
 
-        if has_any_of {
-            if let Some(serde_json::Value::Array(arr)) = schema.get_mut("anyOf") {
-                for variant in arr.iter_mut() {
-                    if let Some(obj) = variant.as_object_mut() {
-                        if let Some(serde_json::Value::String(title)) = obj.get("title") {
-                            if title.contains('_') {
-                                obj.insert(
-                                    "title".to_string(),
-                                    serde_json::json!(Self::to_pascal_case(title)),
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-
-            if has_properties {
-                let any_of = schema.remove("anyOf");
-                let properties = schema.remove("properties");
-                let required = schema.remove("required");
-                let typ = schema.get("type").cloned();
-
-                let mut base = serde_json::Map::new();
-                if let Some(t) = typ {
-                    base.insert("type".to_string(), t);
-                }
-                if let Some(p) = properties {
-                    base.insert("properties".to_string(), p);
-                }
-                if let Some(r) = required {
-                    base.insert("required".to_string(), r);
-                }
-                let base_value = serde_json::Value::Object(base.clone());
-
-                let expanded_variants = if let Some(serde_json::Value::Array(arr)) = any_of {
-                    arr.into_iter()
-                        .map(|v| {
-                            if v.as_object().map(|o| o.is_empty()).unwrap_or(false) {
-                                let mut result = base.clone();
-                                result.insert("title".to_string(), serde_json::json!("Empty"));
-                                serde_json::Value::Object(result)
-                            } else {
-                                let title = Self::extract_ref_name(&v);
-                                let mut variant = serde_json::Map::new();
-                                variant.insert(
-                                    "allOf".to_string(),
-                                    serde_json::json!([base_value.clone(), v]),
-                                );
-                                if let Some(name) = title {
-                                    variant.insert("title".to_string(), serde_json::json!(name));
-                                }
-                                serde_json::Value::Object(variant)
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                } else {
-                    vec![base_value]
-                };
-
-                schema.insert("oneOf".to_string(), serde_json::Value::Array(expanded_variants));
-            } else {
-                if let Some(any_of) = schema.remove("anyOf") {
-                    schema.insert("oneOf".to_string(), any_of);
+        if let Some(serde_json::Value::Array(arr)) = schema.get_mut("anyOf") {
+            for variant in arr.iter_mut() {
+                let Some(obj) = variant.as_object_mut() else { continue };
+                let Some(serde_json::Value::String(title)) = obj.get("title") else { continue };
+                if title.contains('_') {
+                    obj.insert("title".to_string(), serde_json::json!(to_pascal_case(title)));
                 }
             }
         }
+
+        if !has_properties {
+            if let Some(any_of) = schema.remove("anyOf") {
+                schema.insert("oneOf".to_string(), any_of);
+            }
+            return;
+        }
+
+        let any_of = schema.remove("anyOf");
+        let properties = schema.remove("properties");
+        let required = schema.remove("required");
+        let typ = schema.get("type").cloned();
+
+        let mut base = serde_json::Map::new();
+        if let Some(t) = typ {
+            base.insert("type".to_string(), t);
+        }
+        if let Some(p) = properties {
+            base.insert("properties".to_string(), p);
+        }
+        if let Some(r) = required {
+            base.insert("required".to_string(), r);
+        }
+        let base_value = serde_json::Value::Object(base.clone());
+
+        let expanded_variants = if let Some(serde_json::Value::Array(arr)) = any_of {
+            arr.into_iter()
+                .map(|v| {
+                    if v.as_object().map(|o| o.is_empty()).unwrap_or(false) {
+                        let mut result = base.clone();
+                        result.insert("title".to_string(), serde_json::json!("Empty"));
+                        serde_json::Value::Object(result)
+                    } else {
+                        let title = Self::extract_ref_name(&v);
+                        let mut variant = serde_json::Map::new();
+                        variant.insert(
+                            "allOf".to_string(),
+                            serde_json::json!([base_value.clone(), v]),
+                        );
+                        if let Some(name) = title {
+                            variant.insert("title".to_string(), serde_json::json!(name));
+                        }
+                        serde_json::Value::Object(variant)
+                    }
+                })
+                .collect::<Vec<_>>()
+        } else {
+            vec![base_value]
+        };
+
+        schema.insert("oneOf".to_string(), serde_json::Value::Array(expanded_variants));
     }
 }
 
@@ -169,18 +166,6 @@ impl schemars::transform::Transform for FlattenOptionFix {
 struct AddVariantTitles;
 
 impl AddVariantTitles {
-    fn to_pascal_case(s: &str) -> String {
-        s.split('_')
-            .map(|word| {
-                let mut chars = word.chars();
-                match chars.next() {
-                    None => String::new(),
-                    Some(first) => first.to_uppercase().chain(chars).collect(),
-                }
-            })
-            .collect()
-    }
-
     /// Extract a title for a variant based on its structure.
     /// This looks at various patterns to find a suitable name:
     /// - $ref names
@@ -230,13 +215,13 @@ impl AddVariantTitles {
             for (_prop_name, prop_value) in props {
                 if let Some(const_val) = prop_value.get("const").and_then(|c| c.as_str()) {
                     // Use the const value as the title
-                    return Some(Self::to_pascal_case(const_val));
+                    return Some(to_pascal_case(const_val));
                 }
                 // Check for enum with single value (alternative to const)
                 if let Some(enum_arr) = prop_value.get("enum").and_then(|e| e.as_array()) {
                     if enum_arr.len() == 1 {
                         if let Some(val) = enum_arr[0].as_str() {
-                            return Some(Self::to_pascal_case(val));
+                            return Some(to_pascal_case(val));
                         }
                     }
                 }
@@ -257,14 +242,10 @@ impl AddVariantTitles {
                     // For a single property, use it directly
                     // For multiple properties, combine them (up to 2 for readability)
                     let name = if discriminating.len() == 1 {
-                        Self::to_pascal_case(discriminating[0])
+                        to_pascal_case(discriminating[0])
                     } else {
                         // Combine first two required properties
-                        discriminating
-                            .iter()
-                            .take(2)
-                            .map(|s| Self::to_pascal_case(s))
-                            .collect::<String>()
+                        discriminating.iter().take(2).map(|s| to_pascal_case(s)).collect::<String>()
                     };
                     return Some(name);
                 }
@@ -276,24 +257,17 @@ impl AddVariantTitles {
 
     fn add_names_to_variants(variants: &mut Vec<serde_json::Value>) {
         for variant in variants.iter_mut() {
-            if let Some(obj) = variant.as_object_mut() {
-                // Skip if already has title
-                if obj.contains_key("title") {
-                    continue;
-                }
+            let Some(obj) = variant.as_object_mut() else { continue };
 
-                // Skip if this is just a $ref - adding title to $ref creates
-                // duplicate types in code generators
-                if obj.contains_key("$ref") {
-                    continue;
-                }
+            // Skip if already has title or is just a $ref
+            if obj.contains_key("title") || obj.contains_key("$ref") {
+                continue;
+            }
 
-                // Try to extract a name for this variant
-                if let Some(name) =
-                    Self::extract_variant_title(&serde_json::Value::Object(obj.clone()))
-                {
-                    obj.insert("title".to_string(), serde_json::json!(name));
-                }
+            // Try to extract a name for this variant
+            if let Some(name) = Self::extract_variant_title(&serde_json::Value::Object(obj.clone()))
+            {
+                obj.insert("title".to_string(), serde_json::json!(name));
             }
         }
     }
@@ -336,14 +310,11 @@ struct CleanupRefs;
 
 impl schemars::transform::Transform for CleanupRefs {
     fn transform(&mut self, schema: &mut schemars::Schema) {
-        // Transform subschemas first
         transform_subschemas(self, schema);
 
-        // If this schema has $ref, remove sibling properties like title
-        if let Some(obj) = schema.as_object_mut() {
-            if obj.contains_key("$ref") {
-                obj.remove("title");
-            }
+        let Some(obj) = schema.as_object_mut() else { return };
+        if obj.contains_key("$ref") {
+            obj.remove("title");
         }
     }
 }
@@ -631,18 +602,6 @@ const CARTESIAN_COLLAPSE_CONFIGS: &[CartesianCollapseConfig] = &[
         ],
     },
 ];
-
-fn to_pascal_case(s: &str) -> String {
-    s.split('_')
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().chain(chars).collect(),
-            }
-        })
-        .collect()
-}
 
 /// Collapse cartesian product explosions in the schema.
 fn collapse_cartesian_products(schemas: &mut serde_json::Map<String, serde_json::Value>) {
