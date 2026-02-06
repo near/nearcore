@@ -1872,7 +1872,7 @@ impl Chain {
         self.update_optimistic_blocks_pool(&block)?;
 
         let epoch_id = block.header().epoch_id();
-        let mut memtrie_retained_shards = vec![];
+        let mut shards_cares_this_or_next_epoch = vec![];
         for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
             let cares_about_shard =
                 self.shard_tracker.cares_about_shard(block.header().prev_hash(), shard_id);
@@ -1881,7 +1881,7 @@ impl Chain {
             let cares_about_shard_this_or_next_epoch = cares_about_shard || will_care_about_shard;
             let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
             if cares_about_shard_this_or_next_epoch {
-                memtrie_retained_shards.push(shard_uid);
+                shards_cares_this_or_next_epoch.push(shard_uid);
             }
 
             let need_storage_update = if is_caught_up {
@@ -1916,7 +1916,7 @@ impl Chain {
 
         if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
             // Keep in memory only these tries that we care about this or next epoch.
-            self.runtime_adapter.get_tries().retain_memtries(&memtrie_retained_shards);
+            self.runtime_adapter.get_tries().retain_memtries(&shards_cares_this_or_next_epoch);
         }
 
         if let Some(tip) = &new_head {
