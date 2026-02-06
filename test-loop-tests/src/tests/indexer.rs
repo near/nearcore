@@ -205,8 +205,9 @@ fn test_indexer_deploy_contract_local_tx() {
     let [ActionView::DeployContract { code, code_hash }] = actions.as_slice() else {
         panic!("expected single deploy contract action")
     };
-    assert_eq!(code, CryptoHash::hash_bytes(near_test_contracts::rs_contract()).as_bytes());
-    assert_eq!(code_hash, &CryptoHash::hash_bytes(near_test_contracts::rs_contract()));
+    let expected_hash = CryptoHash::hash_bytes(near_test_contracts::rs_contract());
+    assert_eq!(code, expected_hash.as_bytes());
+    assert_eq!(code_hash, &expected_hash);
 
     shutdown(env);
 }
