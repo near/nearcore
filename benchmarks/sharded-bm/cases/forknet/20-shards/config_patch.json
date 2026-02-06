@@ -1,1 +1,10 @@
-{}
+{
+    "max_block_production_delay": {
+        "secs": 30,
+        "nanos": 0
+    },
+    "max_block_wait_delay": {
+        "secs": 30,
+        "nanos": 0
+    }
+}
