@@ -8,7 +8,7 @@ use near_chain_primitives::Error;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt};
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
@@ -236,15 +236,15 @@ impl ChainStoreAdapter {
         )
     }
 
-    pub fn get_processed_local_receipts(
+    pub fn get_processed_receipt_ids(
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<Arc<Vec<Receipt>>, Error> {
+    ) -> Result<Arc<Vec<ProcessedReceiptMetadata>>, Error> {
         option_to_not_found(
             self.store
-                .get_ser(DBCol::ProcessedLocalReceipts, &get_block_shard_id(block_hash, shard_id)),
-            format_args!("PROCESSED LOCAL RECEIPTS: {} {}", block_hash, shard_id),
+                .get_ser(DBCol::ProcessedReceiptIds, &get_block_shard_id(block_hash, shard_id)),
+            format_args!("PROCESSED RECEIPT IDS: {} {}", block_hash, shard_id),
         )
     }
 

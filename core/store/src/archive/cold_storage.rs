@@ -7,7 +7,7 @@ use crate::{DBCol, DBTransaction, Database, Store, TrieChanges, metrics};
 use borsh::BorshDeserialize;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::ProcessedReceiptMetadata;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -561,21 +561,25 @@ fn get_keys_from_store(
                 DBKeyType::ReceiptHash => {
                     let mut receipt_ids = vec![];
                     for chunk in &chunks {
-                        let local_receipts: Vec<Receipt> = if let Ok(Some(receipts)) = store
-                            .get_ser(
-                                DBCol::ProcessedLocalReceipts,
+                        let processed_receipts_metadata: Vec<ProcessedReceiptMetadata> =
+                            if let Ok(Some(metadata)) = store.get_ser(
+                                DBCol::ProcessedReceiptIds,
                                 &join_two_keys(&block_hash_key, &chunk.shard_id().to_le_bytes()),
                             ) {
-                            receipts
-                        } else {
-                            vec![]
-                        };
+                                metadata
+                            } else {
+                                vec![]
+                            };
                         receipt_ids.extend(
                             chunk
                                 .prev_outgoing_receipts()
                                 .iter()
-                                .chain(local_receipts.iter())
-                                .map(|r| r.get_hash().as_bytes().to_vec()),
+                                .map(|r| r.get_hash().as_bytes().to_vec())
+                                .chain(
+                                    processed_receipts_metadata
+                                        .iter()
+                                        .map(|m| m.receipt_id().as_bytes().to_vec()),
+                                ),
                         );
                     }
                     receipt_ids

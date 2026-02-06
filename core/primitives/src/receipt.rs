@@ -1140,3 +1140,39 @@ mod tests {
         }
     }
 }
+
+/// Source of a processed receipt, used to track how a receipt was applied.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+pub enum ReceiptSource {
+    Local,
+}
+
+/// Lightweight metadata about a processed receipt, stored instead of the full receipt.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+pub enum ProcessedReceiptMetadata {
+    V0(ProcessedReceiptMetadataV0),
+}
+
+impl ProcessedReceiptMetadata {
+    pub fn new(receipt_id: CryptoHash, source: ReceiptSource) -> Self {
+        Self::V0(ProcessedReceiptMetadataV0 { receipt_id, source })
+    }
+
+    pub fn receipt_id(&self) -> &CryptoHash {
+        match self {
+            Self::V0(v0) => &v0.receipt_id,
+        }
+    }
+
+    pub fn source(&self) -> &ReceiptSource {
+        match self {
+            Self::V0(v0) => &v0.source,
+        }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+pub struct ProcessedReceiptMetadataV0 {
+    pub receipt_id: CryptoHash,
+    pub source: ReceiptSource,
+}

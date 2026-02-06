@@ -333,10 +333,10 @@ pub enum DBCol {
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: `ChunkApplyStats`
     ChunkApplyStats,
-    /// Mapping from Block + Shard to list of processed local receipts.
+    /// Mapping from Block + Shard to list of processed receipt metadata.
     /// - *Rows*: block + shard
-    /// - *Content type*: Vec of [near_primitives::receipt::Receipt]
-    ProcessedLocalReceipts,
+    /// - *Content type*: Vec of [near_primitives::receipt::ProcessedReceiptMetadata]
+    ProcessedReceiptIds,
     /// Mapping from Block Hash + Target Shard Id + Source Shard Id to Receipt Proof.
     /// The receipts result from applying the chunk on the source shard of the corresponding block.
     /// The key includes the target shard first to enable prefix queries for retrieving all incoming
@@ -576,7 +576,7 @@ impl DBCol {
             // This can be re-constructed from the Chunks column, so no need to store in Cold DB.
             DBCol::PartialChunks => false,
             // Only needed to properly GC Receipts column
-            DBCol::ProcessedLocalReceipts => false,
+            DBCol::ProcessedReceiptIds => false,
             // BlockHeader is considered cold once ContinuousEpochSync is enabled. Before that, it is false
             DBCol::BlockHeader => ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION),
 
@@ -689,7 +689,7 @@ impl DBCol {
             DBCol::StateSyncHashes => &[DBKeyType::EpochId],
             DBCol::StateSyncNewChunks => &[DBKeyType::BlockHash],
             DBCol::ChunkApplyStats => &[DBKeyType::BlockHash, DBKeyType::ShardId],
-            DBCol::ProcessedLocalReceipts => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::ProcessedReceiptIds => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ReceiptProofs => &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::ShardId],
             #[cfg(feature = "protocol_feature_spice")]
