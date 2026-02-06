@@ -14,6 +14,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockExecutionResults, ChunkExecutionResult, ShardId};
 use near_store::PartialStorage;
 use node_runtime::SignedValidPeriodTransactions;
@@ -22,7 +23,6 @@ use tracing::Span;
 use crate::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext, apply_new_chunk};
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::spice_chunk_application::build_spice_apply_chunk_block_context;
-use crate::spice_core::SpiceCoreReader;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::types::{RuntimeAdapter, StorageDataSource};
 use crate::{Chain, ChainStore};
@@ -38,7 +38,7 @@ pub fn spice_pre_validate_chunk_state_witness(
     prev_execution_results: &BlockExecutionResults,
     epoch_manager: &dyn EpochManagerAdapter,
     store: &ChainStore,
-    core_reader: &SpiceCoreReader,
+    prev_validator_proposals: Vec<ValidatorStake>,
 ) -> Result<SpicePreValidationOutput, Error> {
     assert_eq!(block.hash(), &state_witness.chunk_id().block_hash);
     let epoch_id = epoch_manager.get_epoch_id(block.header().hash())?;
@@ -142,8 +142,6 @@ pub fn spice_pre_validate_chunk_state_witness(
             prev_execution_results,
             epoch_manager,
         )?;
-        let prev_validator_proposals =
-            core_reader.prev_validator_proposals(prev_block.hash(), shard_id)?;
         NewChunkData {
             gas_limit: prev_chunk_chunk_extra.gas_limit(),
             prev_state_root: *prev_chunk_chunk_extra.state_root(),
@@ -589,7 +587,7 @@ mod tests {
             &BlockExecutionResults(HashMap::new()),
             test_chain.chain.epoch_manager.as_ref(),
             test_chain.chain.chain_store(),
-            &test_chain.chain.spice_core_reader,
+            vec![],
         );
 
         let error_message = unwrap_error_message(result);
@@ -633,7 +631,7 @@ mod tests {
             &BlockExecutionResults(HashMap::new()),
             test_chain.chain.epoch_manager.as_ref(),
             test_chain.chain.chain_store(),
-            &test_chain.chain.spice_core_reader,
+            vec![],
         );
 
         let error_message = unwrap_error_message(result);
@@ -1079,6 +1077,12 @@ mod tests {
             let block = self.chain.get_block(&state_witness.chunk_id().block_hash).unwrap();
             let prev_block = self.chain.get_block(block.header().prev_hash()).unwrap();
             let prev_execution_results = self.prev_execution_results();
+            let shard_id = state_witness.chunk_id().shard_id;
+            let prev_validator_proposals = self
+                .chain
+                .spice_core_reader
+                .prev_validator_proposals(prev_block.hash(), shard_id)
+                .unwrap();
             let pre_validation_output = spice_pre_validate_chunk_state_witness(
                 &state_witness,
                 &block,
@@ -1086,7 +1090,7 @@ mod tests {
                 &prev_execution_results,
                 self.chain.epoch_manager.as_ref(),
                 self.chain.chain_store(),
-                &self.chain.spice_core_reader,
+                prev_validator_proposals,
             )
             .unwrap();
 
@@ -1105,6 +1109,12 @@ mod tests {
             let block = self.chain.get_block(&state_witness.chunk_id().block_hash).unwrap();
             let prev_block = self.chain.get_block(block.header().prev_hash()).unwrap();
             let prev_execution_results = self.prev_execution_results();
+            let shard_id = state_witness.chunk_id().shard_id;
+            let prev_validator_proposals = self
+                .chain
+                .spice_core_reader
+                .prev_validator_proposals(prev_block.hash(), shard_id)
+                .unwrap();
             spice_pre_validate_chunk_state_witness(
                 state_witness,
                 &block,
@@ -1112,7 +1122,7 @@ mod tests {
                 &prev_execution_results,
                 self.chain.epoch_manager.as_ref(),
                 self.chain.chain_store(),
-                &self.chain.spice_core_reader,
+                prev_validator_proposals,
             )
         }
 

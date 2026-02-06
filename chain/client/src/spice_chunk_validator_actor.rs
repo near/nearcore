@@ -22,6 +22,7 @@ use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEn
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessSize;
 use near_primitives::types::BlockExecutionResults;
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
@@ -174,6 +175,7 @@ impl SpiceChunkValidatorActor {
     ) -> Result<WitnessProcessingReadiness, Error> {
         let chunk_id = witness.chunk_id();
         let block_hash = chunk_id.block_hash;
+        let shard_id = chunk_id.shard_id;
         let block = match self.chain_store.get_block(&block_hash) {
             Ok(block) => block,
             Err(Error::DBNotFoundErr(err)) => {
@@ -199,10 +201,27 @@ impl SpiceChunkValidatorActor {
             return Ok(WitnessProcessingReadiness::NotReady);
         };
 
+        let prev_validator_proposals = match self
+            .core_reader
+            .prev_validator_proposals(prev_block.hash(), shard_id)
+        {
+            Ok(proposals) => proposals,
+            Err(err) => {
+                tracing::debug!(
+                        target: "spice_chunk_validator",
+                        ?chunk_id,
+                        prev_block_hash = ?prev_block.hash(),
+                        ?err,
+                        "witness for block isn't ready for processing; missing execution results for validator proposals");
+                return Ok(WitnessProcessingReadiness::NotReady);
+            }
+        };
+
         Ok(WitnessProcessingReadiness::Ready(WitnessValidationContext {
             block,
             prev_block,
             prev_block_execution_results,
+            prev_validator_proposals,
         }))
     }
 
@@ -211,6 +230,7 @@ impl SpiceChunkValidatorActor {
         block: Arc<Block>,
         signer: Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
+        // TODO(spice): Reduce code duplication with witness_processing_readiness.
         let prev_hash = *block.header().prev_hash();
         let prev_block = self.chain_store.get_block(&prev_hash)?;
         let Some(prev_block_execution_results) =
@@ -224,20 +244,46 @@ impl SpiceChunkValidatorActor {
         };
 
         let ready_witnesses = self.pending_witnesses.remove(block.header().hash());
-
-        let witness_validation_context =
-            WitnessValidationContext { block, prev_block, prev_block_execution_results };
+        let mut unready_witnesses = Vec::new();
         for witness in ready_witnesses.into_iter().flatten() {
+            let shard_id = witness.chunk_id().shard_id;
+            let prev_validator_proposals =
+                match self.core_reader.prev_validator_proposals(prev_block.hash(), shard_id) {
+                    Ok(proposals) => proposals,
+                    Err(err) => {
+                        tracing::debug!(
+                        target: "spice_chunk_validator",
+                        ?prev_hash,
+                        chunk_id=?witness.chunk_id(),
+                        ?err,
+                        "witness not ready; missing execution results for validator proposals");
+                        unready_witnesses.push(witness);
+                        continue;
+                    }
+                };
             tracing::debug!(
                 target: "spice_chunk_validator",
                 ?prev_hash,
                 chunk_id=?witness.chunk_id(),
                 "processing ready pending state witnesses");
+            let witness_validation_context = WitnessValidationContext {
+                block: block.clone(),
+                prev_block: prev_block.clone(),
+                prev_block_execution_results: prev_block_execution_results.clone(),
+                prev_validator_proposals,
+            };
             self.validate_state_witness_and_send_endorsements(
                 &witness_validation_context,
                 witness,
                 signer.clone(),
             )?;
+        }
+
+        if !unready_witnesses.is_empty() {
+            self.pending_witnesses
+                .entry(*block.header().hash())
+                .or_default()
+                .extend(unready_witnesses);
         }
         Ok(())
     }
@@ -254,7 +300,12 @@ impl SpiceChunkValidatorActor {
 
     fn validate_state_witness_and_send_endorsements(
         &self,
-        WitnessValidationContext { block, prev_block, prev_block_execution_results }: &WitnessValidationContext,
+        WitnessValidationContext {
+            block,
+            prev_block,
+            prev_block_execution_results,
+            prev_validator_proposals,
+        }: &WitnessValidationContext,
         witness: SpiceChunkStateWitness,
         signer: Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
@@ -269,7 +320,7 @@ impl SpiceChunkValidatorActor {
             &prev_block_execution_results,
             self.epoch_manager.as_ref(),
             &self.chain_store,
-            &self.core_reader,
+            prev_validator_proposals.clone(),
         )?;
 
         let epoch_manager = self.epoch_manager.clone();
@@ -361,4 +412,5 @@ struct WitnessValidationContext {
     block: Arc<Block>,
     prev_block: Arc<Block>,
     prev_block_execution_results: BlockExecutionResults,
+    prev_validator_proposals: Vec<ValidatorStake>,
 }
