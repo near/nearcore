@@ -23,6 +23,8 @@ use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponse,
     QueryResponseKind,
 };
+use near_store::Store;
+use near_store::adapter::StoreAdapter as _;
 
 use crate::setup::state::NodeExecutionData;
 use crate::utils::account::rpc_account_id;
@@ -75,6 +77,10 @@ impl<'a> TestLoopNode<'a> {
     pub fn client<'b>(&self, test_loop_data: &'b TestLoopData) -> &'b Client {
         let client_handle = self.data().client_sender.actor_handle();
         &test_loop_data.get(&client_handle).client
+    }
+
+    pub fn store(&self, test_loop_data: &TestLoopData) -> Store {
+        self.client(test_loop_data).chain.chain_store.store().store()
     }
 
     pub fn client_actor<'b>(&self, test_loop_data: &'b mut TestLoopData) -> &'b mut ClientActor {
