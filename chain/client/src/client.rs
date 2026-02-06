@@ -948,14 +948,14 @@ impl Client {
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
         let spice_info = if ProtocolFeature::Spice.enabled(protocol_version) {
-            let core_statements =
-                self.chain.spice_core_reader.core_statements_for_next_block(&prev_header)?;
+            let core_statements = SpiceCoreStatements::new(
+                self.chain.spice_core_reader.core_statements_for_next_block(&prev_header)?,
+            );
             let last_certified_block_execution_results =
                 self.chain.spice_core_reader.get_last_certified_execution_results_for_next_block(
                     prev_header,
-                    SpiceCoreStatements::new(&core_statements),
+                    &core_statements,
                 )?;
-
             Some(SpiceNewBlockProductionInfo {
                 core_statements,
                 last_certified_block_execution_results,
