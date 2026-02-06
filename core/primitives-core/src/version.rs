@@ -356,6 +356,11 @@ pub enum ProtocolFeature {
     /// deterministic account IDs are enabled.
     /// NEP: https://github.com/near/NEPs/pull/616
     FixDeterministicAccountIdCreation,
+    /// Nonce-based idempotency for global contract distribution receipts.
+    /// Each distribution carries a nonce (block height), and a shard drops
+    /// incoming distributions with a nonce <= the one already stored.
+    /// This prevents stale overwrites during resharding.
+    GlobalContractDistributionNonce,
 }
 
 impl ProtocolFeature {
@@ -468,6 +473,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::GasKeys => 149,
+            ProtocolFeature::GlobalContractDistributionNonce => 150,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
@@ -496,7 +502,7 @@ pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 150;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.

@@ -11,7 +11,7 @@ use near_primitives::global_contract::ContractIsLocalError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{GlobalContractDistributionReceipt, Receipt, ReceiptEnum};
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
-use near_primitives::types::{AccountId, EpochInfoProvider, ShardId, StateChangeCause};
+use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, ShardId, StateChangeCause};
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{KeyLookupMode, StorageError, TrieAccess as _, TrieUpdate};
@@ -57,6 +57,8 @@ pub(crate) fn action_deploy_global_contract(
         deploy_contract.code.clone(),
         &deploy_contract.deploy_mode,
         apply_state.shard_id,
+        apply_state.block_height,
+        apply_state.current_protocol_version,
         result,
     );
 
@@ -139,7 +141,7 @@ pub(crate) fn apply_global_contract_distribution_receipt(
     let ReceiptEnum::GlobalContractDistribution(global_contract_data) = receipt.receipt() else {
         unreachable!("given receipt should be an global contract distribution receipt")
     };
-    apply_distribution_current_shard(receipt, global_contract_data, apply_state, state_update);
+    apply_distribution_current_shard(receipt, global_contract_data, apply_state, state_update)?;
     forward_distribution_next_shard(
         receipt,
         global_contract_data,
@@ -157,6 +159,8 @@ fn initiate_distribution(
     contract_code: Arc<[u8]>,
     deploy_mode: &GlobalContractDeployMode,
     current_shard_id: ShardId,
+    block_height: BlockHeight,
+    protocol_version: ProtocolVersion,
     result: &mut ActionResult,
 ) {
     let id = match deploy_mode {
@@ -167,16 +171,21 @@ fn initiate_distribution(
             GlobalContractIdentifier::AccountId(account_id.clone())
         }
     };
-    let distribution_receipts = Receipt::new_global_contract_distribution(
-        account_id,
-        GlobalContractDistributionReceipt::new(
+    let distribution_receipt = if ProtocolFeature::GlobalContractDistributionNonce
+        .enabled(protocol_version)
+    {
+        GlobalContractDistributionReceipt::new_v2(
             id,
-            // We can start with any shard, using the current one just for convenience
             current_shard_id,
             vec![],
             contract_code,
-        ),
-    );
+            block_height,
+        )
+    } else {
+        GlobalContractDistributionReceipt::new(id, current_shard_id, vec![], contract_code)
+    };
+    let distribution_receipts =
+        Receipt::new_global_contract_distribution(account_id, distribution_receipt);
     // No need to set receipt_id here, it will be generated as part of apply_action_receipt
     result.new_receipts.push(distribution_receipts);
 }
@@ -186,18 +195,39 @@ fn apply_distribution_current_shard(
     global_contract_data: &GlobalContractDistributionReceipt,
     apply_state: &ApplyState,
     state_update: &mut TrieUpdate,
-) {
-    let config = apply_state.config.wasm_config.clone();
-    let trie_key = TrieKey::GlobalContractCode {
-        identifier: match &global_contract_data.id() {
-            GlobalContractIdentifier::CodeHash(hash) => {
-                GlobalContractCodeIdentifier::CodeHash(*hash)
-            }
-            GlobalContractIdentifier::AccountId(account_id) => {
-                GlobalContractCodeIdentifier::AccountId(account_id.clone())
-            }
-        },
+) -> Result<(), RuntimeError> {
+    let identifier = match &global_contract_data.id() {
+        GlobalContractIdentifier::CodeHash(hash) => {
+            GlobalContractCodeIdentifier::CodeHash(*hash)
+        }
+        GlobalContractIdentifier::AccountId(account_id) => {
+            GlobalContractCodeIdentifier::AccountId(account_id.clone())
+        }
     };
+
+    // Nonce-based idempotency: skip stale distributions.
+    if ProtocolFeature::GlobalContractDistributionNonce
+        .enabled(apply_state.current_protocol_version)
+    {
+        let nonce_key =
+            TrieKey::GlobalContractNonce { identifier: identifier.clone() };
+        let stored_nonce = match state_update.get(&nonce_key, AccessOptions::DEFAULT)? {
+            Some(bytes) => {
+                let bytes: [u8; 8] =
+                    bytes.try_into().expect("GlobalContractNonce should be 8 bytes");
+                u64::from_le_bytes(bytes)
+            }
+            None => 0,
+        };
+        let incoming_nonce = global_contract_data.nonce();
+        if incoming_nonce <= stored_nonce {
+            return Ok(());
+        }
+        state_update.set(nonce_key, incoming_nonce.to_le_bytes().to_vec());
+    }
+
+    let config = apply_state.config.wasm_config.clone();
+    let trie_key = TrieKey::GlobalContractCode { identifier };
     state_update.set(trie_key, global_contract_data.code().to_vec());
     state_update.commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
     let code_hash = match global_contract_data.id() {
@@ -209,6 +239,7 @@ fn apply_distribution_current_shard(
         config,
         apply_state.cache.as_deref(),
     );
+    Ok(())
 }
 
 fn forward_distribution_next_shard(
@@ -232,14 +263,28 @@ fn forward_distribution_next_shard(
         .filter(|shard_id| !already_delivered_shards.contains(&shard_id))
         .next()
     {
+        let forwarded_distribution = match global_contract_data {
+            GlobalContractDistributionReceipt::V1(_) => {
+                GlobalContractDistributionReceipt::new(
+                    global_contract_data.id().clone(),
+                    next_shard,
+                    Vec::from_iter(already_delivered_shards),
+                    global_contract_data.code().clone(),
+                )
+            }
+            GlobalContractDistributionReceipt::V2(_) => {
+                GlobalContractDistributionReceipt::new_v2(
+                    global_contract_data.id().clone(),
+                    next_shard,
+                    Vec::from_iter(already_delivered_shards),
+                    global_contract_data.code().clone(),
+                    global_contract_data.nonce(),
+                )
+            }
+        };
         let mut next_receipt = Receipt::new_global_contract_distribution(
             receipt.predecessor_id().clone(),
-            GlobalContractDistributionReceipt::new(
-                global_contract_data.id().clone(),
-                next_shard,
-                Vec::from_iter(already_delivered_shards),
-                global_contract_data.code().clone(),
-            ),
+            forwarded_distribution,
         );
         let receipt_id = apply_state.create_receipt_id(receipt.receipt_id(), 0);
         next_receipt.set_receipt_id(receipt_id);
