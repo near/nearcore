@@ -206,6 +206,8 @@ fn test_indexer_deploy_contract_local_tx() {
         panic!("expected single deploy contract action")
     };
     let expected_hash = CryptoHash::hash_bytes(near_test_contracts::rs_contract());
+    // Test both deprecated `code` field and new `code_hash` field during deprecation period
+    // TODO: Remove the `code` assertion when the deprecated field is removed
     assert_eq!(code, expected_hash.as_bytes());
     assert_eq!(code_hash, &expected_hash);
 
