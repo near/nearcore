@@ -417,7 +417,8 @@ impl Chain {
             shard_tracker.clone(),
             noop().into_multi_sender(),
         );
-        let num_shards = runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
+        let thread_limit =
+            runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize * 3;
         let spice_core_reader = SpiceCoreReader::new(
             store.chain_store(),
             epoch_manager.clone(),
@@ -442,7 +443,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            apply_chunks_spawner: ApplyChunksSpawner::default().into_spawner(num_shards),
+            apply_chunks_spawner: ApplyChunksSpawner::default().into_spawner(thread_limit),
             apply_chunks_iteration_mode: ApplyChunksIterationMode::default(),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
@@ -591,12 +592,13 @@ impl Chain {
             resharding_sender,
         );
 
-        // The number of shards for the binary's latest `PROTOCOL_VERSION` is used as a thread limit. This assumes that:
+        // The number of shards for the binary's latest `PROTOCOL_VERSION` is used to compute the thread limit. This assumes that:
         // a) The number of shards will not grow above this limit without the binary being updated (no dynamic resharding),
-        // b) Under normal conditions, the node will not process more chunks at the same time as there are shards.
-        let max_num_shards =
-            runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
-        let apply_chunks_spawner = apply_chunks_spawner.into_spawner(max_num_shards);
+        // b) Under normal conditions, the number of chunks processed concurrently will stay on the same order as the number
+        //    of shards, even though we allow up to 3x that many concurrent tasks.
+        let apply_chunks_thread_limit =
+            runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize * 3;
+        let apply_chunks_spawner = apply_chunks_spawner.into_spawner(apply_chunks_thread_limit);
         let spice_core_reader = SpiceCoreReader::new(
             chain_store.store().chain_store(),
             epoch_manager.clone(),
