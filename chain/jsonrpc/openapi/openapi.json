@@ -16890,7 +16890,8 @@
           },
           {
             "$ref": "#/components/schemas/FinalExecutionOutcomeView"
-          }
+          },
+          {}
         ],
         "properties": {
           "final_execution_status": {
@@ -17005,12 +17006,6 @@
       "RpcValidatorRequest": {
         "oneOf": [
           {
-            "enum": [
-              "latest"
-            ],
-            "type": "string"
-          },
-          {
             "properties": {
               "epoch_id": {
                 "$ref": "#/components/schemas/EpochId"
@@ -17029,6 +17024,20 @@
             },
             "required": [
               "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "latest": {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            },
+            "required": [
+              "latest"
             ],
             "type": "object"
           }
