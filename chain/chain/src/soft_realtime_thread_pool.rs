@@ -96,10 +96,10 @@ struct ThreadPoolState {
     condvar: Condvar,
 }
 
-impl Drop for ThreadPoolState {
+impl Drop for ThreadPool {
     fn drop(&mut self) {
-        self.inner.lock().shutdown = true;
-        self.condvar.notify_all();
+        self.state.inner.lock().shutdown = true;
+        self.state.condvar.notify_all();
     }
 }
 
