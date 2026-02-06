@@ -165,7 +165,7 @@ impl Connection {
     // so that we can skip the actor queue when sending messages.
     pub fn send_message(&self, msg: Arc<PeerMessage>) {
         let msg_kind = msg.msg_variant().to_string();
-        tracing::trace!(target: "network", ?msg_kind, "sending message");
+        tracing::trace!(?msg_kind, "sending message");
         self.handle.send(SendMessage { message: msg }.span_wrap());
     }
 
@@ -448,7 +448,7 @@ impl Pool {
                     // however conflicting connections with the same account key indicate an
                     // incorrect validator setup, so we log it here as a warn!, rather than just
                     // info!.
-                    tracing::warn!(target:"network", %id, ?err, "pool register failed");
+                    tracing::warn!(%id, ?err, "pool register failed");
                     metrics::ALREADY_CONNECTED_ACCOUNT.inc();
                     return Err(err);
                 }
@@ -509,7 +509,7 @@ impl Pool {
             peer.send_message(msg);
             return true;
         }
-        tracing::debug!(target: "network",
+        tracing::debug!(
            to = ?peer_id,
            num_connected_peers = pool.ready.len(),
            ?msg,

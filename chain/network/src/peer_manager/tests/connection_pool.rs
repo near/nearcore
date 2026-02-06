@@ -269,7 +269,7 @@ async fn invalid_edge() {
 
     for (name, edge) in &testcases {
         for tier in [tcp::Tier::T1, tcp::Tier::T2, tcp::Tier::T3] {
-            tracing::info!(target:"test", %name, ?tier, "test case");
+            tracing::info!(%name, ?tier, "test case");
             let stream = tcp::Stream::connect(&pm.peer_info(), tier, &SocketOptions::default())
                 .await
                 .unwrap();

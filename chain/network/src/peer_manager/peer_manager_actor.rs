@@ -156,15 +156,14 @@ impl messaging::Actor for PeerManagerActor {
 
         // Attempt to reconnect to recent outbound connections from storage
         if self.state.config.connect_to_reliable_peers_on_startup {
-            tracing::debug!(target: "network", "reconnecting to reliable peers from storage");
+            tracing::debug!("reconnecting to reliable peers from storage");
             self.bootstrap_outbound_from_recent_connections();
         } else {
-            tracing::debug!(target: "network", "skipping reconnection to reliable peers");
+            tracing::debug!("skipping reconnection to reliable peers");
         }
 
         // Periodically starts peer monitoring.
-        tracing::debug!(target: "network",
-               max_period=?self.state.config.monitor_peers_max_period,
+        tracing::debug!(               max_period=?self.state.config.monitor_peers_max_period,
                "monitor_peers_trigger");
         self.monitor_peers_trigger(
             MONITOR_PEERS_INITIAL_DURATION,
@@ -228,12 +227,13 @@ impl PeerManagerActor {
         let store = store::Store::from(store);
         let peer_store = peer_store::PeerStore::new(&clock, config.peer_store.clone())
             .context("PeerStore::new")?;
-        tracing::debug!(target: "network",
-               len = peer_store.len(),
-               boot_nodes = config.peer_store.boot_nodes.len(),
-               banned = peer_store.count_banned(),
-               "found known peers");
-        tracing::debug!(target: "network", blacklist = ?config.peer_store.blacklist);
+        tracing::debug!(
+            len = peer_store.len(),
+            boot_nodes = config.peer_store.boot_nodes.len(),
+            banned = peer_store.count_banned(),
+            "found known peers"
+        );
+        tracing::debug!(blacklist = ?config.peer_store.blacklist);
         let whitelist_nodes = {
             let mut v = vec![];
             for wn in &config.whitelist_nodes {
@@ -267,16 +267,23 @@ impl PeerManagerActor {
             let clock = clock.clone();
             let actor_system = actor_system.clone();
             async move {
-                if let Ok(Some(epoch_height)) = state.client.current_epoch_height_request.send_async(GetCurrentEpochHeight).await {
+                if let Ok(Some(epoch_height)) = state
+                    .client
+                    .current_epoch_height_request
+                    .send_async(GetCurrentEpochHeight)
+                    .await
+                {
                     state.snapshot_hosts.set_current_epoch_height(epoch_height);
                 }
                 // Start server if address provided.
                 if let Some(server_addr) = &state.config.node_addr {
-                    tracing::debug!(target: "network", at = ?server_addr, "starting public server");
+                    tracing::debug!(at = ?server_addr, "starting public server");
                     let listener = match server_addr.listener() {
                         Ok(it) => it,
                         Err(e) => {
-                            panic!("failed to start listening on server_addr={server_addr:?} e={e:?}")
+                            panic!(
+                                "failed to start listening on server_addr={server_addr:?} e={e:?}"
+                            )
                         }
                     };
                     #[cfg(test)]
@@ -293,11 +300,14 @@ impl PeerManagerActor {
                                     // It is expected to be reasonably cheap: eventually, for TIER2 network
                                     // we would like to exchange set of connected peers even without establishing
                                     // a proper connection.
-                                    tracing::debug!(target: "network", from = ?stream.peer_addr, "got new connection");
-                                    if let Err(err) =
-                                        PeerActor::spawn(clock.clone(), actor_system.clone(), stream, state.clone())
-                                    {
-                                        tracing::info!(target:"network", ?err, "peer actor spawn failed");
+                                    tracing::debug!(from = ?stream.peer_addr, "got new connection");
+                                    if let Err(err) = PeerActor::spawn(
+                                        clock.clone(),
+                                        actor_system.clone(),
+                                        stream,
+                                        state.clone(),
+                                    ) {
+                                        tracing::info!(?err, "peer actor spawn failed");
                                     }
                                 }
                             }
@@ -311,7 +321,8 @@ impl PeerManagerActor {
                     let clock = clock.clone();
                     let state = state.clone();
                     let actor_system = actor_system.clone();
-                    let mut interval = time::Interval::new(clock.now(), tier1.advertise_proxies_interval);
+                    let mut interval =
+                        time::Interval::new(clock.now(), tier1.advertise_proxies_interval);
                     async move {
                         loop {
                             interval.tick(&clock).await;
@@ -326,7 +337,8 @@ impl PeerManagerActor {
                     let clock = clock.clone();
                     let state = state.clone();
                     let actor_system = actor_system.clone();
-                    let mut interval = tokio::time::interval(tier1.connect_interval.try_into().unwrap());
+                    let mut interval =
+                        tokio::time::interval(tier1.connect_interval.try_into().unwrap());
                     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                     async move {
                         loop {
@@ -342,7 +354,8 @@ impl PeerManagerActor {
                     let actor_system = actor_system.clone();
                     let state = state.clone();
                     let handle = handle.clone();
-                    let mut interval = time::Interval::new(clock.now(), POLL_CONNECTION_STORE_INTERVAL);
+                    let mut interval =
+                        time::Interval::new(clock.now(), POLL_CONNECTION_STORE_INTERVAL);
                     async move {
                         loop {
                             interval.tick(&clock).await;
@@ -356,12 +369,22 @@ impl PeerManagerActor {
                                     let peer_info = peer_info.clone();
                                     let actor_system = actor_system.clone();
                                     async move {
-                                        state.reconnect(clock, actor_system, peer_info, MAX_RECONNECT_ATTEMPTS).await;
+                                        state
+                                            .reconnect(
+                                                clock,
+                                                actor_system,
+                                                peer_info,
+                                                MAX_RECONNECT_ATTEMPTS,
+                                            )
+                                            .await;
                                     }
                                 });
 
                                 #[cfg(test)]
-                                state.config.event_sink.send(Event::ReconnectLoopSpawned(peer_info));
+                                state
+                                    .config
+                                    .event_sink
+                                    .send(Event::ReconnectLoopSpawned(peer_info));
                             }
                         }
                     }
@@ -394,20 +417,18 @@ impl PeerManagerActor {
             if bandwidth_used > REPORT_BANDWIDTH_THRESHOLD_BYTES
                 || msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
             {
-                tracing::debug!(target: "bandwidth",
+                tracing::debug!(
                     ?peer_id,
-                    bandwidth_used, msg_received_count, "peer bandwidth exceeded threshold",
+                    bandwidth_used,
+                    msg_received_count,
+                    "peer bandwidth exceeded threshold",
                 );
             }
             total_bandwidth_used_by_all_peers += bandwidth_used;
             total_msg_received_count += msg_received_count;
         }
 
-        tracing::info!(
-            target: "bandwidth",
-            total_bandwidth_used_by_all_peers,
-            total_msg_received_count
-        );
+        tracing::info!(total_bandwidth_used_by_all_peers, total_msg_received_count);
 
         self.handle.clone().run_later(
             "report_bandwidth_stats_trigger",
@@ -571,7 +592,7 @@ impl PeerManagerActor {
         // Build valid candidate list to choose the peer to be removed. All peers outside the safe set.
         let candidates = tier2.ready.values().filter(|p| !safe_set.contains(&p.peer_info.id));
         if let Some(p) = candidates.choose(&mut rand::thread_rng()) {
-            tracing::debug!(target: "network", id = ?p.peer_info.id,
+            tracing::debug!(id = ?p.peer_info.id,
                 tier2_len = tier2.ready.len(),
                 ideal_connections_hi = self.state.config.ideal_connections_hi,
                 "stopping active connection"
@@ -619,7 +640,7 @@ impl PeerManagerActor {
         mut interval: time::Duration,
         (default_interval, max_interval): (time::Duration, time::Duration),
     ) {
-        let _span = tracing::trace_span!(target: "network", "monitor_peers_trigger").entered();
+        let _span = tracing::trace_span!("monitor_peers_trigger").entered();
         let _timer =
             metrics::PEER_MANAGER_TRIGGER_TIME.with_label_values(&["monitor_peers"]).start_timer();
 
@@ -651,18 +672,37 @@ impl PeerManagerActor {
                     let actor_system = self.actor_system.clone();
                     async move {
                         let result = async {
-                            let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2, &state.config.socket_options).await.context("tcp::Stream::connect()")?;
-                            PeerActor::spawn_and_handshake(clock.clone(), actor_system, stream,state.clone()).await.context("PeerActor::spawn()")?;
+                            let stream = tcp::Stream::connect(
+                                &peer_info,
+                                tcp::Tier::T2,
+                                &state.config.socket_options,
+                            )
+                            .await
+                            .context("tcp::Stream::connect()")?;
+                            PeerActor::spawn_and_handshake(
+                                clock.clone(),
+                                actor_system,
+                                stream,
+                                state.clone(),
+                            )
+                            .await
+                            .context("PeerActor::spawn()")?;
                             anyhow::Ok(())
-                        }.await;
+                        }
+                        .await;
 
                         if let Err(ref err) = result {
-                            tracing::info!(target: "network", ?err, %peer_info, "tier2 failed to connect");
+                            tracing::info!(?err, %peer_info, "tier2 failed to connect");
                         }
-                        if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
-                            tracing::error!(target: "network", ?peer_info, "failed to store connection attempt");
+                        if state
+                            .peer_store
+                            .peer_connection_attempt(&clock, &peer_info.id, result)
+                            .is_err()
+                        {
+                            tracing::error!(?peer_info, "failed to store connection attempt");
                         }
-                    }.instrument(tracing::trace_span!(target: "network", "monitor_peers_trigger_connect"))
+                    }
+                    .instrument(tracing::trace_span!("monitor_peers_trigger_connect"))
                 });
             }
         }
@@ -763,7 +803,7 @@ impl PeerManagerActor {
     }
 
     fn push_network_info_trigger(&self, interval: time::Duration) {
-        let _span = tracing::trace_span!(target: "network", "push_network_info_trigger").entered();
+        let _span = tracing::trace_span!("push_network_info_trigger").entered();
         let network_info = self.get_network_info();
         let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
             .with_label_values(&["push_network_info"])
@@ -775,9 +815,7 @@ impl PeerManagerActor {
             async move {
                 state.client.send_async(SetNetworkInfo(network_info).span_wrap()).await.ok();
             }
-            .instrument(
-                tracing::trace_span!(target: "network", "push_network_info_trigger_future"),
-            ),
+            .instrument(tracing::trace_span!("push_network_info_trigger_future")),
         );
 
         self.handle.clone().run_later(
@@ -791,9 +829,7 @@ impl PeerManagerActor {
 
     fn handle_msg_network_requests(&self, msg: NetworkRequests) -> NetworkResponses {
         let msg_type: &str = msg.as_ref();
-        let _span =
-            tracing::trace_span!(target: "network", "handle_msg_network_requests", msg_type)
-                .entered();
+        let _span = tracing::trace_span!("handle_msg_network_requests", msg_type).entered();
         metrics::REQUEST_COUNT_BY_TYPE_TOTAL.with_label_values(&[msg.as_ref()]).inc();
         match msg {
             NetworkRequests::Block { block } => {
@@ -853,7 +889,7 @@ impl PeerManagerActor {
                     .snapshot_hosts
                     .select_host_for_header(&sync_prev_prev_hash, shard_id)
                 else {
-                    tracing::debug!(target: "network", %shard_id, ?sync_hash, "no snapshot hosts available");
+                    tracing::debug!(%shard_id, ?sync_hash, "no snapshot hosts available");
                     return NetworkResponses::NoDestinationsAvailable;
                 };
 
@@ -874,7 +910,7 @@ impl PeerManagerActor {
                     return NetworkResponses::RouteNotFound;
                 }
 
-                tracing::debug!(target: "network", %shard_id, ?sync_hash, %peer_id, "requesting state header from host");
+                tracing::debug!(%shard_id, ?sync_hash, %peer_id, "requesting state header from host");
                 NetworkResponses::SelectedDestination(peer_id)
             }
             NetworkRequests::StateRequestPart {
@@ -896,7 +932,7 @@ impl PeerManagerActor {
                     shard_id,
                     part_id,
                 ) else {
-                    tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id, "no snapshot hosts available");
+                    tracing::debug!(%shard_id, ?sync_hash, ?part_id, "no snapshot hosts available");
                     return NetworkResponses::NoDestinationsAvailable;
                 };
 
@@ -918,7 +954,7 @@ impl PeerManagerActor {
                     return NetworkResponses::RouteNotFound;
                 }
 
-                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id, %peer_id, "requesting state part from host");
+                tracing::debug!(%shard_id, ?sync_hash, ?part_id, %peer_id, "requesting state part from host");
                 NetworkResponses::SelectedDestination(peer_id)
             }
             NetworkRequests::StateRequestAck {
@@ -946,7 +982,7 @@ impl PeerManagerActor {
                     return NetworkResponses::RouteNotFound;
                 }
 
-                tracing::debug!(target: "network", %shard_id, ?sync_hash, ?part_id_or_header, ?body, %peer_id, "ack state request from host");
+                tracing::debug!(%shard_id, ?sync_hash, ?part_id_or_header, ?body, %peer_id, "ack state request from host");
                 NetworkResponses::NoResponse
             }
             NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::ChainProgressed {
@@ -962,10 +998,7 @@ impl PeerManagerActor {
             }) => {
                 // Don't send out snapshot host info with empty shards - there's nothing useful to advertise.
                 if shards.is_empty() {
-                    tracing::trace!(
-                        target: "network",
-                        "skipping snapshot host info broadcast: no shards available"
-                    );
+                    tracing::trace!("skipping snapshot host info broadcast: no shards available");
                     return NetworkResponses::NoResponse;
                 }
 
@@ -1082,7 +1115,7 @@ impl PeerManagerActor {
                                 break;
                             }
                         } else {
-                            tracing::debug!(target: "network", chunk_hash=?request.chunk_hash, "failed to find any matching peer for chunk");
+                            tracing::debug!(chunk_hash=?request.chunk_hash, "failed to find any matching peer for chunk");
                         }
                     }
                 }
@@ -1090,7 +1123,7 @@ impl PeerManagerActor {
                 if success {
                     NetworkResponses::NoResponse
                 } else {
-                    tracing::debug!(target: "network", chunk_hash=?request.chunk_hash, "failed to find a route for chunk");
+                    tracing::debug!(chunk_hash=?request.chunk_hash, "failed to find a route for chunk");
                     NetworkResponses::RouteNotFound
                 }
             }
@@ -1179,8 +1212,7 @@ impl PeerManagerActor {
                     return NetworkResponses::NoResponse;
                 };
                 let part_owners_len = validator_witness_tuple.len();
-                let _span = tracing::debug_span!(target: "network",
-                    "send partial_encoded_state_witnesses",
+                let _span = tracing::debug_span!(                    "send partial_encoded_state_witnesses",
                     height = partial_witness.chunk_production_key().height_created,
                     shard_id = %partial_witness.chunk_production_key().shard_id,
                     part_owners_len,
@@ -1201,8 +1233,7 @@ impl PeerManagerActor {
                 chunk_validators,
                 partial_witness,
             ) => {
-                let _span = tracing::debug_span!(target: "network",
-                    "send partial_encoded_state_witness_forward",
+                let _span = tracing::debug_span!(                    "send partial_encoded_state_witness_forward",
                     height = partial_witness.chunk_production_key().height_created,
                     shard_id = %partial_witness.chunk_production_key().shard_id,
                     part_ord = partial_witness.part_ord(),
@@ -1338,7 +1369,7 @@ impl PeerManagerActor {
                     stream,
                     self.state.clone(),
                 ) {
-                    tracing::info!(target:"network", ?err, ?peer_addr, "spawn_outbound()");
+                    tracing::info!(?err, ?peer_addr, "spawn_outbound()");
                 }
                 PeerManagerMessageResponse::OutboundTcpConnect
             }
@@ -1422,103 +1453,124 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
         let state = self.state.clone();
         let clock = self.clock.clone();
         let actor_system = self.actor_system.clone();
-        self.handle.spawn("handle tier3 request", 
-            async move {
-                // Process the request.
-                // Unconditionally produce an ack to be sent back over tier2.
-                // Optionally produce a response to be sent over tier3.
-                let (tier2_ack, maybe_tier3_response) = match request.body {
-                    Tier3RequestBody::StateHeader(StateHeaderRequestBody { shard_id, sync_hash }) => {
-                        let (ack, response) = match state.state_request_adapter.send_async(StateRequestHeader { shard_id, sync_hash }).await {
-                            Ok(Some(client_response)) => {
-                                (StateRequestAckBody::WillRespond, Some(PeerMessage::VersionedStateResponse(*client_response.0)))
-                            }
-                            Ok(None) => {
-                                tracing::debug!(target: "network", ?request, "client declined to respond");
-                                (StateRequestAckBody::Busy, None)
-                            }
-                            Err(err) => {
-                                tracing::error!(target: "network", ?request, ?err, "client failed to respond");
-                                (StateRequestAckBody::Error, None)
-                            }
-                        };
+        self.handle.spawn("handle tier3 request", async move {
+            // Process the request.
+            // Unconditionally produce an ack to be sent back over tier2.
+            // Optionally produce a response to be sent over tier3.
+            let (tier2_ack, maybe_tier3_response) = match request.body {
+                Tier3RequestBody::StateHeader(StateHeaderRequestBody { shard_id, sync_hash }) => {
+                    let (ack, response) = match state
+                        .state_request_adapter
+                        .send_async(StateRequestHeader { shard_id, sync_hash })
+                        .await
+                    {
+                        Ok(Some(client_response)) => (
+                            StateRequestAckBody::WillRespond,
+                            Some(PeerMessage::VersionedStateResponse(*client_response.0)),
+                        ),
+                        Ok(None) => {
+                            tracing::debug!(?request, "client declined to respond");
+                            (StateRequestAckBody::Busy, None)
+                        }
+                        Err(err) => {
+                            tracing::error!(?request, ?err, "client failed to respond");
+                            (StateRequestAckBody::Error, None)
+                        }
+                    };
 
-                        (
-                            T2MessageBody::StateRequestAck(StateRequestAck {
-                                shard_id,
-                                sync_hash,
-                                part_id_or_header: PartIdOrHeader::Header,
-                                body: ack,
-                            }).into(),
-                            response
-                        )
-                    }
-                    Tier3RequestBody::StatePart(StatePartRequestBody { shard_id, sync_hash, part_id }) => {
-                        let (ack, response) = match state.state_request_adapter.send_async(StateRequestPart { shard_id, sync_hash, part_id }).await {
-                            Ok(Some(client_response)) => {
-                                (StateRequestAckBody::WillRespond, Some(PeerMessage::VersionedStateResponse(*client_response.0)))
-                            }
-                            Ok(None) => {
-                                tracing::debug!(target: "network", ?request, "client declined to respond");
-                                (StateRequestAckBody::Busy, None)
-                            }
-                            Err(err) => {
-                                tracing::error!(target: "network", ?err, ?request, "client failed to respond");
-                                (StateRequestAckBody::Error, None)
-                            }
-                        };
-
-                        (
-                            T2MessageBody::StateRequestAck(StateRequestAck {
-                                shard_id,
-                                sync_hash,
-                                part_id_or_header: PartIdOrHeader::Part { part_id },
-                                body: ack,
-                            }).into(),
-                            response
-                        )
-                    }
-                };
-
-                let sender: PeerId = request.peer_info.id.clone();
-
-                // Send an ack for the request
-                tracing::debug!(target: "network", ?tier2_ack, %sender, "ack state request from host");
-                let routed_message = state.sign_message(
-                    &clock,
-                    RawRoutedMessage {
-                        target: PeerIdOrHash::PeerId(sender.clone()),
-                        body: tier2_ack,
-                    },
-                );
-                if !state.send_message_to_peer(&clock, tcp::Tier::T2, routed_message) {
-                    tracing::debug!(target: "network", sender = %sender, "failed to route ack");
+                    (
+                        T2MessageBody::StateRequestAck(StateRequestAck {
+                            shard_id,
+                            sync_hash,
+                            part_id_or_header: PartIdOrHeader::Header,
+                            body: ack,
+                        })
+                        .into(),
+                        response,
+                    )
                 }
+                Tier3RequestBody::StatePart(StatePartRequestBody {
+                    shard_id,
+                    sync_hash,
+                    part_id,
+                }) => {
+                    let (ack, response) = match state
+                        .state_request_adapter
+                        .send_async(StateRequestPart { shard_id, sync_hash, part_id })
+                        .await
+                    {
+                        Ok(Some(client_response)) => (
+                            StateRequestAckBody::WillRespond,
+                            Some(PeerMessage::VersionedStateResponse(*client_response.0)),
+                        ),
+                        Ok(None) => {
+                            tracing::debug!(?request, "client declined to respond");
+                            (StateRequestAckBody::Busy, None)
+                        }
+                        Err(err) => {
+                            tracing::error!(?err, ?request, "client failed to respond");
+                            (StateRequestAckBody::Error, None)
+                        }
+                    };
 
-                let Some(tier3_response) = maybe_tier3_response else {
-                    return;
-                };
-
-                // Establish a tier3 connection if we don't have one already
-                if !state.tier3.load().ready.contains_key(&sender) {
-                    let result = async {
-                        let stream = tcp::Stream::connect(
-                            &request.peer_info,
-                            tcp::Tier::T3,
-                            &state.config.socket_options
-                        ).await.context("tcp::Stream::connect()")?;
-                        PeerActor::spawn_and_handshake(clock.clone(), actor_system, stream, state.clone()).await.context("PeerActor::spawn()")?;
-                        anyhow::Ok(())
-                    }.await;
-
-                    if let Err(ref err) = result {
-                        tracing::info!(target: "network", ?err, peer_info = %request.peer_info, "tier3 failed to connect");
-                    }
+                    (
+                        T2MessageBody::StateRequestAck(StateRequestAck {
+                            shard_id,
+                            sync_hash,
+                            part_id_or_header: PartIdOrHeader::Part { part_id },
+                            body: ack,
+                        })
+                        .into(),
+                        response,
+                    )
                 }
+            };
 
-                state.tier3.send_message(sender, Arc::new(tier3_response));
+            let sender: PeerId = request.peer_info.id.clone();
+
+            // Send an ack for the request
+            tracing::debug!(?tier2_ack, %sender, "ack state request from host");
+            let routed_message = state.sign_message(
+                &clock,
+                RawRoutedMessage { target: PeerIdOrHash::PeerId(sender.clone()), body: tier2_ack },
+            );
+            if !state.send_message_to_peer(&clock, tcp::Tier::T2, routed_message) {
+                tracing::debug!(sender = %sender, "failed to route ack");
             }
-        );
+
+            let Some(tier3_response) = maybe_tier3_response else {
+                return;
+            };
+
+            // Establish a tier3 connection if we don't have one already
+            if !state.tier3.load().ready.contains_key(&sender) {
+                let result = async {
+                    let stream = tcp::Stream::connect(
+                        &request.peer_info,
+                        tcp::Tier::T3,
+                        &state.config.socket_options,
+                    )
+                    .await
+                    .context("tcp::Stream::connect()")?;
+                    PeerActor::spawn_and_handshake(
+                        clock.clone(),
+                        actor_system,
+                        stream,
+                        state.clone(),
+                    )
+                    .await
+                    .context("PeerActor::spawn()")?;
+                    anyhow::Ok(())
+                }
+                .await;
+
+                if let Err(ref err) = result {
+                    tracing::info!(?err, peer_info = %request.peer_info, "tier3 failed to connect");
+                }
+            }
+
+            state.tier3.send_message(sender, Arc::new(tier3_response));
+        });
     }
 }
 

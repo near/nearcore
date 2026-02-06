@@ -62,7 +62,7 @@ impl RpcFrom<GetChunkError> for RpcChunkError {
             }
             GetChunkError::UnknownChunk { chunk_hash } => Self::UnknownChunk { chunk_hash },
             GetChunkError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
+                tracing::warn!(%error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
                     .with_label_values(&["RpcChunkError"])
                     .inc();

@@ -125,7 +125,7 @@ impl StopSignal {
 
 impl Handler<StopSignal> for PeerManagerActor {
     fn handle(&mut self, msg: StopSignal) {
-        tracing::debug!(target: "network", "received stop signal");
+        tracing::debug!("received stop signal");
 
         if msg.should_panic {
             panic!("Node crashed");

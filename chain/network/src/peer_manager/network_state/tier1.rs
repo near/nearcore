@@ -62,10 +62,19 @@ impl super::NetworkState {
                         &self.config.socket_options,
                     )
                     .await?;
-                    anyhow::Ok(PeerActor::spawn_and_handshake(clock.clone(), actor_system, stream, self.clone()).await?)
-                }.await;
+                    anyhow::Ok(
+                        PeerActor::spawn_and_handshake(
+                            clock.clone(),
+                            actor_system,
+                            stream,
+                            self.clone(),
+                        )
+                        .await?,
+                    )
+                }
+                .await;
                 if let Err(err) = res {
-                    tracing::warn!(target: "network", ?err, ?proxy, "failed to establish connection to TIER1 proxy");
+                    tracing::warn!(?err, ?proxy, "failed to establish connection to TIER1 proxy");
                 }
             });
         }
@@ -121,7 +130,7 @@ impl super::NetworkState {
                         match stun::query(&clock, &addr).await {
                             Ok(ip) => Some(ip),
                             Err(err) => {
-                                tracing::warn!(target: "network", %addr, %err, "stun lookup failed");
+                                tracing::warn!(%addr, %err, "stun lookup failed");
                                 None
                             }
                         }
@@ -135,7 +144,7 @@ impl super::NetworkState {
                 if node_ips.is_empty() {
                     vec![]
                 } else if !node_ips.iter().all(|ip| ip == &node_ips[0]) {
-                    tracing::warn!(target: "network", "received inconsistent responses from the stun servers");
+                    tracing::warn!("received inconsistent responses from the stun servers");
                     vec![]
                 } else {
                     vec![PeerAddr {
@@ -186,7 +195,7 @@ impl super::NetworkState {
                             connected_proxies.push(proxy.clone());
                         }
                         Some(conn) => {
-                            tracing::info!(target: "network", peer_id = %conn.peer_info.id, peer_addr = ?conn.peer_info.addr, wanted_addr = %proxy.addr, "connected to peer, but got different addr")
+                            tracing::info!(peer_id = %conn.peer_info.id, peer_addr = ?conn.peer_info.addr, wanted_addr = %proxy.addr, "connected to peer, but got different addr")
                         }
                         _ => {}
                     }
@@ -194,7 +203,7 @@ impl super::NetworkState {
                 connected_proxies
             }
         };
-        tracing::info!(target: "network", ?my_proxies, "connected to proxies");
+        tracing::info!(?my_proxies, "connected to proxies");
         let new_data = self.accounts_data.set_local(
             clock,
             LocalAccountData {
@@ -348,13 +357,13 @@ impl super::NetworkState {
                     });
                 }
             }
-            tracing::debug!(target: "network", node_id = %self.config.node_id(), num_connections = handles.len(), "establishing new connections");
+            tracing::debug!(node_id = %self.config.node_id(), num_connections = handles.len(), "establishing new connections");
             for res in futures_util::future::join_all(handles).await {
                 if let Err(err) = res {
-                    tracing::info!(target: "network", ?err, node_id = %self.config.node_id(), "failed to establish a tier1 connection");
+                    tracing::info!(?err, node_id = %self.config.node_id(), "failed to establish a tier1 connection");
                 }
             }
-            tracing::debug!(target: "network", node_id = %self.config.node_id(), "done establishing new connections");
+            tracing::debug!(node_id = %self.config.node_id(), "done establishing new connections");
         }
     }
 

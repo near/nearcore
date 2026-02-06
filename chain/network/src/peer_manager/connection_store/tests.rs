@@ -37,12 +37,12 @@ fn test_reload_from_storage() {
 
     let conn_info = make_connection_info(rng, clock.now_utc());
     {
-        tracing::debug!(target:"test", "write connection info to storage");
+        tracing::debug!("write connection info to storage");
         let connection_store = ConnectionStore::new(store.clone()).unwrap();
         connection_store.insert_outbound_connections(vec![conn_info.clone()]);
     }
     {
-        tracing::debug!(target:"test", "read connection info from storage");
+        tracing::debug!("read connection info from storage");
         let connection_store = ConnectionStore::new(store).unwrap();
         assert_eq!(connection_store.get_recent_outbound_connections(), vec![conn_info]);
     }
@@ -56,19 +56,19 @@ fn test_overwrite_stored_connection() {
     let store = store::Store::from(near_store::db::TestDB::new());
     let connection_store = ConnectionStore::new(store).unwrap();
 
-    tracing::debug!(target:"test", "create and store a connection");
+    tracing::debug!("create and store a connection");
     let now_utc = clock.now_utc();
     let conn_info_a = make_connection_info(rng, now_utc);
     connection_store.insert_outbound_connections(vec![conn_info_a.clone()]);
 
-    tracing::debug!(target:"test", "insert a second connection with the same peer id but different data");
+    tracing::debug!("insert a second connection with the same peer id but different data");
     clock.advance(time::Duration::seconds(123));
     let now_utc = clock.now_utc();
     let mut conn_info_b = make_connection_info(rng, now_utc);
     conn_info_b.peer_info.id = conn_info_a.peer_info.id;
     connection_store.insert_outbound_connections(vec![conn_info_b.clone()]);
 
-    tracing::debug!(target:"test", "check that precisely the second connection is present (and not the first)");
+    tracing::debug!("check that precisely the second connection is present (and not the first)");
     assert_eq!(connection_store.get_recent_outbound_connections(), vec![conn_info_b]);
 }
 
@@ -80,12 +80,14 @@ fn test_evict_longest_disconnected() {
     let store = store::Store::from(near_store::db::TestDB::new());
     let connection_store = ConnectionStore::new(store).unwrap();
 
-    tracing::debug!(target:"test", "create and store live connections up to the connection store limit");
+    tracing::debug!("create and store live connections up to the connection store limit");
     let now_utc = clock.now_utc();
     let mut conn_infos = make_connection_infos(rng, now_utc, OUTBOUND_CONNECTIONS_CACHE_SIZE);
     connection_store.insert_outbound_connections(conn_infos.clone());
 
-    tracing::debug!(target:"test", "remove one of the connections, advance the clock and update the connection store");
+    tracing::debug!(
+        "remove one of the connections, advance the clock and update the connection store"
+    );
     conn_infos.remove(rand::thread_rng().gen_range(0..OUTBOUND_CONNECTIONS_CACHE_SIZE));
     clock.advance(time::Duration::hours(1));
     let now_utc = clock.now_utc();
@@ -94,12 +96,12 @@ fn test_evict_longest_disconnected() {
     }
     connection_store.insert_outbound_connections(conn_infos.clone());
 
-    tracing::debug!(target:"test", "insert a new connection");
+    tracing::debug!("insert a new connection");
     let conn = make_connection_info(rng, now_utc);
     connection_store.insert_outbound_connections(vec![conn.clone()]);
     conn_infos.push(conn);
 
-    tracing::debug!(target:"test", "check that the store contains exactly the expected connections");
+    tracing::debug!("check that the store contains exactly the expected connections");
     assert_eq!(connection_store.get_recent_outbound_connections().as_set(), conn_infos.as_set());
 }
 
@@ -111,7 +113,7 @@ fn test_recovery_from_clock_rewind() {
     let store = store::Store::from(near_store::db::TestDB::new());
     let connection_store = ConnectionStore::new(store).unwrap();
 
-    tracing::debug!(target:"test", "create and store live connections up to the connection store limit");
+    tracing::debug!("create and store live connections up to the connection store limit");
     let now_utc = clock.now_utc();
     connection_store.insert_outbound_connections(make_connection_infos(
         rng,
@@ -119,11 +121,11 @@ fn test_recovery_from_clock_rewind() {
         OUTBOUND_CONNECTIONS_CACHE_SIZE,
     ));
 
-    tracing::debug!(target:"test", "turn back the clock 1 year");
+    tracing::debug!("turn back the clock 1 year");
     clock.set_utc(now_utc - time::Duration::days(365));
     assert!(clock.now_utc() < now_utc);
 
-    tracing::debug!(target:"test", "insert a new connection and check that it's at the front of the storage");
+    tracing::debug!("insert a new connection and check that it's at the front of the storage");
     let now_utc = clock.now_utc();
     let conn = make_connection_info(rng, now_utc);
     connection_store.insert_outbound_connections(vec![conn.clone()]);

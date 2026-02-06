@@ -207,12 +207,7 @@ impl Store {
         Default::default()
     }
 
-    #[tracing::instrument(
-        target = "network::store::schema",
-        level = "trace",
-        "Store::commit",
-        skip_all
-    )]
+    #[tracing::instrument(level = "trace", "Store::commit", skip_all)]
     pub fn commit(&self, update: StoreUpdate) {
         self.0.write(update.0);
     }

@@ -651,7 +651,6 @@ impl JsonRpcHandler {
         .map_err(|_| {
             metrics::RPC_TIMEOUT_TOTAL.inc();
             tracing::warn!(
-                target: "jsonrpc",
                 ?tx_hash,
                 ?signer_account_id,
                 "timeout: tx_exists method"
@@ -721,7 +720,6 @@ impl JsonRpcHandler {
         .map_err(|_| {
             metrics::RPC_TIMEOUT_TOTAL.inc();
             tracing::warn!(
-                target: "jsonrpc",
                 ?tx_info,
                 ?fetch_receipt,
                 ?tx_status_result,
@@ -2035,7 +2033,7 @@ pub async fn start_http(
     let addr = config.addr;
     let prometheus_addr = config.prometheus_addr.clone().filter(|it| it != &addr.to_string());
     let cors_allowed_origins = config.cors_allowed_origins.clone();
-    tracing::info!(target: "network", %addr, "starting http server");
+    tracing::info!(%addr, "starting http server");
 
     // Create the axum app using the extracted function
     let app = create_jsonrpc_app(
@@ -2059,12 +2057,12 @@ pub async fn start_http(
     // Start main server
     future_spawner.spawn("JSON RPC", async move {
         if let Err(e) = axum::serve(listener, app).await {
-            tracing::error!(target: "network", ?e, "HTTP server error");
+            tracing::error!(?e, "HTTP server error");
         }
     });
 
     if let Some(prometheus_addr) = prometheus_addr {
-        tracing::info!(target: "network", %prometheus_addr, "starting http monitoring server");
+        tracing::info!(%prometheus_addr, "starting http monitoring server");
         // Export only the /metrics service. It's a read-only service and can have very relaxed
         // access restrictions.
         let prometheus_app = Router::new()
@@ -2079,7 +2077,7 @@ pub async fn start_http(
         // Start Prometheus server
         future_spawner.spawn("Prometheus Metrics", async move {
             if let Err(e) = axum::serve(listener, prometheus_app).await {
-                tracing::error!(target: "network", ?e, "prometheus server error");
+                tracing::error!(?e, "prometheus server error");
             }
         });
     }

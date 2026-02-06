@@ -481,7 +481,7 @@ impl PeerMessage {
     }
 
     pub(crate) fn deserialize(data: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
-        let span = tracing::trace_span!(target: "network", "deserialize").entered();
+        let span = tracing::trace_span!("deserialize").entered();
         Ok({
             let proto_msg: proto::PeerMessage = proto::PeerMessage::parse_from_bytes(data)
                 .map_err(ParsePeerMessageError::ProtoDecode)?;
@@ -1139,10 +1139,7 @@ impl RoutedMessage {
                 ttl: msg.ttl,
                 body: msg.body.into(),
                 signature: msg.signature.unwrap_or_else(|| {
-                    tracing::error!(
-                        target: "network",
-                        "signature is missing, this should not yet happen"
-                    );
+                    tracing::error!("signature is missing, this should not yet happen");
                     Signature::default()
                 }),
             },

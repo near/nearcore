@@ -86,7 +86,7 @@ impl TelemetryActor {
 
 impl Handler<TelemetryEvent> for TelemetryActor {
     fn handle(&mut self, msg: TelemetryEvent) {
-        tracing::debug!(target: "telemetry", ?msg);
+        tracing::debug!(?msg);
         let now = Instant::now();
         if now - self.last_telemetry_update < self.config.reporting_interval {
             // Throttle requests to the telemetry endpoints, to at most one
@@ -106,7 +106,6 @@ impl Handler<TelemetryEvent> for TelemetryActor {
                     .map(move |response| {
                         let result = if let Err(error) = response {
                             tracing::warn!(
-                                target: "telemetry",
                                 err = ?error,
                                 endpoint = ?endpoint,
                                 "failed to send telemetry data");

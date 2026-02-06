@@ -36,7 +36,7 @@ async fn test_message_rate_limits() -> anyhow::Result<()> {
     // Check how many messages of each type have been received.
     let messages_received =
         wait_for_similar_messages(&messages_samples, &mut events, Duration::from_secs(3)).await;
-    tracing::debug!(target:"test", ?messages_received, "received messages");
+    tracing::debug!(?messages_received, "received messages");
     // BlockRequest gets rate limited (7 sent vs 5 bucket_start).
     assert!(messages_received[0] < MESSAGES);
     // PartialEncodedChunkRequest gets rate limited (7 sent vs 5 bucket_start).
@@ -76,7 +76,7 @@ async fn slow_test_message_rate_limits_over_time() -> anyhow::Result<()> {
 
     let messages_received =
         wait_for_similar_messages(&messages_samples, &mut events, Duration::from_secs(3)).await;
-    tracing::debug!(target:"test", ?messages_received, "received messages");
+    tracing::debug!(?messages_received, "received messages");
     // BlockRequest and PartialEncodedChunkRequest don't get rate limited
     // 12 sent vs 5 bucket_start + 2.5 refilled * 4s
     assert_eq!(messages_received[0], MESSAGES * 3);
@@ -172,14 +172,14 @@ async fn send_messages(
 ) -> Vec<PeerMessage> {
     let mut messages_samples = Vec::new();
 
-    tracing::info!(target:"test", "send block request");
+    tracing::info!("send block request");
     let message = PeerMessage::BlockRequest(CryptoHash::default());
     for _ in 0..count {
         outbound.send(message.clone()).await;
     }
     messages_samples.push(message);
 
-    tracing::info!(target:"test", "send partial encoded chunk request");
+    tracing::info!("send partial encoded chunk request");
     // Duplicated routed messages are filtered out so we must tweak each message to make it unique.
 
     for i in 0..count {
@@ -202,7 +202,7 @@ async fn send_messages(
         }
     }
 
-    tracing::info!(target: "test", "send transaction");
+    tracing::info!("send transaction");
     let message = PeerMessage::Transaction(data::make_signed_transaction(rng));
     for _ in 0..count {
         outbound.send(message.clone()).await;

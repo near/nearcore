@@ -201,12 +201,7 @@ impl Inner {
     /// 1. Prunes expired edges.
     /// 2. Prunes unreachable graph components.
     /// 3. Recomputes GraphSnapshot.
-    #[tracing::instrument(
-        target = "network::routing::graph",
-        level = "debug",
-        "GraphInner::update",
-        skip_all
-    )]
+    #[tracing::instrument(level = "debug", "GraphInner::update", skip_all)]
     pub fn update(
         &mut self,
         clock: &time::Clock,

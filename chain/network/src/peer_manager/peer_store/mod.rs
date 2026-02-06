@@ -232,7 +232,7 @@ impl Inner {
             if peer_status.status != KnownPeerStatus::Connected
                 && now > peer_status.last_seen + self.config.peer_expiration_duration
             {
-                tracing::debug!(target: "network", last_seen = ?peer_status.last_seen, "removing expired peer");
+                tracing::debug!(last_seen = ?peer_status.last_seen, "removing expired peer");
                 to_remove.push(peer_id.clone());
             }
         }
@@ -246,13 +246,13 @@ impl Inner {
                 if now < ban_time + self.config.ban_window {
                     continue;
                 }
-                tracing::info!(target: "network", unbanned = ?peer_id, ?ban_time, "unbanning a peer");
+                tracing::info!(unbanned = ?peer_id, ?ban_time, "unbanning a peer");
                 to_unban.push(peer_id.clone());
             }
         }
         for peer_id in &to_unban {
             if let Err(err) = self.peer_unban(&peer_id) {
-                tracing::error!(target: "network", ?peer_id, ?err, "failed to unban a peer");
+                tracing::error!(?peer_id, ?err, "failed to unban a peer");
             }
         }
     }
@@ -417,7 +417,7 @@ impl PeerStore {
         peer_id: &PeerId,
         ban_reason: ReasonForBan,
     ) -> anyhow::Result<()> {
-        tracing::warn!(target: "network", %peer_id, ?ban_reason, "banning peer");
+        tracing::warn!(%peer_id, ?ban_reason, "banning peer");
         let mut inner = self.0.lock();
         if let Some(peer_state) = inner.peer_states.get_mut(peer_id) {
             let now = clock.now_utc();
@@ -499,7 +499,7 @@ impl PeerStore {
             }
         }
         if blacklisted != 0 {
-            tracing::info!(target: "network", %blacklisted, %total,
+            tracing::info!(%blacklisted, %total,
                   "ignored blacklisted peers out of indirect peers");
         }
     }
