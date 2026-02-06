@@ -1872,7 +1872,7 @@ impl Chain {
         self.update_optimistic_blocks_pool(&block)?;
 
         let epoch_id = block.header().epoch_id();
-        let mut shards_cares_this_or_next_epoch = vec![];
+        let mut memtrie_retained_shards = vec![];
         for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
             let cares_about_shard =
                 self.shard_tracker.cares_about_shard(block.header().prev_hash(), shard_id);
@@ -1881,7 +1881,7 @@ impl Chain {
             let cares_about_shard_this_or_next_epoch = cares_about_shard || will_care_about_shard;
             let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
             if cares_about_shard_this_or_next_epoch {
-                shards_cares_this_or_next_epoch.push(shard_uid);
+                memtrie_retained_shards.push(shard_uid);
             }
 
             let need_storage_update = if is_caught_up {
@@ -1916,7 +1916,28 @@ impl Chain {
 
         if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
             // Keep in memory only these tries that we care about this or next epoch.
-            self.runtime_adapter.get_tries().retain_memtries(&shards_cares_this_or_next_epoch);
+            // TODO(spice): For spice, we also retain memtries for shards that
+            // we used to care about in the prior epoch but not anymore. This
+            // allows the node to continue executing uncertified blocks of the
+            // prior epoch. We should change this to wait only for certification
+            // of the last block of the prior instead of retaining memtrie for
+            // an additional epoch.
+            if block.is_spice_block() {
+                let prev_hash = block.header().prev_hash();
+                for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
+                    if self
+                        .shard_tracker
+                        .cared_about_shard_in_prev_epoch_from_prev_hash(prev_hash, shard_id)
+                    {
+                        let shard_uid =
+                            shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
+                        if !memtrie_retained_shards.contains(&shard_uid) {
+                            memtrie_retained_shards.push(shard_uid);
+                        }
+                    }
+                }
+            }
+            self.runtime_adapter.get_tries().retain_memtries(&memtrie_retained_shards);
         }
 
         if let Some(tip) = &new_head {
