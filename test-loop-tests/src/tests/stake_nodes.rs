@@ -1,11 +1,12 @@
 use near_async::time::Duration;
+use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::num_rational::Rational32;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountInfo, Balance};
+use near_primitives::types::{AccountInfo, Balance, ShardId};
 use primitive_types::U256;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -13,6 +14,7 @@ use rand::{Rng, SeedableRng};
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{
     create_validator_ids, create_validators_spec, validators_spec_clients,
+    validators_spec_clients_with_rpc,
 };
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{get_shared_block_hash, run_tx, run_txs_parallel};
@@ -304,6 +306,113 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
         },
         Duration::seconds(120),
     );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Verifies that a validator who unstakes and then re-stakes in an uncertified chunk
+/// near the epoch boundary does NOT have their stake returned. The re-stake proposal
+/// from the uncertified chunk should be picked up by get_uncertified_validator_proposals.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_uncertified_restake_prevents_stake_return() {
+    init_test_logger();
+
+    let epoch_length: u64 = 10;
+    let endorsement_delay: u64 = 4;
+    let unstaker_idx = 0;
+    let validators_spec = create_validators_spec(4, 1);
+    let accounts = validators_spec_clients(&validators_spec);
+    let clients = validators_spec_clients_with_rpc(&validators_spec);
+    let unstaker = accounts[unstaker_idx].clone();
+
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(epoch_length)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, TESTING_INIT_BALANCE)
+        .max_inflation_rate(Rational32::new(0, 1))
+        .build();
+    let genesis_height = genesis.config.genesis_height;
+
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .config_modifier(move |config, idx| {
+            // TODO(spice): Force unstaker to retain memtrie for the unloaded
+            // shard. Memtrie retention needs to be fixed for spice to wait
+            // until certification of the last block of the prior epoch.
+            if idx == unstaker_idx {
+                config.tracked_shards_config = TrackedShardsConfig::AllShards;
+            }
+        })
+        .build();
+    delay_endorsements_propagation(&mut env, endorsement_delay);
+    let mut env = env.warmup();
+
+    let node = TestLoopNode::from(&env.node_datas[unstaker_idx]);
+    let rpc = TestLoopNode::rpc(&env.node_datas);
+    let initial_stake =
+        query_view_account(rpc.view_client_actor(&mut env.test_loop.data), unstaker.clone()).locked;
+
+    // Submit unstake (stake = 0) in the first epoch.
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let unstake_tx = SignedTransaction::stake(
+        1,
+        unstaker.clone(),
+        &create_user_test_signer(&unstaker),
+        Balance::ZERO,
+        create_test_signer(unstaker.as_str()).public_key(),
+        block_hash,
+    );
+    rpc.run_tx(&mut env.test_loop, unstake_tx, Duration::seconds(30));
+
+    // Advance to a few blocks before the E4->E5 boundary where stake return would
+    // happen. Unstake in E0 -> active in E0,E1 -> inactive from E2 -> 3-epoch window
+    // covers E2,E3,E4 with 0 stake -> return at E4->E5 boundary.
+    let epoch_boundary = genesis_height + 5 * epoch_length;
+    let restake_submit_height = epoch_boundary - 3;
+    // The restake must land within endorsement_delay of the epoch boundary
+    // to make sure the premise of the test holds.
+    assert!(restake_submit_height + endorsement_delay > epoch_boundary);
+    node.run_until_head_height(&mut env.test_loop, restake_submit_height);
+
+    // Submit re-stake near the end of E4. With endorsement delay, this tx will
+    // land in an uncertified chunk, and its stake proposal should be picked up
+    // by get_uncertified_validator_proposals at the epoch boundary.
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    let restake_tx = SignedTransaction::stake(
+        2,
+        unstaker.clone(),
+        &create_user_test_signer(&unstaker),
+        initial_stake,
+        create_test_signer(unstaker.as_str()).public_key(),
+        block_hash,
+    );
+    node.submit_tx(restake_tx);
+
+    // Run past the epoch boundary, plus extra blocks for execution to certify.
+    node.run_until_head_height(&mut env.test_loop, epoch_boundary + endorsement_delay + 2);
+
+    // Verify the re-stake proposal landed in an uncertified chunk at the epoch boundary.
+    let client = node.client(&env.test_loop.data);
+    let last_block_hash =
+        client.chain.chain_store.get_block_hash_by_height(epoch_boundary - 1).unwrap();
+    let uncertified_proposals = client
+        .chain
+        .spice_core_reader
+        .get_uncertified_validator_proposals(&last_block_hash, ShardId::new(0))
+        .unwrap();
+    assert!(
+        uncertified_proposals.iter().any(|p| p.account_id() == &unstaker),
+        "re-stake proposal should be in uncertified chunks, got: {:?}",
+        uncertified_proposals
+    );
+
+    // Verify that the unstaker's locked balance was NOT returned.
+    let view_client = rpc.view_client_actor(&mut env.test_loop.data);
+    let account = query_view_account(view_client, unstaker);
+    assert_eq!(account.locked, initial_stake, "stake should NOT have been returned");
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
