@@ -153,13 +153,19 @@ impl Block {
                 chunk_mask.push(false);
             }
         }
+        if let Some(ref spice_info) = spice_info {
+            let core_statements = SpiceCoreStatements::new(&spice_info.core_statements);
+            prev_validator_proposals.extend(core_statements.iter_execution_results().flat_map(
+                |(_chunk_id, execution_result)| execution_result.chunk_extra.validator_proposals(),
+            ));
+        }
+
         // TODO(spice): Use gas_used and other relevant fields from spice_info last
         // certified block execution results.
         if let Some(ref spice_info) = spice_info {
             for (_shard_id, execution_result) in
                 &spice_info.last_certified_block_execution_results.0
             {
-                prev_validator_proposals.extend(execution_result.chunk_extra.validator_proposals());
                 gas_limit =
                     gas_limit.checked_add(execution_result.chunk_extra.gas_limit()).unwrap();
             }
