@@ -568,7 +568,8 @@ impl Chain {
 
         // The number of shards for the binary's latest `PROTOCOL_VERSION` is used to compute the thread limit. This assumes that:
         // a) The number of shards will not grow above this limit without the binary being updated (no dynamic resharding),
-        // b) Under normal conditions, the node will not process more chunks at the same time as there are shards.
+        // b) Under normal conditions, the number of chunks processed concurrently will stay on the same order as the number
+        //    of shards, even though we allow up to 3x that many concurrent tasks as headroom for retries and short-term backlog.
         let apply_chunks_thread_limit =
             runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize * 3;
         let apply_chunks_spawner = apply_chunks_spawner.into_spawner(apply_chunks_thread_limit);
