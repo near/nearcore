@@ -1502,8 +1502,10 @@ impl Chain {
             // Add validator proposals for given header.
             let last_finalized_height =
                 chain_store_update.get_block_height(header.last_final_block())?;
+            let current_protocol_version =
+                self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
             let epoch_manager_update = self.epoch_manager.add_validator_proposals(
-                BlockInfo::from_header(header, last_finalized_height),
+                BlockInfo::from_header(header, last_finalized_height, current_protocol_version),
                 *header.random_value(),
             )?;
             chain_store_update.merge(epoch_manager_update.into());

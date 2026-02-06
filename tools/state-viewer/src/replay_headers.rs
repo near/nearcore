@@ -47,7 +47,7 @@ pub(crate) fn replay_headers(
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
             tracing::trace!(%height, ?header, "height and header");
 
-            let block_info = get_block_info(&header, &chain_store);
+            let block_info = get_block_info(&header, &chain_store, epoch_manager.as_ref());
             epoch_manager_replay
                 .add_validator_proposals(block_info, *header.random_value())
                 .unwrap()
@@ -200,11 +200,15 @@ fn get_validator_kickouts(
 }
 
 /// Returns the [`BlockInfo`] corresponding to the header.
-fn get_block_info(header: &BlockHeader, chain_store: &ChainStore) -> BlockInfo {
-    BlockInfo::from_header(
-        &header,
-        chain_store.get_block_height(header.last_final_block()).unwrap(),
-    )
+fn get_block_info(
+    header: &BlockHeader,
+    chain_store: &ChainStore,
+    epoch_manager: &dyn EpochManagerAdapter,
+) -> BlockInfo {
+    let last_finalized_height = chain_store.get_block_height(header.last_final_block()).unwrap();
+    let current_protocol_version =
+        epoch_manager.get_epoch_protocol_version(header.epoch_id()).unwrap();
+    BlockInfo::from_header(&header, last_finalized_height, current_protocol_version)
 }
 
 /// Returns a stored that reads from the original chain store, but also allows writes to a temporary DB.

@@ -346,9 +346,10 @@ pub fn record_block_with_final_block_hash(
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
                 PROTOCOL_VERSION,
+                PROTOCOL_VERSION,
                 height * NUM_NS_IN_SECOND,
                 chunk_endorsements,
-                None, // shard_split
+                None,
             ),
             [0; 32],
         )
@@ -400,9 +401,10 @@ pub fn record_block_with_version(
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
                 protocol_version,
+                protocol_version,
                 height * NUM_NS_IN_SECOND,
                 chunk_endorsements,
-                None, // shard_split
+                None,
             ),
             [0; 32],
         )

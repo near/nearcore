@@ -682,6 +682,7 @@ impl BlockHeader {
 
     /// Creates BlockHeader for a newly produced block.
     pub fn new(
+        current_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         height: BlockHeight,
         prev_hash: CryptoHash,
@@ -712,6 +713,7 @@ impl BlockHeader {
         shard_split: Option<(ShardId, AccountId)>,
     ) -> Self {
         Self::new_impl(
+            current_protocol_version,
             latest_protocol_version,
             height,
             prev_hash,
@@ -777,6 +779,7 @@ impl BlockHeader {
     ) -> Self {
         let header = Self::new_impl(
             epoch_protocol_version,
+            epoch_protocol_version,
             height,
             prev_hash,
             block_body_hash,
@@ -816,6 +819,7 @@ impl BlockHeader {
 
     /// Common logic for generating BlockHeader for different purposes, including new blocks, from views, and for genesis block
     fn new_impl(
+        current_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         height: BlockHeight,
         prev_hash: CryptoHash,
@@ -862,7 +866,7 @@ impl BlockHeader {
             )
         });
 
-        if ProtocolFeature::DynamicResharding.enabled(latest_protocol_version) {
+        if ProtocolFeature::DynamicResharding.enabled(current_protocol_version) {
             let inner_rest = BlockHeaderInnerRestV6 {
                 block_body_hash,
                 prev_chunk_outgoing_receipts_root,
@@ -967,6 +971,7 @@ impl BlockHeader {
     ) -> Self {
         let chunks_included = if height == 0 { num_shards } else { 0 };
         Self::new_impl(
+            genesis_protocol_version,
             genesis_protocol_version,
             height,
             CryptoHash::default(), // prev_hash

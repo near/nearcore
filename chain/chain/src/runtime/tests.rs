@@ -182,6 +182,7 @@ impl TestEnv {
                     vec![],
                     genesis_total_supply,
                     genesis_protocol_version,
+                    genesis_protocol_version,
                     0,
                     ChunkEndorsementsBitmap::from_endorsements(vec![
                         vec![
@@ -359,6 +360,7 @@ impl TestEnv {
                     self.last_proposals.clone(),
                     chunk_mask,
                     self.runtime.genesis_config.total_supply,
+                    self.runtime.genesis_config.protocol_version,
                     self.runtime.genesis_config.protocol_version,
                     self.time + 10u64.pow(9),
                     chunk_endorsements,
@@ -873,6 +875,7 @@ fn test_state_sync() {
                     new_env.last_proposals,
                     vec![true],
                     new_env.runtime.genesis_config.total_supply,
+                    new_env.runtime.genesis_config.protocol_version,
                     new_env.runtime.genesis_config.protocol_version,
                     new_env.time,
                     ChunkEndorsementsBitmap::from_endorsements(vec![

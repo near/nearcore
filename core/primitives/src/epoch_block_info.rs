@@ -37,12 +37,13 @@ impl BlockInfo {
         proposals: Vec<ValidatorStake>,
         validator_mask: Vec<bool>,
         total_supply: Balance,
+        current_protocol_version: ProtocolVersion,
         latest_protocol_version: ProtocolVersion,
         timestamp_nanosec: u64,
         chunk_endorsements: ChunkEndorsementsBitmap,
         shard_split: Option<(ShardId, AccountId)>,
     ) -> Self {
-        if ProtocolFeature::DynamicResharding.enabled(latest_protocol_version) {
+        if ProtocolFeature::DynamicResharding.enabled(current_protocol_version) {
             Self::V4(BlockInfoV4 {
                 hash,
                 height,
@@ -79,7 +80,11 @@ impl BlockInfo {
         }
     }
 
-    pub fn from_header(header: &BlockHeader, last_finalized_height: BlockHeight) -> Self {
+    pub fn from_header(
+        header: &BlockHeader,
+        last_finalized_height: BlockHeight,
+        current_protocol_version: ProtocolVersion,
+    ) -> Self {
         BlockInfo::new(
             *header.hash(),
             header.height(),
@@ -89,6 +94,7 @@ impl BlockInfo {
             header.prev_validator_proposals().collect(),
             header.chunk_mask().to_vec(),
             header.total_supply(),
+            current_protocol_version,
             header.latest_protocol_version(),
             header.raw_timestamp(),
             header.chunk_endorsements().cloned().expect("header should include chunk endorsements"),
