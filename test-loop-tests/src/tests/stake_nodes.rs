@@ -18,16 +18,25 @@ use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{get_shared_block_hash, run_tx, run_txs_parallel};
 use crate::utils::validators::get_epoch_all_validators_sorted;
 
-use super::spice_utils::query_view_account;
+use super::spice_utils::{delay_endorsements_propagation, query_view_account};
 
 /// Runs one validator network, sends staking transaction for the second node and
 /// waits until it becomes a validator.
 #[test]
 fn test_stake_nodes() {
+    test_stake_nodes_impl(10, 0);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_stake_nodes_delayed_execution() {
+    test_stake_nodes_impl(10, 4);
+}
+
+fn test_stake_nodes_impl(epoch_length: u64, execution_delay: u64) {
     init_test_logger();
 
     let accounts = create_validator_ids(2);
-    let epoch_length = 10;
 
     // Build validators with explicit stake amounts for precise balance assertions
     let validators = vec![AccountInfo {
@@ -46,8 +55,11 @@ fn test_stake_nodes() {
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(accounts.clone())
-        .build()
-        .warmup();
+        .build();
+    if execution_delay > 0 {
+        delay_endorsements_propagation(&mut env, execution_delay);
+    }
+    let mut env = env.warmup();
 
     // Submit stake transaction from accounts[1]
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
@@ -80,10 +92,19 @@ fn test_stake_nodes() {
 /// Verifies locked == 0 for kicked nodes and locked == TESTING_INIT_STAKE for remaining.
 #[test]
 fn test_validator_kickout() {
+    test_validator_kickout_impl(15, 0);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_validator_kickout_delayed_execution() {
+    test_validator_kickout_impl(15, 4);
+}
+
+fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
     init_test_logger();
 
     let accounts = create_validator_ids(4);
-    let epoch_length = 15;
 
     // Build validators with explicit stake amounts for precise balance assertions
     let validators: Vec<AccountInfo> = accounts
@@ -110,8 +131,11 @@ fn test_validator_kickout() {
         .epoch_config_store_from_genesis()
         .clients(accounts.clone())
         .track_all_shards()
-        .build()
-        .warmup();
+        .build();
+    if execution_delay > 0 {
+        delay_endorsements_propagation(&mut env, execution_delay);
+    }
+    let mut env = env.warmup();
 
     // Submit reduced stake transactions for nodes 0 and 1
     let mut rng = StdRng::seed_from_u64(0);
@@ -182,12 +206,20 @@ fn test_validator_kickout() {
 /// Poll validators until you see the change of validator assignments.
 /// Afterwards check that `locked` amount on accounts Node1 and Node2 are 0 and TESTING_INIT_STAKE.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_validator_join() {
+    test_validator_join_impl(30, 0);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_validator_join_delayed_execution() {
+    test_validator_join_impl(30, 4);
+}
+
+fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
     init_test_logger();
 
     let accounts = create_validator_ids(4);
-    let epoch_length = 30;
 
     // Build validators with explicit stake amounts for precise balance assertions
     let validators: Vec<AccountInfo> = accounts[..2]
@@ -210,8 +242,11 @@ fn test_validator_join() {
         .epoch_config_store_from_genesis()
         .clients(accounts.clone())
         .track_all_shards()
-        .build()
-        .warmup();
+        .build();
+    if execution_delay > 0 {
+        delay_endorsements_propagation(&mut env, execution_delay);
+    }
+    let mut env = env.warmup();
 
     // Node1 unstakes, Node2 stakes
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
