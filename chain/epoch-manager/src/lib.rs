@@ -649,6 +649,7 @@ impl EpochManager {
         next_shard_layout: &ShardLayout,
         block_info: &BlockInfo,
     ) -> Result<ShardLayout, EpochError> {
+        // TODO(dynamic_resharding): use current epoch's config and fix failing tests
         match &next_next_epoch_config.shard_layout_config {
             ShardLayoutConfig::Static { shard_layout } => {
                 debug_assert!(!ProtocolFeature::DynamicResharding.enabled(next_next_epoch_version));
