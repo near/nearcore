@@ -167,11 +167,7 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
             return;
         }
         if let Err(err) = self.process_all_ready_blocks() {
-            tracing::error!(
-                target: "chunk_executor",
-                ?err,
-                "failed when trying to process all ready blocks on start up",
-            );
+            tracing::error!(?err, "failed when trying to process all ready blocks on start up",);
         }
     }
 }
@@ -204,7 +200,6 @@ impl ExecutorIncomingUnverifiedReceipts {
         else {
             debug_assert!(false, "execution results missing results when verifying receipts");
             tracing::error!(
-                target: "chunk_executor",
                 from_shard_id=?self.receipt_proof.1.from_shard_id,
                 "execution results missing results when verifying receipts"
             );
@@ -235,7 +230,6 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
     fn handle(&mut self, receipts: ExecutorIncomingUnverifiedReceipts) {
         let block_hash = receipts.block_hash;
         tracing::debug!(
-            target: "chunk_executor",
             %block_hash,
             receipt_proofs=?receipts.receipt_proof,
             "received receipts",
@@ -246,11 +240,15 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
         // sure we process pending receipts to make sure don't leak memory by storing unverified
         // receipts indefinitely.
         if let Err(err) = self.try_process_pending_unverified_receipts(&block_hash) {
-            tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed while trying to save pending unverified receipts");
+            tracing::error!(
+                ?err,
+                ?block_hash,
+                "failed while trying to save pending unverified receipts"
+            );
         }
 
         if let Err(err) = self.try_process_next_blocks(&block_hash) {
-            tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to process next blocks");
+            tracing::error!(?err, ?block_hash, "failed to process next blocks");
         }
     }
 }
@@ -264,17 +262,13 @@ impl Handler<ProcessedBlock> for ChunkExecutorActor {
             Ok(TryApplyChunksOutcome::NotReady(reason)) => {
                 // We will retry applying it by looking at all next blocks after receiving
                 // additional execution result endorsements or receipts.
-                tracing::debug!(target: "chunk_executor", ?reason, %block_hash, "not yet ready for processing");
+                tracing::debug!(?reason, %block_hash, "not yet ready for processing");
             }
             Ok(TryApplyChunksOutcome::BlockAlreadyAccepted) => {
-                tracing::warn!(
-                    target: "chunk_executor",
-                    ?block_hash,
-                    "not expected to receive already executed block"
-                );
+                tracing::warn!(?block_hash, "not expected to receive already executed block");
             }
             Err(err) => {
-                tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to apply chunk for block hash");
+                tracing::error!(?err, ?block_hash, "failed to apply chunk for block hash");
             }
         }
     }
@@ -283,7 +277,7 @@ impl Handler<ProcessedBlock> for ChunkExecutorActor {
 impl Handler<ExecutionResultEndorsed> for ChunkExecutorActor {
     fn handle(&mut self, ExecutionResultEndorsed { block_hash }: ExecutionResultEndorsed) {
         if let Err(err) = self.try_process_next_blocks(&block_hash) {
-            tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to process next blocks");
+            tracing::error!(?err, ?block_hash, "failed to process next blocks");
         }
     }
 }
@@ -300,7 +294,7 @@ impl Handler<ExecutorApplyChunksDone> for ChunkExecutorActor {
     fn handle(&mut self, msg: ExecutorApplyChunksDone) {
         let block_hash = msg.block_hash;
         if let Err(err) = self.handle_apply_chunks_done(msg) {
-            tracing::error!(target:"chunk_executor", ?err, ?block_hash, "failed to handle apply chunks done");
+            tracing::error!(?err, ?block_hash, "failed to handle apply chunks done");
         }
     }
 }
@@ -387,7 +381,7 @@ struct ChunkApplicationContext<'a> {
 }
 
 impl ChunkExecutorActor {
-    #[instrument(target = "chunk_executor", level = "debug", skip_all, fields(%block_hash))]
+    #[instrument(level = "debug", skip_all, fields(%block_hash))]
     fn try_apply_chunks(
         &mut self,
         block_hash: &CryptoHash,
@@ -398,7 +392,6 @@ impl ChunkExecutorActor {
         let block = self.chain_store.get_block(block_hash)?;
         if !is_descendant_of_final_execution_head(&self.chain_store, block.header()) {
             tracing::warn!(
-                target: "chunk_executor",
                 ?block_hash,
                 block_height=%block.header().height(),
                 "block's parent is too old (past spice final execution head) so block cannot be applied",
@@ -424,7 +417,11 @@ impl ChunkExecutorActor {
 
         // TODO(spice): refactor try_process_pending_unverified_receipts to take prev_block_execution_results as argument.
         if let Err(err) = self.try_process_pending_unverified_receipts(prev_block_hash) {
-            tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failure when processing pending unverified receipts");
+            tracing::error!(
+                ?err,
+                ?block_hash,
+                "failure when processing pending unverified receipts"
+            );
             return Err(err);
         }
 
@@ -507,14 +504,14 @@ impl ChunkExecutorActor {
         let next_block_hashes = self.chain_store.get_all_next_block_hashes(block_hash)?;
         if next_block_hashes.is_empty() {
             // Next block wasn't received yet.
-            tracing::debug!(target: "chunk_executor", %block_hash, "no next block hash is available");
+            tracing::debug!(%block_hash, "no next block hash is available");
             return Ok(());
         }
         for next_block_hash in next_block_hashes {
             match self.try_apply_chunks(&next_block_hash)? {
                 TryApplyChunksOutcome::Scheduled | TryApplyChunksOutcome::BlockIrrelevant => {}
                 TryApplyChunksOutcome::NotReady(reason) => {
-                    tracing::debug!(target: "chunk_executor", ?reason, %next_block_hash, "not yet ready for processing");
+                    tracing::debug!(?reason, %next_block_hash, "not yet ready for processing");
                 }
                 TryApplyChunksOutcome::BlockAlreadyAccepted => {}
             }
@@ -583,7 +580,7 @@ impl ChunkExecutorActor {
 
     fn send_outgoing_receipts(&self, block: &Block, receipt_proofs: Vec<ReceiptProof>) {
         let block_hash = *block.hash();
-        tracing::debug!(target: "chunk_executor", %block_hash, ?receipt_proofs, "sending outgoing receipts");
+        tracing::debug!(%block_hash, ?receipt_proofs, "sending outgoing receipts");
         self.data_distributor_adapter
             .send(SpiceDistributorOutgoingReceipts { block_hash, receipt_proofs });
     }
@@ -596,7 +593,6 @@ impl ChunkExecutorActor {
         let block = self.chain_store.get_block(&block_hash).unwrap();
         if !is_descendant_of_final_execution_head(&self.chain_store, block.header()) {
             tracing::warn!(
-                target: "chunk_executor",
                 ?block_hash,
                 block_height=%block.header().height(),
                 "encountered too old block application; discarding",
@@ -610,7 +606,7 @@ impl ChunkExecutorActor {
             }
         };
 
-        tracing::debug!(target: "chunk_executor",
+        tracing::debug!(
             ?block_hash,
             block_height=?block.header().height(),
             head_height=?self.chain_store.head().map(|tip| tip.height),
@@ -774,7 +770,6 @@ impl ChunkExecutorActor {
 
     #[instrument(
         level = "debug",
-        target = "chunk_executor",
         skip_all,
         fields(
             block_height=%block_context.height,
@@ -914,7 +909,7 @@ impl ChunkExecutorActor {
                 Err(err) => {
                     // TODO(spice): Notify spice data distributor about invalid receipts so it can ban
                     // or de-prioritize the node which sent them.
-                    tracing::warn!(target: "chunk_executor", ?err, ?block_hash, "encountered invalid receipts");
+                    tracing::warn!(?err, ?block_hash, "encountered invalid receipts");
                     continue;
                 }
             };
@@ -1086,7 +1081,6 @@ type UpdateShardJob =
 
 #[instrument(
     level = "debug",
-    target = "chunk_executor",
     skip_all,
     fields(%block_height, ?block_hash)
 )]

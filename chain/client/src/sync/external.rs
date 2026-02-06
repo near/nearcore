@@ -70,13 +70,13 @@ impl StateSyncConnection {
         let result = self.connection.get(location).await;
         match &result {
             Ok(bytes) => {
-                tracing::debug!(target: "sync", %shard_id, location, num_bytes = bytes.len(), storage = self.storage_name, "request finished");
+                tracing::debug!(%shard_id, location, num_bytes = bytes.len(), storage = self.storage_name, "request finished");
                 metrics::STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED
                     .with_label_values(&[&shard_id.to_string(), &file_type.to_string()])
                     .inc_by(bytes.len() as u64);
             }
             Err(error) => {
-                tracing::debug!(target: "sync", %shard_id, location, ?error, storage = self.storage_name, "request failed");
+                tracing::debug!(%shard_id, location, ?error, storage = self.storage_name, "request failed");
             }
         }
         result
@@ -95,11 +95,11 @@ impl StateSyncConnection {
         let res = self.connection.put(location, data).await;
         let is_ok = match &res {
             Ok(()) => {
-                tracing::debug!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.storage_name, "wrote a state part");
+                tracing::debug!(%shard_id, part_length = data.len(), ?location, ?file_type, storage = self.storage_name, "wrote a state part");
                 "ok"
             }
             Err(error) => {
-                tracing::error!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.storage_name, ?error, "failed to write a state part");
+                tracing::error!(%shard_id, part_length = data.len(), ?location, ?file_type, storage = self.storage_name, ?error, "failed to write a state part");
                 "error"
             }
         };
@@ -121,7 +121,7 @@ impl StateSyncConnection {
         let _timer = metrics::STATE_SYNC_DUMP_LIST_OBJECT_ELAPSED
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
-        tracing::debug!(target: "state_sync_dump", %shard_id, directory_path, "list state parts");
+        tracing::debug!(%shard_id, directory_path, "list state parts");
         self.connection.list(directory_path).await
     }
 
@@ -144,7 +144,6 @@ impl StateSyncConnection {
         let file_names = self.list_objects(shard_id, &directory_path).await?;
         let header_exits = file_names.contains(&file_type.filename());
         tracing::debug!(
-            target: "state_sync_dump",
             ?directory_path,
             "{}",
             match header_exits {

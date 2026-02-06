@@ -28,7 +28,6 @@ impl OrphanStateWitnessPool {
     pub fn new(cache_capacity: usize) -> Self {
         if cache_capacity > 128 {
             tracing::warn!(
-                target: "client",
                 cache_capacity,
                 "orphan state witness cache capacity is larger than expected, this might lead to performance problems"
             );
@@ -54,7 +53,6 @@ impl OrphanStateWitnessPool {
             // Another witness has been ejected from the cache due to capacity limit
             let header = &ejected_entry.witness.chunk_header();
             tracing::debug!(
-                target: "client",
                 ejected_witness_height = header.height_created(),
                 ejected_witness_shard = ?header.shard_id(),
                 ejected_witness_chunk = ?header.chunk_hash(),
@@ -98,7 +96,6 @@ impl OrphanStateWitnessPool {
                 to_remove.push(cache_key.clone());
                 let header = &cache_entry.witness.chunk_header();
                 tracing::debug!(
-                    target: "client",
                     final_height,
                     ejected_witness_height = witness_height,
                     ejected_witness_shard = ?cache_key.shard_id,

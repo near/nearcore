@@ -86,7 +86,7 @@ impl StateSyncDownloadSourcePeerSharedState {
         let key = PendingPeerRequestKey { shard_id, sync_hash: msg.sync_hash(), part_id_or_header };
 
         let Some(request) = self.pending_requests.get_mut(&key) else {
-            tracing::debug!(target: "sync", ?key, %peer_id, "unexpected state response, request may have timed out");
+            tracing::debug!(?key, %peer_id, "unexpected state response, request may have timed out");
             return Ok(());
         };
 
@@ -211,7 +211,7 @@ impl StateSyncDownloadSourcePeer {
             }
         };
 
-        tracing::debug!(target: "sync", ?key, ?request_sent_to_peer, "p2p request sent");
+        tracing::debug!(?key, ?request_sent_to_peer, "p2p request sent");
 
         let state_value = PendingPeerRequestValue { peer_id: request_sent_to_peer.clone(), sender };
 
@@ -227,7 +227,7 @@ impl StateSyncDownloadSourcePeer {
         select! {
             _ = clock.sleep_until(deadline) => {
                 increment_download_count(key.shard_id, typ, "network", "timeout");
-                tracing::debug!(target: "sync", ?key, ?request_sent_to_peer, "p2p request timed out");
+                tracing::debug!(?key, ?request_sent_to_peer, "p2p request timed out");
                 Err(near_chain::Error::Other("Timeout".to_owned()))
             }
             _ = cancel.cancelled() => {
@@ -237,7 +237,7 @@ impl StateSyncDownloadSourcePeer {
             result = receiver => {
                 match result {
                     Ok(result) => {
-                        tracing::debug!(target: "sync", ?key, ?request_sent_to_peer, "p2p request succeeded");
+                        tracing::debug!(?key, ?request_sent_to_peer, "p2p request succeeded");
                         increment_download_count(key.shard_id, typ, "network", "success");
                         Ok(result)
                     }

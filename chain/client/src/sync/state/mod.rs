@@ -205,8 +205,7 @@ impl StateSync {
         sync_status: &mut StateSyncStatus,
         tracking_shards: &[ShardId],
     ) -> Result<StateSyncResult, near_chain::Error> {
-        let _span =
-            tracing::debug_span!(target: "sync", "run_sync", sync_type = "StateSync").entered();
+        let _span = tracing::debug_span!("run_sync", sync_type = "StateSync").entered();
         tracing::debug!(%sync_hash, ?tracking_shards, "syncing state");
 
         let mut all_done = true;

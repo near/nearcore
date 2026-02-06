@@ -119,7 +119,7 @@ pub fn create_cloud_archival_writer(
     epoch_manager: Arc<dyn EpochManagerAdapter>,
 ) -> anyhow::Result<Option<CloudArchivalWriterHandle>> {
     let Some(config) = writer_config else {
-        tracing::debug!(target: "cloud_archival", "not creating the cloud archival writer because it is not configured");
+        tracing::debug!("not creating the cloud archival writer because it is not configured");
         return Ok(None);
     };
     let cloud_storage = cloud_storage
@@ -134,7 +134,7 @@ pub fn create_cloud_archival_writer(
         epoch_manager,
     );
     let handle = writer.handle.clone();
-    tracing::info!(target: "cloud_archival", "starting the cloud archival writer");
+    tracing::info!("starting the cloud archival writer");
     future_spawner.spawn_boxed("cloud_archival_writer", writer.start(runtime_adapter).boxed());
     Ok(Some(handle))
 }
@@ -164,7 +164,7 @@ impl CloudArchivalWriter {
 
     async fn start(self, runtime_adapter: Arc<dyn RuntimeAdapter>) {
         if let Err(error) = self.initialize_cloud_head(&runtime_adapter).await {
-            tracing::error!(target: "cloud_archival", ?error, "cloud archival initialization failed");
+            tracing::error!(?error, "cloud archival initialization failed");
             return;
         }
         self.cloud_archival_loop().await;
@@ -183,7 +183,7 @@ impl CloudArchivalWriter {
             };
             self.clock.sleep(duration).await;
         }
-        tracing::debug!(target: "cloud_archival", "stopping the cloud archival loop");
+        tracing::debug!("stopping the cloud archival loop");
     }
 
     /// Tries to archive one height and logs the outcome.
@@ -192,28 +192,22 @@ impl CloudArchivalWriter {
         let result = self.try_archive_data_impl().await;
 
         let Ok(result) = result else {
-            tracing::error!(target: "cloud_archival", ?result, "archiving data to cloud failed");
+            tracing::error!(?result, "archiving data to cloud failed");
             return result;
         };
 
         match result {
             CloudArchivingResult::NoHeightArchived(cloud_head) => {
                 tracing::trace!(
-                    target: "cloud_archival",
                     cloud_head,
                     "no height was archived - cloud archival head is up to date"
                 );
             }
             CloudArchivingResult::LatestHeightArchived(target_height) => {
-                tracing::trace!(
-                    target: "cloud_archival",
-                    target_height,
-                    "latest height was archived"
-                );
+                tracing::trace!(target_height, "latest height was archived");
             }
             CloudArchivingResult::OlderHeightArchived(archived_height, target_height) => {
                 tracing::trace!(
-                    target: "cloud_archival",
                     archived_height,
                     target_height,
                     "older height was archived - more archiving needed"
@@ -230,7 +224,7 @@ impl CloudArchivalWriter {
             self.get_cloud_head_local()?.expect("CLOUD_HEAD should exist in hot store");
         let height_to_archive = cloud_head + 1;
         let hot_final_height = self.get_hot_final_head_height()?;
-        tracing::trace!(target: "cloud_archival", height_to_archive, hot_final_height, "try_archive");
+        tracing::trace!(height_to_archive, hot_final_height, "try_archive");
 
         // Archive only while the height to archive is below the finalized height, since
         // the next block should be finalized first (for `DBCol::NextBlockHashes`).
@@ -246,7 +240,7 @@ impl CloudArchivalWriter {
         } else {
             Ok(CloudArchivingResult::OlderHeightArchived(height_to_archive, hot_final_height - 1))
         };
-        tracing::trace!(target: "cloud_archival", ?result, "ending");
+        tracing::trace!(?result, "ending");
         result
     }
 
@@ -299,7 +293,6 @@ impl CloudArchivalWriter {
             (None, None) => {
                 let hot_final_height = self.get_hot_final_head_height()?;
                 tracing::info!(
-                    target: "cloud_archival",
                     start_height = hot_final_height,
                     "cloud head is missing both locally and externally, initializing new cloud archive and writer",
                 );
@@ -307,7 +300,6 @@ impl CloudArchivalWriter {
             }
             (None, Some(cloud_head_external)) => {
                 tracing::info!(
-                    target: "cloud_archival",
                     cloud_head_external,
                     "cloud head is missing locally, initializing new cloud archival writer",
                 );
@@ -322,7 +314,6 @@ impl CloudArchivalWriter {
                 if cloud_head_local < cloud_head_external =>
             {
                 tracing::warn!(
-                    target: "cloud_archival",
                     cloud_head_local,
                     cloud_head_external,
                     "external cloud head is ahead of the local head, syncing local to external",
@@ -339,11 +330,7 @@ impl CloudArchivalWriter {
             }
             (Some(cloud_head_local), Some(cloud_head_external)) => {
                 assert_eq!(cloud_head_local, cloud_head_external);
-                tracing::info!(
-                    target: "cloud_archival",
-                    cloud_head_local,
-                    "cloud head is equal locally and externally",
-                );
+                tracing::info!(cloud_head_local, "cloud head is equal locally and externally",);
             }
         };
         Ok(())

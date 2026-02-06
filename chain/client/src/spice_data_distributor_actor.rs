@@ -218,7 +218,7 @@ impl Handler<SpiceDistributorOutgoingReceipts> for SpiceDataDistributorActor {
             };
             if let Err(err) = self.distribute_data(data_id.clone(), &SpiceData::ReceiptProof(proof))
             {
-                tracing::error!(target: "spice_data_distribution", ?err, ?data_id, "failed to distribute receipt proof");
+                tracing::error!(?err, ?data_id, "failed to distribute receipt proof");
             }
         }
     }
@@ -238,7 +238,7 @@ impl Handler<SpiceDistributorStateWitness> for SpiceDataDistributorActor {
         if let Err(err) =
             self.distribute_data(data_id.clone(), &SpiceData::StateWitness(Box::new(state_witness)))
         {
-            tracing::error!(target: "spice_data_distribution", ?err, ?data_id, "failed to distribute state witness");
+            tracing::error!(?err, ?data_id, "failed to distribute state witness");
         }
     }
 }
@@ -250,12 +250,12 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
         if let Err(err) = self.receive_data(data) {
             if let Some(Error::DataIsIrrelevant(data_id)) = err.inner() {
                 self.waiting_on_data.remove(&data_id);
-                tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?sender, "received irrelevant data");
+                tracing::debug!(?err, ?data_id, ?sender, "received irrelevant data");
                 return;
             }
             // TODO(spice): Implement banning or de-prioritization of nodes from which we receive
             // invalid data.
-            tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, ?sender, "failed to handle receiving partial data");
+            tracing::error!(?err, ?block_hash, ?sender, "failed to handle receiving partial data");
             return;
         };
     }
@@ -264,7 +264,7 @@ impl Handler<SpiceIncomingPartialData> for SpiceDataDistributorActor {
 impl Handler<SpicePartialDataRequest> for SpiceDataDistributorActor {
     fn handle(&mut self, msg: SpicePartialDataRequest) -> () {
         if let Err(err) = self.handle_partial_data_request(msg) {
-            tracing::error!(target: "spice_data_distribution", ?err, "failure when handling partial data request");
+            tracing::error!(?err, "failure when handling partial data request");
         }
     }
 }
@@ -272,10 +272,10 @@ impl Handler<SpicePartialDataRequest> for SpiceDataDistributorActor {
 impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         if let Err(err) = self.start_waiting_on_data(&block_hash) {
-            tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when starting waiting on data");
+            tracing::error!(?err, ?block_hash, "failure when starting waiting on data");
         }
         if let Err(err) = self.process_pending_partial_data(&block_hash) {
-            tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failure when processing pending partial data");
+            tracing::error!(?err, ?block_hash, "failure when processing pending partial data");
         }
     }
 }
@@ -603,7 +603,7 @@ impl SpiceDataDistributorActor {
         if decoded {
             // TODO(spice): Handle the possibility of receiving invalid data in
             // which case we would need to keep requesting it.
-            tracing::debug!(target: "spice_data_distribution", ?id, ?commitment, "decoded data; stop waiting");
+            tracing::debug!(?id, ?commitment, "decoded data; stop waiting");
             self.waiting_on_data.remove(&id);
             self.recently_decoded_data.push(id, ());
         }
@@ -760,9 +760,9 @@ impl SpiceDataDistributorActor {
             if let Err(err) = self.receive_verified_data_with_block(data, &block) {
                 if let Error::DataIsIrrelevant(_) = err {
                     self.waiting_on_data.remove(&data_id);
-                    tracing::debug!(target: "spice_data_distribution", ?err, ?data_id, ?commitment, "processing irrelevant data");
+                    tracing::debug!(?err, ?data_id, ?commitment, "processing irrelevant data");
                 } else {
-                    tracing::error!(target: "spice_data_distribution", ?err, ?data_id, ?commitment, "failed to process partial data");
+                    tracing::error!(?err, ?data_id, ?commitment, "failed to process partial data");
                 }
             }
         }
@@ -781,7 +781,7 @@ impl SpiceDataDistributorActor {
         let me = signer.as_ref().map(|signer| signer.validator_id());
         // TODO(spice): Allow requesting data without signer using route back.
         let Some(me) = me else {
-            tracing::debug!(target: "spice_data_distribution", "not starting data waiting since we have no signer");
+            tracing::debug!("not starting data waiting since we have no signer");
             return Ok(());
         };
 
@@ -857,7 +857,7 @@ impl SpiceDataDistributorActor {
                 continue;
             }
             if self.is_data_known(me, &block, &id) {
-                tracing::debug!(target: "spice_data_distribution", ?id, "data is known; will not start waiting on it");
+                tracing::debug!(?id, "data is known; will not start waiting on it");
                 continue;
             }
             self.waiting_on_data.insert(id, HashMap::new());
@@ -881,7 +881,7 @@ impl SpiceDataDistributorActor {
     fn request_waiting_on_data(&self) {
         // TODO(spice): Allow requesting data without signer using route back.
         let Some(signer) = self.validator_signer.get() else {
-            tracing::debug!(target: "spice_data_distribution", "no validator signer to request waiting on data");
+            tracing::debug!("no validator signer to request waiting on data");
             return;
         };
         let me = signer.validator_id();
@@ -957,7 +957,7 @@ impl SpiceDataDistributorActor {
         let Some(data) = self.get_distribution_data(&data_id, producers.len())? else {
             // TODO(spice): Make sure we send requests for data only after we know it may be
             // available and make this into error.
-            tracing::debug!(target:"spice_data_distribution", ?data_id, ?requester, "received request for unknown data");
+            tracing::debug!(?data_id, ?requester, "received request for unknown data");
             return Ok(());
         };
         // TODO(spice): Check that requester is one of the recipients and implement a

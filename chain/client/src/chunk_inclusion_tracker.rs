@@ -146,7 +146,6 @@ impl ChunkInclusionTracker {
             self.banned_chunk_producers.contains(&(*epoch_id, chunk_info.chunk_producer.clone()));
         if banned {
             tracing::warn!(
-                target: "client",
                 chunk_hash = ?chunk_info.chunk_header.chunk_hash(),
                 chunk_producer = ?chunk_info.chunk_producer,
                 "not including chunk from a banned validator");
@@ -176,7 +175,6 @@ impl ChunkInclusionTracker {
             let is_endorsed = chunk_info.endorsements.is_endorsed;
             if !is_endorsed {
                 tracing::debug!(
-                    target: "client",
                     chunk_hash = ?chunk_info.chunk_header.chunk_hash(),
                     chunk_producer = ?chunk_info.chunk_producer,
                     "not including chunk because of insufficient chunk endorsements"

@@ -38,7 +38,6 @@ impl CacheEntry {
         let part_ord = part.part_ord;
         if self.parts.encoded_length() != part.encoded_length {
             tracing::warn!(
-                target: "client",
                 expected = self.parts.encoded_length(),
                 actual = part.encoded_length,
                 part_ord,
@@ -50,7 +49,6 @@ impl CacheEntry {
             InsertPartResult::Accepted => None,
             InsertPartResult::PartAlreadyAvailable => {
                 tracing::warn!(
-                    target: "client",
                     ?key,
                     part_ord,
                     "received duplicate or redundant contract deploy part"
@@ -58,12 +56,7 @@ impl CacheEntry {
                 None
             }
             InsertPartResult::InvalidPartOrd => {
-                tracing::warn!(
-                    target: "client",
-                    ?key,
-                    part_ord,
-                    "received invalid contract deploys part ord"
-                );
+                tracing::warn!(?key, part_ord, "received invalid contract deploys part ord");
                 None
             }
             InsertPartResult::Decoded(decode_result) => Some(decode_result),
@@ -97,7 +90,6 @@ impl PartialEncodedContractDeploysTracker {
             .is_some_and(|entry| entry.parts.has_part(partial_deploys.part().part_ord))
         {
             tracing::warn!(
-                target: "client",
                 ?key,
                 part = ?partial_deploys.part(),
                 "received already processed partial deploys part"
@@ -119,7 +111,6 @@ impl PartialEncodedContractDeploysTracker {
                 self.parts_cache.push(key.clone(), new_entry)
             {
                 tracing::warn!(
-                    target: "client",
                     ?evicted_key,
                     data_parts_present = ?evicted_entry.parts.data_parts_present(),
                     data_parts_required = ?evicted_entry.parts.data_parts_required(),
@@ -138,12 +129,7 @@ impl PartialEncodedContractDeploysTracker {
             let deploys = match decode_result {
                 Ok(deploys) => deploys,
                 Err(err) => {
-                    tracing::warn!(
-                        target: "client",
-                        ?err,
-                        ?key,
-                        "failed to reed solomon decode deployed contracts"
-                    );
+                    tracing::warn!(?err, ?key, "failed to reed solomon decode deployed contracts");
                     return Ok(None);
                 }
             };

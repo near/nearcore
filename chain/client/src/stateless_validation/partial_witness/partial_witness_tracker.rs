@@ -150,7 +150,6 @@ impl CacheEntry {
         encoder: Arc<ReedSolomonEncoder>,
     ) {
         let _span = tracing::debug_span!(
-            target: "client",
             "process_witness_part",
             height = partial_witness.chunk_production_key().height_created,
             shard_id = %partial_witness.chunk_production_key().shard_id,
@@ -172,7 +171,6 @@ impl CacheEntry {
         let key = partial_witness.chunk_production_key();
         if parts.encoded_length() != partial_witness.encoded_length() {
             tracing::warn!(
-                target: "client",
                 ?key,
                 expected = parts.encoded_length(),
                 actual = partial_witness.encoded_length(),
@@ -184,7 +182,6 @@ impl CacheEntry {
         let part = partial_witness.into_part();
         let create_decode_span = move || {
             tracing::debug_span!(
-                target: "client",
                 "decode_witness_parts",
                 height = key.height_created,
                 shard_id = %key.shard_id,
@@ -196,19 +193,13 @@ impl CacheEntry {
             InsertPartResult::Accepted => {}
             InsertPartResult::PartAlreadyAvailable => {
                 tracing::warn!(
-                    target: "client",
                     ?key,
                     part_ord,
                     "received duplicate or redundant state witness part"
                 );
             }
             InsertPartResult::InvalidPartOrd => {
-                tracing::warn!(
-                    target: "client",
-                    ?key,
-                    part_ord,
-                    "received invalid partial witness part ord"
-                );
+                tracing::warn!(?key, part_ord, "received invalid partial witness part ord");
             }
             InsertPartResult::Decoded(decode_result) => {
                 self.witness_parts =
@@ -232,7 +223,7 @@ impl CacheEntry {
                 };
             }
             AccessedContractsState::Requested { .. } | AccessedContractsState::Received(_) => {
-                tracing::warn!(target: "client", "already received accessed contract hashes");
+                tracing::warn!("already received accessed contract hashes");
             }
         }
     }
@@ -246,7 +237,6 @@ impl CacheEntry {
                 let expected = contract_hashes;
                 if actual != *expected {
                     tracing::warn!(
-                        target: "client",
                         ?actual,
                         ?expected,
                         "received contracts hashes do not match the requested ones"
@@ -265,10 +255,10 @@ impl CacheEntry {
                 self.accessed_contracts = AccessedContractsState::Received(contract_codes);
             }
             AccessedContractsState::Unknown => {
-                tracing::warn!(target: "client", "received accessed contracts without sending a request");
+                tracing::warn!("received accessed contracts without sending a request");
             }
             AccessedContractsState::Received(_) => {
-                tracing::warn!(target: "client", "already received accessed contract codes");
+                tracing::warn!("already received accessed contract codes");
             }
         }
     }
@@ -374,7 +364,7 @@ impl PartialEncodedStateWitnessTracker {
         &self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
-        tracing::debug!(target: "client", ?partial_witness, "store_partial_encoded_state_witness");
+        tracing::debug!(?partial_witness, "store_partial_encoded_state_witness");
         let key = partial_witness.chunk_production_key();
         let encoder = self.get_encoder(&key)?;
         let update = CacheUpdate::WitnessPart(partial_witness, encoder);
@@ -386,7 +376,7 @@ impl PartialEncodedStateWitnessTracker {
         key: ChunkProductionKey,
         hashes: HashSet<CodeHash>,
     ) -> Result<(), Error> {
-        tracing::debug!(target: "client", ?key, ?hashes, "store_accessed_contract_hashes");
+        tracing::debug!(?key, ?hashes, "store_accessed_contract_hashes");
         let update = CacheUpdate::AccessedContractHashes(hashes);
         self.process_update(key, true, update)
     }
@@ -396,7 +386,7 @@ impl PartialEncodedStateWitnessTracker {
         key: ChunkProductionKey,
         codes: Vec<CodeBytes>,
     ) -> Result<(), Error> {
-        tracing::debug!(target: "client", ?key, codes_len = codes.len(), "store_accessed_contract_codes");
+        tracing::debug!(?key, codes_len = codes.len(), "store_accessed_contract_codes");
         let update = CacheUpdate::AccessedContractCodes(codes);
         self.process_update(key, false, update)
     }
@@ -418,11 +408,7 @@ impl PartialEncodedStateWitnessTracker {
 
         // Check if this witness was already processed.
         if shard_tracker.processed_witnesses.contains(&key) {
-            tracing::debug!(
-                target: "client",
-                ?key,
-                "received data for already processed witness"
-            );
+            tracing::debug!(?key, "received data for already processed witness");
             return Ok(());
         }
 
@@ -462,7 +448,6 @@ impl PartialEncodedStateWitnessTracker {
                     // We ideally never expect the decoding to fail. In case it does, we received a bad part
                     // from the chunk producer.
                     tracing::error!(
-                        target: "client",
                         ?err,
                         shard_id = %key.shard_id,
                         height_created = key.height_created,
@@ -476,7 +461,6 @@ impl PartialEncodedStateWitnessTracker {
 
             let (mut witness, raw_witness_size) = {
                 let _span = tracing::debug_span!(
-                    target: "client",
                     "decode_state_witness",
                     height = key.height_created,
                     shard_id = %key.shard_id,
@@ -497,9 +481,8 @@ impl PartialEncodedStateWitnessTracker {
                 &mut witness.mut_main_state_transition().base_state;
             values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
 
-            tracing::debug!(target: "client", ?key, "sending encoded witness to chunk validation actor");
+            tracing::debug!(?key, "sending encoded witness to chunk validation actor");
             let _span = tracing::debug_span!(
-                target: "client",
                 "send_witness_to_chunk_validation_actor",
                 chunk_hash = ?witness.chunk_header().chunk_hash(),
                 height = key.height_created,
@@ -547,7 +530,6 @@ impl PartialEncodedStateWitnessTracker {
                 parts_cache.push(key.clone(), CacheEntry::new(key.shard_id))
             {
                 tracing::debug!(
-                    target: "client",
                     ?evicted_key,
                     data_parts_present = ?evicted_entry.data_parts_present(),
                     data_parts_required = ?evicted_entry.data_parts_required(),

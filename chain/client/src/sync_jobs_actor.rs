@@ -32,7 +32,7 @@ impl SyncJobsActor {
     }
 
     pub fn handle_block_catch_up_request(&mut self, msg: BlockCatchUpRequest) {
-        tracing::debug!(target: "sync", ?msg);
+        tracing::debug!(?msg);
         let results = do_apply_chunks(
             self.apply_chunks_iteration_mode,
             BlockToApply::Normal(msg.block_hash),

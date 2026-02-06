@@ -14,7 +14,7 @@ impl Client {
             return Ok(());
         }
         let block_hash = block.hash();
-        tracing::debug!(target: "client", ?block_hash, "shadow validation for block chunks");
+        tracing::debug!(?block_hash, "shadow validation for block chunks");
         let prev_block = self.chain.get_block(block.header().prev_hash())?;
         let prev_block_chunks = prev_block.chunks();
         for (shard_index, chunk) in block.chunks().iter_new().enumerate() {
@@ -27,7 +27,6 @@ impl Client {
                 near_chain::stateless_validation::metrics::SHADOW_CHUNK_VALIDATION_FAILED_TOTAL
                     .inc();
                 tracing::error!(
-                    target: "client",
                     ?err,
                     shard_id = %chunk.shard_id(),
                     ?block_hash,

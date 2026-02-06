@@ -133,7 +133,7 @@ impl RpcHandlerActor {
         unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded, check_only), {
             let signer = self.validator_signer.get();
             let me = signer.as_ref().map(|signer| signer.validator_id());
-            tracing::debug!(target: "client", ?me, ?tx, "dropping tx");
+            tracing::debug!(?me, ?tx, "dropping tx");
             ProcessTxResponse::NoResponse
         })
     }
@@ -159,7 +159,7 @@ impl RpcHandlerActor {
             signed_tx.transaction.block_hash(),
             self.config.transaction_validity_period,
         ) {
-            tracing::debug!(target: "client", ?signed_tx, "invalid tx: expired or from a different fork");
+            tracing::debug!(?signed_tx, "invalid tx: expired or from a different fork");
             return Ok(ProcessTxResponse::InvalidTx(e));
         }
         let gas_price = cur_block_header.next_gas_price();
@@ -180,7 +180,7 @@ impl RpcHandlerActor {
         ) {
             Ok(validated_tx) => validated_tx,
             Err((err, signed_tx)) => {
-                tracing::debug!(target: "client", tx_hash = ?signed_tx.get_hash(), ?err, "invalid tx during basic validation");
+                tracing::debug!(tx_hash = ?signed_tx.get_hash(), ?err, "invalid tx during basic validation");
                 return Ok(ProcessTxResponse::InvalidTx(err));
             }
         };
@@ -215,7 +215,7 @@ impl RpcHandlerActor {
                     &validated_tx,
                     protocol_version,
                 ) {
-                    tracing::debug!(target: "client", ?err, "invalid tx");
+                    tracing::debug!(?err, "invalid tx");
                     return Ok(ProcessTxResponse::InvalidTx(err));
                 }
             }
@@ -227,17 +227,17 @@ impl RpcHandlerActor {
                 let mut pool = self.tx_pool.lock();
                 match pool.insert_transaction(shard_uid, validated_tx) {
                     InsertTransactionResult::Success => {
-                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "recorded a transaction");
+                        tracing::trace!(?shard_uid, tx_hash = ?signed_tx.get_hash(), "recorded a transaction");
                     }
                     InsertTransactionResult::Duplicate => {
-                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "duplicate transaction, not forwarding it");
+                        tracing::trace!(?shard_uid, tx_hash = ?signed_tx.get_hash(), "duplicate transaction, not forwarding it");
                         return Ok(ProcessTxResponse::ValidTx);
                     }
                     InsertTransactionResult::NoSpaceLeft => {
                         if is_forwarded {
-                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, dropping the transaction");
+                            tracing::trace!(?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, dropping the transaction");
                         } else {
-                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, trying to forward the transaction");
+                            tracing::trace!(?shard_uid, tx_hash = ?signed_tx.get_hash(), "transaction pool is full, trying to forward the transaction");
                         }
                     }
                 }
@@ -249,7 +249,7 @@ impl RpcHandlerActor {
             //   forward to current epoch validators,
             //   possibly forward to next epoch validators
             if self.active_validator(shard_id)? {
-                tracing::trace!(target: "client", account = ?me, %shard_id, tx_hash = ?signed_tx.get_hash(), is_forwarded, "recording a transaction");
+                tracing::trace!(account = ?me, %shard_id, tx_hash = ?signed_tx.get_hash(), is_forwarded, "recording a transaction");
                 metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
 
                 if !is_forwarded && !self.config.disable_tx_routing {
@@ -258,17 +258,17 @@ impl RpcHandlerActor {
                 return Ok(ProcessTxResponse::ValidTx);
             }
             if !is_forwarded {
-                tracing::trace!(target: "client", %shard_id, tx_hash = ?signed_tx.get_hash(), "forwarding a transaction");
+                tracing::trace!(%shard_id, tx_hash = ?signed_tx.get_hash(), "forwarding a transaction");
                 metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
                 // Only skip forwarding if we're a validator node.
                 if self.config.disable_tx_routing && me.is_some() {
-                    tracing::trace!(target: "client", %shard_id, tx_hash = ?signed_tx.get_hash(), "Tx routing disabled.");
+                    tracing::trace!(%shard_id, tx_hash = ?signed_tx.get_hash(), "Tx routing disabled.");
                     return Ok(ProcessTxResponse::ValidTx);
                 }
                 self.forward_tx(&epoch_id, signed_tx)?;
                 return Ok(ProcessTxResponse::RequestRouted);
             }
-            tracing::trace!(target: "client", %shard_id, tx_hash = ?signed_tx.get_hash(), "non-validator received a forwarded transaction, dropping it");
+            tracing::trace!(%shard_id, tx_hash = ?signed_tx.get_hash(), "non-validator received a forwarded transaction, dropping it");
             metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
             return Ok(ProcessTxResponse::NoResponse);
         }
@@ -278,7 +278,7 @@ impl RpcHandlerActor {
         }
         if is_forwarded {
             // Received forwarded transaction but we are not tracking the shard
-            tracing::debug!(target: "client", ?me, %shard_id, tx_hash = ?signed_tx.get_hash(), "received forwarded transaction but no tracking shard");
+            tracing::debug!(?me, %shard_id, tx_hash = ?signed_tx.get_hash(), "received forwarded transaction but no tracking shard");
             return Ok(ProcessTxResponse::NoResponse);
         }
         // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
@@ -339,7 +339,7 @@ impl RpcHandlerActor {
         }
         for validator in validators {
             let tx_hash = tx.get_hash();
-            tracing::trace!(target: "client", me = ?signer.as_ref().map(|bp| bp.validator_id()), ?tx_hash, ?validator, %shard_id, "routing a transaction");
+            tracing::trace!(me = ?signer.as_ref().map(|bp| bp.validator_id()), ?tx_hash, ?validator, %shard_id, "routing a transaction");
 
             // Send message to network to actually forward transaction.
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(

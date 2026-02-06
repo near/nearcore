@@ -223,7 +223,6 @@ impl ChunkValidationActor {
         let witness_shard = chunk_header.shard_id();
 
         let _span = tracing::debug_span!(
-            target: "chunk_validation",
             "handle_orphan_witness",
             witness_height,
             ?witness_shard,
@@ -238,7 +237,6 @@ impl ChunkValidationActor {
 
         if !ALLOWED_ORPHAN_WITNESS_DISTANCE_FROM_HEAD.contains(&head_distance) {
             tracing::debug!(
-                target: "chunk_validation",
                 head_height = chain_head.height,
                 "not saving an orphaned chunk state witness because its height isn't within the allowed height range"
             );
@@ -252,7 +250,6 @@ impl ChunkValidationActor {
         let witness_size_u64: u64 = witness_size as u64;
         if witness_size_u64 > self.max_orphan_witness_size {
             tracing::warn!(
-                target: "chunk_validation",
                 witness_height,
                 ?witness_shard,
                 witness_chunk = ?chunk_header.chunk_hash(),
@@ -264,7 +261,7 @@ impl ChunkValidationActor {
         }
 
         // Orphan witness is OK, save it to the pool
-        tracing::debug!(target: "chunk_validation", "saving an orphaned chunk state witness to orphan pool");
+        tracing::debug!("saving an orphaned chunk state witness to orphan pool");
         self.orphan_witness_pool
             .lock()
             .add_orphan_state_witness(witness, witness_size_u64 as usize);
@@ -281,7 +278,6 @@ impl ChunkValidationActor {
         for witness in ready_witnesses {
             let header = witness.chunk_header();
             tracing::debug!(
-                target: "chunk_validation",
                 witness_height = header.height_created(),
                 witness_shard = ?header.shard_id(),
                 witness_chunk = ?header.chunk_hash(),
@@ -290,7 +286,7 @@ impl ChunkValidationActor {
             );
 
             if let Err(err) = self.process_chunk_state_witness(witness, new_block, None) {
-                tracing::error!(target: "chunk_validation", ?err, "error processing orphan chunk state witness");
+                tracing::error!(?err, "error processing orphan chunk state witness");
             }
         }
     }
@@ -313,7 +309,6 @@ impl ChunkValidationActor {
                 .remove_witnesses_below_final_height(last_final_block_header.height());
         } else {
             tracing::error!(
-                target: "chunk_validation",
                 ?last_final_block,
                 "error getting last final block header for orphan witness cleanup"
             );
@@ -327,7 +322,6 @@ impl ChunkValidationActor {
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(
-            target: "chunk_validation",
             "process_chunk_state_witness",
             chunk_hash = ?witness.chunk_header().chunk_hash(),
             height = %witness.chunk_header().height_created(),
@@ -364,7 +358,6 @@ impl ChunkValidationActor {
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(
-            target: "chunk_validation",
             "start_validating_chunk",
             height = %state_witness.chunk_production_key().height_created,
             shard_id = %state_witness.chunk_production_key().shard_id,
@@ -401,7 +394,6 @@ impl ChunkValidationActor {
                 .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
                 .inc();
             tracing::error!(
-                target: "chunk_validation",
                 ?err,
                 ?chunk_producer_name,
                 ?chunk_production_key,
@@ -444,7 +436,6 @@ impl ChunkValidationActor {
                 }
                 Err(err) => {
                     tracing::error!(
-                        target: "chunk_validation",
                         ?err,
                         ?chunk_producer_name,
                         ?chunk_production_key,
@@ -493,7 +484,6 @@ impl ChunkValidationActor {
                         .with_label_values(&[&shard_id.to_string(), err.prometheus_label_value()])
                         .inc();
                     tracing::error!(
-                        target: "chunk_validation",
                         ?err,
                         ?chunk_producer_name,
                         ?chunk_production_key,
@@ -515,23 +505,20 @@ impl ChunkValidationActor {
         // Check if we're a validator
         if self.validator_signer.get().is_none() {
             const ERROR_MSG: &str = "Received chunk state witness but this is not a validator node";
-            tracing::warn!(
-                target: "chunk_validation",
-                ERROR_MSG
-            );
+            tracing::warn!(ERROR_MSG);
             return Err(Error::Other(ERROR_MSG.to_string()));
         }
 
         // Send acknowledgement back to the chunk producer
         if let Err(err) = self.send_state_witness_ack(&witness) {
-            tracing::error!(target: "chunk_validation", ?err, "failed to send state witness ack");
+            tracing::error!(?err, "failed to send state witness ack");
             return Err(err);
         }
 
         // Save the witness if configured to do so
         if self.save_latest_witnesses {
             if let Err(err) = self.chain_store.save_latest_chunk_state_witness(&witness) {
-                tracing::error!(target: "chunk_validation", ?err, "failed to save latest witness");
+                tracing::error!(?err, "failed to save latest witness");
             }
         }
 
@@ -546,34 +533,31 @@ impl ChunkValidationActor {
                     processing_done_tracker,
                 ) {
                     Ok(()) => {
-                        tracing::debug!(target: "chunk_validation", "chunk witness validation started successfully");
+                        tracing::debug!("chunk witness validation started successfully");
                         Ok(())
                     }
                     Err(err) => {
-                        tracing::error!(target: "chunk_validation", ?err, "failed to start chunk witness validation");
+                        tracing::error!(?err, "failed to start chunk witness validation");
                         Err(err)
                     }
                 }
             }
             Err(Error::DBNotFoundErr(_)) => {
                 // Previous block isn't available at the moment - handle as orphan
-                tracing::debug!(
-                    target: "chunk_validation",
-                    "previous block not found - handling as orphan witness"
-                );
+                tracing::debug!("previous block not found - handling as orphan witness");
                 match self.handle_orphan_witness(witness, raw_witness_size) {
                     Ok(outcome) => {
-                        tracing::debug!(target: "chunk_validation", ?outcome, "orphan witness handled");
+                        tracing::debug!(?outcome, "orphan witness handled");
                         Ok(())
                     }
                     Err(err) => {
-                        tracing::error!(target: "chunk_validation", ?err, "failed to handle orphan witness");
+                        tracing::error!(?err, "failed to handle orphan witness");
                         Err(err)
                     }
                 }
             }
             Err(err) => {
-                tracing::error!(target: "chunk_validation", ?err, "failed to get previous block");
+                tracing::error!(?err, "failed to get previous block");
                 Err(err)
             }
         }
@@ -583,7 +567,6 @@ impl ChunkValidationActor {
 impl Handler<ChunkStateWitnessMessage> for ChunkValidationActor {
     fn handle(&mut self, msg: ChunkStateWitnessMessage) {
         let _span = tracing::debug_span!(
-            target: "chunk_validation",
             "handle_chunk_state_witness",
             chunk_hash = ?msg.witness.chunk_header().chunk_hash(),
             height = %msg.witness.chunk_header().height_created(),

@@ -104,8 +104,7 @@ impl HeaderSync {
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), near_chain::Error> {
-        let _span =
-            tracing::debug_span!(target: "sync", "run_sync", sync_type = "HeaderSync").entered();
+        let _span = tracing::debug_span!("run_sync", sync_type = "HeaderSync").entered();
         let head = chain.head()?;
         let header_head = chain.header_head()?;
 
@@ -127,7 +126,7 @@ impl HeaderSync {
                 true
             }
             SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
-                tracing::debug!(target: "sync", header_head_hash = ?header_head.last_block_hash, header_head_height = header_head.height, "initial transition to header sync");
+                tracing::debug!(header_head_hash = ?header_head.last_block_hash, header_head_height = header_head.height, "initial transition to header sync");
                 true
             }
             SyncStatus::EpochSync { .. } | SyncStatus::StateSync { .. } => false,
@@ -240,7 +239,7 @@ impl HeaderSync {
                                     && *highest_height == peer.highest_block_height
                                 {
                                     // The peer is one of the peers with the highest height, but we consider the peer stalling.
-                                    tracing::warn!(target: "sync", peer_info = %peer.peer_info, peer_height = peer.highest_block_height, "banning a peer for not providing enough headers");
+                                    tracing::warn!(peer_info = %peer.peer_info, peer_height = peer.highest_block_height, "banning a peer for not providing enough headers");
                                     // Ban the peer, which blocks all interactions with the peer for some time.
                                     // TODO: Consider not banning straightaway, but give a node a few attempts before banning it.
                                     // TODO: Prefer not to request the next batch of headers from the same peer.
@@ -313,7 +312,7 @@ impl HeaderSync {
         peer: &HighestHeightPeerInfo,
     ) -> Result<(), near_chain::Error> {
         let locator = self.get_locator(chain)?;
-        tracing::debug!(target: "sync", peer_id = %peer.peer_info.id, ?locator, "requesting headers");
+        tracing::debug!(peer_id = %peer.peer_info.id, ?locator, "requesting headers");
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::BlockHeadersRequest {
                 hashes: locator,
@@ -355,11 +354,11 @@ impl HeaderSync {
                     if *ordinal == tip_ordinal {
                         return Err(e);
                     }
-                    tracing::debug!(target: "sync", ordinal, error = ?e, "failed to get block hash from ordinal, this is normal if we just finished epoch sync");
+                    tracing::debug!(ordinal, error = ?e, "failed to get block hash from ordinal, this is normal if we just finished epoch sync");
                 }
             }
         }
-        tracing::debug!(target: "sync", ?locator, ?ordinals);
+        tracing::debug!(?locator, ?ordinals);
         Ok(locator)
     }
 }

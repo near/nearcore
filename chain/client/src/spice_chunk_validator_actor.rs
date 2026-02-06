@@ -88,14 +88,14 @@ impl Handler<ProcessedBlock> for SpiceChunkValidatorActor {
         let block = match self.chain_store.get_block(&block_hash) {
             Ok(block) => block,
             Err(err) => {
-                tracing::error!(target: "spice_chunk_validator", %block_hash, ?err, "failed to get block");
+                tracing::error!(%block_hash, ?err, "failed to get block");
                 return;
             }
         };
 
         if let Some(signer) = self.validator_signer.get() {
             if let Err(err) = self.process_ready_pending_state_witnesses(block, signer) {
-                tracing::error!(target: "spice_chunk_validator", %block_hash, ?err, "failed to process ready pending state witnesses");
+                tracing::error!(%block_hash, ?err, "failed to process ready pending state witnesses");
             }
         }
     }
@@ -113,7 +113,7 @@ impl Handler<ExecutionResultEndorsed> for SpiceChunkValidatorActor {
                 if let Err(err) =
                     self.process_ready_pending_state_witnesses(next_block, signer.clone())
                 {
-                    tracing::error!(target: "spice_chunk_validator", %next_block_hash, %block_hash, ?err, "failed to process ready pending state witnesses");
+                    tracing::error!(%next_block_hash, %block_hash, ?err, "failed to process ready pending state witnesses");
                 }
             }
         }
@@ -130,11 +130,14 @@ impl Handler<SpanWrapped<SpiceChunkStateWitnessMessage>> for SpiceChunkValidator
         let msg = msg.span_unwrap();
         let SpiceChunkStateWitnessMessage { witness, raw_witness_size, .. } = msg;
         let Some(signer) = self.validator_signer.get() else {
-            tracing::error!(target: "spice_chunk_validator", ?witness, "received a chunk state witness but this is not a validator node");
+            tracing::error!(
+                ?witness,
+                "received a chunk state witness but this is not a validator node"
+            );
             return;
         };
         if let Err(err) = self.process_chunk_state_witness(witness, raw_witness_size, signer) {
-            tracing::error!(target: "spice_chunk_validator", ?err, "error processing chunk state witness");
+            tracing::error!(?err, "error processing chunk state witness");
         }
     }
 }
@@ -147,7 +150,6 @@ impl SpiceChunkValidatorActor {
         signer: Arc<ValidatorSigner>,
     ) -> Result<(), Error> {
         tracing::debug!(
-            target: "spice_chunk_validator",
             chunk_id=?witness.chunk_id(),
             "process_chunk_state_witness",
         );
@@ -178,10 +180,10 @@ impl SpiceChunkValidatorActor {
             Ok(block) => block,
             Err(Error::DBNotFoundErr(err)) => {
                 tracing::debug!(
-                    target: "spice_chunk_validator",
                     ?chunk_id,
                     ?err,
-                    "witness for block isn't ready for processing; block is missing");
+                    "witness for block isn't ready for processing; block is missing"
+                );
                 return Ok(WitnessProcessingReadiness::NotReady);
             }
             Err(err) => return Err(err),
@@ -192,7 +194,6 @@ impl SpiceChunkValidatorActor {
             self.core_reader.get_block_execution_results(prev_block.header())?
         else {
             tracing::debug!(
-                target: "spice_chunk_validator",
                 ?chunk_id,
                 prev_block_hash=?prev_block.header().hash(),
                 "witness for block isn't ready for processing; missing previous execution results required for chunk validation");
@@ -217,9 +218,9 @@ impl SpiceChunkValidatorActor {
             self.core_reader.get_block_execution_results(prev_block.header())?
         else {
             tracing::debug!(
-                target: "spice_chunk_validator",
                 ?prev_hash,
-                "process_ready_pending_state_witnesses: new block is available, but some of the prev block execution results are still missing");
+                "process_ready_pending_state_witnesses: new block is available, but some of the prev block execution results are still missing"
+            );
             return Ok(());
         };
 
@@ -229,7 +230,6 @@ impl SpiceChunkValidatorActor {
             WitnessValidationContext { block, prev_block, prev_block_execution_results };
         for witness in ready_witnesses.into_iter().flatten() {
             tracing::debug!(
-                target: "spice_chunk_validator",
                 ?prev_hash,
                 chunk_id=?witness.chunk_id(),
                 "processing ready pending state witnesses");
@@ -290,7 +290,6 @@ impl SpiceChunkValidatorActor {
                         .with_label_values(&[&chunk_id.shard_id.to_string(), err.prometheus_label_value()])
                         .inc();
                     tracing::error!(
-                        target: "spice_chunk_validator",
                         ?err,
                         ?chunk_id,
                         ?block_height,
