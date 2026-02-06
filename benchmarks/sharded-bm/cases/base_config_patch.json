@@ -51,11 +51,11 @@
             "nanos": 600000000
         },
         "max_block_production_delay": {
-            "secs": 2,
+            "secs": 30,
             "nanos": 0
         },
         "max_block_wait_delay": {
-            "secs": 8,
+            "secs": 30,
             "nanos": 0
         },
         "block_production_tracking_delay": {
