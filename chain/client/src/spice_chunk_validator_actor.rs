@@ -272,19 +272,17 @@ impl SpiceChunkValidatorActor {
                 prev_block_execution_results: prev_block_execution_results.clone(),
                 prev_validator_proposals,
             };
-            self.validate_state_witness_and_send_endorsements(
+            if let Err(err) = self.validate_state_witness_and_send_endorsements(
                 &witness_validation_context,
                 witness,
                 signer.clone(),
-            )?;
+            ) {
+                self.requeue_pending_witnesses(block.header().hash(), unready_witnesses);
+                return Err(err);
+            }
         }
 
-        if !unready_witnesses.is_empty() {
-            self.pending_witnesses
-                .entry(*block.header().hash())
-                .or_default()
-                .extend(unready_witnesses);
-        }
+        self.requeue_pending_witnesses(block.header().hash(), unready_witnesses);
         Ok(())
     }
 
@@ -296,6 +294,16 @@ impl SpiceChunkValidatorActor {
         // TODO(spice): Implement additional checks before adding witness to pending witnesses, see Client's orphan_witness_handling.rs.
         let block_hash = witness.chunk_id().block_hash;
         self.pending_witnesses.entry(block_hash).or_default().push(witness);
+    }
+
+    fn requeue_pending_witnesses(
+        &mut self,
+        block_hash: &CryptoHash,
+        witnesses: Vec<SpiceChunkStateWitness>,
+    ) {
+        if !witnesses.is_empty() {
+            self.pending_witnesses.entry(*block_hash).or_default().extend(witnesses);
+        }
     }
 
     fn validate_state_witness_and_send_endorsements(
