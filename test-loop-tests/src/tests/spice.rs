@@ -8,7 +8,7 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::spice_core::get_last_certified_block_header;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::{GetBlock, ProcessTxRequest, Query, QueryError, ViewClientActor};
+use near_client::{GetBlock, ProcessTxRequest, Query, QueryError};
 use near_client_primitives::types::GetBlockError;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
@@ -17,7 +17,7 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockId, BlockReference, Finality, ShardId};
 use near_primitives::utils::get_block_shard_id_rev;
-use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind};
+use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -33,7 +33,7 @@ use crate::utils::get_node_data;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{TransactionRunner, get_anchor_hash};
 
-use super::spice_utils::delay_endorsements_propagation;
+use super::spice_utils::{delay_endorsements_propagation, query_view_account};
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -892,16 +892,3 @@ fn schedule_send_money_txs(
     (sent_txs, balance_changes)
 }
 
-fn query_view_account(view_client: &mut ViewClientActor, account_id: AccountId) -> AccountView {
-    // Note that TestLoopNode::view_account_query doesn't work with spice yet.
-    let query_response = view_client
-        .handle(Query::new(
-            BlockReference::Finality(near_primitives::types::Finality::None),
-            QueryRequest::ViewAccount { account_id },
-        ))
-        .unwrap();
-    let QueryResponseKind::ViewAccount(view_account_result) = query_response.kind else {
-        panic!();
-    };
-    view_account_result
-}

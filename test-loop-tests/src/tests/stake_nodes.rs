@@ -18,10 +18,11 @@ use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{get_shared_block_hash, run_tx, run_txs_parallel};
 use crate::utils::validators::get_epoch_all_validators_sorted;
 
+use super::spice_utils::query_view_account;
+
 /// Runs one validator network, sends staking transaction for the second node and
 /// waits until it becomes a validator.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_stake_nodes() {
     init_test_logger();
 
@@ -78,7 +79,6 @@ fn test_stake_nodes() {
 /// Waits until only nodes 2-3 are validators (kickout due to low stake).
 /// Verifies locked == 0 for kicked nodes and locked == TESTING_INIT_STAKE for remaining.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_validator_kickout() {
     init_test_logger();
 
@@ -144,7 +144,8 @@ fn test_validator_kickout() {
             }
             // Also wait for kicked nodes' locked amounts to return to zero
             for i in 0..2 {
-                let view = node.view_account_query(test_loop_data, &accounts[i]);
+                let view_client = node.view_client_actor(test_loop_data);
+                let view = query_view_account(view_client, accounts[i].clone());
                 if !view.locked.is_zero() {
                     return false;
                 }
@@ -157,7 +158,8 @@ fn test_validator_kickout() {
     // Verify kicked nodes have locked == 0 and stake returned to balance
     let expected_balance = TESTING_INIT_BALANCE.checked_add(TESTING_INIT_STAKE).unwrap();
     for i in 0..2 {
-        let view = node.view_account_query(&env.test_loop.data, &accounts[i]);
+        let view_client = node.view_client_actor(&mut env.test_loop.data);
+        let view = query_view_account(view_client, accounts[i].clone());
         assert!(view.locked.is_zero(), "kicked node {i}");
         assert_eq!(view.amount, expected_balance, "kicked node {i}");
     }
@@ -165,7 +167,8 @@ fn test_validator_kickout() {
     // Verify remaining validators have locked == TESTING_INIT_STAKE
     // Note: Genesis builder sets amount separately from validator stake (not deducted)
     for i in 2..4 {
-        let view = node.view_account_query(&env.test_loop.data, &accounts[i]);
+        let view_client = node.view_client_actor(&mut env.test_loop.data);
+        let view = query_view_account(view_client, accounts[i].clone());
         assert_eq!(view.locked, TESTING_INIT_STAKE, "remaining validator {i}");
         assert_eq!(view.amount, TESTING_INIT_BALANCE, "remaining validator {i}");
     }
@@ -242,12 +245,14 @@ fn test_validator_join() {
                 return false;
             }
             // Wait for node1's locked amount to return to zero
-            let view = node.view_account_query(test_loop_data, &accounts[1]);
+            let view =
+                query_view_account(node.view_client_actor(test_loop_data), accounts[1].clone());
             if !view.locked.is_zero() {
                 return false;
             }
             // Wait for node2's locked amount to equal TESTING_INIT_STAKE
-            let view = node.view_account_query(test_loop_data, &accounts[2]);
+            let view =
+                query_view_account(node.view_client_actor(test_loop_data), accounts[2].clone());
             view.locked == TESTING_INIT_STAKE
         },
         Duration::seconds(120),
