@@ -804,10 +804,14 @@ impl ChunkExecutorActor {
         };
 
         let prev_chunk_chunk_extra = chunk_context.prev_chunk_chunk_extra;
+        let prev_validator_proposals = self.core_reader.prev_validator_proposals(
+            &block_context.prev_block_hash,
+            chunk_context.shard_uid.shard_id(),
+        )?;
         let shard_update_reason = ShardUpdateReason::NewChunk(NewChunkData {
             gas_limit: prev_chunk_chunk_extra.gas_limit(),
             prev_state_root: *prev_chunk_chunk_extra.state_root(),
-            prev_validator_proposals: prev_chunk_chunk_extra.validator_proposals().collect(),
+            prev_validator_proposals,
             chunk_hash,
             transactions,
             receipts,
