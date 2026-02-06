@@ -26,8 +26,6 @@ use near_primitives::types::{
     Balance, BlockExecutionResults, ChunkExecutionResult, ChunkExecutionResultHash, ShardId,
     SpiceChunkId,
 };
-use near_primitives::utils::get_execution_results_key;
-use near_store::DBCol;
 use near_store::adapter::StoreAdapter as _;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -1422,18 +1420,6 @@ fn save_chunk_extra_for_block(
     store_update.commit().unwrap();
 }
 
-fn save_execution_result_for_block(
-    chain: &Chain,
-    block: &Block,
-    shard_id: ShardId,
-    execution_result: ChunkExecutionResult,
-) {
-    let key = get_execution_results_key(block.hash(), shard_id);
-    let mut store_update = chain.chain_store.store().store_update();
-    store_update.insert_ser(DBCol::execution_results(), &key, &execution_result).unwrap();
-    store_update.commit().unwrap();
-}
-
 fn test_proposal(account: &str, stake: u128) -> ValidatorStake {
     let signer = create_test_signer(account);
     ValidatorStake::new(account.parse().unwrap(), signer.public_key(), Balance::from_near(stake))
@@ -1535,21 +1521,41 @@ fn test_uncertified_validator_proposals_multiple_heights_same_account() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_uncertified_validator_proposals_execution_results_fallback() {
-    let (mut chain, core_reader) = setup();
+fn test_uncertified_validator_proposals_from_on_chain_execution_results() {
+    let (mut chain, _) = setup();
     let genesis = chain.genesis_block();
-    let block = build_block(&mut chain, &genesis, vec![]);
-    process_block(&mut chain, block.clone());
+
+    // block1 has an uncertified chunk with a proposal but no ChunkExtra saved
+    // (simulating a non-tracking node).
+    let block1 = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, block1.clone());
 
     let shard_id = ShardId::new(0);
-    let proposals = vec![test_proposal("test0", 100)];
+    let chunk_id = SpiceChunkId { block_hash: *block1.hash(), shard_id };
     let execution_result = ChunkExecutionResult {
-        chunk_extra: make_chunk_extra_with_proposals(proposals),
+        chunk_extra: make_chunk_extra_with_proposals(vec![test_proposal("test0", 100)]),
         outgoing_receipts_root: CryptoHash::default(),
     };
-    save_execution_result_for_block(&chain, &block, shard_id, execution_result);
 
-    let result = core_reader.get_uncertified_validator_proposals(block.hash(), shard_id).unwrap();
+    // Build endorsements from all validators, then include the execution result.
+    let mut core_statements: Vec<_> = test_validators()
+        .iter()
+        .map(|v| {
+            let endorsement = SpiceChunkEndorsement::new(
+                chunk_id.clone(),
+                execution_result.clone(),
+                &create_test_signer(v),
+            );
+            endorsement_into_core_statement(endorsement)
+        })
+        .collect();
+    core_statements.push(SpiceCoreStatement::ChunkExecutionResult { chunk_id, execution_result });
+
+    let block2 = build_block(&mut chain, &block1, core_statements);
+    process_block(&mut chain, block2);
+
+    let core_reader = core_reader(&chain);
+    let result = core_reader.get_uncertified_validator_proposals(block1.hash(), shard_id).unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].account_id().as_str(), "test0");
     assert_eq!(result[0].stake(), Balance::from_near(100));

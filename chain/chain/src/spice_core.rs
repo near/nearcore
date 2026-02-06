@@ -105,27 +105,6 @@ impl SpiceCoreReader {
         self.chain_store.store().caching_get_ser(DBCol::execution_results(), &key)
     }
 
-    /// Returns ChunkExtra for a chunk from whichever trusted source is available:
-    /// ChunkExtra column (written by the chunk executor on tracking nodes) or
-    /// execution_results column (available on all nodes once the chunk is certified).
-    fn get_trusted_chunk_extra(&self, chunk_id: &SpiceChunkId) -> Result<Arc<ChunkExtra>, Error> {
-        let epoch_id = self.epoch_manager.get_epoch_id(&chunk_id.block_hash)?;
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        let shard_uid = ShardUId::from_shard_id_and_layout(chunk_id.shard_id, &shard_layout);
-        if let Ok(chunk_extra) =
-            self.chain_store.chunk_store().get_chunk_extra(&chunk_id.block_hash, &shard_uid)
-        {
-            return Ok(chunk_extra);
-        }
-        if let Some(result) =
-            self.get_execution_result_from_store(&chunk_id.block_hash, chunk_id.shard_id)?
-        {
-            return Ok(Arc::new(result.chunk_extra.clone()));
-        }
-        // TODO(spice): fall back to reading from on-chain execution results in the blocks themselves.
-        Err(Error::Other(format!("no trusted chunk extra for {:?}", chunk_id)))
-    }
-
     fn get_uncertified_chunks(
         &self,
         block_hash: &CryptoHash,
@@ -146,24 +125,51 @@ impl SpiceCoreReader {
         shard_id: ShardId,
     ) -> Result<Vec<ValidatorStake>, Error> {
         let uncertified_chunks = self.get_uncertified_chunks(block_hash)?;
-        let matching: Vec<_> = uncertified_chunks
+        let shard_uncertified_chunks: Vec<_> = uncertified_chunks
             .into_iter()
             .filter(|info| info.chunk_id.shard_id == shard_id)
             .collect();
-        if matching.is_empty() {
-            return Ok(vec![]);
+
+        // Resolve ChunkExtra for each uncertified chunk. Try ChunkExtra column
+        // first (available on tracking nodes), then do a single forward block
+        // scan for on-chain certified execution results.
+        let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        let mut chunk_extras: HashMap<SpiceChunkId, Arc<ChunkExtra>> = HashMap::new();
+        for info in &shard_uncertified_chunks {
+            if let Ok(extra) = self
+                .chain_store
+                .chunk_store()
+                .get_chunk_extra(&info.chunk_id.block_hash, &shard_uid)
+            {
+                chunk_extras.insert(info.chunk_id.clone(), extra);
+            }
         }
-        // Collect (height, proposals) for each uncertified chunk.
+        // Walk backward from head, collecting certified execution results
+        // from blocks' core statements for any chunks not resolved above.
+        let mut current_hash = self.chain_store.head()?.last_block_hash;
+        while chunk_extras.len() < shard_uncertified_chunks.len() && current_hash != *block_hash {
+            let block = self.chain_store.get_block(&current_hash)?;
+            for (cid, result) in block.spice_core_statements().iter_execution_results() {
+                if !chunk_extras.contains_key(cid) {
+                    chunk_extras.insert(cid.clone(), Arc::new(result.chunk_extra.clone()));
+                }
+            }
+            current_hash = *block.header().prev_hash();
+        }
+
         let mut height_proposals: Vec<(BlockHeight, Vec<ValidatorStake>)> = Vec::new();
-        for info in &matching {
-            let height = self.chain_store.get_block_height(&info.chunk_id.block_hash)?;
-            let chunk_extra = self.get_trusted_chunk_extra(&info.chunk_id)?;
+        for info in &shard_uncertified_chunks {
+            let Some(chunk_extra) = chunk_extras.get(&info.chunk_id) else {
+                return Err(Error::Other(format!("no chunk extra for {:?}", info.chunk_id)));
+            };
             let proposals: Vec<ValidatorStake> = chunk_extra.validator_proposals().collect();
             if !proposals.is_empty() {
+                let height = self.chain_store.get_block_height(&info.chunk_id.block_hash)?;
                 height_proposals.push((height, proposals));
             }
         }
-
         height_proposals.sort_by_key(|(h, _)| *h);
         debug_assert!(
             height_proposals.windows(2).all(|w| w[0].0 != w[1].0),
