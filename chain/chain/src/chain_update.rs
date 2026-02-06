@@ -298,7 +298,8 @@ impl<'a> ChainUpdate<'a> {
             // prev_hash of the first block in epoch T is always the last block of epoch T-1.
             //
             // The downside of using prev_hash is that due to forks we may end up hitting the
-            // epoch boundary multiple times.
+            // epoch boundary multiple times, but that's alright as update_epoch_sync_proof
+            // is idempotent.
             if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
                 tracing::debug!(block_hash = ?block.hash(), "updating epoch sync proof");
                 let epoch_store = self.chain_store_update.store().epoch_store();
