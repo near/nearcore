@@ -387,17 +387,21 @@ async fn load_state_parts(
 
         match action {
             LoadAction::Apply => {
+                // set_state_part validates the part internally before storing
                 chain
                     .state_sync_adapter
                     .set_state_part(shard_id, sync_hash, PartId::new(part_id, num_parts), &part)
                     .unwrap();
+                // After set_state_part succeeds, we know the part is valid
+                let validated_part =
+                    near_primitives::state_part::ValidatedStatePart::from_trusted_source(part);
                 chain
                     .runtime_adapter
                     .apply_state_part(
                         shard_id,
                         &state_root,
                         PartId::new(part_id, num_parts),
-                        &part,
+                        &validated_part,
                         &epoch_id,
                     )
                     .unwrap();

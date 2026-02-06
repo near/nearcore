@@ -495,6 +495,39 @@ impl NightshadeRuntime {
         }
     }
 
+    fn validate_state_part_bytes_impl(
+        &self,
+        _shard_id: ShardId,
+        state_root: &StateRoot,
+        part_id: PartId,
+        protocol_version: ProtocolVersion,
+        bytes: &[u8],
+    ) -> Result<
+        near_primitives::state_part::ValidatedStatePart,
+        near_primitives::state_part::ValidationError,
+    > {
+        use near_primitives::state_part::RawStatePart;
+
+        // Parse raw bytes into a StatePart
+        let raw_part = RawStatePart(bytes.to_vec());
+        let parsed_part = raw_part
+            .parse(protocol_version)
+            .map_err(|_| near_primitives::state_part::ValidationError::DeserializationFailed)?;
+
+        // Convert to PartialState and validate via Trie to ensure correctness
+        let partial_state = parsed_part
+            .state_part()
+            .to_partial_state()
+            .map_err(|_| near_primitives::state_part::ValidationError::DeserializationFailed)?;
+
+        match Trie::validate_state_part(state_root, part_id, partial_state) {
+            Ok(()) => Ok(near_primitives::state_part::ValidatedStatePart(
+                parsed_part.state_part().clone(),
+            )),
+            Err(_) => Err(near_primitives::state_part::ValidationError::TrieValidationFailed),
+        }
+    }
+
     fn query_view_global_contract_code(
         &self,
         identifier: GlobalContractIdentifier,
@@ -1401,21 +1434,50 @@ impl RuntimeAdapter for NightshadeRuntime {
         res
     }
 
+    fn validate_state_part_bytes(
+        &self,
+        shard_id: ShardId,
+        state_root: &StateRoot,
+        part_id: PartId,
+        protocol_version: ProtocolVersion,
+        bytes: &[u8],
+    ) -> Result<
+        near_primitives::state_part::ValidatedStatePart,
+        near_primitives::state_part::ValidationError,
+    > {
+        let instant = Instant::now();
+        let res = self.validate_state_part_bytes_impl(
+            shard_id,
+            state_root,
+            part_id,
+            protocol_version,
+            bytes,
+        );
+        let elapsed = instant.elapsed();
+        let is_ok = if res.is_ok() { "ok" } else { "error" };
+        metrics::STATE_SYNC_VALIDATE_PART_DELAY
+            .with_label_values(&[&shard_id.to_string(), is_ok])
+            .observe(elapsed.as_secs_f64());
+        res
+    }
+
     fn apply_state_part(
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
         part_id: PartId,
-        part: &StatePart,
+        part: &near_primitives::state_part::ValidatedStatePart,
         epoch_id: &EpochId,
     ) -> Result<(), Error> {
         let _timer = metrics::STATE_SYNC_APPLY_PART_DELAY
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
 
+        // ValidatedStatePart guarantees the part was validated, so this cannot fail
         let part = part
+            .state_part()
             .to_partial_state()
-            .expect("Part was already validated earlier, so could never fail here");
+            .expect("ValidatedStatePart guarantees the part structure is valid");
         let ApplyStatePartResult { trie_changes, flat_state_delta, contract_codes } =
             Trie::apply_state_part(state_root, part_id, part);
         let tries = self.get_tries();

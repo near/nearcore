@@ -15,7 +15,7 @@ use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::{EpochId, ShardId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
@@ -313,13 +313,17 @@ async fn apply_state_part(
             ))
         })?
         .to_vec();
-    let state_part = StatePart::from_bytes(bytes, protocol_version)?;
+    // Parts in DBCol::StateParts were validated before storage, so we can trust them
+    let validated_part = near_primitives::state_part::ValidatedStatePart::from_trusted_store_bytes(
+        bytes,
+        protocol_version,
+    )?;
     handle.set_status("Applying part data to runtime");
     runtime.apply_state_part(
         shard_id,
         &state_root,
         PartId { idx: part_id, total: num_parts },
-        &state_part,
+        &validated_part,
         &epoch_id,
     )?;
     tracing::debug!(target: "sync", ?key, "applied state part");
@@ -339,6 +343,7 @@ mod tests {
     use near_epoch_manager::EpochManager;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state::PartialState;
+    use near_primitives::state_part::StatePart;
     use near_primitives::state_sync::StatePartKey;
     use near_primitives::types::EpochId;
     use near_store::genesis::initialize_genesis_state;

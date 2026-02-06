@@ -920,16 +920,28 @@ fn test_state_sync() {
         ),
         StatePartValidationResult::Invalid
     ));
-    new_env.runtime.validate_state_part(
-        ShardId::new(0),
-        &env.state_roots[0],
-        PartId::new(0, 1),
-        &state_part,
-    );
+    assert!(matches!(
+        new_env.runtime.validate_state_part(
+            ShardId::new(0),
+            &env.state_roots[0],
+            PartId::new(0, 1),
+            &state_part,
+        ),
+        StatePartValidationResult::Valid
+    ));
+    // After validation succeeds, wrap as ValidatedStatePart
+    let validated_part =
+        near_primitives::state_part::ValidatedStatePart::from_trusted_source(state_part);
     let epoch_id = &new_env.head.epoch_id;
     new_env
         .runtime
-        .apply_state_part(shard_id, &env.state_roots[0], PartId::new(0, 1), &state_part, epoch_id)
+        .apply_state_part(
+            shard_id,
+            &env.state_roots[0],
+            PartId::new(0, 1),
+            &validated_part,
+            epoch_id,
+        )
         .unwrap();
     new_env.state_roots[0] = env.state_roots[0];
     for _ in 3..=5 {
