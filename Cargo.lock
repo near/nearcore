@@ -8081,6 +8081,7 @@ dependencies = [
  "near-vm-runner",
  "nearcore",
  "parking_lot 0.12.1",
+ "primitive-types 0.10.1",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "serde_json",

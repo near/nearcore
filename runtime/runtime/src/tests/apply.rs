@@ -3760,3 +3760,124 @@ fn test_apply_gas_key_transaction() {
     let remaining = access_key.gas_key_info().unwrap().balance;
     assert_eq!(remaining, gas_key_balance.checked_sub(transaction_cost.gas_cost).unwrap());
 }
+
+#[test]
+fn test_gas_refund_to_gas_key() {
+    let initial_balance = Balance::from_near(1_000_000);
+    let (runtime, tries, root, mut apply_state, _signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        initial_balance,
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version = ProtocolFeature::GasKeys.protocol_version();
+    apply_state.block_height = 10;
+
+    let shard_uid = ShardUId::single_shard();
+    let mut state_update = tries.new_trie_update(shard_uid, root);
+
+    // Add a gas key to alice's account
+    let mut alice = get_account(&state_update, &alice_account()).unwrap().unwrap();
+    let gas_key_signer = Arc::new(InMemorySigner::from_seed(
+        alice_account(),
+        near_crypto::KeyType::ED25519,
+        "gas_key_seed",
+    ));
+    let gas_key = AccessKey::gas_key_full_access(1);
+    let mut result = ActionResult::default();
+    action_add_key(
+        &apply_state,
+        &mut state_update,
+        &mut alice,
+        &mut result,
+        &alice_account(),
+        &AddKeyAction { public_key: gas_key_signer.public_key(), access_key: gas_key },
+    )
+    .unwrap();
+
+    // Fund the gas key
+    let gas_key_balance = Balance::from_millinear(10);
+    let mut access_key =
+        get_access_key(&state_update, &alice_account(), &gas_key_signer.public_key())
+            .unwrap()
+            .unwrap();
+    access_key.gas_key_info_mut().unwrap().balance = gas_key_balance;
+    set_access_key(&mut state_update, alice_account(), gas_key_signer.public_key(), &access_key);
+    set_account(&mut state_update, alice_account(), &alice);
+
+    state_update.commit(StateChangeCause::InitialState);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+    store_update.commit().unwrap();
+
+    // Create a gas refund receipt targeting alice's gas key
+    let refund_amount = Balance::from_millinear(1);
+    let gas_refund =
+        Receipt::new_gas_refund(&alice_account(), refund_amount, gas_key_signer.public_key());
+
+    // Apply the refund receipt
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[gas_refund],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+
+    // Gas key balance should increase by refund amount
+    let access_key =
+        get_access_key(&state, &alice_account(), &gas_key_signer.public_key()).unwrap().unwrap();
+    assert_eq!(
+        access_key.gas_key_info().unwrap().balance,
+        gas_key_balance.checked_add(refund_amount).unwrap()
+    );
+
+    // Account balance should NOT change
+    let alice = get_account(&state, &alice_account()).unwrap().unwrap();
+    assert_eq!(alice.amount(), initial_balance);
+}
+
+#[test]
+fn test_gas_refund_unknown_key_falls_back_to_account() {
+    let initial_balance = Balance::from_near(1_000_000);
+    let (runtime, tries, root, mut apply_state, _signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        initial_balance,
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version = ProtocolFeature::GasKeys.protocol_version();
+
+    // Create a gas refund receipt with a public key that doesn't exist on the account
+    let unknown_key = PublicKey::from_seed(KeyType::ED25519, "unknown_key");
+    let refund_amount = Balance::from_millinear(1);
+    let gas_refund = Receipt::new_gas_refund(&alice_account(), refund_amount, unknown_key);
+
+    let shard_uid = ShardUId::single_shard();
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[gas_refund],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+
+    // Account balance should increase as fallback
+    let alice = get_account(&state, &alice_account()).unwrap().unwrap();
+    assert_eq!(alice.amount(), initial_balance.checked_add(refund_amount).unwrap());
+}
