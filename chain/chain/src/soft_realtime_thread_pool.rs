@@ -200,7 +200,11 @@ fn run_worker(state: Arc<ThreadPoolState>, idle_timeout: Duration) {
             state_guard.inc_idle_threads();
             let timeout_res = state.condvar.wait_for(&mut state_guard, idle_timeout);
             state_guard.dec_idle_threads();
-            if timeout_res.timed_out() {
+            // Note on queue check on timeout:
+            // If an idle thread's `wait_for`` times out concurrently with `spawn_boxed`` enqueueing a job and
+            // calling `notify_one()` (which saw `idle_threads > 0`` and thus didn't spawn a new thread), the job
+            // can be orphaned in the queue. So we need to make sure the queue is empty before exiting the thread.
+            if timeout_res.timed_out() && state_guard.queue.is_empty() {
                 tracing::trace!(
                     target: "chain::soft_realtime_thread_pool",
                     pool = state_guard.name,
