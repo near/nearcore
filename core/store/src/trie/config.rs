@@ -50,13 +50,13 @@ impl TrieConfig {
         for account in &config.sweat_prefetch_receivers {
             match AccountId::from_str(account) {
                 Ok(account_id) => this.sweat_prefetch_receivers.push(account_id),
-                Err(e) => tracing::error!(target: "config", %account, %e, "invalid account id"),
+                Err(e) => tracing::error!(%account, %e, "invalid account id"),
             }
         }
         for account in &config.sweat_prefetch_senders {
             match AccountId::from_str(account) {
                 Ok(account_id) => this.sweat_prefetch_senders.push(account_id),
-                Err(e) => tracing::error!(target: "config", %account, %e, "invalid account id"),
+                Err(e) => tracing::error!(%account, %e, "invalid account id"),
             }
         }
         this.claim_sweat_prefetch_config.clone_from(&config.claim_sweat_prefetch_config);

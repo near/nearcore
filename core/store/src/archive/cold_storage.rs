@@ -85,7 +85,7 @@ pub fn update_cold_db(
     is_resharding_boundary: bool,
     num_threads: usize,
 ) -> io::Result<()> {
-    let _span = tracing::debug_span!(target: "cold_store", "update cold db", height = height);
+    let _span = tracing::debug_span!("update cold db", height = height);
     let _timer = metrics::COLD_COPY_DURATION.start_timer();
 
     let height_key = height.to_le_bytes();
@@ -176,7 +176,7 @@ pub fn rc_aware_set(
 /// This should be called once while processing the block at the resharding
 /// boundary and before calling `copy_state_from_store`.
 fn update_state_shard_uid_mapping(cold_db: &ColdDB, shard_layout: &ShardLayout) -> io::Result<()> {
-    let _span = tracing::debug_span!(target: "cold_store", "update_state_shard_uid_mapping");
+    let _span = tracing::debug_span!("update_state_shard_uid_mapping");
     let cold_store = cold_db.as_store();
     let mut update = cold_store.store_update();
     let split_parents = shard_layout.get_split_parent_shard_uids();
@@ -211,7 +211,7 @@ fn copy_state_from_store(
     hot_store: &Store,
 ) -> io::Result<()> {
     let col = DBCol::State;
-    let _span = tracing::debug_span!(target: "cold_store", "copy_state_from_store", %col);
+    let _span = tracing::debug_span!("copy_state_from_store", %col);
     let instant = std::time::Instant::now();
     let cold_store = cold_db.as_store();
 
@@ -240,7 +240,7 @@ fn copy_state_from_store(
             let value = op.payload().to_vec();
 
             total_size += value.len();
-            tracing::trace!(target: "cold_store", pretty_key=?near_fmt::StorageKey(&key), "copying state node to colddb");
+            tracing::trace!(pretty_key=?near_fmt::StorageKey(&key), "copying state node to colddb");
             rc_aware_set(&mut transaction, DBCol::State, key, value);
         }
     }
@@ -253,7 +253,7 @@ fn copy_state_from_store(
     // We know that `copied_shards` includes all `tracked_shards`.
     // Emit a warning if `copied_shards` contains any unexpected extra shards.
     if copied_shards.len() > tracked_shards.len() {
-        tracing::warn!(target: "cold_store", ?copied_shards, ?tracked_shards, "copied state for shards while tracking");
+        tracing::warn!(?copied_shards, ?tracked_shards, "copied state for shards while tracking");
     }
 
     let read_duration = instant.elapsed();
@@ -262,7 +262,13 @@ fn copy_state_from_store(
     cold_db.write(transaction);
     let write_duration = instant.elapsed();
 
-    tracing::trace!(target: "cold_store", ?total_keys, ?total_size, ?read_duration, ?write_duration, "copy_state_from_store finished");
+    tracing::trace!(
+        ?total_keys,
+        ?total_size,
+        ?read_duration,
+        ?write_duration,
+        "copy_state_from_store finished"
+    );
 
     Ok(())
 }
@@ -281,7 +287,7 @@ fn copy_from_store(
     // note this function should only be used for state in tests where it's
     // needed to copy state records from genesis
 
-    let _span = tracing::debug_span!(target: "cold_store", "copy_from_store", col = %col);
+    let _span = tracing::debug_span!("copy_from_store", col = %col);
     let instant = std::time::Instant::now();
 
     let mut transaction = DBTransaction::new();
@@ -314,7 +320,15 @@ fn copy_from_store(
     cold_db.write(transaction);
     let write_duration = instant.elapsed();
 
-    tracing::trace!(target: "cold_store", ?col, ?good_keys, ?total_keys, ?total_size, ?read_duration, ?write_duration, "copy_from_store finished");
+    tracing::trace!(
+        ?col,
+        ?good_keys,
+        ?total_keys,
+        ?total_size,
+        ?read_duration,
+        ?write_duration,
+        "copy_from_store finished"
+    );
 
     return Ok(());
 }
@@ -326,7 +340,7 @@ fn copy_state_changes_from_store(
 ) -> io::Result<()> {
     let col = DBCol::StateChanges;
     debug_assert!(col.is_cold() && !col.is_rc());
-    let _span = tracing::debug_span!(target: "cold_store", "copy_state_changes_from_store", %col);
+    let _span = tracing::debug_span!("copy_state_changes_from_store", %col);
     let instant = std::time::Instant::now();
 
     let mut transaction = DBTransaction::new();
@@ -347,7 +361,14 @@ fn copy_state_changes_from_store(
     cold_db.write(transaction);
     let write_duration = instant.elapsed();
 
-    tracing::trace!(target: "cold_store", ?col, ?total_keys, ?total_size, ?read_duration, ?write_duration, "copy_state_changes_from_store finished");
+    tracing::trace!(
+        ?col,
+        ?total_keys,
+        ?total_size,
+        ?read_duration,
+        ?write_duration,
+        "copy_state_changes_from_store finished"
+    );
 
     Ok(())
 }
@@ -365,7 +386,7 @@ pub fn update_cold_head(
     hot_store: &Store,
     height: &BlockHeight,
 ) -> io::Result<()> {
-    tracing::debug!(target: "cold_store", %height, "update head of cold db");
+    tracing::debug!(%height, "update head of cold db");
 
     let height_key = height.to_le_bytes();
     let block_hash_key =
@@ -424,17 +445,17 @@ pub fn copy_all_data_to_cold(
 ) -> io::Result<CopyAllDataToColdStatus> {
     for col in DBCol::iter() {
         if col.is_cold() {
-            tracing::info!(target: "cold_store", ?col, "started column migration");
+            tracing::info!(?col, "started column migration");
             let mut transaction = BatchTransaction::new(cold_db.clone(), batch_size);
             for (key, value) in hot_store.iter(col) {
                 if !keep_going.load(std::sync::atomic::Ordering::Relaxed) {
-                    tracing::debug!(target: "cold_store", "stopping copy_all_data_to_cold");
+                    tracing::debug!("stopping copy_all_data_to_cold");
                     return Ok(CopyAllDataToColdStatus::Interrupted);
                 }
                 transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec())?;
             }
             transaction.write()?;
-            tracing::info!(target: "cold_store", ?col, "finished column migration");
+            tracing::info!(?col, "finished column migration");
         }
     }
     Ok(CopyAllDataToColdStatus::EverythingCopied)
@@ -518,7 +539,7 @@ fn get_keys_from_store(
             continue;
         };
         if !tracked_shards.contains(&shard_id) {
-            tracing::warn!(target: "cold_store", %shard_id, height = block.header().height(), "copied chunk for shard which is not tracked at height");
+            tracing::warn!(%shard_id, height = block.header().height(), "copied chunk for shard which is not tracked at height");
         }
         chunks.push(chunk);
     }
@@ -746,10 +767,10 @@ impl BatchTransaction {
             .start_timer();
 
         tracing::info!(
-                target: "cold_store",
-                ?column_label,
-                tx_size_in_megabytes = self.transaction_size as f64 / 1e6,
-                "writing a cold store transaction");
+            ?column_label,
+            tx_size_in_megabytes = self.transaction_size as f64 / 1e6,
+            "writing a cold store transaction"
+        );
 
         let transaction = std::mem::take(&mut self.transaction);
         self.cold_db.write(transaction);

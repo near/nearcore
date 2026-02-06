@@ -373,7 +373,7 @@ macro_rules! unwrap_or_return {
         match $obj {
             Ok(value) => value,
             Err(err) => {
-                tracing::error!(target: "near", ?err, "unwrap error");
+                tracing::error!(?err, "unwrap error");
                 return $ret;
             }
         }
@@ -382,7 +382,7 @@ macro_rules! unwrap_or_return {
         match $obj {
             Ok(value) => value,
             Err(err) => {
-                tracing::error!(target: "near", ?err, "unwrap error");
+                tracing::error!(?err, "unwrap error");
                 return;
             }
         }
@@ -445,7 +445,7 @@ where
 /// it shows its json representation. It is used to display complex
 /// objects using tracing.
 ///
-/// tracing::debug!(target: "diagnostic", value=%ser(&object));
+/// tracing::debug!(value=%ser(&object));
 pub fn ser<T>(object: &T) -> Serializable<'_, T>
 where
     T: serde::Serialize,

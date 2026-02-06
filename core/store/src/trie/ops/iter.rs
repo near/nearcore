@@ -414,7 +414,7 @@ where
         path_begin: Option<&[u8]>,
         path_end: Option<&[u8]>,
     ) -> Result<Vec<TrieTraversalItem>, StorageError> {
-        let _span = tracing::debug_span!(target: "runtime", "visit_nodes_interval").entered();
+        let _span = tracing::debug_span!("visit_nodes_interval").entered();
         let path_begin = NibbleSlice::new(path_begin.unwrap_or(LAST_STATE_PART_BOUNDARY_NIBBLES));
         let path_end = match path_end {
             Some(p) => NibbleSlice::new(p).iter().collect_vec(),

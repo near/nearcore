@@ -127,7 +127,6 @@ impl FlatStorageInner {
         );
         if blocks.len() >= Self::HOPS_LIMIT {
             tracing::warn!(
-                target: "chain",
                 shard_id = %self.shard_uid.shard_id(),
                 flat_head_height = flat_head.height,
                 cached_deltas = self.deltas.len(),
@@ -157,7 +156,6 @@ impl FlatStorageInner {
         let cached_changes_size_bytes = bytesize::ByteSize(cached_changes_size);
         if cached_changes_size_bytes >= Self::CACHED_CHANGES_SIZE_LIMIT {
             tracing::warn!(
-                target: "chain",
                 shard_id = %self.shard_uid.shard_id(),
                 flat_head_height = self.flat_head.height,
                 cached_deltas,
@@ -373,14 +371,14 @@ impl FlatStorage {
 
         let new_head = guard.get_new_flat_head(*block_hash, strict)?;
         if new_head == guard.flat_head.hash {
-            tracing::debug!(target: "store", shard_id = %guard.shard_uid.shard_id(), height = %guard.flat_head.height, "update_flat_head, flat head already at block");
+            tracing::debug!(shard_id = %guard.shard_uid.shard_id(), height = %guard.flat_head.height, "update_flat_head, flat head already at block");
             return Ok(());
         }
 
         let shard_uid = guard.shard_uid;
         let shard_id = shard_uid.shard_id();
 
-        tracing::debug!(target: "store", flat_head = ?guard.flat_head.hash, ?new_head, %shard_id, "moving flat head");
+        tracing::debug!(flat_head = ?guard.flat_head.hash, ?new_head, %shard_id, "moving flat head");
         let blocks = guard.get_blocks_to_head(&new_head)?;
 
         for block_hash in blocks.into_iter().rev() {
@@ -426,7 +424,7 @@ impl FlatStorage {
             }
 
             store_update.commit().unwrap();
-            tracing::debug!(target: "store", %shard_id, %block_hash, %block_height, "moved flat storage head");
+            tracing::debug!(%shard_id, %block_hash, %block_height, "moved flat storage head");
         }
         guard.update_delta_metrics();
 
@@ -455,7 +453,7 @@ impl FlatStorage {
         let block = &delta.metadata.block;
         let block_hash = block.hash;
         let block_height = block.height;
-        tracing::debug!(target: "store", %shard_uid, %block_hash, %block_height, "adding block to flat storage");
+        tracing::debug!(%shard_uid, %block_hash, %block_height, "adding block to flat storage");
         if block.prev_hash != guard.flat_head.hash && !guard.deltas.contains_key(&block.prev_hash) {
             return Err(guard.create_block_not_supported_error(&block_hash));
         }

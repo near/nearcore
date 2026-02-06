@@ -200,7 +200,6 @@ impl ShardTries {
 
     #[tracing::instrument(
         level = "trace",
-        target = "store::trie::shard_tries",
         "ShardTries::update_cache",
         skip_all,
         fields(ops.len = ops.len()),
@@ -292,7 +291,6 @@ impl ShardTries {
 
     #[tracing::instrument(
         level = "trace",
-        target = "store::trie::shard_tries",
         "ShardTries::apply_insertions",
         fields(num_insertions = trie_changes.insertions().len(), shard_id = %shard_uid.shard_id()),
         skip_all,
@@ -315,7 +313,6 @@ impl ShardTries {
 
     #[tracing::instrument(
         level = "trace",
-        target = "store::trie::shard_tries",
         "ShardTries::apply_deletions",
         fields(num_deletions = trie_changes.deletions().len(), shard_id = %shard_uid.shard_id()),
         skip_all,
@@ -368,7 +365,6 @@ impl ShardTries {
     }
 
     #[instrument(
-        target = "memtrie",
         level = "debug",
         "apply_memtrie_changes",
         skip_all,
@@ -417,16 +413,16 @@ impl ShardTries {
     /// Retains in-memory tries for given shards, i.e. unload tries from memory for shards that are NOT
     /// in the given list. Should be called to unload obsolete tries from memory.
     pub fn retain_memtries(&self, shard_uids: &[ShardUId]) {
-        tracing::info!(target: "memtrie", current_memtries = ?self.0.memtries.read().keys(), ?shard_uids, "keeping memtries for shards");
+        tracing::info!(current_memtries = ?self.0.memtries.read().keys(), ?shard_uids, "keeping memtries for shards");
         self.0.memtries.write().retain(|shard_uid, _| shard_uids.contains(shard_uid));
-        tracing::info!(target: "memtrie", ?shard_uids, "memtries retaining complete for shards");
+        tracing::info!(?shard_uids, "memtries retaining complete for shards");
     }
 
     /// Remove trie from memory for given shard.
     pub fn unload_memtrie(&self, shard_uid: &ShardUId) {
-        tracing::info!(target: "memtrie", ?shard_uid, "unloading trie from memory for shard");
+        tracing::info!(?shard_uid, "unloading trie from memory for shard");
         self.0.memtries.write().remove(shard_uid);
-        tracing::info!(target: "memtrie", ?shard_uid, "memtrie unloading complete for shard");
+        tracing::info!(?shard_uid, "memtrie unloading complete for shard");
     }
 
     /// Loads in-memory-trie for given shard and state root (if given).
@@ -436,7 +432,7 @@ impl ShardTries {
         state_root: Option<StateRoot>,
         parallelize: bool,
     ) -> Result<(), StorageError> {
-        tracing::info!(target: "memtrie", ?shard_uid, "loading trie to memory for shard");
+        tracing::info!(?shard_uid, "loading trie to memory for shard");
         let memtries = load_trie_from_flat_state_and_delta(
             &self.0.store.store(),
             *shard_uid,
@@ -444,7 +440,7 @@ impl ShardTries {
             parallelize,
         )?;
         self.0.memtries.write().insert(*shard_uid, Arc::new(RwLock::new(memtries)));
-        tracing::info!(target: "memtrie", ?shard_uid, "memtrie loading complete for shard");
+        tracing::info!(?shard_uid, "memtrie loading complete for shard");
         Ok(())
     }
 
@@ -493,20 +489,19 @@ impl ShardTries {
             .collect_vec();
 
         tracing::debug!(
-            target: "memtrie",
             ?tracked_shards,
             load_memtries_for_tracked_shards=?trie_config.load_memtries_for_tracked_shards,
             load_memtries_for_shards=?trie_config.load_memtries_for_shards,
             ?shard_uids_pending_resharding,
             "loading tries config"
         );
-        tracing::info!(target: "memtrie", ?shard_uids_to_load, "loading tries to memory for shards");
+        tracing::info!(?shard_uids_to_load, "loading tries to memory for shards");
         shard_uids_to_load
             .par_iter()
             .map(|shard_uid| self.load_memtrie(shard_uid, None, parallelize))
             .collect::<Result<(), StorageError>>()?;
 
-        tracing::info!(target: "memtrie", ?shard_uids_to_load, "memtries loading complete for shards");
+        tracing::info!(?shard_uids_to_load, "memtries loading complete for shards");
         Ok(())
     }
 
@@ -541,7 +536,6 @@ impl ShardTries {
         }
 
         tracing::info!(
-            target: "memtrie",
             ?parent_shard_uid,
             ?children_shard_uids,
             "freezing parent memtrie, creating children memtries",
@@ -571,7 +565,7 @@ impl ShardTries {
         // Insert the mapping from parent to children shards.
         split_shard_map_guard.insert(parent_shard_uid, children_shard_uids);
 
-        tracing::info!(target: "memtrie", "memtries freezing complete");
+        tracing::info!("memtries freezing complete");
         Ok(())
     }
 
@@ -656,7 +650,6 @@ impl WrappedTrieChanges {
     /// NOTE: the changes are drained from `self`.
     #[tracing::instrument(
         level = "debug",
-        target = "store::trie::shard_tries",
         "ShardTries::state_changes_into",
         fields(num_state_changes = self.state_changes.len(), shard_id = %self.shard_uid.shard_id()),
         skip_all,
@@ -694,12 +687,7 @@ impl WrappedTrieChanges {
         }
     }
 
-    #[tracing::instrument(
-        level = "debug",
-        target = "store::trie::shard_tries",
-        "ShardTries::trie_changes_into",
-        skip_all
-    )]
+    #[tracing::instrument(level = "debug", "ShardTries::trie_changes_into", skip_all)]
     pub fn trie_changes_into(
         &mut self,
         block_hash: &CryptoHash,

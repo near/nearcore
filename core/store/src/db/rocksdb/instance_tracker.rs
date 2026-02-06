@@ -58,7 +58,7 @@ impl State {
             inner.count += 1;
             inner.count
         };
-        tracing::info!(target: "db", num_instances, "opened a new rocksdb instance");
+        tracing::info!(num_instances, "opened a new rocksdb instance");
         Ok(())
     }
 
@@ -72,18 +72,20 @@ impl State {
             }
             inner.count
         };
-        tracing::info!(target: "db", num_instances, "closed a rocksdb instance");
+        tracing::info!(num_instances, "closed a rocksdb instance");
     }
 
     /// Blocks until all RocksDB instances (usually 0 or 1) shut down.
     fn block_until_all_instances_are_closed(&self) {
         let mut inner = self.inner.lock();
         while inner.count != 0 {
-            tracing::info!(target: "db", num_instances=inner.count,
-                  "waiting for remaining rocksdb instances to close");
+            tracing::info!(
+                num_instances = inner.count,
+                "waiting for remaining rocksdb instances to close"
+            );
             self.zero_cvar.wait(&mut inner);
         }
-        tracing::info!(target: "db", "all rocksdb instances closed");
+        tracing::info!("all rocksdb instances closed");
     }
 }
 

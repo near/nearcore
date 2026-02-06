@@ -483,7 +483,6 @@ impl PrefetchApi {
                             }
                             Err(e) => {
                                 tracing::debug!(
-                                    target: "store::trie::prefetch",
                                     message = "prefetching failure",
                                     error = %e,
                                     key = ?trie_key

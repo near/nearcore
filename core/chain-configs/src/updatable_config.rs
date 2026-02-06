@@ -75,13 +75,13 @@ impl<T: Clone + PartialEq + Debug> MutableConfigValue<T> {
     pub fn update(&self, val: T) -> bool {
         let mut lock = self.value.lock();
         if *lock != val {
-            tracing::info!(target: "config", field_name = self.field_name, old_value = ?*lock, new_value = ?val, "updated config field");
+            tracing::info!(field_name = self.field_name, old_value = ?*lock, new_value = ?val, "updated config field");
             self.set_metric_value(lock.clone(), 0);
             *lock = val.clone();
             self.set_metric_value(val, 1);
             true
         } else {
-            tracing::info!(target: "config", field_name = self.field_name, value = ?val, "mutable config field remains the same");
+            tracing::info!(field_name = self.field_name, value = ?val, "mutable config field remains the same");
             false
         }
     }

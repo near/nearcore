@@ -31,7 +31,7 @@ impl CancellableFutureSpawner {
 
 impl FutureSpawner for CancellableFutureSpawner {
     fn spawn_boxed(&self, description: &'static str, f: crate::futures::BoxFuture<'static, ()>) {
-        tracing::trace!(target: "cancellable_tokio_runtime", description, "spawning future");
+        tracing::trace!(description, "spawning future");
         self.runtime_handle.spawn(f);
     }
 }

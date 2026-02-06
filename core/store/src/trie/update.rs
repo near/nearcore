@@ -239,7 +239,6 @@ impl TrieUpdate {
     /// in any other way as desired.
     #[tracing::instrument(
         level = "debug",
-        target = "store::trie",
         "TrieUpdate::finalize",
         skip_all,
         fields(committed.len = self.committed.len(), tag_block_production = true)

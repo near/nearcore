@@ -160,7 +160,7 @@ enum FlattenNodesCrumb {
 }
 
 impl TrieStorageUpdate<'_> {
-    #[tracing::instrument(level = "debug", target = "store::trie", "Trie::flatten_nodes", skip_all)]
+    #[tracing::instrument(level = "debug", "Trie::flatten_nodes", skip_all)]
     pub(crate) fn flatten_nodes(
         mut self,
         old_root: &CryptoHash,

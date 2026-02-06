@@ -83,7 +83,6 @@ impl ProtocolUpgradeVotingSchedule {
                 client_protocol_version,
             )?;
             tracing::warn!(
-                target: "protocol_upgrade",
                 ?schedule,
                 "setting protocol upgrade override, this is fine in tests but should be avoided otherwise"
             );
@@ -119,7 +118,7 @@ impl ProtocolUpgradeVotingSchedule {
             }
         }
 
-        tracing::debug!(target: "protocol_upgrade", ?schedule, "created protocol upgrade schedule");
+        tracing::debug!(?schedule, "created protocol upgrade schedule");
 
         Ok(Self { client_protocol_version, schedule })
     }

@@ -678,7 +678,7 @@ impl Genesis {
         match genesis_validation {
             GenesisValidationMode::Full => validate_genesis(self),
             GenesisValidationMode::UnsafeFast => {
-                tracing::warn!(target: "genesis", "skipped genesis validation");
+                tracing::warn!("skipped genesis validation");
                 Ok(())
             }
         }

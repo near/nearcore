@@ -83,18 +83,22 @@ impl StateSnapshot {
         shard_indexes_and_uids: &[(ShardIndex, ShardUId)],
         block: Option<&Block>,
     ) -> Self {
-        tracing::debug!(target: "state_snapshot", ?shard_indexes_and_uids, ?prev_block_hash, "new state snapshot");
+        tracing::debug!(?shard_indexes_and_uids, ?prev_block_hash, "new state snapshot");
         let mut included_shard_uids = vec![];
         for &(shard_index, shard_uid) in shard_indexes_and_uids {
             if let Err(err) = flat_storage_manager.mark_ready_and_create_flat_storage(shard_uid) {
-                tracing::warn!(target: "state_snapshot", ?err, ?shard_uid, "failed to create a flat storage for snapshot shard");
+                tracing::warn!(
+                    ?err,
+                    ?shard_uid,
+                    "failed to create a flat storage for snapshot shard"
+                );
                 continue;
             }
             if let Some(block) = block {
                 let flat_storage =
                     flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
                 let current_flat_head = flat_storage.get_head_hash();
-                tracing::debug!(target: "state_snapshot", ?shard_uid, ?current_flat_head, block_hash = ?block.header().hash(), block_height = block.header().height(), "moving flat storage head of the snapshot");
+                tracing::debug!(?shard_uid, ?current_flat_head, block_hash = ?block.header().hash(), block_height = block.header().height(), "moving flat storage head of the snapshot");
                 let _timer = metrics::MOVE_STATE_SNAPSHOT_FLAT_HEAD_ELAPSED
                     .with_label_values(&[&shard_uid.shard_id.to_string()])
                     .start_timer();
@@ -104,15 +108,26 @@ impl StateSnapshot {
                     let desired_flat_head = chunk.prev_block_hash();
                     match flat_storage.update_flat_head(desired_flat_head) {
                         Ok(_) => {
-                            tracing::debug!(target: "state_snapshot", ?shard_uid, ?current_flat_head, ?desired_flat_head, "successfully moved flat storage head of the snapshot");
+                            tracing::debug!(
+                                ?shard_uid,
+                                ?current_flat_head,
+                                ?desired_flat_head,
+                                "successfully moved flat storage head of the snapshot"
+                            );
                             included_shard_uids.push(shard_uid);
                         }
                         Err(err) => {
-                            tracing::error!(target: "state_snapshot", ?shard_uid, ?err, ?current_flat_head, ?desired_flat_head, "failed to move flat storage head of the snapshot");
+                            tracing::error!(
+                                ?shard_uid,
+                                ?err,
+                                ?current_flat_head,
+                                ?desired_flat_head,
+                                "failed to move flat storage head of the snapshot"
+                            );
                         }
                     }
                 } else {
-                    tracing::error!(target: "state_snapshot", ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?prev_block_hash, "failed to move flat storage head of the snapshot, no chunk");
+                    tracing::error!(?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?prev_block_hash, "failed to move flat storage head of the snapshot, no chunk");
                 }
             }
         }
@@ -209,14 +224,12 @@ impl ShardTries {
     ) -> Result<Option<Vec<ShardUId>>, anyhow::Error> {
         metrics::HAS_STATE_SNAPSHOT.set(0);
         // The function returns an `anyhow::Error`, because no special handling of errors is done yet. The errors are logged and ignored.
-        let _span =
-            tracing::info_span!(target: "state_snapshot", "create_state_snapshot", ?prev_block_hash)
-                .entered();
+        let _span = tracing::info_span!("create_state_snapshot", ?prev_block_hash).entered();
         let _timer = metrics::CREATE_STATE_SNAPSHOT_ELAPSED.start_timer();
 
         // Checking if state snapshots are enabled is already done on actor level, hence the warning
         let Some(state_snapshots_dir) = self.state_snapshots_dir() else {
-            tracing::warn!(target: "state_snapshot", "state snapshots are disabled");
+            tracing::warn!("state snapshots are disabled");
             return Ok(None);
         };
 
@@ -228,10 +241,13 @@ impl ShardTries {
             if db_snapshot_hash.is_ok_and(|hash| hash == prev_block_hash)
                 && state_snapshot.prev_block_hash == prev_block_hash
             {
-                tracing::warn!(target: "state_snapshot", ?prev_block_hash, "requested a state snapshot but that is already available");
+                tracing::warn!(
+                    ?prev_block_hash,
+                    "requested a state snapshot but that is already available"
+                );
                 return Ok(None);
             }
-            tracing::error!(target: "state_snapshot", ?prev_block_hash, ?state_snapshot.prev_block_hash, "requested a state snapshot but that is already available with a different hash");
+            tracing::error!(?prev_block_hash, ?state_snapshot.prev_block_hash, "requested a state snapshot but that is already available with a different hash");
         }
 
         let storage = checkpoint_hot_storage_and_cleanup_columns(
@@ -261,25 +277,27 @@ impl ShardTries {
             match store_update.commit() {
                 Ok(_) => {}
                 Err(err) => {
-                    tracing::error!(target: "state_snapshot", ?err, "failed to set the new state snapshot for BlockMisc::STATE_SNAPSHOT_KEY in rocksdb");
+                    tracing::error!(
+                        ?err,
+                        "failed to set the new state snapshot for BlockMisc::STATE_SNAPSHOT_KEY in rocksdb"
+                    );
                 }
             }
         }
 
         metrics::HAS_STATE_SNAPSHOT.set(1);
-        tracing::info!(target: "state_snapshot", ?prev_block_hash, "made a checkpoint");
+        tracing::info!(?prev_block_hash, "made a checkpoint");
         Ok(Some(state_snapshot_lock.as_ref().unwrap().get_included_shard_uids()))
     }
 
     /// Deletes all snapshots and unset the STATE_SNAPSHOT_KEY.
     pub fn delete_state_snapshot(&self) {
-        let _span =
-            tracing::info_span!(target: "state_snapshot", "delete_state_snapshot").entered();
+        let _span = tracing::info_span!("delete_state_snapshot").entered();
         let _timer = metrics::DELETE_STATE_SNAPSHOT_ELAPSED.start_timer();
 
         // Checking if state snapshots are enabled is already done on actor level, hence the warning
         let Some(state_snapshots_dir) = self.state_snapshots_dir() else {
-            tracing::warn!(target: "state_snapshot", "state snapshots are disabled");
+            tracing::warn!("state snapshots are disabled");
             return;
         };
 
@@ -295,7 +313,10 @@ impl ShardTries {
             match self.delete_all_state_snapshots(state_snapshots_dir) {
                 Ok(_) => break,
                 Err(err) => {
-                    tracing::error!(target: "state_snapshot", ?err, "failed to delete the old state snapshot from file system or from rocksdb")
+                    tracing::error!(
+                        ?err,
+                        "failed to delete the old state snapshot from file system or from rocksdb"
+                    )
                 }
             }
         }
@@ -307,7 +328,10 @@ impl ShardTries {
             match store_update.commit() {
                 Ok(_) => break,
                 Err(err) => {
-                    tracing::error!(target: "state_snapshot", ?err, "failed to delete the old state snapshot for block_misc::state_snapshot_key in rocksdb")
+                    tracing::error!(
+                        ?err,
+                        "failed to delete the old state snapshot for block_misc::state_snapshot_key in rocksdb"
+                    )
                 }
             }
         }
@@ -317,8 +341,7 @@ impl ShardTries {
 
     /// Deletes all existing state snapshots in the parent directory
     fn delete_all_state_snapshots(&self, state_snapshots_dir: &Path) -> Result<(), io::Error> {
-        let _span =
-            tracing::info_span!(target: "state_snapshot", "delete_all_state_snapshots").entered();
+        let _span = tracing::info_span!("delete_all_state_snapshots").entered();
         if state_snapshots_dir.exists() {
             std::fs::remove_dir_all(state_snapshots_dir)?
         }
@@ -340,8 +363,7 @@ impl ShardTries {
             CryptoHash,
         ) -> Result<ShardIndexesAndUIds, EpochError>,
     ) -> Result<(), anyhow::Error> {
-        let _span =
-            tracing::info_span!(target: "state_snapshot", "maybe_open_state_snapshot").entered();
+        let _span = tracing::info_span!("maybe_open_state_snapshot").entered();
         metrics::HAS_STATE_SNAPSHOT.set(0);
         let state_snapshots_dir = self
             .state_snapshots_dir()
@@ -354,7 +376,7 @@ impl ShardTries {
         let parent_path = snapshot_path
             .parent()
             .ok_or_else(|| anyhow::anyhow!("{snapshot_path:?} needs to have a parent dir"))?;
-        tracing::debug!(target: "state_snapshot", ?snapshot_path, ?parent_path);
+        tracing::debug!(?snapshot_path, ?parent_path);
 
         let store_config = StoreConfig::state_snapshot_store_config();
 
@@ -373,7 +395,7 @@ impl ShardTries {
             None,
         ));
         metrics::HAS_STATE_SNAPSHOT.set(1);
-        tracing::info!(target: "runtime", ?snapshot_hash, ?snapshot_path, "detected and opened a state snapshot");
+        tracing::info!(?snapshot_hash, ?snapshot_path, "detected and opened a state snapshot");
         Ok(())
     }
 }
