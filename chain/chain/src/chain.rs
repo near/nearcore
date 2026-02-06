@@ -363,8 +363,9 @@ fn validate_block_proposals(block: &Block) -> Result<(), Error> {
         block
             .spice_core_statements()
             .iter_execution_results()
-            .map(|(_chunk_id, execution_result)| execution_result.chunk_extra.validator_proposals())
-            .flatten()
+            .flat_map(|(_chunk_id, execution_result)| {
+                execution_result.chunk_extra.validator_proposals()
+            })
             .collect()
     } else {
         block.chunks().iter_new().flat_map(|chunk| chunk.prev_validator_proposals()).collect()

@@ -65,6 +65,7 @@ pub(super) fn query_view_account(
     view_client: &mut ViewClientActor,
     account_id: AccountId,
 ) -> AccountView {
+    // Note that TestLoopNode::view_account_query doesn't work with spice yet.
     let query_response = view_client
         .handle(Query::new(
             BlockReference::Finality(near_primitives::types::Finality::None),
