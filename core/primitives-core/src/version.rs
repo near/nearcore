@@ -464,6 +464,7 @@ impl ProtocolFeature {
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
             ProtocolFeature::InstantPromiseYield => 130,
+            ProtocolFeature::ContinuousEpochSync => 131,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
@@ -474,7 +475,6 @@ impl ProtocolFeature {
             ProtocolFeature::Spice => 180,
 
             // Place features that are not yet in Nightly below this line.
-            ProtocolFeature::ContinuousEpochSync => 201,
             // TODO(dynamic_resharding): This should be 152, but some resharding tests bump
             //     protocol version to trigger resharding and accidentally turn on this feature
             ProtocolFeature::DynamicResharding => 252,
