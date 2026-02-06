@@ -521,63 +521,61 @@ impl TestEnvBuilder {
             })
             .collect_vec();
         let actor_system = ActorSystem::new();
-        let (clients, chunk_validation_actors): (Vec<Client>, Vec<ChunkValidationActor>) =
-            (0..num_clients)
-                .map(|i| {
-                    let account_id = client_accounts[i].clone();
-                    let network_adapter = network_adapters[i].clone();
-                    let partial_witness_adapter = partial_witness_adapters[i].clone();
-                    let shards_manager_adapter = shards_manager_adapters[i].clone();
-                    let epoch_manager = epoch_managers[i].clone();
-                    let shard_tracker = shard_trackers[i].clone();
-                    let runtime = runtimes[i].clone();
-                    let rng_seed = match seeds.get(&account_id) {
-                        Some(seed) => *seed,
-                        None => TEST_SEED,
-                    };
-                    let tries = runtime.get_tries();
-                    let make_snapshot_callback = Arc::new(move |
-                        _min_chunk_prev_height,
-                        _epoch_height,
-                        shard_uids: Vec<(ShardIndex, ShardUId)>,
-                        block: Arc<Block>
-                    | {
+        let (clients, chunk_validation_actors): (Vec<Client>, Vec<ChunkValidationActor>) = (0
+            ..num_clients)
+            .map(|i| {
+                let account_id = client_accounts[i].clone();
+                let network_adapter = network_adapters[i].clone();
+                let partial_witness_adapter = partial_witness_adapters[i].clone();
+                let shards_manager_adapter = shards_manager_adapters[i].clone();
+                let epoch_manager = epoch_managers[i].clone();
+                let shard_tracker = shard_trackers[i].clone();
+                let runtime = runtimes[i].clone();
+                let rng_seed = match seeds.get(&account_id) {
+                    Some(seed) => *seed,
+                    None => TEST_SEED,
+                };
+                let tries = runtime.get_tries();
+                let make_snapshot_callback = Arc::new(
+                    move |_min_chunk_prev_height,
+                          _epoch_height,
+                          shard_uids: Vec<(ShardIndex, ShardUId)>,
+                          block: Arc<Block>| {
                         let prev_block_hash = *block.header().prev_hash();
-                        tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
+                        tracing::info!(?prev_block_hash, "make_snapshot_callback");
                         tries.delete_state_snapshot();
                         tries.create_state_snapshot(prev_block_hash, &shard_uids, &block).unwrap();
-                    });
-                    let tries = runtime.get_tries();
-                    let delete_snapshot_callback = Arc::new(move || {
-                        tracing::info!(target: "state_snapshot", "delete_snapshot_callback");
-                        tries.delete_state_snapshot();
-                    });
-                    let snapshot_callbacks = SnapshotCallbacks {
-                        make_snapshot_callback,
-                        delete_snapshot_callback,
-                    };
-                    setup_client_with_runtime(
-                        clock.clone(),
-                        actor_system.clone(),
-                        u64::try_from(num_validators).unwrap(),
-                        false,
-                        network_adapter.as_multi_sender(),
-                        shards_manager_adapter,
-                        chain_genesis.clone(),
-                        epoch_manager,
-                        shard_tracker,
-                        runtime,
-                        rng_seed,
-                        self.enable_split_store,
-                        self.save_tx_outcomes,
-                        self.protocol_version_check,
-                        Some(snapshot_callbacks),
-                        partial_witness_adapter.into_multi_sender(),
-                        validator_signers[i].clone(),
-                        noop().into_multi_sender(),
-                    )
-                })
-                .unzip();
+                    },
+                );
+                let tries = runtime.get_tries();
+                let delete_snapshot_callback = Arc::new(move || {
+                    tracing::info!("delete_snapshot_callback");
+                    tries.delete_state_snapshot();
+                });
+                let snapshot_callbacks =
+                    SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
+                setup_client_with_runtime(
+                    clock.clone(),
+                    actor_system.clone(),
+                    u64::try_from(num_validators).unwrap(),
+                    false,
+                    network_adapter.as_multi_sender(),
+                    shards_manager_adapter,
+                    chain_genesis.clone(),
+                    epoch_manager,
+                    shard_tracker,
+                    runtime,
+                    rng_seed,
+                    self.enable_split_store,
+                    self.save_tx_outcomes,
+                    self.protocol_version_check,
+                    Some(snapshot_callbacks),
+                    partial_witness_adapter.into_multi_sender(),
+                    validator_signers[i].clone(),
+                    noop().into_multi_sender(),
+                )
+            })
+            .unzip();
 
         let tx_request_handlers = (0..num_clients)
             .map(|i| {

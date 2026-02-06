@@ -166,7 +166,7 @@ fn put_target_nonce(
     public_key: &PublicKey,
     nonce: &LatestTargetNonce,
 ) -> anyhow::Result<()> {
-    tracing::trace!(target: "mirror", ?nonce, %account_id, ?public_key, "storing nonce in DB for account and public key");
+    tracing::trace!(?nonce, %account_id, ?public_key, "storing nonce in DB for account and public key");
     let db_key = nonce_col_key(account_id, public_key);
     db.put_cf(
         db.cf_handle(DBCol::Nonces.name()).unwrap(),
@@ -200,7 +200,7 @@ fn put_pending_outcome(
     id: CryptoHash,
     access_keys: HashSet<(AccountId, PublicKey)>,
 ) -> anyhow::Result<()> {
-    tracing::trace!(target: "mirror", ?access_keys, ?id, "storing access key outcomes in DB");
+    tracing::trace!(?access_keys, ?id, "storing access key outcomes in DB");
     Ok(db.put_cf(
         db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(),
         &borsh::to_vec(&id).unwrap(),
@@ -209,7 +209,7 @@ fn put_pending_outcome(
 }
 
 fn delete_pending_outcome(db: &DB, id: &CryptoHash) -> anyhow::Result<()> {
-    tracing::trace!(target: "mirror", ?id, "deleting access key outcome from DB");
+    tracing::trace!(?id, "deleting access key outcome from DB");
     Ok(db.delete_cf(
         db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(),
         &borsh::to_vec(&id).unwrap(),
@@ -895,7 +895,6 @@ impl<T: ChainAccess> TxMirror<T> {
                             // that some other instance of this code ran and made progress already. For now we can assume
                             // only once instance of this code will run, but this is the place to detect if that's not the case.
                             tracing::debug!(
-                                target: "mirror",
                                 target_tx_signer_id = %tx.target_tx.transaction.signer_id(),
                                 target_tx_public_key = ?tx.target_tx.transaction.public_key(),
                                 tx_provenance = %tx.provenance,
@@ -906,7 +905,6 @@ impl<T: ChainAccess> TxMirror<T> {
                         }
                         response => {
                             tracing::error!(
-                                target: "mirror",
                                 tx_provenance = %tx.provenance,
                                 ?response,
                                 "unexpected process tx response",
@@ -920,7 +918,6 @@ impl<T: ChainAccess> TxMirror<T> {
                 TargetChainTx::AwaitingNonce(tx) => {
                     // TODO: here we should just save this transaction for later and send it when it's known
                     tracing::debug!(
-                        target: "mirror",
                         target_tx_signer_id = %tx.target_tx.signer_id(),
                         target_tx_public_key = ?tx.target_tx.public_key(),
                         "skip sending tx because valid target chain nonce not known",
@@ -1147,7 +1144,6 @@ impl<T: ChainAccess> TxMirror<T> {
                 if key.is_none() {
                     if let Some(k) = first_key {
                         tracing::warn!(
-                            target: "mirror",
                             provenance = %provenance,
                             target_signer_id = %target_signer_id,
                             public_key = ?k.public_key(),
@@ -1160,7 +1156,6 @@ impl<T: ChainAccess> TxMirror<T> {
                     Some(key) => key,
                     None => {
                         tracing::debug!(
-                            target: "mirror",
                             provenance = %provenance,
                             target_signer_id = %target_signer_id,
                             ?block_hash,
@@ -1226,7 +1221,6 @@ impl<T: ChainAccess> TxMirror<T> {
         }
 
         tracing::trace!(
-            target: "mirror",
             %provenance,
             %target_signer_id,
             target_public_key = ?target_secret_key.public_key(),
@@ -1283,7 +1277,6 @@ impl<T: ChainAccess> TxMirror<T> {
                 Ok(r) => r,
                 Err(ChainError::Unknown) => {
                     tracing::warn!(
-                        target: "mirror",
                         receipt_id = %id,
                         origin_receipt_id = %receipt_id,
                         "receipt appears in the output list, but can't find it in the source chain",
@@ -1322,7 +1315,6 @@ impl<T: ChainAccess> TxMirror<T> {
                     }
                     if account_created {
                         tracing::warn!(
-                            target: "mirror",
                             receipt_id = %receipt.receipt_id(),
                             actions = ?r.actions,
                             "predecessor and receiver are the same but there's a create account in the actions",
@@ -1580,7 +1572,6 @@ impl<T: ChainAccess> TxMirror<T> {
                 .await?;
             }
             tracing::trace!(
-                target: "mirror",
                 tx_count = txs.len(),
                 source_height = source_height,
                 shard_id = %ch.shard_id,
@@ -1763,7 +1754,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
             let start_time = tokio::time::Instant::now();
 
-            tracing::trace!(target: "mirror", source_height = tx_batch.source_height, "send tx batch");
+            tracing::trace!(source_height = tx_batch.source_height, "send tx batch");
             Self::send_transactions(
                 &target_client,
                 tx_batch.txs.iter_mut().map(|(_tx_ref, tx)| tx),
@@ -1775,7 +1766,7 @@ impl<T: ChainAccess> TxMirror<T> {
             blocks_sent.send(tx_batch).await.context("failed to send block")?;
 
             let send_delay = *send_delay.lock();
-            tracing::trace!(target: "mirror", ?send_delay, "sleep before sending more txs");
+            tracing::trace!(?send_delay, "sleep before sending more txs");
             let next_send_time = start_time + send_delay;
             send_time.as_mut().reset(next_send_time);
         }
@@ -1912,7 +1903,7 @@ impl<T: ChainAccess> TxMirror<T> {
             {
                 let tracker = tracker.lock();
                 if tracker.finished() {
-                    tracing::info!(target: "mirror", "finished sending all transactions");
+                    tracing::info!("finished sending all transactions");
                     return Ok(());
                 }
             }
@@ -2006,7 +1997,7 @@ impl<T: ChainAccess> TxMirror<T> {
             .await
             .with_context(|| format!("error fetching hash of block #{}", next_heights[0]))?;
 
-        tracing::debug!(target: "mirror", first_heights = ?next_heights, "source chain initialized");
+        tracing::debug!(first_heights = ?next_heights, "source chain initialized");
 
         let tracker = Arc::new(Mutex::new(crate::chain_tracker::TxTracker::new(
             self.target_min_block_production_delay,
@@ -2045,7 +2036,7 @@ impl<T: ChainAccess> TxMirror<T> {
             )
             .await;
             if let Err(res) = target_indexer_done_tx.send(res) {
-                tracing::error!(target: "mirror", ?res, "failed to notify that index target loop is done")
+                tracing::error!(?res, "failed to notify that index target loop is done")
             }
         });
 
@@ -2084,7 +2075,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 .await?;
             }
             if block.chunks.iter().any(|c| !c.txs.is_empty()) {
-                tracing::debug!(target: "mirror", n = %CREATE_ACCOUNT_DELTA, "sending extra create account transactions for the first n blocks");
+                tracing::debug!(n = %CREATE_ACCOUNT_DELTA, "sending extra create account transactions for the first n blocks");
                 let mut b = {
                     crate::chain_tracker::TxTracker::queue_block(
                         &tracker,
@@ -2137,7 +2128,7 @@ impl<T: ChainAccess> TxMirror<T> {
             )
             .await;
             if let Err(err) = send_txs_done_tx.send(res) {
-                tracing::error!(target: "mirror", ?err, "failed send txs loop res");
+                tracing::error!(?err, "failed send txs loop res");
             }
         });
         tokio::select! {
@@ -2151,12 +2142,12 @@ impl<T: ChainAccess> TxMirror<T> {
             }
             res = target_indexer_done_rx => {
                 let res = res.unwrap();
-                tracing::error!(target: "mirror", ?res, "target indexer thread exited");
+                tracing::error!(?res, "target indexer thread exited");
                 res.context("target indexer thread failure")
             }
             res = send_txs_done_rx => {
                 let res = res.unwrap();
-                tracing::error!(target: "mirror", ?res, "transaction sending thread exited");
+                tracing::error!(?res, "transaction sending thread exited");
                 res.context("target indexer thread failure")
             }
         }

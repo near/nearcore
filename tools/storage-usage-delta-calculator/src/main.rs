@@ -13,16 +13,16 @@ use std::fs::File;
 async fn main() -> anyhow::Result<()> {
     let env_filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish().unwrap();
     let _subscriber = near_o11y::default_subscriber(env_filter, &Default::default()).global();
-    tracing::debug!(target: "storage-calculator", "reading genesis");
+    tracing::debug!("reading genesis");
 
     let genesis = Genesis::from_file("output.json", GenesisValidationMode::Full)?;
-    tracing::debug!(target: "storage-calculator", "genesis read");
+    tracing::debug!("genesis read");
 
     let config_store = RuntimeConfigStore::new(None);
     let config = config_store.get_config(PROTOCOL_VERSION);
     let storage_usage_config = &config.fees.storage_usage_config;
     let storage_usage = compute_genesis_storage_usage(&genesis, storage_usage_config);
-    tracing::debug!(target: "storage-calculator", "storage usage calculated");
+    tracing::debug!("storage usage calculated");
 
     let mut result = Vec::new();
     genesis.for_each_record(|record| {

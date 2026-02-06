@@ -47,7 +47,7 @@ pub(crate) fn scan_db_column(
     store: Store,
 ) {
     let db_col: DBCol = find_db_col(col);
-    tracing::info!(target: "scan", ?db_col);
+    tracing::info!(?db_col);
     for (key, value) in
         store.iter_range(db_col, lower_bound, upper_bound).take(max_keys.unwrap_or(usize::MAX))
     {

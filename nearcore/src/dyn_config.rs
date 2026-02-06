@@ -53,7 +53,10 @@ pub fn read_updatable_configs(
             validator_signer,
         })
     } else {
-        tracing::warn!(target: "neard", ?errs, "dynamically updatable configs are not valid, please fix this asap otherwise the node will be unable to restart");
+        tracing::warn!(
+            ?errs,
+            "dynamically updatable configs are not valid, please fix this asap otherwise the node will be unable to restart"
+        );
         crate::metrics::CONFIG_CORRECT.set(0);
         Err(UpdatableConfigLoaderError::Errors(errs))
     }
@@ -83,7 +86,7 @@ where
             Ok(config_str_without_comments) => {
                 match serde_json::from_str::<T>(&config_str_without_comments) {
                     Ok(config) => {
-                        tracing::info!(target: "neard", ?config, ?path, "changing the config");
+                        tracing::info!(?config, ?path, "changing the config");
                         Ok(Some(config))
                     }
                     Err(err) => {
@@ -97,7 +100,11 @@ where
         },
         Err(err) => match err.kind() {
             std::io::ErrorKind::NotFound => {
-                tracing::info!(target: "neard", ?err, ?path, "reset the config because the config file doesn't exist");
+                tracing::info!(
+                    ?err,
+                    ?path,
+                    "reset the config because the config file doesn't exist"
+                );
                 Ok(None)
             }
             _ => Err(UpdatableConfigLoaderError::OpenAndRead { file: path.to_path_buf(), err }),
@@ -112,11 +119,11 @@ fn read_validator_key(
     let validator_file: PathBuf = home_dir.join(&config.validator_key_file);
     match crate::config::load_validator_key(&validator_file) {
         Ok(Some(validator_signer)) => {
-            tracing::info!(target: "neard", validator_file = %validator_file.display(), "hot loading validator key");
+            tracing::info!(validator_file = %validator_file.display(), "hot loading validator key");
             Ok(Some(validator_signer))
         }
         Ok(None) => {
-            tracing::info!(target: "neard", validator_file = %validator_file.display(), "no validator key");
+            tracing::info!(validator_file = %validator_file.display(), "no validator key");
             Ok(None)
         }
         Err(err) => {

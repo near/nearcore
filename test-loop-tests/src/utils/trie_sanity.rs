@@ -267,10 +267,10 @@ fn assert_state_sanity(
             flat_storage_manager.get_flat_storage_status(shard_uid)
         {
             if status.flat_head.hash != final_head.prev_block_hash {
-                tracing::warn!(target: "test", "skipping flat storage - memtrie state check");
+                tracing::warn!("skipping flat storage - memtrie state check");
                 continue;
             } else {
-                tracing::debug!(target: "test", "checking flat storage - memtrie state");
+                tracing::debug!("checking flat storage - memtrie state");
             }
         } else {
             continue;
@@ -315,7 +315,7 @@ fn assert_state_equal(
     let mut has_diff = false;
     for (key, value) in diff {
         has_diff = true;
-        tracing::error!(target: "test", ?shard_uid, key=?key, ?value, %cmp_msg, "difference in state between");
+        tracing::error!(?shard_uid, key=?key, ?value, %cmp_msg, "difference in state between");
     }
     assert!(!has_diff, "{} state mismatch!", cmp_msg);
 }

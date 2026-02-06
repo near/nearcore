@@ -121,14 +121,13 @@ fn main() {
             // Already kicked out or getting kicked out.
             let amount = if stake_amount.is_zero() { last_stake_amount } else { stake_amount };
             tracing::info!(
-                target: "restaked",
                 account_id = %key_file.account_id, %amount,
                 "sending staking transaction"
             );
             if let Err(err) =
                 user.stake(key_file.account_id.clone(), key_file.public_key.clone(), amount)
             {
-                tracing::error!(target: "restaked", ?err, "failed to send staking transaction");
+                tracing::error!(?err, "failed to send staking transaction");
             }
         }
         std::thread::sleep(Duration::from_secs(wait_period));

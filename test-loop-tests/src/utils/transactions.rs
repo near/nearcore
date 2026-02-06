@@ -182,7 +182,7 @@ pub fn do_create_account(
     new_account_id: &AccountId,
     amount: Balance,
 ) {
-    tracing::info!(target: "test", "creating account");
+    tracing::info!("creating account");
     let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, originator);
     let tx = create_account(env, rpc_id, originator, new_account_id, amount, nonce);
     env.test_loop.run_for(Duration::seconds(5));
@@ -195,7 +195,7 @@ pub fn do_delete_account(
     account_id: &AccountId,
     beneficiary_id: &AccountId,
 ) {
-    tracing::info!(target: "test", "deleting account");
+    tracing::info!("deleting account");
     let tx =
         delete_account(&env.test_loop.data, &env.node_datas, rpc_id, account_id, beneficiary_id);
     env.test_loop.run_for(Duration::seconds(5));
@@ -208,7 +208,7 @@ pub fn do_deploy_contract(
     contract_id: &AccountId,
     code: Vec<u8>,
 ) {
-    tracing::info!(target: "test", "deploying contract");
+    tracing::info!("deploying contract");
     let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
     let tx = deploy_contract(&mut env.test_loop, &env.node_datas, rpc_id, contract_id, code, nonce);
     env.test_loop.run_for(Duration::seconds(3));
@@ -223,7 +223,7 @@ pub fn do_call_contract(
     method_name: String,
     args: Vec<u8>,
 ) {
-    tracing::info!(target: "test", "calling contract");
+    tracing::info!("calling contract");
     let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
     let tx = call_contract(
         &mut env.test_loop,
@@ -263,7 +263,7 @@ pub fn create_account(
 
     let tx_hash = tx.get_hash();
     submit_tx(&env.node_datas, rpc_id, tx);
-    tracing::debug!(target: "test", ?originator, ?new_account_id, ?tx_hash, "created account");
+    tracing::debug!(?originator, ?new_account_id, ?tx_hash, "created account");
     tx_hash
 }
 
@@ -289,7 +289,7 @@ pub fn delete_account(
 
     let tx_hash = tx.get_hash();
     submit_tx(node_datas, rpc_id, tx);
-    tracing::debug!(target: "test", ?account_id, ?beneficiary_id, ?tx_hash, "deleted account");
+    tracing::debug!(?account_id, ?beneficiary_id, ?tx_hash, "deleted account");
     tx_hash
 }
 
@@ -314,7 +314,7 @@ pub fn deploy_contract(
     let tx_hash = tx.get_hash();
     submit_tx(node_datas, rpc_id, tx);
 
-    tracing::debug!(target: "test", ?contract_id, ?tx_hash, "deployed contract");
+    tracing::debug!(?contract_id, ?tx_hash, "deployed contract");
     tx_hash
 }
 
@@ -345,7 +345,7 @@ pub fn deploy_global_contract(
     let tx_hash = tx.get_hash();
     submit_tx(node_datas, rpc_id, tx);
 
-    tracing::debug!(target: "test", ?deployer_id, ?tx_hash, ?deploy_mode, "deployed global contract");
+    tracing::debug!(?deployer_id, ?tx_hash, ?deploy_mode, "deployed global contract");
     tx_hash
 }
 
@@ -375,7 +375,7 @@ pub fn use_global_contract(
     let tx_hash = tx.get_hash();
     submit_tx(node_datas, rpc_id, tx);
 
-    tracing::debug!(target: "test", ?user_id, ?tx_hash, ?identifier, "use global contract");
+    tracing::debug!(?user_id, ?tx_hash, ?identifier, "use global contract");
     tx_hash
 }
 
@@ -411,7 +411,7 @@ pub fn call_contract(
 
     let tx_hash = tx.get_hash();
     submit_tx(node_datas, rpc_id, tx);
-    tracing::debug!(target: "test", ?sender_id, ?contract_id, ?tx_hash, "called contract");
+    tracing::debug!(?sender_id, ?contract_id, ?tx_hash, "called contract");
     tx_hash
 }
 
@@ -462,7 +462,7 @@ pub fn check_txs(
         let tx_outcome = rpc.chain.get_partial_transaction_result(&tx);
         let status = tx_outcome.as_ref().map(|o| o.status.clone());
         let status = status.unwrap();
-        tracing::info!(target: "test", ?tx, ?status, "transaction status");
+        tracing::info!(?tx, ?status, "transaction status");
         assert_matches!(status, FinalExecutionStatus::SuccessValue(_));
     }
 }
@@ -769,7 +769,7 @@ pub fn store_and_submit_tx(
     tx: SignedTransaction,
 ) {
     let mut txs_vec = txs.take();
-    tracing::debug!(target: "test", height, tx_hash=?tx.get_hash(), ?signer_id, ?receiver_id, "submitting transaction");
+    tracing::debug!(height, tx_hash=?tx.get_hash(), ?signer_id, ?receiver_id, "submitting transaction");
     txs_vec.push((tx.get_hash(), height));
     txs.set(txs_vec);
     submit_tx(&node_datas, &rpc_id, tx);
@@ -782,7 +782,7 @@ pub fn check_txs_remove_successful(txs: &Cell<Vec<(CryptoHash, BlockHeight)>>, c
     for (tx_hash, tx_height) in txs.take() {
         let tx_outcome = client.chain.get_final_transaction_result(&tx_hash);
         let status = tx_outcome.as_ref().map(|o| o.status.clone());
-        tracing::debug!(target: "test", ?tx_height, ?tx_hash, ?status, "transaction status");
+        tracing::debug!(?tx_height, ?tx_hash, ?status, "transaction status");
         match status {
             Ok(FinalExecutionStatus::SuccessValue(_)) => continue, // Transaction finished successfully, remove it.
             Ok(FinalExecutionStatus::NotStarted)

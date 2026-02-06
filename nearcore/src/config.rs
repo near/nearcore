@@ -542,7 +542,6 @@ impl Config {
             let s = if unrecognized_fields.len() > 1 { "s" } else { "" };
             let fields = unrecognized_fields.join(", ");
             tracing::warn!(
-                target: "neard",
                 path = %path.display(),
                 fields_count = %s,
                 %fields,
@@ -586,7 +585,6 @@ impl Config {
     fn check_for_deprecated_fields(json_str: &str) {
         for (deprecated_key, new_key) in Self::deprecated_fields_in_json(json_str) {
             tracing::warn!(
-                target: "neard",
                 deprecated_key = %deprecated_key,
                 new_key        = %new_key,
                 "deprecated config key detected – please migrate",
@@ -915,7 +913,7 @@ fn generate_or_load_key(
                 ));
             }
         }
-        tracing::info!(target: "near", public_key = %signer.public_key(), account_id = %signer.get_account_id(), "reusing key for account");
+        tracing::info!(public_key = %signer.public_key(), account_id = %signer.get_account_id(), "reusing key for account");
         Ok(Some(signer))
     } else if let Some(account_id) = account_id {
         let signer = if let Some(seed) = test_seed {
@@ -923,7 +921,7 @@ fn generate_or_load_key(
         } else {
             InMemorySigner::from_random(account_id, KeyType::ED25519).into()
         };
-        tracing::info!(target: "near", public_key = %signer.public_key(), account_id = %signer.get_account_id(), "using key for account");
+        tracing::info!(public_key = %signer.public_key(), account_id = %signer.get_account_id(), "using key for account");
         signer
             .write_to_file(&path)
             .with_context(|| anyhow!("Failed saving key to ‘{}’", path.display()))?;
@@ -1082,7 +1080,7 @@ pub fn init_configs(
         near_primitives::chains::MAINNET => {
             let genesis = near_mainnet_res::mainnet_genesis();
             genesis.to_file(dir.join(config.genesis_file));
-            tracing::info!(target: "near", dir = %dir.display(), "generated mainnet genesis file");
+            tracing::info!(dir = %dir.display(), "generated mainnet genesis file");
         }
         near_primitives::chains::TESTNET => {
             if let Some(ref filename) = config.genesis_records_file {
@@ -1139,7 +1137,7 @@ pub fn init_configs(
             genesis.config.chain_id.clone_from(&chain_id);
 
             genesis.to_file(dir.join(config.genesis_file));
-            tracing::info!(target: "near", %chain_id, dir = %dir.display(), "generated network node key and genesis file");
+            tracing::info!(%chain_id, dir = %dir.display(), "generated network node key and genesis file");
         }
         _ => {
             let validator_file = dir.join(&config.validator_key_file);
@@ -1196,7 +1194,7 @@ pub fn init_configs(
             };
             let genesis = Genesis::new(genesis_config, records.into())?;
             genesis.to_file(dir.join(config.genesis_file));
-            tracing::info!(target: "near", dir = %dir.display(), "generated node key, validator key, genesis file");
+            tracing::info!(dir = %dir.display(), "generated node key, validator key, genesis file");
         }
     }
 
@@ -1498,7 +1496,7 @@ pub fn init_localnet_configs(
         log_config
             .write_to_file(&node_dir.join(LOG_CONFIG_FILENAME))
             .expect("Error writing log config");
-        tracing::info!(target: "near", node_dir = %node_dir.display(), "generated node key, validator key, genesis file");
+        tracing::info!(node_dir = %node_dir.display(), "generated node key, validator key, genesis file");
     }
 }
 
@@ -1525,28 +1523,28 @@ pub fn get_config_url(chain_id: &str, config_type: DownloadConfigType) -> String
 }
 
 pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    tracing::info!(target: "near", %url, "downloading genesis file");
+    tracing::info!(%url, "downloading genesis file");
     let result = run_download_file(url, path);
     if result.is_ok() {
-        tracing::info!(target: "near", path = %path.display(), "saved the genesis file");
+        tracing::info!(path = %path.display(), "saved the genesis file");
     }
     result
 }
 
 pub fn download_records(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    tracing::info!(target: "near", %url, "downloading records file");
+    tracing::info!(%url, "downloading records file");
     let result = run_download_file(url, path);
     if result.is_ok() {
-        tracing::info!(target: "near", path = %path.display(), "saved the records file");
+        tracing::info!(path = %path.display(), "saved the records file");
     }
     result
 }
 
 pub fn download_config(url: &str, path: &Path) -> Result<(), FileDownloadError> {
-    tracing::info!(target: "near", %url, "downloading config file");
+    tracing::info!(%url, "downloading config file");
     let result = run_download_file(url, path);
     if result.is_ok() {
-        tracing::info!(target: "near", path = %path.display(), "saved the config file");
+        tracing::info!(path = %path.display(), "saved the config file");
     }
     result
 }

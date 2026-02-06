@@ -134,21 +134,23 @@ fn parse_account_filter<P: AsRef<Path>>(filename: P) -> std::io::Result<HashSet<
                 filter.insert(a);
             }
             Err(e) => {
-                tracing::warn!(target: "ping", %line, %line_num, ?e, "could not parse account on line");
+                tracing::warn!(%line, %line_num, ?e, "could not parse account on line");
             }
         }
         line.clear();
         line_num += 1;
     }
     if filter.is_empty() {
-        tracing::warn!(target: "ping", filename = ?filename.as_ref(), "no accounts parsed, only sending direct pings");
+        tracing::warn!(filename = ?filename.as_ref(), "no accounts parsed, only sending direct pings");
     }
     Ok(filter)
 }
 
 impl PingCommand {
     pub fn run(&self) -> anyhow::Result<()> {
-        tracing::warn!(target: "ping", "the ping command is not stable, and may be removed or changed arbitrarily at any time");
+        tracing::warn!(
+            "the ping command is not stable, and may be removed or changed arbitrarily at any time"
+        );
 
         let mut chain_info = None;
         for info in CHAIN_INFO {

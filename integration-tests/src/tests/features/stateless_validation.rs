@@ -174,7 +174,6 @@ fn run_chunk_validation_test(
         let height_offset = height - tip.height;
         let block_producer = env.get_block_producer_at_offset(&tip, height_offset);
         tracing::debug!(
-            target: "client",
             %height, %block_producer, "producing block at height by block producer"
         );
         let block = env.client(&block_producer).produce_block(height).unwrap().unwrap();
@@ -183,7 +182,6 @@ fn run_chunk_validation_test(
         for i in 0..env.clients.len() {
             let validator_id = env.get_client_id(i);
             tracing::debug!(
-                target: "client",
                 height = %block.header().height(), %validator_id, "applying block at height at validator"
             );
             let blocks_processed = if rng.gen_bool(prob_missing_chunk) {
@@ -351,7 +349,7 @@ fn test_chunk_state_witness_bad_shard_id() {
     // Run the client for a few blocks
     let upper_height = 6;
     for height in 1..upper_height {
-        tracing::info!(target: "test", %height, "producing block at height");
+        tracing::info!(%height, "producing block at height");
         let block = env.clients[0].produce_block(height).unwrap().unwrap();
         env.process_block(0, block, Provenance::PRODUCED);
     }
@@ -363,7 +361,7 @@ fn test_chunk_state_witness_bad_shard_id() {
     let witness_size = borsh::object_length(&witness).unwrap();
 
     // Test chunk validation actor rejects witness with invalid shard ID
-    tracing::info!(target: "test", "processing invalid chunk state witness");
+    tracing::info!("processing invalid chunk state witness");
     let witness_message = ChunkStateWitnessMessage {
         witness,
         raw_witness_size: witness_size,
@@ -549,7 +547,6 @@ fn produce_block(env: &mut TestEnv) {
     for i in 0..env.clients.len() {
         let validator_id = env.get_client_id(i);
         tracing::debug!(
-            target: "client",
             height = %block.header().height(), %validator_id, "applying block at height at validator"
         );
         let blocks_processed =

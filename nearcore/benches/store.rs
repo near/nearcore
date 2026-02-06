@@ -25,7 +25,7 @@ fn read_trie_items(bench: &mut Bencher, shard_index: ShardIndex, shard_id: Shard
     let num_trie_items = 10_000;
 
     bench.iter(move || {
-        tracing::info!(target: "neard", ?home_dir, "home directory");
+        tracing::info!(?home_dir, "home directory");
         let store = near_store::NodeStorage::opener(
             &home_dir,
             &near_config.config.store,
@@ -60,7 +60,7 @@ fn read_trie_items(bench: &mut Bencher, shard_index: ShardIndex, shard_id: Shard
             .enumerate()
             .map(|(i, _)| {
                 if i % 500 == 0 {
-                    tracing::info!(target: "neard", %i, "progress")
+                    tracing::info!(%i, "progress")
                 }
             })
             .take(num_trie_items)

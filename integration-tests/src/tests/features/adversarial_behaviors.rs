@@ -133,7 +133,7 @@ fn slow_test_non_adversarial_case() {
     let mut test = AdversarialBehaviorTestData::new();
     let epoch_manager = test.env.clients[0].epoch_manager.clone();
     for height in 1..=EPOCH_LENGTH * 4 + 5 {
-        tracing::debug!(target: "test", %height, "======= height ======");
+        tracing::debug!(%height, "======= height ======");
         test.process_all_actor_messages();
         let epoch_id = epoch_manager
             .get_epoch_id_from_prev_block(
@@ -162,7 +162,7 @@ fn slow_test_non_adversarial_case() {
         }
 
         for i in 0..test.num_validators {
-            tracing::debug!(target: "test", %height, %i, "processing block as validator");
+            tracing::debug!(%height, %i, "processing block as validator");
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
@@ -215,7 +215,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
     let mut epochs_seen_invalid_chunk: HashSet<EpochId> = HashSet::new();
     let mut last_block_skipped = false;
     for height in 1..=EPOCH_LENGTH * 4 + 5 {
-        tracing::debug!(target: "test", %height, "======= height ======");
+        tracing::debug!(%height, "======= height ======");
         test.process_all_actor_messages();
         let epoch_id = epoch_manager
             .get_epoch_id_from_prev_block(
@@ -265,8 +265,8 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
                 }
             }
         }
-        tracing::debug!(target: "test", ?epoch_id, "epoch id of new block");
-        tracing::debug!(target: "test", %last_block_skipped, "block should be skipped: false, previous block skipped");
+        tracing::debug!(?epoch_id, "epoch id of new block");
+        tracing::debug!(%last_block_skipped, "block should be skipped: false, previous block skipped");
 
         if height > 1 {
             let prev_block =
@@ -295,7 +295,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
 
         // The block producer of course has the complete block so we can process that.
         for i in 0..test.num_validators {
-            tracing::debug!(target: "test", %height, %i, "processing block as validator");
+            tracing::debug!(%height, %i, "processing block as validator");
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },

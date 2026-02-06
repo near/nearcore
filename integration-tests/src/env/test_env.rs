@@ -255,7 +255,7 @@ impl TestEnv {
             for i in 0..network_adapters.len() {
                 let network_adapter = network_adapters.get(i).unwrap();
                 let _span =
-                    tracing::debug_span!(target: "test", "process_partial_encoded_chunks", client=i).entered();
+                    tracing::debug_span!("process_partial_encoded_chunks", client = i).entered();
 
                 keep_going |= network_adapter.handle_filtered(|request| match request {
                     PeerManagerMessageRequest::NetworkRequests(
@@ -381,8 +381,7 @@ impl TestEnv {
     }
 
     pub fn process_shards_manager_responses_and_finish_processing_blocks(&mut self, idx: usize) {
-        let _span =
-            tracing::debug_span!(target: "test", "process_shards_manager", client=idx).entered();
+        let _span = tracing::debug_span!("process_shards_manager", client = idx).entered();
 
         loop {
             self.process_shards_manager_responses(idx);
@@ -439,7 +438,7 @@ impl TestEnv {
                     witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
 
                     if !self.contains_client(&account_id) {
-                        tracing::warn!(target: "test", %account_id, "client not found for account_id");
+                        tracing::warn!(%account_id, "client not found for account_id");
                         continue;
                     }
                     let account_index = self.get_client_index(&account_id);
@@ -483,10 +482,13 @@ impl TestEnv {
                     endorsement,
                 )) => {
                     if !self.contains_client(&account_id) {
-                        tracing::warn!(target: "test", %account_id, "client not found for account_id");
+                        tracing::warn!(%account_id, "client not found for account_id");
                         return None;
                     }
-                    let processing_result = self.client(&account_id).chunk_endorsement_tracker.process_chunk_endorsement(endorsement);
+                    let processing_result = self
+                        .client(&account_id)
+                        .chunk_endorsement_tracker
+                        .process_chunk_endorsement(endorsement);
                     if !allow_errors {
                         processing_result.unwrap();
                     }
@@ -882,7 +884,7 @@ impl TestEnv {
         let genesis_height = client.chain.genesis().height();
         let head_height = client.chain.head().unwrap().height;
 
-        tracing::info!(target: "test", genesis_height, head_height, "printing summary");
+        tracing::info!(genesis_height, head_height, "printing summary");
         for height in genesis_height..head_height + 1 {
             self.print_block_summary(height);
         }
@@ -894,7 +896,7 @@ impl TestEnv {
         let block = match block {
             Ok(block) => block,
             Err(err) => {
-                tracing::info!(target: "test", ?err, %height, "block: missing");
+                tracing::info!(?err, %height, "block: missing");
                 return;
             }
         };
@@ -906,7 +908,14 @@ impl TestEnv {
         let block_hash = block.hash();
         let chunk_mask = block.header().chunk_mask();
 
-        tracing::info!(target: "test", height, ?block_hash, ?chunk_mask, protocol_version, latest_protocol_version, "block");
+        tracing::info!(
+            height,
+            ?block_hash,
+            ?chunk_mask,
+            protocol_version,
+            latest_protocol_version,
+            "block"
+        );
     }
 
     pub fn spice_execute_block(&mut self, id: usize, block_hash: CryptoHash) {

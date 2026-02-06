@@ -339,7 +339,7 @@ async fn load_state_parts(
             let sync_hash = match chain.get_sync_hash(&sync_hash).unwrap() {
                 Some(h) => h,
                 None => {
-                    tracing::warn!(target: "state-parts", ?epoch_id, "sync hash not yet known");
+                    tracing::warn!(?epoch_id, "sync hash not yet known");
                     return;
                 }
             };
@@ -365,7 +365,6 @@ async fn load_state_parts(
     assert_eq!(Some(num_parts), get_num_parts_from_filename(&part_file_names[0]));
     let part_ids = get_part_ids(part_id, part_id.map(|x| x + 1), num_parts);
     tracing::info!(
-        target: "state-parts",
         epoch_height,
         %shard_id,
         num_parts,
@@ -401,7 +400,12 @@ async fn load_state_parts(
                         &epoch_id,
                     )
                     .unwrap();
-                tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "loaded a state part");
+                tracing::info!(
+                    part_id,
+                    part_length,
+                    elapsed_sec = timer.elapsed().as_secs_f64(),
+                    "loaded a state part"
+                );
             }
             LoadAction::Validate => {
                 assert!(matches!(
@@ -413,7 +417,12 @@ async fn load_state_parts(
                     ),
                     near_chain::types::StatePartValidationResult::Valid
                 ));
-                tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "validated a state part");
+                tracing::info!(
+                    part_id,
+                    part_length,
+                    elapsed_sec = timer.elapsed().as_secs_f64(),
+                    "validated a state part"
+                );
             }
             LoadAction::Print => {
                 let trie_nodes = part.to_partial_state().unwrap();
@@ -421,7 +430,10 @@ async fn load_state_parts(
             }
         }
     }
-    tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "loaded all requested state parts");
+    tracing::info!(
+        total_elapsed_sec = timer.elapsed().as_secs_f64(),
+        "loaded all requested state parts"
+    );
 }
 
 fn print_state_part(state_root: &StateRoot, _part_id: PartId, trie_nodes: PartialState) {
@@ -456,7 +468,7 @@ async fn dump_state_parts(
     let sync_hash = match chain.get_sync_hash(&sync_hash).unwrap() {
         Some(h) => h,
         None => {
-            tracing::warn!(target: "state-parts", ?epoch_id, "sync hash not yet known");
+            tracing::warn!(?epoch_id, "sync hash not yet known");
             return;
         }
     };
@@ -472,7 +484,6 @@ async fn dump_state_parts(
     let epoch_height = epoch.epoch_height();
 
     tracing::info!(
-        target: "state-parts",
         epoch_height,
         epoch_id = ?epoch_id.0,
         %shard_id,
@@ -497,7 +508,10 @@ async fn dump_state_parts(
             .put_file(file_type, &state_sync_header_buf, shard_id, &location)
             .await
             .expect("Failed to put header into external storage.");
-        tracing::info!(target: "state-parts", elapsed_sec = timer.elapsed().as_secs_f64(), "header saved to external storage");
+        tracing::info!(
+            elapsed_sec = timer.elapsed().as_secs_f64(),
+            "header saved to external storage"
+        );
     }
 
     // dump parts
@@ -529,14 +543,16 @@ async fn dump_state_parts(
         let trie_nodes = state_part.to_partial_state().unwrap();
         let first_state_record = get_first_state_record(&state_root, trie_nodes);
         tracing::info!(
-            target: "state-parts",
             part_id,
             part_length = bytes.len(),
             elapsed_sec,
             first_state_record = ?first_state_record.map(|sr| format!("{}", sr)),
             "wrote a state part");
     }
-    tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "wrote all requested state parts");
+    tracing::info!(
+        total_elapsed_sec = timer.elapsed().as_secs_f64(),
+        "wrote all requested state parts"
+    );
 }
 
 /// Returns the first `StateRecord` encountered while iterating over a sub-trie in the state part.
@@ -566,13 +582,13 @@ fn read_state_header(
     let sync_hash = match chain.get_sync_hash(&sync_hash).unwrap() {
         Some(h) => h,
         None => {
-            tracing::warn!(target: "state-parts", ?epoch_id, "sync hash not yet known");
+            tracing::warn!(?epoch_id, "sync hash not yet known");
             return;
         }
     };
 
     let state_header = chain.chain_store().get_state_header(shard_id, sync_hash);
-    tracing::info!(target: "state-parts", ?epoch_id, ?sync_hash, ?state_header);
+    tracing::info!(?epoch_id, ?sync_hash, ?state_header);
 }
 
 fn finalize_state_sync(sync_hash: CryptoHash, shard_id: ShardId, chain: &mut Chain) {

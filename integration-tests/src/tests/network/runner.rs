@@ -304,7 +304,7 @@ impl StateMachine {
         match action {
             Action::AddEdge { from, to, force } => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
-                    tracing::debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: action");
+                    tracing::debug!(num_prev_actions, action = ?action_clone, "runner.rs: action");
                     let pm = info.get_node(from)?.actor.clone();
                     let peer_info = info.runner.test_config[to].peer_info();
                     match tcp::Stream::connect(&peer_info, tcp::Tier::T2, &config::SocketOptions::default()).await {
@@ -333,14 +333,14 @@ impl StateMachine {
             }
             Action::Stop(source) => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
-                    tracing::debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: action");
+                    tracing::debug!(num_prev_actions, action = ?action_clone, "runner.rs: action");
                     info.stop_node(source);
                     Ok(ControlFlow::Break(()))
                 })));
             }
             Action::Wait(t) => {
                 self.actions.push(Box::new(move |_info: &mut RunningInfo| Box::pin(async move {
-                    tracing::debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: action");
+                    tracing::debug!(num_prev_actions, action = ?action_clone, "runner.rs: action");
                     tokio::time::sleep(t.try_into().unwrap()).await;
                     Ok(ControlFlow::Break(()))
                 })));
@@ -582,7 +582,7 @@ pub(crate) fn start_test(runner: Runner) -> anyhow::Result<()> {
         let step = tokio::time::Duration::from_millis(10);
         let start = tokio::time::Instant::now();
         for (i, a) in actions.into_iter().enumerate() {
-            tracing::debug!(target: "test", %i, "starting action");
+            tracing::debug!(%i, "starting action");
             loop {
                 let done =
                     tokio::time::timeout_at(start + timeout, a(&mut info)).await.with_context(
@@ -653,7 +653,12 @@ pub(crate) fn check_expected_connections(
 ) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         Box::pin(async move {
-            tracing::debug!(target: "test", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
+            tracing::debug!(
+                node_id,
+                expected_connections_lo,
+                ?expected_connections_hi,
+                "runner.rs: check_expected_connections"
+            );
             let pm = &info.get_node(node_id)?.actor;
             let res = pm.send_async(GetInfo {}).await?;
             if expected_connections_lo.is_some_and(|l| l > res.num_connected_peers) {
@@ -671,7 +676,7 @@ pub(crate) fn check_expected_connections(
 pub(crate) fn restart(node_id: usize) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         Box::pin(async move {
-            tracing::debug!(target: "test", ?node_id, "runner.rs: restart");
+            tracing::debug!(?node_id, "runner.rs: restart");
             info.start_node(node_id)?;
             Ok(ControlFlow::Break(()))
         })

@@ -856,7 +856,7 @@ pub(crate) fn view_genesis(
     );
 
     if view_config || compare {
-        tracing::info!(target: "state_viewer", "computing genesis from config");
+        tracing::info!("computing genesis from config");
         let state_roots =
             near_store::get_genesis_state_roots(&chain_store.store()).unwrap().unwrap();
         let (genesis_block, genesis_chunks) = Chain::make_genesis_block(
@@ -891,7 +891,7 @@ pub(crate) fn view_genesis(
     }
 
     if view_store {
-        tracing::info!(target: "state_viewer", genesis_height, "reading genesis from store");
+        tracing::info!(genesis_height, "reading genesis from store");
         match read_genesis_from_store(&chain_store, genesis_height) {
             Ok((genesis_block, genesis_chunks)) => {
                 println!("Genesis block from store: {:#?}", genesis_block);
@@ -1412,8 +1412,8 @@ fn print_state_stats_for_shard_uid(
         current_size = new_size;
     }
 
-    tracing::info!(target: "state_viewer", ?shard_uid);
-    tracing::info!(target: "state_viewer", ?state_stats);
+    tracing::info!(?shard_uid);
+    tracing::info!(?state_stats);
 }
 
 /// Gets the flat state iterator from the chunk view, rearranges it to be sorted

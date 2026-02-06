@@ -191,7 +191,7 @@ fn do_deploy_contract(
     rpc_id: &AccountId,
     contract_id: &AccountId,
 ) {
-    tracing::info!(target: "test", ?rpc_id, ?contract_id, "deploying contract");
+    tracing::info!(?rpc_id, ?contract_id, "deploying contract");
     let code = near_test_contracts::rs_contract().to_vec();
     let tx = deploy_contract(test_loop, node_datas, rpc_id, contract_id, code, 1);
     test_loop.run_for(Duration::seconds(5));
@@ -206,7 +206,7 @@ fn do_call_contract(
     contract_id: &AccountId,
     accounts: &Vec<AccountId>,
 ) {
-    tracing::info!(target: "test", ?rpc_id, ?contract_id, "calling contract");
+    tracing::info!(?rpc_id, ?contract_id, "calling contract");
     let method_name = "burn_gas_raw".to_owned();
     let burn_gas = Gas::from_teragas(250);
     let args = burn_gas.as_gas().to_le_bytes().to_vec();

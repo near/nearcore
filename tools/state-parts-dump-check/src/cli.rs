@@ -249,14 +249,14 @@ fn validate_state_part(state_root: &StateRoot, part_id: PartId, part: &[u8]) -> 
                 Ok(_) => true,
                 // Storage error should not happen
                 Err(err) => {
-                    tracing::error!(target: "state-parts", ?err, "state part storage error");
+                    tracing::error!(?err, "state part storage error");
                     false
                 }
             }
         }
         // Deserialization error means we've got the data from malicious peer
         Err(err) => {
-            tracing::error!(target: "state-parts", ?err, "state part deserialization error");
+            tracing::error!(?err, "state part deserialization error");
             false
         }
     }
@@ -270,7 +270,7 @@ fn validate_state_header(header: &[u8]) -> bool {
         }
         // Deserialization error means we've got invalid data stored in the external folder.
         Err(err) => {
-            tracing::error!(target: "state-parts", ?err, "header deserialization error");
+            tracing::error!(?err, "header deserialization error");
             false
         }
     }

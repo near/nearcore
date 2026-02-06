@@ -18,11 +18,10 @@ impl GeneratorActor {
     pub fn start(&mut self, _ctx: &mut dyn DelayedActionRunner<Self>) {
         match self.tx_generator.start() {
             Err(err) => {
-                tracing::error!(target: "transaction-generator", ?err);
+                tracing::error!(?err);
             }
             Ok(_) => {
-                tracing::info!(target: "transaction-generator",
-                    schedule=?self.tx_generator.params.schedule, "started");
+                tracing::info!(schedule=?self.tx_generator.params.schedule, "started");
             }
         };
     }

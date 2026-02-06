@@ -221,7 +221,6 @@ impl NepStrategy {
         let outgoing_congestion = self.get_outgoing_congestion(ctx);
 
         tracing::debug!(
-            target: "model",
             shard_id=%self.shard_id(),
             incoming_congestion=format!("{incoming_congestion:.2}"),
             outgoing_congestion=format!("{outgoing_congestion:.2}"),
