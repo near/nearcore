@@ -1439,7 +1439,7 @@ fn test_uncertified_validator_proposals_single_chunk() {
         &mut chain,
         &block,
         shard_id,
-        make_chunk_extra_with_proposals(proposals.clone()),
+        make_chunk_extra_with_proposals(proposals),
     );
 
     let result = core_reader.get_uncertified_validator_proposals(block.hash(), shard_id).unwrap();
