@@ -112,9 +112,10 @@ impl SpiceCoreReader {
         get_uncertified_chunks(&self.chain_store, block_hash)
     }
 
-    /// Returns the most recent validator proposals from uncertified chunks for a
-    /// given shard. These are proposals that have not yet made it to consensus
-    /// and need to be accounted for in `last_proposals` at epoch boundaries.
+    /// Returns the most recent validator proposals from uncertified chunks for
+    /// a given shard. These are proposals that are not yet certified on-chain
+    /// at the given block hash, and need to be accounted for in
+    /// `last_proposals` at epoch boundaries.
     ///
     /// Proposals are sorted ascending by block height. If multiple uncertified
     /// chunks contain proposals for the same account, the most recent one (last
