@@ -28,7 +28,7 @@ pub(crate) fn action_deploy_global_contract(
     deploy_contract: &DeployGlobalContractAction,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
-    let _span = tracing::debug_span!(target: "runtime", "action_deploy_global_contract").entered();
+    let _span = tracing::debug_span!("action_deploy_global_contract").entered();
 
     let storage_cost = apply_state
         .config
@@ -71,7 +71,7 @@ pub(crate) fn action_use_global_contract(
     current_protocol_version: ProtocolVersion,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
-    let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
+    let _span = tracing::debug_span!("action_use_global_contract").entered();
     use_global_contract(
         state_update,
         account_id,
@@ -130,11 +130,7 @@ pub(crate) fn apply_global_contract_distribution_receipt(
     state_update: &mut TrieUpdate,
     receipt_sink: &mut ReceiptSink,
 ) -> Result<(), RuntimeError> {
-    let _span = tracing::debug_span!(
-        target: "runtime",
-        "apply_global_contract_distribution_receipt",
-    )
-    .entered();
+    let _span = tracing::debug_span!("apply_global_contract_distribution_receipt",).entered();
 
     let ReceiptEnum::GlobalContractDistribution(global_contract_data) = receipt.receipt() else {
         unreachable!("given receipt should be an global contract distribution receipt")

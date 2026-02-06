@@ -4256,7 +4256,7 @@ pub fn storage_has_key(caller: &mut Caller<'_, Ctx>, key_len: u64, key_ptr: u64)
 #[cfg(feature = "sandbox")]
 pub fn sandbox_debug_log(caller: &mut Caller<'_, Ctx>, len: u64, ptr: u64) -> Result<()> {
     let message = sandbox_get_utf8_string(caller, len, ptr)?;
-    tracing::debug!(target: "sandbox", message = &message[..]);
+    tracing::debug!(message = &message[..]);
     Ok(())
 }
 

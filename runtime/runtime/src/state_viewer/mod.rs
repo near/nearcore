@@ -345,12 +345,12 @@ impl TrieViewer {
         if let Some(err) = outcome.aborted {
             logs.extend(outcome.logs);
             let message = format!("wasm execution failed with error: {:?}", err);
-            tracing::debug!(target: "runtime", %time_str, %message, "exec time and error message");
+            tracing::debug!(%time_str, %message, "exec time and error message");
             let error: near_primitives::errors::FunctionCallError =
                 crate::conversions::Convert::convert(err);
             Err(errors::CallFunctionError::VMError { error, error_message: message })
         } else {
-            tracing::debug!(target: "runtime", %time_str, ?outcome, "exec time and result of execution");
+            tracing::debug!(%time_str, ?outcome, "exec time and result of execution");
             logs.extend(outcome.logs);
             let result = match outcome.return_data {
                 ReturnData::Value(buf) => buf,

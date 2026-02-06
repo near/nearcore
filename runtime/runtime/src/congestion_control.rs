@@ -237,7 +237,7 @@ impl ReceiptSinkV2WithInfo {
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
     ) -> Result<(), RuntimeError> {
-        tracing::debug!(target: "runtime", "forwarding receipts from outgoing buffers");
+        tracing::debug!("forwarding receipts from outgoing buffers");
 
         // There mustn't be any shard ids in both the parents and the current
         // shard ids. If this happens the same buffer will be processed twice.
@@ -416,7 +416,6 @@ impl ReceiptSinkV2 {
         let max_receipt_size = apply_state.config.wasm_config.limit_config.max_receipt_size;
         if size > max_receipt_size {
             tracing::debug!(
-                target: "runtime",
                 receipt_id=?receipt.receipt_id(),
                 size,
                 max_receipt_size,
@@ -440,7 +439,7 @@ impl ReceiptSinkV2 {
         let forward_limit = outgoing_limit.entry(shard).or_insert(default_outgoing_limit);
 
         if forward_limit.gas >= gas && forward_limit.size >= size {
-            tracing::trace!(target: "runtime", ?shard, receipt_id=?receipt.receipt_id(), "forwarding buffered receipt");
+            tracing::trace!(?shard, receipt_id=?receipt.receipt_id(), "forwarding buffered receipt");
             outgoing_receipts.push(receipt);
             // underflow impossible: checked forward_limit > gas/size_to_forward above
             forward_limit.gas = forward_limit.gas.checked_sub(gas).unwrap();
@@ -449,7 +448,7 @@ impl ReceiptSinkV2 {
 
             Ok(ReceiptForwarding::Forwarded)
         } else {
-            tracing::trace!(target: "runtime", ?shard, receipt_id=?receipt.receipt_id(), "not forwarding buffered receipt");
+            tracing::trace!(?shard, receipt_id=?receipt.receipt_id(), "not forwarding buffered receipt");
             Ok(ReceiptForwarding::NotForwarded(receipt))
         }
     }

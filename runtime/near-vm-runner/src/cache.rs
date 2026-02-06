@@ -266,7 +266,6 @@ impl FilesystemContractRuntimeCache {
         let _ = std::fs::rename(&legacy_path, &path);
         if std::fs::exists(legacy_path).ok() == Some(true) {
             tracing::warn!(
-                target: "vm",
                 path = %path.display(),
                 message = "the legacy compiled contract cache path still exists after migration; consider removing it"
             );
@@ -275,7 +274,6 @@ impl FilesystemContractRuntimeCache {
         let dir =
             rustix::fs::open(&path, rustix::fs::OFlags::DIRECTORY, rustix::fs::Mode::empty())?;
         tracing::debug!(
-            target: "vm",
             path = %path.display(),
             message = "opened a contract executable cache directory"
         );
@@ -321,7 +319,6 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
 
     #[tracing::instrument(
         level = "trace",
-        target = "vm",
         "FilesystemContractRuntimeCache::put",
         skip_all,
         fields(key = key.to_string(), value.len = value.compiled.debug_len()),
@@ -381,7 +378,6 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
 
     #[tracing::instrument(
         level = "trace",
-        target = "vm",
         "FilesystemContractRuntimeCache::get",
         skip_all,
         fields(key = key.to_string()),
@@ -425,7 +421,6 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
             // seem to be much reason to possibly crash the node due to this.
             _ => {
                 tracing::debug!(
-                    target: "vm",
                     message = "cached contract executable was found to be malformed",
                     key = %key
                 );
@@ -585,7 +580,7 @@ pub fn precompile_contract(
     config: Arc<Config>,
     cache: Option<&dyn ContractRuntimeCache>,
 ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError> {
-    let _span = tracing::debug_span!(target: "vm", "precompile_contract").entered();
+    let _span = tracing::debug_span!("precompile_contract").entered();
     let vm_kind = config.vm_kind;
     let runtime = vm_kind
         .runtime(Arc::clone(&config))

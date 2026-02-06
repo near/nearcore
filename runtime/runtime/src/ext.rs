@@ -170,7 +170,6 @@ impl<'a> External for RuntimeExt<'a> {
             self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
         #[cfg(feature = "io_trace")]
         tracing::trace!(
-            target: "io_tracer",
             storage_op = "write",
             key = base64(&key),
             size = value.len(),
@@ -214,7 +213,6 @@ impl<'a> External for RuntimeExt<'a> {
         #[cfg(feature = "io_trace")]
         if let Ok(read) = &result {
             tracing::trace!(
-                target: "io_tracer",
                 storage_op = "read",
                 key = base64(&key),
                 size = read.as_ref().map(|v| v.len()),
@@ -256,7 +254,6 @@ impl<'a> External for RuntimeExt<'a> {
             self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
         #[cfg(feature = "io_trace")]
         tracing::trace!(
-            target: "io_tracer",
             storage_op = "remove",
             key = base64(&key),
             evicted_len = removed.as_ref().map(Vec::len),
@@ -287,7 +284,6 @@ impl<'a> External for RuntimeExt<'a> {
             self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
         #[cfg(feature = "io_trace")]
         tracing::trace!(
-            target: "io_tracer",
             storage_op = "exists",
             key = base64(&key),
             tn_mem_reads = _delta.mem_reads,

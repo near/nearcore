@@ -294,7 +294,6 @@ impl ReceiptPreparationPipeline {
             let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
             if !self.block_accounts.contains(account_id) {
                 tracing::debug!(
-                    target: "runtime::pipelining",
                     message="function call task was not submitted for preparation",
                     receipt=%receipt.get_hash(),
                     action_index,
@@ -322,7 +321,6 @@ impl ReceiptPreparationPipeline {
                     drop(status_guard);
                     let start = Instant::now();
                     tracing::trace!(
-                        target: "runtime::pipelining",
                         message="function call preparation on the main thread",
                         receipt=%receipt.get_hash(),
                         action_index
