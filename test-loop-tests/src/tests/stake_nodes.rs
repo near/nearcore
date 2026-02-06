@@ -339,9 +339,9 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
         .epoch_config_store_from_genesis()
         .clients(clients)
         .config_modifier(move |config, idx| {
-            // TODO(spice): Force unstaker to retain memtrie for the unloaded
-            // shard. Memtrie retention needs to be fixed for spice to wait
-            // until certification of the last block of the prior epoch.
+            // TODO(spice): Here, we force unstaker to retain memtrie for the
+            // unloaded shard. Memtrie retention needs to be fixed for spice to
+            // wait until certification of the last block of the prior epoch.
             if idx == unstaker_idx {
                 config.tracked_shards_config = TrackedShardsConfig::AllShards;
             }
