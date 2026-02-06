@@ -112,6 +112,25 @@ impl SpiceCoreReader {
         get_uncertified_chunks(&self.chain_store, block_hash)
     }
 
+    /// Returns ChunkExtra for a given chunk, trying the ChunkExtra column first
+    /// (available on tracking nodes), then falling back to execution results
+    /// written by the core writer to `DBCol::execution_results`.
+    fn get_trusted_chunk_extra(&self, chunk_id: &SpiceChunkId) -> Result<Arc<ChunkExtra>, Error> {
+        let epoch_id = self.epoch_manager.get_epoch_id(&chunk_id.block_hash)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        let shard_uid = ShardUId::from_shard_id_and_layout(chunk_id.shard_id, &shard_layout);
+        if let Ok(chunk_extra) =
+            self.chain_store.chunk_store().get_chunk_extra(&chunk_id.block_hash, &shard_uid)
+        {
+            return Ok(chunk_extra);
+        }
+        let header = self.chain_store.get_block_header(&chunk_id.block_hash)?;
+        if let Some(result) = self.get_execution_result(&header, chunk_id.shard_id)? {
+            return Ok(Arc::new(result.chunk_extra.clone()));
+        }
+        Err(Error::Other(format!("no trusted chunk extra for {:?}", chunk_id)))
+    }
+
     /// Returns the most recent validator proposals from uncertified chunks for
     /// a given shard. These are proposals that are not yet certified on-chain
     /// at the given block hash, and need to be accounted for in
@@ -130,42 +149,9 @@ impl SpiceCoreReader {
             .into_iter()
             .filter(|info| info.chunk_id.shard_id == shard_id)
             .collect();
-
-        // Resolve ChunkExtra for each uncertified chunk. Try ChunkExtra column
-        // first (available on tracking nodes). For any remaining chunks, perform
-        // a backward scan from the current chain head toward `block_hash` to find
-        // on-chain certified execution results in blocks' core statements.
-        let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let mut chunk_extras: HashMap<SpiceChunkId, Arc<ChunkExtra>> = HashMap::new();
-        for info in &shard_uncertified_chunks {
-            if let Ok(extra) = self
-                .chain_store
-                .chunk_store()
-                .get_chunk_extra(&info.chunk_id.block_hash, &shard_uid)
-            {
-                chunk_extras.insert(info.chunk_id.clone(), extra);
-            }
-        }
-        // Walk backward from head, collecting certified execution results
-        // from blocks' core statements for any chunks not resolved above.
-        let mut current_hash = self.chain_store.head()?.last_block_hash;
-        while chunk_extras.len() < shard_uncertified_chunks.len() && current_hash != *block_hash {
-            let block = self.chain_store.get_block(&current_hash)?;
-            for (cid, result) in block.spice_core_statements().iter_execution_results() {
-                if cid.shard_id == shard_id && !chunk_extras.contains_key(cid) {
-                    chunk_extras.insert(cid.clone(), Arc::new(result.chunk_extra.clone()));
-                }
-            }
-            current_hash = *block.header().prev_hash();
-        }
-
         let mut height_proposals: Vec<(BlockHeight, Vec<ValidatorStake>)> = Vec::new();
         for info in &shard_uncertified_chunks {
-            let Some(chunk_extra) = chunk_extras.get(&info.chunk_id) else {
-                return Err(Error::Other(format!("no chunk extra for {:?}", info.chunk_id)));
-            };
+            let chunk_extra = self.get_trusted_chunk_extra(&info.chunk_id)?;
             let proposals: Vec<ValidatorStake> = chunk_extra.validator_proposals().collect();
             if !proposals.is_empty() {
                 let height = self.chain_store.get_block_height(&info.chunk_id.block_hash)?;
