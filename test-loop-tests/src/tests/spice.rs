@@ -891,4 +891,3 @@ fn schedule_send_money_txs(
     }
     (sent_txs, balance_changes)
 }
-
