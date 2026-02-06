@@ -268,6 +268,7 @@ impl AsyncComputationSpawner for WitnessCreationThreadPool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc;
     use std::thread::{self, ThreadId};
     use std::time::Instant;
 
@@ -282,19 +283,19 @@ mod tests {
     }
 
     struct JobHandle {
-        scheduled_receiver: oneshot::Receiver<()>,
-        start_sender: oneshot::Sender<()>,
-        done_receiver: oneshot::Receiver<JobExecutionOutcome>,
+        scheduled_receiver: mpsc::Receiver<()>,
+        start_sender: mpsc::Sender<()>,
+        done_receiver: mpsc::Receiver<JobExecutionOutcome>,
     }
 
     impl JobHandle {
-        fn start_execution(self) -> oneshot::Receiver<JobExecutionOutcome> {
+        fn start_execution(self) -> mpsc::Receiver<JobExecutionOutcome> {
             self.start_sender.send(()).unwrap();
             self.done_receiver
         }
 
         fn wait_scheduled(&self) {
-            self.scheduled_receiver.recv_ref().unwrap();
+            self.scheduled_receiver.recv().unwrap();
         }
 
         fn wait_executed(self) -> JobExecutionOutcome {
@@ -303,9 +304,9 @@ mod tests {
     }
 
     fn create_job() -> (Job, JobHandle) {
-        let (scheduled_sender, scheduled_receiver) = oneshot::channel();
-        let (start_sender, start_receiver) = oneshot::channel();
-        let (done_sender, done_receiver) = oneshot::channel();
+        let (scheduled_sender, scheduled_receiver) = mpsc::channel();
+        let (start_sender, start_receiver) = mpsc::channel();
+        let (done_sender, done_receiver) = mpsc::channel();
         let job = Box::new(move || {
             let _ = scheduled_sender.send(());
             if start_receiver.recv().is_err() {
