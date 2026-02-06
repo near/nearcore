@@ -39,6 +39,7 @@ use near_crypto::{PublicKey, Signature};
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
+use near_primitives::account::id::AccountType;
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
@@ -386,7 +387,20 @@ impl Runtime {
         let account_id = receipt.receiver_id();
         let is_refund = receipt.predecessor_id().is_system();
         let is_the_only_action = actions.len() == 1;
-        let implicit_account_creation_eligible = is_the_only_action && !is_refund;
+        // Deterministic AccountIds can be created by incoming transfers regardless
+        // of number of actions in the current receipt. For instance, this sequence
+        // of actions within a single receipt is considered valid:
+        // 1. Transfer
+        // 2. DeterministicStateInit
+        // 3. FunctionCall
+        // 4. etc...
+        let is_deterministic_account_multi_action_eligible =
+            ProtocolFeature::FixDeterministicAccountIdCreation
+                .enabled(apply_state.current_protocol_version)
+                && apply_state.config.wasm_config.deterministic_account_ids
+                && account_id.get_account_type() == AccountType::NearDeterministicAccount;
+        let implicit_account_creation_eligible =
+            !is_refund && (is_the_only_action || is_deterministic_account_multi_action_eligible);
 
         // Account validation
         if let Err(e) = check_account_existence(
@@ -2609,9 +2623,21 @@ fn action_transfer_or_implicit_account_creation(
     epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
     Ok(if let Some(account) = account.as_mut() {
+        let is_gas_refund = is_refund && action_receipt.signer_id() == receipt.receiver_id();
+        // For gas refunds, try to refund to the gas key first. If the signer key is a gas key,
+        // the refund goes to the gas key balance and we skip crediting the account balance.
+        if is_gas_refund
+            && try_refund_gas_key_balance(
+                state_update,
+                receipt.receiver_id(),
+                &action_receipt.signer_public_key(),
+                deposit,
+            )?
+        {
+            return Ok(());
+        }
         action_transfer(account, deposit)?;
-        // Check if this is a gas refund, then try to refund the access key allowance.
-        if is_refund && action_receipt.signer_id() == receipt.receiver_id() {
+        if is_gas_refund {
             try_refund_allowance(
                 state_update,
                 receipt.receiver_id(),
