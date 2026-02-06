@@ -108,10 +108,7 @@ impl SpiceCoreReader {
     /// Returns ChunkExtra for a chunk from whichever trusted source is available:
     /// ChunkExtra column (written by the chunk executor on tracking nodes) or
     /// execution_results column (available on all nodes once the chunk is certified).
-    fn get_trusted_chunk_extra(
-        &self,
-        chunk_id: &SpiceChunkId,
-    ) -> Result<Arc<ChunkExtra>, Error> {
+    fn get_trusted_chunk_extra(&self, chunk_id: &SpiceChunkId) -> Result<Arc<ChunkExtra>, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(&chunk_id.block_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let shard_uid = ShardUId::from_shard_id_and_layout(chunk_id.shard_id, &shard_layout);
