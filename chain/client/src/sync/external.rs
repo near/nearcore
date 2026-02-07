@@ -2,7 +2,9 @@ use crate::metrics;
 use near_chain_configs::ExternalStorageLocation;
 use near_external_storage::{ExternalConnection, S3AccessConfig};
 use near_primitives::types::{EpochId, ShardId};
+use regex::Regex;
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use std::time::Instant;
 
 #[derive(Debug, Clone)]
@@ -204,9 +206,11 @@ pub fn part_filename(part_id: u64, num_parts: u64) -> String {
     format!("state_part_{:06}_of_{:06}", part_id, num_parts)
 }
 
+static STATE_PART_FILENAME_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^state_part_(\d{6})_of_(\d{6})$").unwrap());
+
 pub fn match_filename(s: &str) -> Option<regex::Captures> {
-    let re = regex::Regex::new(r"^state_part_(\d{6})_of_(\d{6})$").unwrap();
-    re.captures(s)
+    STATE_PART_FILENAME_RE.captures(s)
 }
 
 pub fn is_part_filename(s: &str) -> bool {
