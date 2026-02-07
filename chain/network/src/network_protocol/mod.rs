@@ -1054,14 +1054,9 @@ impl RoutedMessageV3 {
     }
 
     pub fn verify(&self) -> bool {
-        if self.body.is_t1() {
-            true
-        } else {
-            let Some(signature) = &self.signature else {
-                return false;
-            };
+        self.signature.as_ref().is_some_and(|signature| {
             signature.verify(self.hash_tiered().as_ref(), self.author.public_key())
-        }
+        })
     }
 
     pub fn expect_response(&self) -> bool {
