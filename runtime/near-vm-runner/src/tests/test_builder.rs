@@ -45,6 +45,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         opaque_error: false,
         opaque_outcome: false,
         method: "main".into(),
+        enable_call_host_fns: false,
     }
 }
 
@@ -56,6 +57,7 @@ pub(crate) struct TestBuilder {
     opaque_error: bool,
     opaque_outcome: bool,
     method: String,
+    enable_call_host_fns: bool,
 }
 
 impl TestBuilder {
@@ -93,6 +95,12 @@ impl TestBuilder {
 
     pub(crate) fn opaque_outcome(mut self) -> Self {
         self.opaque_outcome = true;
+        self
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn enable_call_host_fns(mut self) -> Self {
+        self.enable_call_host_fns = true;
         self
     }
 
@@ -194,9 +202,12 @@ impl TestBuilder {
                 }
 
                 let runtime_config = runtime_config_store.get_config_mut(protocol_version);
-                Arc::get_mut(&mut Arc::get_mut(runtime_config).unwrap().wasm_config)
-                    .unwrap()
-                    .vm_kind = vm_kind;
+                let wasm_config =
+                    Arc::get_mut(&mut Arc::get_mut(runtime_config).unwrap().wasm_config).unwrap();
+                wasm_config.vm_kind = vm_kind;
+                if self.enable_call_host_fns {
+                    wasm_config.call_host_fns = true;
+                }
                 let mut fake_external = MockedExternal::with_code(self.code.clone_for_tests());
                 let config = runtime_config.wasm_config.clone();
                 let fees = Arc::new(RuntimeFeesConfig::test());

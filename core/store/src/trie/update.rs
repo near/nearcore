@@ -186,6 +186,16 @@ impl TrieUpdate {
         self.prospective.insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: None });
     }
 
+    /// Drains the prospective updates to allow merging into another `TrieUpdate`.
+    pub fn take_prospective(&mut self) -> TrieUpdates {
+        std::mem::take(&mut self.prospective)
+    }
+
+    /// Merge prospective updates from a nested `TrieUpdate`.
+    pub fn merge_prospective(&mut self, updates: TrieUpdates) {
+        self.prospective.extend(updates);
+    }
+
     /// Returns the size (in num bytes) of the contract code for the given account.
     ///
     /// This is different from `get_code` in that it does not read the code from storage.

@@ -1,11 +1,17 @@
+use crate::ApplyState;
+use crate::function_call::execute_call;
 use crate::receipt_manager::ReceiptManager;
+use near_crypto::PublicKey;
 use near_parameters::vm::StorageGetMode;
 use near_primitives::account::Account;
 use near_primitives::account::id::AccountType;
-use near_primitives::errors::{EpochError, StorageError};
+use near_primitives::errors::{EpochError, RuntimeError, StorageError};
 use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, ShardId,
+};
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
 use near_store::contract::ContractStorage;
@@ -15,7 +21,7 @@ use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicErr
 use near_vm_runner::logic::types::{
     ActionIndex, GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex,
 };
-use near_vm_runner::logic::{External, StorageAccessTracker, ValuePtr};
+use near_vm_runner::logic::{External, HostError, StorageAccessTracker, ValuePtr};
 use near_vm_runner::{Contract, ContractCode};
 use near_wallet_contract::wallet_contract;
 use parking_lot::Mutex;
@@ -24,19 +30,28 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+const MAX_SYNC_CALL_DEPTH: u32 = 16;
+
 pub struct RuntimeExt<'a> {
     pub(crate) trie_update: &'a mut TrieUpdate,
     pub(crate) receipt_manager: &'a mut ReceiptManager,
+    pub(crate) apply_state: &'a ApplyState,
     account_id: AccountId,
     account: Account,
+    signer_id: AccountId,
+    signer_public_key: PublicKey,
+    refund_to: Option<AccountId>,
     action_hash: CryptoHash,
     data_count: u64,
     epoch_id: EpochId,
     block_height: BlockHeight,
+    shard_id: ShardId,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
     storage_access_mode: StorageGetMode,
     trie_access_tracker: AccountingAccessTracker,
+    allow_receipts: bool,
+    call_depth: u32,
 }
 
 /// Error used by `RuntimeExt`.
@@ -83,29 +98,43 @@ impl<'a> RuntimeExt<'a> {
     pub fn new(
         trie_update: &'a mut TrieUpdate,
         receipt_manager: &'a mut ReceiptManager,
+        apply_state: &'a ApplyState,
         account_id: AccountId,
         account: Account,
+        signer_id: AccountId,
+        signer_public_key: PublicKey,
+        refund_to: Option<AccountId>,
         action_hash: CryptoHash,
         epoch_id: EpochId,
         block_height: BlockHeight,
+        shard_id: ShardId,
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
         storage_access_mode: StorageGetMode,
         trie_access_tracker_state: Arc<AccountingState>,
+        allow_receipts: bool,
+        call_depth: u32,
     ) -> Self {
         RuntimeExt {
             trie_update,
             receipt_manager,
+            apply_state,
             account_id,
             account,
+            signer_id,
+            signer_public_key,
+            refund_to,
             action_hash,
             data_count: 0,
             epoch_id,
             block_height,
+            shard_id,
             epoch_info_provider,
             current_protocol_version,
             storage_access_mode,
             trie_access_tracker: AccountingAccessTracker { state: trie_access_tracker_state },
+            allow_receipts,
+            call_depth,
         }
     }
 
@@ -130,6 +159,31 @@ impl<'a> RuntimeExt<'a> {
 
     pub fn chain_id(&self) -> String {
         self.epoch_info_provider.chain_id()
+    }
+
+    fn ensure_receipts_allowed(&self, method_name: &str) -> ExtResult<()> {
+        if self.allow_receipts {
+            Ok(())
+        } else {
+            Err(HostError::ReceiptCreationNotAllowed { method_name: method_name.to_string() }
+                .into())
+        }
+    }
+
+    fn ensure_call_allowed(&self, receiver_id: &AccountId) -> ExtResult<()> {
+        let shard_layout = self
+            .epoch_info_provider
+            .shard_layout(&self.epoch_id)
+            .map_err(|e| ExternalError::ValidatorError(e))?;
+        let receiver_shard = shard_layout.account_id_to_shard_id(receiver_id);
+        if receiver_shard != self.shard_id {
+            let same_namespace = receiver_id.is_sub_account_of(&self.account_id)
+                || self.account_id.is_sub_account_of(receiver_id);
+            if !same_namespace {
+                return Err(HostError::CallNotAllowed { receiver_id: receiver_id.clone() }.into());
+            }
+        }
+        Ok(())
     }
 }
 
@@ -327,11 +381,48 @@ impl<'a> External for RuntimeExt<'a> {
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 
+    fn call(
+        &mut self,
+        receiver_id: AccountId,
+        method_name: Vec<u8>,
+        args: Vec<u8>,
+        attached_deposit: Balance,
+        prepaid_gas: Gas,
+    ) -> ExtResult<Vec<u8>> {
+        self.ensure_call_allowed(&receiver_id)?;
+        if self.call_depth >= MAX_SYNC_CALL_DEPTH {
+            return Err(HostError::CallDepthExceeded { limit: MAX_SYNC_CALL_DEPTH }.into());
+        }
+        let method_name =
+            String::from_utf8(method_name).map_err(|_| HostError::InvalidMethodName)?;
+        let function_call =
+            FunctionCallAction { method_name, args, gas: prepaid_gas, deposit: attached_deposit };
+        execute_call(
+            self.trie_update,
+            self.apply_state,
+            self.epoch_info_provider,
+            &self.account_id,
+            &self.signer_id,
+            &self.signer_public_key,
+            self.refund_to.clone(),
+            receiver_id,
+            function_call,
+            &self.action_hash,
+            self.call_depth + 1,
+        )
+        .map_err(|err| match err {
+            RuntimeError::StorageError(err) => ExternalError::StorageError(err).into(),
+            RuntimeError::ValidatorError(err) => ExternalError::ValidatorError(err).into(),
+            other => VMLogicError::ExternalError(AnyError::new(other)),
+        })
+    }
+
     fn create_action_receipt(
         &mut self,
         receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
     ) -> Result<ReceiptIndex, VMLogicError> {
+        self.ensure_receipts_allowed("promise_create")?;
         let data_ids = std::iter::from_fn(|| Some(self.generate_data_id()))
             .take(receipt_indices.len())
             .collect();
@@ -342,6 +433,7 @@ impl<'a> External for RuntimeExt<'a> {
         &mut self,
         receiver_id: AccountId,
     ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError> {
+        self.ensure_receipts_allowed("promise_yield_create")?;
         let input_data_id = self.generate_data_id();
         self.receipt_manager
             .create_promise_yield_receipt(input_data_id, receiver_id)
@@ -353,6 +445,7 @@ impl<'a> External for RuntimeExt<'a> {
         data_id: CryptoHash,
         data: Vec<u8>,
     ) -> Result<bool, VMLogicError> {
+        self.ensure_receipts_allowed("promise_yield_resume")?;
         // If the yielded promise was created by a previous transaction, we'll find it in the trie
         if has_promise_yield_receipt(self.trie_update, self.account_id.clone(), data_id)
             .map_err(wrap_storage_error)?

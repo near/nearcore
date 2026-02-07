@@ -207,6 +207,17 @@ imports! {
         gas: u64,
         gas_weight: u64
     ] -> []>,
+    #[call_host_fns] call<[
+        account_id_len: u64,
+        account_id_ptr: u64,
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: u64,
+        register_id: u64
+    ] -> [u64]>,
     promise_batch_action_transfer<[promise_index: u64, amount_ptr: u64] -> []>,
     promise_batch_action_stake<[
         promise_index: u64,

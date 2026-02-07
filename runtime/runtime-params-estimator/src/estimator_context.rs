@@ -188,6 +188,7 @@ impl<'c> EstimatorContext<'c> {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
             cache: Some(Box::new(cache)),
+            call_preparation_cache: None,
             is_new_chunk: true,
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
