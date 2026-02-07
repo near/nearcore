@@ -360,9 +360,6 @@ pub(crate) fn chunk_tx_exists(
     for tx in shard_chunk.to_transactions() {
         let tx_hash = tx.get_hash();
         sv.inner.tx_refcount.entry(tx_hash).and_modify(|x| *x += 1).or_insert(1);
-    }
-    for tx in shard_chunk.to_transactions() {
-        let tx_hash = tx.get_hash();
         unwrap_or_err_db!(
             sv.store.get_ser::<SignedTransaction>(DBCol::Transactions, tx_hash.as_ref()),
             "Can't get Tx from storage for Tx Hash {:?}",
