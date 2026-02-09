@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   unzip \
   gnupg2 \
   gh \
+  wget \
   iptables \
   ipset \
   iproute2 \
@@ -27,6 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ARG USERNAME=ubuntu
+RUN id -u $USERNAME &>/dev/null || useradd -m -s /bin/bash $USERNAME
   # Ensure default user has access to /usr/local/share
 RUN mkdir -p /usr/local/share/ && \
   chown -R $USERNAME:$USERNAME /usr/local/share
@@ -36,10 +38,11 @@ RUN echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/$USERNAME \
   && chmod 0440 /etc/sudoers.d/$USERNAME
 
 # Persist bash history.
-RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
-  && mkdir /commandhistory \
+RUN mkdir /commandhistory \
   && touch /commandhistory/.bash_history \
   && chown -R $USERNAME /commandhistory
+ENV PROMPT_COMMAND="history -a"
+ENV HISTFILE=/commandhistory/.bash_history
 
 # Set `DEVCONTAINER` environment variable to help with orientation
 ENV DEVCONTAINER=true
@@ -104,16 +107,16 @@ USER root
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 RUN chown -R $USERNAME:$USERNAME $CARGO_HOME $RUSTUP_HOME
 
-# Pytest venv env vars (venv is created by postStartCommand)
+# Pytest venv (created here; packages installed by postCreateCommand)
 ENV VIRTUAL_ENV=/opt/nearcore-venv
 ENV PATH=$VIRTUAL_ENV/bin:$PATH
 RUN mkdir -p $VIRTUAL_ENV
 RUN python3 -m venv $VIRTUAL_ENV
 RUN chown -R $USERNAME:$USERNAME $VIRTUAL_ENV
 
-# Copy post-start script into the image
-COPY post-start.sh /usr/local/bin/post-start.sh
-RUN chmod 555 /usr/local/bin/post-start.sh
+# Copy init-pyvenv script into the image
+COPY init-pyvenv.sh /usr/local/bin/init-pyvenv.sh
+RUN chmod 555 /usr/local/bin/init-pyvenv.sh
 
 USER $USERNAME
 # Install Claude
