@@ -172,7 +172,11 @@ fn initiate_distribution(
             GlobalContractIdentifier::AccountId(account_id.clone())
         }
     };
-    let nonce = get_fresh_nonce(protocol_version, state_update, &id)?;
+    // Increment the nonce and write it to state immediately to prevent multiple
+    // distributions with the same nonce from being initiated. This requires
+    // allowing the same nonce in the freshness check when applying the
+    // distribution receipt.
+    let nonce = increment_nonce(protocol_version, state_update, &id)?;
     let distribution_receipt = GlobalContractDistributionReceipt::new(
         id,
         current_shard_id,
@@ -188,9 +192,9 @@ fn initiate_distribution(
     Ok(())
 }
 
-/// Reads the current nonce for the given global contract identifier and
-/// increments it.
-fn get_fresh_nonce(
+/// Increments the nonce for the given global contract identifier and writes
+/// it to state immediately.
+fn increment_nonce(
     protocol_version: u32,
     state_update: &mut TrieUpdate,
     id: &GlobalContractIdentifier,
@@ -206,6 +210,7 @@ fn get_fresh_nonce(
     let stored_nonce = get_stored_nonce(state_update, &nonce_key)?;
 
     let new_nonce = stored_nonce + 1;
+    state_update.set(nonce_key, new_nonce.to_le_bytes().to_vec());
     Ok(new_nonce)
 }
 
@@ -245,7 +250,8 @@ fn apply_distribution_current_shard(
 }
 
 // Checks if the incoming nonce is fresh and updates the stored nonce. Returns
-// true if the nonce is fresh, false if it's stale.
+// true if the nonce is fresh, false if it's stale. The nonce is set
+// immediately and the freshness check allows the same nonce (>=).
 fn check_and_update_nonce(
     global_contract_data: &GlobalContractDistributionReceipt,
     identifier: &GlobalContractCodeIdentifier,
@@ -260,21 +266,22 @@ fn check_and_update_nonce(
 
     let nonce_key = TrieKey::GlobalContractNonce { identifier: identifier.clone() };
     let stored_nonce = get_stored_nonce(state_update, &nonce_key)?;
-
     let incoming_nonce = global_contract_data.nonce();
-    if incoming_nonce <= stored_nonce {
+
+    // Allow the same nonce since the nonce is updated immediately when
+    // initiating distribution to prevent multiple distributions with the same
+    // nonce from being initiated.
+    if incoming_nonce < stored_nonce {
         return Ok(false);
     }
+
     state_update.set(nonce_key, incoming_nonce.to_le_bytes().to_vec());
-    return Ok(true);
+    Ok(true)
 }
 
 // Retrieves the stored nonce for the given global contract identifier. If no
 // nonce is stored, returns 0.
-fn get_stored_nonce(
-    state_update: &mut TrieUpdate,
-    nonce_key: &TrieKey,
-) -> Result<u64, RuntimeError> {
+fn get_stored_nonce(state_update: &TrieUpdate, nonce_key: &TrieKey) -> Result<u64, RuntimeError> {
     let stored_nonce = state_update.get(nonce_key, AccessOptions::DEFAULT)?;
     let Some(stored_nonce) = stored_nonce else {
         return Ok(0);
