@@ -256,7 +256,8 @@ impl Chain {
         // The current epoch may not have a sync hash yet (e.g. if we just crossed
         // an epoch boundary during header sync and there aren't enough blocks with
         // new chunks in the new epoch). Fall back to the previous epoch's sync hash.
-        let prev_epoch_id = self.epoch_manager.get_prev_epoch_id_from_prev_block(header.prev_hash())?;
+        let prev_epoch_id =
+            self.epoch_manager.get_prev_epoch_id_from_prev_block(header.prev_hash())?;
         self.chain_store.get_current_epoch_sync_hash(&prev_epoch_id)
     }
 
