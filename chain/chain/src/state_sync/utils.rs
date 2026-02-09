@@ -250,7 +250,14 @@ impl Chain {
             return Ok(None);
         }
         let header = self.get_block_header(block_hash)?;
-        self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
+        if let Some(sync_hash) = self.chain_store.get_current_epoch_sync_hash(header.epoch_id())? {
+            return Ok(Some(sync_hash));
+        }
+        // The current epoch may not have a sync hash yet (e.g. if we just crossed
+        // an epoch boundary during header sync and there aren't enough blocks with
+        // new chunks in the new epoch). Fall back to the previous epoch's sync hash.
+        let prev_epoch_id = self.epoch_manager.get_prev_epoch_id_from_prev_block(header.prev_hash())?;
+        self.chain_store.get_current_epoch_sync_hash(&prev_epoch_id)
     }
 
     /// Select the block hash we are using to sync state. It will sync with the state before applying the
