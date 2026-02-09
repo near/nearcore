@@ -17,7 +17,9 @@ use near_primitives::views::FinalExecutionStatus;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::tests::yield_timeouts::get_yield_data_ids_in_latest_state;
+use crate::tests::yield_timeouts::{
+    assert_no_promise_yield_status_in_state, get_yield_data_ids_in_latest_state,
+};
 use crate::utils::account::validators_spec_clients;
 use crate::utils::node::TestLoopNode;
 
@@ -230,6 +232,7 @@ fn test_yield_then_resume_one_block_apart() {
         FinalExecutionStatus::SuccessValue(vec![16u8]),
     );
 
+    assert_no_promise_yield_status_in_state(&env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
@@ -324,5 +327,6 @@ fn test_yield_then_resume_same_block() {
         );
     }
 
+    assert_no_promise_yield_status_in_state(&env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
