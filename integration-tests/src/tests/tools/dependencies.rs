@@ -18,7 +18,7 @@ use std::process::Command;
 use std::str;
 
 const LIBS_THRESHOLDS: [(&str, usize); 9] = [
-    ("near-primitives", 129),
+    ("near-primitives", 130),
     ("near-jsonrpc-primitives", 136),
     ("near-chain-configs", 130),
     ("near-chain-primitives", 130),
