@@ -11,6 +11,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
+use near_primitives::sharding::ShardChunk;
 use near_primitives::state_sync::{StateHeaderKey, StatePartKey};
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceStoredVerifiedEndorsement;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId};
@@ -23,6 +24,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
+use strum::IntoEnumIterator;
 
 use crate::spice_core::get_last_certified_block_header;
 use crate::types::RuntimeAdapter;
@@ -63,6 +65,79 @@ impl Chain {
         let runtime_adapter = self.runtime_adapter.clone();
         let epoch_manager = self.epoch_manager.clone();
         self.mut_chain_store().reset_data_pre_state_sync(sync_hash, runtime_adapter, epoch_manager)
+    }
+
+    /// Clears all store data (except DbVersion) and re-saves genesis data.
+    /// Called before epoch sync to ensure a clean state when a node with
+    /// existing blocks needs to catch up via epoch sync.
+    pub fn reset_data_pre_epoch_sync(&mut self) -> Result<(), Error> {
+        let _span = tracing::debug_span!("reset_data_pre_epoch_sync").entered();
+        let head = self.chain_store.head()?;
+        let genesis_height = self.chain_store.get_genesis_height();
+
+        if head.height <= genesis_height {
+            return Ok(());
+        }
+
+        tracing::info!(
+            head_height = head.height,
+            genesis_height,
+            "clearing store data before epoch sync"
+        );
+
+        // Read genesis data before clearing (needed for re-save).
+        let genesis_chunks: Vec<ShardChunk> = self
+            .genesis
+            .chunks()
+            .iter()
+            .map(|chunk_header| self.chain_store.get_chunk(&chunk_header.chunk_hash()))
+            .collect::<Result<Vec<_>, _>>()?;
+        let store = self.chain_store.store();
+        let genesis_state_roots = near_store::get_genesis_state_roots(&store)
+            .expect("get_genesis_state_roots")
+            .expect("genesis state roots must exist");
+        let genesis_congestion_infos =
+            near_store::get_genesis_congestion_infos(&store).expect("get_genesis_congestion_infos");
+        let genesis_height_value = near_store::get_genesis_height(&store)
+            .expect("get_genesis_height")
+            .expect("genesis height must exist");
+
+        // delete_all on ALL columns except DbVersion.
+        let mut store_update = self.chain_store.store().store_update();
+        for col in DBCol::iter() {
+            if col == DBCol::DbVersion {
+                continue;
+            }
+            store_update.delete_all(col);
+        }
+        store_update.commit()?;
+
+        // Re-save genesis BlockMisc values.
+        let mut store_update = self.chain_store.store().store_update();
+        near_store::set_genesis_state_roots(&mut store_update, &genesis_state_roots);
+        near_store::set_genesis_height(&mut store_update, &genesis_height_value);
+        if let Some(congestion_infos) = &genesis_congestion_infos {
+            near_store::set_genesis_congestion_infos(&mut store_update, congestion_infos);
+        }
+        store_update.commit()?;
+
+        // Clear in-memory flat storage state so that save_genesis_block_and_chunks
+        // can re-create flat storage for genesis without hitting assertions.
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        let mut dummy_store_update = self.chain_store.store().flat_store().store_update();
+        flat_storage_manager.remove_all_flat_storages(&mut dummy_store_update)?;
+        // Don't commit dummy_store_update; we only need the in-memory effect.
+
+        // Re-save genesis block, chunks, headers, chunk extras, heads, flat storage, block info.
+        Self::save_genesis_block_and_chunks(
+            self.epoch_manager.as_ref(),
+            self.runtime_adapter.as_ref(),
+            &mut self.chain_store,
+            &self.genesis,
+            &genesis_chunks,
+        )?;
+
+        Ok(())
     }
 }
 

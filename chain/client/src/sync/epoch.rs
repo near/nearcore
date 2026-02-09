@@ -29,7 +29,7 @@ use near_primitives::types::{Balance, BlockHeight, BlockHeightDelta, EpochId};
 use near_primitives::utils::compression::CompressedData;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::{Store, metrics};
+use near_store::{DBCol, Store, metrics};
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use std::sync::Arc;
@@ -136,12 +136,14 @@ impl EpochSync {
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), Error> {
         let tip_height = chain.chain_store().header_head()?.height;
-        if tip_height != chain.genesis().height() {
-            // Epoch Sync only supports bootstrapping at genesis. This is because there is no reason
-            // to use Epoch Sync on an already existing node; we would have to carefully delete old
-            // data and then the result would be the same as if we just started the node from
-            // scratch.
-            return Ok(());
+        if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+            if tip_height != chain.genesis().height() {
+                // Epoch Sync only supports bootstrapping at genesis. This is because there is no reason
+                // to use Epoch Sync on an already existing node; we would have to carefully delete old
+                // data and then the result would be the same as if we just started the node from
+                // scratch.
+                return Ok(());
+            }
         }
         if tip_height + self.config.epoch_sync_horizon >= highest_height {
             return Ok(());
@@ -224,6 +226,11 @@ impl EpochSync {
 
         self.verify_proof(&proof, epoch_manager)?;
 
+        // If this node already has non-genesis data, clear it before applying epoch sync.
+        // This resets the store to a genesis-like state so that subsequent sync phases
+        // (HeaderSync, StateSync) work correctly with fresh StateSyncHashes entries.
+        chain.reset_data_pre_epoch_sync()?;
+
         let store = chain.chain_store.store();
         let mut store_update = store.store_update();
 
@@ -297,6 +304,18 @@ impl EpochSync {
             last_header.hash(),
             &proof.current_epoch.partial_merkle_tree_for_first_block,
         );
+
+        // Initialize StateSyncNewChunks for the first block of the current epoch.
+        // The epoch boundary header is saved via set_block_header_only which bypasses
+        // ChainStoreUpdate's cache, so update_sync_hashes / on_new_epoch is never
+        // called for it. We manually initialize the entry so that subsequent headers
+        // processed during header sync can correctly build the sync hash chain.
+        let num_new_chunks = vec![0u8; last_header.chunk_mask().len()];
+        store_update.set_ser(
+            DBCol::StateSyncNewChunks,
+            last_header.hash().as_ref(),
+            &num_new_chunks,
+        )?;
 
         store_update.commit()?;
 
@@ -585,6 +604,11 @@ impl Handler<EpochSyncResponseMessage> for ClientActor {
             self.client.epoch_manager.as_ref(),
         ) {
             tracing::error!(?err, "failed to apply epoch sync proof");
+        } else {
+            // After epoch sync, the chain head may have been reset to genesis.
+            // Reset doomslug tip so the next set_tip call doesn't fail the
+            // assertion that height must increase.
+            self.client.doomslug.reset_tip();
         }
     }
 }

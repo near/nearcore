@@ -275,6 +275,18 @@ impl FlatStorageManager {
         }
     }
 
+    pub fn remove_all_flat_storages(
+        &self,
+        store_update: &mut FlatStoreUpdateAdapter,
+    ) -> Result<(), StorageError> {
+        let mut flat_storages = self.0.flat_storages.lock();
+        for (shard_uid, flat_storage) in flat_storages.drain() {
+            flat_storage.clear_state(store_update)?;
+            tracing::info!(target: "store", ?shard_uid, "remove_all_flat_storages removed this shard's flat storage");
+        }
+        Ok(())
+    }
+
     /// Returns None if there's no resharding flat storage split in progress
     /// If there is, returns Some(None) if there's at least one child shard that hasn't been split and had its
     /// status set to `CatchingUp`. If they've all been split already and are in the catchup phase,

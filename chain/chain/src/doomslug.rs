@@ -634,6 +634,13 @@ impl Doomslug {
         }
     }
 
+    /// Resets the doomslug tip to height 0. Used after epoch sync resets the
+    /// chain head back to genesis, so that the next `set_tip` call won't fail
+    /// the assertion that height must increase.
+    pub fn reset_tip(&mut self) {
+        self.tip = DoomslugTip { block_hash: CryptoHash::default(), height: 0 };
+    }
+
     /// Updates the current tip of the chain. Restarts the timer accordingly.
     ///
     /// # Arguments
