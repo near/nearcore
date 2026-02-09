@@ -172,23 +172,7 @@ fn initiate_distribution(
             GlobalContractIdentifier::AccountId(account_id.clone())
         }
     };
-    let nonce = if ProtocolFeature::GlobalContractDistributionNonce.enabled(protocol_version) {
-        let identifier: GlobalContractCodeIdentifier = id.clone().into();
-        let nonce_key = TrieKey::GlobalContractNonce { identifier };
-        let stored_nonce = match state_update.get(&nonce_key, AccessOptions::DEFAULT)? {
-            Some(bytes) => {
-                let bytes: [u8; 8] =
-                    bytes.try_into().expect("GlobalContractNonce should be 8 bytes");
-                u64::from_le_bytes(bytes)
-            }
-            None => 0,
-        };
-        let new_nonce = stored_nonce + 1;
-        state_update.set(nonce_key, new_nonce.to_le_bytes().to_vec());
-        new_nonce
-    } else {
-        0
-    };
+    let nonce = update_nonce(protocol_version, state_update, &id)?;
     let distribution_receipt = GlobalContractDistributionReceipt::new(
         id,
         current_shard_id,
@@ -204,6 +188,27 @@ fn initiate_distribution(
     Ok(())
 }
 
+/// Reads the current nonce for the given global contract identifier, increments
+/// it, and stores it back. Returns the new nonce.
+fn update_nonce(
+    protocol_version: u32,
+    state_update: &mut TrieUpdate,
+    id: &GlobalContractIdentifier,
+) -> Result<u64, RuntimeError> {
+    if !ProtocolFeature::GlobalContractDistributionNonce.enabled(protocol_version) {
+        return Ok(0);
+    }
+
+    let identifier: GlobalContractCodeIdentifier = id.clone().into();
+
+    let nonce_key = TrieKey::GlobalContractNonce { identifier };
+    let stored_nonce = get_stored_nonce(state_update, &nonce_key)?;
+
+    let new_nonce = stored_nonce + 1;
+    state_update.set(nonce_key, new_nonce.to_le_bytes().to_vec());
+    Ok(new_nonce)
+}
+
 fn apply_distribution_current_shard(
     receipt: &Receipt,
     global_contract_data: &GlobalContractDistributionReceipt,
@@ -217,24 +222,10 @@ fn apply_distribution_current_shard(
         }
     };
 
-    // Nonce-based idempotency: skip stale distributions.
-    if ProtocolFeature::GlobalContractDistributionNonce
-        .enabled(apply_state.current_protocol_version)
-    {
-        let nonce_key = TrieKey::GlobalContractNonce { identifier: identifier.clone() };
-        let stored_nonce = match state_update.get(&nonce_key, AccessOptions::DEFAULT)? {
-            Some(bytes) => {
-                let bytes: [u8; 8] =
-                    bytes.try_into().expect("GlobalContractNonce should be 8 bytes");
-                u64::from_le_bytes(bytes)
-            }
-            None => 0,
-        };
-        let incoming_nonce = global_contract_data.nonce();
-        if incoming_nonce <= stored_nonce {
-            return Ok(());
-        }
-        state_update.set(nonce_key, incoming_nonce.to_le_bytes().to_vec());
+    let is_nonce_fresh =
+        check_and_update_nonce(global_contract_data, &identifier, apply_state, state_update)?;
+    if !is_nonce_fresh {
+        return Ok(());
     }
 
     let config = apply_state.config.wasm_config.clone();
@@ -253,6 +244,47 @@ fn apply_distribution_current_shard(
     Ok(())
 }
 
+// Checks if the incoming nonce is fresh and updates the stored nonce. Returns
+// true if the nonce is fresh, false if it's stale.
+fn check_and_update_nonce(
+    global_contract_data: &GlobalContractDistributionReceipt,
+    identifier: &GlobalContractCodeIdentifier,
+    apply_state: &ApplyState,
+    state_update: &mut TrieUpdate,
+) -> Result<bool, RuntimeError> {
+    if !ProtocolFeature::GlobalContractDistributionNonce
+        .enabled(apply_state.current_protocol_version)
+    {
+        return Ok(true);
+    }
+
+    let nonce_key = TrieKey::GlobalContractNonce { identifier: identifier.clone() };
+    let stored_nonce = get_stored_nonce(state_update, &nonce_key)?;
+
+    let incoming_nonce = global_contract_data.nonce();
+    if incoming_nonce <= stored_nonce {
+        return Ok(false);
+    }
+    state_update.set(nonce_key, incoming_nonce.to_le_bytes().to_vec());
+    return Ok(true);
+}
+
+// Retrieves the stored nonce for the given global contract identifier. If no
+// nonce is stored, returns 0.
+fn get_stored_nonce(
+    state_update: &mut TrieUpdate,
+    nonce_key: &TrieKey,
+) -> Result<u64, RuntimeError> {
+    let stored_nonce = state_update.get(nonce_key, AccessOptions::DEFAULT)?;
+    let Some(stored_nonce) = stored_nonce else {
+        return Ok(0);
+    };
+    let stored_nonce: [u8; 8] =
+        stored_nonce.try_into().expect("GlobalContractNonce should be 8 bytes");
+    let stored_nonce = u64::from_le_bytes(stored_nonce);
+    Ok(stored_nonce)
+}
+
 fn forward_distribution_next_shard(
     receipt: &Receipt,
     global_contract_data: &GlobalContractDistributionReceipt,
@@ -269,34 +301,33 @@ fn forward_distribution_next_shard(
             .cloned()
             .chain(std::iter::once(apply_state.shard_id)),
     );
-    if let Some(next_shard) = shard_layout
+    let Some(next_shard) = shard_layout
         .shard_ids()
         .filter(|shard_id| !already_delivered_shards.contains(&shard_id))
         .next()
-    {
-        let forwarded_distribution = match global_contract_data {
-            GlobalContractDistributionReceipt::V1(_) => GlobalContractDistributionReceipt::new_v1(
-                global_contract_data.id().clone(),
-                next_shard,
-                Vec::from_iter(already_delivered_shards),
-                global_contract_data.code().clone(),
-            ),
-            GlobalContractDistributionReceipt::V2(_) => GlobalContractDistributionReceipt::new_v2(
-                global_contract_data.id().clone(),
-                next_shard,
-                Vec::from_iter(already_delivered_shards),
-                global_contract_data.code().clone(),
-                global_contract_data.nonce(),
-            ),
-        };
-        let mut next_receipt = Receipt::new_global_contract_distribution(
-            receipt.predecessor_id().clone(),
-            forwarded_distribution,
-        );
-        let receipt_id = apply_state.create_receipt_id(receipt.receipt_id(), 0);
-        next_receipt.set_receipt_id(receipt_id);
-        receipt_sink.forward_or_buffer_receipt(next_receipt, apply_state, state_update)?;
-    }
+    else {
+        return Ok(());
+    };
+    let next_receipt = match global_contract_data {
+        GlobalContractDistributionReceipt::V1(_) => GlobalContractDistributionReceipt::new_v1(
+            global_contract_data.id().clone(),
+            next_shard,
+            Vec::from_iter(already_delivered_shards),
+            global_contract_data.code().clone(),
+        ),
+        GlobalContractDistributionReceipt::V2(_) => GlobalContractDistributionReceipt::new_v2(
+            global_contract_data.id().clone(),
+            next_shard,
+            Vec::from_iter(already_delivered_shards),
+            global_contract_data.code().clone(),
+            global_contract_data.nonce(),
+        ),
+    };
+    let mut next_receipt =
+        Receipt::new_global_contract_distribution(receipt.predecessor_id().clone(), next_receipt);
+    let receipt_id = apply_state.create_receipt_id(receipt.receipt_id(), 0);
+    next_receipt.set_receipt_id(receipt_id);
+    receipt_sink.forward_or_buffer_receipt(next_receipt, apply_state, state_update)?;
     Ok(())
 }
 

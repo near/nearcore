@@ -945,8 +945,8 @@ impl GlobalContractDistributionReceipt {
         }
     }
 
-    /// Returns the nonce (block height) of the distribution.
-    /// V1 receipts (pre-feature) return 0, V2 receipts return their stored nonce.
+    /// Returns the nonce of the distribution.
+    /// V1 receipts return 0, V2 receipts return their stored nonce.
     pub fn nonce(&self) -> u64 {
         match &self {
             Self::V1(_) => 0,

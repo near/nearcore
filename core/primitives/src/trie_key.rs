@@ -65,7 +65,7 @@ pub mod col {
     /// Global contract code instance. Values are contract blobs,
     /// the same as for `CONTRACT_CODE`.
     pub const GLOBAL_CONTRACT_CODE: u8 = 18;
-    /// Global contract deployment nonce. Values are `BlockHeight` as 8 bytes (little-endian u64).
+    /// Global contract deployment nonce. Values are u64.
     pub const GLOBAL_CONTRACT_NONCE: u8 = 19;
 
     /// All columns except those used for the delayed receipts queue, the yielded promises
@@ -251,7 +251,7 @@ pub enum TrieKey {
         public_key: PublicKey,
         index: NonceIndex,
     } = 19,
-    /// Global contract deployment nonce. Stores the block height of the latest
+    /// Global contract deployment nonce. Stores the nonce of the last
     /// deployment for nonce-based idempotency during distribution.
     GlobalContractNonce {
         identifier: GlobalContractCodeIdentifier,

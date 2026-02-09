@@ -356,10 +356,11 @@ pub enum ProtocolFeature {
     /// deterministic account IDs are enabled.
     /// NEP: https://github.com/near/NEPs/pull/616
     FixDeterministicAccountIdCreation,
-    /// Nonce-based idempotency for global contract distribution receipts.
-    /// Each distribution carries an auto-incremented nonce, and a shard
-    /// drops incoming distributions with a nonce <= the one already stored.
-    /// This prevents stale overwrites during resharding.
+    /// Nonce-based idempotency for global contract distribution receipts. Each
+    /// distribution carries an auto-incremented nonce. Any distribution receipt
+    /// with a nonce <= the one already stored will be dropped. This prevents
+    /// race conditions in the case of multiple distribution attempts for the
+    /// same contract.
     GlobalContractDistributionNonce,
 }
 
@@ -463,9 +464,9 @@ impl ProtocolFeature {
             | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen
             | ProtocolFeature::FixAccessKeyAllowanceCharging
             | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
-            | ProtocolFeature::FixDeterministicAccountIdCreation => 83,
+            | ProtocolFeature::FixDeterministicAccountIdCreation
+            | ProtocolFeature::GlobalContractDistributionNonce => 83,
             ProtocolFeature::Wasmtime => 84,
-            ProtocolFeature::GlobalContractDistributionNonce => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -499,7 +500,7 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
