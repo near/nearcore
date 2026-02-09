@@ -447,6 +447,7 @@ impl Runtime {
                 metrics::ACTION_CALLED_COUNT.deploy_global_contract.inc();
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 action_deploy_global_contract(
+                    state_update,
                     account,
                     account_id,
                     apply_state,

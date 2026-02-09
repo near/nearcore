@@ -2457,7 +2457,7 @@ impl TryFrom<ReceiptView> for Receipt {
                     already_delivered_shards,
                     code,
                 } => {
-                    ReceiptEnum::GlobalContractDistribution(GlobalContractDistributionReceipt::new(
+                    ReceiptEnum::GlobalContractDistribution(GlobalContractDistributionReceipt::new_v1(
                         id,
                         target_shard,
                         already_delivered_shards,

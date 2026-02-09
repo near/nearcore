@@ -877,6 +877,21 @@ impl GlobalContractDistributionReceipt {
         target_shard: ShardId,
         already_delivered_shards: Vec<ShardId>,
         code: Arc<[u8]>,
+        nonce: u64,
+        protocol_version: ProtocolVersion,
+    ) -> Self {
+        if ProtocolFeature::GlobalContractDistributionNonce.enabled(protocol_version) {
+            Self::new_v2(id, target_shard, already_delivered_shards, code, nonce)
+        } else {
+            Self::new_v1(id, target_shard, already_delivered_shards, code)
+        }
+    }
+
+    pub fn new_v1(
+        id: GlobalContractIdentifier,
+        target_shard: ShardId,
+        already_delivered_shards: Vec<ShardId>,
+        code: Arc<[u8]>,
     ) -> Self {
         Self::V1(GlobalContractDistributionReceiptV1 {
             id,
@@ -891,7 +906,7 @@ impl GlobalContractDistributionReceipt {
         target_shard: ShardId,
         already_delivered_shards: Vec<ShardId>,
         code: Arc<[u8]>,
-        nonce: BlockHeight,
+        nonce: u64,
     ) -> Self {
         Self::V2(GlobalContractDistributionReceiptV2 {
             id,
@@ -932,7 +947,7 @@ impl GlobalContractDistributionReceipt {
 
     /// Returns the nonce (block height) of the distribution.
     /// V1 receipts (pre-feature) return 0, V2 receipts return their stored nonce.
-    pub fn nonce(&self) -> BlockHeight {
+    pub fn nonce(&self) -> u64 {
         match &self {
             Self::V1(_) => 0,
             Self::V2(v2) => v2.nonce,
@@ -993,7 +1008,7 @@ pub struct GlobalContractDistributionReceiptV2 {
     #[serde_as(as = "Base64")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     code: Arc<[u8]>,
-    nonce: BlockHeight,
+    nonce: u64,
 }
 
 impl fmt::Debug for GlobalContractDistributionReceiptV2 {
@@ -1137,7 +1152,7 @@ mod tests {
 
     #[test]
     fn test_global_contract_distribution_receipt_v1_nonce() {
-        let receipt = GlobalContractDistributionReceipt::new(
+        let receipt = GlobalContractDistributionReceipt::new_v1(
             GlobalContractIdentifier::AccountId("test.near".parse().unwrap()),
             ShardId::new(0),
             vec![],
@@ -1169,8 +1184,7 @@ mod tests {
             100,
         );
         let serialized = borsh::to_vec(&receipt).unwrap();
-        let deserialized =
-            GlobalContractDistributionReceipt::try_from_slice(&serialized).unwrap();
+        let deserialized = GlobalContractDistributionReceipt::try_from_slice(&serialized).unwrap();
         assert_eq!(receipt, deserialized);
         assert_eq!(deserialized.nonce(), 100);
         assert_eq!(deserialized.target_shard(), ShardId::new(1));

@@ -119,7 +119,7 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
 /// Test that nonce-based idempotency prevents stale overwrites during global contract updates.
 ///
 /// Deploys a trivial contract first (AccountId mode), waits for distribution,
-/// then deploys rs_contract (AccountId mode) with a higher block height nonce.
+/// then deploys rs_contract (AccountId mode) with a higher auto-incremented nonce.
 /// Verifies all shards have the newer version by calling a function that only
 /// exists in the rs_contract.
 #[test]
@@ -149,7 +149,7 @@ fn test_global_contract_nonce_prevents_stale_overwrite() {
     );
 
     // Step 2: Deploy rs_contract as second version (AccountId mode).
-    // This will have a higher block height nonce.
+    // This will have a higher auto-incremented nonce.
     let deploy_tx_v2 = deploy_global_contract(
         &mut env.env.test_loop,
         &env.env.node_datas,

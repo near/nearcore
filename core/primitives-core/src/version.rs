@@ -357,8 +357,8 @@ pub enum ProtocolFeature {
     /// NEP: https://github.com/near/NEPs/pull/616
     FixDeterministicAccountIdCreation,
     /// Nonce-based idempotency for global contract distribution receipts.
-    /// Each distribution carries a nonce (block height), and a shard drops
-    /// incoming distributions with a nonce <= the one already stored.
+    /// Each distribution carries an auto-incremented nonce, and a shard
+    /// drops incoming distributions with a nonce <= the one already stored.
     /// This prevents stale overwrites during resharding.
     GlobalContractDistributionNonce,
 }
@@ -465,6 +465,7 @@ impl ProtocolFeature {
             | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
             | ProtocolFeature::FixDeterministicAccountIdCreation => 83,
             ProtocolFeature::Wasmtime => 84,
+            ProtocolFeature::GlobalContractDistributionNonce => 85,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
@@ -473,7 +474,6 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::GasKeys => 149,
-            ProtocolFeature::GlobalContractDistributionNonce => 150,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
@@ -499,10 +499,10 @@ pub const PROD_GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
 pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 85;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 150;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.
