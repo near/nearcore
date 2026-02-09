@@ -317,3 +317,5 @@ fn test_gas_key_refund() {
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
 }
+
+// TODO(gas-keys): Add test-loop test for DepositFailed (deposit-insufficient gas key tx).

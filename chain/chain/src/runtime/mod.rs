@@ -53,7 +53,7 @@ use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
+    ApplyState, Runtime, SignedValidPeriodTransactions, TxVerdict, ValidatorAccountsUpdate,
     get_signer_and_access_key, validate_transaction, verify_and_charge_gas_key_tx_ephemeral,
     verify_and_charge_tx_ephemeral,
 };
@@ -671,7 +671,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
-        let (mut signer, mut access_key) = get_signer_and_access_key(&trie, &validated_tx)?;
+        let (signer, mut access_key) = get_signer_and_access_key(&trie, &validated_tx)?;
         // Here we do not know which block the transaction will be included and
         // therefore use `None` as `block_height` to skip the check on the nonce
         // upper bound.
@@ -688,27 +688,33 @@ impl RuntimeAdapter for NightshadeRuntime {
                             num_nonces,
                         }
                     })?;
-            verify_and_charge_gas_key_tx_ephemeral(
+            match verify_and_charge_gas_key_tx_ephemeral(
                 runtime_config,
-                &mut signer,
-                &mut access_key,
+                &signer,
+                &access_key,
                 current_nonce,
                 &tx,
                 &cost,
                 block_height,
-            )
-            .map(|_vr| ())
+            ) {
+                TxVerdict::Success(_) => Ok(()),
+                TxVerdict::DepositFailed { error, .. } | TxVerdict::Failed(error) => Err(error),
+            }
         } else {
-            verify_and_charge_tx_ephemeral(
+            match verify_and_charge_tx_ephemeral(
                 runtime_config,
-                &mut signer,
+                &signer,
                 &mut access_key,
                 &tx,
                 &cost,
                 block_height,
                 current_protocol_version,
-            )
-            .map(|_vr| ())
+            ) {
+                TxVerdict::Success(_) => Ok(()),
+                TxVerdict::Failed(error) => Err(error),
+                // verify_and_charge_tx_ephemeral never returns DepositFailed.
+                TxVerdict::DepositFailed { .. } => unreachable!(),
+            }
         }
     }
 
@@ -962,11 +968,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                         continue;
                     }
                 };
-                let verify_result = if let Some((_, current_nonce)) = cache.gas_key_nonce {
+                let verdict = if let Some((_, current_nonce)) = cache.gas_key_nonce {
                     verify_and_charge_gas_key_tx_ephemeral(
                         runtime_config,
-                        &mut cache.account,
-                        &mut cache.access_key,
+                        &cache.account,
+                        &cache.access_key,
                         current_nonce,
                         validated_tx.to_tx(),
                         &cost,
@@ -975,7 +981,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 } else {
                     verify_and_charge_tx_ephemeral(
                         runtime_config,
-                        &mut cache.account,
+                        &cache.account,
                         &mut cache.access_key,
                         validated_tx.to_tx(),
                         &cost,
@@ -983,15 +989,12 @@ impl RuntimeAdapter for NightshadeRuntime {
                         protocol_version,
                     )
                 };
-                // Update cached gas key nonce for subsequent transactions
-                if let Ok(ref vr) = verify_result {
-                    if let Some(update) = vr.gas_key_nonce_update {
-                        cache.gas_key_nonce = Some(update);
-                    }
-                }
-
-                match verify_result {
-                    Ok(cost) => {
+                match verdict {
+                    TxVerdict::Success(cost) => {
+                        cost.apply(&mut cache.account, &mut cache.access_key);
+                        if let Some(update) = cost.gas_key_nonce_update() {
+                            cache.gas_key_nonce = Some(update);
+                        }
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         total_gas_burnt = total_gas_burnt.checked_add(cost.gas_burnt).unwrap();
                         total_size += validated_tx.get_size();
@@ -999,8 +1002,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                         // Take one transaction from this group, no more.
                         break;
                     }
-                    Err(err) => {
-                        tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), ?err, "discarding transaction that failed verification or verification");
+                    TxVerdict::DepositFailed { error, .. } | TxVerdict::Failed(error) => {
+                        tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), ?error, "discarding transaction that failed verification or verification");
                         rejected_invalid_tx += 1;
                     }
                 }
