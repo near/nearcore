@@ -3638,6 +3638,7 @@ struct GasKeyTestSetup {
     apply_state: ApplyState,
     epoch_info_provider: MockEpochInfoProvider,
     gas_key_signer: Arc<Signer>,
+    shard_uid: ShardUId,
 }
 
 fn setup_gas_key_test(
@@ -3669,7 +3670,6 @@ fn setup_gas_key_test(
     apply_state.current_protocol_version = ProtocolFeature::GasKeys.protocol_version();
     apply_state.block_height = GAS_KEY_BLOCK_HEIGHT;
 
-    let shard_uid = ShardUId::single_shard();
     let mut state_update = tries.new_trie_update(shard_uid, root);
 
     let mut account = get_account(&state_update, &gas_key_owner).unwrap().unwrap();
@@ -3709,7 +3709,15 @@ fn setup_gas_key_test(
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit().unwrap();
 
-    GasKeyTestSetup { runtime, tries, root, apply_state, epoch_info_provider, gas_key_signer }
+    GasKeyTestSetup {
+        runtime,
+        tries,
+        root,
+        apply_state,
+        epoch_info_provider,
+        gas_key_signer,
+        shard_uid,
+    }
 }
 
 #[test]
@@ -3725,7 +3733,7 @@ fn test_apply_gas_key_transaction() {
         mut apply_state,
         epoch_info_provider,
         gas_key_signer,
-        ..
+        shard_uid,
     } = setup_gas_key_test(
         alice_account(),
         vec![alice_account(), bob_account()],
@@ -3734,7 +3742,6 @@ fn test_apply_gas_key_transaction() {
         gas_key_balance,
     );
 
-    let shard_uid = ShardUId::single_shard();
     let initial_nonce = initial_nonce_value(GAS_KEY_BLOCK_HEIGHT);
     let nonce_index = 1;
 
@@ -3818,7 +3825,7 @@ fn test_gas_refund_to_gas_key() {
         mut apply_state,
         epoch_info_provider,
         gas_key_signer,
-        ..
+        shard_uid,
     } = setup_gas_key_test(
         alice_account(),
         vec![alice_account()],
@@ -3826,8 +3833,6 @@ fn test_gas_refund_to_gas_key() {
         1,
         gas_key_balance,
     );
-
-    let shard_uid = ShardUId::single_shard();
 
     // Create a gas refund receipt targeting alice's gas key
     let refund_amount = Balance::from_millinear(1);
@@ -3913,7 +3918,7 @@ fn test_gas_key_tx_deposit_insufficient_charges_gas() {
         mut apply_state,
         epoch_info_provider,
         gas_key_signer,
-        ..
+        shard_uid,
     } = setup_gas_key_test(
         alice_account(),
         vec![alice_account(), bob_account()],
@@ -3922,7 +3927,6 @@ fn test_gas_key_tx_deposit_insufficient_charges_gas() {
         gas_key_balance,
     );
 
-    let shard_uid = ShardUId::single_shard();
     let initial_nonce = initial_nonce_value(GAS_KEY_BLOCK_HEIGHT);
     let nonce_index: NonceIndex = 0;
 
