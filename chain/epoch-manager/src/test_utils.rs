@@ -128,6 +128,7 @@ pub fn epoch_info_with_num_seats(
         TEST_SEED,
         validator_mandates,
         shard_layout,
+        None,
     )
 }
 

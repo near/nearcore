@@ -1107,6 +1107,10 @@ pub(crate) fn print_epoch_analysis(
             epoch_heights_to_infos.get(&next_next_epoch_height).unwrap();
         let rng_seed = stored_next_next_epoch_info.rng_seed();
 
+        let last_resharding = (!has_same_shard_layout)
+            .then_some(next_next_epoch_height)
+            .or_else(|| next_epoch_info.last_resharding());
+
         let next_next_epoch_info = proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
@@ -1118,6 +1122,7 @@ pub(crate) fn print_epoch_analysis(
             next_next_protocol_version,
             next_next_shard_layout,
             has_same_shard_layout,
+            last_resharding,
         )
         .unwrap();
 
