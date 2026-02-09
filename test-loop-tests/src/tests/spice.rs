@@ -17,7 +17,7 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockId, BlockReference, Finality, ShardId};
 use near_primitives::utils::get_block_shard_id_rev;
-use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_primitives::views::QueryRequest;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
@@ -740,23 +740,8 @@ fn test_spice_chain_with_missing_chunks() {
         ),
     );
 
-    let view_client_handle = rpc_node.data().view_client_sender.actor_handle();
-    // Uses Finality::Final (not Finality::None like view_account_query).
-    let get_balance = |test_loop_data: &mut TestLoopData, account: &AccountId| {
-        let view_client = test_loop_data.get_mut(&view_client_handle);
-        let query_response = view_client.handle(Query::new(
-            BlockReference::Finality(near_primitives::types::Finality::Final),
-            QueryRequest::ViewAccount { account_id: account.clone() },
-        ));
-        let QueryResponseKind::ViewAccount(view_account_result) = query_response.unwrap().kind
-        else {
-            panic!();
-        };
-        view_account_result.amount
-    };
-
     for account in &accounts {
-        let got_balance = get_balance(&mut env.test_loop.data, account);
+        let got_balance = rpc_node.view_account_query(&env.test_loop.data, account).amount;
         assert_eq!(got_balance, INITIAL_BALANCE);
     }
 
@@ -827,7 +812,7 @@ fn test_spice_chain_with_missing_chunks() {
 
     assert!(!balance_changes.is_empty());
     for (account, balance_change) in &balance_changes {
-        let got_balance = get_balance(&mut env.test_loop.data, account);
+        let got_balance = rpc_node.view_account_query(&env.test_loop.data, account).amount;
         let want_balance = Balance::from_yoctonear(
             (INITIAL_BALANCE.as_yoctonear() as i128 + balance_change).try_into().unwrap(),
         );
