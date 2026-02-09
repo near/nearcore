@@ -181,12 +181,7 @@ fn test_global_contract_nonce_prevents_stale_overwrite() {
         );
         nonce += 1;
         env.env.test_loop.run_for(Duration::seconds(2));
-        check_txs(
-            &mut env.env.test_loop.data,
-            &env.env.node_datas,
-            &env.chunk_producer,
-            &[use_tx],
-        );
+        check_txs(&mut env.env.test_loop.data, &env.env.node_datas, &env.chunk_producer, &[use_tx]);
     }
 
     // Step 4: Call "log_something" on each user's account. This method only exists in

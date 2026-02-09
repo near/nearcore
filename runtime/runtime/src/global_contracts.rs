@@ -308,21 +308,8 @@ fn forward_distribution_next_shard(
     else {
         return Ok(());
     };
-    let next_receipt = match global_contract_data {
-        GlobalContractDistributionReceipt::V1(_) => GlobalContractDistributionReceipt::new_v1(
-            global_contract_data.id().clone(),
-            next_shard,
-            Vec::from_iter(already_delivered_shards),
-            global_contract_data.code().clone(),
-        ),
-        GlobalContractDistributionReceipt::V2(_) => GlobalContractDistributionReceipt::new_v2(
-            global_contract_data.id().clone(),
-            next_shard,
-            Vec::from_iter(already_delivered_shards),
-            global_contract_data.code().clone(),
-            global_contract_data.nonce(),
-        ),
-    };
+    let already_delivered_shards = Vec::from_iter(already_delivered_shards);
+    let next_receipt = global_contract_data.forward(next_shard, already_delivered_shards);
     let mut next_receipt =
         Receipt::new_global_contract_distribution(receipt.predecessor_id().clone(), next_receipt);
     let receipt_id = apply_state.create_receipt_id(receipt.receipt_id(), 0);

@@ -953,6 +953,22 @@ impl GlobalContractDistributionReceipt {
             Self::V2(v2) => v2.nonce,
         }
     }
+
+    /// Clones the receipt with an updated target shard and already-delivered shards list.
+    pub fn forward(&self, target_shard: ShardId, already_delivered_shards: Vec<ShardId>) -> Self {
+        match self {
+            Self::V1(v1) => Self::V1(GlobalContractDistributionReceiptV1 {
+                target_shard,
+                already_delivered_shards,
+                ..v1.clone()
+            }),
+            Self::V2(v2) => Self::V2(GlobalContractDistributionReceiptV2 {
+                target_shard,
+                already_delivered_shards,
+                ..v2.clone()
+            }),
+        }
+    }
 }
 
 #[serde_as]
