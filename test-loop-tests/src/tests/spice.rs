@@ -33,7 +33,7 @@ use crate::utils::get_node_data;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{TransactionRunner, get_anchor_hash};
 
-use super::spice_utils::{delay_endorsements_propagation, query_view_account};
+use super::spice_utils::delay_endorsements_propagation;
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -91,14 +91,12 @@ fn test_spice_chain() {
     let client = &test_loop.data.get(&client_handles[0]).client;
     let epoch_manager = client.epoch_manager.clone();
 
-    let get_balance = |test_loop_data: &mut TestLoopData, account, epoch_id| {
+    let get_balance = |test_loop_data: &mut TestLoopData, account: &AccountId, epoch_id| {
         let shard_id = shard_layout.account_id_to_shard_id(account);
         let cp =
             &epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id).unwrap()[0];
-
-        let view_client_handle = get_node_data(&node_datas, cp).view_client_sender.actor_handle();
-        let view_client = test_loop_data.get_mut(&view_client_handle);
-        query_view_account(view_client, account.clone()).amount
+        let node = TestLoopNode::from(get_node_data(&node_datas, cp));
+        node.view_account_query(test_loop_data, account).amount
     };
 
     let epoch_id = client.chain.head().unwrap().epoch_id;
@@ -203,8 +201,7 @@ fn test_spice_chain_with_delayed_execution() {
     );
     node.run_tx(&mut env.test_loop, tx, Duration::seconds(10));
 
-    let view_client = env.test_loop.data.get_mut(&node.data().view_client_sender.actor_handle());
-    let view_account_result = query_view_account(view_client, receiver);
+    let view_account_result = node.view_account_query(&env.test_loop.data, &receiver);
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -498,8 +495,7 @@ fn test_restart_rpc_node() {
 
     rpc.run_for_number_of_blocks(&mut env.test_loop, 5);
 
-    let view_client = env.test_loop.data.get_mut(&rpc.data().view_client_sender.actor_handle());
-    let view_account_result = query_view_account(view_client, receiver);
+    let view_account_result = rpc.view_account_query(&env.test_loop.data, &receiver);
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -580,9 +576,7 @@ fn test_restart_producer_node() {
 
     restart_node.run_for_number_of_blocks(&mut env.test_loop, 10);
 
-    let view_client =
-        env.test_loop.data.get_mut(&restart_node.data().view_client_sender.actor_handle());
-    let view_account_result = query_view_account(view_client, receiver);
+    let view_account_result = restart_node.view_account_query(&env.test_loop.data, &receiver);
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -684,16 +678,12 @@ fn test_restart_validator_node() {
         validator_node.head(env.test_loop_data()).height
     );
 
-    let view_client =
-        env.test_loop.data.get_mut(&producer_node.data().view_client_sender.actor_handle());
-    let view_account_result = query_view_account(view_client, receiver.clone());
+    let view_account_result = producer_node.view_account_query(&env.test_loop.data, &receiver);
     assert_eq!(view_account_result.amount, Balance::from_near(0));
 
     producer_node.run_for_number_of_blocks(&mut env.test_loop, 10);
 
-    let view_client =
-        env.test_loop.data.get_mut(&producer_node.data().view_client_sender.actor_handle());
-    let view_account_result = query_view_account(view_client, receiver);
+    let view_account_result = producer_node.view_account_query(&env.test_loop.data, &receiver);
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -751,7 +741,7 @@ fn test_spice_chain_with_missing_chunks() {
     );
 
     let view_client_handle = rpc_node.data().view_client_sender.actor_handle();
-    // Note that TestLoopNode::view_account_query doesn't work with spice yet.
+    // Uses Finality::Final (not Finality::None like view_account_query).
     let get_balance = |test_loop_data: &mut TestLoopData, account: &AccountId| {
         let view_client = test_loop_data.get_mut(&view_client_handle);
         let query_response = view_client.handle(Query::new(
