@@ -69,10 +69,6 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
   -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
   -x
 
-# Install Claude
-ENV HOME=/home/$USERNAME
-RUN curl -fsSL https://claude.ai/install.sh | bash
-ENV PATH=$HOME/.local/bin:$PATH
 # Install nearcore build deps (per NEAR docs)
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -112,6 +108,15 @@ RUN chown -R $USERNAME:$USERNAME $CARGO_HOME $RUSTUP_HOME
 ENV VIRTUAL_ENV=/opt/nearcore-venv
 ENV PATH=$VIRTUAL_ENV/bin:$PATH
 RUN mkdir -p $VIRTUAL_ENV
-RUN chown $USERNAME:$USERNAME $VIRTUAL_ENV
 RUN python3 -m venv $VIRTUAL_ENV
+RUN chown -R $USERNAME:$USERNAME $VIRTUAL_ENV
+
+# Copy post-start script into the image
+COPY post-start.sh /usr/local/bin/post-start.sh
+RUN chmod 555 /usr/local/bin/post-start.sh
+
 USER $USERNAME
+# Install Claude
+ENV HOME=/home/$USERNAME
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH=$HOME/.local/bin:$PATH

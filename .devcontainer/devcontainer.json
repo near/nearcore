@@ -36,7 +36,8 @@
   "remoteUser": "ubuntu",
   "mounts": [
     "source=claude-code-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
-    "source=claude-code-config-${devcontainerId},target=/home/ubuntu/.claude,type=volume"
+    "source=claude-code-config-${devcontainerId},target=/home/ubuntu/.claude,type=volume",
+    "source=nearcore-target-${devcontainerId},target=/workspace/target,type=volume",
   ],
   "containerEnv": {
     "CLAUDE_CONFIG_DIR": "/home/ubuntu/.claude",
@@ -44,7 +45,7 @@
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
   "workspaceFolder": "/workspace",
-  "postStartCommand": "/workspace/.devcontainer/post-start.sh",
+  "postStartCommand": "/usr/local/bin/post-start.sh",
   "waitFor": "postStartCommand"
 }
 
