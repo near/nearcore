@@ -31,7 +31,6 @@ fn query_gas_key_and_balance(
 ) -> (AccessKeyView, Balance) {
     let response = node.runtime_query(
         env.test_loop_data(),
-        account_id,
         QueryRequest::ViewAccessKey {
             account_id: account_id.clone(),
             public_key: public_key.clone(),
@@ -79,7 +78,6 @@ fn get_gas_key_nonce(
 ) -> Nonce {
     let response = node.runtime_query(
         env.test_loop_data(),
-        account_id,
         QueryRequest::ViewGasKeyNonces {
             account_id: account_id.clone(),
             public_key: public_key.clone(),

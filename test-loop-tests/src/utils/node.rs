@@ -9,8 +9,7 @@ use near_async::time::Duration;
 use near_chain::types::Tip;
 use near_chain::{Block, BlockHeader};
 use near_client::client_actor::ClientActor;
-use near_client::{Client, ProcessTxRequest, ViewClientActor};
-use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
+use near_client::{Client, ProcessTxRequest, Query, ViewClientActor};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
@@ -306,33 +305,17 @@ impl<'a> TestLoopNode<'a> {
     pub fn runtime_query(
         &self,
         test_loop_data: &TestLoopData,
-        account_id: &AccountId,
         query: QueryRequest,
     ) -> QueryResponse {
-        let client = self.client(test_loop_data);
-        let head = self.head(test_loop_data);
-        let last_block = client.chain.get_block(&head.last_block_hash).unwrap();
-        let shard_id =
-            account_id_to_shard_id(client.epoch_manager.as_ref(), &account_id, &head.epoch_id)
-                .unwrap();
-        let shard_uid =
-            shard_id_to_uid(client.epoch_manager.as_ref(), shard_id, &head.epoch_id).unwrap();
-        let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
-        let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-        let last_chunk_header = &last_block.chunks()[shard_index];
-
-        client
-            .runtime_adapter
-            .query(
-                shard_uid,
-                &last_chunk_header.prev_state_root(),
-                last_block.header().height(),
-                last_block.header().raw_timestamp(),
-                last_block.header().prev_hash(),
-                last_block.header().hash(),
-                last_block.header().epoch_id(),
-                &query,
-            )
+        let handle = self.data().view_client_sender.actor_handle();
+        let view_client: &ViewClientActor = test_loop_data.get(&handle);
+        view_client
+            .handle_query(Query::new(
+                near_primitives::types::BlockReference::Finality(
+                    near_primitives::types::Finality::None,
+                ),
+                query,
+            ))
             .unwrap()
     }
 
@@ -343,7 +326,6 @@ impl<'a> TestLoopNode<'a> {
     ) -> AccountView {
         let response = self.runtime_query(
             test_loop_data,
-            &account_id,
             QueryRequest::ViewAccount { account_id: account_id.clone() },
         );
         let QueryResponseKind::ViewAccount(account_view) = response.kind else {

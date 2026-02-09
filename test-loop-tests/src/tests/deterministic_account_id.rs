@@ -1044,12 +1044,8 @@ impl TestEnv {
         }
     }
 
-    fn runtime_query(&self, account_id: &AccountId, query: QueryRequest) -> QueryResponse {
-        TestLoopNode::rpc(&self.env.node_datas).runtime_query(
-            self.env.test_loop_data(),
-            account_id,
-            query,
-        )
+    fn runtime_query(&self, query: QueryRequest) -> QueryResponse {
+        TestLoopNode::rpc(&self.env.node_datas).runtime_query(self.env.test_loop_data(), query)
     }
 
     fn get_account_state(&mut self, account: AccountId) -> AccountView {
@@ -1061,7 +1057,7 @@ impl TestEnv {
 
     fn view_account(&self, account: &AccountId) -> AccountView {
         let response =
-            self.runtime_query(account, QueryRequest::ViewAccount { account_id: account.clone() });
+            self.runtime_query(QueryRequest::ViewAccount { account_id: account.clone() });
         let QueryResponseKind::ViewAccount(account_view) = response.kind else { unreachable!() };
         account_view
     }

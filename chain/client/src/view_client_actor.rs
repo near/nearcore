@@ -355,7 +355,7 @@ impl ViewClientActor {
         Ok(windows)
     }
 
-    fn handle_query(&self, msg: Query) -> Result<QueryResponse, QueryError> {
+    pub fn handle_query(&self, msg: Query) -> Result<QueryResponse, QueryError> {
         let header = self.get_block_header_by_reference(&msg.block_reference);
         let header = match header {
             Ok(Some(header)) => Ok(header),

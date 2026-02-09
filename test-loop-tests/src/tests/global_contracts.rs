@@ -416,7 +416,7 @@ impl GlobalContractsTestEnv {
             method_name: "log_something".to_owned(),
             args: Vec::new().into(),
         };
-        let response = self.runtime_query(account, query);
+        let response = self.runtime_query(query);
         let QueryResponseKind::CallResult(call_result) = response.kind else { unreachable!() };
         call_result
     }
@@ -491,14 +491,13 @@ impl GlobalContractsTestEnv {
 
     fn view_account(&self, account: &AccountId) -> AccountView {
         let response =
-            self.runtime_query(account, QueryRequest::ViewAccount { account_id: account.clone() });
+            self.runtime_query(QueryRequest::ViewAccount { account_id: account.clone() });
         let QueryResponseKind::ViewAccount(account_view) = response.kind else { unreachable!() };
         account_view
     }
 
     fn view_code(&self, account: &AccountId) -> ContractCodeView {
-        let response =
-            self.runtime_query(account, QueryRequest::ViewCode { account_id: account.clone() });
+        let response = self.runtime_query(QueryRequest::ViewCode { account_id: account.clone() });
         let QueryResponseKind::ViewCode(contract_code_view) = response.kind else { unreachable!() };
         contract_code_view
     }
@@ -512,9 +511,7 @@ impl GlobalContractsTestEnv {
                 QueryRequest::ViewGlobalContractCodeByAccountId { account_id }
             }
         };
-        // account is required by `runtime_query` to resolve shard_id
-        let account = self.account_shard_0.clone();
-        let response = self.runtime_query(&account, query);
+        let response = self.runtime_query(query);
         let QueryResponseKind::ViewCode(contract_code_view) = response.kind else { unreachable!() };
         contract_code_view
     }
@@ -557,12 +554,8 @@ impl GlobalContractsTestEnv {
         }
     }
 
-    fn runtime_query(&self, account_id: &AccountId, query: QueryRequest) -> QueryResponse {
-        TestLoopNode::rpc(&self.env.node_datas).runtime_query(
-            self.env.test_loop_data(),
-            account_id,
-            query,
-        )
+    fn runtime_query(&self, query: QueryRequest) -> QueryResponse {
+        TestLoopNode::rpc(&self.env.node_datas).runtime_query(self.env.test_loop_data(), query)
     }
 
     fn shutdown(self) {
