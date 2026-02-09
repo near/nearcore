@@ -32,15 +32,11 @@ use crate::utils::transactions;
 const GAS_PRICE: Balance = Balance::from_yoctonear(1);
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_contract_by_hash() {
     test_deploy_and_call_global_contract(GlobalContractDeployMode::CodeHash);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_contract_by_account_id() {
     test_deploy_and_call_global_contract(GlobalContractDeployMode::AccountId);
 }
@@ -120,15 +116,11 @@ fn test_global_contract_update() {
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_contract_by_account_id_rpc_calls() {
     test_global_contract_rpc_calls(GlobalContractDeployMode::AccountId);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_contract_by_hash_rpc_calls() {
     test_global_contract_rpc_calls(GlobalContractDeployMode::CodeHash);
 }
