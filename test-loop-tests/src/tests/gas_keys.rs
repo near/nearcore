@@ -91,8 +91,7 @@ fn get_gas_key_nonce(
 
 #[test]
 // TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(any(not(feature = "nightly"), feature = "protocol_feature_spice"), ignore)]
+#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_transaction() {
     init_test_logger();
 
@@ -203,8 +202,7 @@ fn test_gas_key_transaction() {
 
 #[test]
 // TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(any(not(feature = "nightly"), feature = "protocol_feature_spice"), ignore)]
+#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_refund() {
     init_test_logger();
 
