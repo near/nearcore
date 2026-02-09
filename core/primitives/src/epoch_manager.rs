@@ -170,7 +170,7 @@ impl EpochConfig {
         // TODO(dynamic_resharding): remove all uses of this method except EpochManager
         self.shard_layout_config
             .shard_layout()
-            .expect("legacy_shard_layout() called on dynamic resharding config")
+            .expect("static_shard_layout() called on dynamic resharding config")
             .clone()
     }
 

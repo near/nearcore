@@ -668,10 +668,31 @@ impl EpochManager {
             %boundary_account,
             "dynamic resharding: shard selected for split, deriving new layout"
         );
-        // TODO(dynamic_resharding): ShardLayoutV3 cannot be derived from V2. Use hard-coded layout as bootstrap.
-        let new_layout =
-            ShardLayout::derive_shard_layout(next_shard_layout, boundary_account.clone());
+        let new_layout = next_shard_layout.derive_v3(boundary_account.clone(), || {
+            self.get_shard_layout_history(next_next_epoch_version)
+        });
         Ok(new_layout)
+    }
+
+    /// Get all shard layouts from the given protocol version (exclusive) back to genesis,
+    /// ordered from newest to oldest.
+    fn get_shard_layout_history(&self, protocol_version: ProtocolVersion) -> Vec<ShardLayout> {
+        let mut layouts = Vec::new();
+        let genesis_protocol_version = self.config.genesis_protocol_version();
+
+        // We don't include `protocol_version`, because this method will be called at the epoch
+        // when dynamic resharding is scheduled for the first time. This means that `EpochConfig`
+        // for `protocol_version` uses a dynamic layout, so `get_shard_layout_from_protocol_version`
+        // would panic if we call it.
+        for version in (genesis_protocol_version..protocol_version).rev() {
+            let layout = self.get_shard_layout_from_protocol_version(version);
+            // avoid duplicates if layout doesn't change
+            if layouts.last() != Some(&layout) {
+                layouts.push(layout);
+            }
+        }
+
+        layouts
     }
 
     /// Checks if resharding can be scheduled in 2 epochs from now (assuming `block_info` belongs
