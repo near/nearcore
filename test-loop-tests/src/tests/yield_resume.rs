@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_o11y::testonly::init_test_logger;
@@ -328,5 +329,130 @@ fn test_yield_then_resume_same_block() {
     }
 
     assert_no_promise_yield_status_in_state(&env);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Submit one transaction with two actions. The first action yields and saves data_id to the state.
+/// The second actions reads data_id from state and resumes.
+/// Yield-resume should work.
+/// Before ProtocolFeature::YieldResumeImprovements, the resume transaction failed in this scenario.
+/// With the feature everything should work fine.
+/// See https://github.com/near/nearcore/issues/14904, this test reproduces case 4)
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_yield_then_resume_two_actions() {
+    let mut env = prepare_env();
+    let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
+    let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
+    let genesis_block = node.client(env.test_loop_data()).chain.get_block_by_height(0).unwrap();
+    let yield_payload = vec![6u8; 16];
+
+    let yield_resume_transaction = SignedTransaction::from_actions(
+        200,
+        "test0".parse().unwrap(),
+        "test0".parse().unwrap(),
+        &signer,
+        vec![
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "call_yield_create_return_promise".to_string(),
+                args: yield_payload.clone(),
+                gas: Gas::from_teragas(100),
+                deposit: Balance::ZERO,
+            })),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "call_yield_resume_read_data_id_from_storage".to_string(),
+                args: yield_payload,
+                gas: Gas::from_teragas(100),
+                deposit: Balance::ZERO,
+            })),
+        ],
+        *genesis_block.hash(),
+    );
+    node.submit_tx(yield_resume_transaction.clone());
+    node.run_for_number_of_blocks(&mut env.test_loop, 3);
+
+    let client = node.client(env.test_loop_data());
+    if ProtocolFeature::YieldResumeImprovements.enabled(PROTOCOL_VERSION) {
+        // promise_yield_resume returned 1 (resumption succeeded)
+        assert_eq!(
+            client
+                .chain
+                .get_final_transaction_result(&yield_resume_transaction.get_hash())
+                .unwrap()
+                .status,
+            FinalExecutionStatus::SuccessValue(vec![1u8]),
+        );
+    } else {
+        // promise_yield_resume returned 0 (resumption failed)
+        assert_eq!(
+            client
+                .chain
+                .get_partial_transaction_result(&yield_resume_transaction.get_hash())
+                .unwrap()
+                .status,
+            FinalExecutionStatus::SuccessValue(vec![0u8]),
+        );
+
+        // The receipt has not been resumed. Final status unavailable.
+        assert_matches!(
+            client.chain.get_final_transaction_result(&yield_resume_transaction.get_hash()),
+            Err(_)
+        );
+
+        // 200 blocks later the PromiseYield times out and the transaction finishes.
+    }
+
+    assert_no_promise_yield_status_in_state(&env);
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Similar to `test_yield_then_resume_two_actions`, but after the first action, another action fails.
+/// When processing the receipt fails, the yielded receipt should be cancelled and there should be
+/// no PromiseYieldStatus in the state, even though it was written by the first action.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_yield_then_resume_two_actions_failure() {
+    let mut env = prepare_env();
+    let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
+    let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
+    let genesis_block = node.client(env.test_loop_data()).chain.get_block_by_height(0).unwrap();
+    let yield_payload = vec![6u8; 16];
+
+    let tx = SignedTransaction::from_actions(
+        200,
+        "test0".parse().unwrap(),
+        "test0".parse().unwrap(),
+        &signer,
+        vec![
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "call_yield_create_return_promise".to_string(),
+                args: yield_payload.clone(),
+                gas: Gas::from_teragas(100),
+                deposit: Balance::ZERO,
+            })),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "panic_with_message".to_string(),
+                args: Vec::new(),
+                gas: Gas::from_teragas(50),
+                deposit: Balance::ZERO,
+            })),
+            Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "call_yield_resume_read_data_id_from_storage".to_string(),
+                args: yield_payload,
+                gas: Gas::from_teragas(100),
+                deposit: Balance::ZERO,
+            })),
+        ],
+        *genesis_block.hash(),
+    );
+
+    let res = node.execute_tx(&mut env.test_loop, tx, Duration::seconds(5));
+    assert_matches!(res.unwrap().status, FinalExecutionStatus::Failure(_));
+
+    // PromiseYieldStatus change was not committed to the trie.
+    assert_no_promise_yield_status_in_state(&env);
+
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
