@@ -60,12 +60,17 @@ fn validate_and_derive_shard_ancestor_map(
 /// Build `ShardsSplitMapV3` from a sequence of previous shard layouts.
 ///
 /// Assumes that layouts are ordered from newest to oldest, and that there are no duplicates.
+/// Ignores layouts with `version()` lower than `VERSION` (this is **not** the struct version).
 pub fn build_shard_split_map(layout_history: &[ShardLayout]) -> ShardsSplitMapV3 {
     let mut split_history = ShardsSplitMapV3::new();
 
     for window in layout_history.windows(2) {
         let current_layout = &window[0];
         let prev_layout = &window[1];
+
+        if current_layout.version() < VERSION || prev_layout.version() < VERSION {
+            break;
+        }
 
         debug_assert_ne!(current_layout, prev_layout);
 

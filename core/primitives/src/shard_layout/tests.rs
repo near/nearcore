@@ -249,6 +249,10 @@ fn to_shards_split_map<const N: usize>(
     xs.into_iter().map(to_shard_split).collect()
 }
 
+fn to_shard_uids<const N: usize>(ids: [u32; N]) -> Vec<ShardUId> {
+    ids.into_iter().map(|id| ShardUId::new(3, ShardId::new(id as u64))).collect()
+}
+
 #[test]
 fn derive_layout() {
     // [] -> ["test1"]
@@ -320,10 +324,6 @@ fn derive_layout() {
 
 #[test]
 fn derive_v3() {
-    fn to_shard_uids<const N: usize>(ids: [u32; N]) -> Vec<ShardUId> {
-        ids.into_iter().map(|id| ShardUId::new(3, ShardId::new(id as u64))).collect()
-    }
-
     // base layout: shards 1 & 2 split from 0 on account "test1"
     let base_layout = ShardLayout::v3(
         to_boundary_accounts(["test1.near"]),
@@ -368,7 +368,7 @@ fn derive_v3() {
     assert_eq!(derived_layout.ancestor_uids(ShardId::new(3)), Some(to_shard_uids([2, 0])));
     assert_eq!(derived_layout.ancestor_uids(ShardId::new(4)), Some(to_shard_uids([2, 0])));
 
-    // derive layout: split shard 3 into 5 & 6 on account  "test2"
+    // derive layout: split shard 3 into 5 & 6 on account "test2"
     let base_layout = derived_layout;
     let boundary: AccountId = "test2.near".parse().unwrap();
     let derived_layout = base_layout.derive_v3(boundary, || unreachable!());
@@ -413,6 +413,38 @@ fn derive_v3() {
     assert_eq!(derived_layout.ancestor_uids(ShardId::new(6)), Some(to_shard_uids([3, 2, 0])));
 }
 
+#[test]
+fn derive_v3_from_history() {
+    let layout0 = ShardLayout::v2(vec![], vec![ShardId::new(0)], None);
+    // split shard 0 into 1 & 2 on account "bbb"
+    let layout1 = ShardLayout::derive_shard_layout(&layout0, "bbb".parse().unwrap());
+    // split shard 2 into 3 & 4 on account "ccc"
+    let layout2 = ShardLayout::derive_shard_layout(&layout1, "ccc".parse().unwrap());
+
+    let boundary = "aaa".parse().unwrap();
+    let history = vec![layout2.clone(), layout1, layout0];
+    let layout3 = layout2.derive_v3(boundary, || history);
+
+    assert_eq!(layout3.shard_ids().collect_vec(), to_shard_ids([5, 6, 3, 4]));
+    assert_eq!(layout3.boundary_accounts(), &to_boundary_accounts(["aaa", "bbb", "ccc"]));
+
+    assert_eq!(layout3.get_children_shards_ids(ShardId::new(1)), Some(to_shard_ids([5, 6])));
+    assert_eq!(layout3.get_children_shards_ids(ShardId::new(3)), Some(to_shard_ids([3])));
+    assert_eq!(layout3.get_children_shards_ids(ShardId::new(4)), Some(to_shard_ids([4])));
+
+    assert_eq!(layout3.try_get_parent_shard_id(ShardId::new(5)).unwrap(), Some(ShardId::new(1)));
+    assert_eq!(layout3.try_get_parent_shard_id(ShardId::new(6)).unwrap(), Some(ShardId::new(1)));
+    assert_eq!(layout3.try_get_parent_shard_id(ShardId::new(3)).unwrap(), Some(ShardId::new(3)));
+    assert_eq!(layout3.try_get_parent_shard_id(ShardId::new(4)).unwrap(), Some(ShardId::new(4)));
+
+    assert_eq!(layout3.get_split_parent_shard_ids(), to_shard_ids([1]).into_iter().collect());
+
+    assert_eq!(layout3.ancestor_uids(ShardId::new(5)), Some(to_shard_uids([1, 0])));
+    assert_eq!(layout3.ancestor_uids(ShardId::new(6)), Some(to_shard_uids([1, 0])));
+    assert_eq!(layout3.ancestor_uids(ShardId::new(3)), Some(to_shard_uids([2, 0])));
+    assert_eq!(layout3.ancestor_uids(ShardId::new(4)), Some(to_shard_uids([2, 0])));
+}
+
 // Check that the ShardLayout::multi_shard method returns interesting shard
 // layouts. A shard layout is interesting if it has non-contiguous shard
 // ids.
@@ -428,25 +460,24 @@ fn multi_shard_non_contiguous() {
 fn build_shard_split_map_v3() {
     use crate::shard_layout::v3::build_shard_split_map;
 
-    let layout1 = ShardLayout::v2(vec![], vec![ShardId::new(0)], None);
-    let layout2 = ShardLayout::v2(
+    #[allow(deprecated)]
+    let layout0 = ShardLayout::v1(vec![], None, 2);
+    let layout1 = ShardLayout::v2(
         to_boundary_accounts(["test1.near"]),
         to_shard_ids([1, 2]),
         Some(to_shards_split_map([(0, vec![1, 2])])),
     );
-    let layout3 = ShardLayout::v2(
+    let layout2 = ShardLayout::v2(
         to_boundary_accounts(["test1.near", "test2.near"]),
         to_shard_ids([1, 3, 4]),
         Some(to_shards_split_map([(1, vec![1]), (2, vec![3, 4])])),
     );
 
-    let layouts = vec![layout3, layout2, layout1]; // sorted from newest to oldest
+    let layouts = vec![layout2, layout1, layout0]; // sorted from newest to oldest
 
     assert!(build_shard_split_map(&[]).is_empty());
+    assert!(build_shard_split_map(&layouts[1..]).is_empty());
     assert!(build_shard_split_map(&layouts[2..]).is_empty());
-    assert_eq!(build_shard_split_map(&layouts[1..]), to_shards_split_map([(0, vec![1, 2])]));
-    assert_eq!(
-        build_shard_split_map(&layouts),
-        to_shards_split_map([(0, vec![1, 2]), (2, vec![3, 4])])
-    );
+    // layout0 has version 2 so split 0 -> (1, 2) is omitted from history
+    assert_eq!(build_shard_split_map(&layouts), to_shards_split_map([(2, vec![3, 4])]));
 }
