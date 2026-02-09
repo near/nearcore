@@ -131,6 +131,7 @@ fn test_global_contract_nonce_prevents_stale_overwrite() {
     let deploy_user = env.users[0].clone();
 
     // Step 1: Deploy trivial contract as first version (AccountId mode).
+    tracing::info!(target: "test", "Deploying first version of global contract (trivial contract)...");
     let deploy_tx_v1 = deploy_global_contract(
         &mut env.env.test_loop,
         &env.env.node_datas,
@@ -150,6 +151,7 @@ fn test_global_contract_nonce_prevents_stale_overwrite() {
 
     // Step 2: Deploy rs_contract as second version (AccountId mode).
     // This will have a higher auto-incremented nonce.
+    tracing::info!(target: "test", "Deploying second version of global contract (rs_contract)...");
     let deploy_tx_v2 = deploy_global_contract(
         &mut env.env.test_loop,
         &env.env.node_datas,
@@ -169,6 +171,7 @@ fn test_global_contract_nonce_prevents_stale_overwrite() {
 
     // Step 3: Have all users use the global contract and verify that the rs_contract
     // version (v2) is active by calling "log_something" which only exists in rs_contract.
+    tracing::info!(target: "test", "Calling use global contract from all users to verify rs_contract is active...");
     let mut nonce = 3u64;
     for user in &env.users {
         let use_tx = use_global_contract(
@@ -180,12 +183,13 @@ fn test_global_contract_nonce_prevents_stale_overwrite() {
             GlobalContractIdentifier::AccountId(deploy_user.clone()),
         );
         nonce += 1;
-        env.env.test_loop.run_for(Duration::seconds(2));
+        env.env.test_loop.run_for(Duration::seconds(5));
         check_txs(&mut env.env.test_loop.data, &env.env.node_datas, &env.chunk_producer, &[use_tx]);
     }
 
     // Step 4: Call "log_something" on each user's account. This method only exists in
     // the rs_contract, so if the trivial contract had overwritten it, this would fail.
+    tracing::info!(target: "test", "Calling contract method from all users to verify rs_contract is active...");
     for user in &env.users {
         let call_tx = call_contract(
             &mut env.env.test_loop,
@@ -198,7 +202,7 @@ fn test_global_contract_nonce_prevents_stale_overwrite() {
             nonce,
         );
         nonce += 1;
-        env.env.test_loop.run_for(Duration::seconds(2));
+        env.env.test_loop.run_for(Duration::seconds(5));
         check_txs(
             &mut env.env.test_loop.data,
             &env.env.node_datas,

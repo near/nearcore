@@ -172,7 +172,7 @@ fn initiate_distribution(
             GlobalContractIdentifier::AccountId(account_id.clone())
         }
     };
-    let nonce = update_nonce(protocol_version, state_update, &id)?;
+    let nonce = get_fresh_nonce(protocol_version, state_update, &id)?;
     let distribution_receipt = GlobalContractDistributionReceipt::new(
         id,
         current_shard_id,
@@ -188,14 +188,15 @@ fn initiate_distribution(
     Ok(())
 }
 
-/// Reads the current nonce for the given global contract identifier, increments
-/// it, and stores it back. Returns the new nonce.
-fn update_nonce(
+/// Reads the current nonce for the given global contract identifier and
+/// increments it.
+fn get_fresh_nonce(
     protocol_version: u32,
     state_update: &mut TrieUpdate,
     id: &GlobalContractIdentifier,
 ) -> Result<u64, RuntimeError> {
     if !ProtocolFeature::GlobalContractDistributionNonce.enabled(protocol_version) {
+        // If the feature is not enabled yet the nonce will be ignored anyway.
         return Ok(0);
     }
 
@@ -205,7 +206,6 @@ fn update_nonce(
     let stored_nonce = get_stored_nonce(state_update, &nonce_key)?;
 
     let new_nonce = stored_nonce + 1;
-    state_update.set(nonce_key, new_nonce.to_le_bytes().to_vec());
     Ok(new_nonce)
 }
 
