@@ -11,7 +11,8 @@ use near_primitives::action::{
     GlobalContractIdentifier, UseGlobalContractAction,
 };
 use near_primitives::errors::{
-    ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
+    ActionsValidationError, DepositCostFailureReason, InvalidAccessKeyError, InvalidTxError,
+    ReceiptValidationError,
 };
 use near_primitives::receipt::{
     DataReceipt, Receipt, VersionedActionReceipt, VersionedReceiptEnum,
@@ -271,7 +272,7 @@ fn check_and_compute_new_allowance(
 
 /// Verify a regular (non-gas-key) transaction and compute the charge outcome.
 ///
-/// Returns `TxVerdict::Success` or `TxVerdict::Failed`.
+/// Returns `TxVerdict::Success` or `TxVerdict::Failed` (never `DepositFailed`).
 /// Callers should apply state changes via `VerificationResult::apply` on success.
 ///
 /// Legacy: for pre-`FixAccessKeyAllowanceCharging` protocol versions, the allowance is
@@ -377,6 +378,7 @@ pub fn verify_and_charge_tx_ephemeral(
 /// This function performs validation only and does NOT mutate `account` or `access_key`.
 /// Callers are responsible for applying state changes based on the returned variant:
 /// - `Success(result)`: apply all state changes via `result.apply()`.
+/// - `DepositFailed { result, .. }`: apply gas-only changes via `result.apply()`.
 /// - `Failed(_)`: no state changes.
 pub fn verify_and_charge_gas_key_tx_ephemeral(
     config: &RuntimeConfig,
@@ -441,42 +443,50 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
             return TxVerdict::Failed(e);
         }
     }
+    let gas_key_update =
+        AccessKeyUpdate::GasKey { new_balance: new_gas_key_balance, nonce_index, nonce: tx_nonce };
+    let make_result = move |new_account_amount| VerificationResult {
+        gas_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        burnt_amount,
+        new_account_amount,
+        access_key_update: gas_key_update,
+    };
 
     // Check account has enough balance for deposits
     let account_balance = account.amount();
     let Some(new_account_amount) = account_balance.checked_sub(deposit_cost) else {
-        return TxVerdict::Failed(InvalidTxError::NotEnoughBalance {
-            signer_id: account_id.clone(),
-            balance: account_balance,
-            cost: deposit_cost,
-        });
+        return TxVerdict::DepositFailed {
+            result: make_result(account_balance),
+            error: InvalidTxError::NotEnoughBalanceForDeposit {
+                signer_id: account_id.clone(),
+                balance: account_balance,
+                cost: deposit_cost,
+                reason: DepositCostFailureReason::NotEnoughBalance,
+            },
+        };
     };
 
     match check_storage_stake(account, new_account_amount, config) {
         Ok(()) => {}
         Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
-            return TxVerdict::Failed(InvalidTxError::LackBalanceForState {
-                signer_id: account_id.clone(),
-                amount,
-            });
+            return TxVerdict::DepositFailed {
+                result: make_result(account_balance),
+                error: InvalidTxError::NotEnoughBalanceForDeposit {
+                    signer_id: account_id.clone(),
+                    balance: new_account_amount,
+                    cost: amount,
+                    reason: DepositCostFailureReason::LackBalanceForState,
+                },
+            };
         }
         Err(StorageStakingError::StorageError(err)) => {
             return TxVerdict::Failed(StorageError::StorageInconsistentState(err).into());
         }
     };
 
-    TxVerdict::Success(VerificationResult {
-        gas_burnt,
-        gas_remaining,
-        receipt_gas_price,
-        burnt_amount,
-        new_account_amount,
-        access_key_update: AccessKeyUpdate::GasKey {
-            new_balance: new_gas_key_balance,
-            nonce_index,
-            nonce: tx_nonce,
-        },
-    })
+    TxVerdict::Success(make_result(new_account_amount))
 }
 
 /// Validates a given receipt. Checks validity of the Action or Data receipt.
@@ -1262,7 +1272,7 @@ mod tests {
         };
         let result = match verdict {
             TxVerdict::Success(result) => result,
-            TxVerdict::Failed(e) => return Err(e),
+            TxVerdict::Failed(e) | TxVerdict::DepositFailed { error: e, .. } => return Err(e),
         };
         result.apply(&mut signer, &mut access_key);
         set_tx_state_changes(state_update, &validated_tx, &signer, &access_key);
@@ -3188,14 +3198,12 @@ mod tests {
             None,
             ProtocolFeature::GasKeys.protocol_version(),
         )
-        .expect_err("should fail with not enough account balance for deposit");
-
-        match err {
-            InvalidTxError::NotEnoughBalance { signer_id, .. } => {
-                assert_eq!(signer_id, alice_account());
-            }
-            _ => panic!("unexpected error: {:?}", err),
-        }
+        .unwrap_err();
+        assert!(
+            matches!(err, InvalidTxError::NotEnoughBalanceForDeposit { .. }),
+            "expected NotEnoughBalanceForDeposit, got {:?}",
+            err,
+        );
     }
 
     #[test]
@@ -3273,5 +3281,119 @@ mod tests {
                 public_key: Box::new(signer.public_key()),
             })
         );
+    }
+
+    #[test]
+    fn test_gas_key_tx_deposit_failed_for_account_balance() {
+        let config = RuntimeConfig::test();
+        let num_nonces = 2;
+        let small_account_balance = Balance::from_yoctonear(1);
+        let (signer, state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(small_account_balance, TESTING_GAS_KEY_BALANCE, num_nonces, None);
+
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, 0),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1000) })],
+            CryptoHash::default(),
+        );
+        let validated_tx =
+            validate_transaction(&config, signed_tx, ProtocolFeature::GasKeys.protocol_version())
+                .unwrap();
+        let tx = validated_tx.to_tx();
+        let cost = tx_cost(&config, &tx, gas_price).unwrap();
+        let (signer_account, access_key) =
+            get_signer_and_access_key(&state_update, &validated_tx).unwrap();
+        let current_nonce =
+            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
+
+        let TxVerdict::DepositFailed { result, error } = verify_and_charge_gas_key_tx_ephemeral(
+            &config,
+            &signer_account,
+            &access_key,
+            current_nonce,
+            tx,
+            &cost,
+            None,
+        ) else {
+            panic!("expected DepositFailed");
+        };
+        match error {
+            InvalidTxError::NotEnoughBalanceForDeposit { signer_id, reason, .. } => {
+                assert_eq!(signer_id, alice_account());
+                assert_eq!(reason, DepositCostFailureReason::NotEnoughBalance);
+            }
+            other => panic!("expected NotEnoughBalanceForDeposit, got {:?}", other),
+        }
+        // Verify the result carries correct gas-charge data
+        assert_eq!(result.gas_burnt, cost.gas_burnt);
+        assert_eq!(result.burnt_amount, cost.burnt_amount);
+        assert_eq!(result.new_account_amount, small_account_balance);
+        assert_eq!(
+            result.access_key_update,
+            AccessKeyUpdate::GasKey {
+                new_balance: TESTING_GAS_KEY_BALANCE.checked_sub(cost.gas_cost).unwrap(),
+                nonce_index: 0,
+                nonce: initial_nonce + 1,
+            }
+        );
+    }
+
+    #[test]
+    fn test_gas_key_tx_deposit_failed_for_storage_stake() {
+        let config = RuntimeConfig::test();
+        // Use many nonces to push storage_usage above ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
+        // so that the account is not exempt from storage staking requirements.
+        let num_nonces = 60;
+        // Balance high enough to cover the deposit, but after subtracting deposit the
+        // remainder is too low to meet storage staking requirements.
+        let initial_balance = Balance::from_near(1);
+        let deposit = Balance::from_millinear(999);
+        let (signer, state_update, gas_price, initial_nonce) =
+            setup_gas_key_account(initial_balance, TESTING_GAS_KEY_BALANCE, num_nonces, None);
+
+        let signed_tx = SignedTransaction::from_actions_v1(
+            TransactionNonce::from_nonce_and_index(initial_nonce + 1, 0),
+            alice_account(),
+            bob_account(),
+            &*signer,
+            vec![Action::Transfer(TransferAction { deposit })],
+            CryptoHash::default(),
+        );
+        let validated_tx =
+            validate_transaction(&config, signed_tx, ProtocolFeature::GasKeys.protocol_version())
+                .unwrap();
+        let tx = validated_tx.to_tx();
+        let cost = tx_cost(&config, &tx, gas_price).unwrap();
+        let (signer_account, access_key) =
+            get_signer_and_access_key(&state_update, &validated_tx).unwrap();
+        let current_nonce =
+            get_gas_key_nonce(&state_update, tx.signer_id(), tx.public_key(), 0).unwrap().unwrap();
+
+        let TxVerdict::DepositFailed { result, error } = verify_and_charge_gas_key_tx_ephemeral(
+            &config,
+            &signer_account,
+            &access_key,
+            current_nonce,
+            tx,
+            &cost,
+            None,
+        ) else {
+            panic!("expected DepositFailed");
+        };
+        let new_account_amount = initial_balance.checked_sub(cost.deposit_cost).unwrap();
+        match error {
+            InvalidTxError::NotEnoughBalanceForDeposit { signer_id, balance, reason, .. } => {
+                assert_eq!(signer_id, alice_account());
+                assert_eq!(reason, DepositCostFailureReason::LackBalanceForState);
+                assert_eq!(balance, new_account_amount);
+            }
+            other => panic!("expected NotEnoughBalanceForDeposit, got {:?}", other),
+        }
+        assert_eq!(result.gas_burnt, cost.gas_burnt);
+        assert_eq!(result.burnt_amount, cost.burnt_amount);
+        assert_eq!(result.new_account_amount, initial_balance);
     }
 }

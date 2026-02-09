@@ -610,11 +610,23 @@ pub struct ExecutionOutcomeWithId {
 
 impl ExecutionOutcomeWithId {
     pub fn failed(transaction: &SignedTransaction, error: InvalidTxError) -> Self {
+        Self::failed_with_gas_burnt(transaction, error, Gas::ZERO, Balance::ZERO)
+    }
+
+    pub fn failed_with_gas_burnt(
+        transaction: &SignedTransaction,
+        error: InvalidTxError,
+        gas_burnt: Gas,
+        tokens_burnt: Balance,
+    ) -> Self {
         Self {
             id: transaction.get_hash(),
             outcome: ExecutionOutcome {
                 executor_id: transaction.transaction.signer_id().clone(),
                 status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error)),
+                gas_burnt,
+                compute_usage: Some(gas_burnt.as_gas()),
+                tokens_burnt,
                 ..Default::default()
             },
         }

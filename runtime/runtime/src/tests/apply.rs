@@ -23,7 +23,8 @@ use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
 };
 use near_primitives::errors::{
-    ActionErrorKind, FunctionCallError, InvalidTxError, MissingTrieValue, TxExecutionError,
+    ActionErrorKind, DepositCostFailureReason, FunctionCallError, InvalidTxError, MissingTrieValue,
+    TxExecutionError,
 };
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
@@ -37,8 +38,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, MerkleHash, ShardId,
-    StateChangeCause,
+    AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, MerkleHash, NonceIndex,
+    ShardId, StateChangeCause,
 };
 use near_primitives::utils::create_receipt_id_from_transaction;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -3902,4 +3903,92 @@ fn test_gas_refund_unknown_key_falls_back_to_account() {
     // Account balance should increase as fallback
     let alice = get_account(&state, &alice_account()).unwrap().unwrap();
     assert_eq!(alice.amount(), initial_balance.checked_add(refund_amount).unwrap());
+}
+
+#[test]
+fn test_gas_key_tx_deposit_insufficient_charges_gas() {
+    let num_nonces = 3;
+    // Account balance is enough for storage staking but not enough for the transfer.
+    let initial_balance = Balance::from_near(1);
+    let gas_key_balance = Balance::from_millinear(1);
+    let GasKeyTestSetup {
+        runtime,
+        tries,
+        root,
+        mut apply_state,
+        epoch_info_provider,
+        gas_key_signer,
+        shard_uid,
+    } = setup_gas_key_test(
+        alice_account(),
+        vec![alice_account(), bob_account()],
+        initial_balance,
+        num_nonces,
+        gas_key_balance,
+    );
+
+    let initial_nonce = initial_nonce_value(GAS_KEY_BLOCK_HEIGHT);
+    let nonce_index: NonceIndex = 0;
+
+    // Transfer more than account can cover
+    let gas_key_tx = SignedTransaction::from_actions_v1(
+        TransactionNonce::from_nonce_and_index(initial_nonce + 1, nonce_index),
+        alice_account(),
+        bob_account(),
+        &*gas_key_signer,
+        vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1000) })],
+        CryptoHash::default(),
+    );
+    let transaction_cost =
+        tx_cost(&apply_state.config, &gas_key_tx.transaction, apply_state.gas_price).unwrap();
+
+    let signed_valid_period_txs = SignedValidPeriodTransactions::new(vec![gas_key_tx], vec![true]);
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            signed_valid_period_txs,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    // Should have one outcome: a failure with gas burnt
+    assert_eq!(apply_result.outcomes.len(), 1);
+    let outcome = &apply_result.outcomes[0];
+    match &outcome.outcome.status {
+        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+            InvalidTxError::NotEnoughBalanceForDeposit { reason, .. },
+        )) => {
+            assert_eq!(*reason, DepositCostFailureReason::NotEnoughBalance);
+        }
+        other => panic!("expected NotEnoughBalanceForDeposit, got {:?}", other),
+    }
+    assert_eq!(outcome.outcome.gas_burnt, transaction_cost.gas_burnt);
+    assert_eq!(outcome.outcome.tokens_burnt, transaction_cost.burnt_amount);
+
+    // Commit and verify state
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+
+    // Gas key balance was deducted
+    let access_key =
+        get_access_key(&state, &alice_account(), &gas_key_signer.public_key()).unwrap().unwrap();
+    assert_eq!(
+        access_key.gas_key_info().unwrap().balance,
+        gas_key_balance.checked_sub(transaction_cost.gas_cost).unwrap()
+    );
+
+    // Account balance was NOT deducted
+    let account = get_account(&state, &alice_account()).unwrap().unwrap();
+    assert_eq!(account.amount(), initial_balance);
+
+    // Nonce was updated
+    let new_nonce =
+        get_gas_key_nonce(&state, &alice_account(), &gas_key_signer.public_key(), nonce_index)
+            .unwrap()
+            .unwrap();
+    assert_eq!(new_nonce, initial_nonce + 1);
 }
