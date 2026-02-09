@@ -63,6 +63,8 @@ pub enum ShardLayoutConfig {
     /// Static, fixed layout. Can only change by protocol upgrade.
     Static { shard_layout: ShardLayout },
     /// Dynamic resharding – layout is changed dynamically according to the inner config.
+    /// The parameters stored in this config for epoch `N` are used to determine the layout
+    /// in epoch `N+2`, **not** in epoch `N`.
     Dynamic { dynamic_resharding_config: DynamicReshardingConfig },
 }
 

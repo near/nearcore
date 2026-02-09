@@ -351,6 +351,11 @@ pub enum ProtocolFeature {
     /// Includes tokens burnt as part of global contract deploys into corresponding
     /// execution outcome's `tokens_burnt`.
     IncludeDeployGlobalContractOutcomeBurntStorage,
+    /// Fix deterministic account ID creation to allow creation by any incoming transfer
+    /// (unless it's a refund) and fix `account_is_implicit()` to correctly check if
+    /// deterministic account IDs are enabled.
+    /// NEP: https://github.com/near/NEPs/pull/616
+    FixDeterministicAccountIdCreation,
 }
 
 impl ProtocolFeature {
@@ -452,7 +457,8 @@ impl ProtocolFeature {
             ProtocolFeature::InvalidTxGenerateOutcomes
             | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen
             | ProtocolFeature::FixAccessKeyAllowanceCharging
-            | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage => 83,
+            | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
+            | ProtocolFeature::FixDeterministicAccountIdCreation => 83,
             ProtocolFeature::Wasmtime => 84,
 
             // Nightly features:

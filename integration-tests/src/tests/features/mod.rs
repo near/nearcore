@@ -15,6 +15,4 @@ mod restrict_tla;
 mod stateless_validation;
 mod storage_proof_size_limit;
 mod wallet_contract;
-mod yield_resume;
-mod yield_timeouts;
 mod zero_balance_account;

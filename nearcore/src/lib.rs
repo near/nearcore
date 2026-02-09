@@ -307,7 +307,7 @@ fn spawn_spice_actors(
         network_adapter.clone(),
         validator_signer.clone(),
         {
-            let thread_limit = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
+            let thread_limit = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize * 3;
             ApplyChunksSpawner::default().into_spawner(thread_limit)
         },
         Default::default(),

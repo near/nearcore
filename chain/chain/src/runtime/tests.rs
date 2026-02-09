@@ -182,6 +182,7 @@ impl TestEnv {
                     vec![],
                     genesis_total_supply,
                     genesis_protocol_version,
+                    genesis_protocol_version,
                     0,
                     ChunkEndorsementsBitmap::from_endorsements(vec![
                         vec![
@@ -191,6 +192,7 @@ impl TestEnv {
                         shard_layout.num_shards()
                             as usize
                     ]),
+                    None,
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
@@ -258,6 +260,7 @@ impl TestEnv {
                     block_type: BlockType::Normal,
                     height,
                     prev_block_hash,
+                    last_final_block_hash: CryptoHash::default(),
                     block_timestamp,
                     gas_price,
                     random_seed: CryptoHash::default(),
@@ -358,8 +361,10 @@ impl TestEnv {
                     chunk_mask,
                     self.runtime.genesis_config.total_supply,
                     self.runtime.genesis_config.protocol_version,
+                    self.runtime.genesis_config.protocol_version,
                     self.time + 10u64.pow(9),
                     chunk_endorsements,
+                    None,
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )
@@ -871,12 +876,14 @@ fn test_state_sync() {
                     vec![true],
                     new_env.runtime.genesis_config.total_supply,
                     new_env.runtime.genesis_config.protocol_version,
+                    new_env.runtime.genesis_config.protocol_version,
                     new_env.time,
                     ChunkEndorsementsBitmap::from_endorsements(vec![
                         vec![true; num_nodes as usize];
                         shard_layout.num_shards()
                             as usize
                     ]),
+                    None,
                 ),
                 [0; 32].as_ref().try_into().unwrap(),
             )

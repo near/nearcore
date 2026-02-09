@@ -1,3 +1,4 @@
+mod pick_shard_to_split;
 mod random_epochs;
 
 use super::*;
