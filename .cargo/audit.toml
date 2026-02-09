@@ -49,4 +49,8 @@ ignore = [
     # which cannot be updated without moving to Rust 1.88
     # TODO(#14768): Remove this and updated necessary crates to get rid of rustls-pemfile
     "RUSTSEC-2025-0134",
+
+    # time has a DoS vulnerability (stack exhaustion), fixed in 0.3.47+ which requires Rust 1.88
+    # TODO(#15026): Remove this when rust-toolchain.toml is updated to >= 1.88
+    "RUSTSEC-2026-0009",
 ]
