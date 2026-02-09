@@ -257,15 +257,6 @@ impl From<InvalidTxError> for TxVerdict {
     }
 }
 
-/// Describes how to update the access key after a verified transaction.
-#[derive(Debug, Clone, PartialEq)]
-pub enum AccessKeyUpdate {
-    /// Regular tx: set access_key.nonce, optionally update allowance.
-    Regular { nonce: Nonce, new_allowance: Option<Balance> },
-    /// Gas key tx: set gas_key_info.balance and persist external nonce.
-    GasKey { new_balance: Balance, nonce_index: NonceIndex, nonce: Nonce },
-}
-
 #[derive(Debug)]
 pub struct VerificationResult {
     /// The amount gas that was burnt to convert the transaction into a receipt and send it.
@@ -280,6 +271,15 @@ pub struct VerificationResult {
     pub new_account_amount: Balance,
     /// Describes how to update the access key.
     pub access_key_update: AccessKeyUpdate,
+}
+
+/// Describes how to update the access key after a verified transaction.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AccessKeyUpdate {
+    /// Regular tx: set access_key.nonce, optionally update allowance.
+    Regular { nonce: Nonce, new_allowance: Option<Balance> },
+    /// Gas key tx: set gas_key_info.balance and persist external nonce.
+    GasKey { new_balance: Balance, nonce_index: NonceIndex, nonce: Nonce },
 }
 
 impl VerificationResult {
