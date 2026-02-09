@@ -463,7 +463,7 @@ impl Testbed<'_> {
         let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)
             .expect("getting signer and access key should not fail in estimator");
 
-        let TxVerdict::Success(vr) = verify_and_charge_tx_ephemeral(
+        let TxVerdict::Success(result) = verify_and_charge_tx_ephemeral(
             &self.apply_state.config,
             &signer,
             &mut access_key,
@@ -474,7 +474,7 @@ impl Testbed<'_> {
         ) else {
             panic!("tx verification should not fail in estimator");
         };
-        vr.apply(&mut signer, &mut access_key);
+        result.apply(&mut signer, &mut access_key);
         set_tx_state_changes(&mut state_update, &validated_tx, &signer, &access_key);
         clock.elapsed()
     }
