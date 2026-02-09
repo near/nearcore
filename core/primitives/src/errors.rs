@@ -195,10 +195,12 @@ impl std::error::Error for StorageError {}
     serde::Serialize,
     ProtocolSchema,
 )]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum DepositCostFailureReason {
-    NotEnoughBalance,
-    LackBalanceForState,
+    NotEnoughBalance = 0,
+    LackBalanceForState = 1,
 }
 
 /// An error happened during TX execution
