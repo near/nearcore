@@ -276,7 +276,7 @@ pub struct VerificationResult {
 /// Describes how to update the access key after a verified transaction.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AccessKeyUpdate {
-    /// Regular tx: set access_key.nonce, optionally update allowance.
+    /// Regular tx: set access_key.nonce, update allowance if specified.
     Regular { nonce: Nonce, new_allowance: Option<Balance> },
     /// Gas key tx: set gas_key_info.balance and persist external nonce.
     GasKey { new_balance: Balance, nonce_index: NonceIndex, nonce: Nonce },
