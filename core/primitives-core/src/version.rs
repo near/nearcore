@@ -358,9 +358,9 @@ pub enum ProtocolFeature {
     FixDeterministicAccountIdCreation,
     /// Nonce-based idempotency for global contract distribution receipts. Each
     /// distribution carries an auto-incremented nonce. Any distribution receipt
-    /// with a nonce <= the one already stored will be dropped. This prevents
-    /// race conditions in the case of multiple distribution attempts for the
-    /// same contract.
+    /// with a nonce less than the one already stored will be dropped. This
+    /// prevents race conditions in the case of multiple distribution attempts
+    /// for the same contract.
     GlobalContractDistributionNonce,
 }
 

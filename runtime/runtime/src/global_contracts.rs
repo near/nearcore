@@ -316,9 +316,9 @@ fn forward_distribution_next_shard(
         return Ok(());
     };
     let already_delivered_shards = Vec::from_iter(already_delivered_shards);
+    let predecessor_id = receipt.predecessor_id().clone();
     let next_receipt = global_contract_data.forward(next_shard, already_delivered_shards);
-    let mut next_receipt =
-        Receipt::new_global_contract_distribution(receipt.predecessor_id().clone(), next_receipt);
+    let mut next_receipt = Receipt::new_global_contract_distribution(predecessor_id, next_receipt);
     let receipt_id = apply_state.create_receipt_id(receipt.receipt_id(), 0);
     next_receipt.set_receipt_id(receipt_id);
     receipt_sink.forward_or_buffer_receipt(next_receipt, apply_state, state_update)?;
