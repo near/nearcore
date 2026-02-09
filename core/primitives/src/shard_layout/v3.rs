@@ -234,9 +234,11 @@ impl ShardLayoutV3 {
         Self::derive_impl(shard_ids, boundary_accounts, new_boundary_account, shards_split_map)
     }
 
-    /// Derive a V3 shard layout from an earlier version (V0/V1/V2) using a sequence
+    /// Derive a V3 shard layout from an earlier version (V1/V2) using a sequence
     /// of previous shard layouts. The `layout_history` should be ordered from most
     /// recent to oldest.
+    ///
+    /// Panics if `base_shard_layout` is `ShardLayoutV0`.
     pub fn derive_with_layout_history(
         base_shard_layout: &ShardLayout,
         new_boundary_account: AccountId,

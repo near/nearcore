@@ -262,14 +262,16 @@ impl ShardLayout {
     ///
     /// Otherwise, `get_layout_history` is called to reconstruct the split history.
     /// The layout history is expected to be ordered from newest to oldest.
+    ///
+    /// Panics if `self` is `ShardLayoutV0` (cannot derive).
     pub fn derive_v3(
         &self,
         new_boundary_account: AccountId,
         get_layout_history: impl FnOnce() -> Vec<Self>,
     ) -> Self {
         let v3 = match self {
-            Self::V3(v3) => ShardLayoutV3::derive(v3, new_boundary_account),
-            Self::V0(_) | Self::V1(_) | Self::V2(_) => {
+            Self::V0(_) => panic!("cannot derive ShardLayoutV3 from ShardLayoutV0"),
+            Self::V1(_) | Self::V2(_) => {
                 let layout_history = get_layout_history();
                 ShardLayoutV3::derive_with_layout_history(
                     self,
@@ -277,6 +279,7 @@ impl ShardLayout {
                     &layout_history,
                 )
             }
+            Self::V3(v3) => ShardLayoutV3::derive(v3, new_boundary_account),
         };
         Self::V3(v3)
     }
