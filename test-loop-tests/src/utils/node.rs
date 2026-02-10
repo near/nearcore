@@ -135,18 +135,25 @@ impl<'a> TestLoopNode<'a> {
             .collect()
     }
 
-    pub fn execution_outcome(
+    pub fn execution_outcome_with_proof(
         &self,
         test_loop_data: &TestLoopData,
         tx_hash_or_receipt_id: CryptoHash,
-    ) -> ExecutionOutcomeWithId {
+    ) -> ExecutionOutcomeWithIdAndProof {
         self.client(test_loop_data)
             .chain
             .get_execution_outcome(&tx_hash_or_receipt_id)
             .unwrap_or_else(|err| {
                 panic!("outcome with id {tx_hash_or_receipt_id} is not available: {err}")
             })
-            .outcome_with_id
+    }
+
+    pub fn execution_outcome(
+        &self,
+        test_loop_data: &TestLoopData,
+        tx_hash_or_receipt_id: CryptoHash,
+    ) -> ExecutionOutcomeWithId {
+        self.execution_outcome_with_proof(test_loop_data, tx_hash_or_receipt_id).outcome_with_id
     }
 
     pub fn tx_receipt_id(&self, test_loop_data: &TestLoopData, tx_hash: CryptoHash) -> CryptoHash {

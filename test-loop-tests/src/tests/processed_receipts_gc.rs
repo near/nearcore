@@ -1,9 +1,11 @@
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::Balance;
+use near_primitives::types::{Balance, ShardId};
+use near_primitives::utils::get_block_shard_id;
 use near_store::DBCol;
 
 use crate::setup::builder::TestLoopBuilder;
@@ -54,13 +56,23 @@ fn test_processed_receipt_ids_gc() {
 
     // Get the receipt ID produced by the transaction.
     let receipt_id = node.tx_receipt_id(env.test_loop_data(), tx_hash);
+    let receipt_execution_block_hash =
+        node.execution_outcome_with_proof(env.test_loop_data(), receipt_id).block_hash;
+    let metadata_key = get_block_shard_id(&receipt_execution_block_hash, ShardId::new(0));
+    let expected_metadata = ProcessedReceiptMetadata::new(receipt_id, ReceiptSource::Local);
 
-    // Verify the receipt exists in the Receipts column.
     let store = node.store(env.test_loop_data());
-    assert!(
-        store.get(DBCol::Receipts, receipt_id.as_ref()).is_some(),
-        "receipt should exist in DBCol::Receipts after processing"
-    );
+    let receipt = store
+        .get_ser::<Receipt>(DBCol::Receipts, receipt_id.as_ref())
+        .unwrap()
+        .expect("receipt should exist in DBCol::Receipts after processing");
+    assert_eq!(receipt.receipt_id(), &receipt_id);
+    let all_metadata = store
+        .get_ser::<Vec<ProcessedReceiptMetadata>>(DBCol::ProcessedReceiptIds, &metadata_key)
+        .unwrap()
+        .expect("metadata should exist in DBCol::ProcessedReceiptIds after processing");
+    let [metadata] = &all_metadata[..] else { panic!("expected single receipt metadata") };
+    assert_eq!(metadata, &expected_metadata);
 
     // Run enough epochs for GC to clean up the receipt.
     let num_blocks = EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP + 1;
@@ -71,6 +83,10 @@ fn test_processed_receipt_ids_gc() {
     assert!(
         store.get(DBCol::Receipts, receipt_id.as_ref()).is_none(),
         "receipt should be garbage collected from DBCol::Receipts"
+    );
+    assert!(
+        store.get(DBCol::ProcessedReceiptIds, &metadata_key).is_none(),
+        "receipt metadata should be garbage collected from DBCol::ProcessedReceiptIds"
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
