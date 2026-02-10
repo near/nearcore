@@ -39,7 +39,7 @@ use crate::{Store, StoreUpdate};
 /// let flat_store: FlatStoreAdapter = store.flat_store();
 /// let flat_store_update: FlatStoreUpdateAdapter<'static> = flat_store.store_update();
 /// update_flat_store(&mut flat_store_update);
-/// flat_store_update.commit()?;
+/// flat_store_update.commit();
 /// ```
 ///
 /// To make both these patterns possible, where in pattern 1, flat_store_update holds a reference to store_update
