@@ -252,7 +252,7 @@ impl FlatStorageCommand {
         flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
         let mut store_update = store.flat_store().store_update();
         flat_storage_manager.remove_flat_storage_for_shard(shard_uid, &mut store_update)?;
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -488,7 +488,7 @@ impl FlatStorageCommand {
                     },
                 }),
             );
-            store_update.commit()?;
+            store_update.commit();
 
             height = prev_height;
             println!("moved to {height} on {shard_uid}");

@@ -481,7 +481,7 @@ impl TrieStateResharder {
             store_update.remove_flat_storage(parent_shard_uid);
         }
 
-        store_update.commit().unwrap();
+        store_update.commit();
     }
 }
 
@@ -672,7 +672,7 @@ mod tests {
                     },
                 }),
             );
-            store_update.commit().unwrap();
+            store_update.commit();
 
             // Fourth, create ChunkExtra for the flat storage head so load_memtrie can find the state root.
             let mut chain_store_update = runtime.store().store_update();

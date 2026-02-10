@@ -263,7 +263,7 @@ pub fn test_populate_flat_storage(
             value.as_ref().map(|value| FlatStateValue::on_disk(value)),
         );
     }
-    store_update.commit().unwrap();
+    store_update.commit();
 }
 
 /// Insert values to non-reference-counted columns in the store.

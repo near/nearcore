@@ -94,7 +94,7 @@ impl<'c> EstimatorContext<'c> {
                 flat_head: BlockInfo::genesis(CryptoHash::hash_borsh(0usize), 0),
             }),
         );
-        store_update.commit().unwrap();
+        store_update.commit();
         flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
 
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
