@@ -524,7 +524,7 @@ mod tests {
                 .unwrap()
                 .into(),
         );
-        store_update.commit().unwrap();
+        store_update.commit();
 
         trie_changes.new_root
     }

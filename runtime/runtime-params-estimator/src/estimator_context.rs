@@ -384,7 +384,7 @@ impl Testbed<'_> {
         }
         near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
             .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
-        store_update.commit().unwrap();
+        store_update.commit();
         self.apply_state.block_height += 1;
         if let Some(congestion_info) = apply_result.congestion_info {
             self.apply_state

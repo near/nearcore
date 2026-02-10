@@ -452,7 +452,7 @@ fn commit_to_existing_state(
     let key = crate::cli::make_state_roots_key(shard_uid);
     update.store_update().set_ser(DBCol::Misc, &key, &state_root)?;
 
-    update.commit()?;
+    update.commit();
     tracing::info!(?shard_uid, ?state_root, "commit is done");
     Ok(())
 }
@@ -484,9 +484,7 @@ fn commit_to_new_state(
     let key = crate::cli::make_state_roots_key(shard_uid);
     store_update.store_update().set_ser(DBCol::Misc, &key, &state_root)?;
     tracing::info!(?shard_uid, "committing initial state to new shard");
-    store_update
-        .commit()
-        .with_context(|| format!("Initial flat storage commit failed for shard {}", shard_uid))?;
+    store_update.commit();
 
     Ok(state_root)
 }
@@ -544,9 +542,7 @@ pub(crate) fn remove_shards(
             &ShardUId::get_upper_bound_db_key(&shard_uid.to_bytes()),
         );
 
-        trie_update
-            .commit()
-            .with_context(|| format!("failed removing state for shard {}", shard_uid))?;
+        trie_update.commit();
 
         tracing::info!(?shard_uid, "removed state for obsolete shard");
     }
@@ -626,9 +622,7 @@ pub(crate) fn finalize_state(
                 &FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
             )
             .unwrap();
-        trie_update
-            .commit()
-            .with_context(|| format!("failed writing flat storage status for {}", shard_uid))?;
+        trie_update.commit();
         tracing::info!(?shard_uid, "wrote flat storage status for new shard");
     }
     Ok(())

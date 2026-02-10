@@ -212,7 +212,7 @@ impl PrepareBenchmarkCmd {
 
         let mut store_update = tries.store_update();
         let new_state_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         new_state_root
     }

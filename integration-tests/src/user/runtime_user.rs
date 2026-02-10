@@ -147,7 +147,7 @@ impl RuntimeUser {
                 near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
                     .apply_to_flat_state(&mut update.flat_store_update(), ShardUId::single_shard());
             }
-            update.commit().unwrap();
+            update.commit();
             client.state_root = apply_result.state_root;
             for receipt in &apply_result.outgoing_receipts {
                 self.receipts.borrow_mut().insert(*receipt.receipt_id(), receipt.clone());

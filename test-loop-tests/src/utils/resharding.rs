@@ -769,7 +769,7 @@ fn retain_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
         let node_hash = CryptoHash::try_from_slice(&key[8..]).unwrap();
         store_update.decrement_refcount_by(shard_uid, &node_hash, NonZero::new(rc as u32).unwrap());
     }
-    store_update.commit().unwrap();
+    store_update.commit();
 }
 
 /// Asserts that all other shards State except `the_only_shard_uid` have been cleaned-up.

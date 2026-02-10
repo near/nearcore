@@ -1428,7 +1428,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         //       Optimize taking into account that flat state values always correspond to a consecutive range of keys.
         flat_state_delta.apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
         self.precompile_contracts(epoch_id, contract_codes)?;
-        Ok(store_update.commit()?)
+        store_update.commit();
+        Ok(())
     }
 
     /// `block_hash` is a block whose `prev_state_root` is `state_root`

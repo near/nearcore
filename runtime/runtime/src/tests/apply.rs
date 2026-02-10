@@ -156,7 +156,7 @@ fn setup_runtime_for_shard(
     let trie_changes = initial_state.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
     let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
     let shard_ids = shard_layout.shard_ids();
     let shards_congestion_info =
@@ -650,7 +650,7 @@ fn test_apply_delayed_receipts_local_tx() {
         .unwrap();
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     assert_eq!(
         apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
@@ -686,7 +686,7 @@ fn test_apply_delayed_receipts_local_tx() {
         .unwrap();
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     assert_eq!(
         apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
@@ -728,7 +728,7 @@ fn test_apply_delayed_receipts_local_tx() {
         .unwrap();
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     assert_eq!(
         apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
@@ -1146,7 +1146,7 @@ fn test_delete_key_add_key() {
     let mut store_update = tries.store_update();
     let root =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
     let final_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
@@ -1172,7 +1172,7 @@ fn test_delete_key_underflow() {
     let trie_changes = state_update.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     let actions =
         vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key: signers[0].public_key() }))];
@@ -1193,7 +1193,7 @@ fn test_delete_key_underflow() {
     let mut store_update = tries.store_update();
     let root =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
     let final_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
@@ -1234,7 +1234,7 @@ fn test_contract_precompilation() {
         .unwrap();
     let mut store_update = tries.store_update();
     tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     let contract_code = near_vm_runner::ContractCode::new(wasm_code, None);
     let cached = near_vm_runner::contract_cached(
@@ -1433,7 +1433,7 @@ fn test_main_storage_proof_size_soft_limit() {
     let mut store_update = tries.store_update();
     let root =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     // Change main_storage_proof_size_soft_limit to the storage size in order to let
     // the first receipt go through but not the second one.
@@ -1556,7 +1556,7 @@ fn test_exclude_contract_code_from_witness() {
     let mut store_update = tries.store_update();
     let root =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     let function_call_fn = |account_id: AccountId, signer: Arc<Signer>| {
         create_receipt_with_actions(
@@ -1676,7 +1676,7 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
     let mut store_update = tries.store_update();
     let root =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     let function_call_fn = |account_id: AccountId, signer: Arc<Signer>| {
         create_receipt_with_actions(
@@ -1815,7 +1815,7 @@ fn test_deploy_and_call_different_contracts() {
     let mut store_update = tries.store_update();
     let root =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     let apply_result = runtime
         .apply(
@@ -1921,7 +1921,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
     let mut store_update = tries.store_update();
     let root =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     let apply_result = runtime
         .apply(
@@ -2157,7 +2157,7 @@ fn test_deploy_existing_contract_to_different_account() {
     let mut store_update = tries.store_update();
     let root =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     // Second deploy the contract to Bob account and call it.
     let second_deploy_receipt = create_receipt_with_actions(
@@ -2383,7 +2383,7 @@ fn test_contract_accesses_when_validating_chunk() {
     let mut store_update = tries.store_update();
     let root =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     // Apply chunk for updating the shard, so the contract accesses are recorded.
     apply_state.apply_reason = ApplyChunkReason::UpdateTrackedShard;
@@ -2482,7 +2482,7 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
     let mut store_update = tries.store_update();
     let root =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     let apply_result = runtime
         .apply(
@@ -2587,7 +2587,7 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
     let mut store_update = tries.store_update();
     let root =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     let apply_result = runtime
         .apply(
@@ -2805,7 +2805,7 @@ fn test_congestion_buffering() {
         }
         let mut store_update = tries.store_update();
         root = tries.apply_all(&apply_result.trie_changes, local_shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         // (a) check receipts are held back in buffer
         let state = tries.get_trie_for_shard(local_shard_uid, root);
@@ -2903,7 +2903,7 @@ fn commit_apply_result(
     }
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
     return root;
 }
 
@@ -3361,7 +3361,7 @@ fn test_fix_access_key_allowance_no_mutation_on_failed_tx() {
         let trie_changes = initial_state.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         let runtime = Runtime::new();
         let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
@@ -3576,7 +3576,7 @@ fn test_gas_key_burn_not_reported_on_failed_receipt() {
     let mut store_update = tries.store_update();
     let root =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     // Verify gas key was created and funded.
     let state = tries.new_trie_update(ShardUId::single_shard(), root);
@@ -3622,7 +3622,7 @@ fn test_gas_key_burn_not_reported_on_failed_receipt() {
     let mut store_update = tries.store_update();
     let root =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
     let state = tries.new_trie_update(ShardUId::single_shard(), root);
     let access_key = get_access_key(&state, &alice_account(), &gas_key_pk).unwrap().unwrap();
     assert_eq!(access_key.gas_key_info().unwrap().balance, deposit_amount);
@@ -3706,7 +3706,7 @@ fn setup_gas_key_test(
     let trie_changes = state_update.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     GasKeyTestSetup {
         runtime,
