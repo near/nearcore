@@ -237,11 +237,16 @@ pub struct ValidatorAccountsUpdate {
 /// `verify_and_charge_gas_key_tx_ephemeral`. Neither function mutates state;
 /// callers apply changes based on the variant:
 /// - `Success`: apply all state changes via `VerificationResult::apply`.
+/// - `DepositFailed`: apply gas-only state changes via `VerificationResult::apply`
+///   (only returned by gas key path).
 /// - `Failed`: no state changes.
 #[derive(Debug)]
 pub enum TxVerdict {
     /// All checks passed.
     Success(VerificationResult),
+    /// Gas key valid with sufficient gas balance, but account can't cover deposit.
+    /// Gas key balance is deducted, account balance unchanged.
+    DepositFailed { result: VerificationResult, error: InvalidTxError },
     /// Hard failure (bad key, bad nonce, insufficient balance). No state changes.
     Failed(InvalidTxError),
 }
@@ -1916,8 +1921,60 @@ impl Runtime {
                 )
             };
 
-            let result = match verdict {
-                TxVerdict::Success(result) => result,
+            // Build the outcome and extract the verification result (if any).
+            let (outcome, result) = match verdict {
+                TxVerdict::DepositFailed { result, error } => {
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                    tracing::debug!(%tx_hash, error = &error as &dyn std::error::Error, "gas key transaction failed deposit check, charging gas");
+                    let outcome = ExecutionOutcomeWithId::failed_with_gas_burnt(
+                        tx,
+                        error,
+                        result.gas_burnt,
+                        result.burnt_amount,
+                    );
+                    (outcome, result)
+                }
+                TxVerdict::Success(result) => {
+                    let receipt_id = create_receipt_id_from_transaction(
+                        tx_hash,
+                        processing_state.apply_state.block_height,
+                    );
+                    let receipt = Receipt::from_tx(
+                        receipt_id,
+                        signer_id.clone(),
+                        tx.transaction.receiver_id().clone(),
+                        pubkey.clone(),
+                        result.receipt_gas_price,
+                        tx.transaction.actions().to_vec(),
+                    );
+                    let outcome = ExecutionOutcomeWithId {
+                        id: tx.get_hash(),
+                        outcome: ExecutionOutcome {
+                            status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
+                            logs: vec![],
+                            receipt_ids: vec![*receipt.receipt_id()],
+                            gas_burnt: result.gas_burnt,
+                            // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
+                            compute_usage: Some(result.gas_burnt.as_gas()),
+                            tokens_burnt: result.burnt_amount,
+                            executor_id: signer_id.clone(),
+                            // TODO: profile data is only counted in apply_action, which only happened at process_receipt
+                            // VerificationResult needs updates to incorporate profile data to support profile data of txns
+                            metadata: ExecutionMetadata::V1,
+                        },
+                    };
+                    if receipt.receiver_id() == signer_id {
+                        processing_state.local_receipts.push_back(receipt);
+                    } else {
+                        receipt_sink.forward_or_buffer_receipt(
+                            receipt,
+                            &processing_state.apply_state,
+                            &mut processing_state.state_update,
+                        )?;
+                    }
+                    metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
+                    (outcome, result)
+                }
                 TxVerdict::Failed(error) => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(%tx_hash, error = &error as &dyn std::error::Error, "transaction failed verify/charge");
@@ -1930,36 +1987,7 @@ impl Runtime {
                     continue;
                 }
             };
-
-            let receipt_id = create_receipt_id_from_transaction(
-                tx_hash,
-                processing_state.apply_state.block_height,
-            );
-            let receipt = Receipt::from_tx(
-                receipt_id,
-                signer_id.clone(),
-                tx.transaction.receiver_id().clone(),
-                pubkey.clone(),
-                result.receipt_gas_price,
-                tx.transaction.actions().to_vec(),
-            );
-            let outcome = ExecutionOutcomeWithId {
-                id: tx.get_hash(),
-                outcome: ExecutionOutcome {
-                    status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
-                    logs: vec![],
-                    receipt_ids: vec![*receipt.receipt_id()],
-                    gas_burnt: result.gas_burnt,
-                    // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-                    compute_usage: Some(result.gas_burnt.as_gas()),
-                    tokens_burnt: result.burnt_amount,
-                    executor_id: signer_id.clone(),
-                    // TODO: profile data is only counted in apply_action, which only happened at process_receipt
-                    // VerificationResult needs updates to incorporate profile data to support profile data of txns
-                    metadata: ExecutionMetadata::V1,
-                },
-            };
-
+            // Accumulate burnt gas stats.
             match safe_add_balance(
                 processing_state.stats.balance.tx_burnt_amount,
                 outcome.outcome.tokens_burnt,
@@ -1982,22 +2010,12 @@ impl Runtime {
                 }
             }
 
-            if receipt.receiver_id() == signer_id {
-                processing_state.local_receipts.push_back(receipt);
-            } else {
-                receipt_sink.forward_or_buffer_receipt(
-                    receipt,
-                    &processing_state.apply_state,
-                    &mut processing_state.state_update,
-                )?;
-            }
             let compute = outcome
                 .outcome
                 .compute_usage
                 .expect("`process_transaction` must populate compute usage");
             processing_state.total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
             processing_state.outcomes.push(outcome);
-            metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
 
             result.apply(account, access_key);
             set_account(&mut processing_state.state_update, signer_id.clone(), account);

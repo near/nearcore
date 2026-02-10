@@ -707,7 +707,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 block_height,
             ) {
                 TxVerdict::Success(_) => Ok(()),
-                TxVerdict::Failed(error) => Err(error),
+                TxVerdict::DepositFailed { error, .. } | TxVerdict::Failed(error) => Err(error),
             }
         } else {
             match verify_and_charge_tx_ephemeral(
@@ -721,6 +721,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             ) {
                 TxVerdict::Success(_) => Ok(()),
                 TxVerdict::Failed(error) => Err(error),
+                // verify_and_charge_tx_ephemeral never returns DepositFailed.
+                TxVerdict::DepositFailed { .. } => unreachable!(),
             }
         }
     }
@@ -1009,7 +1011,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         // Take one transaction from this group, no more.
                         break;
                     }
-                    TxVerdict::Failed(error) => {
+                    TxVerdict::DepositFailed { error, .. } | TxVerdict::Failed(error) => {
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), ?error, "discarding transaction that failed validation or verification");
                         rejected_invalid_tx += 1;
                     }
