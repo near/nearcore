@@ -14,8 +14,7 @@
     "vscode": {
       "extensions": [
         "anthropic.claude-code",
-        "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
+        "rust-lang.rust-analyzer",
         "eamodio.gitlens"
       ],
       "settings": {
@@ -46,6 +45,6 @@
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
   "workspaceFolder": "/workspace",
   "postCreateCommand": "/usr/local/bin/init-pyvenv.sh",
+  "postStartCommand": "sudo chown $(whoami):$(whoami) /workspace/target",
   "waitFor": "postCreateCommand"
 }
-

@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   unzip \
   gnupg2 \
   gh \
+  curl \
   wget \
   iptables \
   ipset \
@@ -29,7 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ARG USERNAME=ubuntu
 RUN id -u $USERNAME &>/dev/null || useradd -m -s /bin/bash $USERNAME
-  # Ensure default user has access to /usr/local/share
+# Ensure default user has access to /usr/local/share
 RUN mkdir -p /usr/local/share/ && \
   chown -R $USERNAME:$USERNAME /usr/local/share
 
@@ -75,44 +76,40 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
 # Install nearcore build deps (per NEAR docs)
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    binutils-dev \
-    libcurl4-openssl-dev \
-    zlib1g-dev \
-    libdw-dev \
-    libiberty-dev \
-    cmake \
-    gcc \
-    g++ \
-    python3 \
-    docker.io \
-    python3-pip \
-    build-essential \
-    libssl-dev \
-    pkg-config \
-    jq \
-    bc \
-    curl \
-    sysstat \
-    python3-venv \
-    protobuf-compiler \
-    clang \
-    llvm \
+  binutils-dev \
+  libcurl4-openssl-dev \
+  zlib1g-dev \
+  libdw-dev \
+  libiberty-dev \
+  cmake \
+  gcc \
+  g++ \
+  python3 \
+  docker.io \
+  python3-pip \
+  build-essential \
+  libssl-dev \
+  pkg-config \
+  bc \
+  sysstat \
+  python3-venv \
+  protobuf-compiler \
+  clang \
+  llvm \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Rust (required by nearcore build)
 ENV RUSTUP_HOME=/usr/local/rustup
 ENV CARGO_HOME=/usr/local/cargo
 ENV PATH=$PATH:$CARGO_HOME/bin
-USER root
+
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 RUN chown -R $USERNAME:$USERNAME $CARGO_HOME $RUSTUP_HOME
 
 # Pytest venv (created here; packages installed by postCreateCommand)
 ENV VIRTUAL_ENV=/opt/nearcore-venv
 ENV PATH=$VIRTUAL_ENV/bin:$PATH
-RUN mkdir -p $VIRTUAL_ENV
-RUN python3 -m venv $VIRTUAL_ENV
-RUN chown -R $USERNAME:$USERNAME $VIRTUAL_ENV
+RUN mkdir -p $VIRTUAL_ENV && python3 -m venv $VIRTUAL_ENV && chown -R $USERNAME:$USERNAME $VIRTUAL_ENV
 
 # Copy init-pyvenv script into the image
 COPY init-pyvenv.sh /usr/local/bin/init-pyvenv.sh
