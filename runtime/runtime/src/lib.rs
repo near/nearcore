@@ -246,12 +246,6 @@ pub enum TxVerdict {
     Failed(InvalidTxError),
 }
 
-impl From<InvalidTxError> for TxVerdict {
-    fn from(e: InvalidTxError) -> Self {
-        TxVerdict::Failed(e)
-    }
-}
-
 #[derive(Debug)]
 pub struct VerificationResult {
     /// The amount gas that was burnt to convert the transaction into a receipt and send it.

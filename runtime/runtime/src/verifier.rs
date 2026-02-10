@@ -295,11 +295,10 @@ pub fn verify_and_charge_tx_ephemeral(
     );
     // Gas keys must be used via gas key transaction path (with nonce_index)
     if let Some(gas_key_info) = access_key.gas_key_info() {
-        return InvalidTxError::InvalidNonceIndex {
+        return TxVerdict::Failed(InvalidTxError::InvalidNonceIndex {
             tx_nonce_index: None,
             num_nonces: gas_key_info.num_nonces,
-        }
-        .into();
+        });
     }
     let TransactionCost {
         gas_burnt,
@@ -312,17 +311,16 @@ pub fn verify_and_charge_tx_ephemeral(
     let account_id = tx.signer_id();
     let tx_nonce = tx.nonce().nonce();
     if let Err(e) = verify_nonce(tx_nonce, access_key.nonce, block_height) {
-        return e.into();
+        return TxVerdict::Failed(e);
     }
 
     let balance = account.amount();
     let Some(new_amount) = balance.checked_sub(total_cost) else {
-        return InvalidTxError::NotEnoughBalance {
+        return TxVerdict::Failed(InvalidTxError::NotEnoughBalance {
             signer_id: account_id.clone(),
             balance,
             cost: total_cost,
-        }
-        .into();
+        });
     };
 
     let new_allowance = match check_and_compute_new_allowance(
@@ -332,7 +330,7 @@ pub fn verify_and_charge_tx_ephemeral(
         total_cost,
     ) {
         Ok(a) => a,
-        Err(e) => return e.into(),
+        Err(e) => return TxVerdict::Failed(e),
     };
     // Legacy bug: pre-FixAccessKeyAllowanceCharging protocol versions mutate the allowance
     // before subsequent checks, causing incorrect allowance decrement on failed txs.
@@ -347,18 +345,20 @@ pub fn verify_and_charge_tx_ephemeral(
     match check_storage_stake(account, new_amount, config) {
         Ok(()) => {}
         Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
-            return InvalidTxError::LackBalanceForState { signer_id: account_id.clone(), amount }
-                .into();
+            return TxVerdict::Failed(InvalidTxError::LackBalanceForState {
+                signer_id: account_id.clone(),
+                amount,
+            });
         }
         Err(StorageStakingError::StorageError(err)) => {
-            return InvalidTxError::from(StorageError::StorageInconsistentState(err)).into();
+            return TxVerdict::Failed(StorageError::StorageInconsistentState(err).into());
         }
     };
 
     // Validate FunctionCall permission constraints if applicable
     if let Some(function_call_permission) = access_key.permission.function_call_permission() {
         if let Err(e) = verify_function_call_permission(function_call_permission, tx) {
-            return e.into();
+            return TxVerdict::Failed(e);
         }
     }
 
@@ -405,63 +405,63 @@ pub fn verify_and_charge_gas_key_tx_ephemeral(
 
     // Validate that access key is a gas key
     let Some(gas_key_info) = access_key.gas_key_info() else {
-        return InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::AccessKeyNotFound {
-            account_id: account_id.clone(),
-            public_key: Box::new(tx.public_key().clone()),
-        })
-        .into();
+        return TxVerdict::Failed(InvalidTxError::InvalidAccessKeyError(
+            InvalidAccessKeyError::AccessKeyNotFound {
+                account_id: account_id.clone(),
+                public_key: Box::new(tx.public_key().clone()),
+            },
+        ));
     };
 
     // Validate nonce_index is in valid range
     if nonce_index >= gas_key_info.num_nonces {
-        return InvalidTxError::InvalidNonceIndex {
+        return TxVerdict::Failed(InvalidTxError::InvalidNonceIndex {
             tx_nonce_index: Some(nonce_index),
             num_nonces: gas_key_info.num_nonces,
-        }
-        .into();
+        });
     }
 
     let tx_nonce = tx.nonce().nonce();
     if let Err(e) = verify_nonce(tx_nonce, current_nonce, block_height) {
-        return e.into();
+        return TxVerdict::Failed(e);
     }
 
     // Check gas key has enough balance for gas costs
     let Some(new_gas_key_balance) = gas_key_info.balance.checked_sub(gas_cost) else {
-        return InvalidTxError::NotEnoughGasKeyBalance {
+        return TxVerdict::Failed(InvalidTxError::NotEnoughGasKeyBalance {
             signer_id: account_id.clone(),
             balance: gas_key_info.balance,
             cost: gas_cost,
-        }
-        .into();
+        });
     };
 
     // Validate FunctionCall permission constraints if applicable
     if let Some(function_call_permission) = access_key.permission.function_call_permission() {
         if let Err(e) = verify_function_call_permission(function_call_permission, tx) {
-            return e.into();
+            return TxVerdict::Failed(e);
         }
     }
 
     // Check account has enough balance for deposits
     let account_balance = account.amount();
     let Some(new_account_amount) = account_balance.checked_sub(deposit_cost) else {
-        return InvalidTxError::NotEnoughBalance {
+        return TxVerdict::Failed(InvalidTxError::NotEnoughBalance {
             signer_id: account_id.clone(),
             balance: account_balance,
             cost: deposit_cost,
-        }
-        .into();
+        });
     };
 
     match check_storage_stake(account, new_account_amount, config) {
         Ok(()) => {}
         Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
-            return InvalidTxError::LackBalanceForState { signer_id: account_id.clone(), amount }
-                .into();
+            return TxVerdict::Failed(InvalidTxError::LackBalanceForState {
+                signer_id: account_id.clone(),
+                amount,
+            });
         }
         Err(StorageStakingError::StorageError(err)) => {
-            return InvalidTxError::from(StorageError::StorageInconsistentState(err)).into();
+            return TxVerdict::Failed(StorageError::StorageInconsistentState(err).into());
         }
     };
 
