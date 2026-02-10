@@ -31,7 +31,6 @@ fn query_gas_key_and_balance(
 ) -> (AccessKeyView, Balance) {
     let response = node.runtime_query(
         env.test_loop_data(),
-        account_id,
         QueryRequest::ViewAccessKey {
             account_id: account_id.clone(),
             public_key: public_key.clone(),
@@ -79,7 +78,6 @@ fn get_gas_key_nonce(
 ) -> Nonce {
     let response = node.runtime_query(
         env.test_loop_data(),
-        account_id,
         QueryRequest::ViewGasKeyNonces {
             account_id: account_id.clone(),
             public_key: public_key.clone(),
@@ -93,8 +91,7 @@ fn get_gas_key_nonce(
 
 #[test]
 // TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(any(not(feature = "nightly"), feature = "protocol_feature_spice"), ignore)]
+#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_transaction() {
     init_test_logger();
 
@@ -205,8 +202,7 @@ fn test_gas_key_transaction() {
 
 #[test]
 // TODO(gas-keys): Remove "nightly" once stable supports gas keys.
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(any(not(feature = "nightly"), feature = "protocol_feature_spice"), ignore)]
+#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_gas_key_refund() {
     init_test_logger();
 
