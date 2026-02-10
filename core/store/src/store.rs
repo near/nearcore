@@ -225,10 +225,11 @@ impl Store {
             let (key, value) = BorshDeserialize::deserialize_reader(&mut file)?;
             transaction.set(STATE_COLUMNS[usize::from(column)], key, value);
         }
-        self.write(transaction)
+        self.write(transaction);
+        Ok(())
     }
 
-    pub fn write(&self, transaction: DBTransaction) -> io::Result<()> {
+    pub fn write(&self, transaction: DBTransaction) {
         let mut keys_flushed = EnumMap::<DBCol, u64>::from_fn(|_| 0);
 
         for op in &transaction.ops {
@@ -265,19 +266,16 @@ impl Store {
                 cache.lock().active_flushes -= flushed;
             }
         }
-        Ok(())
     }
 
     /// If the storage is backed by disk, flushes any in-memory data to disk.
-    pub fn flush(&self) -> io::Result<()> {
+    pub fn flush(&self) {
         self.storage.flush();
-        Ok(())
     }
 
     /// Blocking compaction request if supported by storage.
-    pub fn compact(&self) -> io::Result<()> {
+    pub fn compact(&self) {
         self.storage.compact();
-        Ok(())
     }
 
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
@@ -590,7 +588,8 @@ impl StoreUpdate {
                 }
             }
         }
-        self.store.write(self.transaction)
+        self.store.write(self.transaction);
+        Ok(())
     }
 }
 
@@ -695,7 +694,7 @@ mod tests {
     fn set_and_write(store: &Store, key: &[u8], val: u64) {
         let mut su = store.store_update();
         su.set_ser(COL, key, &val).unwrap();
-        store.write(su.transaction).unwrap();
+        store.write(su.transaction);
     }
 
     fn read_cached(store: &Store, key: &[u8]) -> u64 {
