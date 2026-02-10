@@ -824,7 +824,7 @@ mod tests {
                 store_update.insert(column, key.clone(), vec![42]);
             }
         }
-        store_update.commit().unwrap();
+        store_update.commit();
 
         let store = checkpoint_hot_storage_and_cleanup_columns(
             &hot_store,

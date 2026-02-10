@@ -293,7 +293,8 @@ impl Store {
     pub fn set_db_version(&self, version: DbVersion) -> io::Result<()> {
         let mut store_update = self.store_update();
         store_update.set(DBCol::DbVersion, VERSION_KEY, version.to_string().as_bytes());
-        store_update.commit()
+        store_update.commit();
+        Ok(())
     }
 
     pub fn get_db_kind(&self) -> io::Result<Option<DbKind>> {
@@ -303,7 +304,8 @@ impl Store {
     pub fn set_db_kind(&self, kind: DbKind) -> io::Result<()> {
         let mut store_update = self.store_update();
         store_update.set(DBCol::DbVersion, KIND_KEY, <&str>::from(kind).as_bytes());
-        store_update.commit()
+        store_update.commit();
+        Ok(())
     }
 }
 
@@ -495,7 +497,7 @@ impl StoreUpdate {
             delete_range_ops
         )
     )]
-    pub fn commit(self) -> io::Result<()> {
+    pub fn commit(self) {
         debug_assert!(
             {
                 let non_refcount_keys = self
@@ -590,7 +592,7 @@ impl StoreUpdate {
                 }
             }
         }
-        self.store.write(self.transaction)
+        self.store.write(self.transaction).expect("Store::write failed");
     }
 }
 

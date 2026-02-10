@@ -550,7 +550,7 @@ fn apply_block_from_range(
                     &state_transition_data,
                 )
                 .unwrap();
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         (_, StorageSource::FlatStorage) => {
             // Apply trie changes to trie node caches.

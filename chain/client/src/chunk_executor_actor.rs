@@ -873,7 +873,7 @@ impl ChunkExecutorActor {
         for proof in receipt_proofs {
             save_receipt_proof(&mut store_update, &block_hash, &proof)?
         }
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -882,7 +882,7 @@ impl ChunkExecutorActor {
         let mut store_update = store.store_update();
         let VerifiedReceipts { receipt_proof, block_hash } = verified_receipts;
         save_receipt_proof(&mut store_update, &block_hash, &receipt_proof)?;
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -1036,7 +1036,7 @@ pub(crate) fn save_witness(
     let key = get_witnesses_key(block_hash, shard_id);
     let value = borsh::to_vec(&witness)?;
     store_update.set(DBCol::witnesses(), &key, &value);
-    store_update.commit()?;
+    store_update.commit();
     Ok(())
 }
 

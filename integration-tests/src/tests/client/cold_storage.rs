@@ -516,7 +516,7 @@ fn test_cold_loop_on_gc_boundary() {
     let cold_db = storage.cold_db().unwrap();
     let mut store_update = cold_db.as_store().store_update();
     set_genesis_height(&mut store_update, &0);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     copy_all_data_to_cold(cold_db.clone(), &hot_store, 1000000, &keep_going).unwrap();
 
