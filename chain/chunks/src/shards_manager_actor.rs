@@ -122,7 +122,6 @@ use near_primitives::sharding::{
     PartialEncodedChunkPart, PartialEncodedChunkV2, ShardChunk, ShardChunkHeader,
     ShardChunkWithEncoding, TransactionReceipt,
 };
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, ShardId,
 };
@@ -458,17 +457,8 @@ impl ShardsManagerActor {
         let request_full = force_request_full
             || self.shard_tracker.cares_about_shard_this_or_next_epoch(ancestor_hash, shard_id);
 
-        let chunk_producer_account_id = {
-            let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?;
-            let key = ChunkProductionKey { epoch_id, height_created: height, shard_id };
-            match self
-                .epoch_manager
-                .get_chunk_producer_by_prev_block_hash(ancestor_hash, shard_id)
-            {
-                Ok(p) => p.take_account_id(),
-                Err(_) => self.epoch_manager.get_chunk_producer_info(&key)?.take_account_id(),
-            }
-        };
+        let chunk_producer_account_id =
+            self.epoch_manager.get_chunk_producer_info(ancestor_hash, shard_id)?.take_account_id();
 
         // In the following we compute which target accounts we should request parts and receipts from
         // First we choose a shard representative target which is either the original chunk producer
@@ -655,11 +645,7 @@ impl ShardsManagerActor {
         }
         let chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id,
-                height_created: next_chunk_height,
-                shard_id,
-            })?
+            .get_chunk_producer_for_height(&epoch_id, next_chunk_height, shard_id)?
             .take_account_id();
         if &chunk_producer == me {
             return Ok(true);
@@ -1255,13 +1241,11 @@ impl ShardsManagerActor {
         }
 
         // check signature
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&forward.prev_block_hash)?;
         let valid_signature = verify_chunk_header_signature_with_epoch_manager_and_parts(
             self.epoch_manager.as_ref(),
             &forward.chunk_hash,
             &forward.signature,
-            epoch_id,
-            forward.height_created,
+            &forward.prev_block_hash,
             forward.shard_id,
             Some(&forward.prev_block_hash),
         )?;
@@ -1402,33 +1386,38 @@ impl ShardsManagerActor {
         //    we are not sure if we are using the correct epoch id, thus `epoch_id_confirmed` is false.
         //    And if the validation fails in this case, we actually can't say if the chunk is actually
         //    invalid. So we must return chain_error instead of return error
-        let (epoch_id, epoch_id_confirmed) = {
+        let (epoch_id, epoch_id_confirmed, use_prev_block_hash_for_signature) = {
             let prev_block_hash = *header.prev_block_hash();
             let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash);
             if let Ok(epoch_id) = epoch_id {
-                (epoch_id, true)
+                (epoch_id, true, true)
             } else if let Some(request_info) =
                 self.requested_partial_encoded_chunks.get_request_info(&chunk_hash)
             {
                 let ancestor_hash = request_info.ancestor_hash;
                 let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&ancestor_hash)?;
-                (epoch_id, true)
+                (epoch_id, true, false)
             } else {
                 // we can safely unwrap here because chain head must already be accepted
                 let epoch_id = self
                     .epoch_manager
                     .get_epoch_id_from_prev_block(&self.chain_head.last_block_hash)
                     .unwrap();
-                (epoch_id, false)
+                (epoch_id, false, false)
             }
         };
 
-        if !verify_chunk_header_signature_with_epoch_manager(
-            self.epoch_manager.as_ref(),
-            header,
-            epoch_id,
-            Some(header.prev_block_hash()),
-        )? {
+        let valid_signature = if use_prev_block_hash_for_signature {
+            verify_chunk_header_signature_with_epoch_manager(self.epoch_manager.as_ref(), header)?
+        } else {
+            let chunk_producer = self.epoch_manager.get_chunk_producer_for_height(
+                &epoch_id,
+                header.height_created(),
+                header.shard_id(),
+            )?;
+            header.signature().verify(chunk_hash.as_ref(), chunk_producer.public_key())
+        };
+        if !valid_signature {
             return if epoch_id_confirmed {
                 byzantine_assert!(false);
                 Err(Error::InvalidChunkSignature)
@@ -1737,13 +1726,10 @@ impl ShardsManagerActor {
         // calculating owner parts requires that, so we first check
         // whether prev_block_hash is in the chain, if not, returns NeedBlock
         let prev_block_hash = header.prev_block_hash();
-        let epoch_id = match self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash) {
-            Ok(epoch_id) => epoch_id,
-            Err(_) => {
-                tracing::debug!(target: "chunks", ?prev_block_hash, "block not found");
-                return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
-            }
-        };
+        if self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).is_err() {
+            tracing::debug!(target: "chunks", ?prev_block_hash, "block not found");
+            return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
+        }
         // check the header exists in encoded_chunks and validate it again (full validation)
         // now that prev_block is processed
         if let Some(chunk_entry) = self.encoded_chunks.get(&chunk_hash) {
@@ -1794,20 +1780,10 @@ impl ShardsManagerActor {
             self.encoded_chunks.mark_received_all_receipts(&chunk_hash);
         }
 
-        let chunk_producer = {
-            let key = ChunkProductionKey {
-                epoch_id,
-                height_created: header.height_created(),
-                shard_id: header.shard_id(),
-            };
-            match self
-                .epoch_manager
-                .get_chunk_producer_by_prev_block_hash(header.prev_block_hash(), header.shard_id())
-            {
-                Ok(p) => p.take_account_id(),
-                Err(_) => self.epoch_manager.get_chunk_producer_info(&key)?.take_account_id(),
-            }
-        };
+        let chunk_producer = self
+            .epoch_manager
+            .get_chunk_producer_info(header.prev_block_hash(), header.shard_id())?
+            .take_account_id();
 
         if have_all_parts {
             self.encoded_chunks.mark_received_all_parts(&chunk_hash);
@@ -1971,11 +1947,7 @@ impl ShardsManagerActor {
         accounts_forwarded_to.insert(me.clone());
         let next_chunk_producer = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id: *epoch_id,
-                height_created: current_chunk_height + 1,
-                shard_id,
-            })?
+            .get_chunk_producer_for_height(epoch_id, current_chunk_height + 1, shard_id)?
             .take_account_id();
         for bp in block_producers {
             let bp_account_id = bp.take_account_id();

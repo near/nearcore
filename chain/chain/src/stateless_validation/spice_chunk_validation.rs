@@ -336,7 +336,6 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
     use near_primitives::state::PartialState;
-    use near_primitives::stateless_validation::ChunkProductionKey;
     use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateTransition;
     use near_primitives::test_utils::{
         TestBlockBuilder, create_test_signer, create_user_test_signer,
@@ -917,11 +916,7 @@ mod tests {
                 let chunk_producer = self
                     .chain
                     .epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
-                        shard_id,
-                        epoch_id: *prev_block.header().epoch_id(),
-                        height_created: height,
-                    })
+                    .get_chunk_producer_info(prev_block.hash(), shard_id)
                     .unwrap();
                 let signer = create_test_signer(chunk_producer.account_id().as_str());
                 let mut chunk_header =

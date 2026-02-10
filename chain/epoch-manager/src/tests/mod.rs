@@ -746,7 +746,7 @@ fn test_reward_multiple_shards() {
                 let chunk_production_key =
                     ChunkProductionKey { epoch_id, height_created: height, shard_id };
                 let expected_chunk_producer =
-                    epoch_manager.get_chunk_producer_info(&chunk_production_key).unwrap();
+                    epoch_manager.get_chunk_producer_for_height(&chunk_production_key.epoch_id, chunk_production_key.height_created, chunk_production_key.shard_id).unwrap();
                 if expected_chunk_producer.account_id() == "test1" && epoch_id == init_epoch_id {
                     expected_chunks += 1;
                     false
@@ -3215,8 +3215,9 @@ fn test_verify_partial_witness_signature() {
         7,
         signer.as_ref(),
     );
+    let cpk = partial_witness.chunk_production_key();
     let chunk_producer =
-        epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key()).unwrap();
+        epoch_manager.get_chunk_producer_for_height(&cpk.epoch_id, cpk.height_created, cpk.shard_id).unwrap();
     assert!(partial_witness.verify(chunk_producer.public_key()));
 
     // Check invalid chunk state witness signature.

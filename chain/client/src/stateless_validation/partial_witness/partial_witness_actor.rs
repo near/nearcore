@@ -449,11 +449,10 @@ impl PartialWitnessActor {
         let key = partial_witness.chunk_production_key();
         let ChunkProductionKey { shard_id, epoch_id, height_created } = key;
 
-        let chunk_producer = get_chunk_producer_account_id(
-            self.epoch_manager.as_ref(),
-            &key,
-            partial_witness.prev_block_hash(),
-        )?;
+        let chunk_producer = self
+            .epoch_manager
+            .get_chunk_producer_for_height(&epoch_id, height_created, shard_id)?
+            .take_account_id();
 
         // Forward witness part to chunk validators except the validator that produced the chunk and witness.
         let target_chunk_validators = self
