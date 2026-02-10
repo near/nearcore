@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::test_loop::data::TestLoopDataHandle;
@@ -99,7 +99,18 @@ pub struct NodeExecutionData {
     pub cloud_archival_writer_handle: TestLoopDataHandle<Option<CloudArchivalWriterHandle>>,
     /// Extra blocks of delay between consensus head and execution head.
     /// Set by delay_endorsements_propagation to account for certification delay in timeouts.
-    pub expected_execution_delay: u64,
+    /// It is Arc<_> so updates are visible through clones.
+    pub(super) expected_execution_delay: Arc<AtomicU64>,
+}
+
+impl NodeExecutionData {
+    pub fn expected_execution_delay(&self) -> u64 {
+        self.expected_execution_delay.load(Ordering::Relaxed)
+    }
+
+    pub fn set_expected_execution_delay(&self, delay: u64) {
+        self.expected_execution_delay.store(delay, Ordering::Relaxed);
+    }
 }
 
 impl From<&NodeExecutionData> for AccountId {

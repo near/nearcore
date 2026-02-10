@@ -168,7 +168,7 @@ impl<'a> TestLoopNode<'a> {
         // For example for block `N` produced after genesis, we should wait `N`
         // blocks for it to be produced and an additional
         // `expected_execution_delay` blocks for it to execute.
-        let extra = self.data().expected_execution_delay as usize;
+        let extra = self.data().expected_execution_delay() as usize;
         test_loop.run_until(
             |test_loop_data| self.last_executed(test_loop_data).height >= height,
             self.calculate_block_distance_timeout(&test_loop.data, height_diff + extra),
