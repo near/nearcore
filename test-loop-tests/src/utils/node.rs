@@ -100,11 +100,14 @@ impl<'a> TestLoopNode<'a> {
 
     pub fn last_executed(&self, test_loop_data: &TestLoopData) -> Arc<Tip> {
         if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-            self.client(test_loop_data)
-                .chain
-                .chain_store()
-                .spice_execution_head()
-                .unwrap_or_else(|_| self.client(test_loop_data).chain.head().unwrap())
+            let store = self.client(test_loop_data).chain.chain_store();
+            store.spice_execution_head().unwrap_or_else(|_| {
+                // spice_execution_head is not set until the first block is executed;
+                // return genesis tip as the baseline.
+                let genesis_height = store.get_genesis_height();
+                let header = store.get_block_header_by_height(genesis_height).unwrap();
+                Tip::from_header(&header).into()
+            })
         } else {
             self.client(test_loop_data).chain.head().unwrap()
         }
