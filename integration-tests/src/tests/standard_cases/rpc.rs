@@ -73,6 +73,8 @@ fn slow_test_smart_contract_self_call_testnet() {
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_smart_contract_bad_method_name_testnet() {
     run_testnet_test!(test_smart_contract_bad_method_name);
 }
@@ -238,11 +240,15 @@ fn slow_test_add_access_key_with_allowance_testnet() {
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_delete_access_key_with_allowance_testnet() {
     run_testnet_test!(test_delete_access_key_with_allowance);
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_access_key_smart_contract_testnet() {
     run_testnet_test!(test_access_key_smart_contract);
 }

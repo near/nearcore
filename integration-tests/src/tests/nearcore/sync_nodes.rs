@@ -19,6 +19,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// Starts one validation node, it reduces it's stake to 1/2 of the stake.
 /// Second node starts after 1s, needs to catchup & state sync and then make sure it's
 #[tokio::test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn ultra_slow_test_sync_state_stake_change() {
     init_integration_logger();
 

@@ -128,6 +128,7 @@ pub fn epoch_info_with_num_seats(
         TEST_SEED,
         validator_mandates,
         shard_layout,
+        None,
     )
 }
 
@@ -346,8 +347,10 @@ pub fn record_block_with_final_block_hash(
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
                 PROTOCOL_VERSION,
+                PROTOCOL_VERSION,
                 height * NUM_NS_IN_SECOND,
                 chunk_endorsements,
+                None,
             ),
             [0; 32],
         )
@@ -399,8 +402,10 @@ pub fn record_block_with_version(
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
                 protocol_version,
+                protocol_version,
                 height * NUM_NS_IN_SECOND,
                 chunk_endorsements,
+                None,
             ),
             [0; 32],
         )
@@ -433,7 +438,7 @@ where
     (last_hash, height + count)
 }
 
-// TODO(#11900): Start using BlockInfoV3 in the tests.
+// TODO(dynamic_resharding): Start using BlockInfoV4 in the tests.
 #[allow(deprecated)]
 pub fn block_info(
     hash: CryptoHash,

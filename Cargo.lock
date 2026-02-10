@@ -4109,7 +4109,6 @@ dependencies = [
  "near-vm-runner",
  "node-runtime",
  "num-rational 0.3.2",
- "oneshot",
  "parking_lot 0.12.1",
  "primitive-types 0.10.1",
  "rand 0.8.5",
@@ -5733,12 +5732,6 @@ name = "once_cell"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
-
-[[package]]
-name = "oneshot"
-version = "0.1.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "269bca4c2591a28585d6bf10d9ed0332b7d76900a1b02bec41bdc3a2cdcda107"
 
 [[package]]
 name = "oorandom"
@@ -8081,6 +8074,7 @@ dependencies = [
  "near-vm-runner",
  "nearcore",
  "parking_lot 0.12.1",
+ "primitive-types 0.10.1",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "serde_json",

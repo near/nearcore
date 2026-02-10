@@ -21,6 +21,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::{BlockHeight, StateRoot};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::gen_changes;
 use near_store::{ShardTries, Trie, WrappedTrieChanges};
 
@@ -100,7 +101,7 @@ fn do_fork(
             final_block_height.unwrap_or_else(|| block.header().height().saturating_sub(2));
         let epoch_manager_update = epoch_manager
             .add_validator_proposals(
-                BlockInfo::from_header(block.header(), final_height),
+                BlockInfo::from_header(block.header(), final_height, PROTOCOL_VERSION),
                 *block.header().random_value(),
             )
             .unwrap();
@@ -756,7 +757,11 @@ fn add_block(
     store_update.save_next_block_hash(prev_block.hash(), *block.hash());
     let epoch_manager_update = epoch_manager
         .add_validator_proposals(
-            BlockInfo::from_header(block.header(), block.header().height().saturating_sub(2)),
+            BlockInfo::from_header(
+                block.header(),
+                block.header().height().saturating_sub(2),
+                PROTOCOL_VERSION,
+            ),
             *block.header().random_value(),
         )
         .unwrap();

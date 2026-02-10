@@ -176,6 +176,7 @@ impl NightshadeRuntime {
             block_type: _,
             height: block_height,
             ref prev_block_hash,
+            ref last_final_block_hash,
             block_timestamp,
             gas_price,
             random_seed,
@@ -251,7 +252,9 @@ impl NightshadeRuntime {
             &epoch_id,
             current_protocol_version,
             &epoch_config,
-            &prev_block_hash,
+            block_height,
+            prev_block_hash,
+            last_final_block_hash,
         )?;
 
         tracing::debug!(
@@ -519,7 +522,7 @@ impl NightshadeRuntime {
 
     /// Check if dynamic resharding should be scheduled for the given shard.
     /// The `epoch_id` and `protocol_version` are at `prev_block_hash`.
-    /// Will on trigger if the current block is the last block of the epoch.
+    /// Will only trigger if the current block is the last block of the epoch.
     fn check_dynamic_resharding(
         &self,
         shard_trie: &Trie,
@@ -527,12 +530,18 @@ impl NightshadeRuntime {
         epoch_id: &EpochId,
         protocol_version: ProtocolVersion,
         epoch_config: &EpochConfig,
+        height: BlockHeight,
         prev_block_hash: &CryptoHash,
+        last_final_block_hash: &CryptoHash,
     ) -> Result<Option<TrieSplit>, Error> {
         if !ProtocolFeature::DynamicResharding.enabled(protocol_version) {
             return Ok(None);
         }
-        if !self.epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
+        if !self.epoch_manager.is_produced_block_last_in_epoch(
+            height,
+            prev_block_hash,
+            last_final_block_hash,
+        )? {
             return Ok(None);
         }
         let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;

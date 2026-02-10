@@ -31,6 +31,12 @@ pub(super) struct ColumnCache {
     /// of database into itself and return them directly to the caller. The write operation
     /// itself will take care of discarding dirty data.
     pub(super) active_flushes: u64,
+    /// Monotonically increasing counter bumped on every write operation.
+    /// A reader in `caching_get_ser` snapshots this value before releasing
+    /// the lock for a (potentially slow) DB read. After the read, the reader
+    /// only caches the result if the generation still matches, ensuring that
+    /// a concurrent write cannot leave stale data in the cache.
+    pub(super) generation: u64,
     /// If true, the cache will store `None` values in the cache,
     /// which indicates that the key was not found in the database.
     store_none_values: bool,
@@ -44,7 +50,12 @@ impl ColumnCache {
     fn new(capacity: usize) -> Option<Mutex<Self>> {
         let capacity = NonZeroUsize::new(capacity);
         let values = capacity.map(|cap| lru::LruCache::new(cap))?;
-        Some(Mutex::new(Self { values, active_flushes: 0, store_none_values: false }))
+        Some(Mutex::new(Self {
+            values,
+            active_flushes: 0,
+            generation: 0,
+            store_none_values: false,
+        }))
     }
 
     fn with_none_values(inner: Option<Mutex<Self>>) -> Option<Mutex<Self>> {

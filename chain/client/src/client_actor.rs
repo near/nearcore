@@ -75,7 +75,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{PROTOCOL_VERSION, get_protocol_upgrade_schedule};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, get_protocol_upgrade_schedule};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
@@ -220,12 +220,12 @@ pub fn start_client(
         client.config.save_latest_witnesses,
         client.config.save_invalid_witnesses,
         {
-            // The number of shards for the binary's latest `PROTOCOL_VERSION` is used as a thread limit.
+            // The number of shards for the binary's latest `PROTOCOL_VERSION` is used to compute the thread limit.
             // This assumes that:
             // a) The number of shards will not grow above this limit without the binary being updated (no dynamic resharding),
             // b) Under normal conditions, the node will not process more chunks at the same time as there are shards.
-            let max_num_shards = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
-            ApplyChunksSpawner::Default.into_spawner(max_num_shards)
+            let thread_limit = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize * 3;
+            ApplyChunksSpawner::Default.into_spawner(thread_limit)
         },
         client.config.orphan_state_witness_pool_size,
         client.config.orphan_state_witness_max_size.as_u64(),
@@ -1190,6 +1190,7 @@ impl ClientActor {
         }
 
         let prev_block_hash = &head.last_block_hash;
+        let head_header = self.client.chain.get_block_header(prev_block_hash)?;
         let chunks_readiness = self.client.prepare_chunk_headers(prev_block_hash, &epoch_id)?;
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
@@ -1201,11 +1202,26 @@ impl ClientActor {
                 continue;
             }
 
-            if self.client.doomslug.ready_to_produce_block(
-                height,
-                chunks_readiness,
-                log_block_production_info,
-            ) {
+            let protocol_version =
+                self.client.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+            let spice_ready_to_produce_block = if ProtocolFeature::Spice.enabled(protocol_version) {
+                self.client.spice_timer.ready_to_produce_block(
+                    height,
+                    &self.client.chain.chain_store(),
+                    prev_block_hash,
+                    head_header.raw_timestamp(),
+                )?
+            } else {
+                true
+            };
+
+            if spice_ready_to_produce_block
+                && self.client.doomslug.ready_to_produce_block(
+                    height,
+                    chunks_readiness,
+                    log_block_production_info,
+                )
+            {
                 let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id)?;
                 self.client
                     .chunk_inclusion_tracker
