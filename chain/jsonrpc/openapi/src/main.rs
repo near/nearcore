@@ -1,8 +1,13 @@
+use std::fs;
+use std::path::Path;
+
 use itertools::Itertools;
 use okapi::openapi3::{OpenApi, SchemaObject};
 use schemars::JsonSchema;
 use schemars::transform::transform_subschemas;
 use serde_json::json;
+
+mod openrpc;
 
 use near_jsonrpc_primitives::types::{
     blocks::{RpcBlockError, RpcBlockRequest, RpcBlockResponse},
@@ -928,4 +933,10 @@ The `QueryRequest` enum provides multiple variants for performing the following 
 
     let spec_json = serde_json::to_string_pretty(&path_schema).unwrap();
     println!("{}", spec_json);
+
+    // Also generate OpenRPC spec
+    let openrpc_spec = openrpc::generate_openrpc();
+    let openrpc_json = serde_json::to_string_pretty(&openrpc_spec).unwrap();
+    let openrpc_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("openrpc.json");
+    fs::write(&openrpc_path, &openrpc_json).expect("Failed to write openrpc.json");
 }
