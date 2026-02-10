@@ -194,7 +194,7 @@ impl TestTriesBuilder {
                     FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
                 );
             }
-            store_update.commit().unwrap();
+            store_update.commit();
 
             let flat_storage_manager = tries.get_flat_storage_manager();
             for &shard_uid in &shard_uids {
@@ -233,7 +233,7 @@ pub fn test_populate_trie(
     let mut store_update = tries.store_update();
     tries.apply_memtrie_changes(&trie_changes, shard_uid, 1); // TODO: don't hardcode block height
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
     let deduped = simplify_changes(&changes);
     let trie = tries.get_trie_for_shard(shard_uid, root);
     for (key, value) in deduped {

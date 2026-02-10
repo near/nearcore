@@ -18,7 +18,6 @@ use near_store::trie::ops::resharding::RetainMode;
 use near_store::trie::outgoing_metadata::ReceiptGroupsQueue;
 use near_store::{ShardTries, ShardUId, Store, TrieAccess, TrieChanges};
 use std::collections::BTreeMap;
-use std::io;
 use std::sync::Arc;
 
 #[derive(Default)]
@@ -137,7 +136,7 @@ impl ReshardingManager {
         }
 
         // Reshard the State column by setting ShardUId mapping from children to ancestor.
-        self.set_state_shard_uid_mapping(&split_shard_event, &tracked_children_shards)?;
+        self.set_state_shard_uid_mapping(&split_shard_event, &tracked_children_shards);
 
         // Create temporary children memtries by freezing parent memtrie and referencing it.
         let trie_changes = self.process_memtrie_resharding_storage_update(
@@ -162,14 +161,14 @@ impl ReshardingManager {
         &self,
         split_shard_event: &ReshardingSplitShardParams,
         tracked_children: &[ShardUId],
-    ) -> io::Result<()> {
+    ) {
         let mut store_update = self.store.trie_store().store_update();
         let parent_shard_uid = split_shard_event.parent_shard;
         let parent_shard_uid_prefix = get_shard_uid_mapping(&self.store, parent_shard_uid);
         for &child_shard_uid in tracked_children {
             store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid_prefix);
         }
-        store_update.commit()
+        store_update.commit();
     }
 
     /// Creates temporary memtries for new shards to be able to process them in the next epoch.

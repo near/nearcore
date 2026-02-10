@@ -286,7 +286,7 @@ fn test_view_state() {
     let trie_changes = state_update.finalize().unwrap().trie_changes;
     let mut db_changes = tries.store_update();
     let new_root = tries.apply_all(&trie_changes, shard_uid, &mut db_changes);
-    db_changes.commit().unwrap();
+    db_changes.commit();
 
     let state_update = tries.new_trie_update(shard_uid, new_root);
     let trie_viewer = TrieViewer::default();

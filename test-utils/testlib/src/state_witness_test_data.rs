@@ -66,7 +66,7 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
     let trie_changes = initial_state.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
     let mut current_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     // Setup runtime and apply state
     let runtime = Runtime::new();
@@ -167,7 +167,7 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
                 let mut store_update = tries.store_update();
                 current_root =
                     tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
-                store_update.commit().unwrap();
+                store_update.commit();
             }
             Err(e) => {
                 println!("Error applying batch {}: {:?}", batch_num, e);

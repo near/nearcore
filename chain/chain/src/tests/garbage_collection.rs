@@ -243,7 +243,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
                 state_root2 = new_root2;
             }
             state_roots2.push(state_root2);
-            update2.commit().unwrap();
+            update2.commit();
         }
         start_index += simple_chain.length;
     }

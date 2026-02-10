@@ -1018,7 +1018,7 @@ mod tests {
         let trie_changes = trie.update(changes_for_trie, AccessOptions::DEFAULT).unwrap();
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         let trie = tries.get_view_trie_for_shard(shard_uid, root);
         let PartialState::TrieValues(trie_values) = trie
@@ -1133,7 +1133,7 @@ mod tests {
         let trie_changes = trie.update(changes_for_trie, AccessOptions::DEFAULT).unwrap();
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         // Get correct state part using trie without flat storage.
         let trie_without_flat = tries.get_view_trie_for_shard(shard_uid, root);
@@ -1160,7 +1160,7 @@ mod tests {
         let delta = FlatStateChanges::from(changes_for_delta);
         let mut store_update = tries.store_update();
         delta.apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         let view_chunk_trie =
             tries.get_trie_with_block_hash_for_shard(shard_uid, root, &block_hash, true);
@@ -1175,7 +1175,7 @@ mod tests {
         let store_value = vec![5; value_len];
         let value_hash = hash(&store_value);
         store_update.decrement_refcount(shard_uid, &value_hash);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         assert_eq!(
             trie_without_flat.get_trie_nodes_for_part_without_flat_storage(part_id),
@@ -1196,7 +1196,7 @@ mod tests {
         let mut store_update = tries.store_update();
         let delta = FlatStateChanges::from(vec![(b"ba".to_vec(), None)]);
         delta.apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         assert_matches!(
             view_chunk_trie.get_trie_nodes_for_part_with_flat_storage(part_id, &trie_without_flat,),

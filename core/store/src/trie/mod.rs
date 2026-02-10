@@ -1900,7 +1900,7 @@ mod tests {
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         let trie = tries.get_trie_for_shard(shard_uid, root);
-        store_update.commit().unwrap();
+        store_update.commit();
         for (key, _) in changes {
             assert_eq!(trie.get(&key, AccessOptions::DEFAULT), Ok(None));
         }
