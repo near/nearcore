@@ -161,6 +161,20 @@ impl<'a> TestLoopNode<'a> {
         );
     }
 
+    pub fn run_until_executed_height(&self, test_loop: &mut TestLoopV2, height: BlockHeight) {
+        let initial_height = self.last_executed(&test_loop.data).height;
+        let height_diff = height.saturating_sub(initial_height) as usize;
+        // Wait some extra blocks, in case spice execution has not started yet.
+        // For example for block `N` produced after genesis, we should wait `N`
+        // blocks for it to be produced and an additional
+        // `expected_execution_delay` blocks for it to execute.
+        let extra = self.data().expected_execution_delay() as usize;
+        test_loop.run_until(
+            |test_loop_data| self.last_executed(test_loop_data).height >= height,
+            self.calculate_block_distance_timeout(&test_loop.data, height_diff + extra),
+        );
+    }
+
     pub fn run_until_head_height_with_timeout(
         &self,
         test_loop: &mut TestLoopV2,
