@@ -228,10 +228,6 @@ impl RequestPool {
         self.requests.insert(chunk_hash, chunk_request);
     }
 
-    pub fn get_request_info(&self, chunk_hash: &ChunkHash) -> Option<&ChunkRequestInfo> {
-        self.requests.get(chunk_hash)
-    }
-
     pub fn remove(&mut self, chunk_hash: &ChunkHash) {
         self.requests.remove(chunk_hash);
     }
@@ -1360,87 +1356,42 @@ impl ShardsManagerActor {
     /// 2) check that the chunk header is compatible with the current protocol version
     ///
     // Note that this function only does partial validation. Full validation is only possible
-    // after the previous block of the chunk is processed. To be able to process partial encoded
-    // chunk messages in advance, this function tries to verify with other accepted block hash in
-    // the chain if the previous block hash is not accepted. Validation is only partially done
-    // in those cases. Full validation can be achieved by calling this function after
-    // the previous block hash is accepted.
+    // after the previous block of the chunk is processed. If the previous block is not available,
+    // this function returns DBNotFound and callers may defer full validation and retry later.
     //
-    // To achieve full validation, this function is called twice for each chunk entry
-    // first when the chunk entry is inserted in `encoded_chunks`
-    // then in `process_partial_encoded_chunk` after checking the previous block is ready
+    // To achieve full validation, this function is called twice for each chunk entry:
+    // first when the chunk entry is inserted in `encoded_chunks`,
+    // then in `process_partial_encoded_chunk` after checking the previous block is ready.
     fn validate_chunk_header(&self, header: &ShardChunkHeader) -> Result<(), Error> {
         let chunk_hash = header.chunk_hash();
         let _span = debug_span!(target: "chunks", "validate_chunk_header", ?chunk_hash).entered();
         // 1.  check signature
         // Ideally, validating the chunk header needs the previous block to be accepted already.
-        // However, we want to be able to validate chunk header in advance so we can save
-        // the corresponding parts and receipts before the previous block is processed
-        // We do this three layered check
-        // 1) if prev_block_hash is processed, we use that
-        // 2) if we have sent request for the chunk, we know the `ancestor_hash` from the original
-        //    request and we know that get_epoch_id_from_prev_block(ancestor_hash) =
-        //    get_epoch_id_from_prev_block(prev_block_hash). Thus, we can calculate epoch_id
-        //    from ancestor_hash
-        // 3) otherwise, we use the current chain_head to calculate epoch id. In this case,
-        //    we are not sure if we are using the correct epoch id, thus `epoch_id_confirmed` is false.
-        //    And if the validation fails in this case, we actually can't say if the chunk is actually
-        //    invalid. So we must return chain_error instead of return error
-        let (epoch_id, epoch_id_confirmed) = {
-            let prev_block_hash = *header.prev_block_hash();
-            let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash);
-            if let Ok(epoch_id) = epoch_id {
-                (epoch_id, true)
-            } else if let Some(request_info) =
-                self.requested_partial_encoded_chunks.get_request_info(&chunk_hash)
-            {
-                let ancestor_hash = request_info.ancestor_hash;
-                let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&ancestor_hash)?;
-                (epoch_id, true)
-            } else {
-                // we can safely unwrap here because chain head must already be accepted
-                let epoch_id = self
-                    .epoch_manager
-                    .get_epoch_id_from_prev_block(&self.chain_head.last_block_hash)
-                    .unwrap();
-                (epoch_id, false)
-            }
-        };
+        // If prev_block_hash is not accepted yet, we can't validate producer assignment reliably.
+        let prev_block_hash = *header.prev_block_hash();
+        let epoch_id = self
+            .epoch_manager
+            .get_epoch_id_from_prev_block(&prev_block_hash)
+            .map_err(|_| DBNotFoundErr(format!("block {:?}", prev_block_hash)))?;
 
         let valid_signature =
             verify_chunk_header_signature_with_epoch_manager(self.epoch_manager.as_ref(), header)?;
         if !valid_signature {
-            return if epoch_id_confirmed {
-                byzantine_assert!(false);
-                Err(Error::InvalidChunkSignature)
-            } else {
-                // we are not sure if we are using the correct epoch id for validation, so
-                // we can't be sure if the chunk header is actually invalid. Let's return
-                // DbNotFoundError for now, which means we don't have all needed information yet
-                Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
-            };
+            byzantine_assert!(false);
+            return Err(Error::InvalidChunkSignature);
         }
 
         if !self.epoch_manager.shard_ids(&epoch_id)?.contains(&header.shard_id()) {
-            return if epoch_id_confirmed {
-                byzantine_assert!(false);
-                Err(Error::InvalidChunkShardId)
-            } else {
-                // we are not sure if we are using the correct epoch id for validation, so
-                // we can't be sure if the chunk header is actually invalid. Let's return
-                // DbNotFoundError for now, which means we don't have all needed information yet
-                Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
-            };
+            byzantine_assert!(false);
+            return Err(Error::InvalidChunkShardId);
         }
 
         // 2. check protocol version
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         if header.validate_version(protocol_version).is_ok() {
             Ok(())
-        } else if epoch_id_confirmed {
-            Err(Error::InvalidChunkHeader)
         } else {
-            Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
+            Err(Error::InvalidChunkHeader)
         }
     }
 
@@ -1573,19 +1524,17 @@ impl ShardsManagerActor {
             .validate_with(|pec| self.validate_chunk_header(&pec.header).map(|()| true))
         {
             Err(Error::ChainError(chain_error)) => match chain_error {
-                // validate_chunk_header returns DBNotFoundError if the previous block is not ready
-                // in this case, we still return valid result instead of error.
+                // validate_chunk_header returns DBNotFoundError if the previous block is not ready.
+                // We defer full header validation to `try_process_chunk_parts_and_receipts`, which
+                // is called again once the previous block is accepted.
                 near_chain::Error::DBNotFoundErr(_) => {
                     tracing::debug!(
                         target: "client",
                         chunk_hash = ?partial_encoded_chunk.header.chunk_hash(),
                         height_created = %partial_encoded_chunk.header.height_created(),
                         shard_id = %partial_encoded_chunk.header.shard_id(),
-                        "dropping partial encoded chunk because we don't have enough information to validate it"
+                        "deferring full chunk header validation until previous block is available"
                     );
-                    return Ok(ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped(Box::new(
-                        PartialEncodedChunk::V2(partial_encoded_chunk.into_inner()),
-                    )));
                 }
                 _ => return Err(chain_error.into()),
             },
@@ -2409,7 +2358,7 @@ mod test {
                 Some(&fixture.mock_shard_tracker),
             )
             .unwrap();
-        assert_matches!(result, ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped(_));
+        assert_matches!(result, ProcessPartialEncodedChunkResult::NeedBlock);
 
         {
             let mut epoch_manager = fixture.epoch_manager.write();
@@ -2469,7 +2418,7 @@ mod test {
             .unwrap();
         assert_matches!(result, ProcessPartialEncodedChunkResult::NeedMorePartsOrReceipts);
 
-        // Resend request and check chunk part 0 and 1 are not requested again.
+        // resend request and check chunk part 0 and 1 are not requested again
         clock.advance(CHUNK_REQUEST_RETRY * 2);
         shards_manager.resend_chunk_requests();
 
@@ -2741,12 +2690,9 @@ mod test {
             )
             .unwrap();
 
-        match result {
-            ProcessPartialEncodedChunkResult::NeedsBlockChunkDropped(_) => (),
-            other_result => panic!("Expected NeedsBlockChunkDropped, but got {:?}", other_result),
-        }
+        assert_matches!(result, ProcessPartialEncodedChunkResult::NeedBlock);
         // Now try to request for this orphan chunk, first explicitly, and then through
-        // resend_chunk_requests. Since the chunk was dropped before caching, no request is sent.
+        // resend_chunk_requests. Since chunk data is already cached, no extra request is sent.
         shards_manager.request_chunks_for_orphan(
             vec![fixture.mock_chunk_header.clone()],
             &EpochId::default(),
