@@ -63,7 +63,7 @@ fn get_promise_resume_data_ids_from_latest_block(env: &TestLoopEnv) -> Vec<Crypt
     result
 }
 
-fn get_transaction_hashes_in_latest_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
+fn get_transaction_hashes_in_latest_executed_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
     let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
     let last_executed = node.last_executed(env.test_loop_data());
     let client = node.client(env.test_loop_data());
@@ -294,7 +294,7 @@ fn test_yield_then_resume_same_block() {
     // Both transactions should be included in the same block.
     let mut expected_txs = vec![resume_tx_hash, yield_tx_hash];
     expected_txs.sort();
-    assert_eq!(get_transaction_hashes_in_latest_block(&env), expected_txs);
+    assert_eq!(get_transaction_hashes_in_latest_executed_block(&env), expected_txs);
 
     // Run one more block to execute the resume callback.
     node.run_until_executed_height(&mut env.test_loop, next_block_height);
