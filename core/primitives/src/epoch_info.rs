@@ -60,6 +60,9 @@ pub struct EpochInfoV5 {
     pub seat_price: Balance,
     pub protocol_version: ProtocolVersion,
     pub shard_layout: ShardLayout,
+    /// The epoch height at which the most recent resharding occurred.
+    /// `None` means no resharding has happened since dynamic resharding was enabled.
+    pub last_resharding: Option<EpochHeight>,
     // stuff for selecting validators at each height
     rng_seed: RngSeed,
     block_producers_sampler: StakeWeightedIndex,
@@ -209,6 +212,7 @@ impl EpochInfo {
         rng_seed: RngSeed,
         validator_mandates: ValidatorMandates,
         shard_layout: ShardLayout,
+        last_resharding: Option<EpochHeight>,
     ) -> Self {
         let stake_weights = |ids: &[ValidatorId]| -> StakeWeightedIndex {
             StakeWeightedIndex::new(
@@ -235,6 +239,7 @@ impl EpochInfo {
                 seat_price,
                 protocol_version,
                 shard_layout,
+                last_resharding,
                 rng_seed,
                 block_producers_sampler,
                 chunk_producers_sampler,
@@ -612,6 +617,15 @@ impl EpochInfo {
         match self {
             Self::V5(v5) => Some(&v5.shard_layout),
             _ => None,
+        }
+    }
+
+    /// Get the epoch height at which the most recent resharding occurred.
+    /// Returns `None` for pre-V5 `EpochInfo` or when no resharding has happened.
+    pub fn last_resharding(&self) -> Option<EpochHeight> {
+        match self {
+            Self::V1(_) | Self::V2(_) | Self::V3(_) | Self::V4(_) => None,
+            Self::V5(v5) => v5.last_resharding,
         }
     }
 

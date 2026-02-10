@@ -1,17 +1,23 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-use near_async::messaging::CanSend as _;
+use near_async::messaging::{CanSend as _, Handler as _};
+use near_client::{Query, ViewClientActor};
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::types::NetworkRequests;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, BlockReference};
+use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind};
 use parking_lot::RwLock;
 
 use crate::setup::env::TestLoopEnv;
 
 pub(super) fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height: u64) {
+    for node in &env.node_datas {
+        node.set_expected_execution_delay(delay_height);
+    }
+
     let core_writer_senders: HashMap<_, _> = env
         .node_datas
         .iter()
@@ -57,4 +63,21 @@ pub(super) fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height
             }
         }));
     }
+}
+
+pub(super) fn query_view_account(
+    view_client: &mut ViewClientActor,
+    account_id: AccountId,
+) -> AccountView {
+    // Note that TestLoopNode::view_account_query doesn't work with spice yet.
+    let query_response = view_client
+        .handle(Query::new(
+            BlockReference::Finality(near_primitives::types::Finality::None),
+            QueryRequest::ViewAccount { account_id },
+        ))
+        .unwrap();
+    let QueryResponseKind::ViewAccount(view_account_result) = query_response.kind else {
+        panic!();
+    };
+    view_account_result
 }

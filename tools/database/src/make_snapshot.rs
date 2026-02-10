@@ -56,7 +56,7 @@ mod tests {
             for key in &keys {
                 store_update.insert(DBCol::Block, key.clone(), vec![42]);
             }
-            store_update.commit().unwrap();
+            store_update.commit();
             println!("Populated");
             // Drops node_storage, which unlocks the DB.
         }
@@ -71,7 +71,7 @@ mod tests {
             let node_storage = opener.open().unwrap();
             let mut store_update = node_storage.get_hot_store().store_update();
             store_update.delete_all(DBCol::Block);
-            store_update.commit().unwrap();
+            store_update.commit();
             println!("Deleted");
         }
 

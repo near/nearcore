@@ -282,7 +282,11 @@ impl GenesisBuilder {
         store_update.merge(
             self.epoch_manager
                 .add_validator_proposals(
-                    BlockInfo::from_header(genesis.header(), 0),
+                    BlockInfo::from_header(
+                        genesis.header(),
+                        0,
+                        self.genesis.config.protocol_version,
+                    ),
                     *genesis.header().random_value(),
                 )
                 .unwrap()

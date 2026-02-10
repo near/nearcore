@@ -18,15 +18,29 @@ use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{get_shared_block_hash, run_tx, run_txs_parallel};
 use crate::utils::validators::get_epoch_all_validators_sorted;
 
+use super::spice_utils::{delay_endorsements_propagation, query_view_account};
+
 /// Runs one validator network, sends staking transaction for the second node and
 /// waits until it becomes a validator.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_stake_nodes() {
+    let epoch_length = 10;
+    let execution_delay = 0;
+    test_stake_nodes_impl(epoch_length, execution_delay);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_stake_nodes_delayed_execution() {
+    let epoch_length = 10;
+    let execution_delay = 4;
+    test_stake_nodes_impl(epoch_length, execution_delay);
+}
+
+fn test_stake_nodes_impl(epoch_length: u64, execution_delay: u64) {
     init_test_logger();
 
     let accounts = create_validator_ids(2);
-    let epoch_length = 10;
 
     // Build validators with explicit stake amounts for precise balance assertions
     let validators = vec![AccountInfo {
@@ -45,8 +59,11 @@ fn test_stake_nodes() {
         .genesis(genesis)
         .epoch_config_store_from_genesis()
         .clients(accounts.clone())
-        .build()
-        .warmup();
+        .build();
+    if execution_delay > 0 {
+        delay_endorsements_propagation(&mut env, execution_delay);
+    }
+    let mut env = env.warmup();
 
     // Submit stake transaction from accounts[1]
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
@@ -78,12 +95,24 @@ fn test_stake_nodes() {
 /// Waits until only nodes 2-3 are validators (kickout due to low stake).
 /// Verifies locked == 0 for kicked nodes and locked == TESTING_INIT_STAKE for remaining.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_validator_kickout() {
+    let epoch_length = 15;
+    let execution_delay = 0;
+    test_validator_kickout_impl(epoch_length, execution_delay);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_validator_kickout_delayed_execution() {
+    let epoch_length = 15;
+    let execution_delay = 4;
+    test_validator_kickout_impl(epoch_length, execution_delay);
+}
+
+fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
     init_test_logger();
 
     let accounts = create_validator_ids(4);
-    let epoch_length = 15;
 
     // Build validators with explicit stake amounts for precise balance assertions
     let validators: Vec<AccountInfo> = accounts
@@ -110,8 +139,11 @@ fn test_validator_kickout() {
         .epoch_config_store_from_genesis()
         .clients(accounts.clone())
         .track_all_shards()
-        .build()
-        .warmup();
+        .build();
+    if execution_delay > 0 {
+        delay_endorsements_propagation(&mut env, execution_delay);
+    }
+    let mut env = env.warmup();
 
     // Submit reduced stake transactions for nodes 0 and 1
     let mut rng = StdRng::seed_from_u64(0);
@@ -144,7 +176,8 @@ fn test_validator_kickout() {
             }
             // Also wait for kicked nodes' locked amounts to return to zero
             for i in 0..2 {
-                let view = node.view_account_query(test_loop_data, &accounts[i]);
+                let view_client = node.view_client_actor(test_loop_data);
+                let view = query_view_account(view_client, accounts[i].clone());
                 if !view.locked.is_zero() {
                     return false;
                 }
@@ -157,7 +190,8 @@ fn test_validator_kickout() {
     // Verify kicked nodes have locked == 0 and stake returned to balance
     let expected_balance = TESTING_INIT_BALANCE.checked_add(TESTING_INIT_STAKE).unwrap();
     for i in 0..2 {
-        let view = node.view_account_query(&env.test_loop.data, &accounts[i]);
+        let view_client = node.view_client_actor(&mut env.test_loop.data);
+        let view = query_view_account(view_client, accounts[i].clone());
         assert!(view.locked.is_zero(), "kicked node {i}");
         assert_eq!(view.amount, expected_balance, "kicked node {i}");
     }
@@ -165,7 +199,8 @@ fn test_validator_kickout() {
     // Verify remaining validators have locked == TESTING_INIT_STAKE
     // Note: Genesis builder sets amount separately from validator stake (not deducted)
     for i in 2..4 {
-        let view = node.view_account_query(&env.test_loop.data, &accounts[i]);
+        let view_client = node.view_client_actor(&mut env.test_loop.data);
+        let view = query_view_account(view_client, accounts[i].clone());
         assert_eq!(view.locked, TESTING_INIT_STAKE, "remaining validator {i}");
         assert_eq!(view.amount, TESTING_INIT_BALANCE, "remaining validator {i}");
     }
@@ -179,12 +214,24 @@ fn test_validator_kickout() {
 /// Poll validators until you see the change of validator assignments.
 /// Afterwards check that `locked` amount on accounts Node1 and Node2 are 0 and TESTING_INIT_STAKE.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_validator_join() {
+    let epoch_length = 30;
+    let execution_delay = 0;
+    test_validator_join_impl(epoch_length, execution_delay);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_validator_join_delayed_execution() {
+    let epoch_length = 30;
+    let execution_delay = 4;
+    test_validator_join_impl(epoch_length, execution_delay);
+}
+
+fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
     init_test_logger();
 
     let accounts = create_validator_ids(4);
-    let epoch_length = 30;
 
     // Build validators with explicit stake amounts for precise balance assertions
     let validators: Vec<AccountInfo> = accounts[..2]
@@ -207,8 +254,11 @@ fn test_validator_join() {
         .epoch_config_store_from_genesis()
         .clients(accounts.clone())
         .track_all_shards()
-        .build()
-        .warmup();
+        .build();
+    if execution_delay > 0 {
+        delay_endorsements_propagation(&mut env, execution_delay);
+    }
+    let mut env = env.warmup();
 
     // Node1 unstakes, Node2 stakes
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
@@ -242,12 +292,14 @@ fn test_validator_join() {
                 return false;
             }
             // Wait for node1's locked amount to return to zero
-            let view = node.view_account_query(test_loop_data, &accounts[1]);
+            let view =
+                query_view_account(node.view_client_actor(test_loop_data), accounts[1].clone());
             if !view.locked.is_zero() {
                 return false;
             }
             // Wait for node2's locked amount to equal TESTING_INIT_STAKE
-            let view = node.view_account_query(test_loop_data, &accounts[2]);
+            let view =
+                query_view_account(node.view_client_actor(test_loop_data), accounts[2].clone());
             view.locked == TESTING_INIT_STAKE
         },
         Duration::seconds(120),

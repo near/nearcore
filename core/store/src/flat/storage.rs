@@ -425,7 +425,7 @@ impl FlatStorage {
                 guard.deltas.remove(&hash);
             }
 
-            store_update.commit().unwrap();
+            store_update.commit();
             tracing::debug!(target: "store", %shard_id, %block_hash, %block_height, "moved flat storage head");
         }
         guard.update_delta_metrics();
@@ -553,7 +553,7 @@ mod tests {
             };
             store_update.set_delta(shard_uid, &delta);
         }
-        store_update.commit().unwrap();
+        store_update.commit();
 
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
@@ -585,7 +585,7 @@ mod tests {
         // Should result in `StorageInternalError` indicating that flat storage is broken.
         let mut store_update = store.store_update();
         store_update.remove_delta(shard_uid, chain.get_block_hash(3));
-        store_update.commit().unwrap();
+        store_update.commit();
         assert_matches!(
             flat_storage.update_flat_head_impl(&chain.get_block_hash(3), true),
             Err(FlatStorageError::StorageInternalError(_))
@@ -631,7 +631,7 @@ mod tests {
             };
             store_update.set_delta(shard_uid, &delta);
         }
-        store_update.commit().unwrap();
+        store_update.commit();
 
         let flat_storage_manager = FlatStorageManager::new(store);
         flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
@@ -673,7 +673,7 @@ mod tests {
             };
             store_update.set_delta(shard_uid, &delta);
         }
-        store_update.commit().unwrap();
+        store_update.commit();
 
         // Check that flat storage state is created correctly for chain which has skipped heights.
         let flat_storage_manager = FlatStorageManager::new(store);
@@ -715,7 +715,7 @@ mod tests {
             };
             store_update.set_delta(shard_uid, &delta);
         }
-        store_update.commit().unwrap();
+        store_update.commit();
 
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
@@ -748,7 +748,7 @@ mod tests {
                 },
             })
             .unwrap();
-        store_update.commit().unwrap();
+        store_update.commit();
 
         // 4. Create a flat_state0 at block 10 and flat_state1 at block 4
         //    Verify that they return the correct values
@@ -806,7 +806,7 @@ mod tests {
             FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: chain.get_block(0) }),
         );
         store_update.set(shard_uid, vec![1], Some(FlatStateValue::value_ref(&[0])));
-        store_update.commit().unwrap();
+        store_update.commit();
 
         for i in 1..num_blocks as BlockHeight {
             let mut store_update = store.store_update();
@@ -839,7 +839,7 @@ mod tests {
             };
             tracing::info!(?i, ?delta);
             store_update.set_delta(shard_uid, &delta);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
 
         let flat_storage_manager = FlatStorageManager::new(store.clone());
@@ -896,7 +896,7 @@ mod tests {
             FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: chain.get_block(0) }),
         );
         store_update.set(shard_uid, vec![1], Some(FlatStateValue::value_ref(&[0])));
-        store_update.commit().unwrap();
+        store_update.commit();
 
         for i in 1..num_blocks as BlockHeight {
             let mut store_update = store.store_update();
@@ -919,7 +919,7 @@ mod tests {
             };
             tracing::info!(?i, ?delta);
             store_update.set_delta(shard_uid, &delta);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
 
         let flat_storage_manager = FlatStorageManager::new(store);
@@ -954,7 +954,7 @@ mod tests {
             FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: chain.get_block(0) }),
         );
         store_update.set(shard_uid, vec![1], Some(FlatStateValue::value_ref(&[0])));
-        store_update.commit().unwrap();
+        store_update.commit();
 
         for i in 1..num_blocks as BlockHeight {
             let mut store_update = store.store_update();
@@ -987,7 +987,7 @@ mod tests {
             };
             tracing::info!(?i, ?delta);
             store_update.set_delta(shard_uid, &delta);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
 
         let flat_storage_manager = FlatStorageManager::new(store.clone());
@@ -1049,7 +1049,7 @@ mod tests {
                 FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: chain.get_block(0) }),
             );
             store_update.set(shard_uid, vec![1], Some(FlatStateValue::value_ref(&[0])));
-            store_update.commit().unwrap();
+            store_update.commit();
 
             for i in 1..num_blocks as BlockHeight {
                 let mut store_update = store.store_update();
@@ -1067,7 +1067,7 @@ mod tests {
                 };
                 tracing::info!(?i, ?delta);
                 store_update.set_delta(shard_uid, &delta);
-                store_update.commit().unwrap();
+                store_update.commit();
             }
 
             let flat_storage_manager = FlatStorageManager::new(store);
@@ -1099,7 +1099,7 @@ mod tests {
                 FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: chain.get_block(0) }),
             );
             store_update.set(shard_uid, vec![1], Some(FlatStateValue::value_ref(&[0])));
-            store_update.commit().unwrap();
+            store_update.commit();
 
             for i in 1..num_blocks as BlockHeight {
                 let mut store_update = store.store_update();
@@ -1132,7 +1132,7 @@ mod tests {
                 };
                 tracing::info!(?i, ?delta);
                 store_update.set_delta(shard_uid, &delta);
-                store_update.commit().unwrap();
+                store_update.commit();
             }
 
             let flat_storage_manager = FlatStorageManager::new(store);
@@ -1184,7 +1184,7 @@ mod tests {
                 FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: chain.get_block(0) }),
             );
             store_update.set(shard_uid, vec![1], Some(FlatStateValue::value_ref(&[0])));
-            store_update.commit().unwrap();
+            store_update.commit();
 
             for i in 1..num_blocks as BlockHeight {
                 let mut store_update = store.store_update();
@@ -1217,7 +1217,7 @@ mod tests {
                 };
                 tracing::info!(?i, ?delta);
                 store_update.set_delta(shard_uid, &delta);
-                store_update.commit().unwrap();
+                store_update.commit();
             }
 
             let flat_storage_manager = FlatStorageManager::new(store);

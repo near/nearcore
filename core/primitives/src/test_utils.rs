@@ -838,7 +838,7 @@ pub struct TestBlockBuilder {
     chunk_endorsements: Vec<ChunkEndorsementSignatures>,
     // TODO(spice): Once spice is released remove Option.
     /// Iff `Some` spice block will be created.
-    spice_core_statements: Option<Vec<crate::block_body::SpiceCoreStatement>>,
+    spice_core_statements: Option<crate::block_body::SpiceCoreStatements>,
 }
 
 #[cfg(feature = "clock")]
@@ -871,7 +871,7 @@ impl TestBlockBuilder {
             chunk_endorsements: vec![vec![]; chunks_len],
             prev_header,
             spice_core_statements: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-                Some(vec![])
+                Some(crate::block_body::SpiceCoreStatements::new(vec![]))
             } else {
                 None
             },
@@ -954,7 +954,8 @@ impl TestBlockBuilder {
         mut self,
         spice_core_statements: Vec<crate::block_body::SpiceCoreStatement>,
     ) -> Self {
-        self.spice_core_statements = Some(spice_core_statements);
+        self.spice_core_statements =
+            Some(crate::block_body::SpiceCoreStatements::new(spice_core_statements));
         self
     }
 
@@ -983,6 +984,7 @@ impl TestBlockBuilder {
                 .collect(),
         );
         Arc::new(Block::produce(
+            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
             &self.prev_header,
             self.height,

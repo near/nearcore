@@ -217,7 +217,7 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
     // SplitStore should only be used if the migration is finished. The
     // migration to cold store is finished when the db kind of the hot store is
     // changed from Archive to Hot.
-    if storage.get_hot_store().get_db_kind()? != Some(DbKind::Hot) {
+    if storage.get_hot_store().get_db_kind() != Some(DbKind::Hot) {
         return Ok(None);
     }
 
@@ -307,7 +307,7 @@ fn spawn_spice_actors(
         network_adapter.clone(),
         validator_signer.clone(),
         {
-            let thread_limit = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
+            let thread_limit = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize * 3;
             ApplyChunksSpawner::default().into_spawner(thread_limit)
         },
         Default::default(),

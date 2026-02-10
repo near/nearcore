@@ -190,7 +190,8 @@ fn update_state_shard_uid_mapping(cold_db: &ColdDB, shard_layout: &ShardLayout) 
             update.trie_store_update().set_shard_uid_mapping(child_shard_uid, mapped_shard_uid);
         }
     }
-    update.commit()
+    update.commit();
+    Ok(())
 }
 
 // A specialized version of copy_from_store for the State column. Finds all the

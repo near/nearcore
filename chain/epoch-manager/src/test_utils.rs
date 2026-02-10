@@ -128,6 +128,7 @@ pub fn epoch_info_with_num_seats(
         TEST_SEED,
         validator_mandates,
         shard_layout,
+        None,
     )
 }
 
@@ -346,14 +347,15 @@ pub fn record_block_with_final_block_hash(
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
                 PROTOCOL_VERSION,
+                PROTOCOL_VERSION,
                 height * NUM_NS_IN_SECOND,
                 chunk_endorsements,
+                None,
             ),
             [0; 32],
         )
         .unwrap()
-        .commit()
-        .unwrap();
+        .commit();
 }
 
 pub fn record_block(
@@ -399,14 +401,15 @@ pub fn record_block_with_version(
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
                 protocol_version,
+                protocol_version,
                 height * NUM_NS_IN_SECOND,
                 chunk_endorsements,
+                None,
             ),
             [0; 32],
         )
         .unwrap()
-        .commit()
-        .unwrap();
+        .commit();
 }
 
 pub fn record_blocks<F>(
@@ -433,7 +436,7 @@ where
     (last_hash, height + count)
 }
 
-// TODO(#11900): Start using BlockInfoV3 in the tests.
+// TODO(dynamic_resharding): Start using BlockInfoV4 in the tests.
 #[allow(deprecated)]
 pub fn block_info(
     hash: CryptoHash,
@@ -463,5 +466,5 @@ pub fn block_info(
 }
 
 pub fn record_with_block_info(epoch_manager: &mut EpochManager, block_info: BlockInfo) {
-    epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
+    epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit();
 }

@@ -66,7 +66,7 @@ impl SpiceChunkValidatorActor {
         // TODO(spice): Assess if this limit still makes sense for spice.
         // See ChunkValidator::new in c/c/s/s/chunk_validator/mod.rs for rationale used currently.
         let validation_thread_limit =
-            runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
+            runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize * 3;
         Self {
             pending_witnesses: HashMap::new(),
             chain_store: ChainStore::new(store, true, genesis.transaction_validity_period),
