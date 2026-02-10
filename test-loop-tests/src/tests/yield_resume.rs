@@ -25,18 +25,17 @@ use crate::utils::node::TestLoopNode;
 const NEXT_BLOCK_HEIGHT_AFTER_SETUP: u64 = 3;
 
 fn get_outgoing_receipts_from_latest_block(env: &TestLoopEnv) -> Vec<Receipt> {
-    let client = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap())
-        .client(env.test_loop_data());
+    let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
+    let last_executed = node.last_executed(env.test_loop_data());
+    let client = node.client(env.test_loop_data());
     let genesis_block = client.chain.get_block_by_height(0).unwrap();
     let epoch_id = *genesis_block.header().epoch_id();
     let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
     let shard_id = shard_layout.account_id_to_shard_id(&"test0".parse::<AccountId>().unwrap());
-    let last_block_hash = client.chain.head().unwrap().last_block_hash;
-    let last_block_height = client.chain.head().unwrap().height;
 
     client
         .chain
-        .get_outgoing_receipts_for_shard(last_block_hash, shard_id, last_block_height)
+        .get_outgoing_receipts_for_shard(last_executed.last_block_hash, shard_id, last_executed.height)
         .unwrap()
 }
 
@@ -61,10 +60,11 @@ fn get_promise_resume_data_ids_from_latest_block(env: &TestLoopEnv) -> Vec<Crypt
 }
 
 fn get_transaction_hashes_in_latest_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
-    let client = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap())
-        .client(env.test_loop_data());
+    let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
+    let last_executed = node.last_executed(env.test_loop_data());
+    let client = node.client(env.test_loop_data());
     let chain = &client.chain;
-    let block = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
+    let block = chain.get_block(&last_executed.last_block_hash).unwrap();
 
     let mut transactions = Vec::new();
     for c in block.chunks().iter() {
@@ -132,7 +132,7 @@ fn prepare_env() -> TestLoopEnv {
         FinalExecutionStatus::SuccessValue(_),
     ));
 
-    let last_block_height = node.client(env.test_loop_data()).chain.head().unwrap().height;
+    let last_block_height = node.last_executed(env.test_loop_data()).height;
     assert_eq!(NEXT_BLOCK_HEIGHT_AFTER_SETUP, last_block_height + 1);
 
     env
