@@ -201,9 +201,7 @@ impl StateSyncDownloader {
                     let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
                     let bytes = part.to_bytes(protocol_version);
                     store_update.set(DBCol::StateParts, &key, &bytes);
-                    store_update.commit().map_err(|e| {
-                        near_chain::Error::Other(format!("Failed to store part: {}", e))
-                    })?;
+                    store_update.commit();
                 } else {
                     return Err(near_chain::Error::Other("Part data failed validation".to_owned()));
                 }

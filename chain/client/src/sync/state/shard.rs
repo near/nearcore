@@ -160,7 +160,7 @@ pub(super) async fn run_state_sync_for_shard(
         runtime
             .get_flat_storage_manager()
             .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update())?;
-        store_update.commit()?;
+        store_update.commit();
     }
 
     return_if_cancelled!(cancel);
@@ -327,7 +327,7 @@ async fn apply_state_part(
     // Mark part as applied.
     let mut store_update = store.store_update();
     store_update.set_ser(DBCol::StatePartsApplied, &key_bytes, &true)?;
-    store_update.commit()?;
+    store_update.commit();
 
     Ok(StatePartApplyResult::Applied)
 }
@@ -393,7 +393,7 @@ mod tests {
 
         let mut store_update = store.store_update();
         store_update.set(DBCol::StateParts, &key_bytes, &part_bytes);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         // Apply the state part for the first time
         let result = apply_state_part(

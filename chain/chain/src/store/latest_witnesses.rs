@@ -222,7 +222,7 @@ impl ChainStore {
         let store_update_time = start_time.elapsed();
 
         // Commit the transaction
-        store_update.commit()?;
+        store_update.commit();
 
         let store_commit_time = start_time.elapsed().saturating_sub(store_update_time);
 
@@ -413,7 +413,7 @@ pub fn save_invalid_chunk_state_witness(
         let store_update_time = start_time.elapsed();
 
         // Commit the transaction
-        store_update.commit()?;
+        store_update.commit();
 
         let store_commit_time = start_time.elapsed().saturating_sub(store_update_time);
 

@@ -170,8 +170,7 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
 
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::BlockHeader);
-    store_update.commit()?;
-
+    store_update.commit();
     let chain_store = store.chain_store();
     let tail_height = chain_store.tail().unwrap();
     let latest_known_height =

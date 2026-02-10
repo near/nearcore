@@ -214,7 +214,7 @@ impl TestTriesBuilder {
                     )
                     .unwrap();
             }
-            update_for_chunk_extra.commit().unwrap();
+            update_for_chunk_extra.commit();
 
             tries.load_memtries_for_enabled_shards(&shard_uids, &[].into(), false).unwrap();
         }
@@ -272,7 +272,7 @@ pub fn test_populate_store(store: &Store, data: impl Iterator<Item = (DBCol, Vec
     for (column, key, value) in data {
         update.insert(column, key, value);
     }
-    update.commit().expect("db commit failed");
+    update.commit();
 }
 
 /// Insert values to reference-counted columns in the store.
@@ -281,7 +281,7 @@ pub fn test_populate_store_rc(store: &Store, data: &[(DBCol, Vec<u8>, Vec<u8>)])
     for (column, key, value) in data {
         update.increment_refcount(*column, key, value);
     }
-    update.commit().expect("db commit failed");
+    update.commit();
 }
 
 fn gen_alphabet() -> Vec<u8> {

@@ -2130,7 +2130,7 @@ fn slow_test_catchup_gas_price_change() {
                 )
                 .unwrap()
         );
-        store_update.commit().unwrap();
+        store_update.commit();
         let protocol_version =
             env.clients[1].epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         for part_id in 0..num_parts {

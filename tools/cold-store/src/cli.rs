@@ -759,7 +759,7 @@ impl ResetColdCmd {
         let mut store_update = cold_store.store_update();
         store_update.delete(DBCol::BlockMisc, HEAD_KEY);
         store_update.delete(DBCol::BlockMisc, COLD_HEAD_KEY);
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 }

@@ -2607,7 +2607,7 @@ impl Chain {
         let mut store_update = self.chain_store.store().store_update();
         store_update.delete_all(DBCol::StateParts);
         store_update.delete_all(DBCol::StateHeaders);
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
