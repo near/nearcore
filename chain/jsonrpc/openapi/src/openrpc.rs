@@ -416,29 +416,28 @@ impl schemars::transform::Transform for ExpandAllOfOneOf {
 
             for existing in &combined_variants {
                 for variant in one_of {
-                    if let (Some(existing_obj), Some(variant_obj)) =
-                        (existing.as_object(), variant.as_object())
-                    {
-                        let merged = Self::merge_objects(existing_obj, variant_obj);
+                    let Some(existing_obj) = existing.as_object() else { continue };
+                    let Some(variant_obj) = variant.as_object() else { continue };
 
-                        // Combine variant names
-                        let existing_name = Self::get_variant_name(existing_obj);
-                        let variant_name = Self::get_variant_name(variant_obj);
+                    let merged = Self::merge_objects(existing_obj, variant_obj);
 
-                        let mut result = merged;
-                        let combined_name = match (existing_name, variant_name) {
-                            (Some(a), Some(b)) if !a.is_empty() => Some(format!("{}{}", a, b)),
-                            (None, Some(b)) => Some(b),
-                            (Some(a), None) if !a.is_empty() => Some(a),
-                            _ => None,
-                        };
+                    // Combine variant names
+                    let existing_name = Self::get_variant_name(existing_obj);
+                    let variant_name = Self::get_variant_name(variant_obj);
 
-                        if let Some(name) = combined_name {
-                            result.insert("title".to_string(), json!(name));
-                        }
+                    let mut result = merged;
+                    let combined_name = match (existing_name, variant_name) {
+                        (Some(a), Some(b)) if !a.is_empty() => Some(format!("{}{}", a, b)),
+                        (None, Some(b)) => Some(b),
+                        (Some(a), None) if !a.is_empty() => Some(a),
+                        _ => None,
+                    };
 
-                        new_combined.push(serde_json::Value::Object(result));
+                    if let Some(name) = combined_name {
+                        result.insert("title".to_string(), json!(name));
                     }
+
+                    new_combined.push(serde_json::Value::Object(result));
                 }
             }
 
@@ -447,13 +446,11 @@ impl schemars::transform::Transform for ExpandAllOfOneOf {
 
         // Merge any non-oneOf schemas into each variant
         for variant in &mut combined_variants {
-            if let Some(variant_obj) = variant.as_object_mut() {
-                for other in &other_schemas {
-                    if let Some(other_obj) = other.as_object() {
-                        let merged = Self::merge_objects(variant_obj, other_obj);
-                        *variant_obj = merged;
-                    }
-                }
+            let Some(variant_obj) = variant.as_object_mut() else { continue };
+            for other in &other_schemas {
+                let Some(other_obj) = other.as_object() else { continue };
+                let merged = Self::merge_objects(variant_obj, other_obj);
+                *variant_obj = merged;
             }
         }
 
@@ -724,45 +721,47 @@ fn collapse_cartesian_products(schemas: &mut serde_json::Map<String, serde_json:
                 }
 
                 // Only add if we have meaningful properties
-                if !comp_props.is_empty() {
-                    let mut comp_variant = serde_json::Map::new();
-                    comp_variant.insert("type".to_string(), json!("object"));
-                    comp_variant
-                        .insert("properties".to_string(), serde_json::Value::Object(comp_props));
-                    if !comp_required.is_empty() {
-                        comp_variant.insert("required".to_string(), json!(comp_required));
-                    }
+                if comp_props.is_empty() {
+                    continue;
+                }
 
-                    // Add title based on signature
-                    let title = if let Some(tag_prop) = comp.tag_prop {
-                        if let Some(tag_schema) = props.get(tag_prop) {
-                            tag_schema
-                                .get("const")
-                                .and_then(|v| v.as_str())
-                                .or_else(|| {
-                                    tag_schema
-                                        .get("enum")
-                                        .and_then(|e| e.as_array())
-                                        .and_then(|arr| arr.first())
-                                        .and_then(|v| v.as_str())
-                                })
-                                .map(|v| to_pascal_case(v))
-                        } else {
-                            Some(to_pascal_case(discriminator_prop))
-                        }
+                let mut comp_variant = serde_json::Map::new();
+                comp_variant.insert("type".to_string(), json!("object"));
+                comp_variant
+                    .insert("properties".to_string(), serde_json::Value::Object(comp_props));
+                if !comp_required.is_empty() {
+                    comp_variant.insert("required".to_string(), json!(comp_required));
+                }
+
+                // Add title based on signature
+                let title = if let Some(tag_prop) = comp.tag_prop {
+                    if let Some(tag_schema) = props.get(tag_prop) {
+                        tag_schema
+                            .get("const")
+                            .and_then(|v| v.as_str())
+                            .or_else(|| {
+                                tag_schema
+                                    .get("enum")
+                                    .and_then(|e| e.as_array())
+                                    .and_then(|arr| arr.first())
+                                    .and_then(|v| v.as_str())
+                            })
+                            .map(|v| to_pascal_case(v))
                     } else {
                         Some(to_pascal_case(discriminator_prop))
-                    };
-
-                    if let Some(t) = title {
-                        comp_variant.insert("title".to_string(), json!(t));
                     }
+                } else {
+                    Some(to_pascal_case(discriminator_prop))
+                };
 
-                    component_variants
-                        .get_mut(comp.name)
-                        .unwrap()
-                        .push(serde_json::Value::Object(comp_variant));
+                if let Some(t) = title {
+                    comp_variant.insert("title".to_string(), json!(t));
                 }
+
+                component_variants
+                    .get_mut(comp.name)
+                    .unwrap()
+                    .push(serde_json::Value::Object(comp_variant));
             }
         }
 
@@ -792,10 +791,9 @@ fn collapse_cartesian_products(schemas: &mut serde_json::Map<String, serde_json:
             .collect();
 
         if let Some(type_schema) = schemas.get_mut(config.type_name) {
-            if let Some(obj) = type_schema.as_object_mut() {
-                obj.remove("oneOf");
-                obj.insert("allOf".to_string(), json!(all_of_refs));
-            }
+            let Some(obj) = type_schema.as_object_mut() else { continue };
+            obj.remove("oneOf");
+            obj.insert("allOf".to_string(), json!(all_of_refs));
         }
     }
 }
@@ -841,12 +839,10 @@ pub fn generate_openrpc() -> serde_json::Value {
 
         // Extract definitions and merge into all_schemas
         for schema in [&params_schema, &result_schema] {
-            if let Some(defs) = schema.as_value().get("definitions") {
-                if let Some(defs_obj) = defs.as_object() {
-                    for (k, v) in defs_obj {
-                        all_schemas.insert(k.clone(), clean_schema(v, k));
-                    }
-                }
+            let Some(defs) = schema.as_value().get("definitions") else { continue };
+            let Some(defs_obj) = defs.as_object() else { continue };
+            for (k, v) in defs_obj {
+                all_schemas.insert(k.clone(), clean_schema(v, k));
             }
         }
 
