@@ -24,7 +24,7 @@ use crate::utils::node::TestLoopNode;
 // The height of the next block after environment setup is complete.
 const NEXT_BLOCK_HEIGHT_AFTER_SETUP: u64 = 3;
 
-fn get_outgoing_receipts_from_latest_block(env: &TestLoopEnv) -> Vec<Receipt> {
+fn get_outgoing_receipts_from_latest_executed_block(env: &TestLoopEnv) -> Vec<Receipt> {
     let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
     let last_executed = node.last_executed(env.test_loop_data());
     let client = node.client(env.test_loop_data());
@@ -45,7 +45,7 @@ fn get_outgoing_receipts_from_latest_block(env: &TestLoopEnv) -> Vec<Receipt> {
 
 fn get_promise_yield_data_ids_from_latest_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
     let mut result = vec![];
-    for receipt in get_outgoing_receipts_from_latest_block(env) {
+    for receipt in get_outgoing_receipts_from_latest_executed_block(env) {
         if let VersionedReceiptEnum::PromiseYield(action_receipt) = receipt.versioned_receipt() {
             result.push(action_receipt.input_data_ids()[0]);
         }
@@ -55,7 +55,7 @@ fn get_promise_yield_data_ids_from_latest_block(env: &TestLoopEnv) -> Vec<Crypto
 
 fn get_promise_resume_data_ids_from_latest_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
     let mut result = vec![];
-    for receipt in get_outgoing_receipts_from_latest_block(env) {
+    for receipt in get_outgoing_receipts_from_latest_executed_block(env) {
         if let ReceiptEnum::PromiseResume(data_receipt) = receipt.receipt() {
             result.push(data_receipt.data_id);
         }
