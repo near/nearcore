@@ -600,7 +600,8 @@ impl ChainStore {
     pub fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error> {
         let mut store_update = self.store.store().store_update();
         store_update.set_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY, &latest_known)?;
-        store_update.commit().map_err(|err| err.into())
+        store_update.commit();
+        Ok(())
     }
 
     /// Retrieve the kinds of state changes occurred in a given block.
@@ -810,7 +811,8 @@ impl ChainStore {
             None => store_update.delete(DBCol::BlockMisc, &key),
             Some(value) => store_update.set_ser(DBCol::BlockMisc, &key, &value)?,
         }
-        store_update.commit().map_err(|err| err.into())
+        store_update.commit();
+        Ok(())
     }
 
     pub fn prev_block_is_caught_up(
@@ -2207,7 +2209,7 @@ impl<'a> ChainStoreUpdate<'a> {
     #[tracing::instrument(level = "debug", target = "store", "ChainStoreUpdate::commit", skip_all)]
     pub fn commit(mut self) -> Result<(), Error> {
         let store_update = self.finalize()?;
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 }

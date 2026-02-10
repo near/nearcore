@@ -203,7 +203,8 @@ impl Into<StoreUpdate> for FlatStoreUpdateAdapter<'static> {
 impl FlatStoreUpdateAdapter<'static> {
     pub fn commit(self) -> io::Result<()> {
         let store_update: StoreUpdate = self.into();
-        store_update.commit()
+        store_update.commit();
+        Ok(())
     }
 }
 

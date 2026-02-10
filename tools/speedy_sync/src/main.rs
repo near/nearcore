@@ -295,7 +295,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
     let aggregator =
         EpochInfoAggregator::new(snapshot.prev_epoch.id, *snapshot.final_block.header.hash());
     store_update.set_ser(DBCol::EpochInfo, AGGREGATOR_KEY, &aggregator).unwrap();
-    store_update.commit().unwrap();
+    store_update.commit();
 }
 
 fn main() {

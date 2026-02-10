@@ -381,7 +381,8 @@ impl Into<StoreUpdate> for ChainStoreUpdateAdapter<'static> {
 impl ChainStoreUpdateAdapter<'static> {
     pub fn commit(self) -> io::Result<()> {
         let store_update: StoreUpdate = self.into();
-        store_update.commit()
+        store_update.commit();
+        Ok(())
     }
 }
 

@@ -383,7 +383,7 @@ impl ChainStore {
         }
 
         metrics::STATE_TRANSITION_DATA_GC_TOTAL_ENTRIES.set(total_entries);
-        store_update.commit()?;
+        store_update.commit();
         metrics::STATE_TRANSITION_DATA_GC_CLEARED_ENTRIES.inc_by(entries_cleared);
         Ok(())
     }
@@ -429,7 +429,7 @@ impl ChainStore {
         }
 
         metrics::WITNESSES_GC_TOTAL_ENTRIES.set(total_entries);
-        store_update.commit()?;
+        store_update.commit();
         metrics::WITNESSES_GC_CLEARED_ENTRIES.inc_by(entries_cleared);
         Ok(())
     }

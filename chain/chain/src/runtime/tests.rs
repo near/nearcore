@@ -161,7 +161,7 @@ impl TestEnv {
                     &genesis_hash,
                     0,
                 );
-                store_update.commit().unwrap();
+                store_update.commit();
                 assert!(matches!(
                     flat_storage_manager.get_flat_storage_status(shard_uid),
                     near_store::flat::FlatStorageStatus::Ready(_)
@@ -310,7 +310,7 @@ impl TestEnv {
             let new_store_update = flat_storage.add_delta(delta).unwrap();
             store_update.merge(new_store_update.into());
         }
-        store_update.commit().unwrap();
+        store_update.commit();
 
         (apply_result.new_root, apply_result.validator_proposals, apply_result.outgoing_receipts)
     }
