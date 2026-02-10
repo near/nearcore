@@ -650,7 +650,6 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.gc_col(DBCol::Chunks, chunk_hash);
                 self.gc_col(DBCol::PartialChunks, chunk_hash);
                 self.gc_col(DBCol::InvalidChunks, chunk_hash);
-                self.gc_col(DBCol::ProcessedReceiptIds, chunk_hash);
             }
 
             let header_hashes = self.chain_store().get_all_header_hashes_by_height(height)?;
