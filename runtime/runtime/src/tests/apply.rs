@@ -3628,67 +3628,119 @@ fn test_gas_key_burn_not_reported_on_failed_receipt() {
     assert_eq!(access_key.gas_key_info().unwrap().balance, deposit_amount);
 }
 
-#[test]
-fn test_apply_gas_key_transaction() {
-    const GAS_KEY_BLOCK_HEIGHT: BlockHeight = 10;
-    let num_nonces = 3;
+const GAS_KEY_BLOCK_HEIGHT: BlockHeight = 10;
 
-    let initial_balance = Balance::from_near(1_000_000);
-    let transfer_amount = Balance::from_near(100);
-    let (runtime, tries, root, mut apply_state, _signers, epoch_info_provider) = setup_runtime(
-        vec![alice_account(), bob_account()],
+struct GasKeyTestSetup {
+    runtime: Runtime,
+    tries: ShardTries,
+    root: CryptoHash,
+    apply_state: ApplyState,
+    epoch_info_provider: MockEpochInfoProvider,
+    gas_key_signer: Arc<Signer>,
+    shard_uid: ShardUId,
+}
+
+fn setup_gas_key_test(
+    gas_key_owner: AccountId,
+    accounts: Vec<AccountId>,
+    initial_balance: Balance,
+    num_nonces: u16,
+    gas_key_balance: Balance,
+) -> GasKeyTestSetup {
+    assert!(accounts.contains(&gas_key_owner), "gas_key_owner must be in accounts");
+    let epoch_info_provider = MockEpochInfoProvider::default();
+    let shard_layout = epoch_info_provider.shard_layout(&EpochId::default()).unwrap();
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+    let accounts_with_keys = accounts
+        .into_iter()
+        .map(|id| {
+            let signer = Arc::new(InMemorySigner::test_signer(&id));
+            (id, vec![signer])
+        })
+        .collect();
+    let (runtime, tries, root, mut apply_state, _signers) = setup_runtime_for_shard(
+        accounts_with_keys,
         initial_balance,
         Balance::ZERO,
         Gas::from_teragas(1000),
+        shard_uid,
+        &shard_layout,
     );
-
-    // Enable gas keys protocol feature
     apply_state.current_protocol_version = ProtocolFeature::GasKeys.protocol_version();
     apply_state.block_height = GAS_KEY_BLOCK_HEIGHT;
 
-    let shard_uid = ShardUId::single_shard();
     let mut state_update = tries.new_trie_update(shard_uid, root);
 
-    // Get alice's account and add gas key using action_add_key
-    let mut alice_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
+    let mut account = get_account(&state_update, &gas_key_owner).unwrap().unwrap();
     let gas_key_signer = Arc::new(InMemorySigner::from_seed(
-        alice_account(),
+        gas_key_owner.clone(),
         near_crypto::KeyType::ED25519,
         "gas_key_seed",
     ));
     let gas_key = AccessKey::gas_key_full_access(num_nonces);
-    let add_key_action =
-        AddKeyAction { public_key: gas_key_signer.public_key(), access_key: gas_key };
     let mut result = ActionResult::default();
     action_add_key(
         &apply_state,
         &mut state_update,
-        &mut alice_account_state,
+        &mut account,
         &mut result,
-        &alice_account(),
-        &add_key_action,
+        &gas_key_owner,
+        &AddKeyAction { public_key: gas_key_signer.public_key(), access_key: gas_key },
     )
     .unwrap();
 
-    // Fund the gas key
-    let gas_key_balance = Balance::from_millinear(1);
     let mut access_key =
-        get_access_key(&state_update, &alice_account(), &gas_key_signer.public_key())
+        get_access_key(&state_update, &gas_key_owner, &gas_key_signer.public_key())
             .unwrap()
             .unwrap();
     access_key.gas_key_info_mut().unwrap().balance = gas_key_balance;
-    set_access_key(&mut state_update, alice_account(), gas_key_signer.public_key(), &access_key);
+    set_access_key(
+        &mut state_update,
+        gas_key_owner.clone(),
+        gas_key_signer.public_key(),
+        &access_key,
+    );
+    set_account(&mut state_update, gas_key_owner, &account);
 
-    set_account(&mut state_update, alice_account(), &alice_account_state);
-
-    // Commit the state changes
     state_update.commit(StateChangeCause::InitialState);
     let trie_changes = state_update.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit();
 
-    // Get the initial nonce value
+    GasKeyTestSetup {
+        runtime,
+        tries,
+        root,
+        apply_state,
+        epoch_info_provider,
+        gas_key_signer,
+        shard_uid,
+    }
+}
+
+#[test]
+fn test_apply_gas_key_transaction() {
+    let num_nonces = 3;
+    let initial_balance = Balance::from_near(1_000_000);
+    let transfer_amount = Balance::from_near(100);
+    let gas_key_balance = Balance::from_millinear(1);
+    let GasKeyTestSetup {
+        runtime,
+        tries,
+        root,
+        mut apply_state,
+        epoch_info_provider,
+        gas_key_signer,
+        shard_uid,
+    } = setup_gas_key_test(
+        alice_account(),
+        vec![alice_account(), bob_account()],
+        initial_balance,
+        num_nonces,
+        gas_key_balance,
+    );
+
     let initial_nonce = initial_nonce_value(GAS_KEY_BLOCK_HEIGHT);
     let nonce_index = 1;
 
@@ -3764,52 +3816,22 @@ fn test_apply_gas_key_transaction() {
 #[test]
 fn test_gas_refund_to_gas_key() {
     let initial_balance = Balance::from_near(1_000_000);
-    let (runtime, tries, root, mut apply_state, _signers, epoch_info_provider) = setup_runtime(
+    let gas_key_balance = Balance::from_millinear(10);
+    let GasKeyTestSetup {
+        runtime,
+        tries,
+        root,
+        mut apply_state,
+        epoch_info_provider,
+        gas_key_signer,
+        shard_uid,
+    } = setup_gas_key_test(
+        alice_account(),
         vec![alice_account()],
         initial_balance,
-        Balance::ZERO,
-        Gas::from_teragas(1000),
+        1,
+        gas_key_balance,
     );
-    apply_state.current_protocol_version = ProtocolFeature::GasKeys.protocol_version();
-    apply_state.block_height = 10;
-
-    let shard_uid = ShardUId::single_shard();
-    let mut state_update = tries.new_trie_update(shard_uid, root);
-
-    // Add a gas key to alice's account
-    let mut alice = get_account(&state_update, &alice_account()).unwrap().unwrap();
-    let gas_key_signer = Arc::new(InMemorySigner::from_seed(
-        alice_account(),
-        near_crypto::KeyType::ED25519,
-        "gas_key_seed",
-    ));
-    let gas_key = AccessKey::gas_key_full_access(1);
-    let mut result = ActionResult::default();
-    action_add_key(
-        &apply_state,
-        &mut state_update,
-        &mut alice,
-        &mut result,
-        &alice_account(),
-        &AddKeyAction { public_key: gas_key_signer.public_key(), access_key: gas_key },
-    )
-    .unwrap();
-
-    // Fund the gas key
-    let gas_key_balance = Balance::from_millinear(10);
-    let mut access_key =
-        get_access_key(&state_update, &alice_account(), &gas_key_signer.public_key())
-            .unwrap()
-            .unwrap();
-    access_key.gas_key_info_mut().unwrap().balance = gas_key_balance;
-    set_access_key(&mut state_update, alice_account(), gas_key_signer.public_key(), &access_key);
-    set_account(&mut state_update, alice_account(), &alice);
-
-    state_update.commit(StateChangeCause::InitialState);
-    let trie_changes = state_update.finalize().unwrap().trie_changes;
-    let mut store_update = tries.store_update();
-    let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-    store_update.commit();
 
     // Create a gas refund receipt targeting alice's gas key
     let refund_amount = Balance::from_millinear(1);

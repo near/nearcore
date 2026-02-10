@@ -284,26 +284,24 @@ impl Store {
 }
 
 impl Store {
-    pub fn get_db_version(&self) -> io::Result<Option<DbVersion>> {
+    pub fn get_db_version(&self) -> Option<DbVersion> {
         DbMetadata::maybe_read_version(self.storage.as_ref())
     }
 
-    pub fn set_db_version(&self, version: DbVersion) -> io::Result<()> {
+    pub fn set_db_version(&self, version: DbVersion) {
         let mut store_update = self.store_update();
         store_update.set(DBCol::DbVersion, VERSION_KEY, version.to_string().as_bytes());
         store_update.commit();
-        Ok(())
     }
 
-    pub fn get_db_kind(&self) -> io::Result<Option<DbKind>> {
+    pub fn get_db_kind(&self) -> Option<DbKind> {
         DbMetadata::maybe_read_kind(self.storage.as_ref())
     }
 
-    pub fn set_db_kind(&self, kind: DbKind) -> io::Result<()> {
+    pub fn set_db_kind(&self, kind: DbKind) {
         let mut store_update = self.store_update();
         store_update.set(DBCol::DbVersion, KIND_KEY, <&str>::from(kind).as_bytes());
         store_update.commit();
-        Ok(())
     }
 }
 
