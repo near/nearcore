@@ -197,7 +197,7 @@ impl FlatStorageCommand {
     ) -> anyhow::Result<()> {
         let (.., hot_store) =
             Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadOnly);
-        println!("DB version: {:?}", hot_store.get_db_version()?);
+        println!("DB version: {:?}", hot_store.get_db_version());
         for (bytes_shard_uid, status) in hot_store.iter(DBCol::FlatStorageStatus) {
             let shard_uid = ShardUId::try_from(bytes_shard_uid.as_ref()).unwrap();
             let status = FlatStorageStatus::try_from_slice(&status)?;
@@ -231,7 +231,7 @@ impl FlatStorageCommand {
         let rw_storage = opener.open_in_mode(near_store::Mode::ReadWriteExisting)?;
         let rw_store = rw_storage.get_hot_store();
         println!("Setting storage DB version to: {:?}", cmd.version);
-        rw_store.set_db_version(cmd.version)?;
+        rw_store.set_db_version(cmd.version);
         Ok(())
     }
 

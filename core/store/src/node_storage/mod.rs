@@ -203,7 +203,7 @@ impl NodeStorage {
         if self.cold_storage.is_some() {
             return Ok(true);
         }
-        Ok(match metadata::DbMetadata::read(self.hot_storage.as_ref())?.kind.unwrap() {
+        Ok(match metadata::DbMetadata::read(self.hot_storage.as_ref()).kind.unwrap() {
             metadata::DbKind::RPC => false,
             metadata::DbKind::Archive => true,
             metadata::DbKind::Hot | metadata::DbKind::Cold => true,
