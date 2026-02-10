@@ -5,8 +5,7 @@ use near_primitives::{
     block::BlockHeader,
     hash::CryptoHash,
     sharding::{ChunkHash, ShardChunkHeader},
-    stateless_validation::ChunkProductionKey,
-    types::{BlockHeight, EpochId, ShardId, validator_stake::ValidatorStake},
+    types::{ShardId, validator_stake::ValidatorStake},
 };
 
 pub fn verify_block_vrf(
@@ -30,19 +29,16 @@ pub fn verify_block_vrf(
 /// for this chunk, or if the chunk producer has been slashed
 /// return `EpochError::NotAValidator` if cannot find chunk producer info for this chunk
 /// `header`: chunk header
-/// `epoch_id`: epoch_id that the chunk header belongs to
-/// `last_known_hash`: used to determine the list of chunk producers that are slashed
+/// `prev_block_hash`: the previous block hash, used to determine the chunk producer
 pub fn verify_chunk_header_signature_with_epoch_manager(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk_header: &ShardChunkHeader,
-    epoch_id: EpochId,
 ) -> Result<bool, Error> {
     verify_chunk_header_signature_with_epoch_manager_and_parts(
         epoch_manager,
         &chunk_header.chunk_hash(),
         chunk_header.signature(),
-        epoch_id,
-        chunk_header.height_created(),
+        chunk_header.prev_block_hash(),
         chunk_header.shard_id(),
     )
 }
@@ -51,12 +47,10 @@ pub fn verify_chunk_header_signature_with_epoch_manager_and_parts(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk_hash: &ChunkHash,
     signature: &Signature,
-    epoch_id: EpochId,
-    height_created: BlockHeight,
+    prev_block_hash: &CryptoHash,
     shard_id: ShardId,
 ) -> Result<bool, Error> {
-    let key = ChunkProductionKey { epoch_id, height_created, shard_id };
-    let chunk_producer = epoch_manager.get_chunk_producer_info(&key)?;
+    let chunk_producer = epoch_manager.get_chunk_producer_info(prev_block_hash, shard_id)?;
     Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
 }
 
