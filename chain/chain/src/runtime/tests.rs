@@ -197,8 +197,7 @@ impl TestEnv {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
-            .commit()
-            .unwrap();
+            .commit();
         Self {
             epoch_manager,
             runtime,
@@ -369,8 +368,7 @@ impl TestEnv {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
-            .commit()
-            .unwrap();
+            .commit();
         let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&new_hash).unwrap();
         let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
         for receipt in all_receipts {
@@ -888,8 +886,7 @@ fn test_state_sync() {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
-            .commit()
-            .unwrap();
+            .commit();
         new_env.head.height = i;
         new_env.head.last_block_hash = cur_hash;
         new_env.head.prev_block_hash = prev_hash;

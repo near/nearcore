@@ -118,7 +118,7 @@ fn update_epoch_sync_proof(
     if let Some(proof) = store.get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[]).unwrap() {
         let mut store_update = epoch_store.store_update();
         store_update.set_epoch_sync_proof(&proof);
-        store_update.commit()?;
+        store_update.commit();
     }
 
     // Now we generate the epoch sync proof and update it to latest
@@ -132,7 +132,7 @@ fn update_epoch_sync_proof(
     tracing::info!(target: "migrations", "storing latest epoch sync proof");
     let mut store_update = epoch_store.store_update();
     store_update.set_epoch_sync_proof(&proof);
-    store_update.commit()?;
+    store_update.commit();
 
     Ok(())
 }
