@@ -35,7 +35,11 @@ fn get_outgoing_receipts_from_latest_block(env: &TestLoopEnv) -> Vec<Receipt> {
 
     client
         .chain
-        .get_outgoing_receipts_for_shard(last_executed.last_block_hash, shard_id, last_executed.height)
+        .get_outgoing_receipts_for_shard(
+            last_executed.last_block_hash,
+            shard_id,
+            last_executed.height,
+        )
         .unwrap()
 }
 
