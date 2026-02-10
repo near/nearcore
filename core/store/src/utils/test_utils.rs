@@ -27,8 +27,8 @@ use std::sync::Arc;
 
 fn create_in_memory_node_storage(version: DbVersion, hot_kind: DbKind) -> NodeStorage {
     let storage = NodeStorage::new(TestDB::new());
-    storage.get_hot_store().set_db_version(version).unwrap();
-    storage.get_hot_store().set_db_kind(hot_kind).unwrap();
+    storage.get_hot_store().set_db_version(version);
+    storage.get_hot_store().set_db_kind(hot_kind);
     storage
 }
 
@@ -67,11 +67,11 @@ fn create_test_node_storage_archive(
     let storage = NodeStorage::new_archive(hot.clone(), cold_db, cloud);
 
     let hot_store = storage.get_hot_store();
-    hot_store.set_db_version(version).unwrap();
-    hot_store.set_db_kind(hot_kind).unwrap();
+    hot_store.set_db_version(version);
+    hot_store.set_db_kind(hot_kind);
     if let Some(cold_store) = storage.get_cold_store() {
-        cold_store.set_db_version(version).unwrap();
-        cold_store.set_db_kind(DbKind::Cold).unwrap();
+        cold_store.set_db_version(version);
+        cold_store.set_db_kind(DbKind::Cold);
     }
     (storage, hot, cold)
 }

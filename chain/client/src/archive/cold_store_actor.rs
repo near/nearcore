@@ -174,7 +174,7 @@ impl ColdStoreActor {
         }
 
         tracing::info!(target: "cold_store", "starting population of cold store");
-        let new_cold_height = match self.hot_store.get_db_kind()? {
+        let new_cold_height = match self.hot_store.get_db_kind() {
             None => {
                 tracing::error!(target: "cold_store", "hot store kind is unknown");
                 return Err(anyhow::anyhow!("Hot store DBKind is not set"));

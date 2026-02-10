@@ -741,7 +741,7 @@ impl RocksDB {
         // out if there are any necessary migrations to perform.
         let cols = [DBCol::DbVersion];
         let db = Self::open_with_columns(path, config, Mode::ReadOnly, Temperature::Hot, &cols)?;
-        Some(metadata::DbMetadata::read(&db)).transpose()
+        Ok(Some(metadata::DbMetadata::read(&db)))
     }
 
     /// Gets every int property in CF_PROPERTY_NAMES for every column in DBCol.
