@@ -122,7 +122,7 @@ fn prepare_env() -> TestLoopEnv {
     node.submit_tx(deploy_contract_tx.clone());
 
     // Allow two blocks for the contract to be deployed
-    node.run_until_head_height(&mut env.test_loop, 2);
+    node.run_until_executed_height(&mut env.test_loop, 2);
     assert!(matches!(
         node.client(env.test_loop_data())
             .chain
@@ -172,7 +172,7 @@ fn test_yield_then_resume_one_block_apart() {
 
     // Allow the yield create to be included and processed.
     for _ in 0..2 {
-        node.run_until_head_height(&mut env.test_loop, next_block_height);
+        node.run_until_executed_height(&mut env.test_loop, next_block_height);
         next_block_height += 1;
     }
     assert_eq!(
@@ -214,13 +214,13 @@ fn test_yield_then_resume_one_block_apart() {
 
     // Allow the yield resume to be included and processed.
     for _ in 0..2 {
-        node.run_until_head_height(&mut env.test_loop, next_block_height);
+        node.run_until_executed_height(&mut env.test_loop, next_block_height);
         next_block_height += 1;
     }
     assert_eq!(get_promise_resume_data_ids_from_latest_block(&env).len(), 1);
 
     // In the next block the callback is executed and the promise resolves to its final result.
-    node.run_until_head_height(&mut env.test_loop, next_block_height);
+    node.run_until_executed_height(&mut env.test_loop, next_block_height);
     assert_eq!(
         node.client(env.test_loop_data())
             .chain
@@ -287,7 +287,7 @@ fn test_yield_then_resume_same_block() {
 
     // Allow the yield create and resume to be included and processed.
     for _ in 0..2 {
-        node.run_until_head_height(&mut env.test_loop, next_block_height);
+        node.run_until_executed_height(&mut env.test_loop, next_block_height);
         next_block_height += 1;
     }
 
@@ -297,7 +297,7 @@ fn test_yield_then_resume_same_block() {
     assert_eq!(get_transaction_hashes_in_latest_block(&env), expected_txs);
 
     // Run one more block to execute the resume callback.
-    node.run_until_head_height(&mut env.test_loop, next_block_height);
+    node.run_until_executed_height(&mut env.test_loop, next_block_height);
 
     let client = node.client(env.test_loop_data());
     if ProtocolFeature::InstantPromiseYield.enabled(PROTOCOL_VERSION) {

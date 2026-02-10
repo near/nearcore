@@ -100,7 +100,11 @@ impl<'a> TestLoopNode<'a> {
 
     pub fn last_executed(&self, test_loop_data: &TestLoopData) -> Arc<Tip> {
         if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-            self.client(test_loop_data).chain.chain_store().spice_execution_head().unwrap()
+            self.client(test_loop_data)
+                .chain
+                .chain_store()
+                .spice_execution_head()
+                .unwrap_or_else(|_| self.client(test_loop_data).chain.head().unwrap())
         } else {
             self.client(test_loop_data).chain.head().unwrap()
         }
@@ -157,6 +161,15 @@ impl<'a> TestLoopNode<'a> {
         self.run_until_head_height_with_timeout(
             test_loop,
             height,
+            self.calculate_block_distance_timeout(&test_loop.data, height_diff),
+        );
+    }
+
+    pub fn run_until_executed_height(&self, test_loop: &mut TestLoopV2, height: BlockHeight) {
+        let initial_height = self.last_executed(&test_loop.data).height;
+        let height_diff = height.saturating_sub(initial_height) as usize;
+        test_loop.run_until(
+            |test_loop_data| self.last_executed(test_loop_data).height >= height,
             self.calculate_block_distance_timeout(&test_loop.data, height_diff),
         );
     }
