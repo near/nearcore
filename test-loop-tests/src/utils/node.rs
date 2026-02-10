@@ -380,6 +380,25 @@ impl<'a> TestLoopNode<'a> {
         );
     }
 
+    /// Triggers store validation via the AdvCheckStorageConsistency adversarial
+    /// message handler. Panics if the store is in an inconsistent state.
+    #[cfg(feature = "test_features")]
+    pub fn validate_store(&self, test_loop_data: &mut TestLoopData) {
+        // TODO(spice): Store validation fails with spice enabled:
+        // "Transaction only header doesn't include prev_state_root"
+        if cfg!(feature = "protocol_feature_spice") {
+            return;
+        }
+        use near_async::messaging::Handler;
+        use near_client::NetworkAdversarialMessage;
+        let client_actor = self.client_actor(test_loop_data);
+        let result = Handler::<NetworkAdversarialMessage, Option<u64>>::handle(
+            client_actor,
+            NetworkAdversarialMessage::AdvCheckStorageConsistency,
+        );
+        assert_ne!(result, Some(0), "store validation failed");
+    }
+
     fn calculate_block_distance_timeout(
         &self,
         test_loop_data: &TestLoopData,

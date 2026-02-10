@@ -74,6 +74,9 @@ fn test_processed_receipt_ids_gc() {
     let [metadata] = &all_metadata[..] else { panic!("expected single receipt metadata") };
     assert_eq!(metadata, &expected_metadata);
 
+    #[cfg(feature = "test_features")]
+    node.validate_store(&mut env.test_loop.data);
+
     // Run enough epochs for GC to clean up the receipt.
     let num_blocks = EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP + 1;
     node.run_for_number_of_blocks(&mut env.test_loop, num_blocks as usize);
