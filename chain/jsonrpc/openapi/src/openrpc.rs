@@ -13,35 +13,39 @@ use schemars::transform::transform_subschemas;
 use serde_json::json;
 
 use near_chain_configs::GenesisConfig;
-use near_jsonrpc_primitives::types::{
-    blocks::{RpcBlockRequest, RpcBlockResponse},
-    changes::{
-        RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
-        RpcStateChangesInBlockRequest, RpcStateChangesInBlockResponse,
-    },
-    chunks::{RpcChunkRequest, RpcChunkResponse},
-    client_config::RpcClientConfigResponse,
-    config::{RpcProtocolConfigRequest, RpcProtocolConfigResponse},
-    congestion::{RpcCongestionLevelRequest, RpcCongestionLevelResponse},
-    gas_price::{RpcGasPriceRequest, RpcGasPriceResponse},
-    light_client::{
-        RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse,
-        RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse,
-        RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse,
-    },
-    maintenance::{RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse},
-    network_info::RpcNetworkInfoResponse,
-    query::{RpcQueryRequest, RpcQueryResponse},
-    receipts::{RpcReceiptRequest, RpcReceiptResponse},
-    split_storage::{RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse},
-    status::{RpcHealthResponse, RpcStatusResponse},
-    transactions::{
-        RpcSendTransactionRequest, RpcTransactionResponse, RpcTransactionStatusRequest,
-    },
-    validator::{
-        RpcValidatorRequest, RpcValidatorResponse, RpcValidatorsOrderedRequest,
-        RpcValidatorsOrderedResponse,
-    },
+use near_jsonrpc_primitives::types::blocks::{RpcBlockRequest, RpcBlockResponse};
+use near_jsonrpc_primitives::types::changes::{
+    RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
+    RpcStateChangesInBlockRequest, RpcStateChangesInBlockResponse,
+};
+use near_jsonrpc_primitives::types::chunks::{RpcChunkRequest, RpcChunkResponse};
+use near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse;
+use near_jsonrpc_primitives::types::config::{RpcProtocolConfigRequest, RpcProtocolConfigResponse};
+use near_jsonrpc_primitives::types::congestion::{
+    RpcCongestionLevelRequest, RpcCongestionLevelResponse,
+};
+use near_jsonrpc_primitives::types::gas_price::{RpcGasPriceRequest, RpcGasPriceResponse};
+use near_jsonrpc_primitives::types::light_client::{
+    RpcLightClientBlockProofRequest, RpcLightClientBlockProofResponse,
+    RpcLightClientExecutionProofRequest, RpcLightClientExecutionProofResponse,
+    RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse,
+};
+use near_jsonrpc_primitives::types::maintenance::{
+    RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse,
+};
+use near_jsonrpc_primitives::types::network_info::RpcNetworkInfoResponse;
+use near_jsonrpc_primitives::types::query::{RpcQueryRequest, RpcQueryResponse};
+use near_jsonrpc_primitives::types::receipts::{RpcReceiptRequest, RpcReceiptResponse};
+use near_jsonrpc_primitives::types::split_storage::{
+    RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
+};
+use near_jsonrpc_primitives::types::status::{RpcHealthResponse, RpcStatusResponse};
+use near_jsonrpc_primitives::types::transactions::{
+    RpcSendTransactionRequest, RpcTransactionResponse, RpcTransactionStatusRequest,
+};
+use near_jsonrpc_primitives::types::validator::{
+    RpcValidatorRequest, RpcValidatorResponse, RpcValidatorsOrderedRequest,
+    RpcValidatorsOrderedResponse,
 };
 use near_primitives::hash::CryptoHash;
 
