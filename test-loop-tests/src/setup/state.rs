@@ -97,6 +97,9 @@ pub struct NodeExecutionData {
     pub cold_store_sender: Option<TestLoopSender<ColdStoreActor>>,
     pub cloud_storage_sender: TestLoopDataHandle<Option<Arc<CloudStorage>>>,
     pub cloud_archival_writer_handle: TestLoopDataHandle<Option<CloudArchivalWriterHandle>>,
+    /// Extra blocks of delay between consensus head and execution head.
+    /// Set by delay_endorsements_propagation to account for certification delay in timeouts.
+    pub execution_delay: u64,
 }
 
 impl From<&NodeExecutionData> for AccountId {
