@@ -146,7 +146,7 @@ impl Chain {
         let header_head = block_head.clone();
         store_update.save_head(&block_head)?;
         store_update.save_final_head(&header_head)?;
-        if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        if ProtocolFeature::Spice.enabled(genesis_protocol_version) {
             store_update.save_spice_execution_head(block_head.clone())?;
             store_update.save_spice_final_execution_head(&block_head)?;
         }
