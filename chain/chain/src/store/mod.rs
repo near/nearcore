@@ -173,7 +173,7 @@ pub trait ChainStoreAccess {
 
     fn get_processed_receipt_ids(
         &self,
-        hash: &CryptoHash,
+        block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<Arc<Vec<ProcessedReceiptMetadata>>, Error>;
 
@@ -1368,15 +1368,15 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 
     fn get_processed_receipt_ids(
         &self,
-        hash: &CryptoHash,
+        block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<Arc<Vec<ProcessedReceiptMetadata>>, Error> {
         if let Some(metadata) =
-            self.chain_store_cache_update.processed_receipt_ids.get(&(*hash, shard_id))
+            self.chain_store_cache_update.processed_receipt_ids.get(&(*block_hash, shard_id))
         {
             Ok(Arc::clone(metadata))
         } else {
-            self.chain_store.get_processed_receipt_ids(hash, shard_id)
+            self.chain_store.get_processed_receipt_ids(block_hash, shard_id)
         }
     }
 
