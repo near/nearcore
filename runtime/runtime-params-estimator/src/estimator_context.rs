@@ -78,7 +78,7 @@ impl<'c> EstimatorContext<'c> {
             self.config.in_memory_db,
         );
         // Ensure decent RocksDB SST file layout.
-        store.compact().expect("compaction failed");
+        store.compact();
 
         assert!(roots.len() <= 1, "Parameter estimation works with one shard only.");
         assert!(!roots.is_empty(), "No state roots found.");
@@ -330,7 +330,7 @@ impl Testbed<'_> {
         // Clear trie access tracker state
         self.apply_state.trie_access_tracker_state = Default::default();
         // Flush out writes hanging in memtable
-        self.tries.store().store().flush().unwrap();
+        self.tries.store().store().flush();
 
         // OS caches:
         // - only required in time based measurements, since ICount looks at syscalls directly.
