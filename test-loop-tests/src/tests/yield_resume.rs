@@ -143,8 +143,6 @@ fn prepare_env() -> TestLoopEnv {
 /// Submit another transaction which reads data_id from state and resumes.
 /// Yield-resume should work.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_yield_then_resume_one_block_apart() {
     let mut env = prepare_env();
     let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
@@ -241,8 +239,6 @@ fn test_yield_then_resume_one_block_apart() {
 /// With the feature everything should work fine.
 /// See https://github.com/near/nearcore/issues/14904, this test reproduces case 2)
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_yield_then_resume_same_block() {
     let mut env = prepare_env();
     let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
