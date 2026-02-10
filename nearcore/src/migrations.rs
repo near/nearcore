@@ -1,13 +1,25 @@
+use std::str::FromStr;
+
 use near_chain::{Error, LatestKnown};
+use near_chain_configs::GenesisConfig;
 use near_epoch_manager::epoch_sync::{
     derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
 };
+use near_primitives::chains::MAINNET;
 use near_primitives::epoch_sync::EpochSyncProof;
-use near_primitives::types::BlockHeightDelta;
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::DelayedReceiptIndices;
+use near_primitives::trie_key::TrieKey;
+use near_primitives::types::{BlockHeightDelta, ShardId, StateChangeCause};
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::trie_store::TrieStoreUpdateAdapter;
 use near_store::db::metadata::{DB_VERSION, DbVersion, MIN_SUPPORTED_DB_VERSION};
 use near_store::db::{ColdDB, DBTransaction, Database};
-use near_store::{DBCol, LATEST_KNOWN_KEY, Store, get_genesis_height};
+use near_store::flat::FlatStorageManager;
+use near_store::{
+    DBCol, LATEST_KNOWN_KEY, ShardTries, ShardUId, StateSnapshotConfig, Store, StoreConfig,
+    TrieConfig, TrieUpdate, get_genesis_height, set,
+};
 
 use crate::NearConfig;
 
@@ -47,9 +59,82 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 &self.config.genesis.config,
                 &self.config.config.store,
             ),
+            47 => migrate_47_to_48(cold_db, &self.config.genesis.config, &self.config.config.store),
             DB_VERSION.. => unreachable!(),
         }
     }
+}
+
+/// Migrates the database from version 47 to 48.
+///
+/// This migration addresses the data loss that occurred during Resharding V2
+/// on March 21, 2024. The backfill process was incomplete, and some data
+/// was still missing at block height 115185108.
+///
+/// Note: This migration applies only to the cold store and is specific
+/// to the mainnet resharding event.
+fn migrate_47_to_48(
+    cold_db: Option<&ColdDB>,
+    genesis_config: &GenesisConfig,
+    store_config: &StoreConfig,
+) -> anyhow::Result<()> {
+    tracing::info!(target: "migrations", "starting migration from DB version 47 to 48");
+
+    let Some(cold_db) = cold_db else {
+        tracing::info!(target: "migrations", "skipping migration 47->48 for hot store only",);
+        return Ok(());
+    };
+
+    // Current migration is targeted only for mainnet
+    if genesis_config.chain_id != MAINNET {
+        tracing::info!(target: "migrations", chain_id = ?genesis_config.chain_id, "skipping migration 47->48",);
+        return Ok(());
+    }
+
+    tracing::info!(target: "migrations", "starting migration 47->48 for cold store");
+
+    let cold_store = cold_db.as_store();
+    let tries = ShardTries::new(
+        cold_store.trie_store(),
+        TrieConfig::from_store_config(store_config),
+        FlatStorageManager::new(cold_store.flat_store()),
+        StateSnapshotConfig::Disabled,
+    );
+
+    let mut cold_store_update = cold_store.trie_store().store_update();
+    recover_shard_1_at_block_height_115185108(&tries, &mut cold_store_update)?;
+    cold_store_update.commit()?;
+    Ok(())
+}
+
+fn recover_shard_1_at_block_height_115185108(
+    tries: &ShardTries,
+    store_update: &mut TrieStoreUpdateAdapter,
+) -> anyhow::Result<()> {
+    let parent_shard_uid = ShardUId::new(2, ShardId::new(1));
+    let child_shard_uid = ShardUId::new(3, ShardId::new(1));
+    let prev_state_root = CryptoHash::from_str("FHagbcDYMBHFe9xc1fpMXBgt54hgnehE4ZLntBevGPRs")
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let new_delayed_receipt_indices =
+        DelayedReceiptIndices { first_index: 23, next_available_index: 23 };
+    let expected_new_state_root =
+        CryptoHash::from_str("8pupvmM9yj2dhSUBHA59epspyxvGzpyQmiwub6BbMwKZ")
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+    let prev_trie = tries.get_trie_for_shard(parent_shard_uid, prev_state_root);
+    let mut trie_update = TrieUpdate::new(prev_trie);
+    set(&mut trie_update, TrieKey::DelayedReceiptIndices, &new_delayed_receipt_indices);
+    trie_update.commit(StateChangeCause::_UnusedReshardingV2);
+    let trie_changes = trie_update.finalize()?.trie_changes;
+    let new_state_root = tries.apply_all(&trie_changes, child_shard_uid, store_update);
+    if new_state_root != expected_new_state_root {
+        return Err(anyhow::anyhow!(
+            "New state root {} does not match expected state root: {}",
+            new_state_root,
+            expected_new_state_root
+        ));
+    }
+    Ok(())
 }
 
 /// This migration does three things:
@@ -57,12 +142,12 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
 /// 2. Generate and save the compressed epoch sync proof
 /// 3. Clear the block headers from genesis to tail in hot_store
 #[allow(dead_code)]
-fn migrate_47_to_48(
+fn migrate_48_to_49(
     hot_store: &Store,
     cold_db: Option<&ColdDB>,
     transaction_validity_period: BlockHeightDelta,
 ) -> anyhow::Result<()> {
-    tracing::info!(target: "migrations", "starting migration from DB version 47 to 48");
+    tracing::info!(target: "migrations", "starting migration from DB version 48 to 49");
 
     if let Some(cold_db) = cold_db {
         copy_block_headers_to_cold_db(hot_store, cold_db)?;

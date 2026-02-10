@@ -8,14 +8,23 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::BlockHeight;
-use near_store::adapter::trie_store::get_shard_uid_mapping;
+use near_primitives::receipt::DelayedReceiptIndices;
+use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::trie_key::TrieKey;
+use near_primitives::types::{BlockHeight, ShardId, StateChangeCause};
+use near_store::adapter::StoreAdapter;
+use near_store::adapter::trie_store::{TrieStoreUpdateAdapter, get_shard_uid_mapping};
 use near_store::archive::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::db::metadata::DbKind;
-use near_store::{COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, ShardUId, TAIL_KEY};
+use near_store::flat::FlatStorageManager;
+use near_store::{
+    COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, ShardTries, ShardUId, StateSnapshotConfig, TAIL_KEY,
+    Trie, TrieConfig, TrieUpdate, get_delayed_receipt_indices, get_promise_yield_indices, set,
+};
 use near_store::{DBCol, NodeStorage, Store, StoreOpener};
 use nearcore::NearConfig;
 use rand::seq::SliceRandom;
+use std::ops::Deref;
 use std::path::Path;
 use std::time::Instant;
 use strum::IntoEnumIterator;
@@ -59,6 +68,8 @@ enum SubCommand {
     /// Modifies cold db from config to be considered not initialized.
     /// Doesn't actually delete any data, except for HEAD and COLD_HEAD in BlockMisc.
     ResetCold(ResetColdCmd),
+    /// Recover tries at prev state roots of the first block in a new shard layout after ReshardingV2.
+    RecoverBoundaryReshardingV2(RecoverBoundaryReshardingV2Cmd),
 }
 
 impl ColdStoreCommand {
@@ -98,6 +109,9 @@ impl ColdStoreCommand {
             SubCommand::PrepareHot(cmd) => cmd.run(&storage, &home_dir, &near_config),
             SubCommand::CheckStateRoot(cmd) => cmd.run(&storage, &epoch_manager),
             SubCommand::ResetCold(cmd) => cmd.run(&storage),
+            SubCommand::RecoverBoundaryReshardingV2(cmd) => {
+                cmd.run(&storage, &home_dir, &near_config)
+            }
         }
     }
 
@@ -762,4 +776,161 @@ impl ResetColdCmd {
         store_update.commit();
         Ok(())
     }
+}
+
+#[derive(clap::Args)]
+struct RecoverBoundaryReshardingV2Cmd {
+    #[clap(long)]
+    // The height of the first block in the new shard layout after ReshardingV2.
+    // The only value for this parameter that has been tested is `115185108`.
+    #[clap(long)]
+    block_height: BlockHeight,
+    // The ID of the child shard that we want to recover.
+    // Currently, the tool supports only shards that have not been split.
+    #[clap(long)]
+    child_shard_id: ShardId,
+}
+
+impl RecoverBoundaryReshardingV2Cmd {
+    pub fn run(
+        self,
+        storage: &NodeStorage,
+        home_dir: &Path,
+        near_config: &NearConfig,
+    ) -> anyhow::Result<()> {
+        let hot_store = storage.get_hot_store();
+        let cold_store = storage
+            .get_cold_store()
+            .ok_or_else(|| anyhow::anyhow!("Cold storage is not configured"))?;
+
+        let split_store = storage.get_split_store().expect("Split store expected on archival node");
+        let epoch_manager = EpochManager::new_arc_handle(
+            split_store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
+        let tries = ShardTries::new(
+            split_store.trie_store(),
+            TrieConfig::from_store_config(&near_config.config.store),
+            FlatStorageManager::new(split_store.flat_store()),
+            StateSnapshotConfig::Disabled,
+        );
+
+        let block_hash_key = get_block_hash_key(&hot_store, self.block_height)?;
+        let block = get_block(&cold_store, block_hash_key)?;
+        let new_shard_layout = epoch_manager.read().get_shard_layout(block.header().epoch_id())?;
+        let parent_shard_id = new_shard_layout.get_parent_shard_id(self.child_shard_id)?;
+        let child_shard_uid =
+            ShardUId::from_shard_id_and_layout(self.child_shard_id, &new_shard_layout);
+        // Chunk which prev_state_root is the trie we want to repair.
+        let chunk = extract_chunk_from_block(&block, &self.child_shard_id)?;
+        // That should be the outcome of our backfilling. If it matches, we are confident we backfilled properly.
+        let expected_new_state_root = chunk.prev_state_root();
+        println!(
+            "Expected child previous state root after resharding: {}",
+            expected_new_state_root
+        );
+
+        let prev_block_hash = chunk.prev_block_hash();
+        let prev_block = cold_store.chain_store().get_block(prev_block_hash)?;
+        let old_shard_layout =
+            epoch_manager.read().get_shard_layout(prev_block.header().epoch_id())?;
+        // The tool is supposed to be called with the first block of the new shard layout.
+        assert_ne!(old_shard_layout, new_shard_layout);
+        let is_shard_split =
+            old_shard_layout.get_children_shards_ids(parent_shard_id).is_some_and(|v| v.len() > 1);
+        // The current version of the recovery tool supports only shards that have not been split.
+        assert!(!is_shard_split);
+        let parent_shard_uid =
+            ShardUId::from_shard_id_and_layout(parent_shard_id, &old_shard_layout);
+        let chunk_extra =
+            cold_store.chunk_store().get_chunk_extra(prev_block_hash, &parent_shard_uid)?;
+        // We expect the trie under `prev_state_root` to be fully available in State.
+        let prev_state_root = chunk_extra.state_root();
+        println!("Parent state root at the end of the resharding epoch: {}", prev_state_root);
+        let prev_trie = tries.get_trie_for_shard(parent_shard_uid, *prev_state_root);
+        let prev_delayed_receipt_indices = get_delayed_receipt_indices(&prev_trie)?;
+        let prev_promise_yield_indices = get_promise_yield_indices(&prev_trie)?;
+        // We use the assumptions below to simplify the code.
+        // These are valid for the height `115185108` for which this recovery tool was originally written.
+        assert_eq!(prev_delayed_receipt_indices.len(), 0);
+        assert_eq!(prev_promise_yield_indices.len(), 0);
+
+        let prev_block_info = cold_store.epoch_store().get_block_info(prev_block_hash)?;
+        let prev_epoch_start =
+            cold_store.chain_store().get_block(prev_block_info.epoch_first_block())?;
+        let prev_epoch_start_chunk = extract_chunk_from_block(&prev_epoch_start, &parent_shard_id)?;
+        let prev_epoch_start_trie =
+            tries.get_trie_for_shard(parent_shard_uid, prev_epoch_start_chunk.prev_state_root());
+        // We know what were delayed receipt indices in the parent shard at the moment before shard split started.
+        let prev_epoch_start_delayed_receipt_indices =
+            get_delayed_receipt_indices(&prev_epoch_start_trie)?;
+        println!(
+            "Parent delayed receipt indices at the start of the resharding epoch: {:?}",
+            prev_epoch_start_delayed_receipt_indices
+        );
+        println!(
+            "Parent delayed receipt indices at the end of the resharding epoch: {:?}",
+            prev_delayed_receipt_indices
+        );
+        assert!(
+            prev_epoch_start_delayed_receipt_indices.first_index
+                <= prev_delayed_receipt_indices.first_index
+        );
+
+        // ReshardingV2 implementation set delayed receipt first index to 0 at children shards.
+        // ReshardingV2 split started one epoch before the new shard layout.
+        // We calculate what was the number of delayed receipts that were applied to the child shard over the epoch.
+        let prev_epoch_processed_delayed_receipt_count = prev_delayed_receipt_indices.first_index
+            - prev_epoch_start_delayed_receipt_indices.first_index;
+
+        let child_delayed_receipt_indices = DelayedReceiptIndices {
+            first_index: prev_epoch_processed_delayed_receipt_count,
+            next_available_index: prev_epoch_processed_delayed_receipt_count,
+        };
+        println!(
+            "Child delayed receipt indices after resharding: {:?}",
+            child_delayed_receipt_indices
+        );
+        let mut cold_store_update = cold_store.trie_store().store_update();
+        // We use child shard uid because this is where we want the backfilling to happen.
+        let new_state_root = Self::apply_delayed_receipt_indices(
+            &tries,
+            prev_trie,
+            &child_shard_uid,
+            &mut cold_store_update,
+            child_delayed_receipt_indices,
+        )?;
+        println!("New state root: {}", new_state_root);
+        // The check below gives us confidence that everything went correctly.
+        assert_eq!(new_state_root, expected_new_state_root);
+        cold_store_update.commit()?;
+        Ok(())
+    }
+
+    fn apply_delayed_receipt_indices(
+        tries: &ShardTries,
+        trie: Trie,
+        shard_uid: &ShardUId,
+        store_update: &mut TrieStoreUpdateAdapter,
+        delayed_receipt_indices: DelayedReceiptIndices,
+    ) -> anyhow::Result<CryptoHash> {
+        let mut trie_update = TrieUpdate::new(trie);
+        set(&mut trie_update, TrieKey::DelayedReceiptIndices, &delayed_receipt_indices);
+        trie_update.commit(StateChangeCause::_UnusedReshardingV2);
+        let trie_changes = trie_update.finalize()?.trie_changes;
+        let new_state_root = tries.apply_all(&trie_changes, *shard_uid, store_update);
+        Ok(new_state_root)
+    }
+}
+
+fn extract_chunk_from_block(block: &Block, shard_id: &ShardId) -> anyhow::Result<ShardChunkHeader> {
+    let chunk = block
+        .chunks()
+        .iter()
+        .find(|chunk| &chunk.shard_id() == shard_id)
+        .ok_or_else(|| anyhow::anyhow!("No chunk with given shard and height"))?
+        .deref()
+        .clone();
+    Ok(chunk)
 }
