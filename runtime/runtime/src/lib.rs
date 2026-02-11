@@ -1931,13 +1931,12 @@ impl Runtime {
                         "gas key transaction failed deposit check, charging gas"
                     );
                     // All prepaid gas is burnt (no receipt created to refund remaining gas).
-                    let total_gas = result.gas_burnt.checked_add(result.gas_remaining).unwrap();
-                    let total_tokens = safe_gas_to_balance(result.receipt_gas_price, total_gas)?;
+                    let total_gas = cost.gas_burnt.checked_add_result(cost.gas_remaining)?;
                     let outcome = ExecutionOutcomeWithId::failed_with_gas_burnt(
                         tx,
                         error,
                         total_gas,
-                        total_tokens,
+                        cost.gas_cost,
                     );
                     (outcome, result)
                 }
