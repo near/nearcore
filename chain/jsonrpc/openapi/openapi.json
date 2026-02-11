@@ -4363,8 +4363,8 @@
       },
       "EpochSyncConfig": {
         "properties": {
-          "epoch_sync_horizon": {
-            "description": "This serves as two purposes: (1) the node will not epoch sync and instead resort to\nheader sync, if the genesis block is within this many blocks from the current block;\n(2) the node will reject an epoch sync proof if the provided proof is for an epoch\nthat is more than this many blocks behind the current block.",
+          "epoch_sync_horizon_num_epochs": {
+            "description": "Number of epochs behind the network head beyond which the node will use\nepoch sync instead of header sync. Also the maximum age (in epochs) of\naccepted epoch sync proofs. At the consumption site, this is multiplied\nby epoch_length to get the horizon in blocks.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
