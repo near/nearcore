@@ -113,11 +113,14 @@ fn recover_shard_1_at_block_height_115185108(
 ) -> anyhow::Result<()> {
     let parent_shard_uid = ShardUId::new(2, ShardId::new(1));
     let child_shard_uid = ShardUId::new(3, ShardId::new(1));
+
+    // cspell:disable-next-line
     let prev_state_root = CryptoHash::from_str("FHagbcDYMBHFe9xc1fpMXBgt54hgnehE4ZLntBevGPRs")
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
     let new_delayed_receipt_indices =
         DelayedReceiptIndices { first_index: 23, next_available_index: 23 };
     let expected_new_state_root =
+    // cspell:disable-next-line
         CryptoHash::from_str("8pupvmM9yj2dhSUBHA59epspyxvGzpyQmiwub6BbMwKZ")
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
