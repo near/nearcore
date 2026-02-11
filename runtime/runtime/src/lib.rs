@@ -2189,7 +2189,10 @@ impl Runtime {
                     receipt_sink,
                     validator_proposals,
                 )?;
-                receipt_sink.track_processed_receipt(receipt.clone(), ReceiptSource::Local);
+                processing_state.processed_receipts.push(ProcessedReceipt {
+                    receipt: receipt.clone(),
+                    source: ReceiptSource::Local,
+                });
             }
         }
 
@@ -2290,7 +2293,9 @@ impl Runtime {
                 receipt_sink,
                 validator_proposals,
             )?;
-            receipt_sink.track_processed_receipt(receipt, ReceiptSource::Delayed);
+            processing_state
+                .processed_receipts
+                .push(ProcessedReceipt { receipt, source: ReceiptSource::Delayed });
         }
         let span = tracing::Span::current();
         span.record("gas_burnt", processing_state.total.gas);
@@ -2502,6 +2507,7 @@ impl Runtime {
             mut state_update,
             delayed_receipts: pending_delayed_receipts,
             prefetcher,
+            processed_receipts,
             ..
         } = processing_state;
         let ProcessReceiptsResult { promise_yield_result, .. } = process_receipts_result;
@@ -2603,8 +2609,8 @@ impl Runtime {
         let bandwidth_scheduler_state_hash =
             receipt_sink.bandwidth_scheduler_output().scheduler_state_hash;
 
-        let (outgoing_receipts, processed_receipts) =
-            receipt_sink.finalize_stats_get_receipts(&mut stats.receipt_sink);
+        let outgoing_receipts =
+            receipt_sink.finalize_stats_get_outgoing_receipts(&mut stats.receipt_sink);
 
         for (receiver_shard_id, receipt_stats) in &stats.receipt_sink.forwarded_receipts {
             metrics::OUTGOING_RECEIPT_GENERATED_TOTAL
@@ -2953,6 +2959,7 @@ impl<'a> ApplyProcessingState<'a> {
             instant_receipts: VecDeque::new(),
             incoming_receipts,
             delayed_receipts,
+            processed_receipts: Vec::new(),
         }
     }
 }
@@ -2976,6 +2983,7 @@ struct ApplyProcessingReceiptState<'a> {
     incoming_receipts: &'a [Receipt],
     delayed_receipts: DelayedReceiptQueueWrapper<'a>,
     pipeline_manager: pipelining::ReceiptPreparationPipeline,
+    processed_receipts: Vec<ProcessedReceipt>,
 }
 
 trait MaybeRefReceipt {
@@ -3143,7 +3151,6 @@ pub mod estimator {
             outgoing_metadatas,
             bandwidth_scheduler_output: BandwidthSchedulerOutput::no_granted_bandwidth(params),
             stats: ReceiptSinkStats::default(),
-            processed_receipts: Vec::new(),
         };
         let info = ReceiptSinkV2Info::new(apply_state.epoch_id, epoch_info_provider)?;
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2WithInfo { info, sink });
@@ -3163,8 +3170,8 @@ pub mod estimator {
             stats,
             epoch_info_provider,
         );
-        let (new_outgoing_receipts, _processed) =
-            receipt_sink.finalize_stats_get_receipts(&mut stats.receipt_sink);
+        let new_outgoing_receipts =
+            receipt_sink.finalize_stats_get_outgoing_receipts(&mut stats.receipt_sink);
         outgoing_receipts.extend(new_outgoing_receipts.into_iter());
         apply_result
     }
