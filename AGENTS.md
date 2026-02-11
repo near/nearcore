@@ -12,3 +12,7 @@
 
 ## Clippy
 - Only run clippy prior to making a commit. It is somewhat expensive.
+
+## OpenAPI Spec
+- Do NOT update the OpenAPI spec unless explicitly asked.
+- When asked, follow the `openapi-spec` recipe in the `Justfile`.
