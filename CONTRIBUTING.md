@@ -82,6 +82,7 @@ following steps when creating a PR:
       - `test` for changes that introduce new tests.
       - `chore` for grunt tasks like updating dependencies.
       - `perf` for performance-related changes and benchmarks.
+      - `revert` for reverting existing PRs.
    - `project` is a short non-capitalized project or area name such as `spice`, `resharding`, `state-sync`, `ci`, etc.
    - `title` should not be capitalized.
    - examples:
