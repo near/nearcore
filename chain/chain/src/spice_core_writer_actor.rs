@@ -99,7 +99,7 @@ impl SpiceCoreWriterActor {
     ) -> Result<StoreUpdate, std::io::Error> {
         let key = get_endorsements_key(block_hash, shard_id, account_id);
         let mut store_update = self.chain_store.store().store_update();
-        store_update.set_ser(DBCol::endorsements(), &key, endorsement)?;
+        store_update.set_ser(DBCol::endorsements(), &key, endorsement);
         Ok(store_update)
     }
 

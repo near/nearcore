@@ -221,10 +221,7 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
     pub fn set(&mut self, shard_uid: ShardUId, key: Vec<u8>, value: Option<FlatStateValue>) {
         let db_key = encode_flat_state_db_key(shard_uid, &key);
         match value {
-            Some(value) => self
-                .store_update
-                .set_ser(DBCol::FlatState, &db_key, &value)
-                .expect("Borsh should not have failed here"),
+            Some(value) => self.store_update.set_ser(DBCol::FlatState, &db_key, &value),
             None => self.store_update.delete(DBCol::FlatState, &db_key),
         }
     }
@@ -234,9 +231,7 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
     }
 
     pub fn set_flat_storage_status(&mut self, shard_uid: ShardUId, status: FlatStorageStatus) {
-        self.store_update
-            .set_ser(DBCol::FlatStorageStatus, &shard_uid.to_bytes(), &status)
-            .expect("Borsh should not have failed here")
+        self.store_update.set_ser(DBCol::FlatStorageStatus, &shard_uid.to_bytes(), &status);
     }
 
     pub fn remove_status(&mut self, shard_uid: ShardUId) {
@@ -246,12 +241,8 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
     pub fn set_delta(&mut self, shard_uid: ShardUId, delta: &FlatStateDelta) {
         let key =
             KeyForFlatStateDelta { shard_uid, block_hash: delta.metadata.block.hash }.to_bytes();
-        self.store_update
-            .set_ser(DBCol::FlatStateChanges, &key, &delta.changes)
-            .expect("Borsh should not have failed here");
-        self.store_update
-            .set_ser(DBCol::FlatStateDeltaMetadata, &key, &delta.metadata)
-            .expect("Borsh should not have failed here");
+        self.store_update.set_ser(DBCol::FlatStateChanges, &key, &delta.changes);
+        self.store_update.set_ser(DBCol::FlatStateDeltaMetadata, &key, &delta.metadata);
     }
 
     pub fn remove_delta(&mut self, shard_uid: ShardUId, block_hash: CryptoHash) {

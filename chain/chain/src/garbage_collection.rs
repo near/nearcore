@@ -1072,7 +1072,7 @@ impl<'a> ChainStoreUpdate<'a> {
         if epoch_to_hashes.is_empty() {
             store_update.delete(DBCol::BlockPerHeight, key);
         } else {
-            store_update.set_ser(DBCol::BlockPerHeight, key, &epoch_to_hashes)?;
+            store_update.set_ser(DBCol::BlockPerHeight, key, &epoch_to_hashes);
         }
         if self.is_height_processed(height) {
             self.gc_col(DBCol::ProcessedBlockHeights, key);

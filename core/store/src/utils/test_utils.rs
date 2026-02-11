@@ -206,13 +206,11 @@ impl TestTriesBuilder {
             let chunk_extra = ChunkExtra::new_with_only_state_root(&Trie::EMPTY_ROOT);
             let mut update_for_chunk_extra = store.store_update();
             for shard_uid in &shard_uids {
-                update_for_chunk_extra
-                    .set_ser(
-                        DBCol::ChunkExtra,
-                        &get_block_shard_uid(&CryptoHash::default(), shard_uid),
-                        &chunk_extra,
-                    )
-                    .unwrap();
+                update_for_chunk_extra.set_ser(
+                    DBCol::ChunkExtra,
+                    &get_block_shard_uid(&CryptoHash::default(), shard_uid),
+                    &chunk_extra,
+                );
             }
             update_for_chunk_extra.commit();
 

@@ -268,7 +268,7 @@ impl ChainStateSyncAdapter {
 
         // Saving the header data
         let mut store_update = self.chain_store.store().store_update();
-        store_update.set_ser(DBCol::StateHeaders, &key, &shard_state_header)?;
+        store_update.set_ser(DBCol::StateHeaders, &key, &shard_state_header);
         store_update.commit();
 
         Ok(shard_state_header)
@@ -519,7 +519,7 @@ impl ChainStateSyncAdapter {
         // Saving the header data.
         let mut store_update = self.chain_store.store().store_update();
         let key = borsh::to_vec(&StateHeaderKey(shard_id, sync_hash))?;
-        store_update.set_ser(DBCol::StateHeaders, &key, &shard_state_header)?;
+        store_update.set_ser(DBCol::StateHeaders, &key, &shard_state_header);
         store_update.commit();
 
         Ok(())

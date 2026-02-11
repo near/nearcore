@@ -678,9 +678,11 @@ mod tests {
             let mut chain_store_update = runtime.store().store_update();
             let chunk_extra = ChunkExtra::new_with_only_state_root(&parent_root);
             let block_shard_uid = get_block_shard_uid(&parent_root, &parent_shard);
-            chain_store_update
-                .set_ser(near_store::DBCol::ChunkExtra, &block_shard_uid, &chunk_extra)
-                .unwrap();
+            chain_store_update.set_ser(
+                near_store::DBCol::ChunkExtra,
+                &block_shard_uid,
+                &chunk_extra,
+            );
             chain_store_update.commit();
 
             // Now unload the parent memtrie, so the test can verify

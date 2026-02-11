@@ -420,16 +420,10 @@ impl StoreUpdate {
     ///
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
-    pub fn set_ser<T: BorshSerialize + ?Sized>(
-        &mut self,
-        column: DBCol,
-        key: &[u8],
-        value: &T,
-    ) -> io::Result<()> {
+    pub fn set_ser<T: BorshSerialize + ?Sized>(&mut self, column: DBCol, key: &[u8], value: &T) {
         assert!(!(column.is_rc() || column.is_insert_only()), "can't set_ser: {column}");
-        let data = borsh::to_vec(&value)?;
+        let data = borsh::to_vec(&value).expect("borsh serialization should not fail");
         self.set(column, key, &data);
-        Ok(())
     }
 
     /// Modify raw value stored in the database, without doing any sanity checks
@@ -692,7 +686,7 @@ mod tests {
 
     fn set_and_write(store: &Store, key: &[u8], val: u64) {
         let mut su = store.store_update();
-        su.set_ser(COL, key, &val).unwrap();
+        su.set_ser(COL, key, &val);
         store.write(su.transaction);
     }
 

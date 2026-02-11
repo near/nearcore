@@ -539,9 +539,11 @@ mod tests {
     ) {
         let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
         let mut store_update = store.store_update();
-        store_update
-            .set_ser(DBCol::ChunkExtra, &get_block_shard_uid(&block_hash, &shard_uid), &chunk_extra)
-            .unwrap();
+        store_update.set_ser(
+            DBCol::ChunkExtra,
+            &get_block_shard_uid(&block_hash, &shard_uid),
+            &chunk_extra,
+        );
         store_update.commit();
     }
 }
