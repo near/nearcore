@@ -9,7 +9,7 @@ use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV0};
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource};
 use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
     ArcedShardChunk, ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk,
@@ -170,6 +170,12 @@ pub trait ChainStoreAccess {
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<Arc<Vec<Receipt>>, Error>;
+
+    fn get_processed_receipt_ids(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Arc<Vec<ProcessedReceiptMetadata>>, Error>;
 
     fn get_incoming_receipts(
         &self,
@@ -976,6 +982,14 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_outgoing_receipts(self, prev_block_hash, shard_id)
     }
 
+    fn get_processed_receipt_ids(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Arc<Vec<ProcessedReceiptMetadata>>, Error> {
+        ChainStoreAdapter::get_processed_receipt_ids(self, block_hash, shard_id)
+    }
+
     fn get_incoming_receipts(
         &self,
         block_hash: &CryptoHash,
@@ -1042,6 +1056,8 @@ pub(crate) struct ChainStoreCacheUpdate {
     next_block_hashes: HashMap<CryptoHash, CryptoHash>,
     epoch_light_client_blocks: HashMap<CryptoHash, Arc<LightClientBlockView>>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<Receipt>>>,
+    processed_receipt_ids: HashMap<(CryptoHash, ShardId), Arc<Vec<ProcessedReceiptMetadata>>>,
+    processed_receipts_to_save: Vec<Receipt>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<ReceiptProof>>>,
     outcomes: HashMap<(CryptoHash, CryptoHash), ExecutionOutcomeWithProof>,
     outcome_ids: HashMap<(CryptoHash, ShardId), Vec<CryptoHash>>,
@@ -1349,6 +1365,20 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(Arc::clone(receipts))
         } else {
             self.chain_store.get_outgoing_receipts(hash, shard_id)
+        }
+    }
+
+    fn get_processed_receipt_ids(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Arc<Vec<ProcessedReceiptMetadata>>, Error> {
+        if let Some(metadata) =
+            self.chain_store_cache_update.processed_receipt_ids.get(&(*block_hash, shard_id))
+        {
+            Ok(Arc::clone(metadata))
+        } else {
+            self.chain_store.get_processed_receipt_ids(block_hash, shard_id)
         }
     }
 
@@ -1667,6 +1697,24 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert((*hash, shard_id), Arc::new(outgoing_receipts));
     }
 
+    pub fn save_processed_receipt_ids(
+        &mut self,
+        hash: &CryptoHash,
+        shard_id: ShardId,
+        receipts: Vec<(Receipt, ReceiptSource)>,
+    ) {
+        let metadata: Vec<ProcessedReceiptMetadata> = receipts
+            .iter()
+            .map(|(r, source)| ProcessedReceiptMetadata::new(*r.receipt_id(), source.clone()))
+            .collect();
+        self.chain_store_cache_update
+            .processed_receipts_to_save
+            .extend(receipts.into_iter().map(|(r, _)| r));
+        self.chain_store_cache_update
+            .processed_receipt_ids
+            .insert((*hash, shard_id), Arc::new(metadata));
+    }
+
     pub fn save_incoming_receipt(
         &mut self,
         hash: &CryptoHash,
@@ -1983,17 +2031,9 @@ impl<'a> ChainStoreUpdate<'a> {
                     partial_chunk,
                 )?;
 
-                // We'd like the Receipts column to be exactly the same collection of receipts as
-                // the partial encoded chunks. This way, if we only track a subset of shards, we
-                // can still have all the incoming receipts for the shards we do track.
                 for receipts in partial_chunk.prev_outgoing_receipts() {
                     for receipt in &receipts.0 {
-                        let bytes = borsh::to_vec(&receipt).expect("Borsh cannot fail");
-                        store_update.increment_refcount(
-                            DBCol::Receipts,
-                            receipt.get_hash().as_ref(),
-                            &bytes,
-                        );
+                        save_receipt(&mut store_update, receipt);
                     }
                 }
             }
@@ -2019,9 +2059,7 @@ impl<'a> ChainStoreUpdate<'a> {
             )?;
         }
         {
-            let _span =
-                tracing::trace_span!(target: "store", "write_incoming_and_outgoing_receipts")
-                    .entered();
+            let _span = tracing::trace_span!(target: "store", "write receipts").entered();
 
             for ((block_hash, shard_id), receipt) in
                 &self.chain_store_cache_update.outgoing_receipts
@@ -2040,6 +2078,19 @@ impl<'a> ChainStoreUpdate<'a> {
                     &get_block_shard_id(block_hash, *shard_id),
                     receipt,
                 )?;
+            }
+
+            for ((block_hash, shard_id), metadata) in
+                &self.chain_store_cache_update.processed_receipt_ids
+            {
+                store_update.set_ser(
+                    DBCol::ProcessedReceiptIds,
+                    &get_block_shard_id(block_hash, *shard_id),
+                    metadata,
+                )?;
+            }
+            for receipt in &self.chain_store_cache_update.processed_receipts_to_save {
+                save_receipt(&mut store_update, receipt);
             }
         }
 
@@ -2212,6 +2263,11 @@ impl<'a> ChainStoreUpdate<'a> {
         store_update.commit();
         Ok(())
     }
+}
+
+fn save_receipt(store_update: &mut StoreUpdate, receipt: &Receipt) {
+    let bytes = borsh::to_vec(&receipt).expect("borsh cannot fail");
+    store_update.increment_refcount(DBCol::Receipts, receipt.get_hash().as_ref(), &bytes);
 }
 
 #[cfg(test)]

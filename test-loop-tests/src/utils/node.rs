@@ -22,6 +22,8 @@ use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponse,
     QueryResponseKind,
 };
+use near_store::Store;
+use near_store::adapter::StoreAdapter as _;
 
 use crate::setup::state::NodeExecutionData;
 use crate::utils::account::rpc_account_id;
@@ -76,6 +78,10 @@ impl<'a> TestLoopNode<'a> {
         &test_loop_data.get(&client_handle).client
     }
 
+    pub fn store(&self, test_loop_data: &TestLoopData) -> Store {
+        self.client(test_loop_data).chain.chain_store.store().store()
+    }
+
     pub fn client_actor<'b>(&self, test_loop_data: &'b mut TestLoopData) -> &'b mut ClientActor {
         let client_handle = self.data().client_sender.actor_handle();
         test_loop_data.get_mut(&client_handle)
@@ -128,18 +134,25 @@ impl<'a> TestLoopNode<'a> {
             .collect()
     }
 
-    pub fn execution_outcome(
+    pub fn execution_outcome_with_proof(
         &self,
         test_loop_data: &TestLoopData,
         tx_hash_or_receipt_id: CryptoHash,
-    ) -> ExecutionOutcomeWithId {
+    ) -> ExecutionOutcomeWithIdAndProof {
         self.client(test_loop_data)
             .chain
             .get_execution_outcome(&tx_hash_or_receipt_id)
             .unwrap_or_else(|err| {
                 panic!("outcome with id {tx_hash_or_receipt_id} is not available: {err}")
             })
-            .outcome_with_id
+    }
+
+    pub fn execution_outcome(
+        &self,
+        test_loop_data: &TestLoopData,
+        tx_hash_or_receipt_id: CryptoHash,
+    ) -> ExecutionOutcomeWithId {
+        self.execution_outcome_with_proof(test_loop_data, tx_hash_or_receipt_id).outcome_with_id
     }
 
     pub fn tx_receipt_id(&self, test_loop_data: &TestLoopData, tx_hash: CryptoHash) -> CryptoHash {
@@ -361,6 +374,25 @@ impl<'a> TestLoopNode<'a> {
                 client_sender.send(message);
             },
         );
+    }
+
+    /// Triggers store validation via the AdvCheckStorageConsistency adversarial
+    /// message handler. Panics if the store is in an inconsistent state.
+    #[cfg(feature = "test_features")]
+    pub fn validate_store(&self, test_loop_data: &mut TestLoopData) {
+        // TODO(spice): Store validation fails with spice enabled:
+        // "Transaction only header doesn't include prev_state_root"
+        if cfg!(feature = "protocol_feature_spice") {
+            return;
+        }
+        use near_async::messaging::Handler;
+        use near_client::NetworkAdversarialMessage;
+        let client_actor = self.client_actor(test_loop_data);
+        let result = Handler::<NetworkAdversarialMessage, Option<u64>>::handle(
+            client_actor,
+            NetworkAdversarialMessage::AdvCheckStorageConsistency,
+        );
+        assert_ne!(result, Some(0), "store validation failed");
     }
 
     fn calculate_block_distance_timeout(

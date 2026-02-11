@@ -763,6 +763,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for shard_id in shard_layout.shard_ids() {
             let block_shard_id = get_block_shard_id(&block_hash, shard_id);
             self.gc_outgoing_receipts(&block_hash, shard_id);
+            self.gc_processed_receipt_ids(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
             self.gc_col(DBCol::ChunkApplyStats, &block_shard_id);
 
@@ -957,6 +958,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
             // delete Receipts
             self.gc_outgoing_receipts(&block_hash, shard_id);
+            self.gc_processed_receipt_ids(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
 
             self.gc_col(DBCol::StateTransitionData, &block_shard_id);
@@ -1100,6 +1102,14 @@ impl<'a> ChainStoreUpdate<'a> {
         self.merge(store_update);
     }
 
+    fn gc_processed_receipt_ids(&mut self, block_hash: &CryptoHash, shard_id: ShardId) {
+        let Ok(metadata) = self.get_processed_receipt_ids(block_hash, shard_id) else { return };
+        for entry in metadata.as_ref() {
+            self.gc_col(DBCol::Receipts, entry.receipt_id().as_bytes());
+        }
+        self.gc_col(DBCol::ProcessedReceiptIds, &get_block_shard_id(block_hash, shard_id));
+    }
+
     fn gc_outcomes(&mut self, block: &Block) -> Result<(), Error> {
         let block_hash = block.hash();
         let store_update = self.store().store_update();
@@ -1224,6 +1234,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::ChunkApplyStats => {
+                store_update.delete(col, key);
+            }
+            DBCol::ProcessedReceiptIds => {
                 store_update.delete(col, key);
             }
             #[cfg(feature = "protocol_feature_spice")]
