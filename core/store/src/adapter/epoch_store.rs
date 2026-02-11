@@ -1,5 +1,3 @@
-use std::io;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
@@ -128,9 +126,9 @@ impl Into<StoreUpdate> for EpochStoreUpdateAdapter<'static> {
 }
 
 impl EpochStoreUpdateAdapter<'static> {
-    pub fn commit(self) -> io::Result<()> {
+    pub fn commit(self) {
         let store_update: StoreUpdate = self.into();
-        store_update.commit()
+        store_update.commit();
     }
 }
 

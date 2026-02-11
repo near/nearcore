@@ -26,7 +26,7 @@ pub(crate) fn setup_account(
     let trie_changes = state_update.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     tries.new_trie_update(ShardUId::single_shard(), root)
 }

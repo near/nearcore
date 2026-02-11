@@ -414,7 +414,7 @@ mod tests {
             FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: chain.get_block(0) }),
         );
         store_update.set(shard_uid, test_key.to_vec(), Some(FlatStateValue::inlined(&test_val0)));
-        store_update.commit().unwrap();
+        store_update.commit();
 
         // Populate the initial trie at block 0 too.
         let state_root_0 = test_populate_trie(
@@ -524,7 +524,7 @@ mod tests {
                 .unwrap()
                 .into(),
         );
-        store_update.commit().unwrap();
+        store_update.commit();
 
         trie_changes.new_root
     }
@@ -542,6 +542,6 @@ mod tests {
         store_update
             .set_ser(DBCol::ChunkExtra, &get_block_shard_uid(&block_hash, &shard_uid), &chunk_extra)
             .unwrap();
-        store_update.commit().unwrap();
+        store_update.commit();
     }
 }

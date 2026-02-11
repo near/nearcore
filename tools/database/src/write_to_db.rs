@@ -53,6 +53,7 @@ impl WriteCryptoHashCommand {
             },
         }
 
-        Ok(store_update.commit()?)
+        store_update.commit();
+        Ok(())
     }
 }

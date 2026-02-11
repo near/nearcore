@@ -4195,6 +4195,14 @@
         ],
         "type": "object"
       },
+      "DepositCostFailureReason": {
+        "description": "Reason why a gas key transaction failed at the deposit/account level.\nIn these cases, gas is still charged from the gas key.",
+        "enum": [
+          "NotEnoughBalance",
+          "LackBalanceForState"
+        ],
+        "type": "string"
+      },
       "DetailedDebugStatus": {
         "properties": {
           "block_production_delay_millis": {
@@ -8560,6 +8568,39 @@
             },
             "required": [
               "NotEnoughGasKeyBalance"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key transaction failed because the account could not cover the deposit cost.\nGas is still charged from the gas key in this case.",
+            "properties": {
+              "NotEnoughBalanceForDeposit": {
+                "properties": {
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "cost": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "reason": {
+                    "$ref": "#/components/schemas/DepositCostFailureReason"
+                  },
+                  "signer_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "signer_id",
+                  "balance",
+                  "cost",
+                  "reason"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "NotEnoughBalanceForDeposit"
             ],
             "type": "object"
           }
@@ -16890,7 +16931,8 @@
           },
           {
             "$ref": "#/components/schemas/FinalExecutionOutcomeView"
-          }
+          },
+          {}
         ],
         "properties": {
           "final_execution_status": {
@@ -17005,12 +17047,6 @@
       "RpcValidatorRequest": {
         "oneOf": [
           {
-            "enum": [
-              "latest"
-            ],
-            "type": "string"
-          },
-          {
             "properties": {
               "epoch_id": {
                 "$ref": "#/components/schemas/EpochId"
@@ -17029,6 +17065,20 @@
             },
             "required": [
               "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "latest": {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            },
+            "required": [
+              "latest"
             ],
             "type": "object"
           }

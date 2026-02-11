@@ -417,7 +417,7 @@ impl SpiceCoreWriterActor {
         let store_update = self
             .record_chunk_endorsements_with_block(&block, vec![endorsement])
             .map_err(ProcessChunkError::RecordWithBlock)?;
-        store_update.commit()?;
+        store_update.commit();
         // We record endorsement even when execution result is known to allow it being included on
         // chain when execution result isn't endorsed on chain yet.
         // However since we already know about execution result for this endorsement there should
@@ -531,7 +531,7 @@ impl SpiceCoreWriterActor {
         let block = self.chain_store.get_block(&block_hash).unwrap();
         // Since block was already processed we know it's valid so can record it in core state.
         let store_update = self.record_block_core_statements(&block)?;
-        store_update.commit()?;
+        store_update.commit();
         self.send_execution_result_endorsements(&block);
         Ok(())
     }

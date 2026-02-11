@@ -5,13 +5,13 @@ use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt};
 use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunk, StateSyncInfo};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, EpochId};
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_store::{
     CHUNK_TAIL_KEY, DBCol, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY, TAIL_KEY, TrieChanges,
@@ -312,6 +312,23 @@ pub(crate) fn partial_chunk_receipts_exist_in_receipts(
             // This is verified later when we verify the Receipts column.
             *sv.inner.receipt_refcount.entry(*receipt.receipt_id()).or_insert(0) += 1;
         }
+    }
+    Ok(())
+}
+
+pub(crate) fn processed_receipt_ids_exist_in_receipts(
+    sv: &mut StoreValidator,
+    _key: &(CryptoHash, ShardId),
+    metadata: &[ProcessedReceiptMetadata],
+) -> Result<(), StoreValidatorError> {
+    for entry in metadata {
+        let receipt_id = entry.receipt_id();
+        unwrap_or_err_db!(
+            sv.store.get_ser::<Receipt>(DBCol::Receipts, receipt_id.as_bytes()),
+            "ProcessedReceiptIds references {:?} but it doesn't exist in Receipts column",
+            receipt_id
+        );
+        *sv.inner.receipt_refcount.entry(*receipt_id).or_insert(0) += 1;
     }
     Ok(())
 }

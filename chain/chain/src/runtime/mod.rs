@@ -53,7 +53,7 @@ use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, ValidatorAccountsUpdate,
+    ApplyState, Runtime, SignedValidPeriodTransactions, TxVerdict, ValidatorAccountsUpdate,
     get_signer_and_access_key, validate_transaction, verify_and_charge_gas_key_tx_ephemeral,
     verify_and_charge_tx_ephemeral,
 };
@@ -357,6 +357,7 @@ impl NightshadeRuntime {
             total_balance_burnt,
             proof: apply_result.proof,
             processed_delayed_receipts: apply_result.processed_delayed_receipts,
+            processed_local_receipts: apply_result.processed_local_receipts,
             processed_yield_timeouts: apply_result.processed_yield_timeouts,
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
             congestion_info: apply_result.congestion_info,
@@ -393,7 +394,7 @@ impl NightshadeRuntime {
         // is finished we can check the store kind. It's only set to hot after the
         // migration is finished. If the migration has not finished yet, we expect
         // the GC not to run regardless of what we return here.
-        let kind = self.store.get_db_kind()?;
+        let kind = self.store.get_db_kind();
         if let Some(DbKind::Hot) = kind {
             let Some(cold_head_epoch_start_height) = get_epoch_start_height_from_archival_head(
                 &self.store,
@@ -680,7 +681,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = shard_layout
             .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
-        let (mut signer, mut access_key) = get_signer_and_access_key(&trie, &validated_tx)?;
+        let (signer, mut access_key) = get_signer_and_access_key(&trie, &validated_tx)?;
         // Here we do not know which block the transaction will be included and
         // therefore use `None` as `block_height` to skip the check on the nonce
         // upper bound.
@@ -697,27 +698,33 @@ impl RuntimeAdapter for NightshadeRuntime {
                             num_nonces,
                         }
                     })?;
-            verify_and_charge_gas_key_tx_ephemeral(
+            match verify_and_charge_gas_key_tx_ephemeral(
                 runtime_config,
-                &mut signer,
-                &mut access_key,
+                &signer,
+                &access_key,
                 current_nonce,
                 &tx,
                 &cost,
                 block_height,
-            )
-            .map(|_vr| ())
+            ) {
+                TxVerdict::Success(_) => Ok(()),
+                TxVerdict::DepositFailed { error, .. } | TxVerdict::Failed(error) => Err(error),
+            }
         } else {
-            verify_and_charge_tx_ephemeral(
+            match verify_and_charge_tx_ephemeral(
                 runtime_config,
-                &mut signer,
+                &signer,
                 &mut access_key,
                 &tx,
                 &cost,
                 block_height,
                 current_protocol_version,
-            )
-            .map(|_vr| ())
+            ) {
+                TxVerdict::Success(_) => Ok(()),
+                TxVerdict::Failed(error) => Err(error),
+                // verify_and_charge_tx_ephemeral never returns DepositFailed.
+                TxVerdict::DepositFailed { .. } => unreachable!(),
+            }
         }
     }
 
@@ -827,7 +834,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let transactions_gas_limit = chunk_tx_gas_limit(runtime_config, &prev_block, shard_id);
 
-        let mut result = PreparedTransactions::new();
+        let mut prepared_transactions = PreparedTransactions::new();
         let mut skipped_transactions = Vec::new();
         let mut num_checked_transactions = 0;
 
@@ -840,17 +847,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         // Add new transactions to the result until some limit is hit or the transactions run out.
         'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next() {
             if total_gas_burnt >= transactions_gas_limit {
-                result.limited_by = PrepareTransactionsLimit::Gas;
+                prepared_transactions.limited_by = PrepareTransactionsLimit::Gas;
                 break;
             }
             if total_size >= size_limit {
-                result.limited_by = PrepareTransactionsLimit::Size;
+                prepared_transactions.limited_by = PrepareTransactionsLimit::Size;
                 break;
             }
 
             if let Some(time_limit) = &time_limit {
                 if start_time.elapsed() >= *time_limit {
-                    result.limited_by = PrepareTransactionsLimit::Time;
+                    prepared_transactions.limited_by = PrepareTransactionsLimit::Time;
                     break;
                 }
             }
@@ -858,13 +865,13 @@ impl RuntimeAdapter for NightshadeRuntime {
             if state_update.recorded_storage_size() as u64
                 > runtime_config.witness_config.new_transactions_validation_state_size_soft_limit
             {
-                result.limited_by = PrepareTransactionsLimit::StorageProofSize;
+                prepared_transactions.limited_by = PrepareTransactionsLimit::StorageProofSize;
                 break;
             }
 
             if let Some(cancel) = &cancel {
                 if cancel.load(Ordering::Relaxed) {
-                    result.limited_by = PrepareTransactionsLimit::Cancelled;
+                    prepared_transactions.limited_by = PrepareTransactionsLimit::Cancelled;
                     break;
                 }
             }
@@ -884,7 +891,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             while let Some(tx_peek) = transaction_group_iter.peek_next() {
                 // Stop adding transactions if the size limit would be exceeded
                 if total_size.saturating_add(tx_peek.get_size()) > size_limit as u64 {
-                    result.limited_by = PrepareTransactionsLimit::Size;
+                    prepared_transactions.limited_by = PrepareTransactionsLimit::Size;
                     break 'add_txs_loop;
                 }
 
@@ -971,11 +978,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                         continue;
                     }
                 };
-                let verify_result = if let Some((_, current_nonce)) = cache.gas_key_nonce {
+                let verdict = if let Some((_, current_nonce)) = cache.gas_key_nonce {
                     verify_and_charge_gas_key_tx_ephemeral(
                         runtime_config,
-                        &mut cache.account,
-                        &mut cache.access_key,
+                        &cache.account,
+                        &cache.access_key,
                         current_nonce,
                         validated_tx.to_tx(),
                         &cost,
@@ -984,7 +991,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 } else {
                     verify_and_charge_tx_ephemeral(
                         runtime_config,
-                        &mut cache.account,
+                        &cache.account,
                         &mut cache.access_key,
                         validated_tx.to_tx(),
                         &cost,
@@ -992,24 +999,21 @@ impl RuntimeAdapter for NightshadeRuntime {
                         protocol_version,
                     )
                 };
-                // Update cached gas key nonce for subsequent transactions
-                if let Ok(ref vr) = verify_result {
-                    if let Some(update) = vr.gas_key_nonce_update {
-                        cache.gas_key_nonce = Some(update);
-                    }
-                }
-
-                match verify_result {
-                    Ok(cost) => {
+                match verdict {
+                    TxVerdict::Success(result) => {
+                        result.apply(&mut cache.account, &mut cache.access_key);
+                        if let Some(update) = result.gas_key_nonce_update() {
+                            cache.gas_key_nonce = Some(update);
+                        }
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
-                        total_gas_burnt = total_gas_burnt.checked_add(cost.gas_burnt).unwrap();
+                        total_gas_burnt = total_gas_burnt.checked_add(result.gas_burnt).unwrap();
                         total_size += validated_tx.get_size();
-                        result.transactions.push(validated_tx);
+                        prepared_transactions.transactions.push(validated_tx);
                         // Take one transaction from this group, no more.
                         break;
                     }
-                    Err(err) => {
-                        tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), ?err, "discarding transaction that failed verification or verification");
+                    TxVerdict::DepositFailed { error, .. } | TxVerdict::Failed(error) => {
+                        tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), ?error, "discarding transaction that failed validation or verification");
                         rejected_invalid_tx += 1;
                     }
                 }
@@ -1041,7 +1045,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         span.record(
             "prepared_transactions_num",
-            tracing::field::display(result.transactions.len()),
+            tracing::field::display(prepared_transactions.transactions.len()),
         );
         span.record(
             "skipped_transactions_num",
@@ -1056,7 +1060,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         // NOTE: this state update must not be committed or finalized!
         drop(state_update);
-        tracing::debug!(target: "runtime", limited_by = ?result.limited_by, valid_count = %result.transactions.len(), %num_checked_transactions, "transaction filtering results");
+        tracing::debug!(target: "runtime", limited_by = ?prepared_transactions.limited_by, valid_count = %prepared_transactions.transactions.len(), %num_checked_transactions, "transaction filtering results");
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
         metrics::PREPARE_TX_REJECTED
@@ -1074,7 +1078,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         metrics::CONGESTION_PREPARE_TX_GAS_LIMIT
             .with_label_values(&[&shard_label])
             .set(i64::try_from(transactions_gas_limit.as_gas()).unwrap_or(i64::MAX));
-        Ok((result, SkippedTransactions(skipped_transactions)))
+        Ok((prepared_transactions, SkippedTransactions(skipped_transactions)))
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
@@ -1427,7 +1431,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         //       Optimize taking into account that flat state values always correspond to a consecutive range of keys.
         flat_state_delta.apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
         self.precompile_contracts(epoch_id, contract_codes)?;
-        Ok(store_update.commit()?)
+        store_update.commit();
+        Ok(())
     }
 
     /// `block_hash` is a block whose `prev_state_root` is `state_root`

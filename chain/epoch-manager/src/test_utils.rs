@@ -128,6 +128,7 @@ pub fn epoch_info_with_num_seats(
         TEST_SEED,
         validator_mandates,
         shard_layout,
+        None,
     )
 }
 
@@ -354,8 +355,7 @@ pub fn record_block_with_final_block_hash(
             [0; 32],
         )
         .unwrap()
-        .commit()
-        .unwrap();
+        .commit();
 }
 
 pub fn record_block(
@@ -409,8 +409,7 @@ pub fn record_block_with_version(
             [0; 32],
         )
         .unwrap()
-        .commit()
-        .unwrap();
+        .commit();
 }
 
 pub fn record_blocks<F>(
@@ -467,5 +466,5 @@ pub fn block_info(
 }
 
 pub fn record_with_block_info(epoch_manager: &mut EpochManager, block_info: BlockInfo) {
-    epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
+    epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit();
 }

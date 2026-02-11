@@ -922,7 +922,7 @@ fn test_incoming_partial_data_for_already_known_receipts() {
     let receipt_proof = new_test_receipt_proof(&block);
     let mut store_update = chain.chain_store.store().store_update();
     save_receipt_proof(&mut store_update, block.hash(), &receipt_proof).unwrap();
-    store_update.commit().unwrap();
+    store_update.commit();
     let (incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
@@ -1573,7 +1573,7 @@ fn test_not_requesting_receipts_we_already_have_on_start() {
         &ReceiptProof(vec![], ShardProof { from_shard_id, to_shard_id, proof: vec![] }),
     )
     .unwrap();
-    store_update.commit().unwrap();
+    store_update.commit();
 
     save_final_execution_head(&mut chain, &block);
 
@@ -1941,7 +1941,7 @@ fn test_handling_partial_data_request_with_receipts_in_store() {
     let receipt_proof = new_test_receipt_proof(&block);
     let mut store_update = chain.chain_store.store().store_update();
     save_receipt_proof(&mut store_update, block.hash(), &receipt_proof).unwrap();
-    store_update.commit().unwrap();
+    store_update.commit();
     let producer = producers_of_receipt_proof(&chain, &block, &receipt_proof).swap_remove(0);
     let (_incoming_data, recipient) = receipt_proof_incoming_data(&chain, &block);
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
@@ -2053,7 +2053,7 @@ fn test_requesting_receipts_when_not_validator() {
     let receipt_proof = new_test_receipt_proof(&block);
     let mut store_update = chain.chain_store.store().store_update();
     save_receipt_proof(&mut store_update, block.hash(), &receipt_proof).unwrap();
-    store_update.commit().unwrap();
+    store_update.commit();
 
     let producer = producers_of_receipt_proof(&chain, &block, &receipt_proof).swap_remove(0);
     let data_id = SpiceDataIdentifier::ReceiptProof {

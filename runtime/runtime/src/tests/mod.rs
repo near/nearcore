@@ -112,7 +112,7 @@ fn test_get_account_from_trie() {
     let trie_changes = state_update.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
     let new_root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
     let new_state_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
     let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
     assert_eq!(test_account, get_res);

@@ -201,9 +201,9 @@ impl Into<StoreUpdate> for FlatStoreUpdateAdapter<'static> {
 }
 
 impl FlatStoreUpdateAdapter<'static> {
-    pub fn commit(self) -> io::Result<()> {
+    pub fn commit(self) {
         let store_update: StoreUpdate = self.into();
-        store_update.commit()
+        store_update.commit();
     }
 }
 
@@ -324,7 +324,7 @@ mod tests {
                 Some(FlatStateValue::inlined(&val)),
             );
 
-            store_update.commit().unwrap();
+            store_update.commit();
         }
 
         for (i, shard_uid) in shard_uids.iter().enumerate() {

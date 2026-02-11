@@ -6,7 +6,6 @@ use near_primitives::errors::{MissingTrieValue, MissingTrieValueContext, Storage
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::types::RawStateChangesWithTrieKey;
-use std::io;
 use std::num::NonZero;
 use std::sync::Arc;
 
@@ -105,9 +104,9 @@ impl Into<StoreUpdate> for TrieStoreUpdateAdapter<'static> {
 }
 
 impl TrieStoreUpdateAdapter<'static> {
-    pub fn commit(self) -> io::Result<()> {
+    pub fn commit(self) {
         let store_update: StoreUpdate = self.into();
-        store_update.commit()
+        store_update.commit();
     }
 }
 
@@ -275,13 +274,13 @@ mod tests {
             store_update.increment_refcount_by(shard_uids[0], &dummy_hash, &[0], ONE);
             store_update.increment_refcount_by(shard_uids[1], &dummy_hash, &[1], ONE);
             store_update.increment_refcount_by(shard_uids[2], &dummy_hash, &[2], ONE);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         assert_eq!(*store.get(shard_uids[0], &dummy_hash).unwrap(), [0]);
         {
             let mut store_update = store.store_update();
             store_update.delete_all_state();
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         assert_matches!(
             store.get(shard_uids[0], &dummy_hash),
@@ -299,7 +298,7 @@ mod tests {
         {
             let mut store_update = store.store_update();
             store_update.increment_refcount_by(parent_shard, &dummy_hash, &[0], ONE);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         // The data is not yet visible to child shard, because the mapping has not been set yet.
         assert_matches!(
@@ -310,7 +309,7 @@ mod tests {
         {
             let mut store_update = store.store_update();
             store_update.set_shard_uid_mapping(child_shard, parent_shard);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         // The data is now visible to both `parent_shard` and `child_shard`.
         assert_eq!(*store.get(child_shard, &dummy_hash).unwrap(), [0]);
@@ -319,7 +318,7 @@ mod tests {
         {
             let mut store_update = store.store_update();
             store_update.decrement_refcount(parent_shard, &dummy_hash);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         // The data is now not visible to any shard.
         assert_matches!(
@@ -334,7 +333,7 @@ mod tests {
         {
             let mut store_update = store.store_update();
             store_update.increment_refcount_by(child_shard, &dummy_hash, &[0], ONE);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         // The data is now visible to both shards again.
         assert_eq!(*store.get(child_shard, &dummy_hash).unwrap(), [0]);
@@ -343,7 +342,7 @@ mod tests {
         {
             let mut store_update = store.store_update();
             store_update.decrement_refcount_by(child_shard, &dummy_hash, ONE);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         // The data is not visible to any shard again.
         assert_matches!(
@@ -372,13 +371,13 @@ mod tests {
         {
             let mut store_update = cold_store.store_update();
             store_update.set_shard_uid_mapping(child_shard, parent_shard);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         // Write some data to `child_shard` in hot store ONLY.
         {
             let mut store_update = hot_store.store_update();
             store_update.increment_refcount_by(child_shard, &dummy_hash, &[0], ONE);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
 
         // Now try to read the data from split store. It should be present

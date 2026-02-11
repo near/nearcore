@@ -27,8 +27,8 @@ use std::sync::Arc;
 
 fn create_in_memory_node_storage(version: DbVersion, hot_kind: DbKind) -> NodeStorage {
     let storage = NodeStorage::new(TestDB::new());
-    storage.get_hot_store().set_db_version(version).unwrap();
-    storage.get_hot_store().set_db_kind(hot_kind).unwrap();
+    storage.get_hot_store().set_db_version(version);
+    storage.get_hot_store().set_db_kind(hot_kind);
     storage
 }
 
@@ -67,11 +67,11 @@ fn create_test_node_storage_archive(
     let storage = NodeStorage::new_archive(hot.clone(), cold_db, cloud);
 
     let hot_store = storage.get_hot_store();
-    hot_store.set_db_version(version).unwrap();
-    hot_store.set_db_kind(hot_kind).unwrap();
+    hot_store.set_db_version(version);
+    hot_store.set_db_kind(hot_kind);
     if let Some(cold_store) = storage.get_cold_store() {
-        cold_store.set_db_version(version).unwrap();
-        cold_store.set_db_kind(DbKind::Cold).unwrap();
+        cold_store.set_db_version(version);
+        cold_store.set_db_kind(DbKind::Cold);
     }
     (storage, hot, cold)
 }
@@ -194,7 +194,7 @@ impl TestTriesBuilder {
                     FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
                 );
             }
-            store_update.commit().unwrap();
+            store_update.commit();
 
             let flat_storage_manager = tries.get_flat_storage_manager();
             for &shard_uid in &shard_uids {
@@ -214,7 +214,7 @@ impl TestTriesBuilder {
                     )
                     .unwrap();
             }
-            update_for_chunk_extra.commit().unwrap();
+            update_for_chunk_extra.commit();
 
             tries.load_memtries_for_enabled_shards(&shard_uids, &[].into(), false).unwrap();
         }
@@ -233,7 +233,7 @@ pub fn test_populate_trie(
     let mut store_update = tries.store_update();
     tries.apply_memtrie_changes(&trie_changes, shard_uid, 1); // TODO: don't hardcode block height
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
     let deduped = simplify_changes(&changes);
     let trie = tries.get_trie_for_shard(shard_uid, root);
     for (key, value) in deduped {
@@ -263,7 +263,7 @@ pub fn test_populate_flat_storage(
             value.as_ref().map(|value| FlatStateValue::on_disk(value)),
         );
     }
-    store_update.commit().unwrap();
+    store_update.commit();
 }
 
 /// Insert values to non-reference-counted columns in the store.
@@ -272,7 +272,7 @@ pub fn test_populate_store(store: &Store, data: impl Iterator<Item = (DBCol, Vec
     for (column, key, value) in data {
         update.insert(column, key, value);
     }
-    update.commit().expect("db commit failed");
+    update.commit();
 }
 
 /// Insert values to reference-counted columns in the store.
@@ -281,7 +281,7 @@ pub fn test_populate_store_rc(store: &Store, data: &[(DBCol, Vec<u8>, Vec<u8>)])
     for (column, key, value) in data {
         update.increment_refcount(*column, key, value);
     }
-    update.commit().expect("db commit failed");
+    update.commit();
 }
 
 fn gen_alphabet() -> Vec<u8> {

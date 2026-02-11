@@ -415,7 +415,7 @@ impl ForkNetworkCommand {
         for (shard_uid, state_root) in &state_roots {
             store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_uid), state_root)?;
         }
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -677,7 +677,7 @@ impl ForkNetworkCommand {
                 genesis_block.header().height(),
             );
         }
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 

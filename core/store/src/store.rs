@@ -225,10 +225,11 @@ impl Store {
             let (key, value) = BorshDeserialize::deserialize_reader(&mut file)?;
             transaction.set(STATE_COLUMNS[usize::from(column)], key, value);
         }
-        self.write(transaction)
+        self.write(transaction);
+        Ok(())
     }
 
-    pub fn write(&self, transaction: DBTransaction) -> io::Result<()> {
+    pub fn write(&self, transaction: DBTransaction) {
         let mut keys_flushed = EnumMap::<DBCol, u64>::from_fn(|_| 0);
 
         for op in &transaction.ops {
@@ -265,19 +266,16 @@ impl Store {
                 cache.lock().active_flushes -= flushed;
             }
         }
-        Ok(())
     }
 
     /// If the storage is backed by disk, flushes any in-memory data to disk.
-    pub fn flush(&self) -> io::Result<()> {
+    pub fn flush(&self) {
         self.storage.flush();
-        Ok(())
     }
 
     /// Blocking compaction request if supported by storage.
-    pub fn compact(&self) -> io::Result<()> {
+    pub fn compact(&self) {
         self.storage.compact();
-        Ok(())
     }
 
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
@@ -286,24 +284,24 @@ impl Store {
 }
 
 impl Store {
-    pub fn get_db_version(&self) -> io::Result<Option<DbVersion>> {
+    pub fn get_db_version(&self) -> Option<DbVersion> {
         DbMetadata::maybe_read_version(self.storage.as_ref())
     }
 
-    pub fn set_db_version(&self, version: DbVersion) -> io::Result<()> {
+    pub fn set_db_version(&self, version: DbVersion) {
         let mut store_update = self.store_update();
         store_update.set(DBCol::DbVersion, VERSION_KEY, version.to_string().as_bytes());
-        store_update.commit()
+        store_update.commit();
     }
 
-    pub fn get_db_kind(&self) -> io::Result<Option<DbKind>> {
+    pub fn get_db_kind(&self) -> Option<DbKind> {
         DbMetadata::maybe_read_kind(self.storage.as_ref())
     }
 
-    pub fn set_db_kind(&self, kind: DbKind) -> io::Result<()> {
+    pub fn set_db_kind(&self, kind: DbKind) {
         let mut store_update = self.store_update();
         store_update.set(DBCol::DbVersion, KIND_KEY, <&str>::from(kind).as_bytes());
-        store_update.commit()
+        store_update.commit();
     }
 }
 
@@ -495,7 +493,7 @@ impl StoreUpdate {
             delete_range_ops
         )
     )]
-    pub fn commit(self) -> io::Result<()> {
+    pub fn commit(self) {
         debug_assert!(
             {
                 let non_refcount_keys = self
@@ -590,7 +588,7 @@ impl StoreUpdate {
                 }
             }
         }
-        self.store.write(self.transaction)
+        self.store.write(self.transaction);
     }
 }
 
@@ -695,7 +693,7 @@ mod tests {
     fn set_and_write(store: &Store, key: &[u8], val: u64) {
         let mut su = store.store_update();
         su.set_ser(COL, key, &val).unwrap();
-        store.write(su.transaction).unwrap();
+        store.write(su.transaction);
     }
 
     fn read_cached(store: &Store, key: &[u8]) -> u64 {

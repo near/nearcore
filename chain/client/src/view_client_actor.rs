@@ -355,7 +355,7 @@ impl ViewClientActor {
         Ok(windows)
     }
 
-    fn handle_query(&self, msg: Query) -> Result<QueryResponse, QueryError> {
+    pub fn handle_query(&self, msg: Query) -> Result<QueryResponse, QueryError> {
         let header = self.get_block_header_by_reference(&msg.block_reference);
         let header = match header {
             Ok(Some(header)) => Ok(header),
@@ -1456,7 +1456,7 @@ impl Handler<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageIn
         let final_head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
         let cold_head = store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
 
-        let hot_db_kind = store.get_db_kind()?.map(|kind| kind.to_string());
+        let hot_db_kind = store.get_db_kind().map(|kind| kind.to_string());
 
         Ok(SplitStorageInfoView {
             head_height: head.map(|tip| tip.height),

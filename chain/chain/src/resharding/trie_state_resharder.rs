@@ -183,7 +183,7 @@ impl TrieStateResharder {
                 &borsh::to_vec(status)?,
             );
         }
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -311,7 +311,7 @@ impl TrieStateResharder {
 
         let mut store_update = self.runtime.store().store_update();
         store_update.set(DBCol::Misc, TRIE_STATE_RESHARDING_STATUS_KEY, &borsh::to_vec(&status)?);
-        store_update.commit()?;
+        store_update.commit();
 
         Ok(())
     }
@@ -436,7 +436,7 @@ impl TrieStateResharder {
             );
         }
 
-        store_update.commit().unwrap();
+        store_update.commit();
 
         // After creating all the child memtries, freeze the parent.
         let children_shard_uids = missing_children.into_iter().map(|(uid, _)| uid).collect_vec();
@@ -481,7 +481,7 @@ impl TrieStateResharder {
             store_update.remove_flat_storage(parent_shard_uid);
         }
 
-        store_update.commit().unwrap();
+        store_update.commit();
     }
 }
 
@@ -640,7 +640,7 @@ mod tests {
         // disk. Adding here just to test they will be removed.
         store_update.set_shard_uid_mapping(left_shard, parent_shard);
         store_update.set_shard_uid_mapping(right_shard, parent_shard);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         if create_memtries {
             tries.freeze_parent_memtrie(parent_shard, children).unwrap();
@@ -672,7 +672,7 @@ mod tests {
                     },
                 }),
             );
-            store_update.commit().unwrap();
+            store_update.commit();
 
             // Fourth, create ChunkExtra for the flat storage head so load_memtrie can find the state root.
             let mut chain_store_update = runtime.store().store_update();
@@ -681,7 +681,7 @@ mod tests {
             chain_store_update
                 .set_ser(near_store::DBCol::ChunkExtra, &block_shard_uid, &chunk_extra)
                 .unwrap();
-            chain_store_update.commit().unwrap();
+            chain_store_update.commit();
 
             // Now unload the parent memtrie, so the test can verify
             // it will get loaded correctly during resume.

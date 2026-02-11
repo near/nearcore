@@ -174,7 +174,7 @@ impl ColdStoreActor {
         }
 
         tracing::info!(target: "cold_store", "starting population of cold store");
-        let new_cold_height = match self.hot_store.get_db_kind()? {
+        let new_cold_height = match self.hot_store.get_db_kind() {
             None => {
                 tracing::error!(target: "cold_store", "hot store kind is unknown");
                 return Err(anyhow::anyhow!("Hot store DBKind is not set"));
@@ -418,7 +418,7 @@ pub fn create_cold_store_actor(
     // Save the genesis height to cold storage
     let mut store_update = cold_db.as_store().store_update();
     set_genesis_height(&mut store_update, &genesis_height);
-    store_update.commit()?;
+    store_update.commit();
 
     // Perform the sanity check before spawning the actor.
     // If the check fails when the node is starting it's better to just fail

@@ -16,7 +16,7 @@ jobs:
           # PR title must match: <type>: <title> or <type>(<project>): <title>
           # See CONTRIBUTING.md for details.
 
-          VALID_TYPES="fix|feat|refactor|doc|test|chore|perf"
+          VALID_TYPES="fix|feat|refactor|doc|test|chore|perf|revert"
           PATTERN="^(${VALID_TYPES})(\([a-z][a-z0-9-]*\))?: [a-z]"
 
           if [[ ! "$PR_TITLE" =~ $PATTERN ]]; then
@@ -26,7 +26,7 @@ jobs:
             echo "Got:      $PR_TITLE"
             echo ""
             echo "Rules:"
-            echo "  - type must be one of: fix, feat, refactor, doc, test, chore, perf"
+            echo "  - type must be one of: fix, feat, refactor, doc, test, chore, perf, revert"
             echo "  - project (if provided) must be lowercase (e.g. spice, resharding, state-sync)"
             echo "  - title must not be capitalized"
             echo ""

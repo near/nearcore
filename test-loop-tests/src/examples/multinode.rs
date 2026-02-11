@@ -14,8 +14,6 @@ use crate::utils::node::TestLoopNode;
 // Demonstrates the most basic multinode test loop setup
 // and sends tokens between accounts
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cross_shard_token_transfer() {
     init_test_logger();
 
