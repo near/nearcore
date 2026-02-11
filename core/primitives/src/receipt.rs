@@ -1291,6 +1291,7 @@ mod tests {
 pub enum ReceiptSource {
     Local,
     Delayed,
+    Instant,
 }
 
 /// A processed receipt together with its source. Runtime-only struct, not serialized to DB.
