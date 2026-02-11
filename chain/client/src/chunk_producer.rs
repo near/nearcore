@@ -452,48 +452,41 @@ impl ChunkProducer {
         let prepared_transactions = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid)
         {
             #[cfg(feature = "test_features")]
-            if matches!(
+            let skip_verification = matches!(
                 self.adversarial.produce_mode,
                 Some(AdvProduceChunksMode::ProduceWithoutTxVerification)
-            ) {
-                let mut res = vec![];
-                while let Some(iter) = iter.next() {
-                    res.push(iter.next().unwrap());
-                }
-                return Ok(PreparedTransactions {
-                    transactions: res,
-                    limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
-                });
-            }
+            );
+            #[cfg(not(feature = "test_features"))]
+            let skip_verification = false;
 
-            if ProtocolFeature::Spice.enabled(protocol_version) {
+            if skip_verification || ProtocolFeature::Spice.enabled(protocol_version) {
                 // TODO(spice): properly implement transaction preparation to respect limits
                 let mut res = vec![];
                 while let Some(iter) = iter.next() {
                     res.push(iter.next().unwrap());
                 }
-                return Ok(PreparedTransactions {
+                PreparedTransactions {
                     transactions: res,
                     limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
-                });
+                }
+            } else {
+                let storage_config = RuntimeStorageConfig {
+                    state_root: *chunk_extra.state_root(),
+                    use_flat_storage: true,
+                    source: near_chain::types::StorageDataSource::Db,
+                    state_patch: Default::default(),
+                };
+                let prev_block_context =
+                    PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
+                self.runtime_adapter.prepare_transactions(
+                    storage_config,
+                    shard_id,
+                    prev_block_context,
+                    &mut iter,
+                    chain_validate,
+                    self.chunk_transactions_time_limit.get(),
+                )?
             }
-
-            let storage_config = RuntimeStorageConfig {
-                state_root: *chunk_extra.state_root(),
-                use_flat_storage: true,
-                source: near_chain::types::StorageDataSource::Db,
-                state_patch: Default::default(),
-            };
-            let prev_block_context =
-                PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
-            self.runtime_adapter.prepare_transactions(
-                storage_config,
-                shard_id,
-                prev_block_context,
-                &mut iter,
-                chain_validate,
-                self.chunk_transactions_time_limit.get(),
-            )?
         } else {
             PreparedTransactions::new()
         };
