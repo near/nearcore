@@ -325,9 +325,7 @@ pub fn get_fake_next_block_chunk_headers(
     for chunk in block.chunks().iter_raw() {
         let shard_id = chunk.shard_id();
         let height = block.header().height() + 1;
-        let chunk_producer = epoch_manager
-            .get_chunk_producer_info(block.hash(), shard_id)
-            .unwrap();
+        let chunk_producer = epoch_manager.get_chunk_producer_info(block.hash(), shard_id).unwrap();
         let signer = create_test_signer(chunk_producer.account_id().as_str());
         let mut chunk_header =
             chunk_header(height, shard_id, *block.hash(), &signer, block.is_spice_block());
