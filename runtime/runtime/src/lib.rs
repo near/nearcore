@@ -1925,12 +1925,19 @@ impl Runtime {
             let (outcome, result) = match verdict {
                 TxVerdict::DepositFailed { result, error } => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    tracing::debug!(%tx_hash, error = &error as &dyn std::error::Error, "gas key transaction failed deposit check, charging gas");
+                    tracing::debug!(
+                        %tx_hash,
+                        error = &error as &dyn std::error::Error,
+                        "gas key transaction failed deposit check, charging gas"
+                    );
+                    // All prepaid gas is burnt (no receipt created to refund remaining gas).
+                    let total_gas = result.gas_burnt.checked_add(result.gas_remaining).unwrap();
+                    let total_tokens = safe_gas_to_balance(result.receipt_gas_price, total_gas)?;
                     let outcome = ExecutionOutcomeWithId::failed_with_gas_burnt(
                         tx,
                         error,
-                        result.gas_burnt,
-                        result.burnt_amount,
+                        total_gas,
+                        total_tokens,
                     );
                     (outcome, result)
                 }
