@@ -3,6 +3,7 @@ name: PR Title
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
+  merge_group:
 
 jobs:
   check-pr-title:
