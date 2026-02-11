@@ -69,7 +69,7 @@ enum SubCommand {
     /// Doesn't actually delete any data, except for HEAD and COLD_HEAD in BlockMisc.
     ResetCold(ResetColdCmd),
     /// Recover tries at prev state roots of the first block in a new shard layout after ReshardingV2.
-    RecoverBoundaryReshardingV2(RecoverBoundaryReshardingV2Cmd),
+    RecoverBoundaryReshardingV2,
 }
 
 impl ColdStoreCommand {
@@ -109,8 +109,8 @@ impl ColdStoreCommand {
             SubCommand::PrepareHot(cmd) => cmd.run(&storage, &home_dir, &near_config),
             SubCommand::CheckStateRoot(cmd) => cmd.run(&storage, &epoch_manager),
             SubCommand::ResetCold(cmd) => cmd.run(&storage),
-            SubCommand::RecoverBoundaryReshardingV2(cmd) => {
-                cmd.run(&storage, &home_dir, &near_config)
+            SubCommand::RecoverBoundaryReshardingV2 => {
+                RecoverBoundaryReshardingV2Cmd::run(&storage, &home_dir, &near_config)
             }
         }
     }
@@ -778,22 +778,13 @@ impl ResetColdCmd {
     }
 }
 
-#[derive(clap::Args)]
-struct RecoverBoundaryReshardingV2Cmd {
-    #[clap(long)]
-    // The height of the first block in the new shard layout after ReshardingV2.
-    // The only value for this parameter that has been tested is `115185108`.
-    #[clap(long)]
-    block_height: BlockHeight,
-    // The ID of the child shard that we want to recover.
-    // Currently, the tool supports only shards that have not been split.
-    #[clap(long)]
-    child_shard_id: ShardId,
-}
+struct RecoverBoundaryReshardingV2Cmd;
 
 impl RecoverBoundaryReshardingV2Cmd {
+    const BLOCK_HEIGHT: BlockHeight = 115185108;
+    const CHILD_SHARD_ID: ShardId = ShardId::new(1);
+
     pub fn run(
-        self,
         storage: &NodeStorage,
         home_dir: &Path,
         near_config: &NearConfig,
@@ -804,26 +795,23 @@ impl RecoverBoundaryReshardingV2Cmd {
             .ok_or_else(|| anyhow::anyhow!("Cold storage is not configured"))?;
 
         let split_store = storage.get_split_store().expect("Split store expected on archival node");
-        let epoch_manager = EpochManager::new_arc_handle(
-            split_store.clone(),
-            &near_config.genesis.config,
-            Some(home_dir),
-        );
+        let epoch_manager =
+            EpochManager::new_arc_handle(split_store, &near_config.genesis.config, Some(home_dir));
         let tries = ShardTries::new(
-            split_store.trie_store(),
+            cold_store.trie_store(),
             TrieConfig::from_store_config(&near_config.config.store),
-            FlatStorageManager::new(split_store.flat_store()),
+            FlatStorageManager::new(cold_store.flat_store()),
             StateSnapshotConfig::Disabled,
         );
 
-        let block_hash_key = get_block_hash_key(&hot_store, self.block_height)?;
+        let block_hash_key = get_block_hash_key(&hot_store, Self::BLOCK_HEIGHT)?;
         let block = get_block(&cold_store, block_hash_key)?;
         let new_shard_layout = epoch_manager.read().get_shard_layout(block.header().epoch_id())?;
-        let parent_shard_id = new_shard_layout.get_parent_shard_id(self.child_shard_id)?;
+        let parent_shard_id = new_shard_layout.get_parent_shard_id(Self::CHILD_SHARD_ID)?;
         let child_shard_uid =
-            ShardUId::from_shard_id_and_layout(self.child_shard_id, &new_shard_layout);
+            ShardUId::from_shard_id_and_layout(Self::CHILD_SHARD_ID, &new_shard_layout);
         // Chunk which prev_state_root is the trie we want to repair.
-        let chunk = extract_chunk_from_block(&block, &self.child_shard_id)?;
+        let chunk = extract_chunk_from_block(&block, &Self::CHILD_SHARD_ID)?;
         // That should be the outcome of our backfilling. If it matches, we are confident we backfilled properly.
         let expected_new_state_root = chunk.prev_state_root();
         println!(
@@ -852,7 +840,7 @@ impl RecoverBoundaryReshardingV2Cmd {
         let prev_delayed_receipt_indices = get_delayed_receipt_indices(&prev_trie)?;
         let prev_promise_yield_indices = get_promise_yield_indices(&prev_trie)?;
         // We use the assumptions below to simplify the code.
-        // These are valid for the height `115185108` for which this recovery tool was originally written.
+        // These are valid for the height `115185108` for which this recovery tool was written.
         assert_eq!(prev_delayed_receipt_indices.len(), 0);
         assert_eq!(prev_promise_yield_indices.len(), 0);
 

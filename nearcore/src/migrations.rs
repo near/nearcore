@@ -81,13 +81,13 @@ fn migrate_47_to_48(
     tracing::info!(target: "migrations", "starting migration from DB version 47 to 48");
 
     let Some(cold_db) = cold_db else {
-        tracing::info!(target: "migrations", "skipping migration 47->48 for hot store only",);
+        tracing::info!(target: "migrations", "skipping migration 47->48 for hot store only");
         return Ok(());
     };
 
     // Current migration is targeted only for mainnet
     if genesis_config.chain_id != MAINNET {
-        tracing::info!(target: "migrations", chain_id = ?genesis_config.chain_id, "skipping migration 47->48",);
+        tracing::info!(target: "migrations", chain_id = ?genesis_config.chain_id, "skipping migration 47->48");
         return Ok(());
     }
 
