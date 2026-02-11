@@ -892,7 +892,7 @@ impl RecoverBoundaryReshardingV2Cmd {
         println!("New state root: {}", new_state_root);
         // The check below gives us confidence that everything went correctly.
         assert_eq!(new_state_root, expected_new_state_root);
-        cold_store_update.commit()?;
+        cold_store_update.commit();
         Ok(())
     }
 

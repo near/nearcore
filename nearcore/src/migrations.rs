@@ -103,7 +103,7 @@ fn migrate_47_to_48(
 
     let mut cold_store_update = cold_store.trie_store().store_update();
     recover_shard_1_at_block_height_115185108(&tries, &mut cold_store_update)?;
-    cold_store_update.commit()?;
+    cold_store_update.commit();
     Ok(())
 }
 
