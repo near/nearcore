@@ -21,7 +21,6 @@ use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::types::ValidatorKickoutReason::{
@@ -743,10 +742,8 @@ fn test_reward_multiple_shards() {
         let chunk_mask = shard_layout
             .shard_ids()
             .map(|shard_id| {
-                let chunk_production_key =
-                    ChunkProductionKey { epoch_id, height_created: height, shard_id };
                 let expected_chunk_producer =
-                    epoch_manager.get_chunk_producer_for_height(&chunk_production_key.epoch_id, chunk_production_key.height_created, chunk_production_key.shard_id).unwrap();
+                    epoch_manager.get_chunk_producer_info(&h[i - 1], shard_id).unwrap();
                 if expected_chunk_producer.account_id() == "test1" && epoch_id == init_epoch_id {
                     expected_chunks += 1;
                     false

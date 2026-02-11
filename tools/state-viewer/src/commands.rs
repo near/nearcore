@@ -683,7 +683,7 @@ pub(crate) fn print_chain(
                         let shard_index = shard_info.shard_index();
                         let shard_id = shard_info.shard_id();
                         let chunk_producer = epoch_manager
-                            .get_chunk_producer_for_height(&epoch_id, header.height(), shard_id)
+                            .get_chunk_producer_info(header.prev_hash(), shard_id)
                             .map(|info| info.account_id().to_string())
                             .unwrap_or_else(|_| "CP Unknown".to_owned());
                         if header.chunk_mask()[shard_index] {
