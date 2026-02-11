@@ -207,10 +207,12 @@ fn increment_nonce(
     let identifier: GlobalContractCodeIdentifier = id.clone().into();
 
     let nonce_key = TrieKey::GlobalContractNonce { identifier };
-    let stored_nonce = get_stored_nonce(state_update, &nonce_key)?;
+    let stored_nonce = get_nonce(state_update, &nonce_key)?;
 
-    let new_nonce = stored_nonce + 1;
-    state_update.set(nonce_key, new_nonce.to_le_bytes().to_vec());
+    let new_nonce = stored_nonce
+        .checked_add(1)
+        .ok_or(RuntimeError::UnexpectedIntegerOverflow("GlobalContractDistributionNonce".into()))?;
+    set_nonce(state_update, nonce_key, new_nonce);
     Ok(new_nonce)
 }
 
@@ -265,7 +267,7 @@ fn check_and_update_nonce(
     }
 
     let nonce_key = TrieKey::GlobalContractNonce { identifier: identifier.clone() };
-    let stored_nonce = get_stored_nonce(state_update, &nonce_key)?;
+    let stored_nonce = get_nonce(state_update, &nonce_key)?;
     let incoming_nonce = global_contract_data.nonce();
 
     // Allow the same nonce since the nonce is updated immediately when
@@ -275,13 +277,17 @@ fn check_and_update_nonce(
         return Ok(false);
     }
 
-    state_update.set(nonce_key, incoming_nonce.to_le_bytes().to_vec());
+    set_nonce(state_update, nonce_key, incoming_nonce);
     Ok(true)
+}
+
+fn set_nonce(state_update: &mut TrieUpdate, nonce_key: TrieKey, nonce: u64) {
+    state_update.set(nonce_key, nonce.to_le_bytes().to_vec());
 }
 
 // Retrieves the stored nonce for the given global contract identifier. If no
 // nonce is stored, returns 0.
-fn get_stored_nonce(state_update: &TrieUpdate, nonce_key: &TrieKey) -> Result<u64, RuntimeError> {
+fn get_nonce(state_update: &TrieUpdate, nonce_key: &TrieKey) -> Result<u64, RuntimeError> {
     let stored_nonce = state_update.get(nonce_key, AccessOptions::DEFAULT)?;
     let Some(stored_nonce) = stored_nonce else {
         return Ok(0);

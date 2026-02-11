@@ -954,6 +954,15 @@ impl GlobalContractDistributionReceipt {
         }
     }
 
+    /// Returns the nonce of the distribution.
+    /// V1 receipts return None, V2 receipts return their stored nonce.
+    pub fn maybe_nonce(&self) -> Option<u64> {
+        match &self {
+            Self::V1(_) => None,
+            Self::V2(v2) => Some(v2.nonce),
+        }
+    }
+
     /// Clones the receipt with an updated target shard and already-delivered shards list.
     pub fn forward(&self, target_shard: ShardId, already_delivered_shards: Vec<ShardId>) -> Self {
         match self {
