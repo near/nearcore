@@ -148,9 +148,7 @@ impl<'a> EpochStoreUpdateAdapter<'a> {
     }
 
     pub fn set_block_info(&mut self, block_info: &BlockInfo) {
-        self.store_update
-            .insert_ser(DBCol::BlockInfo, block_info.hash().as_ref(), block_info)
-            .unwrap();
+        self.store_update.insert_ser(DBCol::BlockInfo, block_info.hash().as_ref(), block_info);
     }
 
     pub fn set_epoch_info(&mut self, epoch_id: &EpochId, epoch_info: &EpochInfo) {

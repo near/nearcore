@@ -1927,7 +1927,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     &index_to_bytes(block.header().height()),
                     &map,
                 );
-                store_update.insert_ser(DBCol::Block, block.hash().as_ref(), block)?;
+                store_update.insert_ser(DBCol::Block, block.hash().as_ref(), block);
                 if cfg!(feature = "protocol_feature_spice") {
                     let prev_hash = block.header().prev_hash();
                     let mut prev_next_hashes =
@@ -1948,7 +1948,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     continue;
                 }
                 headers_by_height.entry(header.height()).or_default().push(header);
-                store_update.insert_ser(DBCol::BlockHeader, hash.as_ref(), header)?;
+                store_update.insert_ser(DBCol::BlockHeader, hash.as_ref(), header);
             }
             for (height, headers) in headers_by_height {
                 let mut hash_set = match self.chain_store.get_all_header_hashes_by_height(height) {
@@ -2015,7 +2015,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     );
                 }
 
-                store_update.insert_ser(DBCol::Chunks, chunk_hash.as_ref(), chunk)?;
+                store_update.insert_ser(DBCol::Chunks, chunk_hash.as_ref(), chunk);
             }
             for (height, hash_set) in chunk_hashes_by_height {
                 store_update.set_ser(
@@ -2025,11 +2025,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 );
             }
             for (chunk_hash, partial_chunk) in &self.chain_store_cache_update.partial_chunks {
-                store_update.insert_ser(
-                    DBCol::PartialChunks,
-                    chunk_hash.as_ref(),
-                    partial_chunk,
-                )?;
+                store_update.insert_ser(DBCol::PartialChunks, chunk_hash.as_ref(), partial_chunk);
 
                 for receipts in partial_chunk.prev_outgoing_receipts() {
                     for receipt in &receipts.0 {
@@ -2104,7 +2100,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     DBCol::TransactionResultForBlock,
                     &get_outcome_id_block_hash(outcome_id, block_hash),
                     &outcome_with_proof,
-                )?;
+                );
             }
             for ((block_hash, shard_id), ids) in &self.chain_store_cache_update.outcome_ids {
                 store_update.set_ser(
@@ -2227,7 +2223,7 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.delete(DBCol::StateDlInfos, hash.as_ref());
         }
         for (chunk_hash, chunk) in &self.chain_store_cache_update.invalid_chunks {
-            store_update.insert_ser(DBCol::InvalidChunks, chunk_hash.as_ref(), chunk)?;
+            store_update.insert_ser(DBCol::InvalidChunks, chunk_hash.as_ref(), chunk);
         }
         for block_height in &self.chain_store_cache_update.processed_block_heights {
             store_update.set_ser(DBCol::ProcessedBlockHeights, &index_to_bytes(*block_height), &());

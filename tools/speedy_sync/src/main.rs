@@ -101,9 +101,7 @@ fn write_block_checkpoint(store_update: &mut StoreUpdate, block_checkpoint: &Blo
     let hash = block_checkpoint.header.hash();
     store_update.set_ser(DBCol::BlockHeader, hash.as_ref(), &block_checkpoint.header);
 
-    store_update
-        .insert_ser(DBCol::BlockInfo, hash.as_ref(), &block_checkpoint.info)
-        .expect("Failed writing a block info");
+    store_update.insert_ser(DBCol::BlockInfo, hash.as_ref(), &block_checkpoint.info);
 
     store_update.set_ser(DBCol::BlockMerkleTree, hash.as_ref(), &block_checkpoint.merkle_tree);
     store_update.set_ser(

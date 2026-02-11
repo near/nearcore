@@ -532,7 +532,7 @@ pub fn record_uncertified_chunks_for_block(
         DBCol::uncertified_chunks(),
         block.header().hash().as_ref(),
         &uncertified_chunks,
-    )?;
+    );
     chain_store_update.merge(store_update);
     Ok(())
 }
