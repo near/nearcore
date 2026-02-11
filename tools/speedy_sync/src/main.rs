@@ -99,30 +99,22 @@ fn read_block_checkpoint(store: &Store, block_hash: &CryptoHash) -> BlockCheckpo
 
 fn write_block_checkpoint(store_update: &mut StoreUpdate, block_checkpoint: &BlockCheckpoint) {
     let hash = block_checkpoint.header.hash();
-    store_update
-        .set_ser(DBCol::BlockHeader, hash.as_ref(), &block_checkpoint.header)
-        .expect("Failed writing a header");
+    store_update.set_ser(DBCol::BlockHeader, hash.as_ref(), &block_checkpoint.header);
 
     store_update
         .insert_ser(DBCol::BlockInfo, hash.as_ref(), &block_checkpoint.info)
         .expect("Failed writing a block info");
 
-    store_update
-        .set_ser(DBCol::BlockMerkleTree, hash.as_ref(), &block_checkpoint.merkle_tree)
-        .expect("Failed writing merkle tree");
-    store_update
-        .set_ser(
-            DBCol::BlockHeight,
-            &index_to_bytes(block_checkpoint.header.height()),
-            block_checkpoint.header.hash(),
-        )
-        .unwrap();
+    store_update.set_ser(DBCol::BlockMerkleTree, hash.as_ref(), &block_checkpoint.merkle_tree);
+    store_update.set_ser(
+        DBCol::BlockHeight,
+        &index_to_bytes(block_checkpoint.header.height()),
+        block_checkpoint.header.hash(),
+    );
 }
 
 fn write_epoch_checkpoint(store_update: &mut StoreUpdate, epoch_checkpoint: &EpochCheckpoint) {
-    store_update
-        .set_ser(DBCol::EpochInfo, epoch_checkpoint.id.as_ref(), &epoch_checkpoint.info)
-        .expect("Failed to write epoch info");
+    store_update.set_ser(DBCol::EpochInfo, epoch_checkpoint.id.as_ref(), &epoch_checkpoint.info);
 }
 
 fn create_snapshot(create_cmd: CreateCmd) {
@@ -286,15 +278,17 @@ fn load_snapshot(load_cmd: LoadCmd) {
     write_block_checkpoint(&mut store_update, &snapshot.first_block);
 
     // Store the HEADER_KEY (used in header sync).
-    store_update
-        .set_ser(DBCol::BlockMisc, HEADER_HEAD_KEY, &Tip::from_header(&snapshot.block.header))
-        .unwrap();
+    store_update.set_ser(
+        DBCol::BlockMisc,
+        HEADER_HEAD_KEY,
+        &Tip::from_header(&snapshot.block.header),
+    );
 
     // TODO: confirm if this aggregator can be empty.
     // If not - we'll have to compute one and put it in the checkpoint.
     let aggregator =
         EpochInfoAggregator::new(snapshot.prev_epoch.id, *snapshot.final_block.header.hash());
-    store_update.set_ser(DBCol::EpochInfo, AGGREGATOR_KEY, &aggregator).unwrap();
+    store_update.set_ser(DBCol::EpochInfo, AGGREGATOR_KEY, &aggregator);
     store_update.commit();
 }
 

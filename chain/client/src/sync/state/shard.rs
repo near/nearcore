@@ -326,7 +326,7 @@ async fn apply_state_part(
 
     // Mark part as applied.
     let mut store_update = store.store_update();
-    store_update.set_ser(DBCol::StatePartsApplied, &key_bytes, &true)?;
+    store_update.set_ser(DBCol::StatePartsApplied, &key_bytes, &true);
     store_update.commit();
 
     Ok(StatePartApplyResult::Applied)

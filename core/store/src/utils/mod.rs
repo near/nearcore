@@ -397,18 +397,14 @@ pub fn get_genesis_congestion_infos(store: &Store) -> io::Result<Option<Vec<Cong
 }
 
 pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &[StateRoot]) {
-    store_update
-        .set_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
-        .expect("Borsh cannot fail");
+    store_update.set_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots);
 }
 
 pub fn set_genesis_congestion_infos(
     store_update: &mut StoreUpdate,
     congestion_infos: &[CongestionInfo],
 ) {
-    store_update
-        .set_ser(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY, &congestion_infos)
-        .expect("Borsh cannot fail");
+    store_update.set_ser(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY, &congestion_infos);
 }
 
 pub fn get_genesis_height(store: &Store) -> io::Result<Option<BlockHeight>> {
@@ -416,7 +412,5 @@ pub fn get_genesis_height(store: &Store) -> io::Result<Option<BlockHeight>> {
 }
 
 pub fn set_genesis_height(store_update: &mut StoreUpdate, genesis_height: &BlockHeight) {
-    store_update
-        .set_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY, genesis_height)
-        .expect("Borsh cannot fail");
+    store_update.set_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY, genesis_height);
 }

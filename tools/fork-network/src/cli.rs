@@ -409,11 +409,11 @@ impl ForkNetworkCommand {
         );
 
         let mut store_update = store.store_update();
-        store_update.set_ser(DBCol::Misc, EPOCH_ID_KEY, epoch_id)?;
-        store_update.set_ser(DBCol::Misc, FLAT_HEAD_KEY, &desired_flat_head)?;
-        store_update.set_ser(DBCol::Misc, SHARD_LAYOUT_KEY, &target_shard_layout)?;
+        store_update.set_ser(DBCol::Misc, EPOCH_ID_KEY, epoch_id);
+        store_update.set_ser(DBCol::Misc, FLAT_HEAD_KEY, &desired_flat_head);
+        store_update.set_ser(DBCol::Misc, SHARD_LAYOUT_KEY, &target_shard_layout);
         for (shard_uid, state_root) in &state_roots {
-            store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_uid), state_root)?;
+            store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_uid), state_root);
         }
         store_update.commit();
         Ok(())

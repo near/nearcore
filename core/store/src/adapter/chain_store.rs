@@ -424,9 +424,7 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
         height: BlockHeight,
         hash_set: &HashSet<CryptoHash>,
     ) {
-        self.store_update
-            .set_ser(DBCol::HeaderHashesByHeight, &index_to_bytes(height), hash_set)
-            .unwrap();
+        self.store_update.set_ser(DBCol::HeaderHashesByHeight, &index_to_bytes(height), hash_set);
     }
 
     /// Note: Typically block_merkle_tree is saved while saving the block header
@@ -436,29 +434,23 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
         block_hash: &CryptoHash,
         block_merkle_tree: &PartialMerkleTree,
     ) {
-        self.store_update
-            .set_ser(DBCol::BlockMerkleTree, block_hash.as_ref(), block_merkle_tree)
-            .unwrap();
+        self.store_update.set_ser(DBCol::BlockMerkleTree, block_hash.as_ref(), block_merkle_tree);
     }
 
     pub fn set_block_ordinal(&mut self, block_ordinal: NumBlocks, block_hash: &CryptoHash) {
-        self.store_update
-            .set_ser(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal), block_hash)
-            .unwrap();
+        self.store_update.set_ser(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal), block_hash);
     }
 
     pub fn set_block_height(&mut self, hash: &CryptoHash, height: BlockHeight) {
-        self.store_update
-            .set_ser(DBCol::BlockHeight, &borsh::to_vec(&height).unwrap(), hash)
-            .unwrap();
+        self.store_update.set_ser(DBCol::BlockHeight, &borsh::to_vec(&height).unwrap(), hash);
     }
 
     pub fn set_header_head(&mut self, header_head: &Tip) {
-        self.store_update.set_ser(DBCol::BlockMisc, HEADER_HEAD_KEY, header_head).unwrap();
+        self.store_update.set_ser(DBCol::BlockMisc, HEADER_HEAD_KEY, header_head);
     }
 
     pub fn set_final_head(&mut self, final_head: &Tip) {
-        self.store_update.set_ser(DBCol::BlockMisc, FINAL_HEAD_KEY, final_head).unwrap();
+        self.store_update.set_ser(DBCol::BlockMisc, FINAL_HEAD_KEY, final_head);
     }
 
     /// This function is normally clubbed with set_block_header_only

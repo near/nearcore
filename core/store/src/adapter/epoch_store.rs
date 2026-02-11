@@ -144,7 +144,7 @@ impl<'a> EpochStoreUpdateAdapter<'a> {
     }
 
     pub fn set_epoch_start(&mut self, epoch_id: &EpochId, start: BlockHeight) {
-        self.store_update.set_ser(DBCol::EpochStart, epoch_id.as_ref(), &start).unwrap();
+        self.store_update.set_ser(DBCol::EpochStart, epoch_id.as_ref(), &start);
     }
 
     pub fn set_block_info(&mut self, block_info: &BlockInfo) {
@@ -154,20 +154,18 @@ impl<'a> EpochStoreUpdateAdapter<'a> {
     }
 
     pub fn set_epoch_info(&mut self, epoch_id: &EpochId, epoch_info: &EpochInfo) {
-        self.store_update.set_ser(DBCol::EpochInfo, epoch_id.as_ref(), epoch_info).unwrap();
+        self.store_update.set_ser(DBCol::EpochInfo, epoch_id.as_ref(), epoch_info);
     }
 
     pub fn set_epoch_info_aggregator<T: BorshSerialize + ?Sized>(
         &mut self,
         epoch_info_aggregator: &T,
     ) {
-        self.store_update.set_ser(DBCol::EpochInfo, AGGREGATOR_KEY, epoch_info_aggregator).unwrap();
+        self.store_update.set_ser(DBCol::EpochInfo, AGGREGATOR_KEY, epoch_info_aggregator);
     }
 
     pub fn set_epoch_validator_info(&mut self, epoch_id: &EpochId, epoch_summary: &EpochSummary) {
-        self.store_update
-            .set_ser(DBCol::EpochValidatorInfo, epoch_id.as_ref(), epoch_summary)
-            .unwrap();
+        self.store_update.set_ser(DBCol::EpochValidatorInfo, epoch_id.as_ref(), epoch_summary);
     }
 
     pub fn set_epoch_sync_proof(&mut self, proof: &EpochSyncProof) {
@@ -175,13 +173,15 @@ impl<'a> EpochStoreUpdateAdapter<'a> {
         // Enabling ContinuousEpochSync performs a migration to store the compressed proof.
         if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
             let (compressed_proof, _) = CompressedEpochSyncProof::encode(proof).unwrap();
-            self.store_update
-                .set_ser(DBCol::EpochSyncProof, COMPRESSED_EPOCH_SYNC_PROOF_KEY, &compressed_proof)
-                .unwrap();
+            self.store_update.set_ser(
+                DBCol::EpochSyncProof,
+                COMPRESSED_EPOCH_SYNC_PROOF_KEY,
+                &compressed_proof,
+            );
             let compressed_proof_size = compressed_proof.size_bytes() as i64;
             metrics::EPOCH_SYNC_LAST_GENERATED_COMPRESSED_PROOF_SIZE.set(compressed_proof_size);
         } else {
-            self.store_update.set_ser(DBCol::EpochSyncProof, &[], &proof).unwrap();
+            self.store_update.set_ser(DBCol::EpochSyncProof, &[], &proof);
         }
     }
 }

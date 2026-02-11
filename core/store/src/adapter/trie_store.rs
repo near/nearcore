@@ -159,7 +159,7 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
     pub fn set_state_snapshot_hash(&mut self, hash: Option<CryptoHash>) {
         let key = STATE_SNAPSHOT_KEY;
         match hash {
-            Some(hash) => self.store_update.set_ser(DBCol::BlockMisc, key, &hash).unwrap(),
+            Some(hash) => self.store_update.set_ser(DBCol::BlockMisc, key, &hash),
             None => self.store_update.delete(DBCol::BlockMisc, key),
         }
     }
@@ -171,7 +171,7 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         trie_changes: &TrieChanges,
     ) {
         let key = get_block_shard_uid(block_hash, &shard_uid);
-        self.store_update.set_ser(DBCol::TrieChanges, &key, trie_changes).unwrap();
+        self.store_update.set_ser(DBCol::TrieChanges, &key, trie_changes);
     }
 
     pub fn set_state_changes(
