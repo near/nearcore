@@ -211,7 +211,7 @@ fn increment_nonce(
 
     let new_nonce = stored_nonce
         .checked_add(1)
-        .ok_or(RuntimeError::UnexpectedIntegerOverflow("GlobalContractDistributionNonce".into()))?;
+        .ok_or_else(|| RuntimeError::UnexpectedIntegerOverflow("GlobalContractDistributionNonce".into()))?;
     set_nonce(state_update, nonce_key, new_nonce);
     Ok(new_nonce)
 }
