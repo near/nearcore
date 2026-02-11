@@ -413,7 +413,7 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
     /// block_header_hashes_by_height and update block_merkle_tree
     /// This is a primitive function and changing only the BlockHeader column can lead to inconsistencies
     pub fn set_block_header_only(&mut self, header: &BlockHeader) {
-        self.store_update.insert_ser(DBCol::BlockHeader, header.hash().as_ref(), header).unwrap();
+        self.store_update.insert_ser(DBCol::BlockHeader, header.hash().as_ref(), header);
     }
 
     /// Note: Typically block_header_hashes_by_height is saved while saving the block header

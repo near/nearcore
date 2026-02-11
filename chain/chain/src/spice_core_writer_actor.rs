@@ -111,7 +111,7 @@ impl SpiceCoreWriterActor {
     ) -> Result<StoreUpdate, std::io::Error> {
         let key = get_execution_results_key(block_hash, shard_id);
         let mut store_update = self.chain_store.store().store_update();
-        store_update.insert_ser(DBCol::execution_results(), &key, &execution_result)?;
+        store_update.insert_ser(DBCol::execution_results(), &key, &execution_result);
         Ok(store_update)
     }
 
@@ -121,7 +121,7 @@ impl SpiceCoreWriterActor {
     ) -> Result<StoreUpdate, std::io::Error> {
         let key = get_uncertified_execution_results_key(&execution_result.compute_hash());
         let mut store_update = self.chain_store.store().store_update();
-        store_update.insert_ser(DBCol::uncertified_execution_results(), &key, &execution_result)?;
+        store_update.insert_ser(DBCol::uncertified_execution_results(), &key, &execution_result);
         Ok(store_update)
     }
 

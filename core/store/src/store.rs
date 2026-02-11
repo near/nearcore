@@ -342,16 +342,10 @@ impl StoreUpdate {
     /// `CryptoHash` as key, which has the data in a small fixed-sized array.
     /// Copying and allocating that is not prohibitively expensive and we have
     /// to do it either way. Thus, we take a slice for the key for the nice API.
-    pub fn insert_ser<T: BorshSerialize>(
-        &mut self,
-        column: DBCol,
-        key: &[u8],
-        value: &T,
-    ) -> io::Result<()> {
+    pub fn insert_ser<T: BorshSerialize>(&mut self, column: DBCol, key: &[u8], value: &T) {
         assert!(column.is_insert_only(), "can't insert_ser: {column}");
-        let data = borsh::to_vec(&value)?;
+        let data = borsh::to_vec(&value).expect("borsh serialization should not fail");
         self.insert(column, key.to_vec(), data);
-        Ok(())
     }
 
     /// Inserts a new reference-counted value or increases its reference count
