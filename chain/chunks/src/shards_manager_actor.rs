@@ -457,8 +457,16 @@ impl ShardsManagerActor {
         let request_full = force_request_full
             || self.shard_tracker.cares_about_shard_this_or_next_epoch(ancestor_hash, shard_id);
 
-        let chunk_producer_account_id =
-            self.epoch_manager.get_chunk_producer_info(ancestor_hash, shard_id)?.take_account_id();
+        // TODO(#XXX): For orphan chunks, `ancestor_hash` may not be the chunk's actual
+        // prev_block_hash, so `get_chunk_producer_info` would derive the wrong height.
+        // We use `get_chunk_producer_for_height` with the actual chunk height to avoid this.
+        // Discuss whether we should instead try the chunk header's prev_block_hash first
+        // (available in cache_entry) and fall back to this.
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?;
+        let chunk_producer_account_id = self
+            .epoch_manager
+            .get_chunk_producer_for_height(&epoch_id, height, shard_id)?
+            .take_account_id();
 
         // In the following we compute which target accounts we should request parts and receipts from
         // First we choose a shard representative target which is either the original chunk producer
@@ -1247,7 +1255,6 @@ impl ShardsManagerActor {
             &forward.signature,
             &forward.prev_block_hash,
             forward.shard_id,
-            Some(&forward.prev_block_hash),
         )?;
 
         if !valid_signature {

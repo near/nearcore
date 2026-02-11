@@ -5,7 +5,6 @@ use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, PartialEncodedContractDeploys,
 };
@@ -340,21 +339,3 @@ fn validate_witness_contract_accesses_signature(
     Ok(())
 }
 
-/// Helper to look up chunk producer using try-authoritative/fallback pattern.
-/// When `prev_block_hash` is available (V2 messages), try the authoritative
-/// `get_chunk_producer_info(prev_block_hash)` first, falling back to
-/// height-based lookup on MissingBlock (orphan case).
-/// When `prev_block_hash` is None (V1 messages), use height-based lookup.
-fn get_chunk_producer(
-    epoch_manager: &dyn EpochManagerAdapter,
-    key: &ChunkProductionKey,
-    prev_block_hash: Option<&CryptoHash>,
-) -> Result<near_primitives::types::validator_stake::ValidatorStake, Error> {
-    match prev_block_hash {
-        Some(hash) => match epoch_manager.get_chunk_producer_by_prev_block_hash(hash, key.shard_id) {
-            Ok(p) => Ok(p),
-            Err(_) => Ok(epoch_manager.get_chunk_producer_info(key)?),
-        },
-        None => Ok(epoch_manager.get_chunk_producer_info(key)?),
-    }
-}

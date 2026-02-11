@@ -133,21 +133,6 @@ impl Handler<PartialEncodedStateWitnessForwardMessage> for PartialWitnessActor {
     }
 }
 
-/// Helper to look up chunk producer using try-authoritative/fallback pattern.
-fn get_chunk_producer_account_id(
-    epoch_manager: &dyn EpochManagerAdapter,
-    key: &ChunkProductionKey,
-    prev_block_hash: Option<&near_primitives::hash::CryptoHash>,
-) -> Result<AccountId, Error> {
-    let chunk_producer = match prev_block_hash {
-        Some(hash) => match epoch_manager.get_chunk_producer_by_prev_block_hash(hash, key.shard_id) {
-            Ok(p) => p,
-            Err(_) => epoch_manager.get_chunk_producer_info(key)?,
-        },
-        None => epoch_manager.get_chunk_producer_info(key)?,
-    };
-    Ok(chunk_producer.take_account_id())
-}
 
 impl Handler<ChunkContractAccessesMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: ChunkContractAccessesMessage) {
