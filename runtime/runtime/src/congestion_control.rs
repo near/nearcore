@@ -11,8 +11,8 @@ use near_primitives::chunk_apply_stats::{ChunkApplyStatsV0, ReceiptSinkStats, Re
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo, CongestionInfoV1};
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::{
-    Receipt, ReceiptOrStateStoredReceipt, StateStoredReceipt, StateStoredReceiptMetadata,
-    VersionedActionReceipt, VersionedReceiptEnum,
+    ProcessedReceipt, Receipt, ReceiptOrStateStoredReceipt, ReceiptSource, StateStoredReceipt,
+    StateStoredReceiptMetadata, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{EpochId, EpochInfoProvider, Gas, ShardId};
@@ -66,6 +66,7 @@ pub(crate) struct ReceiptSinkV2 {
     pub(crate) outgoing_metadatas: OutgoingMetadatas,
     pub(crate) bandwidth_scheduler_output: BandwidthSchedulerOutput,
     pub(crate) stats: ReceiptSinkStats,
+    pub(crate) processed_receipts: Vec<ProcessedReceipt>,
 }
 
 /// Limits for outgoing receipts to a shard.
@@ -136,6 +137,7 @@ impl ReceiptSink {
             outgoing_metadatas,
             bandwidth_scheduler_output,
             stats,
+            processed_receipts: Vec::new(),
         };
         Ok(ReceiptSink::V2(ReceiptSinkV2WithInfo { sink, info }))
     }
@@ -172,17 +174,26 @@ impl ReceiptSink {
         }
     }
 
-    /// Consumes receipt sink, finalizes ReceiptSinkStats and returns the outgoing receipts.
-    /// Called at the end of chunk application.
-    pub(crate) fn finalize_stats_get_outgoing_receipts(
+    /// Track a processed receipt with its source.
+    pub(crate) fn track_processed_receipt(&mut self, receipt: Receipt, source: ReceiptSource) {
+        match self {
+            ReceiptSink::V2(sink_with_info) => {
+                sink_with_info.sink.processed_receipts.push(ProcessedReceipt { receipt, source });
+            }
+        }
+    }
+
+    /// Consumes receipt sink, finalizes ReceiptSinkStats and returns the outgoing receipts
+    /// and processed receipts. Called at the end of chunk application.
+    pub(crate) fn finalize_stats_get_receipts(
         self,
         stats: &mut ReceiptSinkStats,
-    ) -> Vec<Receipt> {
+    ) -> (Vec<Receipt>, Vec<ProcessedReceipt>) {
         match self {
             ReceiptSink::V2(mut sink_with_info) => {
                 sink_with_info.sink.record_outgoing_buffer_stats();
                 *stats = sink_with_info.sink.stats;
-                sink_with_info.sink.outgoing_receipts
+                (sink_with_info.sink.outgoing_receipts, sink_with_info.sink.processed_receipts)
             }
         }
     }

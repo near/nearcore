@@ -1145,6 +1145,14 @@ mod tests {
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
 pub enum ReceiptSource {
     Local,
+    Delayed,
+}
+
+/// A processed receipt together with its source. Runtime-only struct, not serialized to DB.
+#[derive(Debug)]
+pub struct ProcessedReceipt {
+    pub receipt: Receipt,
+    pub source: ReceiptSource,
 }
 
 /// Lightweight metadata about a processed receipt, stored instead of the full receipt.

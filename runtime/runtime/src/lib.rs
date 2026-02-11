@@ -49,8 +49,8 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
-    ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData, VersionedActionReceipt,
+    DataReceipt, ProcessedReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
+    ReceiptOrStateStoredReceipt, ReceiptSource, ReceiptV0, ReceivedData, VersionedActionReceipt,
     VersionedReceiptEnum,
 };
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -312,8 +312,7 @@ pub struct ApplyResult {
     pub outcomes: Vec<ExecutionOutcomeWithId>,
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
     pub stats: ChunkApplyStatsV0,
-    pub processed_delayed_receipts: Vec<Receipt>,
-    pub processed_local_receipts: Vec<Receipt>,
+    pub processed_receipts: Vec<ProcessedReceipt>,
     pub processed_yield_timeouts: Vec<PromiseYieldTimeout>,
     pub proof: Option<PartialStorage>,
     pub delayed_receipts_count: u64,
@@ -2138,7 +2137,7 @@ impl Runtime {
         receipt_sink: &mut ReceiptSink,
         compute_limit: u64,
         validator_proposals: &mut Vec<ValidatorStake>,
-    ) -> Result<Vec<Receipt>, RuntimeError> {
+    ) -> Result<(), RuntimeError> {
         let local_processing_start = std::time::Instant::now();
         let local_receipt_count = processing_state.local_receipts.len();
         let local_receipts = std::mem::take(&mut processing_state.local_receipts);
@@ -2159,7 +2158,6 @@ impl Runtime {
             &mut prep_lookahead_iter,
         );
 
-        let mut processed_local_receipts = vec![];
         for receipt in &local_receipts {
             if processing_state.total.compute >= compute_limit
                 || processing_state.state_update.trie.check_proof_size_limit_exceed()
@@ -2191,7 +2189,7 @@ impl Runtime {
                     receipt_sink,
                     validator_proposals,
                 )?;
-                processed_local_receipts.push(receipt.clone());
+                receipt_sink.track_processed_receipt(receipt.clone(), ReceiptSource::Local);
             }
         }
 
@@ -2204,7 +2202,7 @@ impl Runtime {
             processing_state.total.gas,
             processing_state.total.compute,
         );
-        Ok(processed_local_receipts)
+        Ok(())
     }
 
     #[instrument(
@@ -2220,11 +2218,10 @@ impl Runtime {
         receipt_sink: &mut ReceiptSink,
         compute_limit: u64,
         validator_proposals: &mut Vec<ValidatorStake>,
-    ) -> Result<Vec<Receipt>, RuntimeError> {
+    ) -> Result<(), RuntimeError> {
         let delayed_processing_start = std::time::Instant::now();
         let protocol_version = processing_state.protocol_version;
         let mut delayed_receipt_count = 0;
-        let mut processed_delayed_receipts = vec![];
 
         let mut next_schedule_after = {
             let mut prep_lookahead_iter =
@@ -2293,7 +2290,7 @@ impl Runtime {
                 receipt_sink,
                 validator_proposals,
             )?;
-            processed_delayed_receipts.push(receipt);
+            receipt_sink.track_processed_receipt(receipt, ReceiptSource::Delayed);
         }
         let span = tracing::Span::current();
         span.record("gas_burnt", processing_state.total.gas);
@@ -2305,7 +2302,7 @@ impl Runtime {
             processing_state.total.compute,
         );
 
-        Ok(processed_delayed_receipts)
+        Ok(())
     }
 
     #[instrument(target = "runtime", level = "debug", "process_incoming_receipts", skip_all, fields(
@@ -2439,7 +2436,7 @@ impl Runtime {
         let compute_limit = apply_state.gas_limit.map(|g| g.as_gas()).unwrap_or(u64::MAX);
 
         // We first process local receipts. They contain staking, local contract calls, etc.
-        let processed_local_receipts = self.process_local_receipts(
+        self.process_local_receipts(
             processing_state,
             receipt_sink,
             compute_limit,
@@ -2447,7 +2444,7 @@ impl Runtime {
         )?;
 
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
-        let processed_delayed_receipts = self.process_delayed_receipts(
+        self.process_delayed_receipts(
             processing_state,
             receipt_sink,
             compute_limit,
@@ -2481,12 +2478,7 @@ impl Runtime {
                 .inc();
         }
 
-        Ok(ProcessReceiptsResult {
-            promise_yield_result,
-            validator_proposals,
-            processed_delayed_receipts,
-            processed_local_receipts,
-        })
+        Ok(ProcessReceiptsResult { promise_yield_result, validator_proposals })
     }
 
     #[instrument(
@@ -2512,12 +2504,7 @@ impl Runtime {
             prefetcher,
             ..
         } = processing_state;
-        let ProcessReceiptsResult {
-            promise_yield_result,
-            processed_delayed_receipts,
-            processed_local_receipts,
-            ..
-        } = process_receipts_result;
+        let ProcessReceiptsResult { promise_yield_result, .. } = process_receipts_result;
         let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
 
         if promise_yield_result.promise_yield_indices
@@ -2616,8 +2603,8 @@ impl Runtime {
         let bandwidth_scheduler_state_hash =
             receipt_sink.bandwidth_scheduler_output().scheduler_state_hash;
 
-        let outgoing_receipts =
-            receipt_sink.finalize_stats_get_outgoing_receipts(&mut stats.receipt_sink);
+        let (outgoing_receipts, processed_receipts) =
+            receipt_sink.finalize_stats_get_receipts(&mut stats.receipt_sink);
 
         for (receiver_shard_id, receipt_stats) in &stats.receipt_sink.forwarded_receipts {
             metrics::OUTGOING_RECEIPT_GENERATED_TOTAL
@@ -2633,8 +2620,7 @@ impl Runtime {
             outcomes: processing_state.outcomes,
             state_changes,
             stats,
-            processed_delayed_receipts,
-            processed_local_receipts,
+            processed_receipts,
             processed_yield_timeouts,
             proof,
             delayed_receipts_count,
@@ -2767,8 +2753,7 @@ fn missing_chunk_apply_result(
         outcomes: vec![],
         state_changes,
         stats: processing_state.stats,
-        processed_delayed_receipts: vec![],
-        processed_local_receipts: vec![],
+        processed_receipts: vec![],
         processed_yield_timeouts: vec![],
         proof,
         delayed_receipts_count: delayed_receipts.upper_bound_len(),
@@ -2895,8 +2880,6 @@ impl TotalResourceGuard {
 struct ProcessReceiptsResult {
     promise_yield_result: ResolvePromiseYieldTimeoutsResult,
     validator_proposals: Vec<ValidatorStake>,
-    processed_delayed_receipts: Vec<Receipt>,
-    processed_local_receipts: Vec<Receipt>,
 }
 
 struct ResolvePromiseYieldTimeoutsResult {
@@ -3160,6 +3143,7 @@ pub mod estimator {
             outgoing_metadatas,
             bandwidth_scheduler_output: BandwidthSchedulerOutput::no_granted_bandwidth(params),
             stats: ReceiptSinkStats::default(),
+            processed_receipts: Vec::new(),
         };
         let info = ReceiptSinkV2Info::new(apply_state.epoch_id, epoch_info_provider)?;
         let mut receipt_sink = ReceiptSink::V2(ReceiptSinkV2WithInfo { info, sink });
@@ -3179,8 +3163,8 @@ pub mod estimator {
             stats,
             epoch_info_provider,
         );
-        let new_outgoing_receipts =
-            receipt_sink.finalize_stats_get_outgoing_receipts(&mut stats.receipt_sink);
+        let (new_outgoing_receipts, _processed) =
+            receipt_sink.finalize_stats_get_receipts(&mut stats.receipt_sink);
         outgoing_receipts.extend(new_outgoing_receipts.into_iter());
         apply_result
     }
