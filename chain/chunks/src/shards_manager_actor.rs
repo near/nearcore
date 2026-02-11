@@ -228,6 +228,10 @@ impl RequestPool {
         self.requests.insert(chunk_hash, chunk_request);
     }
 
+    pub fn get_request_info(&self, chunk_hash: &ChunkHash) -> Option<&ChunkRequestInfo> {
+        self.requests.get(chunk_hash)
+    }
+
     pub fn remove(&mut self, chunk_hash: &ChunkHash) {
         self.requests.remove(chunk_hash);
     }
@@ -1356,42 +1360,87 @@ impl ShardsManagerActor {
     /// 2) check that the chunk header is compatible with the current protocol version
     ///
     // Note that this function only does partial validation. Full validation is only possible
-    // after the previous block of the chunk is processed. If the previous block is not available,
-    // this function returns DBNotFound and callers may defer full validation and retry later.
+    // after the previous block of the chunk is processed. To be able to process partial encoded
+    // chunk messages in advance, this function tries to verify with other accepted block hash in
+    // the chain if the previous block hash is not accepted. Validation is only partially done
+    // in those cases. Full validation can be achieved by calling this function after
+    // the previous block hash is accepted.
     //
-    // To achieve full validation, this function is called twice for each chunk entry:
-    // first when the chunk entry is inserted in `encoded_chunks`,
-    // then in `process_partial_encoded_chunk` after checking the previous block is ready.
+    // To achieve full validation, this function is called twice for each chunk entry
+    // first when the chunk entry is inserted in `encoded_chunks`
+    // then in `process_partial_encoded_chunk` after checking the previous block is ready
     fn validate_chunk_header(&self, header: &ShardChunkHeader) -> Result<(), Error> {
         let chunk_hash = header.chunk_hash();
         let _span = debug_span!(target: "chunks", "validate_chunk_header", ?chunk_hash).entered();
         // 1.  check signature
         // Ideally, validating the chunk header needs the previous block to be accepted already.
-        // If prev_block_hash is not accepted yet, we can't validate producer assignment reliably.
-        let prev_block_hash = *header.prev_block_hash();
-        let epoch_id = self
-            .epoch_manager
-            .get_epoch_id_from_prev_block(&prev_block_hash)
-            .map_err(|_| DBNotFoundErr(format!("block {:?}", prev_block_hash)))?;
+        // However, we want to be able to validate chunk header in advance so we can save
+        // the corresponding parts and receipts before the previous block is processed
+        // We do this three layered check
+        // 1) if prev_block_hash is processed, we use that
+        // 2) if we have sent request for the chunk, we know the `ancestor_hash` from the original
+        //    request and we know that get_epoch_id_from_prev_block(ancestor_hash) =
+        //    get_epoch_id_from_prev_block(prev_block_hash). Thus, we can calculate epoch_id
+        //    from ancestor_hash
+        // 3) otherwise, we use the current chain_head to calculate epoch id. In this case,
+        //    we are not sure if we are using the correct epoch id, thus `epoch_id_confirmed` is false.
+        //    And if the validation fails in this case, we actually can't say if the chunk is actually
+        //    invalid. So we must return chain_error instead of return error
+        let (epoch_id, epoch_id_confirmed) = {
+            let prev_block_hash = *header.prev_block_hash();
+            let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash);
+            if let Ok(epoch_id) = epoch_id {
+                (epoch_id, true)
+            } else if let Some(request_info) =
+                self.requested_partial_encoded_chunks.get_request_info(&chunk_hash)
+            {
+                let ancestor_hash = request_info.ancestor_hash;
+                let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&ancestor_hash)?;
+                (epoch_id, true)
+            } else {
+                // we can safely unwrap here because chain head must already be accepted
+                let epoch_id = self
+                    .epoch_manager
+                    .get_epoch_id_from_prev_block(&self.chain_head.last_block_hash)
+                    .unwrap();
+                (epoch_id, false)
+            }
+        };
 
         let valid_signature =
             verify_chunk_header_signature_with_epoch_manager(self.epoch_manager.as_ref(), header)?;
         if !valid_signature {
-            byzantine_assert!(false);
-            return Err(Error::InvalidChunkSignature);
+            return if epoch_id_confirmed {
+                byzantine_assert!(false);
+                Err(Error::InvalidChunkSignature)
+            } else {
+                // we are not sure if we are using the correct epoch id for validation, so
+                // we can't be sure if the chunk header is actually invalid. Let's return
+                // DbNotFoundError for now, which means we don't have all needed information yet
+                Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
+            };
         }
 
         if !self.epoch_manager.shard_ids(&epoch_id)?.contains(&header.shard_id()) {
-            byzantine_assert!(false);
-            return Err(Error::InvalidChunkShardId);
+            return if epoch_id_confirmed {
+                byzantine_assert!(false);
+                Err(Error::InvalidChunkShardId)
+            } else {
+                // we are not sure if we are using the correct epoch id for validation, so
+                // we can't be sure if the chunk header is actually invalid. Let's return
+                // DbNotFoundError for now, which means we don't have all needed information yet
+                Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
+            };
         }
 
         // 2. check protocol version
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         if header.validate_version(protocol_version).is_ok() {
             Ok(())
-        } else {
+        } else if epoch_id_confirmed {
             Err(Error::InvalidChunkHeader)
+        } else {
+            Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
         }
     }
 
