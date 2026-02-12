@@ -943,7 +943,7 @@ fn test_archival_save_trie_changes() {
 
             let key = get_block_shard_uid(&block.hash(), &shard_uid);
             let trie_changes: Option<TrieChanges> =
-                store.store().get_ser(DBCol::TrieChanges, &key).unwrap();
+                store.store().get_ser(DBCol::TrieChanges, &key);
 
             if let Some(trie_changes) = trie_changes {
                 // After BandwidthScheduler there's a state change at every height, even when there are no transactions
