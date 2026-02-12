@@ -65,8 +65,9 @@ impl Store {
         value
     }
 
-    pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
-        self.get(column, key).as_deref().map(T::try_from_slice).transpose()
+    pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> Option<T> {
+        self.get(column, key)
+            .map(|bytes| T::try_from_slice(&bytes).expect("borsh deserialization should not fail"))
     }
 
     pub fn caching_get_ser<T: BorshDeserialize + Send + Sync + 'static>(
@@ -75,7 +76,7 @@ impl Store {
         key: &[u8],
     ) -> io::Result<Option<Arc<T>>> {
         let Some(cache) = self.cache.work_with(column) else {
-            return self.get_ser::<T>(column, key).map(|v| v.map(Into::into));
+            return Ok(self.get_ser::<T>(column, key).map(Into::into));
         };
 
         let cached_generation = {
@@ -107,11 +108,7 @@ impl Store {
             if lock.active_flushes > 0 { None } else { Some(lock.generation) }
         };
 
-        let value = match self.get_ser::<T>(column, key) {
-            Ok(Some(value)) => Some(Arc::from(value)),
-            Ok(None) => None,
-            Err(e) => return Err(e),
-        };
+        let value = self.get_ser::<T>(column, key).map(Arc::from);
 
         let mut lock = cache.lock();
         if cached_generation == Some(lock.generation) {

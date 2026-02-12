@@ -342,11 +342,9 @@ pub fn start_shards_manager(
     // TODO: make some better API for accessing chain properties like head.
     let chain_head = store
         .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
-        .unwrap()
         .expect("ShardsManager must be initialized after the chain is initialized");
     let chain_header_head = store
         .get_ser::<Tip>(DBCol::BlockMisc, HEADER_HEAD_KEY)
-        .unwrap()
         .expect("ShardsManager must be initialized after the chain is initialized");
     let shards_manager = ShardsManagerActor::new(
         Clock::real(),

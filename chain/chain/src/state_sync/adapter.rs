@@ -260,7 +260,7 @@ impl ChainStateSyncAdapter {
     ) -> Result<ShardStateSyncResponseHeader, Error> {
         // Check cache
         let key = borsh::to_vec(&StateHeaderKey(shard_id, sync_hash))?;
-        if let Ok(Some(header)) = self.chain_store.store().get_ser(DBCol::StateHeaders, &key) {
+        if let Some(header) = self.chain_store.store().get_ser(DBCol::StateHeaders, &key) {
             return Ok(header);
         }
 

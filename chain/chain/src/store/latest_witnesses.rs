@@ -168,7 +168,7 @@ impl ChainStore {
         // Read the current `LatestWitnessesInfo`, or create a new one if there is none.
         let mut info = self
             .store()
-            .get_ser::<LatestWitnessesInfo>(DBCol::Misc, LATEST_WITNESSES_INFO)?
+            .get_ser::<LatestWitnessesInfo>(DBCol::Misc, LATEST_WITNESSES_INFO)
             .unwrap_or_default();
 
         let new_witness_index = info.next_witness_index;
@@ -352,7 +352,7 @@ pub fn save_invalid_chunk_state_witness(
 
     // Read the current `InvalidWitnessesInfo`, or create a new one if there is none.
     let mut info = store
-        .get_ser::<InvalidWitnessesInfo>(DBCol::Misc, INVALID_WITNESSES_INFO)?
+        .get_ser::<InvalidWitnessesInfo>(DBCol::Misc, INVALID_WITNESSES_INFO)
         .unwrap_or_default();
 
     let new_witness_index = info.next_witness_index;

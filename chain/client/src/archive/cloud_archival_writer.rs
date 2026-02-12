@@ -394,14 +394,14 @@ impl CloudArchivalWriter {
 
     /// Reads the hot final head height; falls back to `genesis_height` if unset.
     fn get_hot_final_head_height(&self) -> io::Result<BlockHeight> {
-        let hot_final_head = self.hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
+        let hot_final_head = self.hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY);
         let hot_final_head_height = hot_final_head.map_or(self.genesis_height, |tip| tip.height);
         Ok(hot_final_head_height)
     }
 
     /// Returns the locally stored cloud head, if any.
     fn get_cloud_head_local(&self) -> io::Result<Option<BlockHeight>> {
-        let cloud_head_tip = self.hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY)?;
+        let cloud_head_tip = self.hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY);
         let cloud_head = cloud_head_tip.map(|tip| tip.height);
         Ok(cloud_head)
     }
