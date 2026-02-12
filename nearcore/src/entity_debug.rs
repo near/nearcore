@@ -68,7 +68,7 @@ impl EntityDebugHandlerImpl {
             }
             EntityQuery::BlockByHash { block_hash } => {
                 let block = store
-                    .caching_get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())?
+                    .caching_get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())
                     .ok_or_else(|| anyhow!("Block not found"))?;
                 let author = self
                     .epoch_manager
@@ -267,7 +267,7 @@ impl EntityDebugHandlerImpl {
             EntityQuery::OutcomeIdsByBlockHash { block_hash } => {
                 // Get all shard IDs for the epoch of this block
                 let block = store
-                    .caching_get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())?
+                    .caching_get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())
                     .ok_or_else(|| anyhow!("Block not found"))?;
                 let epoch_id = block.header().epoch_id();
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
@@ -358,7 +358,7 @@ impl EntityDebugHandlerImpl {
             }
             EntityQuery::StateTransitionData { block_hash } => {
                 let block = store
-                    .caching_get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())?
+                    .caching_get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())
                     .ok_or_else(|| anyhow!("Block not found"))?;
                 let epoch_id = block.header().epoch_id();
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
