@@ -22,3 +22,7 @@
 ## OpenAPI Spec
 - Do NOT update the OpenAPI spec unless explicitly asked.
 - When asked, follow the `openapi-spec` recipe in the `Justfile`.
+
+## Consensus
+- For high-level documentation on the consensus protocol, see `docs/ChainSpec/Consensus.md`.
+- Doomslug is implemented in `chain/chain/src/doomslug.rs`.
