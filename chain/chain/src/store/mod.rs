@@ -585,7 +585,7 @@ impl ChainStore {
         let latest_known: LatestKnown = self
             .store
             .store()
-            .caching_get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY)?
+            .caching_get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY)
             .ok_or_else(|| Error::DBNotFoundErr("LATEST_KNOWN_KEY".to_string()))
             .map(|v| *v)?;
         Ok(latest_known)

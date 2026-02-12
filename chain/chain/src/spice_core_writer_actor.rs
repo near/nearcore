@@ -237,7 +237,7 @@ impl SpiceCoreWriterActor {
         shard_id: ShardId,
     ) -> Result<Option<Arc<ChunkExecutionResult>>, std::io::Error> {
         let key = get_execution_results_key(block_hash, shard_id);
-        self.chain_store.store().caching_get_ser(DBCol::execution_results(), &key)
+        Ok(self.chain_store.store().caching_get_ser(DBCol::execution_results(), &key))
     }
 
     fn get_uncertified_execution_result(
@@ -245,7 +245,7 @@ impl SpiceCoreWriterActor {
         execution_result_hash: &ChunkExecutionResultHash,
     ) -> Result<Option<Arc<ChunkExecutionResult>>, std::io::Error> {
         let key = get_uncertified_execution_results_key(execution_result_hash);
-        self.chain_store.store().caching_get_ser(DBCol::uncertified_execution_results(), &key)
+        Ok(self.chain_store.store().caching_get_ser(DBCol::uncertified_execution_results(), &key))
     }
 
     fn validate_verified_endorsement_with_block(

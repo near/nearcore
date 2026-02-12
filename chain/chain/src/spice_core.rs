@@ -89,7 +89,7 @@ impl SpiceCoreReader {
                 outgoing_receipts_root: CryptoHash::default(),
             })))
         } else {
-            Ok(self.get_execution_result_from_store(block_header.hash(), shard_id)?)
+            Ok(self.get_execution_result_from_store(block_header.hash(), shard_id))
         }
     }
 
@@ -97,7 +97,7 @@ impl SpiceCoreReader {
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<Option<Arc<ChunkExecutionResult>>, std::io::Error> {
+    ) -> Option<Arc<ChunkExecutionResult>> {
         let key = get_execution_results_key(block_hash, shard_id);
         self.chain_store.store().caching_get_ser(DBCol::execution_results(), &key)
     }
@@ -175,8 +175,7 @@ impl SpiceCoreReader {
             let Some(execution_result) = self.get_execution_result_from_store(
                 &chunk_info.chunk_id.block_hash,
                 chunk_info.chunk_id.shard_id,
-            )?
-            else {
+            ) else {
                 continue;
             };
             // Execution results are stored only for endorsed chunks.
@@ -200,7 +199,6 @@ impl SpiceCoreReader {
         ) -> Result<Arc<Block>, InvalidSpiceCoreStatementsError> {
             store
                 .caching_get_ser(DBCol::Block, block_hash.as_ref())
-                .map_err(|error| IoError { error })?
                 .ok_or(UnknownBlock { block_hash: *block_hash })
         }
 

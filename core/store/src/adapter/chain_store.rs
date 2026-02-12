@@ -54,7 +54,7 @@ impl ChainStoreAdapter {
 
     /// The chain head.
     pub fn head(&self) -> Result<Arc<Tip>, Error> {
-        option_to_not_found(self.store.caching_get_ser(DBCol::BlockMisc, HEAD_KEY)?, "HEAD")
+        option_to_not_found(self.store.caching_get_ser(DBCol::BlockMisc, HEAD_KEY), "HEAD")
     }
 
     /// The chain Blocks Tail height.
@@ -84,7 +84,7 @@ impl ChainStoreAdapter {
     /// Head of the header chain (not the same thing as head_header).
     pub fn header_head(&self) -> Result<Arc<Tip>, Error> {
         option_to_not_found(
-            self.store.caching_get_ser(DBCol::BlockMisc, HEADER_HEAD_KEY)?,
+            self.store.caching_get_ser(DBCol::BlockMisc, HEADER_HEAD_KEY),
             "HEADER_HEAD",
         )
     }
@@ -93,7 +93,7 @@ impl ChainStoreAdapter {
     pub fn head_header(&self) -> Result<Arc<BlockHeader>, Error> {
         let last_block_hash = self.head()?.last_block_hash;
         option_to_not_found(
-            self.store.caching_get_ser(DBCol::BlockHeader, last_block_hash.as_ref())?,
+            self.store.caching_get_ser(DBCol::BlockHeader, last_block_hash.as_ref()),
             format_args!("BLOCK HEADER: {}", last_block_hash),
         )
     }
@@ -101,21 +101,21 @@ impl ChainStoreAdapter {
     /// The chain final head. It is guaranteed to be monotonically increasing.
     pub fn final_head(&self) -> Result<Arc<Tip>, Error> {
         option_to_not_found(
-            self.store.caching_get_ser(DBCol::BlockMisc, FINAL_HEAD_KEY)?,
+            self.store.caching_get_ser(DBCol::BlockMisc, FINAL_HEAD_KEY),
             "FINAL HEAD",
         )
     }
 
     pub fn spice_final_execution_head(&self) -> Result<Arc<Tip>, Error> {
         option_to_not_found(
-            self.store.caching_get_ser(DBCol::BlockMisc, SPICE_FINAL_EXECUTION_HEAD_KEY)?,
+            self.store.caching_get_ser(DBCol::BlockMisc, SPICE_FINAL_EXECUTION_HEAD_KEY),
             "SPICE FINAL EXECUTION HEAD",
         )
     }
 
     pub fn spice_execution_head(&self) -> Result<Arc<Tip>, Error> {
         option_to_not_found(
-            self.store.caching_get_ser(DBCol::BlockMisc, SPICE_EXECUTION_HEAD_KEY)?,
+            self.store.caching_get_ser(DBCol::BlockMisc, SPICE_EXECUTION_HEAD_KEY),
             "SPICE EXECUTION HEAD",
         )
     }
@@ -135,7 +135,7 @@ impl ChainStoreAdapter {
     /// Get full block.
     pub fn get_block(&self, block_hash: &CryptoHash) -> Result<Arc<Block>, Error> {
         option_to_not_found(
-            self.store.caching_get_ser(DBCol::Block, block_hash.as_ref())?,
+            self.store.caching_get_ser(DBCol::Block, block_hash.as_ref()),
             format_args!("BLOCK: {}", block_hash),
         )
     }
@@ -156,7 +156,7 @@ impl ChainStoreAdapter {
     /// Get block header.
     pub fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
         option_to_not_found(
-            self.store.caching_get_ser(DBCol::BlockHeader, h.as_ref())?,
+            self.store.caching_get_ser(DBCol::BlockHeader, h.as_ref()),
             format_args!("BLOCK HEADER: {}", h),
         )
     }
@@ -178,7 +178,7 @@ impl ChainStoreAdapter {
     /// Returns hash of the block on the main chain for given height.
     pub fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error> {
         option_to_not_found(
-            self.store.caching_get_ser(DBCol::BlockHeight, &index_to_bytes(height))?,
+            self.store.caching_get_ser(DBCol::BlockHeight, &index_to_bytes(height)),
             format_args!("BLOCK HEIGHT: {}", height),
         )
         .map(|v| *v)
