@@ -265,12 +265,33 @@ impl TrieUpdate {
         Ok(TrieUpdateResult { trie, trie_changes, state_changes, contract_updates })
     }
 
-    /// Returns Error if the underlying storage fails
-    pub fn iter(&self, key_prefix: &[u8]) -> Result<TrieUpdateIterator<'_>, StorageError> {
+    /// Iterates over keys with the given prefix, yielding only keys.
+    pub fn iter(
+        &self,
+        key_prefix: &[u8],
+    ) -> Result<impl Iterator<Item = Result<Vec<u8>, StorageError>> + '_, StorageError> {
+        Ok(self.iter_key_values(key_prefix)?.map(|r| r.map(|(k, _)| k)))
+    }
+
+    /// Iterates over keys with the given prefix using a trie read lock, yielding only keys.
+    pub fn locked_iter<'a>(
+        &'a self,
+        key_prefix: &[u8],
+        lock: &'a TrieWithReadLock<'_>,
+    ) -> Result<impl Iterator<Item = Result<Vec<u8>, StorageError>> + 'a, StorageError> {
+        Ok(self.locked_iter_key_values(key_prefix, lock)?.map(|r| r.map(|(k, _)| k)))
+    }
+
+    /// Iterates over key-value pairs with the given prefix.
+    pub fn iter_key_values(
+        &self,
+        key_prefix: &[u8],
+    ) -> Result<TrieUpdateIterator<'_>, StorageError> {
         TrieUpdateIterator::new(self, key_prefix, None)
     }
 
-    pub fn locked_iter<'a>(
+    /// Iterates over key-value pairs with the given prefix using a trie read lock.
+    pub fn locked_iter_key_values<'a>(
         &'a self,
         key_prefix: &[u8],
         lock: &'a TrieWithReadLock<'_>,
@@ -527,6 +548,112 @@ mod tests {
                 test_key(b"dog".to_vec()).to_vec(),
                 test_key(b"dog2".to_vec()).to_vec(),
                 test_key(b"dog3".to_vec()).to_vec()
+            ]
+        );
+    }
+
+    #[test]
+    fn trie_iter_key_values() {
+        let tries = TestTriesBuilder::new().build();
+        let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), Trie::EMPTY_ROOT);
+        trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
+        trie_update.set(test_key(b"aaa".to_vec()), b"val_aaa".to_vec());
+        trie_update
+            .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
+        let trie_changes = trie_update.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let new_root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit();
+
+        // Prospective overlay adds dog2 with a different value.
+        let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
+        trie_update.set(test_key(b"dog2".to_vec()), b"puppy2".to_vec());
+        trie_update.set(test_key(b"xxx".to_vec()), b"val_xxx".to_vec());
+
+        let kvs: Vec<_> = trie_update
+            .iter_key_values(&test_key(b"dog".to_vec()).to_vec())
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            kvs,
+            vec![
+                (test_key(b"dog".to_vec()).to_vec(), b"puppy".to_vec()),
+                (test_key(b"dog2".to_vec()).to_vec(), b"puppy2".to_vec()),
+            ]
+        );
+
+        // After rollback, only the trie value remains.
+        trie_update.rollback();
+        let kvs: Vec<_> = trie_update
+            .iter_key_values(&test_key(b"dog".to_vec()).to_vec())
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(kvs, vec![(test_key(b"dog".to_vec()).to_vec(), b"puppy".to_vec())]);
+
+        // Overlay delete hides the trie value.
+        let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
+        trie_update.remove(test_key(b"dog".to_vec()));
+        let kvs: Vec<_> = trie_update
+            .iter_key_values(&test_key(b"dog".to_vec()).to_vec())
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(kvs.is_empty());
+
+        // Committed then prospective-deleted key is hidden.
+        let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
+        trie_update.set(test_key(b"dog2".to_vec()), b"puppy2".to_vec());
+        trie_update
+            .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
+        trie_update.remove(test_key(b"dog2".to_vec()));
+        let kvs: Vec<_> = trie_update
+            .iter_key_values(&test_key(b"dog".to_vec()).to_vec())
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(kvs, vec![(test_key(b"dog".to_vec()).to_vec(), b"puppy".to_vec())]);
+
+        // Overlay value overrides trie value for the same key.
+        let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
+        trie_update.set(test_key(b"dog".to_vec()), b"updated".to_vec());
+        let kvs: Vec<_> = trie_update
+            .iter_key_values(&test_key(b"dog".to_vec()).to_vec())
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(kvs, vec![(test_key(b"dog".to_vec()).to_vec(), b"updated".to_vec())]);
+
+        // Committed override replaces trie value for the same key.
+        let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
+        trie_update.set(test_key(b"dog".to_vec()), b"committed_val".to_vec());
+        trie_update
+            .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
+        let kvs: Vec<_> = trie_update
+            .iter_key_values(&test_key(b"dog".to_vec()).to_vec())
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(kvs, vec![(test_key(b"dog".to_vec()).to_vec(), b"committed_val".to_vec())]);
+
+        // Committed + prospective: both layers present.
+        let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
+        trie_update.set(test_key(b"dog2".to_vec()), b"puppy2".to_vec());
+        trie_update
+            .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
+        trie_update.set(test_key(b"dog3".to_vec()), b"puppy3".to_vec());
+        let kvs: Vec<_> = trie_update
+            .iter_key_values(&test_key(b"dog".to_vec()).to_vec())
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            kvs,
+            vec![
+                (test_key(b"dog".to_vec()).to_vec(), b"puppy".to_vec()),
+                (test_key(b"dog2".to_vec()).to_vec(), b"puppy2".to_vec()),
+                (test_key(b"dog3".to_vec()).to_vec(), b"puppy3".to_vec()),
             ]
         );
     }

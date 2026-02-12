@@ -38,7 +38,6 @@ impl<'a> Iterator for MergeIter<'a> {
 pub struct TrieUpdateIterator<'a>(Option<(Peekable<TrieIterator<'a>>, Peekable<MergeIter<'a>>)>);
 
 impl<'a> TrieUpdateIterator<'a> {
-    #![allow(clippy::new_ret_no_self)]
     pub fn new(
         state_update: &'a TrieUpdate,
         prefix: &[u8],
@@ -85,7 +84,7 @@ impl<'a> TrieUpdateIterator<'a> {
 }
 
 impl<'a> Iterator for TrieUpdateIterator<'a> {
-    type Item = Result<Vec<u8>, StorageError>;
+    type Item = Result<(Vec<u8>, Vec<u8>), StorageError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         #[derive(Eq, PartialEq)]
@@ -120,20 +119,21 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
             };
 
             // Check which element comes first and advance the corresponding
-            // iterator only.  If both keys are equal, check if overlay doesn’t
+            // iterator only.  If both keys are equal, check if overlay doesn't
             // delete the value.
             let trie_item = if res != Ordering::Overlay { iterators.0.next() } else { None };
             if res == Ordering::Trie {
-                if let Some(Ok((key, _))) = trie_item {
-                    return Some(Ok(key));
+                if let Some(Ok((key, value))) = trie_item {
+                    return Some(Ok((key, value)));
                 }
-            } else if let Some((overlay_key, Some(_))) = iterators.1.next() {
-                return Some(Ok(if let Some(Ok((trie_key, _))) = trie_item {
+            } else if let Some((overlay_key, Some(overlay_value))) = iterators.1.next() {
+                let key = if let Some(Ok((trie_key, _))) = trie_item {
                     debug_assert_eq!(trie_key.as_slice(), overlay_key);
                     trie_key
                 } else {
                     overlay_key.to_vec()
-                }));
+                };
+                return Some(Ok((key, overlay_value.to_vec())));
             }
         }
     }
