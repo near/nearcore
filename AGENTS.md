@@ -8,7 +8,7 @@
 
 ## Protocol Schema Check
 - Do NOT run the protocol schema check unless explicitly asked. It is expensive.
-- When asked to update the schema, follow the instructions in `tools/protocol-schema-check/README.md` exactly.
+- When asked to update the schema, first read `tools/protocol-schema-check/README.md`, then follow its instructions exactly. Do NOT guess the command.
 
 ## Testing
 - When running tests, use `--features test_features`.
