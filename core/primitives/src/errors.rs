@@ -812,6 +812,13 @@ pub enum ActionErrorKind {
         balance: Balance,
         required: Balance,
     } = 24,
+    /// Gas key balance is too high to burn during deletion
+    GasKeyBalanceTooHigh {
+        account_id: AccountId,
+        /// Set for DeleteKey (specific key), None for DeleteAccount (aggregate)
+        public_key: Option<Box<PublicKey>>,
+        balance: Balance,
+    } = 25,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1126,6 +1133,21 @@ impl Display for ActionErrorKind {
                     "Gas key {} for account {} has insufficient balance: {} available, {} required",
                     public_key, account_id, balance, required
                 )
+            }
+            ActionErrorKind::GasKeyBalanceTooHigh { account_id, public_key, balance } => {
+                if let Some(pk) = public_key {
+                    write!(
+                        f,
+                        "Gas key {} for account {} has balance {} which is too high to burn on deletion",
+                        pk, account_id, balance
+                    )
+                } else {
+                    write!(
+                        f,
+                        "Account {} has total gas key balance {} which is too high to burn on deletion",
+                        account_id, balance
+                    )
+                }
             }
         }
     }

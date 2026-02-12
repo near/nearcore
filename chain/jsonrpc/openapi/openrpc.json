@@ -1193,6 +1193,43 @@
             ],
             "title": "InsufficientGasKeyBalance",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key balance is too high to burn during deletion",
+            "properties": {
+              "GasKeyBalanceTooHigh": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "public_key": {
+                    "description": "Set for DeleteKey (specific key), None for DeleteAccount (aggregate)",
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKey"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "balance"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyBalanceTooHigh"
+            ],
+            "title": "GasKeyBalanceTooHigh",
+            "type": "object"
           }
         ],
         "title": "ActionErrorKind"

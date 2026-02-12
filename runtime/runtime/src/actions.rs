@@ -6,7 +6,9 @@ use crate::deterministic_account_id::create_deterministic_account;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
-use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
+use near_primitives::account::{
+    AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo,
+};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
@@ -26,7 +28,8 @@ use near_primitives_core::account::id::AccountType;
 use near_primitives_core::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{
-    StorageError, TrieAccess, TrieUpdate, get_access_key, remove_account, set_access_key,
+    StorageError, TrieAccess, TrieUpdate, compute_gas_key_balance_sum, get_access_key,
+    remove_account, set_access_key,
 };
 use near_vm_runner::precompile_contract;
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
@@ -339,6 +342,16 @@ pub(crate) fn action_delete_account(
                 .into());
         return Ok(());
     }
+    let gas_key_balance_to_burn = compute_gas_key_balance_sum(state_update, account_id)?;
+    if gas_key_balance_to_burn > GasKeyInfo::MAX_BALANCE_TO_BURN {
+        result.result = Err(ActionErrorKind::GasKeyBalanceTooHigh {
+            account_id: account_id.clone(),
+            public_key: None,
+            balance: gas_key_balance_to_burn,
+        }
+        .into());
+        return Ok(());
+    }
     // We use current amount as a pay out to beneficiary.
     let account_balance = account_ref.amount();
     if account_balance > Balance::ZERO {
@@ -346,7 +359,7 @@ pub(crate) fn action_delete_account(
             .new_receipts
             .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
     }
-    let gas_key_balance_to_burn = remove_account(state_update, account_id)?;
+    remove_account(state_update, account_id)?;
     result.tokens_burnt =
         result.tokens_burnt.checked_add(gas_key_balance_to_burn).ok_or_else(|| {
             StorageError::StorageInconsistentState("tokens_burnt overflow".to_string())
