@@ -99,7 +99,7 @@ pub fn report_metrics(shard_id: &str, caller_context: &str) {
         if m.compiled_contract_cache_hits > 0 {
             COMPILED_CONTRACT_CACHE_HITS_TOTAL
                 .with_label_values(&[caller_context, shard_id])
-                .inc_by(m.compiled_contract_cache_lookups);
+                .inc_by(m.compiled_contract_cache_hits);
         }
 
         *m = Metrics::default();
