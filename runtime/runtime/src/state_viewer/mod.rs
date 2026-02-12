@@ -181,10 +181,13 @@ impl TrieViewer {
         let prefix = trie_key_parsers::get_raw_prefix_for_gas_key_nonces(account_id, public_key);
         let mut iter = state_update.trie().disk_iter()?;
         iter.seek_prefix(&prefix)?;
-        let mut nonces = Vec::with_capacity(gas_key_info.num_nonces as usize);
+        // Collect (index, nonce) pairs because the trie yields keys in
+        // lexicographic order of the LE-encoded NonceIndex, which does not
+        // match numeric order.
+        let mut indexed_nonces = Vec::with_capacity(gas_key_info.num_nonces as usize);
         for item in iter {
             let (key, value) = item?;
-            let Some(_index) = parse_nonce_index_from_gas_key_key(&key, account_id, public_key)
+            let Some(index) = parse_nonce_index_from_gas_key_key(&key, account_id, public_key)
                 .map_err(|_| errors::ViewAccessKeyError::InternalError {
                     error_message: "could not parse nonce index".to_string(),
                 })?
@@ -196,9 +199,10 @@ impl TrieViewer {
                     error_message: "could not deserialize gas key nonce".to_string(),
                 }
             })?;
-            nonces.push(nonce);
+            indexed_nonces.push((index, nonce));
         }
-        Ok(nonces)
+        indexed_nonces.sort_by_key(|(index, _)| *index);
+        Ok(indexed_nonces.into_iter().map(|(_, nonce)| nonce).collect())
     }
 
     pub fn view_state(
