@@ -95,6 +95,13 @@ pub enum MockAction {
         receipt_index: ReceiptIndex,
         refund_to: AccountId,
     },
+    Call {
+        receiver_id: AccountId,
+        method_name: Vec<u8>,
+        args: Vec<u8>,
+        attached_deposit: Balance,
+        prepaid_gas: Gas,
+    },
 }
 
 #[derive(Default, Clone)]
@@ -204,6 +211,24 @@ impl External for MockedExternal {
             .validators
             .values()
             .fold(Balance::ZERO, |sum, item| sum.checked_add(*item).unwrap()))
+    }
+
+    fn call(
+        &mut self,
+        receiver_id: AccountId,
+        method_name: Vec<u8>,
+        args: Vec<u8>,
+        attached_deposit: Balance,
+        prepaid_gas: Gas,
+    ) -> Result<Vec<u8>> {
+        self.action_log.push(MockAction::Call {
+            receiver_id,
+            method_name,
+            args,
+            attached_deposit,
+            prepaid_gas,
+        });
+        Ok(Vec::new())
     }
 
     fn create_action_receipt(

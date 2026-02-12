@@ -269,6 +269,16 @@ pub trait External {
     /// Returns total stake of validators in the current epoch.
     fn validator_total_stake(&self) -> Result<Balance>;
 
+    /// Executes a synchronous contract call and returns serialized outcome data.
+    fn call(
+        &mut self,
+        receiver_id: AccountId,
+        method_name: Vec<u8>,
+        args: Vec<u8>,
+        attached_deposit: Balance,
+        prepaid_gas: Gas,
+    ) -> Result<Vec<u8>>;
+
     /// Create an action receipt which will be executed after all the receipts identified by
     /// `receipt_indices` are complete.
     ///

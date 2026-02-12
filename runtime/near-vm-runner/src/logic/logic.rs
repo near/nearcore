@@ -647,7 +647,7 @@ impl<'a> VMLogic<'a> {
     /// # Errors
     ///
     /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     ///
     /// # Cost
     ///
@@ -676,7 +676,7 @@ impl<'a> VMLogic<'a> {
     /// # Errors
     ///
     /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     ///
     /// # Cost
     ///
@@ -705,7 +705,7 @@ impl<'a> VMLogic<'a> {
     /// # Errors
     ///
     /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     ///
     /// # Cost
     ///
@@ -1892,7 +1892,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
     /// `arguments_len + arguments_ptr` or `amount_ptr + 16` points outside the memory of the guest
     /// or host returns `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     ///
     /// # Returns
     ///
@@ -1935,7 +1935,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
     ///   `arguments_len + arguments_ptr` or `amount_ptr + 16` points outside the memory of the
     ///   guest or host returns `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     ///
     /// # Returns
     ///
@@ -1983,7 +1983,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ///   `MemoryAccessViolation`;
     /// * If any of the promises in the array do not correspond to existing promises returns
     ///   `InvalidPromiseIndex`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     /// * If the total number of receipt dependencies exceeds `max_number_input_data_dependencies`
     ///   limit returns `NumInputDataDependenciesExceeded`.
     /// * If the total number of promises exceeds `max_promises_per_function_call_action` limit
@@ -2058,7 +2058,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ///
     /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
     /// returns `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     /// * If the total number of promises exceeds `max_promises_per_function_call_action` limit
     ///   returns `NumPromisesExceeded`.
     ///
@@ -2099,7 +2099,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`;
     /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
     /// returns `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     /// * If the total number of promises exceeds `max_promises_per_function_call_action` limit
     ///   returns `NumPromisesExceeded`.
     ///
@@ -2155,7 +2155,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`;
     /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
     /// returns `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     ///
     /// # Cost
     ///
@@ -2217,7 +2217,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
     /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     ///
     /// # Cost
     ///
@@ -2249,7 +2249,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
     /// * If `code_len + code_ptr` points outside the memory of the guest or host returns
     /// `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     /// * If the contract code length exceeds `max_contract_size` returns `ContractSizeExceeded`.
     ///
     /// # Cost
@@ -2296,7 +2296,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
     /// * If `code_len + code_ptr` points outside the memory of the guest or host returns
     /// `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     /// * If the contract code length exceeds `max_contract_size` returns `ContractSizeExceeded`.
     ///
     /// # Cost
@@ -2328,7 +2328,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
     /// * If `code_len + code_ptr` points outside the memory of the guest or host returns
     /// `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     /// * If the contract code length exceeds `max_contract_size` returns `ContractSizeExceeded`.
     ///
     /// # Cost
@@ -2387,7 +2387,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
     /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     /// * If `code_hash_len + code_hash_ptr` points outside the memory of the guest or host returns
     /// `MemoryAccessViolation`.
     /// * If a malformed code hash is passed, returns `ContractCodeHashMalformed`.
@@ -2417,7 +2417,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
     /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host returns
     /// `MemoryAccessViolation`.
     /// * If account_id string is not UTF-8 returns `BadUtf8`.
@@ -2645,7 +2645,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If `method_name_len + method_name_ptr` or `arguments_len + arguments_ptr` or
     /// `amount_ptr + 16` points outside the memory of the guest or host returns
     /// `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     ///
     /// # Cost
     ///
@@ -2709,7 +2709,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If `method_name_len + method_name_ptr` or `arguments_len + arguments_ptr` or
     /// `amount_ptr + 16` points outside the memory of the guest or host returns
     /// `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     pub fn promise_batch_action_function_call_weight(
         &mut self,
         promise_idx: u64,
@@ -2759,6 +2759,64 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         )
     }
 
+    /// Executes a synchronous contract call and writes the outcome into a register.
+    ///
+    /// # Errors
+    ///
+    /// * If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
+    ///   `arguments_len + arguments_ptr` or `amount_ptr + 16` points outside the memory of the
+    ///   guest or host returns `MemoryAccessViolation`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
+    ///
+    /// # Returns
+    ///
+    /// Length of the serialized outcome written to `register_id`.
+    ///
+    /// # Cost
+    ///
+    /// `base + action base/per-byte costs + cost of reading method_name and arguments`
+    pub fn call(
+        &mut self,
+        account_id_len: u64,
+        account_id_ptr: u64,
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: u64,
+        register_id: u64,
+    ) -> Result<u64> {
+        self.result_state.gas_counter.pay_base(base)?;
+        let receiver_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
+        let amount = Balance::from_yoctonear(
+            self.memory.get_u128(&mut self.result_state.gas_counter, amount_ptr)?,
+        );
+        let gas = Gas::from_gas(gas);
+        let method_name = get_memory_or_register!(self, method_name_ptr, method_name_len)?;
+        if method_name.is_empty() {
+            return Err(HostError::EmptyMethodName.into());
+        }
+        let arguments = get_memory_or_register!(self, arguments_ptr, arguments_len)?;
+
+        let method_name = method_name.into_owned();
+        let arguments = arguments.into_owned();
+        let num_bytes = method_name.len() as u64 + arguments.len() as u64;
+        self.pay_action_base(ActionCosts::function_call_base, true)?;
+        self.pay_action_per_byte(ActionCosts::function_call_byte, num_bytes, true)?;
+        self.result_state.gas_counter.prepay_gas(gas)?;
+        self.result_state.deduct_balance(amount)?;
+
+        let outcome = self.ext.call(receiver_id, method_name, arguments, amount, gas)?;
+        self.registers.set(
+            &mut self.result_state.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            &outcome,
+        )?;
+        Ok(outcome.len() as u64)
+    }
+
     /// Appends `Transfer` action to the batch of actions for the given promise pointed by
     /// `promise_idx`.
     ///
@@ -2769,7 +2827,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
     /// * If `amount_ptr + 16` points outside the memory of the guest or host returns
     /// `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     ///
     /// # Cost
     ///
@@ -2827,7 +2885,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
     /// * If `amount_ptr + 16` or `public_key_len + public_key_ptr` points outside the memory of the
     /// guest or host returns `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     ///
     /// # Cost
     ///
@@ -2868,7 +2926,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
     /// * If `public_key_len + public_key_ptr` points outside the memory of the guest or host
     /// returns `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     ///
     /// # Cost
     ///
@@ -2907,7 +2965,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If `public_key_len + public_key_ptr`, `allowance_ptr + 16`,
     /// `receiver_id_len + receiver_id_ptr` or `method_names_len + method_names_ptr` points outside
     /// the memory of the guest or host returns `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     ///
     /// # Cost
     ///
@@ -2971,7 +3029,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
     /// * If `public_key_len + public_key_ptr` points outside the memory of the guest or host
     /// returns `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     ///
     /// # Cost
     ///
@@ -3007,7 +3065,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
     /// * If `beneficiary_id_len + beneficiary_id_ptr` points outside the memory of the guest or
     /// host returns `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     ///
     /// # Cost
     ///
@@ -3237,7 +3295,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     ///
     /// * If `result_id` does not correspond to an existing result returns `InvalidPromiseResultIndex`;
     /// * If copying the blob exhausts the memory limit it returns `MemoryAccessViolation`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     ///
     /// # Cost
     ///
@@ -3277,7 +3335,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     /// # Errors
     ///
     /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
-    /// * If called as view function returns `ProhibitedInView`.
+    /// * If state changes occur during a view call, the runtime will reject the call.
     ///
     /// # Cost
     ///

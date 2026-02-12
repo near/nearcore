@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
+use near_primitives_core::types::AccountId;
 use std::any::Any;
 use std::fmt::{self, Error, Formatter};
 use std::io;
@@ -248,6 +249,18 @@ pub enum HostError {
     /// `method_name` is not allowed in view calls
     ProhibitedInView {
         method_name: String,
+    },
+    /// Receipt creation is not allowed in this context.
+    ReceiptCreationNotAllowed {
+        method_name: String,
+    },
+    /// Call is not allowed for the requested account.
+    CallNotAllowed {
+        receiver_id: AccountId,
+    },
+    /// Nested synchronous calls exceeded the allowed depth.
+    CallDepthExceeded {
+        limit: u32,
     },
     /// The total number of logs will exceed the limit.
     NumberOfLogsExceeded {
@@ -527,6 +540,19 @@ impl std::fmt::Display for HostError {
             InvalidPublicKey => write!(f, "VM Logic provided an invalid public key"),
             ProhibitedInView { method_name } => {
                 write!(f, "{} is not allowed in view calls", method_name)
+            }
+            ReceiptCreationNotAllowed { method_name } => {
+                write!(f, "{} is not allowed in synchronous calls", method_name)
+            }
+            CallNotAllowed { receiver_id } => {
+                write!(
+                    f,
+                    "Call is only allowed within a single shard or namespace. Receiver {} is not allowed",
+                    receiver_id
+                )
+            }
+            CallDepthExceeded { limit } => {
+                write!(f, "Exceeded the maximum synchronous call depth {}", limit)
             }
             NumberOfLogsExceeded { limit } => {
                 write!(f, "The number of logs will exceed the limit {}", limit)

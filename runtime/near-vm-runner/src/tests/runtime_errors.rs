@@ -903,3 +903,34 @@ fn test_regression_9393() {
         "#]],
     ]);
 }
+
+#[test]
+fn test_call_host_function() {
+    test_builder()
+        .wat(
+            r#"
+(module
+  (import "env" "call" (func $call (param i64 i64 i64 i64 i64 i64 i64 i64 i64) (result i64)))
+  (memory (export "memory") 1)
+  (data (i32.const 0) "bob")
+  (data (i32.const 8) "method")
+  (data (i32.const 32) "\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00")
+  (func (export "main")
+    (drop
+      (call $call
+        (i64.const 3) (i64.const 0)
+        (i64.const 6) (i64.const 8)
+        (i64.const 0) (i64.const 0)
+        (i64.const 32)
+        (i64.const 10)
+        (i64.const 0)
+      )
+    )
+  )
+)
+"#,
+        )
+        .enable_call_host_fns()
+        .opaque_outcome()
+        .expect(&expect![[r#""#]]);
+}

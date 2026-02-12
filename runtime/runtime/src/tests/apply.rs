@@ -177,6 +177,7 @@ fn setup_runtime_for_shard(
         current_protocol_version: PROTOCOL_VERSION,
         config: Arc::new(RuntimeConfig::test()),
         cache: Some(Box::new(contract_cache)),
+        call_preparation_cache: None,
         is_new_chunk: true,
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),
