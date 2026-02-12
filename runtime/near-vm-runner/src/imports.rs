@@ -241,6 +241,11 @@ imports! {
         beneficiary_id_len: u64,
         beneficiary_id_ptr: u64
     ] -> []>,
+    // NOTE: There are intentionally no promise batch actions for
+    // WithdrawFromGasKey. Actions that reduce gas key balance must only be
+    // initiated via transactions, not by contracts. Otherwise, they will not be
+    // visible to the pending transaction queue. Do not add host functions for
+    // them. See NEP-611 for details.
     // #######################
     // # Promise API yield/resume #
     // #######################
