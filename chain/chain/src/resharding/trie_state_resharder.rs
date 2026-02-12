@@ -244,7 +244,7 @@ impl TrieStateResharder {
         Ok(self
             .runtime
             .store()
-            .get_ser::<TrieStateReshardingStatus>(DBCol::Misc, TRIE_STATE_RESHARDING_STATUS_KEY)?)
+            .get_ser::<TrieStateReshardingStatus>(DBCol::Misc, TRIE_STATE_RESHARDING_STATUS_KEY))
     }
 
     /// Initializes the trie state resharding status for a new resharding operation.
@@ -436,7 +436,7 @@ impl TrieStateResharder {
             );
         }
 
-        store_update.commit().unwrap();
+        store_update.commit();
 
         // After creating all the child memtries, freeze the parent.
         let children_shard_uids = missing_children.into_iter().map(|(uid, _)| uid).collect_vec();
@@ -640,7 +640,7 @@ mod tests {
         // disk. Adding here just to test they will be removed.
         store_update.set_shard_uid_mapping(left_shard, parent_shard);
         store_update.set_shard_uid_mapping(right_shard, parent_shard);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         if create_memtries {
             tries.freeze_parent_memtrie(parent_shard, children).unwrap();
@@ -678,9 +678,11 @@ mod tests {
             let mut chain_store_update = runtime.store().store_update();
             let chunk_extra = ChunkExtra::new_with_only_state_root(&parent_root);
             let block_shard_uid = get_block_shard_uid(&parent_root, &parent_shard);
-            chain_store_update
-                .set_ser(near_store::DBCol::ChunkExtra, &block_shard_uid, &chunk_extra)
-                .unwrap();
+            chain_store_update.set_ser(
+                near_store::DBCol::ChunkExtra,
+                &block_shard_uid,
+                &chunk_extra,
+            );
             chain_store_update.commit();
 
             // Now unload the parent memtrie, so the test can verify

@@ -4234,6 +4234,14 @@
         ],
         "type": "object"
       },
+      "DepositCostFailureReason": {
+        "description": "Reason why a gas key transaction failed at the deposit/account level.\nIn these cases, gas is still charged from the gas key.",
+        "enum": [
+          "NotEnoughBalance",
+          "LackBalanceForState"
+        ],
+        "type": "string"
+      },
       "DetailedDebugStatus": {
         "properties": {
           "block_production_delay_millis": {
@@ -8601,6 +8609,39 @@
               "NotEnoughGasKeyBalance"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key transaction failed because the account could not cover the deposit cost.\nGas is still charged from the gas key in this case.",
+            "properties": {
+              "NotEnoughBalanceForDeposit": {
+                "properties": {
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "cost": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "reason": {
+                    "$ref": "#/components/schemas/DepositCostFailureReason"
+                  },
+                  "signer_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "signer_id",
+                  "balance",
+                  "cost",
+                  "reason"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "NotEnoughBalanceForDeposit"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -11686,6 +11727,12 @@
                   },
                   "id": {
                     "$ref": "#/components/schemas/GlobalContractIdentifier"
+                  },
+                  "nonce": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "target_shard": {
                     "$ref": "#/components/schemas/ShardId"

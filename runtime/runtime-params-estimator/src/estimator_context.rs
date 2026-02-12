@@ -28,7 +28,7 @@ use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
 use node_runtime::config::tx_cost;
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, get_signer_and_access_key,
+    ApplyState, Runtime, SignedValidPeriodTransactions, TxVerdict, get_signer_and_access_key,
     set_tx_state_changes, verify_and_charge_tx_ephemeral,
 };
 use std::collections::{HashMap, VecDeque};
@@ -384,7 +384,7 @@ impl Testbed<'_> {
         }
         near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
             .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
-        store_update.commit().unwrap();
+        store_update.commit();
         self.apply_state.block_height += 1;
         if let Some(congestion_info) = apply_result.congestion_info {
             self.apply_state
@@ -463,16 +463,18 @@ impl Testbed<'_> {
         let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)
             .expect("getting signer and access key should not fail in estimator");
 
-        verify_and_charge_tx_ephemeral(
+        let TxVerdict::Success(result) = verify_and_charge_tx_ephemeral(
             &self.apply_state.config,
-            &mut signer,
+            &signer,
             &mut access_key,
             validated_tx.to_tx(),
             &cost,
             block_height,
             PROTOCOL_VERSION,
-        )
-        .expect("tx verification should not fail in estimator");
+        ) else {
+            panic!("tx verification should not fail in estimator");
+        };
+        result.apply(&mut signer, &mut access_key);
         set_tx_state_changes(&mut state_update, &validated_tx, &signer, &access_key);
         clock.elapsed()
     }

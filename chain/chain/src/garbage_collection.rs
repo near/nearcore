@@ -763,6 +763,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for shard_id in shard_layout.shard_ids() {
             let block_shard_id = get_block_shard_id(&block_hash, shard_id);
             self.gc_outgoing_receipts(&block_hash, shard_id);
+            self.gc_processed_receipt_ids(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
             self.gc_col(DBCol::ChunkApplyStats, &block_shard_id);
 
@@ -875,7 +876,7 @@ impl<'a> ChainStoreUpdate<'a> {
             let mut execution_result_hashes = HashSet::new();
             for key in endorsement_keys {
                 let endorsement: SpiceStoredVerifiedEndorsement =
-                    self.store().get_ser(DBCol::endorsements(), &key)?.unwrap();
+                    self.store().get_ser(DBCol::endorsements(), &key).unwrap();
                 execution_result_hashes.insert(endorsement.execution_result_hash);
                 self.gc_col(DBCol::endorsements(), &key);
             }
@@ -906,7 +907,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let shard_uids_to_gc = self.get_shard_uids_to_gc(epoch_manager, &block_hash);
         for shard_uid in shard_uids_to_gc {
             let trie_changes_key = get_block_shard_uid(&block_hash, &shard_uid);
-            let trie_changes = self.store().get_ser(DBCol::TrieChanges, &trie_changes_key)?;
+            let trie_changes = self.store().get_ser(DBCol::TrieChanges, &trie_changes_key);
 
             let Some(trie_changes) = trie_changes else {
                 continue;
@@ -957,6 +958,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
             // delete Receipts
             self.gc_outgoing_receipts(&block_hash, shard_id);
+            self.gc_processed_receipt_ids(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
 
             self.gc_col(DBCol::StateTransitionData, &block_shard_id);
@@ -1070,7 +1072,7 @@ impl<'a> ChainStoreUpdate<'a> {
         if epoch_to_hashes.is_empty() {
             store_update.delete(DBCol::BlockPerHeight, key);
         } else {
-            store_update.set_ser(DBCol::BlockPerHeight, key, &epoch_to_hashes)?;
+            store_update.set_ser(DBCol::BlockPerHeight, key, &epoch_to_hashes);
         }
         if self.is_height_processed(height) {
             self.gc_col(DBCol::ProcessedBlockHeights, key);
@@ -1098,6 +1100,14 @@ impl<'a> ChainStoreUpdate<'a> {
         let key = get_block_shard_id(block_hash, shard_id);
         store_update.delete(DBCol::OutgoingReceipts, &key);
         self.merge(store_update);
+    }
+
+    fn gc_processed_receipt_ids(&mut self, block_hash: &CryptoHash, shard_id: ShardId) {
+        let Ok(metadata) = self.get_processed_receipt_ids(block_hash, shard_id) else { return };
+        for entry in metadata.as_ref() {
+            self.gc_col(DBCol::Receipts, entry.receipt_id().as_bytes());
+        }
+        self.gc_col(DBCol::ProcessedReceiptIds, &get_block_shard_id(block_hash, shard_id));
     }
 
     fn gc_outcomes(&mut self, block: &Block) -> Result<(), Error> {
@@ -1224,6 +1234,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::ChunkApplyStats => {
+                store_update.delete(col, key);
+            }
+            DBCol::ProcessedReceiptIds => {
                 store_update.delete(col, key);
             }
             #[cfg(feature = "protocol_feature_spice")]

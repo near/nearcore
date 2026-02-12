@@ -397,7 +397,7 @@ impl ClientActor {
                                 .chain_store()
                                 .store()
                                 .get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &key),
-                            Ok(Some(_))
+                            Some(_)
                         )
                     }
                     Err(_) => false,

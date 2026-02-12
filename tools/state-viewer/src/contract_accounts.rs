@@ -325,9 +325,8 @@ fn try_find_actions_spawned_by_receipt(
             }
             if filter.actions {
                 for outgoing_receipt_id in &outcome.outcome.receipt_ids {
-                    let maybe_outgoing_receipt: Option<Receipt> = store
-                        .get_ser(near_store::DBCol::Receipts, outgoing_receipt_id.as_bytes())
-                        .map_err(|e| ContractAccountError::UnparsableValue(e, DBCol::Receipts))?;
+                    let maybe_outgoing_receipt: Option<Receipt> =
+                        store.get_ser(near_store::DBCol::Receipts, outgoing_receipt_id.as_bytes());
                     let outgoing_receipt = maybe_outgoing_receipt.ok_or({
                         ContractAccountError::MissingOutgoingReceipt(*outgoing_receipt_id)
                     })?;

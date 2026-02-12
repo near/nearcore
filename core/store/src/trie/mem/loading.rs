@@ -93,12 +93,6 @@ fn get_state_root(
 ) -> Result<StateRoot, StorageError> {
     let chunk_extra = store
         .get_ser::<ChunkExtra>(DBCol::ChunkExtra, &get_block_shard_uid(&block_hash, &shard_uid))
-        .map_err(|err| {
-            StorageError::StorageInconsistentState(format!(
-                "Cannot fetch ChunkExtra for block {} in shard {}: {:?}",
-                block_hash, shard_uid, err
-            ))
-        })?
         .ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "No ChunkExtra for block {} in shard {}",
@@ -524,7 +518,7 @@ mod tests {
                 .unwrap()
                 .into(),
         );
-        store_update.commit().unwrap();
+        store_update.commit();
 
         trie_changes.new_root
     }
@@ -539,9 +533,11 @@ mod tests {
     ) {
         let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
         let mut store_update = store.store_update();
-        store_update
-            .set_ser(DBCol::ChunkExtra, &get_block_shard_uid(&block_hash, &shard_uid), &chunk_extra)
-            .unwrap();
+        store_update.set_ser(
+            DBCol::ChunkExtra,
+            &get_block_shard_uid(&block_hash, &shard_uid),
+            &chunk_extra,
+        );
         store_update.commit();
     }
 }

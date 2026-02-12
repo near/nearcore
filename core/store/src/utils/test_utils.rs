@@ -194,7 +194,7 @@ impl TestTriesBuilder {
                     FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
                 );
             }
-            store_update.commit().unwrap();
+            store_update.commit();
 
             let flat_storage_manager = tries.get_flat_storage_manager();
             for &shard_uid in &shard_uids {
@@ -206,13 +206,11 @@ impl TestTriesBuilder {
             let chunk_extra = ChunkExtra::new_with_only_state_root(&Trie::EMPTY_ROOT);
             let mut update_for_chunk_extra = store.store_update();
             for shard_uid in &shard_uids {
-                update_for_chunk_extra
-                    .set_ser(
-                        DBCol::ChunkExtra,
-                        &get_block_shard_uid(&CryptoHash::default(), shard_uid),
-                        &chunk_extra,
-                    )
-                    .unwrap();
+                update_for_chunk_extra.set_ser(
+                    DBCol::ChunkExtra,
+                    &get_block_shard_uid(&CryptoHash::default(), shard_uid),
+                    &chunk_extra,
+                );
             }
             update_for_chunk_extra.commit();
 
@@ -233,7 +231,7 @@ pub fn test_populate_trie(
     let mut store_update = tries.store_update();
     tries.apply_memtrie_changes(&trie_changes, shard_uid, 1); // TODO: don't hardcode block height
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
     let deduped = simplify_changes(&changes);
     let trie = tries.get_trie_for_shard(shard_uid, root);
     for (key, value) in deduped {
