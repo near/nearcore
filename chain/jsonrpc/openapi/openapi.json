@@ -11689,6 +11689,12 @@
                   "id": {
                     "$ref": "#/components/schemas/GlobalContractIdentifier"
                   },
+                  "nonce": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "nullable": true,
+                    "type": "integer"
+                  },
                   "target_shard": {
                     "$ref": "#/components/schemas/ShardId"
                   }
