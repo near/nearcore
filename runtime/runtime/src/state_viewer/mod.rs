@@ -201,6 +201,17 @@ impl TrieViewer {
             })?;
             indexed_nonces.push((index, nonce));
         }
+        if indexed_nonces.len() != gas_key_info.num_nonces as usize {
+            return Err(errors::ViewAccessKeyError::InternalError {
+                error_message: format!(
+                    "expected {} gas key nonces but found {} for account {} and public key {}",
+                    gas_key_info.num_nonces,
+                    indexed_nonces.len(),
+                    account_id,
+                    public_key
+                ),
+            });
+        }
         indexed_nonces.sort_by_key(|(index, _)| *index);
         Ok(indexed_nonces.into_iter().map(|(_, nonce)| nonce).collect())
     }
