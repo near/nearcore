@@ -331,7 +331,9 @@ mod tests {
 
     use crate::ActionResult;
     use crate::ApplyState;
-    use crate::actions_test_utils::{setup_account, test_delete_large_account};
+    use crate::actions_test_utils::{
+        commit_state, setup_account, setup_account_with_tries, test_delete_large_account,
+    };
     use crate::state_viewer::TrieViewer;
 
     use super::*;
@@ -688,12 +690,14 @@ mod tests {
     #[test]
     fn test_view_gas_key_nonces() {
         let (account_id, public_key, access_key) = test_account_keys();
-        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let (tries, mut state_update) =
+            setup_account_with_tries(&account_id, &public_key, &access_key);
         let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
 
         let gas_key_public_key =
             InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "gas_key").public_key();
         add_gas_key_to_account(&mut state_update, &mut account, &account_id, &gas_key_public_key);
+        let state_update = commit_state(&tries, state_update);
 
         let viewer = TrieViewer::default();
         let view_gas_key = viewer

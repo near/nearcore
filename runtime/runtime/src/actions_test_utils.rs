@@ -10,24 +10,37 @@ use near_store::{ShardUId, TrieUpdate, set_access_key, set_account};
 
 use crate::{ActionResult, action_delete_account};
 
+use near_store::ShardTries;
+
 pub(crate) fn setup_account(
     account_id: &AccountId,
     public_key: &PublicKey,
     access_key: &AccessKey,
 ) -> TrieUpdate {
+    setup_account_with_tries(account_id, public_key, access_key).1
+}
+
+pub(crate) fn setup_account_with_tries(
+    account_id: &AccountId,
+    public_key: &PublicKey,
+    access_key: &AccessKey,
+) -> (ShardTries, TrieUpdate) {
     let tries = TestTriesBuilder::new().build();
     let mut state_update = tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
     let account =
         Account::new(Balance::from_yoctonear(100), Balance::ZERO, AccountContract::None, 100);
     set_account(&mut state_update, account_id.clone(), &account);
     set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
+    let state_update = commit_state(&tries, state_update);
+    (tries, state_update)
+}
 
-    state_update.commit(StateChangeCause::InitialState);
+pub(crate) fn commit_state(tries: &ShardTries, mut state_update: TrieUpdate) -> TrieUpdate {
+    state_update.commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
     let trie_changes = state_update.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
     store_update.commit();
-
     tries.new_trie_update(ShardUId::single_shard(), root)
 }
 
