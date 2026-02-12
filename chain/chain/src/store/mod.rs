@@ -532,8 +532,7 @@ impl ChainStore {
                 DBCol::TransactionResultForBlock,
                 id.as_ref(),
             )
-            .map(|item| {
-                let (key, outcome_with_proof) = item?;
+            .map(|(key, outcome_with_proof)| {
                 let (_, block_hash) = get_outcome_id_block_hash_rev(key.as_ref())?;
                 Ok(ExecutionOutcomeWithIdAndProof {
                     proof: outcome_with_proof.proof,
@@ -768,27 +767,25 @@ impl ChainStore {
         self.store
             .store_ref()
             .iter_prefix_ser::<StateSyncDumpProgress>(DBCol::BlockMisc, STATE_SYNC_DUMP_KEY)
-            .map(|item| {
-                item.and_then(|(key, progress)| {
-                    // + 1 for the ':'
-                    let prefix_len = STATE_SYNC_DUMP_KEY.len() + 1;
-                    let int_part = &key[prefix_len..];
-                    let int_part = int_part.try_into().map_err(|_| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!("Bad StateSyncDump column key length: {}", key.len()),
-                        )
-                    })?;
-                    let shard_id = ShardId::from_le_bytes(int_part);
-                    Ok((
-                        shard_id,
-                        match progress {
-                            StateSyncDumpProgress::AllDumped { epoch_id, .. } => (epoch_id, true),
-                            StateSyncDumpProgress::InProgress { epoch_id, .. } => (epoch_id, false),
-                            StateSyncDumpProgress::Skipped { epoch_id, .. } => (epoch_id, true),
-                        },
-                    ))
-                })
+            .map(|(key, progress)| {
+                // + 1 for the ':'
+                let prefix_len = STATE_SYNC_DUMP_KEY.len() + 1;
+                let int_part = &key[prefix_len..];
+                let int_part = int_part.try_into().map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("Bad StateSyncDump column key length: {}", key.len()),
+                    )
+                })?;
+                let shard_id = ShardId::from_le_bytes(int_part);
+                Ok((
+                    shard_id,
+                    match progress {
+                        StateSyncDumpProgress::AllDumped { epoch_id, .. } => (epoch_id, true),
+                        StateSyncDumpProgress::InProgress { epoch_id, .. } => (epoch_id, false),
+                        StateSyncDumpProgress::Skipped { epoch_id, .. } => (epoch_id, true),
+                    },
+                ))
             })
     }
 

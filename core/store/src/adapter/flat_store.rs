@@ -71,16 +71,11 @@ impl FlatStoreAdapter {
         &self,
         shard_uid: ShardUId,
     ) -> Result<Vec<FlatStateDeltaMetadata>, FlatStorageError> {
-        self.store
+        Ok(self
+            .store
             .iter_prefix_ser(DBCol::FlatStateDeltaMetadata, &shard_uid.to_bytes())
-            .map(|res| {
-                res.map(|(_, value)| value).map_err(|err| {
-                    FlatStorageError::StorageInternalError(format!(
-                        "failed to read delta metadata: {err}"
-                    ))
-                })
-            })
-            .collect()
+            .map(|(_, value)| value)
+            .collect())
     }
 
     pub fn get_prev_block_with_changes(

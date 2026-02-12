@@ -53,7 +53,6 @@ fn old_outcomes(
                 )
                 .next()
                 .unwrap()
-                .unwrap()
                 .1
                 .outcome;
             ExecutionOutcomeWithId { id: outcome.id, outcome: old_outcome }

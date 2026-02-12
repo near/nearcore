@@ -1046,10 +1046,10 @@ fn get_receipt_proofs_for_shard(
     to_shard_id: ShardId,
 ) -> Result<Vec<ReceiptProof>, std::io::Error> {
     let prefix = get_receipt_proof_target_shard_prefix(block_hash, to_shard_id);
-    store
+    Ok(store
         .iter_prefix_ser::<ReceiptProof>(DBCol::receipt_proofs(), &prefix)
-        .map(|res| res.map(|kv| kv.1))
-        .collect()
+        .map(|kv| kv.1)
+        .collect())
 }
 
 pub fn get_witness(
