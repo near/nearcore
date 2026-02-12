@@ -168,7 +168,7 @@ impl ChainStore {
         // Read the current `LatestWitnessesInfo`, or create a new one if there is none.
         let mut info = self
             .store()
-            .get_ser::<LatestWitnessesInfo>(DBCol::Misc, LATEST_WITNESSES_INFO)?
+            .get_ser::<LatestWitnessesInfo>(DBCol::Misc, LATEST_WITNESSES_INFO)
             .unwrap_or_default();
 
         let new_witness_index = info.next_witness_index;
@@ -267,9 +267,9 @@ impl ChainStore {
 
         let mut result: Vec<ChunkStateWitness> = Vec::new();
 
-        for read_result in self.store().iter_prefix_ser::<ChunkStateWitness>(db_col, &key_prefix) {
-            let (key_bytes, witness) = read_result?;
-
+        for (key_bytes, witness) in
+            self.store().iter_prefix_ser::<ChunkStateWitness>(db_col, &key_prefix)
+        {
             let key = StoredWitnessesKey::deserialize(&key_bytes)?;
             if let Some(h) = height {
                 if key.height_created != h {
@@ -352,7 +352,7 @@ pub fn save_invalid_chunk_state_witness(
 
     // Read the current `InvalidWitnessesInfo`, or create a new one if there is none.
     let mut info = store
-        .get_ser::<InvalidWitnessesInfo>(DBCol::Misc, INVALID_WITNESSES_INFO)?
+        .get_ser::<InvalidWitnessesInfo>(DBCol::Misc, INVALID_WITNESSES_INFO)
         .unwrap_or_default();
 
     let new_witness_index = info.next_witness_index;

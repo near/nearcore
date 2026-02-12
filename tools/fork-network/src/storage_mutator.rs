@@ -450,7 +450,7 @@ fn commit_to_existing_state(
 
     tracing::info!(?shard_uid, num_updates, "committing");
     let key = crate::cli::make_state_roots_key(shard_uid);
-    update.store_update().set_ser(DBCol::Misc, &key, &state_root)?;
+    update.store_update().set_ser(DBCol::Misc, &key, &state_root);
 
     update.commit();
     tracing::info!(?shard_uid, ?state_root, "commit is done");
@@ -482,7 +482,7 @@ fn commit_to_new_state(
     FlatStateChanges::from_state_changes(&state_changes)
         .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
     let key = crate::cli::make_state_roots_key(shard_uid);
-    store_update.store_update().set_ser(DBCol::Misc, &key, &state_root)?;
+    store_update.store_update().set_ser(DBCol::Misc, &key, &state_root);
     tracing::info!(?shard_uid, "committing initial state to new shard");
     store_update.commit();
 
@@ -615,13 +615,11 @@ pub(crate) fn finalize_state(
 
         let mut trie_update = shard_tries.store_update();
         let store_update = trie_update.store_update();
-        store_update
-            .set_ser(
-                DBCol::FlatStorageStatus,
-                &shard_uid.to_bytes(),
-                &FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
-            )
-            .unwrap();
+        store_update.set_ser(
+            DBCol::FlatStorageStatus,
+            &shard_uid.to_bytes(),
+            &FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
+        );
         trie_update.commit();
         tracing::info!(?shard_uid, "wrote flat storage status for new shard");
     }

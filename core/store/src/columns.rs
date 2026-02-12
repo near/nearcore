@@ -232,9 +232,7 @@ pub enum DBCol {
     /// - *Rows*: height (u64)
     /// - *Column type*: empty
     ProcessedBlockHeights,
-    /// Mapping from receipt hash to Receipt. Note that this doesn't store _all_
-    /// receipts. Some receipts are ephemeral and get processed after creation
-    /// without getting into the database at all.
+    /// Mapping from receipt hash to Receipt.
     /// - *Rows*: receipt (CryptoHash)
     /// - *Column type*: Receipt
     Receipts,
@@ -335,6 +333,10 @@ pub enum DBCol {
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: `ChunkApplyStats`
     ChunkApplyStats,
+    /// Mapping from Block + Shard to list of processed receipt metadata.
+    /// - *Rows*: block + shard
+    /// - *Content type*: Vec of [near_primitives::receipt::ProcessedReceiptMetadata]
+    ProcessedReceiptIds,
     /// Mapping from Block Hash + Target Shard Id + Source Shard Id to Receipt Proof.
     /// The receipts result from applying the chunk on the source shard of the corresponding block.
     /// The key includes the target shard first to enable prefix queries for retrieving all incoming
@@ -573,6 +575,8 @@ impl DBCol {
             DBCol::_ReceiptIdToShardId => false,
             // This can be re-constructed from the Chunks column, so no need to store in Cold DB.
             DBCol::PartialChunks => false,
+            // Only needed to properly GC Receipts column
+            DBCol::ProcessedReceiptIds => false,
             // BlockHeader is considered cold once ContinuousEpochSync is enabled. Before that, it is false
             DBCol::BlockHeader => ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION),
 
@@ -685,6 +689,7 @@ impl DBCol {
             DBCol::StateSyncHashes => &[DBKeyType::EpochId],
             DBCol::StateSyncNewChunks => &[DBKeyType::BlockHash],
             DBCol::ChunkApplyStats => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::ProcessedReceiptIds => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::ReceiptProofs => &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::ShardId],
             #[cfg(feature = "protocol_feature_spice")]

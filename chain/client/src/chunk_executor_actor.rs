@@ -1046,10 +1046,10 @@ fn get_receipt_proofs_for_shard(
     to_shard_id: ShardId,
 ) -> Result<Vec<ReceiptProof>, std::io::Error> {
     let prefix = get_receipt_proof_target_shard_prefix(block_hash, to_shard_id);
-    store
+    Ok(store
         .iter_prefix_ser::<ReceiptProof>(DBCol::receipt_proofs(), &prefix)
-        .map(|res| res.map(|kv| kv.1))
-        .collect()
+        .map(|kv| kv.1)
+        .collect())
 }
 
 pub fn get_witness(
@@ -1058,7 +1058,7 @@ pub fn get_witness(
     shard_id: ShardId,
 ) -> Result<Option<SpiceChunkStateWitness>, std::io::Error> {
     let key = get_witnesses_key(block_hash, shard_id);
-    store.get_ser(DBCol::witnesses(), &key)
+    Ok(store.get_ser(DBCol::witnesses(), &key))
 }
 
 pub fn get_receipt_proof(
@@ -1068,7 +1068,7 @@ pub fn get_receipt_proof(
     from_shard_id: ShardId,
 ) -> Result<Option<ReceiptProof>, std::io::Error> {
     let key = get_receipt_proof_key(block_hash, from_shard_id, to_shard_id);
-    store.get_ser(DBCol::receipt_proofs(), &key)
+    Ok(store.get_ser(DBCol::receipt_proofs(), &key))
 }
 
 pub fn receipt_proof_exists(

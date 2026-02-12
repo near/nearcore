@@ -861,7 +861,8 @@ fn shard_split_handle_key_value(
         | col::PROMISE_YIELD_INDICES
         | col::PROMISE_YIELD_TIMEOUT
         | col::BANDWIDTH_SCHEDULER_STATE
-        | col::GLOBAL_CONTRACT_CODE => {
+        | col::GLOBAL_CONTRACT_CODE
+        | col::GLOBAL_CONTRACT_NONCE => {
             copy_kv_to_all_children(&split_params, key, value, store_update)
         }
         col::BUFFERED_RECEIPT_INDICES

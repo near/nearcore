@@ -82,7 +82,6 @@ impl TrieStoreAdapter {
         let val = self
             .store
             .get_ser(DBCol::BlockMisc, STATE_SNAPSHOT_KEY)
-            .map_err(|_| StorageError::StorageInternalError)?
             .ok_or(StorageError::StorageInternalError)?;
         Ok(val)
     }
@@ -159,7 +158,7 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
     pub fn set_state_snapshot_hash(&mut self, hash: Option<CryptoHash>) {
         let key = STATE_SNAPSHOT_KEY;
         match hash {
-            Some(hash) => self.store_update.set_ser(DBCol::BlockMisc, key, &hash).unwrap(),
+            Some(hash) => self.store_update.set_ser(DBCol::BlockMisc, key, &hash),
             None => self.store_update.delete(DBCol::BlockMisc, key),
         }
     }
@@ -171,7 +170,7 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         trie_changes: &TrieChanges,
     ) {
         let key = get_block_shard_uid(block_hash, &shard_uid);
-        self.store_update.set_ser(DBCol::TrieChanges, &key, trie_changes).unwrap();
+        self.store_update.set_ser(DBCol::TrieChanges, &key, trie_changes);
     }
 
     pub fn set_state_changes(
@@ -227,9 +226,6 @@ pub fn get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> ShardU
 fn maybe_get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> Option<ShardUId> {
     store
         .caching_get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &child_shard_uid.to_bytes())
-        .unwrap_or_else(|_| {
-            panic!("get_shard_uid_mapping() failed for child_shard_uid = {}", child_shard_uid)
-        })
         .map(|v| *v)
 }
 

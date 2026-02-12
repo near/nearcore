@@ -815,9 +815,8 @@ impl KeyForStateChanges {
             self.0
         );
         store.iter_prefix_ser::<RawStateChangesWithTrieKey>(DBCol::StateChanges, &self.0).map(
-            move |change| {
+            move |(key, state_changes)| {
                 // Split off the irrelevant part of the key, so only the original trie_key is left.
-                let (key, state_changes) = change?;
                 debug_assert!(key.starts_with(&self.0), "Key: {:?}, row key: {:?}", self.0, key);
                 Ok((key, state_changes))
             },
