@@ -5,12 +5,11 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::types::{AccountId, Balance, StateChangeCause};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::ShardTries;
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{ShardUId, TrieUpdate, set_access_key, set_account};
 
 use crate::{ActionResult, action_delete_account};
-
-use near_store::ShardTries;
 
 pub(crate) fn setup_account(
     account_id: &AccountId,
