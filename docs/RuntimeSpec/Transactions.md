@@ -1,9 +1,11 @@
 # Transactions
 
-A transaction in Near is a list of [actions](Actions.md) and additional information:
+A transaction in Near is a list of [actions](Actions.md) and additional information. There are two transaction versions:
+
+### TransactionV0 (original)
 
 ```rust
-pub struct Transaction {
+pub struct TransactionV0 {
     /// An account on which behalf transaction is signed
     pub signer_id: AccountId,
     /// An access key which was used to sign a transaction
@@ -11,7 +13,7 @@ pub struct Transaction {
     /// Nonce is used to determine order of transaction in the pool.
     /// It increments for a combination of `signer_id` and `public_key`
     pub nonce: Nonce,
-    /// Receiver account for this transaction. If
+    /// Receiver account for this transaction
     pub receiver_id: AccountId,
     /// The hash of the block in the blockchain on top of which the given transaction is valid
     pub block_hash: CryptoHash,
@@ -19,6 +21,30 @@ pub struct Transaction {
     pub actions: Vec<Action>,
 }
 ```
+
+### TransactionV1 (gas key support)
+
+`TransactionV1` replaces the simple `Nonce` field with a `TransactionNonce` enum that supports both regular access keys and [gas keys](/DataStructures/AccessKey.md#gas-keys):
+
+```rust
+pub struct TransactionV1 {
+    pub signer_id: AccountId,
+    pub public_key: PublicKey,
+    pub nonce: TransactionNonce,
+    pub receiver_id: AccountId,
+    pub block_hash: CryptoHash,
+    pub actions: Vec<Action>,
+}
+
+pub enum TransactionNonce {
+    /// Regular access key nonce.
+    Nonce { nonce: Nonce },
+    /// Gas key nonce with an index selecting which nonce slot to use.
+    GasKeyNonce { nonce: Nonce, nonce_index: NonceIndex },
+}
+```
+
+When `TransactionNonce::GasKeyNonce` is used, the transaction is treated as a gas key transaction: gas costs are deducted from the gas key balance, deposit costs from the account balance. The `nonce_index` selects which of the gas key's independent nonce slots to use (0..num_nonces).
 
 ## Signed Transaction
 
@@ -209,3 +235,41 @@ contains is not a `FunctionCall` action.
 * `InvalidAccessKeyError::DepositWithFunctionCall` if the function call action has nonzero `deposit`.
 * `InvalidAccessKeyError::ReceiverMismatch { tx_receiver: AccountId, ak_receiver: AccountId }` if transaction's `receiver_id` does not match the `receiver_id` of the access key.
 * `InvalidAccessKeyError::MethodNameMismatch { method_name: String }` if the name of the method that the transaction tries to call is not allowed by the access key.
+
+### Gas Key Transaction Validation
+
+When a transaction uses `TransactionNonce::GasKeyNonce`, additional validation is performed:
+
+#### Valid gas key
+
+The access key associated with `public_key` must be a gas key (have `GasKeyFullAccess` or `GasKeyFunctionCall` permission). If not, an `InvalidAccessKeyError` is returned.
+
+#### Valid nonce index
+
+The `nonce_index` must be less than the gas key's `num_nonces`. If not:
+
+```rust
+InvalidNonceIndex { tx_nonce_index: Option<NonceIndex>, num_nonces: NonceIndex }
+```
+
+#### Sufficient gas key balance
+
+The gas key balance must be at least equal to the gas cost of the transaction. If not:
+
+```rust
+NotEnoughGasKeyBalance { signer_id: AccountId, balance: Balance, cost: Balance }
+```
+
+#### Cost splitting
+
+For gas key transactions, the transaction cost is split into two independent checks:
+- **Gas cost** (receipt fees + prepaid gas) is checked against the gas key balance
+- **Deposit cost** (sum of deposits in all actions) is checked against the account balance
+
+#### DepositFailed verdict
+
+If the gas key has sufficient balance for gas costs but the account lacks balance for deposits, the transaction enters the `DepositFailed` state: gas is charged from the gas key (and the nonce is incremented), but the transaction actions are not executed. This prevents free transaction attempts using gas keys.
+
+#### Function call permission constraints
+
+If the gas key has `GasKeyFunctionCall` permission, the same function call access key validations apply (receiver, method name restrictions).

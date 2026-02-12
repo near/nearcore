@@ -74,7 +74,18 @@ Here is the list of actions and their corresponding fees:
   - the base fee [`delete_account_cost`](/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#delete_account_cost)
   - action receipt creation fee for creating Transfer to send remaining funds to `beneficiary_id`
   - full transfer fee described in the corresponding item
-    
+- [TransferToGasKey](/RuntimeSpec/Actions.md#transfertogaskeyaction) and [WithdrawFromGasKey](/RuntimeSpec/Actions.md#withdrawfromgaskeyaction) fees are not yet finalized (currently zero)
+- [AddKey](/RuntimeSpec/Actions.md#addkeyaction) with `GasKeyFullAccess` or `GasKeyFunctionCall` permission: fees are not yet finalized (currently zero). Per-nonce fees will be charged based on the `num_nonces` value.
+
+## Gas key cost splitting
+
+For transactions signed with a [gas key](/DataStructures/AccessKey.md#gas-keys), the total transaction cost is split into two independent components:
+
+- **Gas cost** = gas burned (send fees) + gas remaining (execution fees), converted to tokens at the current gas price. This is deducted from the **gas key balance**.
+- **Deposit cost** = sum of all deposits in the transaction's actions (`Transfer.deposit`, `FunctionCall.deposit`, `TransferToGasKey.deposit`, etc.). This is deducted from the **account balance**.
+
+Both checks are performed independently. If the gas key has sufficient balance but the account does not have enough for deposits, the transaction enters the `DepositFailed` state where gas is charged but actions are not executed.
+
 ## Gas tracking
 
 In `Runtime`, gas is tracked in the following fields of `ActionResult` struct:
