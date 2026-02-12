@@ -51,8 +51,7 @@ pub(crate) fn replay_headers(
             epoch_manager_replay
                 .add_validator_proposals(block_info, *header.random_value())
                 .unwrap()
-                .commit()
-                .unwrap();
+                .commit();
 
             if epoch_manager
                 .is_last_block_in_finished_epoch(&block_hash)

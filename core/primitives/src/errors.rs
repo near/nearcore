@@ -182,6 +182,27 @@ impl std::fmt::Display for StorageError {
 
 impl std::error::Error for StorageError {}
 
+/// Reason why a gas key transaction failed at the deposit/account level.
+/// In these cases, gas is still charged from the gas key.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    serde::Deserialize,
+    serde::Serialize,
+    ProtocolSchema,
+)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum DepositCostFailureReason {
+    NotEnoughBalance = 0,
+    LackBalanceForState = 1,
+}
+
 /// An error happened during TX execution
 #[derive(
     BorshSerialize,
@@ -285,6 +306,14 @@ pub enum InvalidTxError {
         balance: Balance,
         cost: Balance,
     } = 19,
+    /// Gas key transaction failed because the account could not cover the deposit cost.
+    /// Gas is still charged from the gas key in this case.
+    NotEnoughBalanceForDeposit {
+        signer_id: AccountId,
+        balance: Balance,
+        cost: Balance,
+        reason: DepositCostFailureReason,
+    } = 20,
 }
 
 impl From<StorageError> for InvalidTxError {
@@ -783,6 +812,13 @@ pub enum ActionErrorKind {
         balance: Balance,
         required: Balance,
     } = 24,
+    /// Gas key balance is too high to burn during deletion
+    GasKeyBalanceTooHigh {
+        account_id: AccountId,
+        /// Set for DeleteKey (specific key), None for DeleteAccount (aggregate)
+        public_key: Option<Box<PublicKey>>,
+        balance: Balance,
+    } = 25,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -874,6 +910,20 @@ impl Display for InvalidTxError {
                 "Gas key for {:?} does not have enough balance {} for gas cost {}",
                 signer_id, balance, cost
             ),
+            InvalidTxError::NotEnoughBalanceForDeposit { signer_id, balance, cost, reason } => {
+                match reason {
+                    DepositCostFailureReason::NotEnoughBalance => write!(
+                        f,
+                        "Sender {:?} does not have enough balance {} to cover deposit cost {}",
+                        signer_id, balance, cost
+                    ),
+                    DepositCostFailureReason::LackBalanceForState => write!(
+                        f,
+                        "Sender {:?} would not have enough balance for storage after covering deposit (required {} more)",
+                        signer_id, cost
+                    ),
+                }
+            }
         }
     }
 }
@@ -1083,6 +1133,21 @@ impl Display for ActionErrorKind {
                     "Gas key {} for account {} has insufficient balance: {} available, {} required",
                     public_key, account_id, balance, required
                 )
+            }
+            ActionErrorKind::GasKeyBalanceTooHigh { account_id, public_key, balance } => {
+                if let Some(pk) = public_key {
+                    write!(
+                        f,
+                        "Gas key {} for account {} has balance {} which is too high to burn on deletion",
+                        pk, account_id, balance
+                    )
+                } else {
+                    write!(
+                        f,
+                        "Account {} has total gas key balance {} which is too high to burn on deletion",
+                        account_id, balance
+                    )
+                }
             }
         }
     }

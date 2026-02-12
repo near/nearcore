@@ -174,10 +174,10 @@ fn print_heads(store: &NodeStorage) -> anyhow::Result<()> {
 
     // hot store
     {
-        let kind = hot_store.get_db_kind()?;
-        let head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
-        let final_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
-        let cold_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
+        let kind = hot_store.get_db_kind();
+        let head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY);
+        let final_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY);
+        let cold_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY);
         println!("HOT STORE KIND is {:#?}", kind);
         println!("HOT STORE HEAD is at {:#?}", head);
         println!("HOT STORE FINAL_HEAD is at {:#?}", final_head);
@@ -186,8 +186,8 @@ fn print_heads(store: &NodeStorage) -> anyhow::Result<()> {
 
     // cold store
     if let Some(cold_store) = cold_store {
-        let kind = cold_store.get_db_kind()?;
-        let head_in_cold = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
+        let kind = cold_store.get_db_kind();
+        let head_in_cold = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY);
         println!("COLD STORE KIND is {:#?}", kind);
         println!("COLD STORE HEAD is at {:#?}", head_in_cold);
     }
@@ -202,7 +202,6 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
         .get_cold_store()
         .unwrap()
         .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
-        .unwrap_or_else(|e| panic!("Error reading cold HEAD: {:#}", e))
         .map_or(config.genesis.config.genesis_height, |t| t.height);
 
     // If FINAL_HEAD is not set for hot storage though, we default it to 0.
@@ -210,7 +209,6 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
     let hot_final_head = store
         .get_hot_store()
         .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)
-        .unwrap_or_else(|e| panic!("Error reading hot FINAL_HEAD: {:#}", e))
         .map(|t| t.height)
         .unwrap_or(0);
 
@@ -257,7 +255,6 @@ fn copy_all_blocks(storage: &NodeStorage, batch_size: usize, check: bool) {
     let hot_final_head = storage
         .get_hot_store()
         .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)
-        .unwrap_or_else(|e| panic!("Error reading hot FINAL_HEAD: {:#}", e))
         .map(|t| t.height)
         .unwrap_or(0);
 
@@ -324,7 +321,7 @@ fn get_ser_from_store<T: near_primitives::borsh::BorshDeserialize>(
     col: DBCol,
     key: &[u8],
 ) -> Option<T> {
-    store.get_ser(col, key).unwrap_or_else(|_| panic!("Error reading {} {:?} from store", col, key))
+    store.get_ser(col, key)
 }
 
 #[derive(clap::Parser)]
@@ -375,7 +372,7 @@ impl PrepareHotCmd {
 
         tracing::info!(target: "prepare-hot", "the hot, cold and RPC stores are suitable for cold storage migration");
         tracing::info!(target: "prepare-hot", "changing the db kind of the rpc store to hot");
-        rpc_store.set_db_kind(DbKind::Hot)?;
+        rpc_store.set_db_kind(DbKind::Hot);
 
         tracing::info!(target: "prepare-hot", ?path, "successfully prepared the hot store for migration, you can now set the `config.store.path` in neard config");
 
@@ -388,7 +385,7 @@ impl PrepareHotCmd {
         cold_store: &Store,
         rpc_store: &Store,
     ) -> anyhow::Result<()> {
-        let hot_db_kind = hot_store.get_db_kind()?;
+        let hot_db_kind = hot_store.get_db_kind();
         if hot_db_kind != Some(DbKind::Hot) && hot_db_kind != Some(DbKind::Archive) {
             return Err(anyhow::anyhow!(
                 "Unexpected hot_store DbKind, expected: DbKind::Hot or DbKind::Archive, got: {:?}",
@@ -396,7 +393,7 @@ impl PrepareHotCmd {
             ));
         }
 
-        let cold_db_kind = cold_store.get_db_kind()?;
+        let cold_db_kind = cold_store.get_db_kind();
         if cold_db_kind != Some(DbKind::Cold) {
             return Err(anyhow::anyhow!(
                 "Unexpected cold_store DbKind, expected: DbKind::Cold, got: {:?}",
@@ -404,7 +401,7 @@ impl PrepareHotCmd {
             ));
         }
 
-        let rpc_db_kind = rpc_store.get_db_kind()?;
+        let rpc_db_kind = rpc_store.get_db_kind();
         if rpc_db_kind != Some(DbKind::RPC) {
             return Err(anyhow::anyhow!(
                 "Unexpected rpc_store DbKind, expected: DbKind::RPC, got: {:?}",
@@ -417,11 +414,11 @@ impl PrepareHotCmd {
 
     /// Check that the cold store and rpc store are sufficiently up to date.
     fn check_up_to_date(cold_store: &Store, rpc_store: &Store) -> anyhow::Result<()> {
-        let rpc_head = rpc_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
+        let rpc_head = rpc_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY);
         let rpc_head = rpc_head.ok_or_else(|| anyhow::anyhow!("The rpc head is missing!"))?;
-        let rpc_tail = rpc_store.get_ser::<u64>(DBCol::BlockMisc, TAIL_KEY)?;
+        let rpc_tail = rpc_store.get_ser::<u64>(DBCol::BlockMisc, TAIL_KEY);
         let rpc_tail = rpc_tail.ok_or_else(|| anyhow::anyhow!("The rpc tail is missing!"))?;
-        let cold_head = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
+        let cold_head = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY);
         let cold_head = cold_head.ok_or_else(|| anyhow::anyhow!("The cold head is missing"))?;
 
         // Ideally it should look like this:
@@ -438,12 +435,12 @@ impl PrepareHotCmd {
 
         let cold_head_hash = cold_head.last_block_hash;
         let cold_head_block_info =
-            rpc_store.get_ser::<BlockInfo>(DBCol::BlockInfo, cold_head_hash.as_ref())?;
+            rpc_store.get_ser::<BlockInfo>(DBCol::BlockInfo, cold_head_hash.as_ref());
         let cold_head_block_info = cold_head_block_info
             .ok_or_else(|| anyhow::anyhow!("Cold head block info is not in rpc db"))?;
         let cold_epoch_first_block = *cold_head_block_info.epoch_first_block();
         let cold_epoch_first_block_info =
-            rpc_store.get_ser::<BlockInfo>(DBCol::BlockInfo, cold_epoch_first_block.as_ref())?;
+            rpc_store.get_ser::<BlockInfo>(DBCol::BlockInfo, cold_epoch_first_block.as_ref());
 
         if cold_epoch_first_block_info.is_none() {
             return Err(anyhow::anyhow!(
@@ -493,7 +490,7 @@ fn get_block_hash_key(hot_store: &Store, height: BlockHeight) -> anyhow::Result<
 
 fn get_block(store: &Store, hash_key: Vec<u8>) -> anyhow::Result<Block> {
     store
-        .get_ser::<Block>(DBCol::Block, &hash_key)?
+        .get_ser::<Block>(DBCol::Block, &hash_key)
         .ok_or_else(|| anyhow::anyhow!("Failed to find Block: {:?}", hash_key))
 }
 
@@ -511,7 +508,7 @@ fn get_prev_state_roots(
             .get_ser::<near_primitives::sharding::ShardChunk>(
                 DBCol::Chunks,
                 chunk.chunk_hash().as_bytes(),
-            )?
+            )
             .ok_or_else(|| anyhow::anyhow!("Failed to find Chunk: {:?}", chunk.chunk_hash()))?
             .take_header()
             .prev_state_root();
@@ -759,7 +756,7 @@ impl ResetColdCmd {
         let mut store_update = cold_store.store_update();
         store_update.delete(DBCol::BlockMisc, HEAD_KEY);
         store_update.delete(DBCol::BlockMisc, COLD_HEAD_KEY);
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 }

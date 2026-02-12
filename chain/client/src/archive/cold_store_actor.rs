@@ -174,7 +174,7 @@ impl ColdStoreActor {
         }
 
         tracing::info!(target: "cold_store", "starting population of cold store");
-        let new_cold_height = match self.hot_store.get_db_kind()? {
+        let new_cold_height = match self.hot_store.get_db_kind() {
             None => {
                 tracing::error!(target: "cold_store", "hot store kind is unknown");
                 return Err(anyhow::anyhow!("Hot store DBKind is not set"));
@@ -316,13 +316,13 @@ impl ColdStoreActor {
         let cold_head_height = cold_head.map_or(self.genesis_height, |tip| tip.height);
 
         // If FINAL_HEAD is not set for hot storage we default it to genesis_height.
-        let hot_final_head = self.hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
+        let hot_final_head = self.hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY);
         let hot_final_head_height = hot_final_head.map_or(self.genesis_height, |tip| tip.height);
 
         // If TAIL is not set for hot storage we default it to genesis_height.
         // TAIL not being set is not an error.
         // Archive dbs don't have TAIL, that means that they have all data from genesis_height.
-        let hot_tail = self.hot_store.get_ser::<u64>(DBCol::BlockMisc, TAIL_KEY)?;
+        let hot_tail = self.hot_store.get_ser::<u64>(DBCol::BlockMisc, TAIL_KEY);
         let hot_tail_height = hot_tail.unwrap_or(self.genesis_height);
 
         let _span = tracing::debug_span!(target: "cold_store", "cold_store_copy", cold_head_height, hot_final_head_height, hot_tail_height).entered();
@@ -418,7 +418,7 @@ pub fn create_cold_store_actor(
     // Save the genesis height to cold storage
     let mut store_update = cold_db.as_store().store_update();
     set_genesis_height(&mut store_update, &genesis_height);
-    store_update.commit()?;
+    store_update.commit();
 
     // Perform the sanity check before spawning the actor.
     // If the check fails when the node is starting it's better to just fail

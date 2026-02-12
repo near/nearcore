@@ -32,15 +32,11 @@ use crate::utils::transactions;
 const GAS_PRICE: Balance = Balance::from_yoctonear(1);
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_contract_by_hash() {
     test_deploy_and_call_global_contract(GlobalContractDeployMode::CodeHash);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_contract_by_account_id() {
     test_deploy_and_call_global_contract(GlobalContractDeployMode::AccountId);
 }
@@ -120,15 +116,11 @@ fn test_global_contract_update() {
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_contract_by_account_id_rpc_calls() {
     test_global_contract_rpc_calls(GlobalContractDeployMode::AccountId);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_contract_by_hash_rpc_calls() {
     test_global_contract_rpc_calls(GlobalContractDeployMode::CodeHash);
 }
@@ -416,7 +408,7 @@ impl GlobalContractsTestEnv {
             method_name: "log_something".to_owned(),
             args: Vec::new().into(),
         };
-        let response = self.runtime_query(account, query);
+        let response = self.runtime_query(query);
         let QueryResponseKind::CallResult(call_result) = response.kind else { unreachable!() };
         call_result
     }
@@ -491,14 +483,13 @@ impl GlobalContractsTestEnv {
 
     fn view_account(&self, account: &AccountId) -> AccountView {
         let response =
-            self.runtime_query(account, QueryRequest::ViewAccount { account_id: account.clone() });
+            self.runtime_query(QueryRequest::ViewAccount { account_id: account.clone() });
         let QueryResponseKind::ViewAccount(account_view) = response.kind else { unreachable!() };
         account_view
     }
 
     fn view_code(&self, account: &AccountId) -> ContractCodeView {
-        let response =
-            self.runtime_query(account, QueryRequest::ViewCode { account_id: account.clone() });
+        let response = self.runtime_query(QueryRequest::ViewCode { account_id: account.clone() });
         let QueryResponseKind::ViewCode(contract_code_view) = response.kind else { unreachable!() };
         contract_code_view
     }
@@ -512,9 +503,7 @@ impl GlobalContractsTestEnv {
                 QueryRequest::ViewGlobalContractCodeByAccountId { account_id }
             }
         };
-        // account is required by `runtime_query` to resolve shard_id
-        let account = self.account_shard_0.clone();
-        let response = self.runtime_query(&account, query);
+        let response = self.runtime_query(query);
         let QueryResponseKind::ViewCode(contract_code_view) = response.kind else { unreachable!() };
         contract_code_view
     }
@@ -557,12 +546,8 @@ impl GlobalContractsTestEnv {
         }
     }
 
-    fn runtime_query(&self, account_id: &AccountId, query: QueryRequest) -> QueryResponse {
-        TestLoopNode::rpc(&self.env.node_datas).runtime_query(
-            self.env.test_loop_data(),
-            account_id,
-            query,
-        )
+    fn runtime_query(&self, query: QueryRequest) -> QueryResponse {
+        TestLoopNode::rpc(&self.env.node_datas).runtime_query(self.env.test_loop_data(), query)
     }
 
     fn shutdown(self) {

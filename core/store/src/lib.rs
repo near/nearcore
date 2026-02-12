@@ -53,13 +53,13 @@ mod tests {
             store_update.increment_refcount(DBCol::State, &[1; 8], &[1]);
             store_update.increment_refcount(DBCol::State, &[2; 8], &[2]);
             store_update.increment_refcount(DBCol::State, &[3; 8], &[3]);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         assert_eq!(store.get(DBCol::State, &[1; 8]).as_deref(), Some(&[1][..]));
         {
             let mut store_update = store.store_update();
             store_update.delete_all(DBCol::State);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         assert_eq!(store.get(DBCol::State, &[1; 8]), None);
     }
@@ -111,7 +111,7 @@ mod tests {
                 update.set(COLUMN, &buf, &buf);
             }
         }
-        update.commit().unwrap();
+        update.commit();
 
         fn collect<'a>(iter: crate::db::DBIterator<'a>) -> Vec<Box<[u8]>> {
             iter.map(|(key, _)| key).collect()
@@ -158,7 +158,7 @@ mod tests {
             store_update.increment_refcount(DBCol::State, &[1; 8], &[1]);
             store_update.increment_refcount(DBCol::State, &[2; 8], &[2]);
             store_update.increment_refcount(DBCol::State, &[2; 8], &[2]);
-            store_update.commit().unwrap();
+            store_update.commit();
             store.save_state_to_file(tmp.path()).unwrap();
         }
 
@@ -192,7 +192,7 @@ mod tests {
             let mut store_update = store.store_update();
             store_update.decrement_refcount(DBCol::State, &[1; 8]);
             store_update.decrement_refcount(DBCol::State, &[2; 8]);
-            store_update.commit().unwrap();
+            store_update.commit();
             assert_eq!(None, store.get(DBCol::State, &[1; 8]));
             assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2; 8]).as_deref());
         }

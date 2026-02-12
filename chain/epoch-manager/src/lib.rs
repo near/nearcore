@@ -640,23 +640,39 @@ impl EpochManager {
     ///   a) derive a new layout based on the split defined in `block_info`, or
     ///   b) return `next_shard_layout` (if there is no split specified there).
     ///
-    /// Parameters `next_next_epoch_version`, `next_next_epoch_config` and `next_shard_layout`
-    /// are relative to the epoch of `block_info`.
+    /// Parameters:
+    ///   - `current_epoch_config`: config for the current epoch (N)
+    ///   - `current_protocol_version`: protocol version for epoch N
+    ///   - `next_next_epoch_config`: config for epoch N+2
+    ///   - `next_shard_layout`: shard layout for epoch N+1
+    ///   - `block_info`: block info for the last block of epoch N
     fn next_next_shard_layout(
         &self,
-        next_next_epoch_version: ProtocolVersion,
+        current_epoch_config: &EpochConfig,
+        current_protocol_version: ProtocolVersion,
         next_next_epoch_config: &EpochConfig,
         next_shard_layout: &ShardLayout,
         block_info: &BlockInfo,
     ) -> Result<ShardLayout, EpochError> {
-        // TODO(dynamic_resharding): use current epoch's config and fix failing tests
-        match &next_next_epoch_config.shard_layout_config {
-            ShardLayoutConfig::Static { shard_layout } => {
-                debug_assert!(!ProtocolFeature::DynamicResharding.enabled(next_next_epoch_version));
-                return Ok(shard_layout.clone());
-            }
-            ShardLayoutConfig::Dynamic { .. } => {}
-        };
+        // We are checking `next_next_epoch_config` for the sake of compatibility: static
+        // resharding operated under the assumption that shard layout for epoch X is stored
+        // in epoch config for epoch X. This is different from dynamic resharding approach,
+        // where resharding parameters stored in epoch config for epoch X determine the layout
+        // for epoch X+2.
+        // TODO(dynamic_resharding): remove `next_next_epoch_config` when tests are adjusted
+
+        // Dynamic resharding won't be enabled until epoch N+2, use the static layout.
+        if let Some(shard_layout) = next_next_epoch_config.try_static_shard_layout() {
+            return Ok(shard_layout);
+        }
+
+        // Dynamic resharding is not yet enabled, but will become enabled in epoch N+1 or N+2.
+        // Re-use the layout for N+1, as no resharding could happen in this transitory phase.
+        if current_epoch_config.dynamic_resharding_config().is_none() {
+            return Ok(next_shard_layout.clone());
+        }
+
+        debug_assert!(ProtocolFeature::DynamicResharding.enabled(current_protocol_version));
 
         let Some((shard_id, boundary_account)) = block_info.shard_split() else {
             return Ok(next_shard_layout.clone());
@@ -669,7 +685,7 @@ impl EpochManager {
             "dynamic resharding: shard selected for split, deriving new layout"
         );
         let new_layout = next_shard_layout.derive_v3(boundary_account.clone(), || {
-            self.get_shard_layout_history(next_next_epoch_version)
+            self.get_shard_layout_history(current_protocol_version)
         });
         Ok(new_layout)
     }
@@ -695,44 +711,29 @@ impl EpochManager {
         layouts
     }
 
-    /// Checks if resharding is allowed based on `min_epochs_between_resharding`.
-    /// Returns `true` if no resharding occurred in the last N epochs.
+    /// Checks if resharding can be scheduled in 2 epochs from now (assuming `block_info` belongs
+    /// to the current epoch), based on `min_epochs_between_resharding`.
+    ///
+    /// Returns `true` if no resharding occurred in the last N epochs (including the next one).
     fn can_reshard(
         &self,
         block_info: &BlockInfo,
-        next_shard_layout: &ShardLayout,
         min_epochs_between_resharding: u64,
     ) -> Result<bool, EpochError> {
         if min_epochs_between_resharding == 0 {
             return Ok(true);
         }
 
-        // Check if the layout changed during the last `min_epochs_between_resharding` epochs.
-        let mut current_layout = next_shard_layout.clone();
-        let mut current_block_info = block_info.clone();
+        let next_epoch_id = self.get_next_epoch_id_from_info(block_info)?;
+        let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
 
-        // TODO(dynamic_resharding): store last resharding in `EpochInfo` to avoid this iteration
-        for _ in 0..min_epochs_between_resharding {
-            let epoch_first_block_hash = current_block_info.epoch_first_block();
-            let epoch_first_block_info = self.get_block_info(epoch_first_block_hash)?;
-            if epoch_first_block_info.is_genesis() {
-                return Ok(true);
-            }
-
-            let prev_epoch_last_block_hash = *epoch_first_block_info.prev_hash();
-            let prev_epoch_last_block_info = self.get_block_info(&prev_epoch_last_block_hash)?;
-            let prev_epoch_id = prev_epoch_last_block_info.epoch_id();
-            let prev_layout = self.get_shard_layout(prev_epoch_id)?;
-
-            if current_layout != prev_layout {
-                return Ok(false);
-            }
-
-            current_layout = prev_layout;
-            current_block_info = (*prev_epoch_last_block_info).clone();
-        }
-
-        Ok(true)
+        // last_resharding() returns `None` if no resharding happened since dynamic resharding
+        // has been enabled. It is theoretically possible that a static resharding was scheduled
+        // right before enabling dynamic resharding, but we assume this didn't happen.
+        let can_reshard = next_epoch_info.last_resharding().is_none_or(|last_resharding| {
+            next_epoch_info.epoch_height() - last_resharding >= min_epochs_between_resharding
+        });
+        Ok(can_reshard)
     }
 
     /// Finalize epoch (T), where given last block hash is given
@@ -747,6 +748,7 @@ impl EpochManager {
         let epoch_summary = self.collect_blocks_info(block_info, last_block_hash)?;
         let epoch_info = self.get_epoch_info(block_info.epoch_id())?;
         let epoch_protocol_version = epoch_info.protocol_version();
+        let epoch_config = self.get_epoch_config(epoch_protocol_version);
         let validator_stake =
             epoch_info.validators_iter().map(|r| r.account_and_stake()).collect::<HashMap<_, _>>();
         let next_epoch_id = self.get_next_epoch_id_from_info(block_info)?;
@@ -778,7 +780,7 @@ impl EpochManager {
                     validator_block_chunk_stats.remove(account_id);
                 }
             }
-            let epoch_config = self.get_epoch_config(epoch_protocol_version);
+
             // We use the chunk validator kickout threshold as the cutoff threshold for the
             // endorsement ratio to remap the ratio to 0 or 1.
             let online_thresholds = ValidatorOnlineThresholds {
@@ -802,12 +804,17 @@ impl EpochManager {
         let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
 
         let next_next_shard_layout = self.next_next_shard_layout(
-            next_next_epoch_version,
+            &epoch_config,
+            epoch_protocol_version,
             &next_next_epoch_config,
             &next_shard_layout,
             block_info,
         )?;
         let has_same_shard_layout = next_next_shard_layout == next_shard_layout;
+
+        let last_resharding = (!has_same_shard_layout)
+            .then(|| next_epoch_info.epoch_height() + 1)
+            .or_else(|| next_epoch_info.last_resharding());
 
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
@@ -820,6 +827,7 @@ impl EpochManager {
             next_next_epoch_version,
             next_next_shard_layout.clone(),
             has_same_shard_layout,
+            last_resharding,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError { stake_sum, num_seats }) => {
@@ -1813,11 +1821,8 @@ impl EpochManager {
 
         // Check if resharding is allowed based on epoch constraints
         let parent_block_info = self.get_block_info(parent_hash)?;
-        let next_epoch_id = self.get_next_epoch_id(parent_hash)?;
-        let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
         let can_reshard = self.can_reshard(
             &parent_block_info,
-            &next_shard_layout,
             dynamic_resharding_config.min_epochs_between_resharding,
         )?;
         if !can_reshard {

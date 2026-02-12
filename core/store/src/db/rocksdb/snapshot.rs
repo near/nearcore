@@ -173,7 +173,7 @@ fn test_snapshot_recovery() {
         let store = opener.open().unwrap().get_hot_store();
         let mut update = store.store_update();
         update.set_raw_bytes(COL, KEY, b"value");
-        update.commit().unwrap();
+        update.commit();
     }
 
     // Create snapshot
@@ -185,7 +185,7 @@ fn test_snapshot_recovery() {
         let store = opener.open().unwrap().get_hot_store();
         let mut update = store.store_update();
         update.delete(COL, KEY);
-        update.commit().unwrap();
+        update.commit();
 
         assert_eq!(None, store.get(COL, KEY));
     }

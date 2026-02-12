@@ -125,8 +125,9 @@ pub async fn build_streamer_message(
         // Add local receipts to corresponding outcomes
         for receipt in &chunk_local_receipts {
             if let Some(outcome) = receipt_outcomes.get_mut(&receipt.receipt_id) {
-                debug_assert!(outcome.receipt.is_none());
-                outcome.receipt = Some(receipt.clone());
+                if outcome.receipt.is_none() {
+                    outcome.receipt = Some(receipt.clone());
+                }
             } else {
                 DELAYED_LOCAL_RECEIPTS_CACHE.write().insert(receipt.receipt_id, receipt.clone());
             }

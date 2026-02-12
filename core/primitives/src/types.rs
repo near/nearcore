@@ -440,6 +440,8 @@ impl StateChanges {
                 TrieKey::BufferedReceiptGroupsQueueItem { .. } => {}
                 // Global contract code is not a part of account, so ignoring it as well.
                 TrieKey::GlobalContractCode { .. } => {}
+                // Global contract nonce is internal distribution state, not account data.
+                TrieKey::GlobalContractNonce { .. } => {}
                 TrieKey::PromiseYieldStatus { .. } => {}
             }
         }

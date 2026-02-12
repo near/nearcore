@@ -14,7 +14,7 @@ fn get_state_sync_new_chunks(
     store: &Store,
     block_hash: &CryptoHash,
 ) -> Result<Option<Vec<u8>>, Error> {
-    Ok(store.get_ser(DBCol::StateSyncNewChunks, block_hash.as_ref())?)
+    Ok(store.get_ser(DBCol::StateSyncNewChunks, block_hash.as_ref()))
 }
 
 fn iter_state_sync_hashes_keys<'a>(
@@ -58,13 +58,13 @@ fn save_epoch_new_chunks<T: ChainStoreAccess>(
         }
     }
 
-    store_update.set_ser(DBCol::StateSyncNewChunks, header.hash().as_ref(), &num_new_chunks)?;
+    store_update.set_ser(DBCol::StateSyncNewChunks, header.hash().as_ref(), &num_new_chunks);
     Ok(done)
 }
 
 fn on_new_epoch(store_update: &mut StoreUpdate, header: &BlockHeader) -> Result<(), Error> {
     let num_new_chunks = vec![0u8; header.chunk_mask().len()];
-    store_update.set_ser(DBCol::StateSyncNewChunks, header.hash().as_ref(), &num_new_chunks)?;
+    store_update.set_ser(DBCol::StateSyncNewChunks, header.hash().as_ref(), &num_new_chunks);
     Ok(())
 }
 
@@ -160,7 +160,7 @@ fn on_new_header<T: ChainStoreAccess>(
         if !prev_prev_done {
             // `sync_prev_prev` doesn't have enough new chunks, and `sync_prev` does, meaning `sync` is the first final
             // valid sync block
-            store_update.set_ser(DBCol::StateSyncHashes, epoch_id.as_ref(), sync.hash())?;
+            store_update.set_ser(DBCol::StateSyncHashes, epoch_id.as_ref(), sync.hash());
             store_update.delete_all(DBCol::StateSyncNewChunks);
             return Ok(());
         }

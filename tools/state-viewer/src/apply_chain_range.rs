@@ -516,7 +516,7 @@ fn apply_block_from_range(
             let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
             let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
             let store_update = flat_storage.add_delta(delta).unwrap();
-            store_update.commit().unwrap();
+            store_update.commit();
             flat_storage.update_flat_head(&block_hash).unwrap();
         }
         (_, StorageSource::Recorded) => {
@@ -543,14 +543,12 @@ fn apply_block_from_range(
                         .map(|c| c.into())
                         .collect(),
                 });
-            store_update
-                .set_ser(
-                    DBCol::StateTransitionData,
-                    &get_block_shard_id(&block_hash, shard_id),
-                    &state_transition_data,
-                )
-                .unwrap();
-            store_update.commit().unwrap();
+            store_update.set_ser(
+                DBCol::StateTransitionData,
+                &get_block_shard_id(&block_hash, shard_id),
+                &state_transition_data,
+            );
+            store_update.commit();
         }
         (_, StorageSource::FlatStorage) => {
             // Apply trie changes to trie node caches.

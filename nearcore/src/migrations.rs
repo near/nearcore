@@ -115,10 +115,10 @@ fn update_epoch_sync_proof(
     // Note that while accessing the proof, we need to read directly from DBCol::EpochSyncProof
     // as we can't use the epoch_store.get_epoch_sync_proof() method due to
     // ProtocolFeature::ContinuousEpochSync being enabled
-    if let Some(proof) = store.get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[]).unwrap() {
+    if let Some(proof) = store.get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[]) {
         let mut store_update = epoch_store.store_update();
         store_update.set_epoch_sync_proof(&proof);
-        store_update.commit()?;
+        store_update.commit();
     }
 
     // Now we generate the epoch sync proof and update it to latest
@@ -132,7 +132,7 @@ fn update_epoch_sync_proof(
     tracing::info!(target: "migrations", "storing latest epoch sync proof");
     let mut store_update = epoch_store.store_update();
     store_update.set_epoch_sync_proof(&proof);
-    store_update.commit()?;
+    store_update.commit();
 
     Ok(())
 }
@@ -143,7 +143,7 @@ fn verify_block_headers(store: &Store) -> anyhow::Result<()> {
     let chain_store = store.chain_store();
     let tail_height = chain_store.tail().unwrap();
     let latest_known_height =
-        store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY)?.unwrap().height;
+        store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY).unwrap().height;
 
     tracing::info!(target: "migrations", ?tail_height, ?latest_known_height, "verifying block headers before deletion");
 
@@ -170,12 +170,11 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
 
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::BlockHeader);
-    store_update.commit()?;
-
+    store_update.commit();
     let chain_store = store.chain_store();
     let tail_height = chain_store.tail().unwrap();
     let latest_known_height =
-        store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY)?.unwrap().height;
+        store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY).unwrap().height;
 
     tracing::info!(target: "migrations", ?tail_height, ?latest_known_height, "adding required block headers to hot store");
 

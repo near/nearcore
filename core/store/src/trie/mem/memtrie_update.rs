@@ -612,7 +612,7 @@ mod tests {
             let new_state_root_from_disk =
                 self.disk.apply_all(&disk_changes, ShardUId::single_shard(), &mut store_update);
             assert_eq!(new_state_root_from_mem, new_state_root_from_disk);
-            store_update.commit().unwrap();
+            store_update.commit();
             self.state_root = new_state_root_from_mem;
 
             // Update our truth.

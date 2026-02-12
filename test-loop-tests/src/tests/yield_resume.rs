@@ -33,25 +33,28 @@ use crate::utils::node::TestLoopNode;
 // The height of the next block after environment setup is complete.
 const NEXT_BLOCK_HEIGHT_AFTER_SETUP: u64 = 3;
 
-fn get_outgoing_receipts_from_latest_block(env: &TestLoopEnv) -> Vec<Receipt> {
-    let client = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap())
-        .client(env.test_loop_data());
+fn get_outgoing_receipts_from_latest_executed_block(env: &TestLoopEnv) -> Vec<Receipt> {
+    let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
+    let last_executed = node.last_executed(env.test_loop_data());
+    let client = node.client(env.test_loop_data());
     let genesis_block = client.chain.get_block_by_height(0).unwrap();
     let epoch_id = *genesis_block.header().epoch_id();
     let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
     let shard_id = shard_layout.account_id_to_shard_id(&"test0".parse::<AccountId>().unwrap());
-    let last_block_hash = client.chain.head().unwrap().last_block_hash;
-    let last_block_height = client.chain.head().unwrap().height;
 
     client
         .chain
-        .get_outgoing_receipts_for_shard(last_block_hash, shard_id, last_block_height)
+        .get_outgoing_receipts_for_shard(
+            last_executed.last_block_hash,
+            shard_id,
+            last_executed.height,
+        )
         .unwrap()
 }
 
-fn get_promise_yield_data_ids_from_latest_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
+fn get_promise_yield_data_ids_from_latest_executed_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
     let mut result = vec![];
-    for receipt in get_outgoing_receipts_from_latest_block(env) {
+    for receipt in get_outgoing_receipts_from_latest_executed_block(env) {
         if let VersionedReceiptEnum::PromiseYield(action_receipt) = receipt.versioned_receipt() {
             result.push(action_receipt.input_data_ids()[0]);
         }
@@ -59,9 +62,9 @@ fn get_promise_yield_data_ids_from_latest_block(env: &TestLoopEnv) -> Vec<Crypto
     result
 }
 
-fn get_promise_resume_data_ids_from_latest_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
+fn get_promise_resume_data_ids_from_latest_executed_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
     let mut result = vec![];
-    for receipt in get_outgoing_receipts_from_latest_block(env) {
+    for receipt in get_outgoing_receipts_from_latest_executed_block(env) {
         if let ReceiptEnum::PromiseResume(data_receipt) = receipt.receipt() {
             result.push(data_receipt.data_id);
         }
@@ -69,11 +72,12 @@ fn get_promise_resume_data_ids_from_latest_block(env: &TestLoopEnv) -> Vec<Crypt
     result
 }
 
-fn get_transaction_hashes_in_latest_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
-    let client = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap())
-        .client(env.test_loop_data());
+fn get_transaction_hashes_in_latest_executed_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
+    let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
+    let last_executed = node.last_executed(env.test_loop_data());
+    let client = node.client(env.test_loop_data());
     let chain = &client.chain;
-    let block = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
+    let block = chain.get_block(&last_executed.last_block_hash).unwrap();
 
     let mut transactions = Vec::new();
     for c in block.chunks().iter() {
@@ -131,7 +135,7 @@ fn prepare_env() -> TestLoopEnv {
     node.submit_tx(deploy_contract_tx.clone());
 
     // Allow two blocks for the contract to be deployed
-    node.run_until_head_height(&mut env.test_loop, 2);
+    node.run_until_executed_height(&mut env.test_loop, 2);
     assert!(matches!(
         node.client(env.test_loop_data())
             .chain
@@ -141,7 +145,7 @@ fn prepare_env() -> TestLoopEnv {
         FinalExecutionStatus::SuccessValue(_),
     ));
 
-    let last_block_height = node.client(env.test_loop_data()).chain.head().unwrap().height;
+    let last_block_height = node.last_executed(env.test_loop_data()).height;
     assert_eq!(NEXT_BLOCK_HEIGHT_AFTER_SETUP, last_block_height + 1);
 
     env
@@ -152,8 +156,6 @@ fn prepare_env() -> TestLoopEnv {
 /// Submit another transaction which reads data_id from state and resumes.
 /// Yield-resume should work.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_yield_then_resume_one_block_apart() {
     let mut env = prepare_env();
     let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
@@ -181,7 +183,7 @@ fn test_yield_then_resume_one_block_apart() {
 
     // Allow the yield create to be included and processed.
     for _ in 0..2 {
-        node.run_until_head_height(&mut env.test_loop, next_block_height);
+        node.run_until_executed_height(&mut env.test_loop, next_block_height);
         next_block_height += 1;
     }
     assert_eq!(
@@ -195,14 +197,14 @@ fn test_yield_then_resume_one_block_apart() {
     if ProtocolFeature::InstantPromiseYield.enabled(PROTOCOL_VERSION) {
         // After InstantPromiseYield, the PromiseYield receipt is applied instantly, it's not an
         // outgoing receipt.
-        assert_eq!(get_promise_yield_data_ids_from_latest_block(&env).len(), 0);
+        assert_eq!(get_promise_yield_data_ids_from_latest_executed_block(&env).len(), 0);
 
         // The PromiseYield receipt should be saved in the state.
         assert_eq!(get_yield_data_ids_in_latest_state(&env).len(), 1);
     } else {
         // Before InstantPromiseYield, there should be an outgoing PromiseYield receipt generated by
         // the latest block.
-        assert_eq!(get_promise_yield_data_ids_from_latest_block(&env).len(), 1);
+        assert_eq!(get_promise_yield_data_ids_from_latest_executed_block(&env).len(), 1);
     }
 
     // Add another transaction invoking `yield_resume`.
@@ -223,13 +225,13 @@ fn test_yield_then_resume_one_block_apart() {
 
     // Allow the yield resume to be included and processed.
     for _ in 0..2 {
-        node.run_until_head_height(&mut env.test_loop, next_block_height);
+        node.run_until_executed_height(&mut env.test_loop, next_block_height);
         next_block_height += 1;
     }
-    assert_eq!(get_promise_resume_data_ids_from_latest_block(&env).len(), 1);
+    assert_eq!(get_promise_resume_data_ids_from_latest_executed_block(&env).len(), 1);
 
     // In the next block the callback is executed and the promise resolves to its final result.
-    node.run_until_head_height(&mut env.test_loop, next_block_height);
+    node.run_until_executed_height(&mut env.test_loop, next_block_height);
     assert_eq!(
         node.client(env.test_loop_data())
             .chain
@@ -251,8 +253,6 @@ fn test_yield_then_resume_one_block_apart() {
 /// With the feature everything should work fine.
 /// See https://github.com/near/nearcore/issues/14904, this test reproduces case 2)
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_yield_then_resume_same_block() {
     let mut env = prepare_env();
     let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
@@ -297,17 +297,17 @@ fn test_yield_then_resume_same_block() {
 
     // Allow the yield create and resume to be included and processed.
     for _ in 0..2 {
-        node.run_until_head_height(&mut env.test_loop, next_block_height);
+        node.run_until_executed_height(&mut env.test_loop, next_block_height);
         next_block_height += 1;
     }
 
     // Both transactions should be included in the same block.
     let mut expected_txs = vec![resume_tx_hash, yield_tx_hash];
     expected_txs.sort();
-    assert_eq!(get_transaction_hashes_in_latest_block(&env), expected_txs);
+    assert_eq!(get_transaction_hashes_in_latest_executed_block(&env), expected_txs);
 
     // Run one more block to execute the resume callback.
-    node.run_until_head_height(&mut env.test_loop, next_block_height);
+    node.run_until_executed_height(&mut env.test_loop, next_block_height);
 
     let client = node.client(env.test_loop_data());
     if ProtocolFeature::InstantPromiseYield.enabled(PROTOCOL_VERSION) {

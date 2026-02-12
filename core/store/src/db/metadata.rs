@@ -64,72 +64,54 @@ impl DbMetadata {
     /// Reads metadata from the database. This method enforces the invariant
     /// that version and kind must always be set.
     ///
-    /// If the database version is not present, returns an error.  Similarly, if
-    /// database version is ≥ [`DB_VERSION_WITH_KIND`] but the kind is not
-    /// specified, returns an error.
-    pub(crate) fn read(db: &dyn crate::Database) -> std::io::Result<Self> {
-        let version = read("DbVersion", db, VERSION_KEY)?;
+    /// Panics if the database version is not present or if database version is
+    /// ≥ [`DB_VERSION_WITH_KIND`] but the kind is not specified.
+    pub(crate) fn read(db: &dyn crate::Database) -> Self {
+        let version = read("DbVersion", db, VERSION_KEY);
         let kind = if version < DB_VERSION_WITH_KIND {
             // If database is at version less than DB_VERSION_WITH_KIND then it
-            // doesn’t have kind.  Return None as kind.
+            // doesn't have kind.  Return None as kind.
             None
         } else {
-            Some(read("DbKind", db, KIND_KEY)?)
+            Some(read("DbKind", db, KIND_KEY))
         };
-        Ok(Self { version, kind })
+        Self { version, kind }
     }
 
     /// Reads the version from the db. If version is not set returns None. This
     /// method doesn't enforce the invariant that version must always be set so
     /// it should only be used when setting the version for the first time.
-    pub(crate) fn maybe_read_version(
-        db: &dyn crate::Database,
-    ) -> std::io::Result<Option<DbVersion>> {
+    pub(crate) fn maybe_read_version(db: &dyn crate::Database) -> Option<DbVersion> {
         maybe_read("DbVersion", db, VERSION_KEY)
     }
 
     /// Reads the kind from the db. If kind is not set returns None. This method
     /// doesn't enforce the invariant that kind must always be set so it should
     /// only be used when setting the kind for the first time.
-    pub(crate) fn maybe_read_kind(db: &dyn crate::Database) -> std::io::Result<Option<DbKind>> {
+    pub(crate) fn maybe_read_kind(db: &dyn crate::Database) -> Option<DbKind> {
         maybe_read("DbKind", db, KIND_KEY)
     }
 }
 
 /// Reads value from DbVersion column and parses it using `FromStr`.
 ///
-/// Same as maybe_read but this method returns an error if the value is not set.
-fn read<T: std::str::FromStr>(
-    what: &str,
-    db: &dyn crate::Database,
-    key: &[u8],
-) -> std::io::Result<T> {
-    let msg = "it’s not a neard database or database is corrupted";
-    let result = maybe_read::<T>(what, db, key)?;
-
-    match result {
-        Some(value) => Ok(value),
-        None => Err(std::io::Error::other(format!("missing {what}; {msg}"))),
-    }
+/// Same as maybe_read but this method panics if the value is not set.
+fn read<T: std::str::FromStr>(what: &str, db: &dyn crate::Database, key: &[u8]) -> T {
+    let msg = "it's not a neard database or database is corrupted";
+    maybe_read::<T>(what, db, key).unwrap_or_else(|| panic!("missing {what}; {msg}"))
 }
 
 /// Reads value from DbVersion column and parses it using `FromStr`.
 ///
 /// Reads raw bytes for given `key` from [`DBCol::DbVersion`], verifies that
-/// they’re valid UTF-8 and then converts into `T` using `from_str`.  If the
-/// value is missing or parsing fails returns None.
-fn maybe_read<T: std::str::FromStr>(
-    what: &str,
-    db: &dyn crate::Database,
-    key: &[u8],
-) -> std::io::Result<Option<T>> {
-    let msg = "it’s not a neard database or database is corrupted";
-    db.get_raw_bytes(crate::DBCol::DbVersion, key)
-        .map(|bytes| {
-            let value = std::str::from_utf8(&bytes)
-                .map_err(|_err| format!("invalid {what}: {bytes:?}; {msg}"))?;
-            T::from_str(value).map_err(|_err| format!("invalid {what}: ‘{value}’; {msg}"))
-        })
-        .transpose()
-        .map_err(std::io::Error::other)
+/// they're valid UTF-8 and then converts into `T` using `from_str`.  If the
+/// value is missing returns None.  Panics if the value is present but cannot
+/// be parsed (corrupt database).
+fn maybe_read<T: std::str::FromStr>(what: &str, db: &dyn crate::Database, key: &[u8]) -> Option<T> {
+    let msg = "it's not a neard database or database is corrupted";
+    db.get_raw_bytes(crate::DBCol::DbVersion, key).map(|bytes| {
+        let value = std::str::from_utf8(&bytes)
+            .unwrap_or_else(|_err| panic!("invalid {what}: {bytes:?}; {msg}"));
+        T::from_str(value).unwrap_or_else(|_err| panic!("invalid {what}: '{value}'; {msg}"))
+    })
 }

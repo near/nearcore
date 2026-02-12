@@ -2192,6 +2192,45 @@
               "InsufficientGasKeyBalance"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key balance is too high to burn during deletion",
+            "properties": {
+              "GasKeyBalanceTooHigh": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "public_key": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKey"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ],
+                    "description": "Set for DeleteKey (specific key), None for DeleteAccount (aggregate)"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "balance"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyBalanceTooHigh"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -4194,6 +4233,14 @@
           "deploy_mode"
         ],
         "type": "object"
+      },
+      "DepositCostFailureReason": {
+        "description": "Reason why a gas key transaction failed at the deposit/account level.\nIn these cases, gas is still charged from the gas key.",
+        "enum": [
+          "NotEnoughBalance",
+          "LackBalanceForState"
+        ],
+        "type": "string"
       },
       "DetailedDebugStatus": {
         "properties": {
@@ -8562,6 +8609,39 @@
               "NotEnoughGasKeyBalance"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key transaction failed because the account could not cover the deposit cost.\nGas is still charged from the gas key in this case.",
+            "properties": {
+              "NotEnoughBalanceForDeposit": {
+                "properties": {
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "cost": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "reason": {
+                    "$ref": "#/components/schemas/DepositCostFailureReason"
+                  },
+                  "signer_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "signer_id",
+                  "balance",
+                  "cost",
+                  "reason"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "NotEnoughBalanceForDeposit"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -11647,6 +11727,12 @@
                   },
                   "id": {
                     "$ref": "#/components/schemas/GlobalContractIdentifier"
+                  },
+                  "nonce": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "target_shard": {
                     "$ref": "#/components/schemas/ShardId"
@@ -16890,7 +16976,8 @@
           },
           {
             "$ref": "#/components/schemas/FinalExecutionOutcomeView"
-          }
+          },
+          {}
         ],
         "properties": {
           "final_execution_status": {
@@ -17005,12 +17092,6 @@
       "RpcValidatorRequest": {
         "oneOf": [
           {
-            "enum": [
-              "latest"
-            ],
-            "type": "string"
-          },
-          {
             "properties": {
               "epoch_id": {
                 "$ref": "#/components/schemas/EpochId"
@@ -17029,6 +17110,20 @@
             },
             "required": [
               "block_id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "latest": {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            },
+            "required": [
+              "latest"
             ],
             "type": "object"
           }

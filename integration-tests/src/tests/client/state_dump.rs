@@ -320,7 +320,7 @@ fn run_state_sync_with_dumped_parts(
             )
             .unwrap()
     );
-    store_update.commit().unwrap();
+    store_update.commit();
     let shard_id = ShardId::new(0);
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     for part_id in 0..num_parts {

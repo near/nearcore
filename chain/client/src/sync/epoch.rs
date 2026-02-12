@@ -298,7 +298,7 @@ impl EpochSync {
             &proof.current_epoch.partial_merkle_tree_for_first_block,
         );
 
-        store_update.commit()?;
+        store_update.commit();
 
         *status = SyncStatus::EpochSyncDone;
         tracing::info!(epoch_id=?last_header.epoch_id(), "bootstrapped from epoch sync");

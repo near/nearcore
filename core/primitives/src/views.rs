@@ -2296,6 +2296,8 @@ pub enum ReceiptEnumView {
         #[serde_as(as = "Base64")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         code: Vec<u8>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nonce: Option<u64>,
     } = 2,
 }
 
@@ -2336,6 +2338,7 @@ impl From<Receipt> for ReceiptView {
                         target_shard: receipt.target_shard(),
                         already_delivered_shards: receipt.already_delivered_shards().to_vec(),
                         code: hash(receipt.code()).as_bytes().to_vec(),
+                        nonce: receipt.maybe_nonce(),
                     }
                 }
             },
@@ -2456,13 +2459,24 @@ impl TryFrom<ReceiptView> for Receipt {
                     target_shard,
                     already_delivered_shards,
                     code,
+                    nonce,
                 } => {
-                    ReceiptEnum::GlobalContractDistribution(GlobalContractDistributionReceipt::new(
-                        id,
-                        target_shard,
-                        already_delivered_shards,
-                        code.into(),
-                    ))
+                    let receipt = match nonce {
+                        Some(nonce) => GlobalContractDistributionReceipt::new_v2(
+                            id,
+                            target_shard,
+                            already_delivered_shards,
+                            code.into(),
+                            nonce,
+                        ),
+                        None => GlobalContractDistributionReceipt::new_v1(
+                            id,
+                            target_shard,
+                            already_delivered_shards,
+                            code.into(),
+                        ),
+                    };
+                    ReceiptEnum::GlobalContractDistribution(receipt)
                 }
             },
         }))
