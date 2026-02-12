@@ -1,6 +1,7 @@
 use crate::access_keys::initial_nonce_value;
 use crate::config::{
-    safe_add_compute, total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
+    safe_add_compute, storage_removes_compute, total_prepaid_exec_fees, total_prepaid_gas,
+    total_prepaid_send_fees,
 };
 use crate::deterministic_account_id::create_deterministic_account;
 use crate::{ActionResult, ApplyState};
@@ -337,6 +338,7 @@ pub(crate) fn action_delete_account(
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
+    config: &RuntimeConfig,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let account_ref = account.as_ref().unwrap();
@@ -377,11 +379,22 @@ pub(crate) fn action_delete_account(
             .new_receipts
             .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
     }
-    remove_account(state_update, account_id)?;
+    let remove_result = remove_account(state_update, account_id)?;
     result.tokens_burnt =
         result.tokens_burnt.checked_add(gas_key_balance_to_burn).ok_or_else(|| {
             StorageError::StorageInconsistentState("tokens_burnt overflow".to_string())
         })?;
+    if remove_result.gas_key_nonce_count > 0 {
+        let compute = storage_removes_compute(
+            &config.wasm_config.ext_costs,
+            remove_result.gas_key_nonce_count,
+            remove_result.gas_key_nonce_total_key_bytes,
+            AccessKey::NONCE_VALUE_LEN * remove_result.gas_key_nonce_count,
+        );
+        result.compute_usage = safe_add_compute(result.compute_usage, compute).map_err(|_| {
+            StorageError::StorageInconsistentState("compute_usage overflow".to_string())
+        })?;
+    }
     *actor_id = receipt.predecessor_id().clone();
     *account = None;
     Ok(())

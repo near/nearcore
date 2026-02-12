@@ -68,6 +68,22 @@ fn gas_key_transfer_exec_fee(
         .unwrap()
 }
 
+/// Compute cost for `count` storage_remove operations with `total_key_bytes` total
+/// key bytes and `total_value_bytes` total value bytes across all removals.
+pub(crate) fn storage_removes_compute(
+    ext: &ExtCostsConfig,
+    count: usize,
+    total_key_bytes: usize,
+    total_value_bytes: usize,
+) -> Compute {
+    let count = count as u64;
+    let total_key_bytes = total_key_bytes as u64;
+    let total_value_bytes = total_value_bytes as u64;
+    ext.compute_cost(ExtCosts::storage_remove_base) * count
+        + ext.compute_cost(ExtCosts::storage_remove_key_byte) * total_key_bytes
+        + ext.compute_cost(ExtCosts::storage_remove_ret_value_byte) * total_value_bytes
+}
+
 /// Total sum of gas that needs to be burnt to send these actions.
 pub fn total_send_fees(
     config: &RuntimeConfig,
