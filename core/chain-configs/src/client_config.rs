@@ -425,12 +425,17 @@ pub struct EpochSyncConfig {
     /// epoch sync instead of header sync. Also the maximum age (in epochs) of
     /// accepted epoch sync proofs. At the consumption site, this is multiplied
     /// by epoch_length to get the horizon in blocks.
+    #[serde(default = "default_epoch_sync_horizon_num_epochs")]
     pub epoch_sync_horizon_num_epochs: u64,
     /// Timeout for epoch sync requests. The node will continue retrying indefinitely even
     /// if this timeout is exceeded.
     #[serde(with = "near_time::serde_duration_as_std")]
     #[cfg_attr(feature = "schemars", schemars(with = "DurationAsStdSchemaProvider"))]
     pub timeout_for_epoch_sync: Duration,
+}
+
+fn default_epoch_sync_horizon_num_epochs() -> u64 {
+    4
 }
 
 impl Default for EpochSyncConfig {
@@ -440,7 +445,7 @@ impl Default for EpochSyncConfig {
             // and we accept proofs up to 2 epochs old.
             // Note that in case we are not doing epoch sync, we would need to be within
             // the GC period (typically 5 epochs) to be able to do header sync.
-            epoch_sync_horizon_num_epochs: 4,
+            epoch_sync_horizon_num_epochs: default_epoch_sync_horizon_num_epochs(),
             timeout_for_epoch_sync: Duration::seconds(60),
         }
     }
