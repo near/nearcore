@@ -568,8 +568,7 @@ fn get_epoch_start_height_from_archival_head(
     epoch_manager: &EpochManager,
     archival_head_key: &[u8],
 ) -> Result<Option<BlockHeight>, Error> {
-    let archival_head = store.get_ser::<Tip>(DBCol::BlockMisc, archival_head_key)?;
-    let Some(archival_head) = archival_head else {
+    let Some(archival_head) = store.get_ser::<Tip>(DBCol::BlockMisc, archival_head_key) else {
         return Ok(None);
     };
     let archival_head_hash = archival_head.last_block_hash;

@@ -876,7 +876,7 @@ impl<'a> ChainStoreUpdate<'a> {
             let mut execution_result_hashes = HashSet::new();
             for key in endorsement_keys {
                 let endorsement: SpiceStoredVerifiedEndorsement =
-                    self.store().get_ser(DBCol::endorsements(), &key)?.unwrap();
+                    self.store().get_ser(DBCol::endorsements(), &key).unwrap();
                 execution_result_hashes.insert(endorsement.execution_result_hash);
                 self.gc_col(DBCol::endorsements(), &key);
             }
@@ -907,7 +907,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let shard_uids_to_gc = self.get_shard_uids_to_gc(epoch_manager, &block_hash);
         for shard_uid in shard_uids_to_gc {
             let trie_changes_key = get_block_shard_uid(&block_hash, &shard_uid);
-            let trie_changes = self.store().get_ser(DBCol::TrieChanges, &trie_changes_key)?;
+            let trie_changes = self.store().get_ser(DBCol::TrieChanges, &trie_changes_key);
 
             let Some(trie_changes) = trie_changes else {
                 continue;
@@ -1072,7 +1072,7 @@ impl<'a> ChainStoreUpdate<'a> {
         if epoch_to_hashes.is_empty() {
             store_update.delete(DBCol::BlockPerHeight, key);
         } else {
-            store_update.set_ser(DBCol::BlockPerHeight, key, &epoch_to_hashes)?;
+            store_update.set_ser(DBCol::BlockPerHeight, key, &epoch_to_hashes);
         }
         if self.is_height_processed(height) {
             self.gc_col(DBCol::ProcessedBlockHeights, key);

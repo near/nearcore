@@ -2192,6 +2192,45 @@
               "InsufficientGasKeyBalance"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key balance is too high to burn during deletion",
+            "properties": {
+              "GasKeyBalanceTooHigh": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "public_key": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKey"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ],
+                    "description": "Set for DeleteKey (specific key), None for DeleteAccount (aggregate)"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "balance"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyBalanceTooHigh"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -11689,6 +11728,12 @@
                   "id": {
                     "$ref": "#/components/schemas/GlobalContractIdentifier"
                   },
+                  "nonce": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "nullable": true,
+                    "type": "integer"
+                  },
                   "target_shard": {
                     "$ref": "#/components/schemas/ShardId"
                   }
@@ -20410,7 +20455,7 @@
         ]
       },
       "WithdrawFromGasKeyAction": {
-        "description": "Withdraw NEAR from a gas key's balance to the account",
+        "description": "Withdraw NEAR from a gas key's balance to the account.\n\nThis action must only be available via transactions, not via contract execution\n(there is no corresponding promise batch action host function).",
         "properties": {
           "amount": {
             "allOf": [

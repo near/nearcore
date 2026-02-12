@@ -53,7 +53,6 @@ fn old_outcomes(
                 )
                 .next()
                 .unwrap()
-                .unwrap()
                 .1
                 .outcome;
             ExecutionOutcomeWithId { id: outcome.id, outcome: old_outcome }
@@ -547,13 +546,11 @@ fn apply_block_from_range(
                         .map(|c| c.into())
                         .collect(),
                 });
-            store_update
-                .set_ser(
-                    DBCol::StateTransitionData,
-                    &get_block_shard_id(&block_hash, shard_id),
-                    &state_transition_data,
-                )
-                .unwrap();
+            store_update.set_ser(
+                DBCol::StateTransitionData,
+                &get_block_shard_id(&block_hash, shard_id),
+                &state_transition_data,
+            );
             store_update.commit();
         }
         (_, StorageSource::FlatStorage) => {

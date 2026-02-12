@@ -1193,6 +1193,43 @@
             ],
             "title": "InsufficientGasKeyBalance",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key balance is too high to burn during deletion",
+            "properties": {
+              "GasKeyBalanceTooHigh": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "public_key": {
+                    "description": "Set for DeleteKey (specific key), None for DeleteAccount (aggregate)",
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKey"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "balance"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyBalanceTooHigh"
+            ],
+            "title": "GasKeyBalanceTooHigh",
+            "type": "object"
           }
         ],
         "title": "ActionErrorKind"
@@ -7589,6 +7626,14 @@
                   "id": {
                     "$ref": "#/components/schemas/GlobalContractIdentifier"
                   },
+                  "nonce": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
                   "target_shard": {
                     "$ref": "#/components/schemas/ShardId"
                   }
@@ -12298,7 +12343,7 @@
         "title": "WasmTrap"
       },
       "WithdrawFromGasKeyAction": {
-        "description": "Withdraw NEAR from a gas key's balance to the account",
+        "description": "Withdraw NEAR from a gas key's balance to the account.\n\nThis action must only be available via transactions, not via contract execution\n(there is no corresponding promise batch action host function).",
         "properties": {
           "amount": {
             "allOf": [

@@ -505,6 +505,7 @@ impl Runtime {
                 metrics::ACTION_CALLED_COUNT.deploy_global_contract.inc();
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 action_deploy_global_contract(
+                    state_update,
                     account,
                     account_id,
                     apply_state,
@@ -1925,12 +1926,18 @@ impl Runtime {
             let (outcome, result) = match verdict {
                 TxVerdict::DepositFailed { result, error } => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    tracing::debug!(%tx_hash, error = &error as &dyn std::error::Error, "gas key transaction failed deposit check, charging gas");
+                    tracing::debug!(
+                        %tx_hash,
+                        error = &error as &dyn std::error::Error,
+                        "gas key transaction failed deposit check, charging gas"
+                    );
+                    // All prepaid gas is burnt (no receipt created to refund remaining gas).
+                    let total_gas = cost.gas_burnt.checked_add_result(cost.gas_remaining)?;
                     let outcome = ExecutionOutcomeWithId::failed_with_gas_burnt(
                         tx,
                         error,
-                        result.gas_burnt,
-                        result.burnt_amount,
+                        total_gas,
+                        cost.gas_cost,
                     );
                     (outcome, result)
                 }

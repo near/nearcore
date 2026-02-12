@@ -126,10 +126,9 @@ fn get_state_changes(
 ) -> Result<Vec<RawStateChangesWithTrieKey>, Error> {
     let storage_key = KeyForStateChanges::for_block(&block_hash);
     let mut state_changes = vec![];
-    for item in store
+    for (key, changes) in store
         .iter_prefix_ser::<RawStateChangesWithTrieKey>(DBCol::StateChanges, storage_key.as_ref())
     {
-        let (key, changes) = item?;
         let decoded_shard_uid = if let Some(account_id) = changes.trie_key.get_account_id() {
             shard_layout.account_id_to_shard_uid(&account_id)
         } else {

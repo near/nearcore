@@ -64,12 +64,10 @@ fn test_processed_receipt_ids_gc() {
     let store = node.store(env.test_loop_data());
     let receipt = store
         .get_ser::<Receipt>(DBCol::Receipts, receipt_id.as_ref())
-        .unwrap()
         .expect("receipt should exist in DBCol::Receipts after processing");
     assert_eq!(receipt.receipt_id(), &receipt_id);
     let all_metadata = store
         .get_ser::<Vec<ProcessedReceiptMetadata>>(DBCol::ProcessedReceiptIds, &metadata_key)
-        .unwrap()
         .expect("metadata should exist in DBCol::ProcessedReceiptIds after processing");
     let [metadata] = &all_metadata[..] else { panic!("expected single receipt metadata") };
     assert_eq!(metadata, &expected_metadata);
