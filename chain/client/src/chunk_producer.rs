@@ -56,6 +56,8 @@ pub enum AdvProduceChunksMode {
     ProduceWithoutTx,
     // Produce chunks but do not bother checking if included transactions pass validity check.
     ProduceWithoutTxValidityCheck,
+    // Include all pool transactions without running runtime verification.
+    ProduceWithoutTxVerification,
     // Randomly skip multiple chunks in a row.
     SkipWindow {
         // Size of the window in which to randomly pick a skip start.
@@ -449,6 +451,21 @@ impl ChunkProducer {
         let mut pool_guard = self.sharded_tx_pool.lock();
         let prepared_transactions = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid)
         {
+            #[cfg(feature = "test_features")]
+            if matches!(
+                self.adversarial.produce_mode,
+                Some(AdvProduceChunksMode::ProduceWithoutTxVerification)
+            ) {
+                let mut res = vec![];
+                while let Some(iter) = iter.next() {
+                    res.push(iter.next().unwrap());
+                }
+                return Ok(PreparedTransactions {
+                    transactions: res,
+                    limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
+                });
+            }
+
             if ProtocolFeature::Spice.enabled(protocol_version) {
                 // TODO(spice): properly implement transaction preparation to respect limits
                 let mut res = vec![];
@@ -523,7 +540,8 @@ impl ChunkProducer {
                 ),
             AdvProduceChunksMode::Valid
             | AdvProduceChunksMode::ProduceWithoutTx
-            | AdvProduceChunksMode::ProduceWithoutTxValidityCheck => false,
+            | AdvProduceChunksMode::ProduceWithoutTxValidityCheck
+            | AdvProduceChunksMode::ProduceWithoutTxVerification => false,
         }
     }
 
@@ -592,7 +610,11 @@ impl ChunkProducer {
         }
 
         #[cfg(feature = "test_features")]
-        if matches!(self.adversarial.produce_mode, Some(AdvProduceChunksMode::ProduceWithoutTx)) {
+        if matches!(
+            self.adversarial.produce_mode,
+            Some(AdvProduceChunksMode::ProduceWithoutTx)
+                | Some(AdvProduceChunksMode::ProduceWithoutTxVerification)
+        ) {
             return;
         }
 
