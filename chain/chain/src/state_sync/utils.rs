@@ -14,7 +14,7 @@ fn get_state_sync_new_chunks(
     store: &Store,
     block_hash: &CryptoHash,
 ) -> Result<Option<Vec<u8>>, Error> {
-    Ok(store.get_ser(DBCol::StateSyncNewChunks, block_hash.as_ref())?)
+    Ok(store.get_ser(DBCol::StateSyncNewChunks, block_hash.as_ref()))
 }
 
 fn iter_state_sync_hashes_keys<'a>(

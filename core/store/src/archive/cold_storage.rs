@@ -230,7 +230,7 @@ fn copy_state_from_store(
         let shard_uid_key = shard_uid.to_bytes();
         let key = join_two_keys(&block_hash_key, &shard_uid_key);
         let trie_changes: Option<TrieChanges> =
-            hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &key)?;
+            hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &key);
 
         let Some(trie_changes) = trie_changes else { continue };
         copied_shards.insert(shard_uid);
@@ -562,15 +562,12 @@ fn get_keys_from_store(
                 DBKeyType::ReceiptHash => {
                     let mut receipt_ids = vec![];
                     for chunk in &chunks {
-                        let processed_receipts_metadata: Vec<ProcessedReceiptMetadata> =
-                            if let Ok(Some(metadata)) = store.get_ser(
+                        let processed_receipts_metadata: Vec<ProcessedReceiptMetadata> = store
+                            .get_ser(
                                 DBCol::ProcessedReceiptIds,
                                 &join_two_keys(&block_hash_key, &chunk.shard_id().to_le_bytes()),
-                            ) {
-                                metadata
-                            } else {
-                                vec![]
-                            };
+                            )
+                            .unwrap_or_default();
                         receipt_ids.extend(
                             chunk
                                 .prev_outgoing_receipts()
@@ -595,16 +592,12 @@ fn get_keys_from_store(
                     );
                     shard_layout
                         .shard_ids()
-                        .map(|shard_id| {
-                            store.get_ser(
-                                DBCol::OutcomeIds,
-                                &join_two_keys(&block_hash_key, &shard_id.to_le_bytes()),
-                            )
-                        })
-                        .collect::<io::Result<Vec<Option<Vec<CryptoHash>>>>>()?
-                        .into_iter()
-                        .flat_map(|hashes| {
-                            hashes
+                        .flat_map(|shard_id| {
+                            store
+                                .get_ser::<Vec<CryptoHash>>(
+                                    DBCol::OutcomeIds,
+                                    &join_two_keys(&block_hash_key, &shard_id.to_le_bytes()),
+                                )
                                 .unwrap_or_default()
                                 .into_iter()
                                 .map(|hash| hash.as_bytes().to_vec())

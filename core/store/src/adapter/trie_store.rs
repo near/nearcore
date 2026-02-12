@@ -82,7 +82,6 @@ impl TrieStoreAdapter {
         let val = self
             .store
             .get_ser(DBCol::BlockMisc, STATE_SNAPSHOT_KEY)
-            .map_err(|_| StorageError::StorageInternalError)?
             .ok_or(StorageError::StorageInternalError)?;
         Ok(val)
     }

@@ -65,10 +65,10 @@ impl SpiceCoreReader {
         shard_id: ShardId,
         account_id: &AccountId,
     ) -> Result<Option<SpiceStoredVerifiedEndorsement>, std::io::Error> {
-        self.chain_store.store().get_ser(
+        Ok(self.chain_store.store().get_ser(
             DBCol::endorsements(),
             &get_endorsements_key(block_hash, shard_id, &account_id),
-        )
+        ))
     }
 
     fn get_execution_result(
@@ -451,7 +451,7 @@ fn get_uncertified_chunks(
         Ok(vec![])
     } else {
         let Some(uncertified_chunks) =
-            chain_store.store_ref().get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())?
+            chain_store.store_ref().get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())
         else {
             debug_assert!(
                 false,

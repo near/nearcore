@@ -225,10 +225,10 @@ impl SpiceCoreWriterActor {
         shard_id: ShardId,
         account_id: &AccountId,
     ) -> Result<Option<SpiceStoredVerifiedEndorsement>, std::io::Error> {
-        self.chain_store.store().get_ser(
+        Ok(self.chain_store.store().get_ser(
             DBCol::endorsements(),
             &get_endorsements_key(block_hash, shard_id, &account_id),
-        )
+        ))
     }
 
     fn get_execution_result_from_store(

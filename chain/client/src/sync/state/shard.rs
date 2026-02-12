@@ -79,7 +79,7 @@ pub(super) async fn run_state_sync_for_shard(
     let state_root = header.chunk_prev_state_root();
     let num_parts = header.num_state_parts();
     let block_header =
-        store.get_ser::<BlockHeader>(DBCol::BlockHeader, sync_hash.as_bytes())?.ok_or_else(
+        store.get_ser::<BlockHeader>(DBCol::BlockHeader, sync_hash.as_bytes()).ok_or_else(
             || near_chain::Error::DBNotFoundErr(format!("No block header {}", sync_hash)),
         )?;
     let epoch_id = *block_header.epoch_id();
@@ -249,7 +249,7 @@ fn create_flat_storage_for_shard(
 
     let flat_head_hash = *chunk.prev_block();
     let flat_head_header =
-        store.get_ser::<BlockHeader>(DBCol::BlockHeader, flat_head_hash.as_bytes())?.ok_or_else(
+        store.get_ser::<BlockHeader>(DBCol::BlockHeader, flat_head_hash.as_bytes()).ok_or_else(
             || near_chain::Error::DBNotFoundErr(format!("No block header {}", flat_head_hash)),
         )?;
     let flat_head_prev_hash = *flat_head_header.prev_hash();

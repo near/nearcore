@@ -244,7 +244,7 @@ impl TrieStateResharder {
         Ok(self
             .runtime
             .store()
-            .get_ser::<TrieStateReshardingStatus>(DBCol::Misc, TRIE_STATE_RESHARDING_STATUS_KEY)?)
+            .get_ser::<TrieStateReshardingStatus>(DBCol::Misc, TRIE_STATE_RESHARDING_STATUS_KEY))
     }
 
     /// Initializes the trie state resharding status for a new resharding operation.

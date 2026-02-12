@@ -301,17 +301,6 @@ impl Deref for ChainStore {
     }
 }
 
-fn option_to_not_found<T, F>(res: io::Result<Option<T>>, field_name: F) -> Result<T, Error>
-where
-    F: std::string::ToString,
-{
-    match res {
-        Ok(Some(o)) => Ok(o),
-        Ok(None) => Err(Error::DBNotFoundErr(field_name.to_string())),
-        Err(e) => Err(e.into()),
-    }
-}
-
 impl ChainStore {
     pub fn new(
         store: Store,
@@ -593,11 +582,12 @@ impl ChainStore {
     /// Returns latest known height and time it was seen.
     /// TODO(store): What is this doing here? Cleanup
     pub fn get_latest_known(&self) -> Result<LatestKnown, Error> {
-        let latest_known: LatestKnown = option_to_not_found(
-            self.store.store().caching_get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY),
-            "LATEST_KNOWN_KEY",
-        )
-        .map(|v| *v)?;
+        let latest_known: LatestKnown = self
+            .store
+            .store()
+            .caching_get_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY)?
+            .ok_or_else(|| Error::DBNotFoundErr("LATEST_KNOWN_KEY".to_string()))
+            .map(|v| *v)?;
         Ok(latest_known)
     }
 
@@ -764,12 +754,10 @@ impl ChainStore {
         &self,
         shard_id: ShardId,
     ) -> Result<StateSyncDumpProgress, Error> {
-        option_to_not_found(
-            self.store
-                .store()
-                .get_ser(DBCol::BlockMisc, &ChainStore::state_sync_dump_progress_key(shard_id)),
-            format!("STATE_SYNC_DUMP:{}", shard_id),
-        )
+        self.store
+            .store()
+            .get_ser(DBCol::BlockMisc, &ChainStore::state_sync_dump_progress_key(shard_id))
+            .ok_or_else(|| Error::DBNotFoundErr(format!("STATE_SYNC_DUMP:{}", shard_id)))
     }
 
     /// For each value stored, this returns an (EpochId, bool), where the bool tells whether it's finished

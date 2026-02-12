@@ -38,7 +38,7 @@ impl EpochStoreAdapter {
 
     pub fn get_epoch_start(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
         self.store
-            .get_ser::<BlockHeight>(DBCol::EpochStart, epoch_id.as_ref())?
+            .get_ser::<BlockHeight>(DBCol::EpochStart, epoch_id.as_ref())
             .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 
@@ -48,13 +48,13 @@ impl EpochStoreAdapter {
     ///   EpochError::MissingBlock if block is not in storage
     pub fn get_block_info(&self, hash: &CryptoHash) -> Result<BlockInfo, EpochError> {
         self.store
-            .get_ser::<BlockInfo>(DBCol::BlockInfo, hash.as_ref())?
+            .get_ser::<BlockInfo>(DBCol::BlockInfo, hash.as_ref())
             .ok_or(EpochError::MissingBlock(*hash))
     }
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<EpochInfo, EpochError> {
         self.store
-            .get_ser::<EpochInfo>(DBCol::EpochInfo, epoch_id.as_ref())?
+            .get_ser::<EpochInfo>(DBCol::EpochInfo, epoch_id.as_ref())
             .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 
@@ -72,14 +72,13 @@ impl EpochStoreAdapter {
 
     pub fn get_epoch_info_aggregator<T: BorshDeserialize>(&self) -> Result<T, EpochError> {
         self.store
-            .get_ser::<T>(DBCol::EpochInfo, AGGREGATOR_KEY)?
+            .get_ser::<T>(DBCol::EpochInfo, AGGREGATOR_KEY)
             .ok_or_else(|| EpochError::IOErr("Missing epoch info aggregator".to_string()))
     }
 
     pub fn get_epoch_validator_info(&self, epoch_id: &EpochId) -> Result<EpochSummary, EpochError> {
         self.store
             .get_ser::<EpochSummary>(DBCol::EpochValidatorInfo, epoch_id.as_ref())
-            .expect("borsh deserialize should never fail")
             .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 
@@ -109,7 +108,7 @@ impl EpochStoreAdapter {
         } else {
             Ok(self
                 .store
-                .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])?
+                .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])
                 .map(|proof| proof.into_v1()))
         }
     }
