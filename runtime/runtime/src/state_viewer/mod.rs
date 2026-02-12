@@ -4,6 +4,7 @@ use crate::function_call::execute_function_call;
 use crate::global_contracts::{AccountContractAccessExt, GlobalContractAccessExt};
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
+use borsh::BorshDeserialize;
 use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::RuntimeConfigStore;
@@ -25,7 +26,7 @@ use near_primitives::types::{
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
-use near_store::{TrieUpdate, get_access_key, get_account, get_gas_key_nonce};
+use near_store::{TrieUpdate, get_access_key, get_account};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::{str, sync::Arc, time::Instant};
@@ -167,7 +168,6 @@ impl TrieViewer {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Vec<Nonce>, errors::ViewAccessKeyError> {
-        // TODO(gas-keys): Optimize this by iterating with a prefix instead of querying individually.
         let access_key =
             get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
                 errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
@@ -178,18 +178,27 @@ impl TrieViewer {
                 public_key: public_key.clone(),
             });
         };
-        (0..gas_key_info.num_nonces)
-            .map(|index| {
-                get_gas_key_nonce(state_update, account_id, public_key, index)?.ok_or_else(|| {
+        let prefix = trie_key_parsers::get_raw_prefix_for_gas_key_nonces(account_id, public_key);
+        let mut iter = state_update.trie().disk_iter()?;
+        iter.seek_prefix(&prefix)?;
+        let mut nonces = Vec::with_capacity(gas_key_info.num_nonces as usize);
+        for item in iter {
+            let (key, value) = item?;
+            let Some(_index) = parse_nonce_index_from_gas_key_key(&key, account_id, public_key)
+                .map_err(|_| errors::ViewAccessKeyError::InternalError {
+                    error_message: "could not parse nonce index".to_string(),
+                })?
+            else {
+                continue;
+            };
+            let nonce = Nonce::try_from_slice(&value).map_err(|_| {
                 errors::ViewAccessKeyError::InternalError {
-                    error_message: format!(
-                        "gas key nonce at index {} does not exist for account {} and public key {}",
-                        index, account_id, public_key
-                    ),
+                    error_message: "could not deserialize gas key nonce".to_string(),
                 }
-            })
-            })
-            .collect()
+            })?;
+            nonces.push(nonce);
+        }
+        Ok(nonces)
     }
 
     pub fn view_state(

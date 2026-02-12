@@ -764,6 +764,22 @@ pub mod trie_key_parsers {
         res
     }
 
+    /// Returns the raw trie key prefix for gas key nonces associated with a
+    /// given access key. This is the same as the raw key for the access key
+    /// itself, since gas key nonce keys extend the access key with a
+    /// NonceIndex suffix.
+    pub fn get_raw_prefix_for_gas_key_nonces(
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Vec<u8> {
+        let mut res = Vec::with_capacity(access_key_key_len(account_id, public_key));
+        res.push(col::ACCESS_KEY);
+        res.extend(account_id.as_bytes());
+        res.push(ACCESS_KEY_SEPARATOR);
+        borsh::to_writer(&mut res, public_key).unwrap();
+        res
+    }
+
     pub fn get_raw_prefix_for_contract_data(account_id: &AccountId, prefix: &[u8]) -> Vec<u8> {
         let mut res = Vec::with_capacity(
             col::CONTRACT_DATA.len()
