@@ -248,7 +248,7 @@ impl EntityDebugHandlerImpl {
                         &borsh::to_vec(&outcome_id).unwrap(),
                     )
                     .next()
-                    .ok_or_else(|| anyhow!("Outcome not found"))??;
+                    .ok_or_else(|| anyhow!("Outcome not found"))?;
                 Ok(serialize_entity(&ExecutionOutcomeView::from(outcome.outcome)))
             }
             EntityQuery::OutcomeByTransactionHashAndBlockHash {

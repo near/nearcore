@@ -267,9 +267,9 @@ impl ChainStore {
 
         let mut result: Vec<ChunkStateWitness> = Vec::new();
 
-        for read_result in self.store().iter_prefix_ser::<ChunkStateWitness>(db_col, &key_prefix) {
-            let (key_bytes, witness) = read_result?;
-
+        for (key_bytes, witness) in
+            self.store().iter_prefix_ser::<ChunkStateWitness>(db_col, &key_prefix)
+        {
             let key = StoredWitnessesKey::deserialize(&key_bytes)?;
             if let Some(h) = height {
                 if key.height_created != h {
