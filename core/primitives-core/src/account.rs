@@ -473,6 +473,15 @@ pub struct AccessKey {
 impl AccessKey {
     pub const ACCESS_KEY_NONCE_RANGE_MULTIPLIER: u64 = 1_000_000;
 
+    /// Borsh-serialized size of a Nonce value (u64), stored as gas key nonce trie values.
+    pub const NONCE_VALUE_LEN: usize = std::mem::size_of::<Nonce>();
+
+    /// Minimum borsh-serialized size of an AccessKey with a gas key permission.
+    /// This is the size for GasKeyFullAccess (the smallest gas key variant).
+    pub fn min_gas_key_borsh_len() -> usize {
+        borsh::object_length(&Self::gas_key_full_access(0)).unwrap()
+    }
+
     pub fn full_access() -> Self {
         Self { nonce: 0, permission: AccessKeyPermission::FullAccess }
     }
