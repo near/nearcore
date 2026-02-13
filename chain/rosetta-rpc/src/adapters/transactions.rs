@@ -5,7 +5,9 @@ use near_async::multithread::MultithreadRuntimeHandle;
 use near_client::ViewClientActor;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::Balance;
-use near_primitives::views::{ExecutionOutcomeWithIdView, SignedTransactionView};
+use near_primitives::views::{
+    AccessKeyPermissionView, ExecutionOutcomeWithIdView, SignedTransactionView,
+};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::string::ToString;
@@ -285,6 +287,8 @@ pub(crate) async fn convert_block_changes_to_transactions(
         near_primitives::views::AccountView,
     >,
     exec_to_rx: ExecutionToReceipts,
+    previous_gas_keys: crate::gas_key_utils::GasKeyInfo,
+    access_key_changes: near_primitives::views::StateChangesView,
 ) -> crate::errors::Result<RosettaTransactionsMap> {
     let mut transactions = RosettaTransactions::new(exec_to_rx, block_hash);
     for account_change in accounts_changes {
@@ -301,6 +305,7 @@ pub(crate) async fn convert_block_changes_to_transactions(
                     } => transactions_in_block.get(tx_hash).and_then(|t| {
                         let total_sum =
                             t.actions.iter().fold(Balance::ZERO, |sum, action| match action {
+                                // TODO(gas-keys): Verify this is correct.
                                 near_primitives::views::ActionView::Transfer { deposit } => {
                                     sum.checked_add(*deposit).unwrap()
                                 }
@@ -346,6 +351,13 @@ pub(crate) async fn convert_block_changes_to_transactions(
             }
         }
     }
+
+    convert_gas_key_changes_to_operations(
+        previous_gas_keys,
+        &mut transactions,
+        access_key_changes,
+    )?;
+
     for fungible_token_event in transactions.exec_to_rx.events.clone() {
         convert_fungible_token_balance_change_to_operations(
             &fungible_token_event,
@@ -576,6 +588,106 @@ fn convert_account_delete_to_operations(
             metadata: None,
         });
     }
+}
+
+/// Process access key changes for gas key balance tracking.
+/// Each change is attributed to its specific cause (receipt/transaction).
+fn convert_gas_key_changes_to_operations(
+    previous_gas_keys: crate::gas_key_utils::GasKeyInfo,
+    transactions: &mut RosettaTransactions<'_>,
+    access_key_changes: near_primitives::views::StateChangesView,
+) -> crate::errors::Result<()> {
+    let mut gas_key_running_state = previous_gas_keys.into_inner();
+    for change in access_key_changes {
+        match change.value {
+            near_primitives::views::StateChangeValueView::AccessKeyUpdate {
+                account_id,
+                public_key,
+                access_key,
+            } => {
+                let (AccessKeyPermissionView::GasKeyFunctionCall { balance, .. }
+                | AccessKeyPermissionView::GasKeyFullAccess { balance, .. }) =
+                    &access_key.permission
+                else {
+                    // Not a gas key. If it was previously tracked as one, burn its balance.
+                    if let Some(account_keys) = gas_key_running_state.get_mut(&account_id) {
+                        if let Some(prev_balance) = account_keys.remove(&public_key) {
+                            push_gas_key_burn(
+                                &mut transactions.get_for_cause(&change.cause)?.operations,
+                                account_id,
+                                prev_balance,
+                            );
+                        }
+                    }
+                    continue;
+                };
+                let account_keys = gas_key_running_state.entry(account_id.clone()).or_default();
+                let prev_balance = account_keys.get(&public_key).copied().unwrap_or(Balance::ZERO);
+                let diff = crate::utils::SignedDiff::cmp(
+                    prev_balance.as_yoctonear(),
+                    balance.as_yoctonear(),
+                );
+                account_keys.insert(public_key, *balance);
+                if diff.absolute_difference() == 0 {
+                    continue;
+                }
+                let ops = &mut transactions.get_for_cause(&change.cause)?.operations;
+                ops.push(crate::models::Operation {
+                    operation_identifier: crate::models::OperationIdentifier::new(ops),
+                    related_operations: None,
+                    account: crate::models::AccountIdentifier {
+                        address: account_id.into(),
+                        sub_account: Some(crate::models::SubAccount::GasKey.into()),
+                        metadata: None,
+                    },
+                    amount: Some(crate::models::Amount::from_yoctonear_diff(diff)),
+                    type_: crate::models::OperationType::Transfer,
+                    status: Some(crate::models::OperationStatusKind::Success),
+                    metadata: None,
+                });
+            }
+            near_primitives::views::StateChangeValueView::AccessKeyDeletion {
+                account_id,
+                public_key,
+            } => {
+                if let Some(account_keys) = gas_key_running_state.get_mut(&account_id) {
+                    if let Some(prev_balance) = account_keys.remove(&public_key) {
+                        push_gas_key_burn(
+                            &mut transactions.get_for_cause(&change.cause)?.operations,
+                            account_id,
+                            prev_balance,
+                        );
+                    }
+                }
+            }
+            // Other changes (e.g. non-gas-key updates, nonce updates) are irrelevant for balance tracking.
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn push_gas_key_burn(
+    operations: &mut Vec<crate::models::Operation>,
+    account_id: near_primitives::types::AccountId,
+    prev_balance: Balance,
+) {
+    if prev_balance == Balance::ZERO {
+        return;
+    }
+    operations.push(crate::models::Operation {
+        operation_identifier: crate::models::OperationIdentifier::new(operations),
+        related_operations: None,
+        account: crate::models::AccountIdentifier {
+            address: account_id.into(),
+            sub_account: Some(crate::models::SubAccount::GasKey.into()),
+            metadata: None,
+        },
+        amount: Some(-crate::models::Amount::from_balance(prev_balance)),
+        type_: crate::models::OperationType::GasKeyBalanceBurnt,
+        status: Some(crate::models::OperationStatusKind::Success),
+        metadata: None,
+    });
 }
 
 fn convert_fungible_token_balance_change_to_operations(
