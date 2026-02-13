@@ -108,7 +108,7 @@ There are many types of actions. The most interesting one is `FunctionCall` acti
 Executing an action can cause changes to the account's state.
 Each shard has a state, which is stored as a Merkle Tree. Within the shard, each account has its own subtree which holds the account's state.
 
-It can also generate new receipts which will be executed later. It's possible for one account to create a receipt to another account, which enables cross-contract calls. Unlike ethereum, cross-contract calls are asynchronous, transactions are not atomic. Receipts are sent asynchronously to make shards fully independent of each other, enabling horizontal scalability.
+It can also generate new receipts which will be executed later. It's possible for one account to create a receipt to another account, which enables cross-contract calls. Unlike Ethereum, cross-contract calls are asynchronous, transactions are not atomic. Receipts are sent asynchronously to make shards fully independent of each other, enabling horizontal scalability.
 
 NEAR allows to create a promise DAG. A FunctionCall action can generate multiple receipts and order them to execute in some specified order, expressed as a DAG (directed acyclic graph).
 In smart contracts, creating a `promise` spawns a `receipt`, the naming is a bit different, but under the hood it's the same thing.
