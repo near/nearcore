@@ -113,7 +113,7 @@ It can also generate new receipts which will be executed later. It's possible fo
 NEAR allows to create a promise DAG. A FunctionCall action can generate multiple receipts and order them to execute in some specified order, expressed as a DAG (directed acyclic graph).
 In smart contracts, creating a `promise` spawns a `receipt`, the naming is a bit different, but under the hood it's the same thing.
 The ordering is achieved by specifying data dependencies between the receipts, by manipulating the input_data_ids and output_data_receivers.
-After executing a receipt, the result is sent out as a Data receipts to all of the specified output_data_receivers. The other receipts have this data in their input_data_ids and wait for the Data receipts to be sent before being executed.
+After executing a receipt, the result is sent out as a Data receipt to all of the specified output_data_receivers. The other receipts have this data in their input_data_ids and wait for the Data receipts to be sent before being executed.
 
 Executing actions costs gas. Each receipt has some amount of gas attached to it. If the gas runs out, receipt execution fails. Unused gas is sent back to the transaction author as a gas refund.
 
