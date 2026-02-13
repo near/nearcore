@@ -68,7 +68,7 @@ fn test_flat_storage_iter() {
             assert_eq!(expected, items.len());
             assert_eq!(
                 TrieKey::Account { account_id: "near".parse().unwrap() }.to_vec(),
-                items[0].as_ref().unwrap().0.to_vec()
+                items[0].0.to_vec()
             );
         }
         if shard_id == s1 {
@@ -78,7 +78,7 @@ fn test_flat_storage_iter() {
             assert_eq!(expected, items.len());
             assert_eq!(
                 TrieKey::Account { account_id: "test0".parse().unwrap() }.to_vec(),
-                items[0].as_ref().unwrap().0.to_vec()
+                items[0].0.to_vec()
             );
         }
         if shard_id == s2 {

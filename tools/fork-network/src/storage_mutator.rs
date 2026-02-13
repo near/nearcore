@@ -49,9 +49,7 @@ impl ShardUpdateState {
         shard_uid: ShardUId,
         state_root: CryptoHash,
     ) -> anyhow::Result<Self> {
-        let deltas = flat_store
-            .get_all_deltas_metadata(shard_uid)
-            .with_context(|| format!("failed getting flat storage deltas for {}", shard_uid))?;
+        let deltas = flat_store.get_all_deltas_metadata(shard_uid);
 
         let max_delta_height = deltas.iter().map(|d| d.block.height).max();
         let max_delta_height = match max_delta_height {

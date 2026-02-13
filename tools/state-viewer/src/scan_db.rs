@@ -133,7 +133,7 @@ fn format_key_and_value<'a>(
             Box::new(BlockHeight::try_from_slice(value).unwrap()),
         ),
         DBCol::FlatState => {
-            let (shard_uid, key) = decode_flat_state_db_key(key).unwrap();
+            let (shard_uid, key) = decode_flat_state_db_key(key);
             (Box::new((shard_uid, key)), Box::new(FlatStateValue::try_from_slice(value).unwrap()))
         }
         DBCol::FlatStateChanges => (

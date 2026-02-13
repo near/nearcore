@@ -136,12 +136,12 @@ pub struct ResumeReshardingCmd {
 }
 
 fn print_delta(store: &FlatStoreAdapter, shard_uid: ShardUId, metadata: FlatStateDeltaMetadata) {
-    let changes = store.get_delta(shard_uid, metadata.block.hash).unwrap().unwrap();
+    let changes = store.get_delta(shard_uid, metadata.block.hash).unwrap();
     println!("{:?}", FlatStateDelta { metadata, changes });
 }
 
 fn print_deltas(store: &FlatStoreAdapter, shard_uid: ShardUId) {
-    let deltas_metadata = store.get_all_deltas_metadata(shard_uid).unwrap();
+    let deltas_metadata = store.get_all_deltas_metadata(shard_uid);
     let num_deltas = deltas_metadata.len();
     println!("Deltas: {}", num_deltas);
 
@@ -306,7 +306,6 @@ impl FlatStorageCommand {
         let mut verified = 0;
         let mut success = true;
         for (item_trie, item_flat) in tqdm(std::iter::zip(trie_iter, flat_state_entries_iter)) {
-            let item_flat = item_flat?;
             let value_ref = item_flat.1.to_value_ref();
             verified += 1;
 
@@ -445,7 +444,7 @@ impl FlatStorageCommand {
                         )?
                         .map(|value_ref| value_ref.into_value_ref());
                     let value_ref =
-                        flat_store.get(shard_uid, trie_key)?.map(|val| val.to_value_ref());
+                        flat_store.get(shard_uid, trie_key).map(|val| val.to_value_ref());
                     if prev_value_ref == value_ref {
                         // Value didn't change, skip it.
                         continue;

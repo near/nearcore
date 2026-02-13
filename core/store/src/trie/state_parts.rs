@@ -193,17 +193,14 @@ impl Trie {
         let mut value_refs = vec![];
         let mut values_inlined = 0;
         let mut all_state_part_items: Vec<_> = flat_state_iter
-            .filter_map(|result| {
-                let (k, v) = result.expect("failed to read FlatState entry");
-                match v {
-                    FlatStateValue::Ref(value_ref) => {
-                        value_refs.push((k, value_ref.hash));
-                        None
-                    }
-                    FlatStateValue::Inlined(value) => {
-                        values_inlined += 1;
-                        Some((k, Some(value)))
-                    }
+            .filter_map(|(k, v)| match v {
+                FlatStateValue::Ref(value_ref) => {
+                    value_refs.push((k, value_ref.hash));
+                    None
+                }
+                FlatStateValue::Inlined(value) => {
+                    values_inlined += 1;
+                    Some((k, Some(value)))
                 }
             })
             .collect::<Vec<_>>();

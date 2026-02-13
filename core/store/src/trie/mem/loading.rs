@@ -68,8 +68,7 @@ fn load_memtrie_single_thread(
     let mut arena = STArena::new(shard_uid.to_string());
     let mut recon = TrieConstructor::new(&mut arena);
     let mut num_keys_loaded = 0;
-    for item in store.flat_store().iter(shard_uid) {
-        let (key, value) = item?;
+    for (key, value) in store.flat_store().iter(shard_uid) {
         recon.add_leaf(NibbleSlice::new(&key), value);
         num_keys_loaded += 1;
         if num_keys_loaded % 1000000 == 0 {
@@ -145,14 +144,13 @@ pub fn load_trie_from_flat_state_and_delta(
     // We load the deltas in order of height, so that we always have the previous state root
     // already loaded.
     let mut sorted_deltas: BTreeSet<(BlockHeight, CryptoHash, CryptoHash)> = Default::default();
-    for delta in flat_store.get_all_deltas_metadata(shard_uid).unwrap() {
+    for delta in flat_store.get_all_deltas_metadata(shard_uid) {
         sorted_deltas.insert((delta.block.height, delta.block.hash, delta.block.prev_hash));
     }
 
     tracing::debug!(target: "memtrie", %shard_uid, num_deltas = sorted_deltas.len(), "deltas to apply");
     for (height, hash, prev_hash) in sorted_deltas {
-        let delta = flat_store.get_delta(shard_uid, hash).unwrap();
-        if let Some(changes) = delta {
+        if let Some(changes) = flat_store.get_delta(shard_uid, hash) {
             let old_state_root = get_state_root(store, prev_hash, shard_uid)?;
             let new_state_root = get_state_root(store, hash, shard_uid)?;
 
