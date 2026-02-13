@@ -120,8 +120,8 @@ fn test_processed_receipt_ids_gc() {
     assert_eq!(
         all_metadata,
         vec![
-            ProcessedReceiptMetadata::new(local_receipt_id, ReceiptSource::Local),
             ProcessedReceiptMetadata::new(instant_receipt_id, ReceiptSource::Instant),
+            ProcessedReceiptMetadata::new(local_receipt_id, ReceiptSource::Local),
         ]
     );
 
