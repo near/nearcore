@@ -98,7 +98,6 @@ fn test_indexer_local_receipt() {
 /// the GC test only checks that the receipt is *stored*, while this test needs
 /// the callback to *execute* so the indexer has an outcome to index.
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_indexer_instant_receipt() {

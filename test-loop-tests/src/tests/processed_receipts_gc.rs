@@ -28,7 +28,6 @@ const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 /// Verifies both exist in DBCol::Receipts with appropriate metadata, then runs enough
 /// epochs for GC to kick in and verifies cleanup.
 #[test]
-#[cfg_attr(not(feature = "nightly"), ignore)]
 fn test_processed_receipt_ids_gc() {
     init_test_logger();
 
