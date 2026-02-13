@@ -119,7 +119,7 @@ Executing actions costs gas. Each receipt has some amount of gas attached to it.
 
 ReceiptSink takes new outgoing receipts and tries to send them out to other shards. If the receipt can't be sent because of outgoing limits, the receipt is stored in a buffer in the shard's trie and will be sent later.
 
-Bandwidth scheduler sees how much data (outgoing receipts) each shard wants to send to other shards and decides how much can be transferred between a pair of shards at a given height. It makes sure that each shard receives and sends a limited amount of bandwidth at each height, keeping bandwidth requirements reasonable. Outgoing receipts that are not allowed to be sent
+Bandwidth scheduler sees how much data (outgoing receipts) each shard wants to send to other shards and decides how much can be transferred between a pair of shards at a given height. It makes sure that each shard receives and sends a limited amount of bandwidth at each height, keeping bandwidth requirements reasonable.
 
 Congestion control keeps track of the size of receipt queues on all shards and stops accepting new work when the queues get too large.
 
