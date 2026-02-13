@@ -96,7 +96,7 @@ fn test_spice_chain() {
         let cp =
             &epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id).unwrap()[0];
         let node = TestLoopNode::from(get_node_data(&node_datas, cp));
-        node.view_account_query(test_loop_data, account).amount
+        node.view_account_query(test_loop_data, account).unwrap().amount
     };
 
     let epoch_id = client.chain.head().unwrap().epoch_id;
@@ -201,7 +201,7 @@ fn test_spice_chain_with_delayed_execution() {
     );
     node.run_tx(&mut env.test_loop, tx, Duration::seconds(10));
 
-    let view_account_result = node.view_account_query(&env.test_loop.data, &receiver);
+    let view_account_result = node.view_account_query(&env.test_loop.data, &receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -495,7 +495,7 @@ fn test_restart_rpc_node() {
 
     rpc.run_for_number_of_blocks(&mut env.test_loop, 5);
 
-    let view_account_result = rpc.view_account_query(&env.test_loop.data, &receiver);
+    let view_account_result = rpc.view_account_query(&env.test_loop.data, &receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -576,7 +576,8 @@ fn test_restart_producer_node() {
 
     restart_node.run_for_number_of_blocks(&mut env.test_loop, 10);
 
-    let view_account_result = restart_node.view_account_query(&env.test_loop.data, &receiver);
+    let view_account_result =
+        restart_node.view_account_query(&env.test_loop.data, &receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -678,12 +679,14 @@ fn test_restart_validator_node() {
         validator_node.head(env.test_loop_data()).height
     );
 
-    let view_account_result = producer_node.view_account_query(&env.test_loop.data, &receiver);
+    let view_account_result =
+        producer_node.view_account_query(&env.test_loop.data, &receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(0));
 
     producer_node.run_for_number_of_blocks(&mut env.test_loop, 10);
 
-    let view_account_result = producer_node.view_account_query(&env.test_loop.data, &receiver);
+    let view_account_result =
+        producer_node.view_account_query(&env.test_loop.data, &receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -741,7 +744,7 @@ fn test_spice_chain_with_missing_chunks() {
     );
 
     for account in &accounts {
-        let got_balance = rpc_node.view_account_query(&env.test_loop.data, account).amount;
+        let got_balance = rpc_node.view_account_query(&env.test_loop.data, account).unwrap().amount;
         assert_eq!(got_balance, INITIAL_BALANCE);
     }
 
@@ -812,7 +815,7 @@ fn test_spice_chain_with_missing_chunks() {
 
     assert!(!balance_changes.is_empty());
     for (account, balance_change) in &balance_changes {
-        let got_balance = rpc_node.view_account_query(&env.test_loop.data, account).amount;
+        let got_balance = rpc_node.view_account_query(&env.test_loop.data, account).unwrap().amount;
         let want_balance = Balance::from_yoctonear(
             (INITIAL_BALANCE.as_yoctonear() as i128 + balance_change).try_into().unwrap(),
         );
