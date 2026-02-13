@@ -84,8 +84,9 @@ fn test_indexer_local_receipt() {
 
 /// Test that instant receipts (PromiseYield) are correctly indexed.
 ///
-/// The PromiseYield instant receipt is stored in DBCol::Receipts when it is
-/// first processed (queued as a delayed receipt awaiting data). When the yield
+/// The PromiseYield instant receipt is stored/postponed in DBCol::Receipts when
+/// it is first processed (persisted as a PromiseYield receipt awaiting data via
+/// `promise_yield_create`). When the yield
 /// is later resumed, the callback executes and produces an execution outcome.
 /// The indexer pairs the outcome with the receipt fetched from DBCol::Receipts.
 ///
