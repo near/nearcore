@@ -284,7 +284,7 @@ pub struct LinkAllowance {
 }
 
 /// Parameters used in the bandwidth scheduler algorithm.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct BandwidthSchedulerParams {
     /// This much bandwidth is granted by default.
     /// base_bandwidth = (max_shard_bandwidth - max_single_grant) / (num_shards - 1)
