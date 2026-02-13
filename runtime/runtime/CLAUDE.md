@@ -52,7 +52,7 @@ pub struct ActionReceiptV2 {
     pub output_data_receivers: Vec<DataReceiver>,
     /// A list of the input data dependencies for this Receipt to process.
     /// If all `input_data_ids` for this receipt are delivered to the account
-    /// that means we have all the `ReceivedData` input which will be than converted to a
+    /// that means we have all the `ReceivedData` input which will be then converted to a
     /// `PromiseResult::Successful(value)` or `PromiseResult::Failed`
     /// depending on `ReceivedData` is `Some(_)` or `None`
     pub input_data_ids: Vec<CryptoHash>,
