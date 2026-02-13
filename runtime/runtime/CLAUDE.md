@@ -123,7 +123,7 @@ Bandwidth scheduler sees how much data (outgoing receipts) each shard wants to s
 
 Congestion control keeps track of the size of receipt queues on all shards and stops accepting new work when the queues get too large.
 
-Yield/Resume is a feature which allows to `yield` and create a new receipt with an unsatisfied data dependency. Later another transaction can call `resume` with some paylod to satisfy the data dependency, continuing execution of the yielded receipt. If the receipt is not resumed in time, it will time out and the yielded receipt will be executed with a timeout (None payload).
+Yield/Resume is a feature which allows to `yield` and create a new receipt with an unsatisfied data dependency. Later another transaction can call `resume` with some payload to satisfy the data dependency, continuing execution of the yielded receipt. If the receipt is not resumed in time, it will time out and the yielded receipt will be executed with a timeout (None payload).
 
 Each account can have multiple access keys, which are used to validate transactions submitted for this account. NEAR supports named accounts which don't have the public key in their name (e.g. `alice.near`). When a transaction is submitted, the verification code fetches the account's access key and verifies the transaction's signature against this key.
 
