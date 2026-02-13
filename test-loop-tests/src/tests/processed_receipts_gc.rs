@@ -66,7 +66,7 @@ fn test_processed_receipt_ids_gc() {
     let tx = SignedTransaction::from_actions(
         2,
         user_account.clone(),
-        user_account.clone(),
+        user_account,
         &signer,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_yield_create_return_promise".to_string(),
