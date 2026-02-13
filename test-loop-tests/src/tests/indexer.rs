@@ -82,6 +82,118 @@ fn test_indexer_local_receipt() {
     shutdown(env);
 }
 
+/// Test that instant receipts (PromiseYield) are correctly indexed.
+///
+/// The PromiseYield instant receipt is stored/postponed in DBCol::Receipts when
+/// it is first processed (persisted as a PromiseYield receipt awaiting data via
+/// `promise_yield_create`). When the yield
+/// is later resumed, the callback executes and produces an execution outcome.
+/// The indexer pairs the outcome with the receipt fetched from DBCol::Receipts.
+///
+/// Without storing instant receipts, the indexer would fail to find the receipt
+/// for the callback's execution outcome (it's neither an incoming receipt nor
+/// a local receipt generated from a transaction).
+///
+/// This test needs two transactions (unlike the GC test which only needs one):
+/// the GC test only checks that the receipt is *stored*, while this test needs
+/// the callback to *execute* so the indexer has an outcome to index.
+#[test]
+#[cfg_attr(not(feature = "nightly"), ignore)]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_indexer_instant_receipt() {
+    init_test_logger();
+
+    let mut env = setup();
+    deploy_test_contract(&mut env);
+    let rpc_node = TestLoopNode::rpc(&env.node_datas);
+
+    // Step 1: Call yield_create — produces a PromiseYield instant receipt that
+    // gets stored/postponed as a PromiseYield receipt (awaiting data) and persisted in DBCol::Receipts.
+    let yield_create_tx = SignedTransaction::call(
+        next_nonce(),
+        user_account(),
+        user_account(),
+        &user_signer(),
+        Balance::ZERO,
+        "call_yield_create_return_promise".to_owned(),
+        vec![42u8; 16],
+        Gas::from_teragas(300),
+        tx_block_hash(&env),
+    );
+    rpc_node.submit_tx(yield_create_tx.clone());
+    let tx_outcome = rpc_node.run_until_outcome_available(
+        &mut env.test_loop,
+        yield_create_tx.get_hash(),
+        Duration::seconds(5),
+    );
+    let ExecutionStatus::SuccessReceiptId(local_receipt_id) =
+        tx_outcome.outcome_with_id.outcome.status
+    else {
+        panic!("failed to convert transaction to receipt");
+    };
+    // Wait for local receipt to execute (this also processes the instant receipt).
+    let local_outcome = rpc_node.run_until_outcome_available(
+        &mut env.test_loop,
+        local_receipt_id,
+        Duration::seconds(5),
+    );
+    let [yield_receipt_id] = local_outcome.outcome_with_id.outcome.receipt_ids[..] else {
+        panic!("expected single child receipt (the PromiseYield instant receipt)")
+    };
+
+    // Step 2: Call yield_resume — provides data for the PromiseYield, causing
+    // the callback to execute in a subsequent block.
+    let resume_tx = SignedTransaction::call(
+        next_nonce(),
+        user_account(),
+        user_account(),
+        &user_signer(),
+        Balance::ZERO,
+        "call_yield_resume_read_data_id_from_storage".to_owned(),
+        vec![42u8; 16],
+        Gas::from_teragas(300),
+        tx_block_hash(&env),
+    );
+    rpc_node.run_tx(&mut env.test_loop, resume_tx, Duration::seconds(5));
+
+    // Wait for the PromiseYield callback execution outcome.
+    let yield_outcome = rpc_node.run_until_outcome_available(
+        &mut env.test_loop,
+        yield_receipt_id,
+        Duration::seconds(5),
+    );
+
+    // Step 3: Start the indexer at the block where the callback executed.
+    let callback_block_hash = yield_outcome.block_hash;
+    let callback_height = rpc_node
+        .client(env.test_loop_data())
+        .chain
+        .get_block(&callback_block_hash)
+        .unwrap()
+        .header()
+        .height();
+    let mut indexer_receiver = start_indexer(&env, SyncModeEnum::BlockHeight(callback_height));
+    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
+    assert_eq!(msg.block.header.height, callback_height);
+    let indexer_shard = &msg.shards[0];
+
+    // Verify the PromiseYield callback is in receipt_execution_outcomes
+    // with the correct receipt data (is_promise_yield: true).
+    let indexed_outcome = indexer_shard
+        .receipt_execution_outcomes
+        .iter()
+        .find(|o| o.execution_outcome.id == yield_receipt_id)
+        .expect("PromiseYield callback should be present in receipt_execution_outcomes");
+
+    let ReceiptEnumView::Action { is_promise_yield, .. } = &indexed_outcome.receipt.receipt else {
+        panic!("expected Action receipt variant for PromiseYield callback");
+    };
+    assert!(is_promise_yield, "receipt should have is_promise_yield=true");
+
+    shutdown(env);
+}
+
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]

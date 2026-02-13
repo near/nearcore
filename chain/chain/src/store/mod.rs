@@ -9,7 +9,7 @@ use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV0};
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
-use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource};
+use near_primitives::receipt::{ProcessedReceipt, ProcessedReceiptMetadata, Receipt};
 use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
     ArcedShardChunk, ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk,
@@ -532,8 +532,7 @@ impl ChainStore {
                 DBCol::TransactionResultForBlock,
                 id.as_ref(),
             )
-            .map(|item| {
-                let (key, outcome_with_proof) = item?;
+            .map(|(key, outcome_with_proof)| {
                 let (_, block_hash) = get_outcome_id_block_hash_rev(key.as_ref())?;
                 Ok(ExecutionOutcomeWithIdAndProof {
                     proof: outcome_with_proof.proof,
@@ -768,27 +767,25 @@ impl ChainStore {
         self.store
             .store_ref()
             .iter_prefix_ser::<StateSyncDumpProgress>(DBCol::BlockMisc, STATE_SYNC_DUMP_KEY)
-            .map(|item| {
-                item.and_then(|(key, progress)| {
-                    // + 1 for the ':'
-                    let prefix_len = STATE_SYNC_DUMP_KEY.len() + 1;
-                    let int_part = &key[prefix_len..];
-                    let int_part = int_part.try_into().map_err(|_| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!("Bad StateSyncDump column key length: {}", key.len()),
-                        )
-                    })?;
-                    let shard_id = ShardId::from_le_bytes(int_part);
-                    Ok((
-                        shard_id,
-                        match progress {
-                            StateSyncDumpProgress::AllDumped { epoch_id, .. } => (epoch_id, true),
-                            StateSyncDumpProgress::InProgress { epoch_id, .. } => (epoch_id, false),
-                            StateSyncDumpProgress::Skipped { epoch_id, .. } => (epoch_id, true),
-                        },
-                    ))
-                })
+            .map(|(key, progress)| {
+                // + 1 for the ':'
+                let prefix_len = STATE_SYNC_DUMP_KEY.len() + 1;
+                let int_part = &key[prefix_len..];
+                let int_part = int_part.try_into().map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("Bad StateSyncDump column key length: {}", key.len()),
+                    )
+                })?;
+                let shard_id = ShardId::from_le_bytes(int_part);
+                Ok((
+                    shard_id,
+                    match progress {
+                        StateSyncDumpProgress::AllDumped { epoch_id, .. } => (epoch_id, true),
+                        StateSyncDumpProgress::InProgress { epoch_id, .. } => (epoch_id, false),
+                        StateSyncDumpProgress::Skipped { epoch_id, .. } => (epoch_id, true),
+                    },
+                ))
             })
     }
 
@@ -1689,15 +1686,15 @@ impl<'a> ChainStoreUpdate<'a> {
         &mut self,
         hash: &CryptoHash,
         shard_id: ShardId,
-        receipts: Vec<(Receipt, ReceiptSource)>,
+        processed_receipts: Vec<ProcessedReceipt>,
     ) {
-        let metadata: Vec<ProcessedReceiptMetadata> = receipts
+        let metadata: Vec<ProcessedReceiptMetadata> = processed_receipts
             .iter()
-            .map(|(r, source)| ProcessedReceiptMetadata::new(*r.receipt_id(), source.clone()))
+            .map(|pr| ProcessedReceiptMetadata::new(*pr.receipt.receipt_id(), pr.source.clone()))
             .collect();
         self.chain_store_cache_update
             .processed_receipts_to_save
-            .extend(receipts.into_iter().map(|(r, _)| r));
+            .extend(processed_receipts.into_iter().map(|pr| pr.receipt));
         self.chain_store_cache_update
             .processed_receipt_ids
             .insert((*hash, shard_id), Arc::new(metadata));

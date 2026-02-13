@@ -137,8 +137,10 @@ impl Store {
     pub fn iter_ser<'a, T: BorshDeserialize>(
         &'a self,
         col: DBCol,
-    ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
-        self.storage.iter(col).map(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?)))
+    ) -> impl Iterator<Item = (Box<[u8]>, T)> + 'a {
+        self.storage.iter(col).map(|(key, value)| {
+            (key, T::try_from_slice(value.as_ref()).expect("borsh deserialization"))
+        })
     }
 
     /// Fetches raw key/value pairs from the database.
@@ -172,11 +174,11 @@ impl Store {
         &'a self,
         col: DBCol,
         key_prefix: &'a [u8],
-    ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
+    ) -> impl Iterator<Item = (Box<[u8]>, T)> + 'a {
         assert!(col != DBCol::State, "can't iter prefix ser of State column");
-        self.storage
-            .iter_prefix(col, key_prefix)
-            .map(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?)))
+        self.storage.iter_prefix(col, key_prefix).map(|(key, value)| {
+            (key, T::try_from_slice(value.as_ref()).expect("borsh deserialization"))
+        })
     }
 
     /// Saves state (`State` and `FlatState` columns) to given file.
