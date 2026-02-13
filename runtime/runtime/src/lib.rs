@@ -2421,6 +2421,10 @@ impl Runtime {
                 receipt_sink,
                 validator_proposals,
             )?;
+            processing_state.processed_receipts.push(ProcessedReceipt {
+                receipt: instant_receipt,
+                source: ReceiptSource::Instant,
+            });
         }
 
         Ok(())
