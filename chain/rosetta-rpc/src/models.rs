@@ -761,6 +761,7 @@ pub(crate) enum OperationType {
     TransferToGasKey,
     InitiateWithdrawFromGasKey,
     WithdrawFromGasKey,
+    GasKeyBalanceBurnt,
 }
 
 #[derive(
@@ -1043,6 +1044,7 @@ pub(crate) struct Peer {
 pub(crate) enum SubAccount {
     LiquidBalanceForStorage,
     Locked,
+    GasKey,
 }
 
 impl From<SubAccount> for crate::models::SubAccountIdentifier {

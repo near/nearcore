@@ -21,5 +21,10 @@ async fn test_convert_block_changes_to_transactions() {
         &runtime_config,
     )
     .await;
+    near_rosetta_rpc::test::test_gas_key_changes_to_transactions(
+        &actor_handles.view_client_actor,
+        &runtime_config,
+    )
+    .await;
     actor_system.stop();
 }

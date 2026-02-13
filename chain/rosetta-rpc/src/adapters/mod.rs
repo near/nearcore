@@ -147,6 +147,13 @@ pub(crate) async fn convert_block_to_transactions(
         near_primitives::types::BlockId::Hash(block.header.prev_hash),
     );
     let accounts_previous_state = crate::utils::query_accounts(
+        prev_block_id.clone(),
+        touched_account_ids.iter().cloned(),
+        view_client_addr.clone(),
+    )
+    .await?;
+
+    let previous_gas_keys = crate::gas_key_utils::GasKeyInfo::query(
         prev_block_id,
         touched_account_ids.iter().cloned(),
         view_client_addr.clone(),
@@ -158,6 +165,16 @@ pub(crate) async fn convert_block_to_transactions(
             block_hash: block.header.hash,
             state_changes_request:
                 near_primitives::views::StateChangesRequestView::AccountChanges {
+                    account_ids: touched_account_ids.clone(),
+                },
+        })
+        .await??;
+
+    let access_key_changes = view_client_addr
+        .send_async(near_client::GetStateChanges {
+            block_hash: block.header.hash,
+            state_changes_request:
+                near_primitives::views::StateChangesRequestView::AllAccessKeyChanges {
                     account_ids: touched_account_ids,
                 },
         })
@@ -179,6 +196,8 @@ pub(crate) async fn convert_block_to_transactions(
         accounts_changes,
         accounts_previous_state,
         exec_to_rx,
+        previous_gas_keys,
+        access_key_changes,
     )
     .await
     .map(|dict| dict.into_values().collect())
@@ -892,6 +911,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                 | crate::models::OperationType::InitiateDelegateAction
                 | crate::models::OperationType::InitiateTransferToGasKey
                 | crate::models::OperationType::InitiateWithdrawFromGasKey
+                | crate::models::OperationType::GasKeyBalanceBurnt
                 | crate::models::OperationType::DeleteAccount => {
                     return Err(crate::errors::ErrorKind::InvalidInput(format!(
                         "Unexpected operation `{:?}`",
