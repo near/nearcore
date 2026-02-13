@@ -15,7 +15,7 @@ use near_chain_configs::Genesis;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
+use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptSource};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
@@ -484,7 +484,11 @@ fn apply_block_from_range(
             raw_timestamp,
             apply_result.total_gas_burnt,
             chunk_present,
-            apply_result.processed_delayed_receipts.len(),
+            apply_result
+                .processed_receipts
+                .iter()
+                .filter(|pr| pr.source == ReceiptSource::Delayed)
+                .count(),
             delayed_indices.unwrap_or(None).map_or(0, |d| d.next_available_index - d.first_index),
             apply_result.trie_changes.state_changes().len(),
         ),

@@ -9,7 +9,7 @@ use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV0};
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
-use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource};
+use near_primitives::receipt::{ProcessedReceipt, ProcessedReceiptMetadata, Receipt};
 use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
     ArcedShardChunk, ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk,
@@ -1686,15 +1686,15 @@ impl<'a> ChainStoreUpdate<'a> {
         &mut self,
         hash: &CryptoHash,
         shard_id: ShardId,
-        receipts: Vec<(Receipt, ReceiptSource)>,
+        processed_receipts: Vec<ProcessedReceipt>,
     ) {
-        let metadata: Vec<ProcessedReceiptMetadata> = receipts
+        let metadata: Vec<ProcessedReceiptMetadata> = processed_receipts
             .iter()
-            .map(|(r, source)| ProcessedReceiptMetadata::new(*r.receipt_id(), source.clone()))
+            .map(|pr| ProcessedReceiptMetadata::new(*pr.receipt.receipt_id(), pr.source.clone()))
             .collect();
         self.chain_store_cache_update
             .processed_receipts_to_save
-            .extend(receipts.into_iter().map(|(r, _)| r));
+            .extend(processed_receipts.into_iter().map(|pr| pr.receipt));
         self.chain_store_cache_update
             .processed_receipt_ids
             .insert((*hash, shard_id), Arc::new(metadata));
