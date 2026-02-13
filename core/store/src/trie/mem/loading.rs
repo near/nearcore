@@ -68,8 +68,7 @@ fn load_memtrie_single_thread(
     let mut arena = STArena::new(shard_uid.to_string());
     let mut recon = TrieConstructor::new(&mut arena);
     let mut num_keys_loaded = 0;
-    for item in store.flat_store().iter(shard_uid) {
-        let (key, value) = item?;
+    for (key, value) in store.flat_store().iter(shard_uid) {
         recon.add_leaf(NibbleSlice::new(&key), value);
         num_keys_loaded += 1;
         if num_keys_loaded % 1000000 == 0 {

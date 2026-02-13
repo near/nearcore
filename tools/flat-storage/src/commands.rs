@@ -309,7 +309,6 @@ impl FlatStorageCommand {
         let mut verified = 0;
         let mut success = true;
         for (item_trie, item_flat) in tqdm(std::iter::zip(trie_iter, flat_state_entries_iter)) {
-            let item_flat = item_flat?;
             let value_ref = item_flat.1.to_value_ref();
             verified += 1;
 

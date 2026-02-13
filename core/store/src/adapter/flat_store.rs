@@ -1,5 +1,3 @@
-use std::io;
-
 use borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -150,20 +148,10 @@ impl FlatStoreAdapter {
             .store
             .iter_range(DBCol::FlatState, Some(&db_key_from), Some(&db_key_to))
             .map(|(key, value)| {
-                Ok((
-                    decode_flat_state_db_key(&key)
-                        .map_err(|err| {
-                            FlatStorageError::StorageInternalError(format!(
-                                "invalid FlatState key format: {err}"
-                            ))
-                        })?
-                        .1,
-                    FlatStateValue::try_from_slice(&value).map_err(|err| {
-                        FlatStorageError::StorageInternalError(format!(
-                            "invalid FlatState value format: {err}"
-                        ))
-                    })?,
-                ))
+                let (_, trie_key) = decode_flat_state_db_key(&key);
+                let value =
+                    FlatStateValue::try_from_slice(&value).expect("invalid FlatState value format");
+                (trie_key, value)
             });
         Box::new(iter)
     }
@@ -258,14 +246,12 @@ pub fn encode_flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u8> {
     buffer
 }
 
-pub fn decode_flat_state_db_key(key: &[u8]) -> io::Result<(ShardUId, Vec<u8>)> {
-    let (shard_uid_bytes, trie_key) = key.split_at_checked(8).ok_or_else(|| {
-        io::Error::other(format!("expected FlatState key length to be at least 8: {key:?}"))
-    })?;
-    let shard_uid = shard_uid_bytes.try_into().map_err(|err| {
-        io::Error::other(format!("failed to decode shard_uid as part of FlatState key: {err}"))
-    })?;
-    Ok((shard_uid, trie_key.to_vec()))
+pub fn decode_flat_state_db_key(key: &[u8]) -> (ShardUId, Vec<u8>) {
+    let (shard_uid_bytes, trie_key) =
+        key.split_at_checked(8).expect("expected FlatState key length to be at least 8");
+    let shard_uid =
+        shard_uid_bytes.try_into().expect("failed to decode shard_uid as part of FlatState key");
+    (shard_uid, trie_key.to_vec())
 }
 
 #[cfg(test)]
@@ -303,7 +289,7 @@ mod tests {
             let key: Vec<u8> = vec![0, 1, i as u8];
             let val: Vec<u8> = vec![0, 1, 2, i as u8];
 
-            assert_eq!(entries, vec![Ok((key, FlatStateValue::inlined(&val)))]);
+            assert_eq!(entries, vec![(key, FlatStateValue::inlined(&val))]);
         }
     }
 }
