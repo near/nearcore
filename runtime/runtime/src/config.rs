@@ -71,6 +71,18 @@ fn storage_write_gas(ext: &ExtCostsConfig, key_len: usize, value_len: usize) -> 
         .unwrap()
 }
 
+/// Based on `Transfer` send fees, without implicit account creation. Charges
+/// extra for the public_key field making the receipt larger.
+fn gas_key_transfer_send_fee(
+    fees: &RuntimeFeesConfig,
+    sender_is_receiver: bool,
+    public_key_len: usize,
+) -> Gas {
+    let transfer_fee = fees.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
+    let pk_byte_fee = fees.fee(ActionCosts::new_data_receipt_byte).send_fee(sender_is_receiver);
+    transfer_fee.checked_add(pk_byte_fee.checked_mul(public_key_len as u64).unwrap()).unwrap()
+}
+
 /// Total sum of gas that needs to be burnt to send these actions.
 pub fn total_send_fees(
     config: &RuntimeConfig,
@@ -106,8 +118,7 @@ pub fn total_send_fees(
 
                 base_fee.checked_add(all_bytes_fee).unwrap()
             }
-            // TransferToGasKey has same send fees as a normal transfer.
-            Transfer(_) | TransferToGasKey(_) => {
+            Transfer(_) => {
                 // Account for implicit account creation
                 transfer_send_fee(
                     fees,
@@ -115,6 +126,9 @@ pub fn total_send_fees(
                     config.wasm_config.eth_implicit_accounts,
                     receiver_id.get_account_type(),
                 )
+            }
+            TransferToGasKey(action) => {
+                gas_key_transfer_send_fee(fees, sender_is_receiver, action.public_key.len())
             }
             Stake(_) => fees.fee(ActionCosts::stake).send_fee(sender_is_receiver),
             AddKey(add_key_action) => permission_send_fees(
@@ -178,17 +192,11 @@ pub fn total_send_fees(
             WithdrawFromGasKey(action) => {
                 let ext = &config.wasm_config.ext_costs;
                 let ak_key_len = access_key_key_len(receiver_id, &action.public_key);
-                let transfer_fee = transfer_send_fee(
-                    fees,
-                    sender_is_receiver,
-                    config.wasm_config.eth_implicit_accounts,
-                    receiver_id.get_account_type(),
-                );
                 // Use minimum as an estimate for the value length. At the time of sending,
                 // we don't know the variable portion (FunctionCallPermission) of the
                 // specified gas key to withdraw from.
                 let estimated_value_len = AccessKey::min_gas_key_borsh_len();
-                transfer_fee
+                gas_key_transfer_send_fee(fees, sender_is_receiver, action.public_key.len())
                     .checked_add(storage_read_gas(ext, ak_key_len, estimated_value_len))
                     .unwrap()
                     .checked_add(storage_write_gas(ext, ak_key_len, estimated_value_len))
@@ -333,21 +341,15 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             // specified gas key to transfer to.
             // Note tx_cost is calculated at the time of sending.
             let estimated_value_len = AccessKey::min_gas_key_borsh_len();
-            transfer_exec_fee(
-                fees,
-                config.wasm_config.eth_implicit_accounts,
-                receiver_id.get_account_type(),
-            )
-            .checked_add(storage_read_gas(ext, ak_key_len, estimated_value_len))
-            .unwrap()
-            .checked_add(storage_write_gas(ext, ak_key_len, estimated_value_len))
-            .unwrap()
+            fees.fee(ActionCosts::transfer)
+                .exec_fee()
+                .checked_add(storage_read_gas(ext, ak_key_len, estimated_value_len))
+                .unwrap()
+                .checked_add(storage_write_gas(ext, ak_key_len, estimated_value_len))
+                .unwrap()
         }
-        WithdrawFromGasKey(_) => transfer_exec_fee(
-            fees,
-            config.wasm_config.eth_implicit_accounts,
-            receiver_id.get_account_type(),
-        ),
+        // Like Transfer, with no implicit account creation.
+        WithdrawFromGasKey(_) => fees.fee(ActionCosts::transfer).exec_fee(),
     }
 }
 
