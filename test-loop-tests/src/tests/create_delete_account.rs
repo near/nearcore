@@ -1,13 +1,22 @@
+use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_client::QueryError;
 use near_client::client_actor::ClientActor;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::test_utils::create_user_test_signer;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::views::FinalExecutionStatus;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
+use crate::utils::account::{
+    create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
+};
+use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{
     call_contract, check_txs, do_create_account, do_delete_account, do_deploy_contract,
     get_next_nonce,
@@ -112,5 +121,109 @@ fn test_create_delete_account() {
     do_delete_account(&mut env, &rpc_id, &new_account, &accounts[1]);
 
     env.test_loop.run_for(Duration::seconds(20));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Tests that a receipt containing a single DeleteAccount action is processed
+/// as an instant receipt (in the same block as the parent receipt that created it).
+///
+/// The test deploys the rs_contract to a user account, then calls `call_promise`
+/// to create a batch promise on itself with a single `action_delete_account`.
+/// It verifies that the delete account receipt was processed in the same block
+/// as the parent `call_promise` receipt.
+#[test]
+fn test_instant_delete_account() {
+    init_test_logger();
+
+    let user_accounts = create_account_ids(["account0", "account1"]);
+    let initial_balance = Balance::from_near(1_000_000);
+    let validators_spec = create_validators_spec(2, 0);
+    let clients = validators_spec_clients_with_rpc(&validators_spec);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&user_accounts, initial_balance)
+        .build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .build()
+        .warmup();
+    let rpc_node = TestLoopNode::rpc(&env.node_datas);
+
+    let [contract_account, beneficiary] = &user_accounts;
+    let contract_signer = create_user_test_signer(contract_account);
+
+    // Deploy rs_contract.
+    let nonce = 1;
+    let block_hash = rpc_node.head(env.test_loop_data()).last_block_hash;
+    let tx = SignedTransaction::deploy_contract(
+        nonce,
+        contract_account,
+        near_test_contracts::rs_contract().to_vec(),
+        &contract_signer,
+        block_hash,
+    );
+    rpc_node.run_tx(&mut env.test_loop, tx, Duration::seconds(5));
+
+    // Call `call_promise` on the contract to create a batch promise on itself
+    // with a single DeleteAccount action. The contract deletes its own account.
+    // This produces a child receipt with only DeleteAccount, which should be instant.
+    let nonce = 2;
+    let block_hash = rpc_node.head(env.test_loop_data()).last_block_hash;
+    let call_promise_args = serde_json::json!([
+        {
+            "batch_create": { "account_id": contract_account.as_str() },
+            "id": 0
+        },
+        {
+            "action_delete_account": {
+                "promise_index": 0,
+                "beneficiary_id": beneficiary.as_str()
+            },
+            "id": 0,
+            "return": true
+        }
+    ]);
+    let tx = SignedTransaction::call(
+        nonce,
+        contract_account.clone(),
+        contract_account.clone(),
+        &contract_signer,
+        Balance::ZERO,
+        "call_promise".to_string(),
+        serde_json::to_vec(&call_promise_args).unwrap(),
+        Gas::from_teragas(300),
+        block_hash,
+    );
+    let outcome = rpc_node.execute_tx(&mut env.test_loop, tx, Duration::seconds(10)).unwrap();
+    assert!(
+        matches!(outcome.status, FinalExecutionStatus::SuccessValue(_)),
+        "transaction failed: {:?}",
+        outcome.status
+    );
+
+    let call_promise_outcome = &outcome.receipts_outcome[0];
+    let delete_outcome = &outcome.receipts_outcome[1];
+    assert_eq!(
+        call_promise_outcome.outcome.receipt_ids,
+        vec![delete_outcome.id],
+        "call_promise should produce exactly the DeleteAccount receipt"
+    );
+
+    // The key assertion: the DeleteAccount receipt was processed in the same
+    // block as the parent call_promise receipt, proving it was an instant receipt.
+    assert_eq!(
+        call_promise_outcome.block_hash, delete_outcome.block_hash,
+        "DeleteAccount receipt should be processed in the same block as the parent (instant receipt)"
+    );
+
+    // Verify the account no longer exists.
+    rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
+    assert_matches!(
+        rpc_node.view_account_query(env.test_loop_data(), contract_account),
+        Err(QueryError::UnknownAccount { .. })
+    );
+
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
