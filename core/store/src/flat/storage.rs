@@ -235,10 +235,10 @@ impl FlatStorage {
     pub fn new(store: FlatStoreAdapter, shard_uid: ShardUId) -> Result<Self, StorageError> {
         let shard_id = shard_uid.shard_id();
         let flat_head = match store.get_flat_storage_status(shard_uid) {
-            Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
-            Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::SplittingParent(
+            FlatStorageStatus::Ready(ready_status) => ready_status.flat_head,
+            FlatStorageStatus::Resharding(FlatStorageReshardingStatus::SplittingParent(
                 split_parent_status,
-            ))) => split_parent_status.flat_head,
+            )) => split_parent_status.flat_head,
             status => {
                 return Err(StorageError::StorageInconsistentState(format!(
                     "Cannot create flat storage for shard {shard_id} with status {status:?}"
@@ -820,13 +820,11 @@ mod tests {
 
             // Simulates `Chain::save_flat_state_changes()`.
             let prev_block_with_changes = if changes.0.is_empty() {
-                store
-                    .get_prev_block_with_changes(
-                        shard_uid,
-                        chain.get_block(i).hash,
-                        chain.get_block(i).prev_hash,
-                    )
-                    .unwrap()
+                store.get_prev_block_with_changes(
+                    shard_uid,
+                    chain.get_block(i).hash,
+                    chain.get_block(i).prev_hash,
+                )
             } else {
                 None
             };
@@ -903,13 +901,11 @@ mod tests {
             // No changes.
             let changes = FlatStateChanges::default();
             // Simulates `Chain::save_flat_state_changes()`.
-            let prev_block_with_changes = store
-                .get_prev_block_with_changes(
-                    shard_uid,
-                    chain.get_block(i).hash,
-                    chain.get_block(i).prev_hash,
-                )
-                .unwrap();
+            let prev_block_with_changes = store.get_prev_block_with_changes(
+                shard_uid,
+                chain.get_block(i).hash,
+                chain.get_block(i).prev_hash,
+            );
             let delta = FlatStateDelta {
                 changes,
                 metadata: FlatStateDeltaMetadata {
@@ -968,13 +964,11 @@ mod tests {
 
             // Simulates `Chain::save_flat_state_changes()`.
             let prev_block_with_changes = if changes.0.is_empty() {
-                store
-                    .get_prev_block_with_changes(
-                        shard_uid,
-                        chain.get_block(i).hash,
-                        chain.get_block(i).prev_hash,
-                    )
-                    .unwrap()
+                store.get_prev_block_with_changes(
+                    shard_uid,
+                    chain.get_block(i).hash,
+                    chain.get_block(i).prev_hash,
+                )
             } else {
                 None
             };

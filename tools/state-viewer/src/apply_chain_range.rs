@@ -644,7 +644,7 @@ pub fn apply_chain_range(
             assert!(start_height.is_none());
             assert!(end_height.is_none());
             let flat_status = read_store.flat_store().get_flat_storage_status(shard_uid);
-            let Ok(FlatStorageStatus::Ready(ready)) = flat_status else {
+            let FlatStorageStatus::Ready(ready) = flat_status else {
                 panic!("cannot create flat storage for shard {shard_uid} due to {flat_status:?}")
             };
             // We apply the block at flat_head. Users can set the block they want to benchmark by
@@ -659,7 +659,7 @@ pub fn apply_chain_range(
         (_, StorageSource::FlatStorage | StorageSource::Memtrie) => {
             let start_height = start_height.unwrap_or_else(|| {
                 let status = read_store.flat_store().get_flat_storage_status(shard_uid);
-                let Ok(FlatStorageStatus::Ready(ready)) = status else {
+                let FlatStorageStatus::Ready(ready) = status else {
                     panic!("cannot create flat storage for shard {shard_uid} due to {status:?}")
                 };
                 ready.flat_head.height + 1

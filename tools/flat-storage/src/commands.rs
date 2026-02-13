@@ -269,10 +269,7 @@ impl FlatStorageCommand {
         let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), cmd.shard_id, &tip.epoch_id)?;
         let hot_store = hot_store.flat_store();
 
-        let head_hash = match hot_store
-            .get_flat_storage_status(shard_uid)
-            .expect("failed to read flat storage status")
-        {
+        let head_hash = match hot_store.get_flat_storage_status(shard_uid) {
             FlatStorageStatus::Ready(ready_status) => ready_status.flat_head.hash,
             status => {
                 panic!("Flat storage is not ready for shard {:?}: {status:?}", cmd.shard_id);
@@ -385,7 +382,7 @@ impl FlatStorageCommand {
         let store = chain_store.store();
         let flat_store = store.flat_store();
         let flat_head = match flat_store.get_flat_storage_status(shard_uid) {
-            Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
+            FlatStorageStatus::Ready(ready_status) => ready_status.flat_head,
             status => {
                 panic!("invalid flat storage status for shard {shard_uid:?}: {status:?}")
             }
