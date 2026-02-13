@@ -5,7 +5,7 @@ use near_primitives::state::FlatStateValue;
 
 use crate::flat::delta::{BlockWithChangesInfo, KeyForFlatStateDelta};
 use crate::flat::{
-    FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStateIterator, FlatStorageError,
+    FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStateIterator,
     FlatStorageReadyStatus, FlatStorageStatus,
 };
 use crate::{DBCol, Store, StoreUpdate};
