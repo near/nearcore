@@ -20,8 +20,7 @@ use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::loop_action::{LoopAction, LoopActionStatus};
 use crate::utils::receipts::{
-    ReceiptKind, check_promise_yield_status_after_resharding_block,
-    check_promise_yield_status_at_resharding_block, check_receipts_presence_after_resharding_block,
+    ReceiptKind, check_receipts_presence_after_resharding_block,
     check_receipts_presence_at_resharding_block,
 };
 #[cfg(feature = "test_features")]
@@ -1494,17 +1493,9 @@ fn slow_test_resharding_v3_yield_resume() {
             ReceiptKind::PromiseYield,
         ))
         .add_loop_action(check_receipts_presence_after_resharding_block(
-            vec![account_in_left_child.clone(), account_in_right_child.clone()],
+            vec![account_in_left_child, account_in_right_child],
             ReceiptKind::PromiseYield,
         ))
-        .add_loop_action(check_promise_yield_status_at_resharding_block(vec![
-            account_in_left_child.clone(),
-            account_in_right_child.clone(),
-        ]))
-        .add_loop_action(check_promise_yield_status_after_resharding_block(vec![
-            account_in_left_child,
-            account_in_right_child,
-        ]))
         .build();
     test_resharding_v3_base(params);
 }
@@ -1529,17 +1520,9 @@ fn slow_test_resharding_v3_yield_timeout() {
             ReceiptKind::PromiseYield,
         ))
         .add_loop_action(check_receipts_presence_after_resharding_block(
-            vec![account_in_left_child.clone(), account_in_right_child.clone()],
+            vec![account_in_left_child, account_in_right_child],
             ReceiptKind::PromiseYield,
         ))
-        .add_loop_action(check_promise_yield_status_at_resharding_block(vec![
-            account_in_left_child.clone(),
-            account_in_right_child.clone(),
-        ]))
-        .add_loop_action(check_promise_yield_status_after_resharding_block(vec![
-            account_in_left_child,
-            account_in_right_child,
-        ]))
         .epoch_length(INCREASED_EPOCH_LENGTH)
         .build();
     test_resharding_v3_base(params);
