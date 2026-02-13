@@ -786,7 +786,7 @@ impl<'a> ChainStoreUpdate<'a> {
             {
                 let state_num_parts = shard_state_header.num_state_parts();
                 self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
-                let key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
+                let key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash)).unwrap();
                 self.gc_col(DBCol::StateHeaders, &key);
             }
         }
@@ -975,7 +975,8 @@ impl<'a> ChainStoreUpdate<'a> {
             {
                 let state_num_parts = shard_state_header.num_state_parts();
                 self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
-                let state_header_key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
+                let state_header_key =
+                    borsh::to_vec(&StateHeaderKey(shard_id, block_hash)).unwrap();
                 self.gc_col(DBCol::StateHeaders, &state_header_key);
             }
 
@@ -1088,7 +1089,7 @@ impl<'a> ChainStoreUpdate<'a> {
         num_parts: u64,
     ) -> Result<(), Error> {
         for part_id in 0..num_parts {
-            let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
+            let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
             self.gc_col(DBCol::StateParts, &key);
             self.gc_col(DBCol::StatePartsApplied, &key);
         }

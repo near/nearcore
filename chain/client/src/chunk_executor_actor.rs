@@ -1021,7 +1021,7 @@ pub(crate) fn save_receipt_proof(
 ) -> Result<(), std::io::Error> {
     let &ReceiptProof(_, ShardProof { from_shard_id, to_shard_id, .. }) = receipt_proof;
     let key = get_receipt_proof_key(block_hash, from_shard_id, to_shard_id);
-    let value = borsh::to_vec(&receipt_proof)?;
+    let value = borsh::to_vec(&receipt_proof).unwrap();
     store_update.set(DBCol::receipt_proofs(), &key, &value);
     Ok(())
 }
@@ -1034,7 +1034,7 @@ pub(crate) fn save_witness(
 ) -> Result<(), Error> {
     let mut store_update = chain_store.store().store_update();
     let key = get_witnesses_key(block_hash, shard_id);
-    let value = borsh::to_vec(&witness)?;
+    let value = borsh::to_vec(&witness).unwrap();
     store_update.set(DBCol::witnesses(), &key, &value);
     store_update.commit();
     Ok(())
