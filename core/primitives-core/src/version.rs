@@ -469,13 +469,13 @@ impl ProtocolFeature {
             | ProtocolFeature::FixAccessKeyAllowanceCharging
             | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
             | ProtocolFeature::FixDeterministicAccountIdCreation
-            | ProtocolFeature::GlobalContractDistributionNonce => 83,
+            | ProtocolFeature::GlobalContractDistributionNonce
+            | ProtocolFeature::InstantPromiseYield
+            | ProtocolFeature::YieldResumeImprovements => 83,
             ProtocolFeature::Wasmtime => 84,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
-            ProtocolFeature::InstantPromiseYield => 130,
-            ProtocolFeature::YieldResumeImprovements => 131,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
