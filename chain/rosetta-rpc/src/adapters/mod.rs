@@ -1095,11 +1095,9 @@ mod tests {
             assert_eq!(near_actions_recreated.actions, near_actions.actions);
         }
 
-        let sir_compatible_actions = [
-            non_sir_compatible_actions,
-            vec![stake_actions, withdraw_from_gas_key_actions],
-        ]
-        .concat();
+        let sir_compatible_actions =
+            [non_sir_compatible_actions, vec![stake_actions, withdraw_from_gas_key_actions]]
+                .concat();
         for actions in sir_compatible_actions {
             let near_actions = NearActions {
                 sender_account_id: "sender-is-receiver.near".parse().unwrap(),

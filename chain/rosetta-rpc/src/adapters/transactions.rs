@@ -93,6 +93,14 @@ impl ExecutionToReceipts {
         }
     }
 
+    /// Creates a mapping with the given receipts and transactions.  Useful for tests.
+    pub(crate) fn with_data(
+        receipts: HashMap<CryptoHash, AccountId>,
+        transactions: HashMap<CryptoHash, SignedTransactionView>,
+    ) -> Self {
+        Self { receipts, transactions, ..Self::empty() }
+    }
+
     /// Returns list of related transactions for given NEAR transaction or
     /// receipt.
     fn get_related(&self, exec_hash: CryptoHash) -> Vec<crate::models::RelatedTransaction> {
@@ -353,10 +361,12 @@ pub(crate) async fn convert_block_changes_to_transactions(
     }
 
     convert_gas_key_changes_to_operations(
+        view_client_addr,
         previous_gas_keys,
         &mut transactions,
         access_key_changes,
-    )?;
+    )
+    .await?;
 
     for fungible_token_event in transactions.exec_to_rx.events.clone() {
         convert_fungible_token_balance_change_to_operations(
@@ -592,7 +602,8 @@ fn convert_account_delete_to_operations(
 
 /// Process access key changes for gas key balance tracking.
 /// Each change is attributed to its specific cause (receipt/transaction).
-fn convert_gas_key_changes_to_operations(
+async fn convert_gas_key_changes_to_operations(
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
     previous_gas_keys: crate::gas_key_utils::GasKeyInfo,
     transactions: &mut RosettaTransactions<'_>,
     access_key_changes: near_primitives::views::StateChangesView,
@@ -631,6 +642,36 @@ fn convert_gas_key_changes_to_operations(
                 if diff.absolute_difference() == 0 {
                     continue;
                 }
+                let transactions_in_block = &transactions.exec_to_rx.transactions;
+                let receipts_in_block = &transactions.exec_to_rx.receipts;
+                let predecessor_id = get_predecessor_id_from_receipt_or_transaction(
+                    view_client_addr,
+                    &change.cause,
+                    transactions_in_block,
+                    receipts_in_block,
+                )
+                .await;
+                let metadata = crate::models::OperationMetadata::from_predecessor(
+                    predecessor_id.clone(),
+                )
+                .map(|m| {
+                    if matches!(
+                        change.cause,
+                        near_primitives::views::StateChangeCauseView::TransactionProcessing { .. }
+                    ) {
+                        m.with_transfer_fee_type(
+                            crate::models::OperationMetadataTransferFeeType::GasPrepayment,
+                        )
+                    } else if let Some("system") =
+                        predecessor_id.as_ref().map(|p| p.address.as_str())
+                    {
+                        m.with_transfer_fee_type(
+                            crate::models::OperationMetadataTransferFeeType::GasRefund,
+                        )
+                    } else {
+                        m
+                    }
+                });
                 let ops = &mut transactions.get_for_cause(&change.cause)?.operations;
                 ops.push(crate::models::Operation {
                     operation_identifier: crate::models::OperationIdentifier::new(ops),
@@ -643,7 +684,7 @@ fn convert_gas_key_changes_to_operations(
                     amount: Some(crate::models::Amount::from_yoctonear_diff(diff)),
                     type_: crate::models::OperationType::Transfer,
                     status: Some(crate::models::OperationStatusKind::Success),
-                    metadata: None,
+                    metadata,
                 });
             }
             near_primitives::views::StateChangeValueView::AccessKeyDeletion {
