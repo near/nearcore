@@ -477,8 +477,13 @@ impl Receipt {
                 // Applying a PromiseYield receipt is one trie write, it's okay to make it an instant receipt.
                 ProtocolFeature::InstantPromiseYield.enabled(protocol_version)
             }
-            VersionedReceiptEnum::Action(_)
-            | VersionedReceiptEnum::Data(_)
+            VersionedReceiptEnum::Action(action_receipt) => {
+                // Action receipts containing a single DeleteAccount action are instant receipts.
+                // Deleting an account is a quick trie operation, it's okay to make it instant.
+                matches!(action_receipt.actions(), [Action::DeleteAccount(_)])
+                    && ProtocolFeature::InstantDeleteAccount.enabled(protocol_version)
+            }
+            VersionedReceiptEnum::Data(_)
             | VersionedReceiptEnum::PromiseResume(_)
             | VersionedReceiptEnum::GlobalContractDistribution(_) => false,
         }
