@@ -4,16 +4,12 @@ use std::sync::Arc;
 use borsh::BorshDeserialize;
 
 use itertools::Itertools;
-use near_async::messaging::Handler;
 use near_chain::types::Tip;
+use near_client::Client;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
-use near_client::{Client, GetBlock};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
-use near_primitives::sharding::ChunkHash;
-use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, BlockId, BlockReference, EpochHeight, EpochId,
-};
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, EpochHeight, EpochId};
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::db::CLOUD_HEAD_KEY;
@@ -53,7 +49,7 @@ pub fn gc_and_heads_sanity_checks(
     let gc_tail = chain_store.tail().unwrap();
     if split_store_enabled {
         let cold_head = chain_store.store().get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY);
-        let cold_head_height = cold_head.unwrap().unwrap().height;
+        let cold_head_height = cold_head.unwrap().height;
         assert!(cold_head_height > gc_tail);
     }
     assert!(cloud_head > gc_tail);
@@ -129,20 +125,16 @@ fn get_cloud_storage(env: &TestLoopEnv, archival_id: &AccountId) -> Arc<CloudSto
 
 fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     let hot_store = get_hot_store(env, writer_id);
-    hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY).unwrap().unwrap().height
+    hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY).unwrap().height
 }
 
-/// Runs tests verifying view client behavior at the given block height.
-pub fn test_view_client(env: &mut TestLoopEnv, archival_id: &AccountId, height: BlockHeight) {
-    let archival_node = TestLoopNode::for_account(&env.node_datas, archival_id);
-    let view_client_handle = archival_node.data().view_client_sender.actor_handle();
-    let view_client = env.test_loop.data.get_mut(&view_client_handle);
-    let block_reference = BlockReference::BlockId(BlockId::Height(height));
-    let block = view_client.handle(GetBlock(block_reference)).unwrap();
-    for chunk_header in block.chunks {
-        let _chunk_hash = ChunkHash(chunk_header.chunk_hash);
-        // TODO(cloud_archival) Implement shard data retrieval from cloud archive
-        //let _chunk = view_client.handle(GetChunk::ChunkHash(chunk_hash)).unwrap();
+/// Runs tests verifying that data for the block height exists in the archive,
+pub fn check_data_at_height(env: &TestLoopEnv, archival_id: &AccountId, height: BlockHeight) {
+    let cloud_storage = get_cloud_storage(env, archival_id);
+    let block_data = cloud_storage.get_block_data(height).unwrap();
+    for chunk_header in block_data.block().chunks().iter() {
+        let shard_id = chunk_header.shard_id();
+        let _shard_data = cloud_storage.get_shard_data(height, shard_id).unwrap();
     }
 }
 
@@ -157,8 +149,7 @@ pub fn snapshots_sanity_check(
     let cloud_storage = get_cloud_storage(env, archival_id);
     let client = get_client(env, archival_id);
     let mut epoch_heights_with_snapshot = HashSet::<EpochHeight>::new();
-    for entry in store.iter(DBCol::EpochInfo) {
-        let (epoch_id, epoch_info) = entry.unwrap();
+    for (epoch_id, epoch_info) in store.iter(DBCol::EpochInfo) {
         if epoch_id.as_ref() == AGGREGATOR_KEY {
             continue;
         }

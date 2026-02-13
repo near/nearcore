@@ -2,7 +2,7 @@ use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::block_body::SpiceCoreStatement;
+use near_primitives::block_body::{SpiceCoreStatement, SpiceCoreStatements};
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
@@ -53,7 +53,7 @@ impl SpiceCoreReader {
         block_hash: &CryptoHash,
         shard_id: ShardId,
         account_id: &AccountId,
-    ) -> Result<bool, std::io::Error> {
+    ) -> bool {
         self.chain_store
             .store()
             .exists(DBCol::endorsements(), &get_endorsements_key(block_hash, shard_id, account_id))
@@ -65,10 +65,10 @@ impl SpiceCoreReader {
         shard_id: ShardId,
         account_id: &AccountId,
     ) -> Result<Option<SpiceStoredVerifiedEndorsement>, std::io::Error> {
-        self.chain_store.store().get_ser(
+        Ok(self.chain_store.store().get_ser(
             DBCol::endorsements(),
             &get_endorsements_key(block_hash, shard_id, &account_id),
-        )
+        ))
     }
 
     fn get_execution_result(
@@ -89,7 +89,7 @@ impl SpiceCoreReader {
                 outgoing_receipts_root: CryptoHash::default(),
             })))
         } else {
-            Ok(self.get_execution_result_from_store(block_header.hash(), shard_id)?)
+            Ok(self.get_execution_result_from_store(block_header.hash(), shard_id))
         }
     }
 
@@ -97,7 +97,7 @@ impl SpiceCoreReader {
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<Option<Arc<ChunkExecutionResult>>, std::io::Error> {
+    ) -> Option<Arc<ChunkExecutionResult>> {
         let key = get_execution_results_key(block_hash, shard_id);
         self.chain_store.store().caching_get_ser(DBCol::execution_results(), &key)
     }
@@ -147,7 +147,7 @@ impl SpiceCoreReader {
         Ok(Some(BlockExecutionResults(results)))
     }
 
-    pub fn core_statement_for_next_block(
+    pub fn core_statements_for_next_block(
         &self,
         block_header: &BlockHeader,
     ) -> Result<Vec<SpiceCoreStatement>, Error> {
@@ -175,8 +175,7 @@ impl SpiceCoreReader {
             let Some(execution_result) = self.get_execution_result_from_store(
                 &chunk_info.chunk_id.block_hash,
                 chunk_info.chunk_id.shard_id,
-            )?
-            else {
+            ) else {
                 continue;
             };
             // Execution results are stored only for endorsed chunks.
@@ -200,7 +199,6 @@ impl SpiceCoreReader {
         ) -> Result<Arc<Block>, InvalidSpiceCoreStatementsError> {
             store
                 .caching_get_ser(DBCol::Block, block_hash.as_ref())
-                .map_err(|error| IoError { error })?
                 .ok_or(UnknownBlock { block_hash: *block_hash })
         }
 
@@ -377,22 +375,15 @@ impl SpiceCoreReader {
     pub fn get_last_certified_execution_results_for_next_block(
         &self,
         block_header: &BlockHeader,
-        core_statements_for_next_block: &[SpiceCoreStatement],
+        core_statements_for_next_block: &SpiceCoreStatements,
     ) -> Result<BlockExecutionResults, Error> {
-        let new_execution_results: HashMap<_, _> = core_statements_for_next_block
-            .iter()
-            .filter_map(|core_statement| match core_statement {
-                SpiceCoreStatement::ChunkExecutionResult { execution_result, chunk_id } => {
-                    Some((chunk_id, execution_result))
-                }
-                _ => None,
-            })
-            .collect();
+        let newly_certified_chunks: HashSet<&SpiceChunkId> =
+            core_statements_for_next_block.iter_execution_results().map(|(id, _)| id).collect();
 
         let mut uncertified_chunks =
             get_uncertified_chunks(&self.chain_store, block_header.hash())?;
         uncertified_chunks
-            .retain(|chunk_info| !new_execution_results.contains_key(&chunk_info.chunk_id));
+            .retain(|chunk_info| !newly_certified_chunks.contains(&chunk_info.chunk_id));
         let oldest_uncertified_block_header =
             find_oldest_uncertified_block_header(&self.chain_store, uncertified_chunks)?;
         let last_certified_block_header =
@@ -403,21 +394,47 @@ impl SpiceCoreReader {
                 block_header
             };
 
-        let mut execution_results =
-            self.get_execution_results_by_shard_id(last_certified_block_header)?;
-
-        for shard_id in self.epoch_manager.shard_ids(block_header.epoch_id())? {
-            if execution_results.contains_key(&shard_id) {
-                continue;
-            }
-            let execution_result = new_execution_results
-            .get(&SpiceChunkId { block_hash: *last_certified_block_header.hash(), shard_id })
-            .expect(
-                "for certified block we should have execution either in store or core statements",
-            );
-            execution_results.insert(shard_id, Arc::new((*execution_result).clone()));
+        if last_certified_block_header.is_genesis() {
+            return Ok(BlockExecutionResults(
+                self.get_execution_results_by_shard_id(last_certified_block_header)?,
+            ));
         }
 
+        let last_certified_hash = *last_certified_block_header.hash();
+        let num_shards =
+            self.epoch_manager.shard_ids(last_certified_block_header.epoch_id())?.len();
+        let mut execution_results: HashMap<ShardId, Arc<ChunkExecutionResult>> = HashMap::new();
+        for (chunk_id, result) in core_statements_for_next_block.iter_execution_results() {
+            if chunk_id.block_hash != last_certified_hash {
+                continue;
+            }
+            execution_results.entry(chunk_id.shard_id).or_insert_with(|| Arc::new(result.clone()));
+        }
+
+        // Walk backwards from block_header, collecting execution results from
+        // each block's core statements. We can't depend on reading from
+        // DBCol::execution_results, which SpiceCoreWriterActor writes
+        // asynchronously. So, during orphan processing, the results we need
+        // here may not be persisted to that column yet.
+        let mut current_hash = *block_header.hash();
+        while execution_results.len() < num_shards && current_hash != last_certified_hash {
+            let block = self.chain_store.get_block(&current_hash)?;
+            for (chunk_id, result) in block.spice_core_statements().iter_execution_results() {
+                if chunk_id.block_hash != last_certified_hash {
+                    continue;
+                }
+                execution_results
+                    .entry(chunk_id.shard_id)
+                    .or_insert_with(|| Arc::new(result.clone()));
+            }
+            current_hash = *block.header().prev_hash();
+        }
+
+        assert_eq!(
+            execution_results.len(),
+            num_shards,
+            "should have found all shard's execution results for last certified block"
+        );
         Ok(BlockExecutionResults(execution_results))
     }
 }
@@ -432,7 +449,7 @@ fn get_uncertified_chunks(
         Ok(vec![])
     } else {
         let Some(uncertified_chunks) =
-            chain_store.store_ref().get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())?
+            chain_store.store_ref().get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())
         else {
             debug_assert!(
                 false,
@@ -445,42 +462,20 @@ fn get_uncertified_chunks(
     }
 }
 
-fn get_block_execution_results(block: &Block) -> HashMap<&SpiceChunkId, &ChunkExecutionResult> {
-    block
-        .spice_core_statements()
-        .iter()
-        .filter_map(|core_statement| match core_statement {
-            SpiceCoreStatement::ChunkExecutionResult { execution_result, chunk_id } => {
-                Some((chunk_id, execution_result))
-            }
-            _ => None,
-        })
-        .collect()
-}
-
-fn get_block_endorsements(
-    block: &Block,
-) -> HashMap<(&SpiceChunkId, &AccountId), &SpiceEndorsementCoreStatement> {
-    block
-        .spice_core_statements()
-        .iter()
-        .filter_map(|core_statement| match core_statement {
-            SpiceCoreStatement::Endorsement(endorsement) => {
-                Some(((endorsement.chunk_id(), endorsement.account_id()), endorsement))
-            }
-            _ => None,
-        })
-        .collect()
-}
-
 /// Uncertified chunks for block should always be saved together with the block itself for spice.
 pub fn record_uncertified_chunks_for_block(
     chain_store_update: &mut ChainStoreUpdate,
     epoch_manager: &dyn EpochManagerAdapter,
     block: &Block,
 ) -> Result<(), Error> {
-    let block_endorsements = get_block_endorsements(block);
-    let block_execution_results = get_block_execution_results(block);
+    let block_endorsements: HashMap<(&SpiceChunkId, &AccountId), &SpiceEndorsementCoreStatement> =
+        block
+            .spice_core_statements()
+            .iter_endorsements()
+            .map(|e| ((e.chunk_id(), e.account_id()), e))
+            .collect();
+    let block_execution_results: HashMap<&SpiceChunkId, &ChunkExecutionResult> =
+        block.spice_core_statements().iter_execution_results().collect();
 
     let prev_hash = block.header().prev_hash();
     let mut uncertified_chunks =
@@ -535,7 +530,7 @@ pub fn record_uncertified_chunks_for_block(
         DBCol::uncertified_chunks(),
         block.header().hash().as_ref(),
         &uncertified_chunks,
-    )?;
+    );
     chain_store_update.merge(store_update);
     Ok(())
 }
@@ -552,4 +547,24 @@ fn find_oldest_uncertified_block_header(
         .map(|block_hash| chain_store.get_block_header(block_hash))
         .collect::<Result<Vec<_>, Error>>()?;
     Ok(uncertified_block_headers.into_iter().min_by_key(|header| header.height()))
+}
+
+/// Returns the header of the last fully certified block relative to the given block.
+/// All chunks in blocks at or below this height have been certified.
+pub fn get_last_certified_block_header(
+    chain_store: &ChainStoreAdapter,
+    block_hash: &CryptoHash,
+) -> Result<Arc<BlockHeader>, Error> {
+    let uncertified_chunks = get_uncertified_chunks(chain_store, block_hash)?;
+    let oldest_uncertified = find_oldest_uncertified_block_header(chain_store, uncertified_chunks)?;
+    if let Some(header) = oldest_uncertified {
+        Ok(chain_store.get_block_header(header.prev_hash())?)
+    } else {
+        let header = chain_store.get_block_header(block_hash)?;
+        debug_assert!(
+            header.is_genesis(),
+            "spice blocks (except genesis) should always have uncertified chunks"
+        );
+        Ok(header)
+    }
 }

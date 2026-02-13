@@ -48,10 +48,9 @@ pub(crate) fn scan_db_column(
 ) {
     let db_col: DBCol = find_db_col(col);
     tracing::info!(target: "scan", ?db_col);
-    for item in
+    for (key, value) in
         store.iter_range(db_col, lower_bound, upper_bound).take(max_keys.unwrap_or(usize::MAX))
     {
-        let (key, value) = item.unwrap();
         let (key_ser, value_ser) =
             format_key_and_value(key.as_ref(), value.as_ref(), db_col, &store);
         if no_value {
@@ -170,7 +169,7 @@ fn format_key_and_value<'a>(
         ),
         DBCol::Receipts => {
             // Handle refcounting by querying the value.
-            let value = store.get(db_col, key).unwrap().unwrap();
+            let value = store.get(db_col, key).unwrap();
             (
                 Box::new(CryptoHash::try_from(key).unwrap()),
                 Box::new(Receipt::try_from_slice(&value).unwrap()),
@@ -181,7 +180,7 @@ fn format_key_and_value<'a>(
             let s: ShardUId = ShardUId::try_from(&key[..8]).unwrap();
             let h: CryptoHash = CryptoHash::try_from_slice(&key[8..]).unwrap();
             // Handle refcounting by querying the value.
-            let value = store.get(db_col, key).unwrap().unwrap();
+            let value = store.get(db_col, key).unwrap();
             let res = if let Ok(node) = RawTrieNodeWithSize::try_from_slice(&value) {
                 format!("Node: {node:?}")
             } else {
@@ -208,7 +207,7 @@ fn format_key_and_value<'a>(
         ),
         DBCol::Transactions => {
             // Handle refcounting by querying the value.
-            let value = store.get(db_col, key).unwrap().unwrap();
+            let value = store.get(db_col, key).unwrap();
             (
                 Box::new(CryptoHash::try_from(key).unwrap()),
                 Box::new(SignedTransaction::try_from_slice(&value).unwrap()),

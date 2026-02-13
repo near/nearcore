@@ -67,7 +67,6 @@ impl TransactionBuilder {
             &signer,
             actions,
             CryptoHash::default(),
-            0,
         )
     }
 

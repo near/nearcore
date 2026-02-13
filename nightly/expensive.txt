@@ -73,12 +73,6 @@ expensive --timeout=10m integration-tests integration_tests tests::client::block
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_dump
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_dump --features nightly
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_dump --features nightly,protocol_feature_spice
-expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes_multishard
-expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes_multishard --features nightly
-expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes_multishard --features nightly,protocol_feature_spice
-expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_dump_epoch_missing_chunk_in_last_block
-expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_dump_epoch_missing_chunk_in_last_block --features nightly
-expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_dump_epoch_missing_chunk_in_last_block --features nightly,protocol_feature_spice
 
 expensive integration-tests integration_tests tests::nearcore::sync_nodes::ultra_slow_test_sync_state_stake_change
 expensive integration-tests integration_tests tests::nearcore::sync_nodes::ultra_slow_test_sync_state_stake_change --features nightly
@@ -96,10 +90,6 @@ expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_
 expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_2
 expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_2 --features nightly
 expensive integration-tests integration_tests tests::nearcore::run_nodes::ultra_slow_test_run_nodes_1_2_2 --features nightly,protocol_feature_spice
-
-expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_join
-expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_join --features nightly
-expensive integration-tests integration_tests tests::nearcore::stake_nodes::ultra_slow_test_validator_join --features nightly,protocol_feature_spice
 
 # TestLoop tests
 expensive --timeout=10m test-loop-tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts

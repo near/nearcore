@@ -6,9 +6,9 @@
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::action::{
-    AddGasKeyAction, DeleteGasKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
-    GlobalContractDeployMode, GlobalContractIdentifier, TransferToGasKeyAction,
-    UseGlobalContractAction,
+    DeployGlobalContractAction, DeterministicStateInitAction, GlobalContractDeployMode,
+    GlobalContractIdentifier, TransferToGasKeyAction, UseGlobalContractAction,
+    WithdrawFromGasKeyAction,
 };
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
@@ -21,7 +21,7 @@ use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::receipt::{
     ActionReceipt, ActionReceiptV2, DataReceipt, DataReceiver, GlobalContractDistributionReceipt,
-    Receipt, ReceiptEnum, ReceiptV1, VersionedActionReceipt, VersionedReceiptEnum,
+    Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
@@ -49,7 +49,7 @@ use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
-use near_primitives_core::account::{AccountContract, GasKey};
+use near_primitives_core::account::{AccountContract, GasKeyInfo};
 use near_primitives_core::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
@@ -154,8 +154,23 @@ impl From<AccountView> for Account {
 #[repr(u8)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AccessKeyPermissionView {
-    FunctionCall { allowance: Option<Balance>, receiver_id: String, method_names: Vec<String> } = 0,
+    FunctionCall {
+        allowance: Option<Balance>,
+        receiver_id: String,
+        method_names: Vec<String>,
+    } = 0,
     FullAccess = 1,
+    GasKeyFunctionCall {
+        balance: Balance,
+        num_nonces: NonceIndex,
+        allowance: Option<Balance>,
+        receiver_id: String,
+        method_names: Vec<String>,
+    } = 2,
+    GasKeyFullAccess {
+        balance: Balance,
+        num_nonces: NonceIndex,
+    } = 3,
 }
 
 impl From<AccessKeyPermission> for AccessKeyPermissionView {
@@ -167,6 +182,21 @@ impl From<AccessKeyPermission> for AccessKeyPermissionView {
                 method_names: func_call.method_names,
             },
             AccessKeyPermission::FullAccess => AccessKeyPermissionView::FullAccess,
+            AccessKeyPermission::GasKeyFunctionCall(gas_key_info, func_call) => {
+                AccessKeyPermissionView::GasKeyFunctionCall {
+                    balance: gas_key_info.balance,
+                    num_nonces: gas_key_info.num_nonces,
+                    allowance: func_call.allowance,
+                    receiver_id: func_call.receiver_id,
+                    method_names: func_call.method_names,
+                }
+            }
+            AccessKeyPermission::GasKeyFullAccess(gas_key_info) => {
+                AccessKeyPermissionView::GasKeyFullAccess {
+                    balance: gas_key_info.balance,
+                    num_nonces: gas_key_info.num_nonces,
+                }
+            }
         }
     }
 }
@@ -182,6 +212,19 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
                 })
             }
             AccessKeyPermissionView::FullAccess => AccessKeyPermission::FullAccess,
+            AccessKeyPermissionView::GasKeyFunctionCall {
+                balance,
+                num_nonces,
+                allowance,
+                receiver_id,
+                method_names,
+            } => AccessKeyPermission::GasKeyFunctionCall(
+                GasKeyInfo { balance, num_nonces },
+                FunctionCallPermission { allowance, receiver_id, method_names },
+            ),
+            AccessKeyPermissionView::GasKeyFullAccess { balance, num_nonces } => {
+                AccessKeyPermission::GasKeyFullAccess(GasKeyInfo { balance, num_nonces })
+            }
         }
     }
 }
@@ -212,35 +255,6 @@ impl From<AccessKey> for AccessKeyView {
 impl From<AccessKeyView> for AccessKey {
     fn from(view: AccessKeyView) -> Self {
         Self { nonce: view.nonce, permission: view.permission.into() }
-    }
-}
-
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Debug,
-    Eq,
-    PartialEq,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct GasKeyView {
-    pub num_nonces: NonceIndex,
-    pub balance: Balance,
-    pub permission: AccessKeyPermissionView,
-    pub nonces: Vec<Nonce>,
-}
-
-impl GasKeyView {
-    pub fn new(gas_key: GasKey, nonces: Vec<Nonce>) -> GasKeyView {
-        GasKeyView {
-            num_nonces: gas_key.num_nonces,
-            balance: gas_key.balance,
-            permission: gas_key.permission.into(),
-            nonces,
-        }
     }
 }
 
@@ -299,19 +313,6 @@ impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct GasKeyInfoView {
-    pub public_key: PublicKey,
-    pub gas_key: GasKeyView,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct GasKeyList {
-    pub keys: Vec<GasKeyInfoView>,
-}
-
 // cspell:words deepsize
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -354,8 +355,7 @@ pub enum QueryResponseKind {
     CallResult(CallResult),
     AccessKey(AccessKeyView),
     AccessKeyList(AccessKeyList),
-    GasKey(GasKeyView),
-    GasKeyList(GasKeyList),
+    GasKeyNonces(Vec<Nonce>),
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -382,12 +382,9 @@ pub enum QueryRequest {
     ViewAccessKeyList {
         account_id: AccountId,
     },
-    ViewGasKey {
+    ViewGasKeyNonces {
         account_id: AccountId,
         public_key: PublicKey,
-    },
-    ViewGasKeyList {
-        account_id: AccountId,
     },
     CallFunction {
         account_id: AccountId,
@@ -932,6 +929,7 @@ pub struct BlockHeaderView {
     pub signature: Signature,
     pub latest_protocol_version: ProtocolVersion,
     pub chunk_endorsements: Option<Vec<Vec<u8>>>,
+    pub shard_split: Option<(ShardId, AccountId)>,
 }
 
 impl From<&BlockHeader> for BlockHeaderView {
@@ -975,6 +973,7 @@ impl From<&BlockHeader> for BlockHeaderView {
             signature: header.signature().clone(),
             latest_protocol_version: header.latest_protocol_version(),
             chunk_endorsements: header.chunk_endorsements().map(|bitmap| bitmap.bytes()),
+            shard_split: header.shard_split().cloned(),
         }
     }
 }
@@ -1010,6 +1009,7 @@ impl From<BlockHeaderView> for BlockHeader {
             view.block_merkle_root,
             view.prev_height.unwrap_or_default(),
             view.chunk_endorsements.map(|bytes| ChunkEndorsementsBitmap::from_bytes(bytes)),
+            view.shard_split,
         )
     }
 }
@@ -1445,18 +1445,14 @@ pub enum ActionView {
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: Balance,
     } = 13,
-    AddGasKey {
-        public_key: PublicKey,
-        num_nonces: NonceIndex,
-        permission: AccessKeyPermissionView,
-    } = 14,
-    DeleteGasKey {
-        public_key: PublicKey,
-    } = 15,
     TransferToGasKey {
         public_key: PublicKey,
+        deposit: Balance,
+    } = 14,
+    WithdrawFromGasKey {
+        public_key: PublicKey,
         amount: Balance,
-    } = 16,
+    } = 15,
 }
 
 impl From<Action> for ActionView {
@@ -1515,17 +1511,13 @@ impl From<Action> for ActionView {
                     deposit: action.deposit,
                 }
             }
-            Action::AddGasKey(action) => ActionView::AddGasKey {
-                public_key: action.public_key,
-                num_nonces: action.num_nonces,
-                permission: action.permission.into(),
-            },
-            Action::DeleteGasKey(action) => {
-                ActionView::DeleteGasKey { public_key: action.public_key }
-            }
             Action::TransferToGasKey(action) => ActionView::TransferToGasKey {
                 public_key: action.public_key,
-                amount: action.deposit,
+                deposit: action.deposit,
+            },
+            Action::WithdrawFromGasKey(action) => ActionView::WithdrawFromGasKey {
+                public_key: action.public_key,
+                amount: action.amount,
             },
         }
     }
@@ -1595,21 +1587,14 @@ impl TryFrom<ActionView> for Action {
                     deposit,
                 }))
             }
-            ActionView::AddGasKey { public_key, num_nonces, permission } => {
-                Action::AddGasKey(Box::new(AddGasKeyAction {
-                    public_key,
-                    num_nonces,
-                    permission: permission.into(),
-                }))
+            ActionView::TransferToGasKey { public_key, deposit } => {
+                Action::TransferToGasKey(Box::new(TransferToGasKeyAction { public_key, deposit }))
             }
-            ActionView::TransferToGasKey { public_key, amount } => {
-                Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+            ActionView::WithdrawFromGasKey { public_key, amount } => {
+                Action::WithdrawFromGasKey(Box::new(WithdrawFromGasKeyAction {
                     public_key,
-                    deposit: amount,
+                    amount,
                 }))
-            }
-            ActionView::DeleteGasKey { public_key } => {
-                Action::DeleteGasKey(Box::new(DeleteGasKeyAction { public_key }))
             }
         })
     }
@@ -1632,29 +1617,29 @@ pub struct SignedTransactionView {
     pub nonce: Nonce,
     pub receiver_id: AccountId,
     pub actions: Vec<ActionView>,
-    // Default value used when deserializing SignedTransactionView which are missing the `priority_fee` field.
-    // Data which is missing this field was serialized before the introduction of priority_fee.
-    // priority_fee for Transaction::V0 => None, SignedTransactionView => 0
-    #[serde(default)]
-    pub priority_fee: u64,
+    /// Deprecated, retained for backward compatibility.
+    #[serde(default, rename = "priority_fee")]
+    pub _priority_fee: u64,
     pub signature: Signature,
     pub hash: CryptoHash,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub nonce_index: Option<NonceIndex>,
 }
 
 impl From<SignedTransaction> for SignedTransactionView {
     fn from(signed_tx: SignedTransaction) -> Self {
         let hash = signed_tx.get_hash();
         let transaction = signed_tx.transaction;
-        let priority_fee = transaction.priority_fee().unwrap_or_default();
         SignedTransactionView {
             signer_id: transaction.signer_id().clone(),
             public_key: transaction.public_key().clone(),
-            nonce: transaction.nonce(),
+            nonce: transaction.nonce().nonce(),
+            nonce_index: transaction.nonce().nonce_index(),
             receiver_id: transaction.receiver_id().clone(),
             actions: transaction.take_actions().into_iter().map(|action| action.into()).collect(),
             signature: signed_tx.signature,
             hash,
-            priority_fee,
+            _priority_fee: 0,
         }
     }
 }
@@ -2248,11 +2233,9 @@ pub struct ReceiptView {
     pub receipt_id: CryptoHash,
 
     pub receipt: ReceiptEnumView,
-    // Default value used when deserializing ReceiptView which are missing the `priority` field.
-    // Data which is missing this field was serialized before the introduction of priority.
-    // For ReceiptV0 ReceiptPriority::NoPriority => 0
-    #[serde(default)]
-    pub priority: u64,
+    /// Deprecated, retained for backward compatibility.
+    #[serde(default, rename = "priority")]
+    pub _priority: u64,
 }
 
 #[derive(
@@ -2313,6 +2296,8 @@ pub enum ReceiptEnumView {
         #[serde_as(as = "Base64")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         code: Vec<u8>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nonce: Option<u64>,
     } = 2,
 }
 
@@ -2328,8 +2313,6 @@ impl From<Receipt> for ReceiptView {
         let is_promise_yield =
             matches!(receipt.versioned_receipt(), VersionedReceiptEnum::PromiseYield(_));
         let is_promise_resume = matches!(receipt.receipt(), ReceiptEnum::PromiseResume(_));
-        let priority = receipt.priority().value();
-
         ReceiptView {
             predecessor_id: receipt.predecessor_id().clone(),
             receiver_id: receipt.receiver_id().clone(),
@@ -2355,10 +2338,11 @@ impl From<Receipt> for ReceiptView {
                         target_shard: receipt.target_shard(),
                         already_delivered_shards: receipt.already_delivered_shards().to_vec(),
                         code: hash(receipt.code()).as_bytes().to_vec(),
+                        nonce: receipt.maybe_nonce(),
                     }
                 }
             },
-            priority,
+            _priority: 0,
         }
     }
 }
@@ -2398,7 +2382,7 @@ impl TryFrom<ReceiptView> for Receipt {
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(receipt_view: ReceiptView) -> Result<Self, Self::Error> {
-        Ok(Receipt::V1(ReceiptV1 {
+        Ok(Receipt::V0(ReceiptV0 {
             predecessor_id: receipt_view.predecessor_id,
             receiver_id: receipt_view.receiver_id,
             receipt_id: receipt_view.receipt_id,
@@ -2475,16 +2459,26 @@ impl TryFrom<ReceiptView> for Receipt {
                     target_shard,
                     already_delivered_shards,
                     code,
+                    nonce,
                 } => {
-                    ReceiptEnum::GlobalContractDistribution(GlobalContractDistributionReceipt::new(
-                        id,
-                        target_shard,
-                        already_delivered_shards,
-                        code.into(),
-                    ))
+                    let receipt = match nonce {
+                        Some(nonce) => GlobalContractDistributionReceipt::new_v2(
+                            id,
+                            target_shard,
+                            already_delivered_shards,
+                            code.into(),
+                            nonce,
+                        ),
+                        None => GlobalContractDistributionReceipt::new_v1(
+                            id,
+                            target_shard,
+                            already_delivered_shards,
+                            code.into(),
+                        ),
+                    };
+                    ReceiptEnum::GlobalContractDistribution(receipt)
                 }
             },
-            priority: receipt_view.priority,
         }))
     }
 }
@@ -2659,13 +2653,7 @@ pub enum StateChangesRequestView {
     SingleAccessKeyChanges {
         keys: Vec<AccountWithPublicKey>,
     },
-    SingleGasKeyChanges {
-        keys: Vec<AccountWithPublicKey>,
-    },
     AllAccessKeyChanges {
-        account_ids: Vec<AccountId>,
-    },
-    AllGasKeyChanges {
         account_ids: Vec<AccountId>,
     },
     ContractCodeChanges {
@@ -2687,14 +2675,8 @@ impl From<StateChangesRequestView> for StateChangesRequest {
             StateChangesRequestView::SingleAccessKeyChanges { keys } => {
                 Self::SingleAccessKeyChanges { keys }
             }
-            StateChangesRequestView::SingleGasKeyChanges { keys } => {
-                Self::SingleGasKeyChanges { keys }
-            }
             StateChangesRequestView::AllAccessKeyChanges { account_ids } => {
                 Self::AllAccessKeyChanges { account_ids }
-            }
-            StateChangesRequestView::AllGasKeyChanges { account_ids } => {
-                Self::AllGasKeyChanges { account_ids }
             }
             StateChangesRequestView::ContractCodeChanges { account_ids } => {
                 Self::ContractCodeChanges { account_ids }
@@ -2812,20 +2794,11 @@ pub enum StateChangeValueView {
         account_id: AccountId,
         public_key: PublicKey,
     },
-    GasKeyUpdate {
-        account_id: AccountId,
-        public_key: PublicKey,
-        gas_key: GasKey,
-    },
     GasKeyNonceUpdate {
         account_id: AccountId,
         public_key: PublicKey,
-        index: u32,
+        index: NonceIndex,
         nonce: Nonce,
-    },
-    GasKeyDeletion {
-        account_id: AccountId,
-        public_key: PublicKey,
     },
     DataUpdate {
         account_id: AccountId,
@@ -2866,14 +2839,8 @@ impl From<StateChangeValue> for StateChangeValueView {
             StateChangeValue::AccessKeyDeletion { account_id, public_key } => {
                 Self::AccessKeyDeletion { account_id, public_key }
             }
-            StateChangeValue::GasKeyUpdate { account_id, public_key, gas_key } => {
-                Self::GasKeyUpdate { account_id, public_key, gas_key }
-            }
             StateChangeValue::GasKeyNonceUpdate { account_id, public_key, index, nonce } => {
                 Self::GasKeyNonceUpdate { account_id, public_key, index, nonce }
-            }
-            StateChangeValue::GasKeyDeletion { account_id, public_key } => {
-                Self::GasKeyDeletion { account_id, public_key }
             }
             StateChangeValue::DataUpdate { account_id, key, value } => {
                 Self::DataUpdate { account_id, key, value }

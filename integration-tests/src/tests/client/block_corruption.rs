@@ -39,6 +39,7 @@ fn change_shard_id_to_invalid() {
     let epoch_length = 5000000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -248,6 +249,8 @@ fn check_process_flipped_block_fails_on_bit(
 /// `oks` are printed to check the sanity of the test.
 /// This vector should include various validation errors that correspond to data changed with a bit flip.
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_check_process_flipped_block_fails() {
     // Note: intentionally not initializing logging because otherwise this test logs too much and is too slow.
     let mut corrupted_bit_idx = 0;
@@ -262,6 +265,7 @@ fn ultra_slow_test_check_process_flipped_block_fails() {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = 5000000;
+        genesis.config.transaction_validity_period = 10000000;
         TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build()
     };
 

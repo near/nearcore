@@ -87,18 +87,17 @@ fn copy_block_headers_to_cold_db(hot_store: &Store, cold_db: &ColdDB) -> anyhow:
 
     let mut count = 0;
     let mut transaction = DBTransaction::new();
-    for t in hot_store.iter_raw_bytes(DBCol::BlockHeader) {
-        let (key, value) = t?;
+    for (key, value) in hot_store.iter_raw_bytes(DBCol::BlockHeader) {
         transaction.set(DBCol::BlockHeader, key.into_vec(), value.into_vec());
         count += 1;
         if count % BATCH_SIZE == 0 {
-            cold_db.write(transaction)?;
+            cold_db.write(transaction);
             transaction = DBTransaction::new();
             let percent_complete = (count as f64 / approx_num_blocks as f64) * 100.0;
             tracing::info!(target: "migrations", ?count, ?approx_num_blocks, ?percent_complete, "copied block headers to cold db");
         }
     }
-    cold_db.write(transaction)?;
+    cold_db.write(transaction);
     tracing::info!(target: "migrations", ?count, ?approx_num_blocks, "completed copying block headers to cold db");
 
     Ok(())
@@ -116,10 +115,10 @@ fn update_epoch_sync_proof(
     // Note that while accessing the proof, we need to read directly from DBCol::EpochSyncProof
     // as we can't use the epoch_store.get_epoch_sync_proof() method due to
     // ProtocolFeature::ContinuousEpochSync being enabled
-    if let Some(proof) = store.get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[]).unwrap() {
+    if let Some(proof) = store.get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[]) {
         let mut store_update = epoch_store.store_update();
         store_update.set_epoch_sync_proof(&proof);
-        store_update.commit()?;
+        store_update.commit();
     }
 
     // Now we generate the epoch sync proof and update it to latest
@@ -133,7 +132,7 @@ fn update_epoch_sync_proof(
     tracing::info!(target: "migrations", "storing latest epoch sync proof");
     let mut store_update = epoch_store.store_update();
     store_update.set_epoch_sync_proof(&proof);
-    store_update.commit()?;
+    store_update.commit();
 
     Ok(())
 }
@@ -144,7 +143,7 @@ fn verify_block_headers(store: &Store) -> anyhow::Result<()> {
     let chain_store = store.chain_store();
     let tail_height = chain_store.tail().unwrap();
     let latest_known_height =
-        store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY)?.unwrap().height;
+        store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY).unwrap().height;
 
     tracing::info!(target: "migrations", ?tail_height, ?latest_known_height, "verifying block headers before deletion");
 
@@ -171,12 +170,11 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
 
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::BlockHeader);
-    store_update.commit()?;
-
+    store_update.commit();
     let chain_store = store.chain_store();
     let tail_height = chain_store.tail().unwrap();
     let latest_known_height =
-        store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY)?.unwrap().height;
+        store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY).unwrap().height;
 
     tracing::info!(target: "migrations", ?tail_height, ?latest_known_height, "adding required block headers to hot store");
 

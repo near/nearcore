@@ -25,7 +25,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
 use near_primitives::optimistic_block::OptimisticBlockKeySource;
-use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
+use near_primitives::receipt::{ProcessedReceipt, PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
@@ -117,7 +117,7 @@ pub struct ApplyChunkResult {
     pub total_gas_burnt: Gas,
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
-    pub processed_delayed_receipts: Vec<Receipt>,
+    pub processed_receipts: Vec<ProcessedReceipt>,
     pub processed_yield_timeouts: Vec<PromiseYieldTimeout>,
     /// Hash of Vec<Receipt> which were applied in a chunk, later used for
     /// chunk validation with state witness.
@@ -349,6 +349,7 @@ pub struct ApplyChunkBlockContext {
     pub block_type: BlockType,
     pub height: BlockHeight,
     pub prev_block_hash: CryptoHash,
+    pub last_final_block_hash: CryptoHash,
     pub block_timestamp: u64,
     pub gas_price: Balance,
     pub random_seed: CryptoHash,
@@ -367,6 +368,7 @@ impl ApplyChunkBlockContext {
             block_type: BlockType::Normal,
             height: header.height(),
             prev_block_hash: *header.prev_hash(),
+            last_final_block_hash: *header.last_final_block(),
             block_timestamp: header.raw_timestamp(),
             gas_price,
             random_seed: *header.random_value(),

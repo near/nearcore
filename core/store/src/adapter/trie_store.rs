@@ -6,7 +6,6 @@ use near_primitives::errors::{MissingTrieValue, MissingTrieValueContext, Storage
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::types::RawStateChangesWithTrieKey;
-use std::io;
 use std::num::NonZero;
 use std::sync::Arc;
 
@@ -56,13 +55,9 @@ impl TrieStoreAdapter {
         hash: &CryptoHash,
     ) -> Result<DBSlice<'_>, StorageError> {
         let key = get_key_from_shard_uid_and_hash(shard_uid, hash);
-        self.store
-            .get(DBCol::State, key.as_ref())
-            .map_err(|_| StorageError::StorageInternalError)?
-            .ok_or(StorageError::MissingTrieValue(MissingTrieValue {
-                context: MissingTrieValueContext::TrieStorage,
-                hash: *hash,
-            }))
+        self.store.get(DBCol::State, key.as_ref()).ok_or(StorageError::MissingTrieValue(
+            MissingTrieValue { context: MissingTrieValueContext::TrieStorage, hash: *hash },
+        ))
     }
 
     /// Replaces shard_uid prefix with a mapped value according to mapping strategy in Resharding V3.
@@ -87,7 +82,6 @@ impl TrieStoreAdapter {
         let val = self
             .store
             .get_ser(DBCol::BlockMisc, STATE_SNAPSHOT_KEY)
-            .map_err(|_| StorageError::StorageInternalError)?
             .ok_or(StorageError::StorageInternalError)?;
         Ok(val)
     }
@@ -109,9 +103,9 @@ impl Into<StoreUpdate> for TrieStoreUpdateAdapter<'static> {
 }
 
 impl TrieStoreUpdateAdapter<'static> {
-    pub fn commit(self) -> io::Result<()> {
+    pub fn commit(self) {
         let store_update: StoreUpdate = self.into();
-        store_update.commit()
+        store_update.commit();
     }
 }
 
@@ -164,7 +158,7 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
     pub fn set_state_snapshot_hash(&mut self, hash: Option<CryptoHash>) {
         let key = STATE_SNAPSHOT_KEY;
         match hash {
-            Some(hash) => self.store_update.set_ser(DBCol::BlockMisc, key, &hash).unwrap(),
+            Some(hash) => self.store_update.set_ser(DBCol::BlockMisc, key, &hash),
             None => self.store_update.delete(DBCol::BlockMisc, key),
         }
     }
@@ -176,7 +170,7 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         trie_changes: &TrieChanges,
     ) {
         let key = get_block_shard_uid(block_hash, &shard_uid);
-        self.store_update.set_ser(DBCol::TrieChanges, &key, trie_changes).unwrap();
+        self.store_update.set_ser(DBCol::TrieChanges, &key, trie_changes);
     }
 
     pub fn set_state_changes(
@@ -232,9 +226,6 @@ pub fn get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> ShardU
 fn maybe_get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> Option<ShardUId> {
     store
         .caching_get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &child_shard_uid.to_bytes())
-        .unwrap_or_else(|_| {
-            panic!("get_shard_uid_mapping() failed for child_shard_uid = {}", child_shard_uid)
-        })
         .map(|v| *v)
 }
 
@@ -279,13 +270,13 @@ mod tests {
             store_update.increment_refcount_by(shard_uids[0], &dummy_hash, &[0], ONE);
             store_update.increment_refcount_by(shard_uids[1], &dummy_hash, &[1], ONE);
             store_update.increment_refcount_by(shard_uids[2], &dummy_hash, &[2], ONE);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         assert_eq!(*store.get(shard_uids[0], &dummy_hash).unwrap(), [0]);
         {
             let mut store_update = store.store_update();
             store_update.delete_all_state();
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         assert_matches!(
             store.get(shard_uids[0], &dummy_hash),
@@ -303,7 +294,7 @@ mod tests {
         {
             let mut store_update = store.store_update();
             store_update.increment_refcount_by(parent_shard, &dummy_hash, &[0], ONE);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         // The data is not yet visible to child shard, because the mapping has not been set yet.
         assert_matches!(
@@ -314,7 +305,7 @@ mod tests {
         {
             let mut store_update = store.store_update();
             store_update.set_shard_uid_mapping(child_shard, parent_shard);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         // The data is now visible to both `parent_shard` and `child_shard`.
         assert_eq!(*store.get(child_shard, &dummy_hash).unwrap(), [0]);
@@ -323,7 +314,7 @@ mod tests {
         {
             let mut store_update = store.store_update();
             store_update.decrement_refcount(parent_shard, &dummy_hash);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         // The data is now not visible to any shard.
         assert_matches!(
@@ -338,7 +329,7 @@ mod tests {
         {
             let mut store_update = store.store_update();
             store_update.increment_refcount_by(child_shard, &dummy_hash, &[0], ONE);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         // The data is now visible to both shards again.
         assert_eq!(*store.get(child_shard, &dummy_hash).unwrap(), [0]);
@@ -347,7 +338,7 @@ mod tests {
         {
             let mut store_update = store.store_update();
             store_update.decrement_refcount_by(child_shard, &dummy_hash, ONE);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         // The data is not visible to any shard again.
         assert_matches!(
@@ -376,13 +367,13 @@ mod tests {
         {
             let mut store_update = cold_store.store_update();
             store_update.set_shard_uid_mapping(child_shard, parent_shard);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         // Write some data to `child_shard` in hot store ONLY.
         {
             let mut store_update = hot_store.store_update();
             store_update.increment_refcount_by(child_shard, &dummy_hash, &[0], ONE);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
 
         // Now try to read the data from split store. It should be present

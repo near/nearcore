@@ -64,6 +64,8 @@ use near_primitives::types::Balance;
 
 /// 3 shards, random receipt sizes
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts() {
     let scenario = TestScenarioBuilder::new()
         .num_shards(3)
@@ -158,7 +160,6 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&all_accounts, Balance::from_near(1_000_000))
         .genesis_height(10000)
-        .transaction_validity_period(1000)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 

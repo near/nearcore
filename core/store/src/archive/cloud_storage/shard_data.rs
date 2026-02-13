@@ -71,7 +71,7 @@ pub fn build_shard_data(
         )));
     };
 
-    let chunk = store.chunk_store().get_chunk(&chunk_hash)?;
+    let chunk = chunk_store.get_chunk(&chunk_hash)?;
     let transactions = chunk.to_transactions().iter().cloned().collect();
     let receipts = chunk.prev_outgoing_receipts().iter().cloned().collect();
 
@@ -126,10 +126,9 @@ fn get_state_changes(
 ) -> Result<Vec<RawStateChangesWithTrieKey>, Error> {
     let storage_key = KeyForStateChanges::for_block(&block_hash);
     let mut state_changes = vec![];
-    for item in store
+    for (key, changes) in store
         .iter_prefix_ser::<RawStateChangesWithTrieKey>(DBCol::StateChanges, storage_key.as_ref())
     {
-        let (key, changes) = item?;
         let decoded_shard_uid = if let Some(account_id) = changes.trie_key.get_account_id() {
             shard_layout.account_id_to_shard_uid(&account_id)
         } else {
@@ -149,8 +148,7 @@ fn get_state_changes(
 }
 
 impl ShardData {
-    #[allow(unused)]
-    pub fn get_chunk(&self) -> &ShardChunk {
+    pub fn chunk(&self) -> &ShardChunk {
         match self {
             ShardData::V1(data) => &data.chunk,
         }

@@ -168,6 +168,8 @@ pub fn apply_chunk(
 
     let valid_txs = chain_store.compute_transaction_validity(prev_block.header(), &chunk);
 
+    let last_final_block_hash = *prev_block.header().last_final_block_for_height(target_height);
+
     Ok((
         runtime.apply_chunk(
             storage.create_runtime_storage(prev_state_root),
@@ -184,6 +186,7 @@ pub fn apply_chunk(
                 height: target_height,
                 block_timestamp: prev_timestamp + 1_000_000_000,
                 prev_block_hash: *prev_block_hash,
+                last_final_block_hash,
                 gas_price,
                 random_seed: hash("random seed".as_ref()),
                 congestion_info: block_congestion_info,
@@ -303,8 +306,7 @@ fn apply_tx_in_chunk(
     let head = chain_store.head()?.height;
     let mut chunk_hashes = vec![];
 
-    for item in store.iter(DBCol::ChunkHashesByHeight) {
-        let (k, v) = item.context("scanning ChunkHashesByHeight column")?;
+    for (k, v) in store.iter(DBCol::ChunkHashesByHeight) {
         let height = BlockHeight::from_le_bytes(k[..].try_into().unwrap());
         if height > head {
             let hashes = HashSet::<ChunkHash>::try_from_slice(&v).unwrap();
@@ -439,8 +441,7 @@ fn apply_receipt_in_chunk(
     let mut to_apply = HashSet::new();
     let mut non_applied_chunks = HashMap::new();
 
-    for item in store.iter(DBCol::ChunkHashesByHeight) {
-        let (k, v) = item.context("scanning ChunkHashesByHeight column")?;
+    for (k, v) in store.iter(DBCol::ChunkHashesByHeight) {
         let height = BlockHeight::from_le_bytes(k[..].try_into().unwrap());
         if height > head {
             let hashes = HashSet::<ChunkHash>::try_from_slice(&v).unwrap();

@@ -15,7 +15,7 @@ use near_chain_configs::Genesis;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
+use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptSource};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
@@ -52,7 +52,6 @@ fn old_outcomes(
                     outcome.id.as_ref(),
                 )
                 .next()
-                .unwrap()
                 .unwrap()
                 .1
                 .outcome;
@@ -485,7 +484,11 @@ fn apply_block_from_range(
             raw_timestamp,
             apply_result.total_gas_burnt,
             chunk_present,
-            apply_result.processed_delayed_receipts.len(),
+            apply_result
+                .processed_receipts
+                .iter()
+                .filter(|pr| pr.source == ReceiptSource::Delayed)
+                .count(),
             delayed_indices.unwrap_or(None).map_or(0, |d| d.next_available_index - d.first_index),
             apply_result.trie_changes.state_changes().len(),
         ),
@@ -516,7 +519,7 @@ fn apply_block_from_range(
             let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
             let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
             let store_update = flat_storage.add_delta(delta).unwrap();
-            store_update.commit().unwrap();
+            store_update.commit();
             flat_storage.update_flat_head(&block_hash).unwrap();
         }
         (_, StorageSource::Recorded) => {
@@ -543,14 +546,12 @@ fn apply_block_from_range(
                         .map(|c| c.into())
                         .collect(),
                 });
-            store_update
-                .set_ser(
-                    DBCol::StateTransitionData,
-                    &get_block_shard_id(&block_hash, shard_id),
-                    &state_transition_data,
-                )
-                .unwrap();
-            store_update.commit().unwrap();
+            store_update.set_ser(
+                DBCol::StateTransitionData,
+                &get_block_shard_id(&block_hash, shard_id),
+                &state_transition_data,
+            );
+            store_update.commit();
         }
         (_, StorageSource::FlatStorage) => {
             // Apply trie changes to trie node caches.

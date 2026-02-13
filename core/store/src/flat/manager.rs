@@ -120,8 +120,7 @@ impl FlatStorageManager {
             shard_uid,
             FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
         );
-        // TODO: Consider adding a StorageError::IO variant?
-        store_update.commit().map_err(|_| StorageError::StorageInternalError)?;
+        store_update.commit();
         Ok(())
     }
 

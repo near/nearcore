@@ -1,4 +1,3 @@
-reftypes_bulk_memory: { old: false, new: true }
-vm_kind: { old: "NearVm", new: "Wasmtime" }
-wasm_linear_op_base_cost: { old: 300_000_000_000_000, new: 26_328_192 }
-wasm_linear_op_unit_cost: { old: 300_000_000_000_000, new: 822_756 }
+# Enable strict AccountID validation
+# Use AccountIdValidityRulesVersion::V2 instead of a separate forbid_unvalidated_account_id flag.
+account_id_validity_rules_version: { old: 1, new: 2 }

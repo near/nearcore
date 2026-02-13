@@ -147,13 +147,13 @@ impl HighLoadStatsCommand {
         store: std::sync::Arc<Store>,
     ) -> anyhow::Result<Option<BlockStats>> {
         let height_key = height.to_le_bytes();
-        let block_hash_vec = store.get(DBCol::BlockHeight, &height_key)?;
+        let block_hash_vec = store.get(DBCol::BlockHeight, &height_key);
         if block_hash_vec.is_none() {
             return Ok(None);
         }
         let block_hash_vec = block_hash_vec.unwrap();
         let block_hash_key = block_hash_vec.as_slice();
-        let block = store.get_ser::<Block>(DBCol::Block, &block_hash_key)?.ok_or_else(|| {
+        let block = store.get_ser::<Block>(DBCol::Block, &block_hash_key).ok_or_else(|| {
             anyhow::anyhow!("Block header not found for {height} with {block_hash_vec:?}")
         })?;
 
@@ -171,7 +171,7 @@ impl HighLoadStatsCommand {
                 .get_ser::<Vec<CryptoHash>>(
                     DBCol::OutcomeIds,
                     &near_primitives::utils::get_block_shard_id(block.hash(), shard_id),
-                )?
+                )
                 .unwrap_or_default();
 
             for outcome_id in outcome_ids {
@@ -182,7 +182,7 @@ impl HighLoadStatsCommand {
                             &outcome_id,
                             block.hash(),
                         ),
-                    )?
+                    )
                     .ok_or_else(|| {
                         anyhow::anyhow!("no outcome found for {outcome_id:?} at {height}")
                     })?

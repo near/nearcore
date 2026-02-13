@@ -68,7 +68,7 @@ pub fn migrate_46_to_47(
         tracing::info!(target: "migrations", ?resharding_block_hash, "processing resharding block");
 
         let resharding_block_hash = CryptoHash::from_str(resharding_block_hash).unwrap();
-        let shard_layout = &epoch_config_store.get_config(protocol_version).legacy_shard_layout();
+        let shard_layout = &epoch_config_store.get_config(protocol_version).static_shard_layout();
         let resharding_block = hot_store.chain_store().get_block_header(&resharding_block_hash)?;
         let resharding_block_info = BlockInfo {
             hash: resharding_block_hash,
@@ -86,10 +86,7 @@ pub fn migrate_46_to_47(
         } = split_shard_params;
 
         let chunk_extra: ChunkExtra = cold_store
-            .get_ser(
-                DBCol::ChunkExtra,
-                &get_block_shard_uid(&resharding_block_hash, &parent_shard),
-            )?
+            .get_ser(DBCol::ChunkExtra, &get_block_shard_uid(&resharding_block_hash, &parent_shard))
             .unwrap();
         let parent_trie = tries
             .get_trie_for_shard(parent_shard, *chunk_extra.state_root())
@@ -109,7 +106,7 @@ pub fn migrate_46_to_47(
     }
 
     tracing::info!(target: "migrations", "Writing changes to the database");
-    cold_db.write(transaction)?;
+    cold_db.write(transaction);
 
     Ok(())
 }

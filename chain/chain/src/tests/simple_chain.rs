@@ -13,7 +13,7 @@ use num_rational::Ratio;
 use std::sync::Arc;
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn build_chain() {
     init_test_logger();
@@ -80,6 +80,7 @@ fn build_chain_with_orphans() {
     let last_block = &blocks[blocks.len() - 1];
     let block = Arc::new(Block::produce(
         PROTOCOL_VERSION,
+        PROTOCOL_VERSION,
         last_block.header(),
         10,
         last_block.header().block_ordinal() + 1,
@@ -97,6 +98,7 @@ fn build_chain_with_orphans() {
         *last_block.header().next_bp_hash(),
         CryptoHash::default(),
         clock,
+        None,
         None,
         None,
         None,
@@ -298,7 +300,7 @@ fn block_chunk_headers_iter() {
 /// it is marked as pending and can be processed later.
 #[cfg(feature = "test_features")]
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_pending_block() {
     init_test_logger();
@@ -374,7 +376,7 @@ fn test_pending_block() {
 /// skip pending pool and process block right away.
 #[cfg(feature = "test_features")]
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_pending_block_same_height() {
     use near_crypto::{KeyType, Signature};

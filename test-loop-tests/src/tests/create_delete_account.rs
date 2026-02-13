@@ -54,7 +54,7 @@ fn check_chunks(
 
 /// Tests account existence flow, from creation to deletion.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_create_delete_account() {
     init_test_logger();

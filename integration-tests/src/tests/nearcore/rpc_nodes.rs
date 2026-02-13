@@ -197,11 +197,15 @@ async fn test_get_execution_outcome(is_tx_successful: bool) {
 }
 
 #[tokio::test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn ultra_slow_test_get_execution_outcome_tx_success() {
     test_get_execution_outcome(true).await;
 }
 
 #[tokio::test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn ultra_slow_test_get_execution_outcome_tx_failure() {
     test_get_execution_outcome(false).await;
 }
@@ -338,7 +342,7 @@ async fn test_query_rpc_account_view_account_does_not_exist_must_return_error() 
 }
 
 #[tokio::test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn slow_test_tx_not_enough_balance_must_return_error() {
     init_integration_logger();

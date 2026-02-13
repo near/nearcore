@@ -3,12 +3,15 @@ use crate::network_protocol::{
     Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest, PeersResponse,
     T2MessageBody,
 };
+use crate::peer::peer_actor::ClosingReason;
 use crate::peer::testonly::{PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
-use crate::types::{Edge, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
+use crate::types::{
+    Edge, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, ReasonForBan,
+};
 use assert_matches::assert_matches;
 use near_async::{ActorSystem, time};
 use near_o11y::testonly::init_test_logger;
@@ -52,7 +55,7 @@ async fn test_peer_communication() -> anyhow::Result<()> {
     let want = PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
         &outbound.cfg.network.node_id(),
         &inbound.cfg.network.node_id(),
-        15,
+        clock.now_utc().unix_timestamp() as u64,
         &outbound.cfg.network.node_key,
     ));
     outbound.send(want.clone()).await;
@@ -151,6 +154,53 @@ async fn test_peer_communication() -> anyhow::Result<()> {
     // TODO:
     // LastEdge, HandshakeFailure, Disconnect - affect the state of the PeerActor and are
     // observable only under specific conditions.
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_request_update_nonce_rejects_invalid_nonce() -> anyhow::Result<()> {
+    init_test_logger();
+    let mut rng = make_rng(89028037453);
+    let mut clock = time::FakeClock::default();
+
+    let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
+    let inbound_cfg = PeerConfig { chain: chain.clone(), network: chain.make_config(&mut rng) };
+    let outbound_cfg = PeerConfig { chain: chain.clone(), network: chain.make_config(&mut rng) };
+    let (outbound_stream, inbound_stream) =
+        tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
+    let actor_system = ActorSystem::new();
+    let mut inbound = PeerHandle::start_endpoint(
+        clock.clock(),
+        actor_system.clone(),
+        inbound_cfg,
+        inbound_stream,
+    );
+    let mut outbound =
+        PeerHandle::start_endpoint(clock.clock(), actor_system, outbound_cfg, outbound_stream);
+
+    outbound.complete_handshake().await;
+    inbound.complete_handshake().await;
+
+    let mut events = inbound.events.from_now();
+    let msg = PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
+        &outbound.cfg.network.node_id(),
+        &inbound.cfg.network.node_id(),
+        u64::MAX,
+        &outbound.cfg.network.node_key,
+    ));
+    outbound.send(msg).await;
+
+    events
+        .recv_until(|ev| match ev {
+            Event::ConnectionClosed(ev)
+                if ev.reason == ClosingReason::Ban(ReasonForBan::InvalidEdge) =>
+            {
+                Some(())
+            }
+            _ => None,
+        })
+        .await;
+
     Ok(())
 }
 

@@ -200,7 +200,6 @@ expression: config_view
     "linear_op_unit_cost": 300000000000000,
     "vm_kind": "<REDACTED>",
     "discard_custom_sections": false,
-    "saturating_float_to_int": false,
     "global_contract_host_fns": false,
     "reftypes_bulk_memory": false,
     "deterministic_account_ids": false,
@@ -259,11 +258,5 @@ expression: config_view
     "main_storage_proof_size_soft_limit": 4294967295,
     "combined_transactions_size_limit": 4294967295,
     "new_transactions_validation_state_size_soft_limit": 4294967295
-  },
-  "dynamic_resharding_config": {
-    "memory_usage_threshold": 999999999999999,
-    "min_child_memory_usage": 999999999999999,
-    "max_number_of_shards": 999999999999999,
-    "min_epochs_between_resharding": 999999999999999
   }
 }

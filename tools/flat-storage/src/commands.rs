@@ -197,9 +197,8 @@ impl FlatStorageCommand {
     ) -> anyhow::Result<()> {
         let (.., hot_store) =
             Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadOnly);
-        println!("DB version: {:?}", hot_store.get_db_version()?);
-        for item in hot_store.iter(DBCol::FlatStorageStatus) {
-            let (bytes_shard_uid, status) = item?;
+        println!("DB version: {:?}", hot_store.get_db_version());
+        for (bytes_shard_uid, status) in hot_store.iter(DBCol::FlatStorageStatus) {
             let shard_uid = ShardUId::try_from(bytes_shard_uid.as_ref()).unwrap();
             let status = FlatStorageStatus::try_from_slice(&status)?;
             if let Some(shard_id) = cmd.shard_id {
@@ -232,7 +231,7 @@ impl FlatStorageCommand {
         let rw_storage = opener.open_in_mode(near_store::Mode::ReadWriteExisting)?;
         let rw_store = rw_storage.get_hot_store();
         println!("Setting storage DB version to: {:?}", cmd.version);
-        rw_store.set_db_version(cmd.version)?;
+        rw_store.set_db_version(cmd.version);
         Ok(())
     }
 
@@ -253,7 +252,7 @@ impl FlatStorageCommand {
         flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
         let mut store_update = store.flat_store().store_update();
         flat_storage_manager.remove_flat_storage_for_shard(shard_uid, &mut store_update)?;
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -419,8 +418,7 @@ impl FlatStorageCommand {
             // This is done by iterating over `DBCol::StateChanges` corresponding
             // to given shard.
             let mut prev_delta = FlatStateChanges::default();
-            for item in store.iter_prefix(DBCol::StateChanges, &block_hash.0) {
-                let (key, _) = item.unwrap();
+            for (key, _) in store.iter_prefix(DBCol::StateChanges, &block_hash.0) {
                 let maybe_trie_key = &key[32..];
                 let maybe_account_id =
                     near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key(
@@ -490,7 +488,7 @@ impl FlatStorageCommand {
                     },
                 }),
             );
-            store_update.commit()?;
+            store_update.commit();
 
             height = prev_height;
             println!("moved to {height} on {shard_uid}");

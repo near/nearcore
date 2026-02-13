@@ -346,6 +346,31 @@ pub(crate) static STATE_TRANSITION_DATA_GC_TIME: LazyLock<Histogram> = LazyLock:
     .unwrap()
 });
 
+pub(crate) static WITNESSES_GC_TOTAL_ENTRIES: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "near_witnesses_gc_total_entries",
+        "Number of entries in witnesses store column",
+    )
+    .unwrap()
+});
+
+pub(crate) static WITNESSES_GC_CLEARED_ENTRIES: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_witnesses_gc_cleared_entries",
+        "Number of witness entries cleared by garbage collection",
+    )
+    .unwrap()
+});
+
+pub(crate) static WITNESSES_GC_TIME: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "near_witnesses_gc_time",
+        "Time taken to do garbage collection of witnesses data",
+        vec![0.100, 0.5, 1.0, 5.0],
+    )
+    .unwrap()
+});
+
 pub(crate) static CHAIN_VALIDITY_PERIOD_CHECK_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
     try_create_histogram_with_buckets(
         "near_chain_validity_period_check_delay",
@@ -368,6 +393,15 @@ pub(crate) static THREAD_POOL_MAX_NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock:
     try_create_int_gauge_vec(
         "near_thread_pool_max_num_threads",
         "maximum observed number of threads in apply chunks thread pool",
+        &["pool_name"],
+    )
+    .unwrap()
+});
+
+pub(crate) static THREAD_POOL_QUEUE_SIZE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "near_thread_pool_queue_size",
+        "thread pool job queue size",
         &["pool_name"],
     )
     .unwrap()

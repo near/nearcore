@@ -23,7 +23,7 @@ use crate::utils::setups::derive_new_epoch_config_from_boundary;
 const GC_STEP_PERIOD: Duration = Duration::milliseconds(setup::builder::MIN_BLOCK_PROD_TIME as i64);
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_transition_data_gc_simple() {
     init_test_logger();
@@ -63,7 +63,7 @@ fn test_state_transition_data_gc_simple() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_state_transition_data_gc_when_resharding() {
     init_test_logger();
@@ -134,8 +134,8 @@ fn assert_state_transition_data_is_cleared(
 ) {
     let final_block_height = chain_store.final_head().unwrap().height;
     let store = chain_store.store().store();
-    for res in store.iter(DBCol::StateTransitionData) {
-        let (block_hash, shard_id) = get_block_shard_id_rev(&res.unwrap().0).unwrap();
+    for (key, _) in store.iter(DBCol::StateTransitionData) {
+        let (block_hash, shard_id) = get_block_shard_id_rev(&key).unwrap();
         let block_height = chain_store.get_block_height(&block_hash).unwrap();
         assert!(
             expected_shard_ids.contains(&shard_id),
@@ -157,7 +157,6 @@ fn assert_state_transition_data_is_cleared(
             assert!(
                 store
                     .get(DBCol::StateTransitionData, &get_block_shard_id(&block_hash, *shard_id))
-                    .unwrap()
                     .is_some(),
                 "StateTransitionData missing for shard id {shard_id} and height {height}",
             );

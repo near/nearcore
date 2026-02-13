@@ -355,6 +355,32 @@ enum SnapshotAction {
     None,
 }
 
+/// Verify that validator proposals in the block header match expectations.
+/// Non-SPICE: proposals come from new chunk headers.
+/// SPICE: proposals come from core statements' execution results.
+fn validate_block_proposals(block: &Block) -> Result<(), Error> {
+    let expected: Vec<_> = if block.is_spice_block() {
+        block
+            .spice_core_statements()
+            .iter_execution_results()
+            .flat_map(|(_chunk_id, execution_result)| {
+                execution_result.chunk_extra.validator_proposals()
+            })
+            .collect()
+    } else {
+        block.chunks().iter_new().flat_map(|chunk| chunk.prev_validator_proposals()).collect()
+    };
+    for pair in expected.iter().zip_longest(block.header().prev_validator_proposals()) {
+        let itertools::EitherOrBoth::Both(cp, hp) = pair else {
+            return Err(Error::InvalidValidatorProposals);
+        };
+        if hp != *cp {
+            return Err(Error::InvalidValidatorProposals);
+        }
+    }
+    Ok(())
+}
+
 impl Chain {
     pub fn new_for_view_client(
         clock: Clock,
@@ -391,7 +417,8 @@ impl Chain {
             shard_tracker.clone(),
             noop().into_multi_sender(),
         );
-        let num_shards = runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
+        let thread_limit =
+            runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize * 3;
         let spice_core_reader = SpiceCoreReader::new(
             store.chain_store(),
             epoch_manager.clone(),
@@ -416,7 +443,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            apply_chunks_spawner: ApplyChunksSpawner::default().into_spawner(num_shards),
+            apply_chunks_spawner: ApplyChunksSpawner::default().into_spawner(thread_limit),
             apply_chunks_iteration_mode: ApplyChunksIterationMode::default(),
             apply_chunk_results_cache: ApplyChunksResultCache::new(APPLY_CHUNK_RESULTS_CACHE_SIZE),
             last_time_head_updated: clock.now(),
@@ -565,12 +592,13 @@ impl Chain {
             resharding_sender,
         );
 
-        // The number of shards for the binary's latest `PROTOCOL_VERSION` is used as a thread limit. This assumes that:
+        // The number of shards for the binary's latest `PROTOCOL_VERSION` is used to compute the thread limit. This assumes that:
         // a) The number of shards will not grow above this limit without the binary being updated (no dynamic resharding),
-        // b) Under normal conditions, the node will not process more chunks at the same time as there are shards.
-        let max_num_shards =
-            runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize;
-        let apply_chunks_spawner = apply_chunks_spawner.into_spawner(max_num_shards);
+        // b) Under normal conditions, the number of chunks processed concurrently will stay on the same order as the number
+        //    of shards, even though we allow up to 3x that many concurrent tasks.
+        let apply_chunks_thread_limit =
+            runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize * 3;
+        let apply_chunks_spawner = apply_chunks_spawner.into_spawner(apply_chunks_thread_limit);
         let spice_core_reader = SpiceCoreReader::new(
             chain_store.store().chain_store(),
             epoch_manager.clone(),
@@ -685,7 +713,7 @@ impl Chain {
 
     fn save_block_height_processed(&mut self, block_height: BlockHeight) -> Result<(), Error> {
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.chain_store);
-        if !chain_store_update.is_height_processed(block_height)? {
+        if !chain_store_update.is_height_processed(block_height) {
             chain_store_update.save_block_height_processed(block_height);
         }
         chain_store_update.commit()?;
@@ -971,7 +999,7 @@ impl Chain {
     pub fn process_block_header(&self, header: &BlockHeader) -> Result<(), Error> {
         tracing::debug!(target: "chain", block_hash=?header.hash(), height=header.height(), "process_block_header");
 
-        if let BlockKnowledge::Known(err) = self.check_block_known(header.hash())? {
+        if let BlockKnowledge::Known(err) = self.check_block_known(header.hash()) {
             return Err(Error::BlockKnown(err));
         }
         self.validate_header(header, &Provenance::NONE)?;
@@ -1045,27 +1073,7 @@ impl Chain {
             }
         }
 
-        // Verify that proposals from chunks match block header proposals.
-        for pair in block
-            .chunks()
-            .iter_new()
-            .flat_map(|chunk| chunk.prev_validator_proposals())
-            .zip_longest(block.header().prev_validator_proposals())
-        {
-            match pair {
-                itertools::EitherOrBoth::Both(cp, hp) => {
-                    if hp != cp {
-                        // Proposals differed!
-                        return Err(Error::InvalidValidatorProposals);
-                    }
-                }
-                _ => {
-                    // Can only occur if there were a different number of proposals in the header
-                    // and chunks
-                    return Err(Error::InvalidValidatorProposals);
-                }
-            }
-        }
+        validate_block_proposals(block)?;
 
         Ok(())
     }
@@ -1097,13 +1105,13 @@ impl Chain {
             }
             match chunk_header {
                 ChunkType::New(chunk_header) => {
-                    if !self.chain_store.partial_chunk_exists(chunk_hash)? {
+                    if !self.chain_store.partial_chunk_exists(chunk_hash) {
                         missing.push(chunk_header.clone());
                     } else if self
                         .shard_tracker
                         .cares_about_shard_this_or_next_epoch(&parent_hash, shard_id)
                     {
-                        if !self.chain_store.chunk_exists(chunk_hash)? {
+                        if !self.chain_store.chunk_exists(chunk_hash) {
                             missing.push(chunk_header.clone());
                         }
                     }
@@ -1256,7 +1264,7 @@ impl Chain {
         let block_height = block.height();
 
         self.blocks_delay_tracker.record_optimistic_block_ready(block_height);
-        if let Ok(true) = self.is_height_processed(block_height) {
+        if self.is_height_processed(block_height) {
             metrics::NUM_DROPPED_OPTIMISTIC_BLOCKS_BECAUSE_OF_PROCESSED_HEIGHT.inc();
             tracing::debug!(
                 target: "chain", prev_block_hash = ?prev_block_hash,
@@ -1333,6 +1341,9 @@ impl Chain {
                 block_type: BlockType::Optimistic,
                 height: block_height,
                 prev_block_hash: *block.prev_block_hash(),
+                last_final_block_hash: *prev_block
+                    .header()
+                    .last_final_block_for_height(block_height),
                 block_timestamp: block.block_timestamp(),
                 gas_price: prev_block.header().next_gas_price(),
                 random_seed: *block.random_value(),
@@ -1487,7 +1498,7 @@ impl Chain {
 
         // Validate header and then add to the chain.
         for header in &headers {
-            match self.check_block_header_known(header)? {
+            match self.check_block_header_known(header) {
                 BlockKnowledge::Unknown => {}
                 BlockKnowledge::Known(_) => continue,
             }
@@ -1499,8 +1510,10 @@ impl Chain {
             // Add validator proposals for given header.
             let last_finalized_height =
                 chain_store_update.get_block_height(header.last_final_block())?;
+            let current_protocol_version =
+                self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
             let epoch_manager_update = self.epoch_manager.add_validator_proposals(
-                BlockInfo::from_header(header, last_finalized_height),
+                BlockInfo::from_header(header, last_finalized_height, current_protocol_version),
                 *header.random_value(),
             )?;
             chain_store_update.merge(epoch_manager_update.into());
@@ -1913,8 +1926,6 @@ impl Chain {
             self.runtime_adapter.get_tries().retain_memtries(&shards_cares_this_or_next_epoch);
         }
 
-        self.pending_state_patch.clear();
-
         if let Some(tip) = &new_head {
             // TODO: move this logic of tracking validators metrics to EpochManager
             let mut block_producers_count = 0;
@@ -2277,7 +2288,7 @@ impl Chain {
         }
 
         // Check if we have already processed this block previously.
-        if let BlockKnowledge::Known(err) = self.check_block_known(header.hash())? {
+        if let BlockKnowledge::Known(err) = self.check_block_known(header.hash()) {
             return Err(Error::BlockKnown(err));
         }
 
@@ -2297,7 +2308,7 @@ impl Chain {
         }
 
         // Block is an orphan if we do not know about the previous full block.
-        if !is_next && !self.block_exists(prev_hash)? {
+        if !is_next && !self.block_exists(prev_hash) {
             // Before we add the block to the orphan pool, do some checks:
             // 1. Block header is signed by the block producer for height.
             // 2. Chunk headers in block body match block header.
@@ -2596,7 +2607,7 @@ impl Chain {
         let mut store_update = self.chain_store.store().store_update();
         store_update.delete_all(DBCol::StateParts);
         store_update.delete_all(DBCol::StateHeaders);
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -3523,56 +3534,53 @@ impl Chain {
         self.chain_store.transaction_validity_period
     }
 
-    /// Check if block is known: head, orphan, in processing or in store.
-    /// Returns Err(Error) if any error occurs when checking store
-    ///         Ok(Err(BlockKnownError)) if the block is known
-    ///         Ok(Ok()) otherwise
-    pub fn check_block_known(&self, block_hash: &CryptoHash) -> Result<BlockKnowledge, Error> {
-        let head = self.chain_store().head()?;
+    /// Check if this block is in the store already.
+    /// Returns BlockKnowledge::Known(BlockKnownError) if the block is in the store
+    ///         BlockKnowledge::Unknown otherwise
+    pub fn check_block_known(&self, block_hash: &CryptoHash) -> BlockKnowledge {
+        let head = self.chain_store().head().unwrap();
         // Quick in-memory check for fast-reject any block handled recently.
         if block_hash == &head.last_block_hash || block_hash == &head.prev_block_hash {
-            return Ok(BlockKnowledge::Known(BlockKnownError::KnownInHead));
+            return BlockKnowledge::Known(BlockKnownError::KnownInHead);
         }
         if self.blocks_in_processing.contains(&BlockToApply::Normal(*block_hash)) {
-            return Ok(BlockKnowledge::Known(BlockKnownError::KnownInProcessing));
+            return BlockKnowledge::Known(BlockKnownError::KnownInProcessing);
         }
         // Check if this block is in the set of known orphans.
         if self.orphans.contains(block_hash) {
-            return Ok(BlockKnowledge::Known(BlockKnownError::KnownInOrphan));
+            return BlockKnowledge::Known(BlockKnownError::KnownInOrphan);
         }
         if self.blocks_with_missing_chunks.contains(block_hash) {
-            return Ok(BlockKnowledge::Known(BlockKnownError::KnownInMissingChunks));
+            return BlockKnowledge::Known(BlockKnownError::KnownInMissingChunks);
         }
         if self.is_block_invalid(block_hash) {
-            return Ok(BlockKnowledge::Known(BlockKnownError::KnownAsInvalid));
+            return BlockKnowledge::Known(BlockKnownError::KnownAsInvalid);
         }
         self.check_block_known_store(block_hash)
     }
 
-    /// Check if block header is known.
-    /// Returns Err(Error) if any error occurs when checking store
-    ///         Ok(Err(BlockKnownError)) if the block header is known
-    ///         Ok(Ok()) otherwise
-    pub fn check_block_header_known(&self, header: &BlockHeader) -> Result<BlockKnowledge, Error> {
-        let header_head = self.chain_store().header_head()?;
+    /// Check if this block is in the store already.
+    /// Returns BlockKnowledge::Known(BlockKnownError) if the block is in the store
+    ///         BlockKnowledge::Unknown otherwise
+    pub fn check_block_header_known(&self, header: &BlockHeader) -> BlockKnowledge {
+        let header_head = self.chain_store().header_head().unwrap();
         if header.hash() == &header_head.last_block_hash
             || header.hash() == &header_head.prev_block_hash
         {
-            return Ok(BlockKnowledge::Known(BlockKnownError::KnownInHeader));
+            return BlockKnowledge::Known(BlockKnownError::KnownInHeader);
         }
         self.check_block_known_store(header.hash())
     }
 
     /// Check if this block is in the store already.
-    /// Returns Err(Error) if any error occurs when checking store
-    ///         Ok(Err(BlockKnownError)) if the block is in the store
-    ///         Ok(Ok()) otherwise
-    fn check_block_known_store(&self, block_hash: &CryptoHash) -> Result<BlockKnowledge, Error> {
-        if self.chain_store().block_exists(block_hash)? {
-            Ok(BlockKnowledge::Known(BlockKnownError::KnownInStore))
+    /// Returns BlockKnowledge::Known(BlockKnownError) if the block is in the store
+    ///         BlockKnowledge::Unknown otherwise
+    fn check_block_known_store(&self, block_hash: &CryptoHash) -> BlockKnowledge {
+        if self.chain_store().block_exists(block_hash) {
+            BlockKnowledge::Known(BlockKnownError::KnownInStore)
         } else {
             // Not yet processed this block, we can proceed.
-            Ok(BlockKnowledge::Unknown)
+            BlockKnowledge::Unknown
         }
     }
 }
@@ -3682,7 +3690,7 @@ impl Chain {
 
     /// Check if block exists.
     #[inline]
-    pub fn block_exists(&self, hash: &CryptoHash) -> Result<bool, Error> {
+    pub fn block_exists(&self, hash: &CryptoHash) -> bool {
         self.chain_store.block_exists(hash)
     }
 
@@ -3799,7 +3807,7 @@ impl Chain {
     }
 
     #[inline]
-    pub fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error> {
+    pub fn is_height_processed(&self, height: BlockHeight) -> bool {
         self.chain_store.is_height_processed(height)
     }
 

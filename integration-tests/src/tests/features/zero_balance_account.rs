@@ -22,11 +22,15 @@ use crate::env::test_env::TestEnv;
 fn assert_zero_balance_account(env: &TestEnv, account_id: &AccountId) {
     let head = env.clients[0].chain.head().unwrap();
     let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+    let prev_chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(head_block.header().prev_hash(), &ShardUId::single_shard())
+        .unwrap();
     let response = env.clients[0]
         .runtime_adapter
         .query(
             ShardUId::single_shard(),
-            &head_block.chunks()[0].prev_state_root(),
+            prev_chunk_extra.state_root(),
             head.height,
             0,
             &head.prev_block_hash,
@@ -47,12 +51,11 @@ fn assert_zero_balance_account(env: &TestEnv, account_id: &AccountId) {
 /// Test 2 things: 1) a valid zero balance account can be created and 2) a nonzero balance account
 /// (one with a nontrivial contract deployed) cannot be created without maintaining an initial balance
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_zero_balance_account_creation() {
     let epoch_length = 1000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
@@ -116,12 +119,13 @@ fn test_zero_balance_account_creation() {
 /// it has to pay for storage cost of the account structure and the keys that
 /// it didn't have to pay while it was a zero balance account.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_zero_balance_account_add_key() {
     let epoch_length = 1000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     // create free runtime config for transaction costs to make it easier to assert
     // the exact amount of tokens on accounts
     let mut runtime_config = RuntimeConfig::free();
@@ -199,7 +203,6 @@ fn test_zero_balance_account_add_key() {
         &new_signer,
         actions,
         *genesis_block.hash(),
-        0,
     );
     assert_eq!(
         env.rpc_handlers[0].process_tx(add_key_tx, false, false),
@@ -233,7 +236,6 @@ fn test_zero_balance_account_add_key() {
             public_key: keys.last().unwrap().clone(),
         }))],
         *genesis_block.hash(),
-        0,
     );
     assert_eq!(
         env.rpc_handlers[0].process_tx(delete_key_tx, false, false),

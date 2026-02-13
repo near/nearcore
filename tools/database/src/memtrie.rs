@@ -60,10 +60,9 @@ impl LoadMemTrieCommand {
         let genesis_config = &near_config.genesis.config;
         // Note: this is not necessarily correct; it's just an estimate of the shard layout,
         // so that users of this tool doesn't have to specify the full shard UID.
-        let head =
-            store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap().unwrap().last_block_hash;
+        let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap().last_block_hash;
         let block_header = store
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, &borsh::to_vec(&head).unwrap())?
+            .get_ser::<BlockHeader>(DBCol::BlockHeader, &borsh::to_vec(&head).unwrap())
             .ok_or_else(|| anyhow::anyhow!("Block header not found"))?;
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &genesis_config, Some(home));
@@ -506,7 +505,7 @@ impl ArchivalDataLossRecoveryCommand {
                 rc_aware_set(&mut transaction, DBCol::State, key, value);
             }
         }
-        cold_db.write(transaction)?;
+        cold_db.write(transaction);
 
         Ok(())
     }

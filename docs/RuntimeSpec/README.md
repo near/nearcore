@@ -25,5 +25,5 @@ This chapter covers the NEAR Protocol runtime specification.
   - [Runtime](./Runtime.md)
   - [Transactions](./Transactions.md)
   - [Scenarios](./Scenarios/Scenarios.md)
-    - [Cross-ContractCall](./Scenarios/CrossContractCall.md)
     - [Financial Transaction](./Scenarios/FinancialTransaction.md)
+    - [Cross-ContractCall](./Scenarios/CrossContractCall.md)

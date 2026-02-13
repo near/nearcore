@@ -11,6 +11,7 @@ use near_primitives::shard_layout::{ShardInfo, ShardLayout};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
+use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
@@ -21,7 +22,7 @@ use near_primitives::views::EpochValidatorInfo;
 use near_store::ShardUId;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// A trait that abstracts the interface of the EpochManager. The two
@@ -98,8 +99,21 @@ pub trait EpochManagerAdapter: Send + Sync {
         }
     }
 
-    /// Returns true, if the block with the given `parent_hash` is last block in its epoch.
-    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError>;
+    /// Returns true, if the block with the given `block_hash` is the last block in its epoch.
+    fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError>;
+
+    /// Returns true if the block after the one being produced will belong to a new epoch.
+    ///
+    /// Parameters:
+    ///  - `block_height`: the height of the block being produced
+    ///  - `parent_hash`: hash of the parent block (the block we're building on top of)
+    ///  - `last_final_block_hash`: hash of the last final block after this block is produced
+    fn is_produced_block_last_in_epoch(
+        &self,
+        block_height: BlockHeight,
+        parent_hash: &CryptoHash,
+        last_final_block_hash: &CryptoHash,
+    ) -> Result<bool, EpochError>;
 
     /// Get epoch id given hash of previous block.
     fn get_epoch_id_from_prev_block(
@@ -770,6 +784,25 @@ pub trait EpochManagerAdapter: Send + Sync {
 
         Ok(result)
     }
+
+    /// Get the shard split to include in the block header, if any.
+    ///
+    /// This method is expected to be called during the production of the last block of an epoch.
+    /// The returned split should be included in the header of the produced block. It will be used
+    /// to derive layout for epoch `N+2` (where `N` is the current epoch).
+    ///
+    /// Parameters:
+    ///  - `protocol_version`: protocol version of the current epoch
+    ///  - `parent_hash`: hash of the parent of the block being produced
+    ///  - `proposed_splits`: mapping containing all proposed shard splits from chunk headers
+    ///
+    /// Returns `Some((shard_id, boundary_account))` if a shard split should be scheduled.
+    fn get_upcoming_shard_split(
+        &self,
+        protocol_version: ProtocolVersion,
+        parent_hash: &CryptoHash,
+        proposed_splits: &HashMap<ShardId, TrieSplit>,
+    ) -> Result<Option<(ShardId, AccountId)>, EpochError>;
 }
 
 impl EpochManagerAdapter for EpochManagerHandle {
@@ -810,9 +843,23 @@ impl EpochManagerAdapter for EpochManagerHandle {
         self.read().get_shard_layout(epoch_id)
     }
 
-    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
+    fn is_next_block_epoch_start(&self, block_hash: &CryptoHash) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.is_next_block_epoch_start(parent_hash)
+        epoch_manager.is_next_block_epoch_start(block_hash)
+    }
+
+    fn is_produced_block_last_in_epoch(
+        &self,
+        block_height: BlockHeight,
+        parent_hash: &CryptoHash,
+        last_final_block_hash: &CryptoHash,
+    ) -> Result<bool, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.is_produced_block_last_in_epoch(
+            block_height,
+            parent_hash,
+            last_final_block_hash,
+        )
     }
 
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
@@ -826,7 +873,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> ShardLayout {
         debug_assert!(!ProtocolFeature::DynamicResharding.enabled(protocol_version));
         let epoch_manager = self.read();
-        epoch_manager.get_epoch_config(protocol_version).legacy_shard_layout()
+        epoch_manager.get_epoch_config(protocol_version).static_shard_layout()
     }
 
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
@@ -923,5 +970,15 @@ impl EpochManagerAdapter for EpochManagerHandle {
             next_epoch_id,
             next_epoch_info,
         )
+    }
+
+    fn get_upcoming_shard_split(
+        &self,
+        protocol_version: ProtocolVersion,
+        parent_hash: &CryptoHash,
+        proposed_splits: &HashMap<ShardId, TrieSplit>,
+    ) -> Result<Option<(ShardId, AccountId)>, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.get_upcoming_shard_split(protocol_version, parent_hash, proposed_splits)
     }
 }

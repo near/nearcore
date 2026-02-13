@@ -9,8 +9,8 @@ use crate::{
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives_core::account::{AccessKey, AccessKeyPermission};
-use near_primitives_core::types::{AccountId, Balance, Gas, NonceIndex};
+use near_primitives_core::account::AccessKey;
+use near_primitives_core::types::{AccountId, Balance, Gas};
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -289,40 +289,7 @@ pub struct TransferAction {
     pub deposit: Balance,
 }
 
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    PartialEq,
-    Eq,
-    Clone,
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-    ProtocolSchema,
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct AddGasKeyAction {
-    pub public_key: PublicKey,
-    pub num_nonces: NonceIndex,
-    pub permission: AccessKeyPermission,
-}
-
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    PartialEq,
-    Eq,
-    Clone,
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-    ProtocolSchema,
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct DeleteGasKeyAction {
-    pub public_key: PublicKey,
-}
-
+/// Transfer NEAR to a gas key's balance
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -336,8 +303,33 @@ pub struct DeleteGasKeyAction {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct TransferToGasKeyAction {
+    /// The public key of the gas key to fund
     pub public_key: PublicKey,
+    /// Amount of NEAR to transfer to the gas key
     pub deposit: Balance,
+}
+
+/// Withdraw NEAR from a gas key's balance to the account.
+///
+/// This action must only be available via transactions, not via contract execution
+/// (there is no corresponding promise batch action host function).
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct WithdrawFromGasKeyAction {
+    /// The public key of the gas key to withdraw from
+    pub public_key: PublicKey,
+    /// Amount of NEAR to transfer from the gas key
+    pub amount: Balance,
 }
 
 #[derive(
@@ -372,9 +364,8 @@ pub enum Action {
     DeployGlobalContract(DeployGlobalContractAction) = 9,
     UseGlobalContract(Box<UseGlobalContractAction>) = 10,
     DeterministicStateInit(Box<DeterministicStateInitAction>) = 11,
-    AddGasKey(Box<AddGasKeyAction>) = 12,
-    DeleteGasKey(Box<DeleteGasKeyAction>) = 13,
-    TransferToGasKey(Box<TransferToGasKeyAction>) = 14,
+    TransferToGasKey(Box<TransferToGasKeyAction>) = 12,
+    WithdrawFromGasKey(Box<WithdrawFromGasKeyAction>) = 13,
 }
 
 const _: () = assert!(
@@ -396,8 +387,8 @@ impl Action {
         match self {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
-            Action::TransferToGasKey(a) => a.deposit,
             Action::DeterministicStateInit(a) => a.deposit,
+            Action::TransferToGasKey(a) => a.deposit,
             _ => Balance::ZERO,
         }
     }
@@ -454,5 +445,17 @@ impl From<DeleteKeyAction> for Action {
 impl From<DeleteAccountAction> for Action {
     fn from(delete_account_action: DeleteAccountAction) -> Self {
         Self::DeleteAccount(delete_account_action)
+    }
+}
+
+impl From<TransferToGasKeyAction> for Action {
+    fn from(action: TransferToGasKeyAction) -> Self {
+        Self::TransferToGasKey(Box::new(action))
+    }
+}
+
+impl From<WithdrawFromGasKeyAction> for Action {
+    fn from(action: WithdrawFromGasKeyAction) -> Self {
+        Self::WithdrawFromGasKey(Box::new(action))
     }
 }

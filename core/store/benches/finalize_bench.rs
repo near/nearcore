@@ -49,9 +49,11 @@ fn benchmark_write_shard_chunk(bench: &mut Bencher) {
     let store = near_store::test_utils::create_test_store();
     bench.iter(|| {
         let mut update = store.store_update();
-        update
-            .insert_ser(DBCol::Chunks, chunk_hash.as_ref(), &chunks.choose(&mut rand::thread_rng()))
-            .unwrap();
+        update.insert_ser(
+            DBCol::Chunks,
+            chunk_hash.as_ref(),
+            &chunks.choose(&mut rand::thread_rng()),
+        );
         black_box(update);
     });
 }
@@ -73,13 +75,11 @@ fn benchmark_write_partial_encoded_chunk(bench: &mut Bencher) {
     let store = near_store::test_utils::create_test_store();
     bench.iter(|| {
         let mut update = store.store_update();
-        update
-            .insert_ser(
-                DBCol::PartialChunks,
-                chunk_hash.as_ref(),
-                &chunks.choose(&mut rand::thread_rng()),
-            )
-            .unwrap();
+        update.insert_ser(
+            DBCol::PartialChunks,
+            chunk_hash.as_ref(),
+            &chunks.choose(&mut rand::thread_rng()),
+        );
         black_box(update);
     });
 }
@@ -143,7 +143,9 @@ fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
             vec![],
             Default::default(),
             BandwidthRequests::empty(),
+            None,
             &validator_signer(),
+            PROTOCOL_VERSION,
         ))
     }
 }
@@ -226,8 +228,10 @@ fn create_encoded_shard_chunk(
             Default::default(),
             Default::default(),
             BandwidthRequests::empty(),
+            None,
             &validator_signer(),
             &rs,
+            PROTOCOL_VERSION,
         )
     }
 }
@@ -241,7 +245,7 @@ fn encoded_chunk_to_partial_encoded_chunk(
     let shard_id = header.shard_id();
 
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let shard_layout = epoch_config_store.get_config(PROTOCOL_VERSION).legacy_shard_layout();
+    let shard_layout = epoch_config_store.get_config(PROTOCOL_VERSION).static_shard_layout();
 
     let hashes = Chain::build_receipts_hashes(&receipts, &shard_layout).unwrap();
     let (_root, proofs) = merklize(&hashes);

@@ -34,11 +34,9 @@ impl FlatStoreAdapter {
         FlatStoreUpdateAdapter { store_update: StoreUpdateHolder::Owned(self.store.store_update()) }
     }
 
-    pub fn exists(&self, shard_uid: ShardUId, key: &[u8]) -> Result<bool, FlatStorageError> {
+    pub fn exists(&self, shard_uid: ShardUId, key: &[u8]) -> bool {
         let db_key = encode_flat_state_db_key(shard_uid, key);
-        self.store.exists(DBCol::FlatState, &db_key).map_err(|err| {
-            FlatStorageError::StorageInternalError(format!("failed to read FlatState value: {err}"))
-        })
+        self.store.exists(DBCol::FlatState, &db_key)
     }
 
     pub fn get(
@@ -47,23 +45,17 @@ impl FlatStoreAdapter {
         key: &[u8],
     ) -> Result<Option<FlatStateValue>, FlatStorageError> {
         let db_key = encode_flat_state_db_key(shard_uid, key);
-        self.store.get_ser(DBCol::FlatState, &db_key).map_err(|err| {
-            FlatStorageError::StorageInternalError(format!("failed to read FlatState value: {err}"))
-        })
+        Ok(self.store.get_ser(DBCol::FlatState, &db_key))
     }
 
     pub fn get_flat_storage_status(
         &self,
         shard_uid: ShardUId,
     ) -> Result<FlatStorageStatus, FlatStorageError> {
-        self.store
+        Ok(self
+            .store
             .get_ser(DBCol::FlatStorageStatus, &shard_uid.to_bytes())
-            .map(|status| status.unwrap_or(FlatStorageStatus::Empty))
-            .map_err(|err| {
-                FlatStorageError::StorageInternalError(format!(
-                    "failed to read flat storage status: {err}"
-                ))
-            })
+            .unwrap_or(FlatStorageStatus::Empty))
     }
 
     pub fn get_delta(
@@ -72,29 +64,18 @@ impl FlatStoreAdapter {
         block_hash: CryptoHash,
     ) -> Result<Option<FlatStateChanges>, FlatStorageError> {
         let key = KeyForFlatStateDelta { shard_uid, block_hash };
-        self.store.get_ser::<FlatStateChanges>(DBCol::FlatStateChanges, &key.to_bytes()).map_err(
-            |err| {
-                FlatStorageError::StorageInternalError(format!(
-                    "failed to read delta changes for {key:?}: {err}"
-                ))
-            },
-        )
+        Ok(self.store.get_ser::<FlatStateChanges>(DBCol::FlatStateChanges, &key.to_bytes()))
     }
 
     pub fn get_all_deltas_metadata(
         &self,
         shard_uid: ShardUId,
     ) -> Result<Vec<FlatStateDeltaMetadata>, FlatStorageError> {
-        self.store
+        Ok(self
+            .store
             .iter_prefix_ser(DBCol::FlatStateDeltaMetadata, &shard_uid.to_bytes())
-            .map(|res| {
-                res.map(|(_, value)| value).map_err(|err| {
-                    FlatStorageError::StorageInternalError(format!(
-                        "failed to read delta metadata: {err}"
-                    ))
-                })
-            })
-            .collect()
+            .map(|(_, value)| value)
+            .collect())
     }
 
     pub fn get_prev_block_with_changes(
@@ -105,11 +86,7 @@ impl FlatStoreAdapter {
     ) -> Result<Option<BlockWithChangesInfo>, FlatStorageError> {
         let key = KeyForFlatStateDelta { shard_uid, block_hash: prev_hash }.to_bytes();
         let prev_delta_metadata: Option<FlatStateDeltaMetadata> =
-            self.store.get_ser(DBCol::FlatStateDeltaMetadata, &key).map_err(|err| {
-                FlatStorageError::StorageInternalError(format!(
-                    "failed to read delta metadata for {key:?}: {err}"
-                ))
-            })?;
+            self.store.get_ser(DBCol::FlatStateDeltaMetadata, &key);
 
         let prev_block_with_changes = match prev_delta_metadata {
             None => {
@@ -172,8 +149,8 @@ impl FlatStoreAdapter {
         let iter = self
             .store
             .iter_range(DBCol::FlatState, Some(&db_key_from), Some(&db_key_to))
-            .map(|result| match result {
-                Ok((key, value)) => Ok((
+            .map(|(key, value)| {
+                Ok((
                     decode_flat_state_db_key(&key)
                         .map_err(|err| {
                             FlatStorageError::StorageInternalError(format!(
@@ -186,10 +163,7 @@ impl FlatStoreAdapter {
                             "invalid FlatState value format: {err}"
                         ))
                     })?,
-                )),
-                Err(err) => Err(FlatStorageError::StorageInternalError(format!(
-                    "FlatState iterator error: {err}"
-                ))),
+                ))
             });
         Box::new(iter)
     }
@@ -206,9 +180,9 @@ impl Into<StoreUpdate> for FlatStoreUpdateAdapter<'static> {
 }
 
 impl FlatStoreUpdateAdapter<'static> {
-    pub fn commit(self) -> io::Result<()> {
+    pub fn commit(self) {
         let store_update: StoreUpdate = self.into();
-        store_update.commit()
+        store_update.commit();
     }
 }
 
@@ -226,10 +200,7 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
     pub fn set(&mut self, shard_uid: ShardUId, key: Vec<u8>, value: Option<FlatStateValue>) {
         let db_key = encode_flat_state_db_key(shard_uid, &key);
         match value {
-            Some(value) => self
-                .store_update
-                .set_ser(DBCol::FlatState, &db_key, &value)
-                .expect("Borsh should not have failed here"),
+            Some(value) => self.store_update.set_ser(DBCol::FlatState, &db_key, &value),
             None => self.store_update.delete(DBCol::FlatState, &db_key),
         }
     }
@@ -239,9 +210,7 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
     }
 
     pub fn set_flat_storage_status(&mut self, shard_uid: ShardUId, status: FlatStorageStatus) {
-        self.store_update
-            .set_ser(DBCol::FlatStorageStatus, &shard_uid.to_bytes(), &status)
-            .expect("Borsh should not have failed here")
+        self.store_update.set_ser(DBCol::FlatStorageStatus, &shard_uid.to_bytes(), &status);
     }
 
     pub fn remove_status(&mut self, shard_uid: ShardUId) {
@@ -251,12 +220,8 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
     pub fn set_delta(&mut self, shard_uid: ShardUId, delta: &FlatStateDelta) {
         let key =
             KeyForFlatStateDelta { shard_uid, block_hash: delta.metadata.block.hash }.to_bytes();
-        self.store_update
-            .set_ser(DBCol::FlatStateChanges, &key, &delta.changes)
-            .expect("Borsh should not have failed here");
-        self.store_update
-            .set_ser(DBCol::FlatStateDeltaMetadata, &key, &delta.metadata)
-            .expect("Borsh should not have failed here");
+        self.store_update.set_ser(DBCol::FlatStateChanges, &key, &delta.changes);
+        self.store_update.set_ser(DBCol::FlatStateDeltaMetadata, &key, &delta.metadata);
     }
 
     pub fn remove_delta(&mut self, shard_uid: ShardUId, block_hash: CryptoHash) {
@@ -329,7 +294,7 @@ mod tests {
                 Some(FlatStateValue::inlined(&val)),
             );
 
-            store_update.commit().unwrap();
+            store_update.commit();
         }
 
         for (i, shard_uid) in shard_uids.iter().enumerate() {

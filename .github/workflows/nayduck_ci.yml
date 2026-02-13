@@ -86,7 +86,7 @@ jobs:
 
   pytest_tests:
     name: "Large pytest Tests"
-    runs-on: warp-ubuntu-2204-x64-8x
+    runs-on: warp-ubuntu-2404-x64-8x
     if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4

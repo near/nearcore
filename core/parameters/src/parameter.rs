@@ -208,7 +208,6 @@ pub enum Parameter {
     VmKind,
     EthImplicitAccounts,
     DiscardCustomSections,
-    SaturatingFloatToInt,
     ReftypesBulkMemory,
 
     // Congestion Control
@@ -244,12 +243,6 @@ pub enum Parameter {
 
     // Flag to enabled deterministic account ids
     DeterministicAccountIds,
-
-    // Dynamic resharding
-    MemoryUsageThreshold,
-    MinChildMemoryUsage,
-    MaxNumberOfShards,
-    MinEpochsBetweenResharding,
 }
 
 #[derive(

@@ -60,7 +60,7 @@ pub struct SpiceBlockBodyV3 {
     pub vrf_value: Value,
     pub vrf_proof: Proof,
 
-    pub core_statements: Vec<SpiceCoreStatement>,
+    pub core_statements: SpiceCoreStatements,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
@@ -75,6 +75,50 @@ impl SpiceCoreStatement {
             SpiceCoreStatement::Endorsement(endorsement) => endorsement.chunk_id(),
             SpiceCoreStatement::ChunkExecutionResult { chunk_id, .. } => &chunk_id,
         }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
+pub struct SpiceCoreStatements(Vec<SpiceCoreStatement>);
+
+impl SpiceCoreStatements {
+    pub fn empty() -> &'static Self {
+        static EMPTY: SpiceCoreStatements = SpiceCoreStatements(Vec::new());
+        &EMPTY
+    }
+
+    pub fn new(statements: Vec<SpiceCoreStatement>) -> Self {
+        Self(statements)
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, SpiceCoreStatement> {
+        self.0.iter()
+    }
+
+    pub fn iter_execution_results(
+        &self,
+    ) -> impl Iterator<Item = (&SpiceChunkId, &ChunkExecutionResult)> {
+        self.0.iter().filter_map(|s| match s {
+            SpiceCoreStatement::ChunkExecutionResult { chunk_id, execution_result } => {
+                Some((chunk_id, execution_result))
+            }
+            _ => None,
+        })
+    }
+
+    pub fn iter_endorsements(&self) -> impl Iterator<Item = &SpiceEndorsementCoreStatement> {
+        self.0.iter().filter_map(|s| match s {
+            SpiceCoreStatement::Endorsement(e) => Some(e),
+            _ => None,
+        })
+    }
+}
+
+impl<'a> IntoIterator for &'a SpiceCoreStatements {
+    type Item = &'a SpiceCoreStatement;
+    type IntoIter = std::slice::Iter<'a, SpiceCoreStatement>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
     }
 }
 
@@ -108,7 +152,7 @@ impl BlockBody {
         chunks: Vec<ShardChunkHeader>,
         vrf_value: Value,
         vrf_proof: Proof,
-        core_statements: Vec<SpiceCoreStatement>,
+        core_statements: SpiceCoreStatements,
     ) -> Self {
         BlockBody::V3(SpiceBlockBodyV3 { chunks, vrf_value, vrf_proof, core_statements })
     }
@@ -150,9 +194,9 @@ impl BlockBody {
     }
 
     #[inline]
-    pub fn spice_core_statements(&self) -> &[SpiceCoreStatement] {
+    pub fn spice_core_statements(&self) -> &SpiceCoreStatements {
         match self {
-            BlockBody::V1(_) | BlockBody::V2(_) => &[],
+            BlockBody::V1(_) | BlockBody::V2(_) => SpiceCoreStatements::empty(),
             BlockBody::V3(body) => &body.core_statements,
         }
     }

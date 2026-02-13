@@ -115,8 +115,6 @@ pub(crate) enum ContractAccountError {
     MissingOutgoingReceipt(CryptoHash),
     #[error("failed loading contract code for account {1}")]
     NoCode(#[source] StorageError, AccountId),
-    #[error("failed parsing a value in col {1}")]
-    UnparsableValue(#[source] std::io::Error, DBCol),
 }
 
 /// List of supported actions to filter for.
@@ -139,9 +137,8 @@ pub(crate) enum ActionType {
     DeployGlobalContract,
     UseGlobalContract,
     DeterministicStateInit,
-    AddGasKey,
-    DeleteGasKey,
     TransferToGasKey,
+    WithdrawFromGasKey,
 }
 
 impl ContractAccount {
@@ -286,13 +283,12 @@ impl<T: Iterator<Item = Result<ContractAccount>>> Summary for T {
 /// processing receipts that would come later. Changes made to the action set by
 /// already processed receipts will not be reverted.
 fn try_find_actions_spawned_by_receipt(
-    raw_kv_pair: std::io::Result<(Box<[u8]>, Box<[u8]>)>,
+    raw_kv_pair: (Box<[u8]>, Box<[u8]>),
     accounts: &mut BTreeMap<AccountId, ContractInfo>,
     store: &Store,
     filter: &ContractAccountFilter,
 ) -> Result<()> {
-    let (raw_key, raw_value) =
-        raw_kv_pair.map_err(|e| ContractAccountError::UnparsableValue(e, DBCol::Receipts))?;
+    let (raw_key, raw_value) = raw_kv_pair;
     // key: receipt id (CryptoHash)
     let key = CryptoHash::deserialize(&mut raw_value.as_ref())
         .map_err(|e| ContractAccountError::InvalidKey(e, raw_key.to_vec()))?;
@@ -315,21 +311,17 @@ fn try_find_actions_spawned_by_receipt(
             *entry.receipts_in.get_or_insert(0) += 1;
         }
         // next, check the execution results (one for each block in case of forks)
-        for pair in store.iter_prefix_ser::<ExecutionOutcomeWithProof>(
+        for (_key, outcome) in store.iter_prefix_ser::<ExecutionOutcomeWithProof>(
             DBCol::TransactionResultForBlock,
             &raw_key,
         ) {
-            let (_key, outcome) = pair.map_err(|e| {
-                ContractAccountError::UnparsableValue(e, DBCol::TransactionResultForBlock)
-            })?;
             if filter.receipts_out {
                 *entry.receipts_out.get_or_insert(0) += outcome.outcome.receipt_ids.len();
             }
             if filter.actions {
                 for outgoing_receipt_id in &outcome.outcome.receipt_ids {
-                    let maybe_outgoing_receipt: Option<Receipt> = store
-                        .get_ser(near_store::DBCol::Receipts, outgoing_receipt_id.as_bytes())
-                        .map_err(|e| ContractAccountError::UnparsableValue(e, DBCol::Receipts))?;
+                    let maybe_outgoing_receipt: Option<Receipt> =
+                        store.get_ser(near_store::DBCol::Receipts, outgoing_receipt_id.as_bytes());
                     let outgoing_receipt = maybe_outgoing_receipt.ok_or({
                         ContractAccountError::MissingOutgoingReceipt(*outgoing_receipt_id)
                     })?;
@@ -373,9 +365,8 @@ fn map_action(action: &Action) -> ActionType {
         Action::DeployGlobalContract(_) => ActionType::DeployGlobalContract,
         Action::UseGlobalContract(_) => ActionType::UseGlobalContract,
         Action::DeterministicStateInit(_) => ActionType::DeterministicStateInit,
-        Action::AddGasKey(_) => ActionType::AddGasKey,
-        Action::DeleteGasKey(_) => ActionType::DeleteGasKey,
         Action::TransferToGasKey(_) => ActionType::TransferToGasKey,
+        Action::WithdrawFromGasKey(_) => ActionType::WithdrawFromGasKey,
     }
 }
 

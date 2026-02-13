@@ -173,7 +173,7 @@ fn test_snapshot_recovery() {
         let store = opener.open().unwrap().get_hot_store();
         let mut update = store.store_update();
         update.set_raw_bytes(COL, KEY, b"value");
-        update.commit().unwrap();
+        update.commit();
     }
 
     // Create snapshot
@@ -185,9 +185,9 @@ fn test_snapshot_recovery() {
         let store = opener.open().unwrap().get_hot_store();
         let mut update = store.store_update();
         update.delete(COL, KEY);
-        update.commit().unwrap();
+        update.commit();
 
-        assert_eq!(None, store.get(COL, KEY).unwrap());
+        assert_eq!(None, store.get(COL, KEY));
     }
 
     // Open snapshot.  Deleted data should be there.
@@ -196,7 +196,7 @@ fn test_snapshot_recovery() {
         config.path = Some(path);
         let opener = crate::NodeStorage::opener(tmpdir.path(), &config, None, None);
         let store = opener.open().unwrap().get_hot_store();
-        assert_eq!(Some(&b"value"[..]), store.get(COL, KEY).unwrap().as_deref());
+        assert_eq!(Some(&b"value"[..]), store.get(COL, KEY).as_deref());
     }
 
     snapshot.remove().unwrap();

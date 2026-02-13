@@ -92,8 +92,7 @@ nodes = start_cluster(
     2, 1, 1, None,
     [["epoch_length", EPOCH_LENGTH], ["num_block_producer_seats", 5],
      ["num_block_producer_seats_per_shard", [5]],
-     ["chunk_producer_kickout_threshold", 80],
-     ["transaction_validity_period", 100000]], {
+     ["chunk_producer_kickout_threshold", 80]], {
          0: client_config,
          1: client_config,
          2: archival_config
@@ -104,11 +103,11 @@ keys = [''.join(random.choices(string.ascii_lowercase, k=3)) for _ in range(20)]
 key_to_block_hash = {}
 nonce = 1
 time.sleep(1)
-block_id = nodes[1].get_latest_block(check_storage=False)
 
 # insert all accounts
 for key in keys:
     print(f"inserting {key}")
+    block_id = nodes[1].get_latest_block(check_storage=False)
     tx = sign_create_account_with_full_access_key_and_balance_tx(
         nodes[0].signer_key, f"{key}.{nodes[0].signer_key.account_id}",
         nodes[0].signer_key, NEAR_BASE, nonce, block_id.hash_bytes)

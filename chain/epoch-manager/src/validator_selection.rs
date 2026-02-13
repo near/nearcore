@@ -5,7 +5,8 @@ use near_primitives::errors::EpochError;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, NumShards, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
+    AccountId, Balance, EpochHeight, NumShards, ProtocolVersion, ValidatorId,
+    ValidatorKickoutReason,
 };
 use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
 use num_rational::Ratio;
@@ -173,6 +174,7 @@ pub fn proposals_to_epoch_info(
     protocol_version: ProtocolVersion,
     shard_layout: ShardLayout,
     use_stable_shard_assignment: bool,
+    last_resharding: Option<EpochHeight>,
 ) -> Result<EpochInfo, EpochError> {
     debug_assert!(
         proposals.iter().map(|stake| stake.account_id()).collect::<HashSet<_>>().len()
@@ -271,6 +273,7 @@ pub fn proposals_to_epoch_info(
         rng_seed,
         validator_mandates,
         shard_layout,
+        last_resharding,
     ))
 }
 
@@ -451,6 +454,7 @@ mod tests {
             PROTOCOL_VERSION,
             shard_layout,
             false,
+            None,
         )
         .unwrap();
 
@@ -521,6 +525,7 @@ mod tests {
             PROTOCOL_VERSION,
             shard_layout,
             false,
+            None,
         )
         .unwrap();
 
@@ -609,6 +614,7 @@ mod tests {
             PROTOCOL_VERSION,
             shard_layout.clone(),
             false,
+            None,
         )
         .unwrap();
         let epoch_info_no_shuffling_different_seed = proposals_to_epoch_info(
@@ -622,6 +628,7 @@ mod tests {
             PROTOCOL_VERSION,
             shard_layout.clone(),
             false,
+            None,
         )
         .unwrap();
 
@@ -637,6 +644,7 @@ mod tests {
             PROTOCOL_VERSION,
             shard_layout.clone(),
             false,
+            None,
         )
         .unwrap();
         let epoch_info_with_shuffling_different_seed = proposals_to_epoch_info(
@@ -650,6 +658,7 @@ mod tests {
             PROTOCOL_VERSION,
             shard_layout,
             false,
+            None,
         )
         .unwrap();
 
@@ -707,6 +716,7 @@ mod tests {
             PROTOCOL_VERSION,
             shard_layout,
             false,
+            None,
         )
         .unwrap();
 
@@ -751,6 +761,7 @@ mod tests {
             PROTOCOL_VERSION,
             shard_layout.clone(),
             false,
+            None,
         )
         .unwrap();
 
@@ -786,6 +797,7 @@ mod tests {
             PROTOCOL_VERSION,
             shard_layout.clone(),
             false,
+            None,
         )
         .unwrap();
 
@@ -842,6 +854,7 @@ mod tests {
             PROTOCOL_VERSION,
             shard_layout,
             false,
+            None,
         )
         .unwrap();
 
@@ -927,6 +940,7 @@ mod tests {
             PROTOCOL_VERSION,
             shard_layout.clone(),
             false,
+            None,
         )
         .unwrap();
 
@@ -971,6 +985,7 @@ mod tests {
             PROTOCOL_VERSION,
             shard_layout.clone(),
             false,
+            None,
         )
         .unwrap();
         assert_eq!(num_validators + 1, epoch_info.validators_iter().len());
@@ -995,6 +1010,7 @@ mod tests {
             PROTOCOL_VERSION,
             shard_layout,
             false,
+            None,
         )
         .unwrap();
         assert_eq!(num_validators, epoch_info.validators_iter().len());
@@ -1029,6 +1045,7 @@ mod tests {
             PROTOCOL_VERSION,
             shard_layout,
             false,
+            None,
         )
         .unwrap();
 
@@ -1066,6 +1083,7 @@ mod tests {
             PROTOCOL_VERSION,
             shard_layout,
             false,
+            None,
         )
         .unwrap();
 

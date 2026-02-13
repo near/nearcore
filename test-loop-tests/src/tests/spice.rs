@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -6,19 +6,22 @@ use itertools::Itertools;
 use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_chain::spice_core::get_last_certified_block_header;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
-use near_client::{ProcessTxRequest, Query, ViewClientActor};
-use near_network::client::SpiceChunkEndorsementMessage;
-use near_network::types::NetworkRequests;
+use near_client::{GetBlock, ProcessTxRequest, Query, QueryError};
+use near_client_primitives::types::GetBlockError;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockReference};
-use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind};
-use parking_lot::{Mutex, RwLock};
+use near_primitives::types::{AccountId, Balance, BlockId, BlockReference, Finality, ShardId};
+use near_primitives::utils::get_block_shard_id_rev;
+use near_primitives::views::QueryRequest;
+use near_store::DBCol;
+use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreAdapter;
+use parking_lot::Mutex;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -29,6 +32,8 @@ use crate::utils::account::{
 use crate::utils::get_node_data;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{TransactionRunner, get_anchor_hash};
+
+use super::spice_utils::delay_endorsements_propagation;
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -68,7 +73,6 @@ fn test_spice_chain() {
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, INITIAL_BALANCE)
         .genesis_height(10000)
-        .transaction_validity_period(1000)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
@@ -87,14 +91,12 @@ fn test_spice_chain() {
     let client = &test_loop.data.get(&client_handles[0]).client;
     let epoch_manager = client.epoch_manager.clone();
 
-    let get_balance = |test_loop_data: &mut TestLoopData, account, epoch_id| {
+    let get_balance = |test_loop_data: &mut TestLoopData, account: &AccountId, epoch_id| {
         let shard_id = shard_layout.account_id_to_shard_id(account);
         let cp =
             &epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id).unwrap()[0];
-
-        let view_client_handle = get_node_data(&node_datas, cp).view_client_sender.actor_handle();
-        let view_client = test_loop_data.get_mut(&view_client_handle);
-        query_view_account(view_client, account.clone()).amount
+        let node = TestLoopNode::from(get_node_data(&node_datas, cp));
+        node.view_account_query(test_loop_data, account).amount
     };
 
     let epoch_id = client.chain.head().unwrap().epoch_id;
@@ -199,59 +201,123 @@ fn test_spice_chain_with_delayed_execution() {
     );
     node.run_tx(&mut env.test_loop, tx, Duration::seconds(10));
 
-    let view_client = env.test_loop.data.get_mut(&node.data().view_client_sender.actor_handle());
-    let view_account_result = query_view_account(view_client, receiver);
+    let view_account_result = node.view_account_query(&env.test_loop.data, &receiver);
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
-fn delay_endorsements_propagation(env: &mut TestLoopEnv, delay_height: u64) {
-    let core_writer_senders: HashMap<_, _> = env
-        .node_datas
-        .iter()
-        .map(|datas| (datas.account_id.clone(), datas.spice_core_writer_sender.clone()))
-        .collect();
+/// Sets up a spice env with delayed endorsements so execution lags behind
+/// consensus, and runs until there is a gap of at least 3 blocks.
+fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, TestLoopNode<'static>) {
+    let num_producers = 2;
+    let num_validators = 0;
+    let validators_spec = create_validators_spec(num_producers, num_validators);
+    let clients = validators_spec_clients(&validators_spec);
 
-    for node in &env.node_datas {
-        let senders = core_writer_senders.clone();
-        let block_heights: Arc<RwLock<HashMap<CryptoHash, BlockHeight>>> =
-            Arc::new(RwLock::new(HashMap::new()));
-        let delayed_endorsements: Arc<
-            RwLock<VecDeque<(CryptoHash, AccountId, SpiceChunkEndorsement)>>,
-        > = Arc::new(RwLock::new(VecDeque::new()));
-        let peer_actor = env.test_loop.data.get_mut(&node.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(Box::new(move |request| -> Option<NetworkRequests> {
-            match request {
-                NetworkRequests::Block { ref block } => {
-                    block_heights.write().insert(*block.hash(), block.header().height());
+    let genesis = TestLoopBuilder::new_genesis_builder().validators_spec(validators_spec).build();
 
-                    let mut delayed_endorsements = delayed_endorsements.write();
-                    loop {
-                        let Some(front) = delayed_endorsements.front() else {
-                            break;
-                        };
-                        let height = block_heights.read()[&front.0];
-                        if height + delay_height >= block.header().height() {
-                            break;
-                        }
-                        let (_, target, endorsement) = delayed_endorsements.pop_front().unwrap();
-                        senders[&target].send(SpiceChunkEndorsementMessage(endorsement));
-                    }
-                    Some(request)
-                }
-                NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
-                    delayed_endorsements.write().push_back((
-                        *endorsement.block_hash(),
-                        target,
-                        endorsement,
-                    ));
-                    None
-                }
-                _ => Some(request),
-            }
-        }));
-    }
+    let producer_account = clients[0].clone();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .build();
+
+    let execution_delay = 4;
+    delay_endorsements_propagation(&mut env, execution_delay);
+
+    let mut env = env.warmup();
+
+    let node = TestLoopNode::for_account(&env.node_datas, &producer_account).into_owned();
+
+    env.test_loop.run_until(
+        |test_loop_data| {
+            let head = node.head(test_loop_data);
+            let execution_head = node.last_executed(test_loop_data);
+            head.height > execution_head.height + 2
+        },
+        Duration::seconds(20),
+    );
+
+    (env, node)
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_rpc_get_block_by_finality() {
+    init_test_logger();
+    let (mut env, node) = setup_spice_env_with_execution_delay();
+
+    let test_loop_data = env.test_loop_data();
+    let execution_head = node.last_executed(test_loop_data);
+    let final_head = node.client(test_loop_data).chain.final_head().unwrap();
+
+    let view_client = env.test_loop.data.get_mut(&node.data().view_client_sender.actor_handle());
+    let block_none =
+        view_client.handle(GetBlock(BlockReference::Finality(Finality::None))).unwrap();
+    assert_eq!(block_none.header.height, execution_head.height);
+    let block_final =
+        view_client.handle(GetBlock(BlockReference::Finality(Finality::Final))).unwrap();
+    assert!(block_final.header.height <= execution_head.height);
+    assert!(block_final.header.height <= final_head.height);
+    let block_doomslug =
+        view_client.handle(GetBlock(BlockReference::Finality(Finality::DoomSlug))).unwrap();
+    assert!(block_doomslug.header.height <= execution_head.height);
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_rpc_unknown_block_past_execution_head() {
+    init_test_logger();
+    let (mut env, node) = setup_spice_env_with_execution_delay();
+
+    let test_loop_data = env.test_loop_data();
+    let execution_head = node.last_executed(test_loop_data);
+    let consensus_head = node.head(test_loop_data);
+    assert!(consensus_head.height > execution_head.height + 1);
+
+    let view_client = env.test_loop.data.get_mut(&node.data().view_client_sender.actor_handle());
+
+    // Query by height within execution head: should succeed
+    let result = view_client
+        .handle(GetBlock(BlockReference::BlockId(BlockId::Height(execution_head.height))));
+    assert!(result.is_ok(), "block at execution_head height should be found");
+
+    // Query by height past execution head: should return UnknownBlock
+    let result = view_client
+        .handle(GetBlock(BlockReference::BlockId(BlockId::Height(consensus_head.height))));
+    assert!(
+        matches!(result, Err(GetBlockError::UnknownBlock { .. })),
+        "block past execution_head should be unknown, got: {result:?}"
+    );
+
+    // Query by hash of the consensus head (not yet executed): should return UnknownBlock
+    let result = view_client
+        .handle(GetBlock(BlockReference::BlockId(BlockId::Hash(consensus_head.last_block_hash))));
+    assert!(
+        matches!(result, Err(GetBlockError::UnknownBlock { .. })),
+        "block at consensus_head hash should be unknown, got: {result:?}"
+    );
+
+    // Query by finality None: should succeed and return execution head
+    let block_none =
+        view_client.handle(GetBlock(BlockReference::Finality(Finality::None))).unwrap();
+    assert_eq!(block_none.header.height, execution_head.height);
+
+    // Query handle_query by height past execution head: should return UnknownBlock
+    let query_result = view_client.handle(Query::new(
+        BlockReference::BlockId(BlockId::Height(consensus_head.height)),
+        QueryRequest::ViewAccount { account_id: "account0".parse().unwrap() },
+    ));
+    assert!(
+        matches!(query_result, Err(QueryError::UnknownBlock { .. })),
+        "query past execution_head should be unknown block, got: {query_result:?}"
+    );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 #[test]
@@ -285,6 +351,96 @@ fn test_spice_garbage_collection() {
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+// TODO(spice-resharding): Add a test for witness GC during resharding.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_garbage_collection_witnesses() {
+    init_test_logger();
+
+    let num_producers = 2;
+    let num_validators = 0;
+    let validators_spec = create_validators_spec(num_producers, num_validators);
+    let clients = validators_spec_clients_with_rpc(&validators_spec);
+
+    let epoch_length = 5;
+    let shard_layout = ShardLayout::multi_shard(2, 0);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .validators_spec(validators_spec)
+        .shard_layout(shard_layout.clone())
+        .epoch_length(epoch_length)
+        .build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .gc_num_epochs_to_keep(1)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .build();
+
+    // We delay endorsements to simulate slow execution validation causing execution to lag behind.
+    let execution_delay = 4;
+    delay_endorsements_propagation(&mut env, execution_delay);
+    env = env.warmup();
+
+    // Use a chunk producer node (not RPC) since only chunk producers store witnesses.
+    let producer_node = TestLoopNode::from(env.node_datas[0].clone());
+    env.test_loop.run_until(
+        |test_loop_data| {
+            let chain_store = &producer_node.client(test_loop_data).chain.chain_store;
+            let final_head = chain_store.final_head().unwrap();
+            get_last_certified_block_header(chain_store, &final_head.last_block_hash)
+                .map_or(0, |header| header.height())
+                >= 10
+        },
+        Duration::seconds(20),
+    );
+    let shard_tracker = &producer_node.client(env.test_loop_data()).shard_tracker;
+    let tracked_shards: Vec<_> = shard_layout
+        .shard_ids()
+        // This gets tracked shards for genesis, but it should not change during the test.
+        .filter(|shard_id| shard_tracker.cares_about_shard(&CryptoHash::default(), *shard_id))
+        .collect();
+    let chain_store = &producer_node.client(env.test_loop_data()).chain.chain_store;
+    assert_witness_gc_invariant(chain_store, &tracked_shards);
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+/// Verifies witness GC invariant: witness exists iff block is uncertified.
+///
+/// From the perspective of final_head:
+/// - Certified blocks (height <= last_certified_height): witness should NOT exist
+/// - Uncertified blocks (height > last_certified_height): witness SHOULD exist
+fn assert_witness_gc_invariant(chain_store: &ChainStoreAdapter, tracked_shards: &[ShardId]) {
+    let final_head = chain_store.final_head().unwrap();
+    let last_certified_height =
+        get_last_certified_block_header(chain_store, &final_head.last_block_hash).unwrap().height();
+    let execution_head = chain_store.spice_execution_head().unwrap();
+    let store = chain_store.store().store();
+
+    // Verify that old witnesses are cleared
+    for (key, _) in store.iter(DBCol::witnesses()) {
+        let (block_hash, shard_id) = get_block_shard_id_rev(&key).unwrap();
+        let block_height = chain_store.get_block_height(&block_hash).unwrap();
+        assert!(
+            // Note we allow 1 block difference here since GC is async.
+            block_height > last_certified_height - 1,
+            "witness at height {block_height} shard {shard_id} should have been GC'd (last_certified_height = {last_certified_height})"
+        );
+    }
+
+    // Verify that recent witnesses for uncertified blocks exist
+    for height in (last_certified_height + 1)..=execution_head.height {
+        let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
+        for &shard_id in tracked_shards {
+            let key = near_primitives::utils::get_block_shard_id(&block_hash, shard_id);
+            assert!(
+                store.get(DBCol::witnesses(), &key).is_some(),
+                "witness at height {height} shard {shard_id} should exist"
+            );
+        }
+    }
 }
 
 #[test]
@@ -339,8 +495,7 @@ fn test_restart_rpc_node() {
 
     rpc.run_for_number_of_blocks(&mut env.test_loop, 5);
 
-    let view_client = env.test_loop.data.get_mut(&rpc.data().view_client_sender.actor_handle());
-    let view_account_result = query_view_account(view_client, receiver);
+    let view_account_result = rpc.view_account_query(&env.test_loop.data, &receiver);
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -421,9 +576,7 @@ fn test_restart_producer_node() {
 
     restart_node.run_for_number_of_blocks(&mut env.test_loop, 10);
 
-    let view_client =
-        env.test_loop.data.get_mut(&restart_node.data().view_client_sender.actor_handle());
-    let view_account_result = query_view_account(view_client, receiver);
+    let view_account_result = restart_node.view_account_query(&env.test_loop.data, &receiver);
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -525,16 +678,12 @@ fn test_restart_validator_node() {
         validator_node.head(env.test_loop_data()).height
     );
 
-    let view_client =
-        env.test_loop.data.get_mut(&producer_node.data().view_client_sender.actor_handle());
-    let view_account_result = query_view_account(view_client, receiver.clone());
+    let view_account_result = producer_node.view_account_query(&env.test_loop.data, &receiver);
     assert_eq!(view_account_result.amount, Balance::from_near(0));
 
     producer_node.run_for_number_of_blocks(&mut env.test_loop, 10);
 
-    let view_client =
-        env.test_loop.data.get_mut(&producer_node.data().view_client_sender.actor_handle());
-    let view_account_result = query_view_account(view_client, receiver);
+    let view_account_result = producer_node.view_account_query(&env.test_loop.data, &receiver);
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -591,23 +740,8 @@ fn test_spice_chain_with_missing_chunks() {
         ),
     );
 
-    let view_client_handle = rpc_node.data().view_client_sender.actor_handle();
-    // Note that TestLoopNode::view_account_query doesn't work with spice yet.
-    let get_balance = |test_loop_data: &mut TestLoopData, account: &AccountId| {
-        let view_client = test_loop_data.get_mut(&view_client_handle);
-        let query_response = view_client.handle(Query::new(
-            BlockReference::Finality(near_primitives::types::Finality::Final),
-            QueryRequest::ViewAccount { account_id: account.clone() },
-        ));
-        let QueryResponseKind::ViewAccount(view_account_result) = query_response.unwrap().kind
-        else {
-            panic!();
-        };
-        view_account_result.amount
-    };
-
     for account in &accounts {
-        let got_balance = get_balance(&mut env.test_loop.data, account);
+        let got_balance = rpc_node.view_account_query(&env.test_loop.data, account).amount;
         assert_eq!(got_balance, INITIAL_BALANCE);
     }
 
@@ -678,7 +812,7 @@ fn test_spice_chain_with_missing_chunks() {
 
     assert!(!balance_changes.is_empty());
     for (account, balance_change) in &balance_changes {
-        let got_balance = get_balance(&mut env.test_loop.data, account);
+        let got_balance = rpc_node.view_account_query(&env.test_loop.data, account).amount;
         let want_balance = Balance::from_yoctonear(
             (INITIAL_BALANCE.as_yoctonear() as i128 + balance_change).try_into().unwrap(),
         );
@@ -731,18 +865,4 @@ fn schedule_send_money_txs(
         );
     }
     (sent_txs, balance_changes)
-}
-
-fn query_view_account(view_client: &mut ViewClientActor, account_id: AccountId) -> AccountView {
-    // Note that TestLoopNode::view_account_query doesn't work with spice yet.
-    let query_response = view_client
-        .handle(Query::new(
-            BlockReference::Finality(near_primitives::types::Finality::None),
-            QueryRequest::ViewAccount { account_id },
-        ))
-        .unwrap();
-    let QueryResponseKind::ViewAccount(view_account_result) = query_response.kind else {
-        panic!();
-    };
-    view_account_result
 }

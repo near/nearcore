@@ -14,7 +14,7 @@ use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBit
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
-    TransactionV0, TransactionV1, TransferAction,
+    TransactionNonce, TransactionV0, TransactionV1, TransferAction,
 };
 #[cfg(feature = "clock")]
 use crate::types::chunk_extra::ChunkExtra;
@@ -24,12 +24,12 @@ use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::types::{BlockExecutionResults, ChunkExecutionResult, StateRoot};
 use crate::validator_signer::ValidatorSigner;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
+use itertools::Itertools;
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
-#[cfg(feature = "clock")]
 use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::collections::HashMap;
 #[cfg(feature = "clock")]
@@ -68,16 +68,14 @@ impl Transaction {
         receiver_id: AccountId,
         nonce: Nonce,
         block_hash: CryptoHash,
-        priority_fee: u64,
     ) -> Self {
         Transaction::V1(TransactionV1 {
             signer_id,
             public_key,
-            nonce,
+            nonce: TransactionNonce::from_nonce(nonce),
             receiver_id,
             block_hash,
             actions: vec![],
-            priority_fee,
         })
     }
 
@@ -91,7 +89,10 @@ impl Transaction {
     pub fn nonce_mut(&mut self) -> &mut Nonce {
         match self {
             Transaction::V0(tx) => &mut tx.nonce,
-            Transaction::V1(tx) => &mut tx.nonce,
+            Transaction::V1(tx) => match &mut tx.nonce {
+                TransactionNonce::Nonce { nonce } => nonce,
+                TransactionNonce::GasKeyNonce { nonce_index: _, nonce } => nonce,
+            },
         }
     }
 
@@ -162,7 +163,6 @@ impl SignedTransaction {
         signer: &Signer,
         actions: Vec<Action>,
         block_hash: CryptoHash,
-        _priority_fee: u64,
     ) -> Self {
         Transaction::V0(TransactionV0 {
             nonce,
@@ -175,15 +175,13 @@ impl SignedTransaction {
         .sign(signer)
     }
 
-    /// Explicitly create v1 transaction to test in cases where errors are expected.
     pub fn from_actions_v1(
-        nonce: Nonce,
+        nonce: TransactionNonce,
         signer_id: AccountId,
         receiver_id: AccountId,
         signer: &Signer,
         actions: Vec<Action>,
         block_hash: CryptoHash,
-        priority_fee: u64,
     ) -> Self {
         Transaction::V1(TransactionV1 {
             nonce,
@@ -192,7 +190,6 @@ impl SignedTransaction {
             receiver_id,
             block_hash,
             actions,
-            priority_fee,
         })
         .sign(signer)
     }
@@ -212,7 +209,24 @@ impl SignedTransaction {
             signer,
             vec![Action::Transfer(TransferAction { deposit })],
             block_hash,
-            0,
+        )
+    }
+
+    pub fn send_money_v1(
+        nonce: TransactionNonce,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        signer: &Signer,
+        deposit: Balance,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self::from_actions_v1(
+            nonce,
+            signer_id,
+            receiver_id,
+            signer,
+            vec![Action::Transfer(TransferAction { deposit })],
+            block_hash,
         )
     }
 
@@ -231,7 +245,6 @@ impl SignedTransaction {
             signer,
             vec![Action::Stake(Box::new(StakeAction { stake, public_key }))],
             block_hash,
-            0,
         )
     }
 
@@ -258,7 +271,6 @@ impl SignedTransaction {
                 Action::Transfer(TransferAction { deposit: amount }),
             ],
             block_hash,
-            0,
         )
     }
 
@@ -278,7 +290,6 @@ impl SignedTransaction {
             signer,
             vec![Action::DeployContract(DeployContractAction { code })],
             block_hash,
-            0,
         )
     }
 
@@ -302,7 +313,6 @@ impl SignedTransaction {
                 deploy_mode,
             })],
             block_hash,
-            0,
         )
     }
 
@@ -324,7 +334,6 @@ impl SignedTransaction {
                 contract_identifier,
             }))],
             block_hash,
-            0,
         )
     }
 
@@ -353,7 +362,6 @@ impl SignedTransaction {
                 Action::DeployContract(DeployContractAction { code }),
             ],
             block_hash,
-            0,
         )
     }
 
@@ -380,7 +388,6 @@ impl SignedTransaction {
                 deposit,
             }))],
             block_hash,
-            0,
         )
     }
 
@@ -399,7 +406,6 @@ impl SignedTransaction {
             signer,
             vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
             block_hash,
-            0,
         )
     }
 
@@ -411,7 +417,6 @@ impl SignedTransaction {
             &EmptySigner::new().into(),
             vec![],
             block_hash,
-            0,
         )
     }
 
@@ -430,7 +435,6 @@ impl SignedTransaction {
             signer,
             vec![Action::AddKey(Box::new(AddKeyAction { public_key, access_key }))],
             block_hash,
-            0,
         )
     }
 
@@ -453,7 +457,6 @@ impl SignedTransaction {
                 deposit,
             }))],
             block_hash,
-            0,
         )
     }
 }
@@ -474,6 +477,9 @@ impl BlockHeader {
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
             BlockHeader::BlockHeaderV5(header) => {
+                header.inner_rest.latest_protocol_version = latest_protocol_version;
+            }
+            BlockHeader::BlockHeaderV6(header) => {
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
         }
@@ -507,6 +513,10 @@ impl BlockHeader {
                 header.hash = hash;
                 header.signature = signature;
             }
+            BlockHeader::BlockHeaderV6(header) => {
+                header.hash = hash;
+                header.signature = signature;
+            }
         }
     }
 
@@ -519,6 +529,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.init(),
             BlockHeader::BlockHeaderV5(header) => header.init(),
+            BlockHeader::BlockHeaderV6(header) => header.init(),
         }
     }
 
@@ -531,6 +542,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.prev_hash = value,
             BlockHeader::BlockHeaderV5(header) => header.prev_hash = value,
+            BlockHeader::BlockHeaderV6(header) => header.prev_hash = value,
         }
     }
 
@@ -543,6 +555,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.height = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.height = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_lite.height = value,
         }
     }
 
@@ -555,6 +568,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.epoch_id = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.epoch_id = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_lite.epoch_id = value,
         }
     }
 
@@ -567,6 +581,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.prev_state_root = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.prev_state_root = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_lite.prev_state_root = value,
         }
     }
 
@@ -583,6 +598,9 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV5(header) => {
                 header.inner_rest.prev_chunk_outgoing_receipts_root = value
             }
+            BlockHeader::BlockHeaderV6(header) => {
+                header.inner_rest.prev_chunk_outgoing_receipts_root = value
+            }
         }
     }
 
@@ -595,6 +613,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.chunk_headers_root = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.chunk_headers_root = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.chunk_headers_root = value,
         }
     }
 
@@ -607,6 +626,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.chunk_tx_root = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.chunk_tx_root = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.chunk_tx_root = value,
         }
     }
 
@@ -619,6 +639,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.chunk_mask = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.chunk_mask = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.chunk_mask = value,
         }
     }
 
@@ -633,6 +654,7 @@ impl BlockHeader {
                 // BlockHeaderV4 can appear in tests but setting chunk endorsements will be no-op.
             }
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.chunk_endorsements = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.chunk_endorsements = value,
         }
     }
 
@@ -645,6 +667,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.prev_outcome_root = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.prev_outcome_root = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_lite.prev_outcome_root = value,
         }
     }
 
@@ -657,6 +680,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.timestamp = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.timestamp = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_lite.timestamp = value,
         }
     }
 
@@ -673,6 +697,9 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV5(header) => {
                 header.inner_rest.prev_validator_proposals = value
             }
+            BlockHeader::BlockHeaderV6(header) => {
+                header.inner_rest.prev_validator_proposals = value
+            }
         }
     }
 
@@ -685,6 +712,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.next_gas_price = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.next_gas_price = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.next_gas_price = value,
         }
     }
 
@@ -697,6 +725,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_lite.block_merkle_root = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_lite.block_merkle_root = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_lite.block_merkle_root = value,
         }
     }
 
@@ -709,6 +738,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.approvals = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.approvals = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.approvals = value,
         }
     }
 
@@ -721,6 +751,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.block_body_hash = value,
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.block_body_hash = value,
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.block_body_hash = value,
         }
     }
 
@@ -733,6 +764,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV4(header) => header.signature = value,
             BlockHeader::BlockHeaderV5(header) => header.signature = value,
+            BlockHeader::BlockHeaderV6(header) => header.signature = value,
         }
     }
 }
@@ -806,7 +838,7 @@ pub struct TestBlockBuilder {
     chunk_endorsements: Vec<ChunkEndorsementSignatures>,
     // TODO(spice): Once spice is released remove Option.
     /// Iff `Some` spice block will be created.
-    spice_core_statements: Option<Vec<crate::block_body::SpiceCoreStatement>>,
+    spice_core_statements: Option<crate::block_body::SpiceCoreStatements>,
 }
 
 #[cfg(feature = "clock")]
@@ -839,7 +871,7 @@ impl TestBlockBuilder {
             chunk_endorsements: vec![vec![]; chunks_len],
             prev_header,
             spice_core_statements: if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-                Some(vec![])
+                Some(crate::block_body::SpiceCoreStatements::new(vec![]))
             } else {
                 None
             },
@@ -922,7 +954,8 @@ impl TestBlockBuilder {
         mut self,
         spice_core_statements: Vec<crate::block_body::SpiceCoreStatement>,
     ) -> Self {
-        self.spice_core_statements = Some(spice_core_statements);
+        self.spice_core_statements =
+            Some(crate::block_body::SpiceCoreStatements::new(spice_core_statements));
         self
     }
 
@@ -935,8 +968,6 @@ impl TestBlockBuilder {
     }
 
     pub fn build(self) -> Arc<Block> {
-        use crate::version::PROTOCOL_VERSION;
-
         tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
         let last_certified_block_execution_results = BlockExecutionResults(
             self.chunks
@@ -953,6 +984,7 @@ impl TestBlockBuilder {
                 .collect(),
         );
         Arc::new(Block::produce(
+            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
             &self.prev_header,
             self.height,
@@ -971,6 +1003,7 @@ impl TestBlockBuilder {
             self.next_bp_hash,
             self.block_merkle_root,
             self.clock,
+            None,
             None,
             None,
             self.spice_core_statements.map(|core_statements| {
@@ -1053,6 +1086,32 @@ impl Block {
                 body.body.set_chunk_endorsements(chunk_endorsements);
             }
         };
+    }
+
+    pub fn recompute_fields_derived_from_chunks(&mut self) {
+        let chunks = self.chunks();
+        let headers_root = chunks.compute_chunk_headers_root().0;
+        let tx_root = chunks.compute_chunk_tx_root();
+        let prev_outgoing_receipts_root = chunks.compute_chunk_prev_outgoing_receipts_root();
+        let prev_state_root = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            CryptoHash::default()
+        } else {
+            chunks.compute_state_root()
+        };
+        let chunk_mask = chunks
+            .iter_raw()
+            .map(|chunk| chunk.height_included() == self.header().height())
+            .collect_vec();
+        let prev_outcome_root = chunks.compute_outcome_root();
+        let body_hash = self.compute_block_body_hash().unwrap();
+
+        self.mut_header().set_chunk_headers_root(headers_root);
+        self.mut_header().set_chunk_tx_root(tx_root);
+        self.mut_header().set_prev_chunk_outgoing_receipts_root(prev_outgoing_receipts_root);
+        self.mut_header().set_prev_state_root(prev_state_root);
+        self.mut_header().set_chunk_mask(chunk_mask);
+        self.mut_header().set_prev_outcome_root(prev_outcome_root);
+        self.mut_header().set_block_body_hash(body_hash);
     }
 }
 

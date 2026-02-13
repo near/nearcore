@@ -87,6 +87,7 @@ pub fn create_test_setup_with_accounts_and_validity(
     // Create genesis with all specified accounts
     let mut genesis = Genesis::test(all_accounts, num_validator_seats);
     genesis.config.epoch_length = 10; // Short epochs for faster tests
+    genesis.config.transaction_validity_period = 10 * 2;
 
     initialize_genesis_state(store.clone(), &genesis, None);
 
@@ -109,6 +110,9 @@ pub fn create_test_setup_with_accounts_and_validity(
 
     let shard_tracker =
         ShardTracker::new(TrackedShardsConfig::AllShards, epoch_manager.clone(), signer.clone());
+
+    let (block_notification_watch_sender, block_notification_watch_receiver) =
+        tokio::sync::watch::channel(None);
 
     // 5. Create shared client config
     let client_config = ClientConfig::test(TestClientConfigParams {
@@ -158,6 +162,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         true,
         Some(TEST_SEED),
         noop().into_multi_sender(),
+        block_notification_watch_sender,
         SpiceClientConfig {
             chunk_executor_sender: noop().into_sender(),
             spice_chunk_validator_sender: noop().into_sender(),
@@ -204,6 +209,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         view_client_actor.into_multi_sender(),
         rpc_handler_actor.into_multi_sender(),
         noop().into_multi_sender(),
+        block_notification_watch_receiver,
         #[cfg(feature = "test_features")]
         noop().into_multi_sender(),
         Arc::new(DummyEntityDebugHandler {}),

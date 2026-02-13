@@ -4,7 +4,7 @@ use near_o11y::metrics::prometheus::core::{AtomicI64, GenericGauge};
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, NonceIndex};
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::ops::Bound;
@@ -69,10 +69,18 @@ impl TransactionPool {
         }
     }
 
-    fn key(&self, account_id: &AccountId, public_key: &PublicKey) -> PoolKey {
+    fn key(
+        &self,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+        nonce_index: Option<NonceIndex>,
+    ) -> PoolKey {
         let mut v = borsh::to_vec(&public_key).unwrap();
         v.extend_from_slice(&self.key_seed);
         v.extend_from_slice(account_id.as_bytes());
+        if let Some(idx) = nonce_index {
+            v.extend_from_slice(&borsh::to_vec(&idx).unwrap());
+        }
         hash(&v)
     }
 
@@ -109,7 +117,7 @@ impl TransactionPool {
         let signer_id = validated_tx.signer_id();
         let signer_public_key = validated_tx.public_key();
         self.transactions
-            .entry(self.key(signer_id, signer_public_key))
+            .entry(self.key(signer_id, signer_public_key, validated_tx.nonce().nonce_index()))
             .or_insert_with(Vec::new)
             .push(validated_tx);
 
@@ -140,7 +148,11 @@ impl TransactionPool {
             let signer_id = signed_tx.transaction.signer_id();
             let signer_public_key = signed_tx.transaction.public_key();
             grouped_transactions
-                .entry(self.key(signer_id, signer_public_key))
+                .entry(self.key(
+                    signer_id,
+                    signer_public_key,
+                    signed_tx.transaction.nonce().nonce_index(),
+                ))
                 .or_insert_with(HashSet::new)
                 .insert(signed_tx.get_hash());
         }
@@ -233,7 +245,7 @@ impl<'a> TransactionGroupIterator for PoolIteratorWrapper<'a> {
             self.pool.last_used_key = key;
             let mut validated_txs =
                 self.pool.transactions.remove(&key).expect("just checked existence");
-            validated_txs.sort_by_key(|vt| std::cmp::Reverse(vt.nonce()));
+            validated_txs.sort_by_key(|vt| std::cmp::Reverse(vt.nonce().nonce()));
             self.sorted_groups.push_back(TransactionGroup {
                 key,
                 transactions: validated_txs,
@@ -337,10 +349,11 @@ mod tests {
     use super::*;
     use near_crypto::{InMemorySigner, KeyType};
     use near_primitives::hash::CryptoHash;
-    use near_primitives::transaction::SignedTransaction;
+    use near_primitives::transaction::{SignedTransaction, TransactionNonce};
     use near_primitives::types::Balance;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rand::seq::SliceRandom;
-    use rand::thread_rng;
     use std::sync::Arc;
     const TEST_SEED: RngSeed = [3; 32];
 
@@ -368,12 +381,40 @@ mod tests {
             .collect()
     }
 
+    fn generate_transactions_v1(
+        signer_id: &str,
+        signer_seed: &str,
+        starting_nonce: u64,
+        end_nonce: u64,
+        nonce_index: Option<NonceIndex>,
+    ) -> Vec<ValidatedTransaction> {
+        let signer_id: AccountId = signer_id.parse().unwrap();
+        let signer =
+            Arc::new(InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_seed));
+        (starting_nonce..=end_nonce)
+            .map(|i| {
+                let signed_tx = SignedTransaction::send_money_v1(
+                    match nonce_index {
+                        Some(index) => TransactionNonce::from_nonce_and_index(i, index),
+                        None => TransactionNonce::from_nonce(i),
+                    },
+                    signer_id.clone(),
+                    "bob.near".parse().unwrap(),
+                    &*signer,
+                    Balance::from_yoctonear(u128::from(i)),
+                    CryptoHash::default(),
+                );
+                ValidatedTransaction::new_for_test(signed_tx)
+            })
+            .collect()
+    }
+
     fn process_txs_to_nonces(
         mut validated_txs: Vec<ValidatedTransaction>,
         expected_weight: u32,
     ) -> (Vec<u64>, TransactionPool) {
         let mut pool = TransactionPool::new(TEST_SEED, None, "");
-        let mut rng = thread_rng();
+        let mut rng = StdRng::seed_from_u64(0);
         validated_txs.shuffle(&mut rng);
         for validated_tx in validated_txs {
             assert_eq!(pool.insert_transaction(validated_tx), InsertTransactionResult::Success);
@@ -381,7 +422,7 @@ mod tests {
         (
             prepare_transactions(&mut pool, expected_weight)
                 .iter()
-                .map(|tx| tx.transaction.nonce())
+                .map(|tx| tx.transaction.nonce().nonce())
                 .collect(),
             pool,
         )
@@ -455,8 +496,10 @@ mod tests {
         let (mut nonces, mut pool) = process_txs_to_nonces(transactions, 10);
         sort_pairs(&mut nonces[..6]);
         assert_eq!(nonces, vec![1, 21, 2, 22, 3, 23, 24, 25, 26, 27]);
-        let nonces: Vec<u64> =
-            prepare_transactions(&mut pool, 10).iter().map(|tx| tx.transaction.nonce()).collect();
+        let nonces: Vec<u64> = prepare_transactions(&mut pool, 10)
+            .iter()
+            .map(|tx| tx.transaction.nonce().nonce())
+            .collect();
         assert_eq!(nonces, vec![28, 29, 30, 31]);
     }
 
@@ -485,7 +528,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         let mut pool = TransactionPool::new(TEST_SEED, None, "");
-        let mut rng = thread_rng();
+        let mut rng = StdRng::seed_from_u64(0);
         transactions.shuffle(&mut rng);
         for tx in transactions.clone() {
             println!("{:?}", tx);
@@ -502,9 +545,9 @@ mod tests {
         assert_eq!(pool.len(), txs_to_check.len());
 
         let mut pool_txs = prepare_transactions(&mut pool, txs_to_check.len() as u32);
-        pool_txs.sort_by_key(|tx| tx.transaction.nonce());
+        pool_txs.sort_by_key(|tx| tx.transaction.nonce().nonce());
         let mut expected_txs = txs_to_check.to_vec();
-        expected_txs.sort_by_key(|tx| tx.nonce());
+        expected_txs.sort_by_key(|tx| tx.nonce().nonce());
         let expected_txs =
             expected_txs.into_iter().map(|vt| vt.into_signed_tx()).collect::<Vec<_>>();
 
@@ -524,7 +567,7 @@ mod tests {
         let mut pool_iter = pool.pool_iterator();
         while let Some(iter) = pool_iter.next() {
             while let Some(tx) = iter.next() {
-                if tx.nonce() & 1 == 1 {
+                if tx.nonce().nonce() & 1 == 1 {
                     res.push(tx);
                     break;
                 }
@@ -533,7 +576,7 @@ mod tests {
         drop(pool_iter);
         assert_eq!(pool.len(), 0);
         assert_eq!(pool.transaction_size(), 0);
-        let mut nonces: Vec<_> = res.into_iter().map(|tx| tx.nonce()).collect();
+        let mut nonces: Vec<_> = res.into_iter().map(|tx| tx.nonce().nonce()).collect();
         sort_pairs(&mut nonces[..4]);
         assert_eq!(nonces, vec![1, 21, 3, 23, 25, 27, 29, 31]);
     }
@@ -592,7 +635,8 @@ mod tests {
         let txs = prepare_transactions(&mut pool, 5);
         assert_eq!(txs.len(), 5);
         nonces.sort();
-        let mut new_nonces = txs.iter().map(|tx| tx.transaction.nonce()).collect::<Vec<_>>();
+        let mut new_nonces =
+            txs.iter().map(|tx| tx.transaction.nonce().nonce()).collect::<Vec<_>>();
         new_nonces.sort();
         assert_ne!(nonces, new_nonces);
     }
@@ -631,5 +675,100 @@ mod tests {
                 assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::NoSpaceLeft);
             }
         }
+    }
+
+    #[test]
+    fn test_order_nonce_with_nonce_index() {
+        // Create transactions from the same signer with two different nonce indices.
+        // Each nonce index should form a separate group.
+        let mut transactions = generate_transactions_v1("alice.near", "alice.near", 1, 5, Some(0));
+        transactions.extend(generate_transactions_v1("alice.near", "alice.near", 1, 5, Some(1)));
+
+        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+        let mut rng = StdRng::seed_from_u64(0);
+        transactions.shuffle(&mut rng);
+        for tx in transactions {
+            assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
+        }
+
+        // There should be 2 transaction groups (one per nonce index).
+        assert_eq!(pool.transactions.len(), 2);
+        assert_eq!(pool.len(), 10);
+
+        // Pull transactions using the pool iterator. Since there are 2 groups,
+        // we should get transactions interleaved from each group.
+        let mut nonces_by_index: HashMap<NonceIndex, Vec<u64>> = HashMap::new();
+        let mut pool_iter = pool.pool_iterator();
+        while let Some(group) = pool_iter.next() {
+            while let Some(tx) = group.next() {
+                let nonce_index = tx.nonce().nonce_index().unwrap();
+                let nonce = tx.nonce().nonce();
+                nonces_by_index.entry(nonce_index).or_default().push(nonce);
+            }
+        }
+        drop(pool_iter);
+
+        // Each nonce index group should have nonces 1..=5 in order.
+        assert_eq!(nonces_by_index.get(&0), Some(&vec![1, 2, 3, 4, 5]));
+        assert_eq!(nonces_by_index.get(&1), Some(&vec![1, 2, 3, 4, 5]));
+        assert_eq!(pool.len(), 0);
+        assert_eq!(pool.transaction_size(), 0);
+    }
+
+    #[test]
+    fn test_remove_transactions_with_nonce_index() {
+        let n = 50;
+        let mut transactions: Vec<ValidatedTransaction> = Vec::new();
+
+        // Create transactions with different nonce indices from the same signer.
+        for nonce_index in 0..3 {
+            transactions.extend(generate_transactions_v1(
+                "alice.near",
+                "alice.near",
+                1,
+                n,
+                Some(nonce_index),
+            ));
+        }
+
+        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+        let mut rng = StdRng::seed_from_u64(0);
+        transactions.shuffle(&mut rng);
+        for tx in transactions.clone() {
+            assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
+        }
+        assert_eq!(pool.len(), (n * 3) as usize);
+        // Should have 3 groups (one per nonce index).
+        assert_eq!(pool.transactions.len(), 3);
+
+        // Remove half of the transactions.
+        transactions.shuffle(&mut rng);
+        let (txs_to_remove, txs_to_check) = transactions.split_at(transactions.len() / 2);
+        let txs_to_remove =
+            txs_to_remove.iter().cloned().map(|vt| vt.into_signed_tx()).collect::<Vec<_>>();
+        pool.remove_transactions(&txs_to_remove);
+
+        assert_eq!(pool.len(), txs_to_check.len());
+
+        // Verify remaining transactions can be retrieved and match expected.
+        let mut remaining_txs = vec![];
+        let mut pool_iter = pool.pool_iterator();
+        while let Some(group) = pool_iter.next() {
+            while let Some(tx) = group.next() {
+                remaining_txs.push(tx.clone());
+            }
+        }
+        drop(pool_iter);
+
+        remaining_txs.sort_by_key(|tx| (tx.nonce().nonce_index(), tx.nonce().nonce()));
+        let mut expected_txs: Vec<_> = txs_to_check.to_vec();
+        expected_txs.sort_by_key(|tx| (tx.nonce().nonce_index(), tx.nonce().nonce()));
+
+        assert_eq!(remaining_txs.len(), expected_txs.len());
+        for (actual, expected) in remaining_txs.iter().zip(expected_txs.iter()) {
+            assert_eq!(actual.get_hash(), expected.get_hash());
+        }
+        assert_eq!(pool.len(), 0);
+        assert_eq!(pool.transaction_size(), 0);
     }
 }

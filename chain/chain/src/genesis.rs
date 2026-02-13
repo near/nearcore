@@ -19,7 +19,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::chunk_extra::{ChunkExtra, ChunkExtraV2};
 use near_primitives::types::{Balance, EpochId, Gas, ShardId, StateRoot};
-use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
+use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::{Store, get_genesis_state_roots};
 use near_vm_runner::logic::ProtocolVersion;
@@ -125,10 +125,13 @@ impl Chain {
         for chunk in genesis_chunks {
             store_update.save_chunk(chunk.clone());
         }
+        let genesis_protocol_version =
+            epoch_manager.get_epoch_protocol_version(genesis.header().epoch_id())?;
         let block_info = BlockInfo::from_header(
             genesis.header(),
             // genesis height is considered final
             genesis.header().height(),
+            genesis_protocol_version,
         );
         store_update.merge(
             epoch_manager
@@ -143,6 +146,10 @@ impl Chain {
         let header_head = block_head.clone();
         store_update.save_head(&block_head)?;
         store_update.save_final_head(&header_head)?;
+        if ProtocolFeature::Spice.enabled(genesis_protocol_version) {
+            store_update.save_spice_execution_head(block_head.clone())?;
+            store_update.save_spice_final_execution_head(&block_head)?;
+        }
 
         // Set the root block of flat state to be the genesis block. Later, when we
         // init FlatStorages, we will read the from this column in storage, so it
@@ -328,7 +335,7 @@ fn get_genesis_congestion_infos_impl(
     tracing::debug!(target: "chain", "saving genesis congestion infos to database");
     let mut store_update = runtime.store().store_update();
     near_store::set_genesis_congestion_infos(&mut store_update, &new_infos);
-    store_update.commit()?;
+    store_update.commit();
 
     Ok(new_infos)
 }

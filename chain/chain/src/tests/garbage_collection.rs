@@ -21,6 +21,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::{BlockHeight, StateRoot};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::gen_changes;
 use near_store::{ShardTries, Trie, WrappedTrieChanges};
 
@@ -100,7 +101,7 @@ fn do_fork(
             final_block_height.unwrap_or_else(|| block.header().height().saturating_sub(2));
         let epoch_manager_update = epoch_manager
             .add_validator_proposals(
-                BlockInfo::from_header(block.header(), final_height),
+                BlockInfo::from_header(block.header(), final_height, PROTOCOL_VERSION),
                 *block.header().random_value(),
             )
             .unwrap();
@@ -242,7 +243,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
                 state_root2 = new_root2;
             }
             state_roots2.push(state_root2);
-            update2.commit().unwrap();
+            update2.commit();
         }
         start_index += simple_chain.length;
     }
@@ -254,7 +255,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
                 let (block1, _, _) = states1[i as usize].clone();
                 // Make sure that blocks were removed.
                 assert_eq!(
-                    chain1.block_exists(block1.hash()).unwrap(),
+                    chain1.block_exists(block1.hash()),
                     false,
                     "Block {:?}@{} should have been removed - as it belongs to removed fork.",
                     block1.hash(),
@@ -269,7 +270,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
             let state_root1 = state_root1[shard_to_check_trie as usize];
             if block1.header().height() > gc_height || i == gc_height {
                 assert_eq!(
-                    chain1.block_exists(block1.hash()).unwrap(),
+                    chain1.block_exists(block1.hash()),
                     true,
                     "Block {:?}@{} should exist",
                     block1.hash(),
@@ -291,7 +292,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
             } else {
                 // Make sure that blocks were removed.
                 assert_eq!(
-                    chain1.block_exists(block1.hash()).unwrap(),
+                    chain1.block_exists(block1.hash()),
                     false,
                     "Block {:?}@{} should have been removed.",
                     block1.hash(),
@@ -634,7 +635,7 @@ fn test_fork_far_away_from_epoch_end() {
     for i in 1..5 {
         let (block, _, _) = states[i as usize].clone();
         assert_eq!(
-            chain.block_exists(block.hash()).unwrap(),
+            chain.block_exists(block.hash()),
             false,
             "Block {:?}@{} should have been removed.",
             block.hash(),
@@ -645,7 +646,7 @@ fn test_fork_far_away_from_epoch_end() {
     for i in 5..7 {
         let (block, _, _) = states[i as usize].clone();
         assert_eq!(
-            chain.block_exists(block.hash()).unwrap(),
+            chain.block_exists(block.hash()),
             true,
             "Block {:?}@{} should NOT be removed.",
             block.hash(),
@@ -674,7 +675,7 @@ fn test_fork_far_away_from_epoch_end() {
     for i in 6..50 {
         let (block, _, _) = states[i as usize].clone();
         assert_eq!(
-            chain.block_exists(block.hash()).unwrap(),
+            chain.block_exists(block.hash()),
             false,
             "Block {:?}@{} should have been removed.",
             block.hash(),
@@ -756,7 +757,11 @@ fn add_block(
     store_update.save_next_block_hash(prev_block.hash(), *block.hash());
     let epoch_manager_update = epoch_manager
         .add_validator_proposals(
-            BlockInfo::from_header(block.header(), block.header().height().saturating_sub(2)),
+            BlockInfo::from_header(
+                block.header(),
+                block.header().height().saturating_sub(2),
+                PROTOCOL_VERSION,
+            ),
             *block.header().random_value(),
         )
         .unwrap();

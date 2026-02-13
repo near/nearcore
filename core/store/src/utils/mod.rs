@@ -6,7 +6,7 @@ use crate::trie::AccessOptions;
 use crate::{DBCol, GENESIS_STATE_ROOTS_KEY, Store, StoreUpdate, TrieAccess, TrieUpdate};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_primitives::account::{AccessKey, Account, GasKey};
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::bandwidth_scheduler::BandwidthSchedulerState;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::StorageError;
@@ -16,7 +16,7 @@ use near_primitives::receipt::{
     Receipt, ReceivedData, VersionedReceiptEnum,
 };
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
-use near_primitives::types::{AccountId, BlockHeight, Nonce, NonceIndex, StateRoot};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, NonceIndex, StateRoot};
 use std::io;
 
 /// Reads an object from Trie.
@@ -247,15 +247,6 @@ pub fn set_access_key(
     set(state_update, TrieKey::AccessKey { account_id, public_key }, access_key);
 }
 
-pub fn set_gas_key(
-    state_update: &mut TrieUpdate,
-    account_id: AccountId,
-    public_key: PublicKey,
-    gas_key: &GasKey,
-) {
-    set(state_update, TrieKey::GasKey { account_id, public_key, index: None }, gas_key);
-}
-
 pub fn set_gas_key_nonce(
     state_update: &mut TrieUpdate,
     account_id: AccountId,
@@ -263,7 +254,7 @@ pub fn set_gas_key_nonce(
     index: NonceIndex,
     nonce: Nonce,
 ) {
-    set(state_update, TrieKey::GasKey { account_id, public_key, index: Some(index) }, &nonce);
+    set(state_update, TrieKey::GasKeyNonce { account_id, public_key, index }, &nonce);
 }
 
 pub fn remove_access_key(
@@ -274,17 +265,13 @@ pub fn remove_access_key(
     state_update.remove(TrieKey::AccessKey { account_id, public_key });
 }
 
-pub fn remove_gas_key(state_update: &mut TrieUpdate, account_id: AccountId, public_key: PublicKey) {
-    state_update.remove(TrieKey::GasKey { account_id, public_key, index: None });
-}
-
 pub fn remove_gas_key_nonce(
     state_update: &mut TrieUpdate,
     account_id: AccountId,
     public_key: PublicKey,
-    index: NonceIndex,
+    nonce_index: NonceIndex,
 ) {
-    state_update.remove(TrieKey::GasKey { account_id, public_key, index: Some(index) });
+    state_update.remove(TrieKey::GasKeyNonce { account_id, public_key, index: nonce_index });
 }
 
 pub fn get_access_key(
@@ -298,21 +285,6 @@ pub fn get_access_key(
     )
 }
 
-pub fn get_gas_key(
-    trie: &dyn TrieAccess,
-    account_id: &AccountId,
-    public_key: &PublicKey,
-) -> Result<Option<GasKey>, StorageError> {
-    get(
-        trie,
-        &TrieKey::GasKey {
-            account_id: account_id.clone(),
-            public_key: public_key.clone(),
-            index: None,
-        },
-    )
-}
-
 pub fn get_gas_key_nonce(
     trie: &dyn TrieAccess,
     account_id: &AccountId,
@@ -321,23 +293,54 @@ pub fn get_gas_key_nonce(
 ) -> Result<Option<Nonce>, StorageError> {
     get(
         trie,
-        &TrieKey::GasKey {
+        &TrieKey::GasKeyNonce {
             account_id: account_id.clone(),
             public_key: public_key.clone(),
-            index: Some(index),
+            index,
         },
     )
 }
 
-pub fn get_access_key_raw(
-    trie: &dyn TrieAccess,
-    raw_key: &[u8],
-) -> Result<Option<AccessKey>, StorageError> {
-    get(
-        trie,
-        &trie_key_parsers::parse_trie_key_access_key_from_raw_key(raw_key)
-            .expect("access key in the state should be correct"),
-    )
+/// Computes the total balance across all gas keys for a given account.
+pub fn compute_gas_key_balance_sum(
+    state_update: &TrieUpdate,
+    account_id: &AccountId,
+) -> Result<Balance, StorageError> {
+    let mut total = Balance::ZERO;
+    let lock = state_update.trie().lock_for_iter();
+    for raw_key in state_update
+        .locked_iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id), &lock)?
+    {
+        let raw_key = raw_key?;
+        let public_key = trie_key_parsers::parse_public_key_from_access_key_key(
+            &raw_key, account_id,
+        )
+        .map_err(|_e| {
+            StorageError::StorageInconsistentState(
+                "Can't parse public key from raw key for AccessKey".to_string(),
+            )
+        })?;
+        let nonce_index =
+            trie_key_parsers::parse_nonce_index_from_gas_key_key(&raw_key, account_id, &public_key)
+                .map_err(|_e| {
+                    StorageError::StorageInconsistentState(
+                        "Can't parse nonce index from raw key for AccessKey".to_string(),
+                    )
+                })?;
+        if nonce_index.is_some() {
+            continue;
+        }
+        if let Some(balance) = get_access_key(state_update, account_id, &public_key)?
+            .as_ref()
+            .and_then(|access_key| access_key.gas_key_info())
+            .map(|gas_key_info| gas_key_info.balance)
+        {
+            total = total.checked_add(balance).ok_or_else(|| {
+                StorageError::StorageInconsistentState("gas key balance overflow".to_string())
+            })?;
+        }
+    }
+    Ok(total)
 }
 
 /// Removes account, code and all access keys and gas keys associated to it.
@@ -348,42 +351,45 @@ pub fn remove_account(
     state_update.remove(TrieKey::Account { account_id: account_id.clone() });
     state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
 
-    // Removing access keys
+    // Removing access keys and gas key nonces
     let lock = state_update.trie().lock_for_iter();
-    let public_keys = state_update
+    let mut keys_to_remove: Vec<TrieKey> = Vec::new();
+    for raw_key in state_update
         .locked_iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id), &lock)?
-        .map(|raw_key| {
-            trie_key_parsers::parse_public_key_from_access_key_key(&raw_key?, account_id).map_err(
-                |_e| {
-                    StorageError::StorageInconsistentState(
-                        "Can't parse public key from raw key for AccessKey".to_string(),
-                    )
-                },
+    {
+        let raw_key = raw_key?;
+        let public_key = trie_key_parsers::parse_public_key_from_access_key_key(
+            &raw_key, account_id,
+        )
+        .map_err(|_e| {
+            StorageError::StorageInconsistentState(
+                "Can't parse public key from raw key for AccessKey".to_string(),
             )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    drop(lock);
-
-    for public_key in public_keys {
-        state_update.remove(TrieKey::AccessKey { account_id: account_id.clone(), public_key });
+        })?;
+        let nonce_index =
+            trie_key_parsers::parse_nonce_index_from_gas_key_key(&raw_key, account_id, &public_key)
+                .map_err(|_e| {
+                    StorageError::StorageInconsistentState(
+                        "Can't parse nonce index from raw key for AccessKey".to_string(),
+                    )
+                })?;
+        if let Some(index) = nonce_index {
+            keys_to_remove.push(TrieKey::GasKeyNonce {
+                account_id: account_id.clone(),
+                public_key: public_key.clone(),
+                index,
+            });
+        } else {
+            keys_to_remove.push(TrieKey::AccessKey {
+                account_id: account_id.clone(),
+                public_key: public_key.clone(),
+            });
+        }
     }
-
-    // Removing gas keys
-    let lock = state_update.trie().lock_for_iter();
-    let gas_trie_keys = state_update
-        .locked_iter(&trie_key_parsers::get_raw_prefix_for_gas_keys(account_id), &lock)?
-        .map(|raw_key| {
-            trie_key_parsers::parse_trie_key_gas_key_from_raw_key(&raw_key?).map_err(|_e| {
-                StorageError::StorageInconsistentState(
-                    "Can't parse trie key from raw key for GasKey".to_string(),
-                )
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
     drop(lock);
 
-    for gas_key in gas_trie_keys {
-        state_update.remove(gas_key);
+    for trie_key in keys_to_remove {
+        state_update.remove(trie_key);
     }
 
     // Removing contract data
@@ -409,34 +415,28 @@ pub fn remove_account(
 }
 
 pub fn get_genesis_state_roots(store: &Store) -> io::Result<Option<Vec<StateRoot>>> {
-    store.get_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY)
+    Ok(store.get_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY))
 }
 
 pub fn get_genesis_congestion_infos(store: &Store) -> io::Result<Option<Vec<CongestionInfo>>> {
-    store.get_ser::<Vec<CongestionInfo>>(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY)
+    Ok(store.get_ser::<Vec<CongestionInfo>>(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY))
 }
 
 pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &[StateRoot]) {
-    store_update
-        .set_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
-        .expect("Borsh cannot fail");
+    store_update.set_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots);
 }
 
 pub fn set_genesis_congestion_infos(
     store_update: &mut StoreUpdate,
     congestion_infos: &[CongestionInfo],
 ) {
-    store_update
-        .set_ser(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY, &congestion_infos)
-        .expect("Borsh cannot fail");
+    store_update.set_ser(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY, &congestion_infos);
 }
 
 pub fn get_genesis_height(store: &Store) -> io::Result<Option<BlockHeight>> {
-    store.get_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY)
+    Ok(store.get_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY))
 }
 
 pub fn set_genesis_height(store_update: &mut StoreUpdate, genesis_height: &BlockHeight) {
-    store_update
-        .set_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY, genesis_height)
-        .expect("Borsh cannot fail");
+    store_update.set_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY, genesis_height);
 }

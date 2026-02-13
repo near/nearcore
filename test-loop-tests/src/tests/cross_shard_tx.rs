@@ -282,6 +282,8 @@ fn ultra_slow_test_cross_shard_tx() {
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_cross_shard_tx_drop_chunks() {
     test_cross_shard_tx_common(Params {
         num_transfers: 64,
@@ -291,6 +293,8 @@ fn ultra_slow_test_cross_shard_tx_drop_chunks() {
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_cross_shard_tx_with_validator_rotation() {
     test_cross_shard_tx_common(Params {
         num_transfers: 24,
@@ -300,6 +304,8 @@ fn ultra_slow_test_cross_shard_tx_with_validator_rotation() {
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_cross_shard_tx_with_validator_rotation_drop_chunks() {
     test_cross_shard_tx_common(Params {
         num_transfers: 24,

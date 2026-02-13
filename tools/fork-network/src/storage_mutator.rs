@@ -1,6 +1,6 @@
 use near_crypto::PublicKey;
 use near_mirror::key_mapping::map_account;
-use near_primitives::account::{AccessKey, Account, GasKey};
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::bandwidth_scheduler::{
     BandwidthSchedulerState, BandwidthSchedulerStateV1, LinkAllowance,
 };
@@ -256,34 +256,6 @@ impl StorageMutator {
         )
     }
 
-    pub(crate) fn remove_gas_key(
-        &mut self,
-        source_shard_uid: ShardUId,
-        account_id: AccountId,
-        public_key: PublicKey,
-    ) -> anyhow::Result<()> {
-        if self.target_shards.contains(&source_shard_uid) {
-            let shard_idx =
-                self.target_shard_layout.get_shard_index(source_shard_uid.shard_id()).unwrap();
-            self.remove(shard_idx, TrieKey::GasKey { account_id, public_key, index: None })?;
-        }
-        Ok(())
-    }
-
-    pub(crate) fn set_gas_key(
-        &mut self,
-        shard_idx: ShardIndex,
-        account_id: AccountId,
-        public_key: PublicKey,
-        gas_key: GasKey,
-    ) -> anyhow::Result<()> {
-        self.set(
-            shard_idx,
-            TrieKey::GasKey { account_id, public_key, index: None },
-            borsh::to_vec(&gas_key)?,
-        )
-    }
-
     pub(crate) fn remove_gas_key_nonce(
         &mut self,
         source_shard_uid: ShardUId,
@@ -294,7 +266,7 @@ impl StorageMutator {
         if self.target_shards.contains(&source_shard_uid) {
             let shard_idx =
                 self.target_shard_layout.get_shard_index(source_shard_uid.shard_id()).unwrap();
-            self.remove(shard_idx, TrieKey::GasKey { account_id, public_key, index: Some(index) })?;
+            self.remove(shard_idx, TrieKey::GasKeyNonce { account_id, public_key, index })?;
         }
         Ok(())
     }
@@ -309,7 +281,7 @@ impl StorageMutator {
     ) -> anyhow::Result<()> {
         self.set(
             shard_idx,
-            TrieKey::GasKey { account_id, public_key, index: Some(index) },
+            TrieKey::GasKeyNonce { account_id, public_key, index },
             borsh::to_vec(&nonce)?,
         )
     }
@@ -478,9 +450,9 @@ fn commit_to_existing_state(
 
     tracing::info!(?shard_uid, num_updates, "committing");
     let key = crate::cli::make_state_roots_key(shard_uid);
-    update.store_update().set_ser(DBCol::Misc, &key, &state_root)?;
+    update.store_update().set_ser(DBCol::Misc, &key, &state_root);
 
-    update.commit()?;
+    update.commit();
     tracing::info!(?shard_uid, ?state_root, "commit is done");
     Ok(())
 }
@@ -510,11 +482,9 @@ fn commit_to_new_state(
     FlatStateChanges::from_state_changes(&state_changes)
         .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
     let key = crate::cli::make_state_roots_key(shard_uid);
-    store_update.store_update().set_ser(DBCol::Misc, &key, &state_root)?;
+    store_update.store_update().set_ser(DBCol::Misc, &key, &state_root);
     tracing::info!(?shard_uid, "committing initial state to new shard");
-    store_update
-        .commit()
-        .with_context(|| format!("Initial flat storage commit failed for shard {}", shard_uid))?;
+    store_update.commit();
 
     Ok(state_root)
 }
@@ -572,9 +542,7 @@ pub(crate) fn remove_shards(
             &ShardUId::get_upper_bound_db_key(&shard_uid.to_bytes()),
         );
 
-        trie_update
-            .commit()
-            .with_context(|| format!("failed removing state for shard {}", shard_uid))?;
+        trie_update.commit();
 
         tracing::info!(?shard_uid, "removed state for obsolete shard");
     }
@@ -647,16 +615,12 @@ pub(crate) fn finalize_state(
 
         let mut trie_update = shard_tries.store_update();
         let store_update = trie_update.store_update();
-        store_update
-            .set_ser(
-                DBCol::FlatStorageStatus,
-                &shard_uid.to_bytes(),
-                &FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
-            )
-            .unwrap();
-        trie_update
-            .commit()
-            .with_context(|| format!("failed writing flat storage status for {}", shard_uid))?;
+        store_update.set_ser(
+            DBCol::FlatStorageStatus,
+            &shard_uid.to_bytes(),
+            &FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
+        );
+        trie_update.commit();
         tracing::info!(?shard_uid, "wrote flat storage status for new shard");
     }
     Ok(())

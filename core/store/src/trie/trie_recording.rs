@@ -458,15 +458,12 @@ mod trie_recording_tests {
         // ChunkExtra is needed for in-memory trie loading code to query state roots.
         let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
         let mut update_for_chunk_extra = tries_for_building.store_update();
-        update_for_chunk_extra
-            .store_update()
-            .set_ser(
-                DBCol::ChunkExtra,
-                &get_block_shard_uid(&CryptoHash::default(), &shard_uid),
-                &chunk_extra,
-            )
-            .unwrap();
-        update_for_chunk_extra.commit().unwrap();
+        update_for_chunk_extra.store_update().set_ser(
+            DBCol::ChunkExtra,
+            &get_block_shard_uid(&CryptoHash::default(), &shard_uid),
+            &chunk_extra,
+        );
+        update_for_chunk_extra.commit();
 
         let data_in_trie = trie_changes
             .iter()
@@ -531,8 +528,7 @@ mod trie_recording_tests {
     ) {
         let key_hashes_to_keep = data_in_trie.iter().map(|(_, v)| hash(&v)).collect::<HashSet<_>>();
         let mut update = store.store_update();
-        for result in store.iter_raw_bytes() {
-            let (key, value) = result.unwrap();
+        for (key, value) in store.iter_raw_bytes() {
             let (_, refcount) = decode_value_with_rc(&value);
             let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
             let key_hash = CryptoHash::try_from_slice(&key[8..]).unwrap();
@@ -545,7 +541,7 @@ mod trie_recording_tests {
             }
         }
         update.store_update().delete_all(DBCol::FlatState);
-        update.commit().unwrap();
+        update.commit();
     }
 
     fn get_trie_for_shard(
@@ -917,7 +913,7 @@ mod memtrie_batch_iteration_tests {
         let new_tries = TestTriesBuilder::new().with_store(new_store).build();
         let mut store_update = new_tries.store_update();
         new_tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().expect("failed to commit store update");
+        store_update.commit();
 
         let trie = new_tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder();
         {

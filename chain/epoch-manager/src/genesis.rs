@@ -33,7 +33,7 @@ impl EpochManager {
         let mut store_update = self.store.store_update();
         self.save_epoch_info(&mut store_update, &EpochId::default(), Arc::new(genesis_epoch_info))?;
         self.save_block_info(&mut store_update, block_info)?;
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -71,8 +71,9 @@ impl EpochManager {
                 validator_reward,
                 Balance::ZERO,
                 genesis_protocol_version,
-                genesis_epoch_config.legacy_shard_layout(),
+                genesis_epoch_config.static_shard_layout(),
                 false,
+                None,
             )
         }
     }

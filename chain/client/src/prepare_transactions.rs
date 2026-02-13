@@ -288,7 +288,6 @@ mod tests {
                 "other".parse().unwrap(),
                 nonce,
                 CryptoHash::default(),
-                0,
             ),
         );
         let validated_tx = ValidatedTransaction::new_for_test(signed_tx);

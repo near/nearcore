@@ -12,7 +12,8 @@ use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::RuntimeConfig;
 use near_primitives_core::serialize::{from_base64, to_base64};
-use near_primitives_core::types::Compute;
+use near_primitives_core::types::{Compute, NonceIndex, ProtocolVersion};
+use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 #[cfg(feature = "schemars")]
 use schemars::json_schema;
@@ -45,6 +46,38 @@ pub struct TransactionV0 {
     pub actions: Vec<Action>,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, Copy, ProtocolSchema)]
+pub enum TransactionNonce {
+    /// Simple nonce without index, used by ordinary access keys
+    Nonce { nonce: Nonce },
+    /// Nonce with index, used by gas keys
+    GasKeyNonce { nonce: Nonce, nonce_index: NonceIndex },
+}
+
+impl TransactionNonce {
+    pub fn from_nonce(nonce: Nonce) -> Self {
+        TransactionNonce::Nonce { nonce }
+    }
+
+    pub fn from_nonce_and_index(nonce: Nonce, nonce_index: NonceIndex) -> Self {
+        TransactionNonce::GasKeyNonce { nonce, nonce_index }
+    }
+
+    pub fn nonce(&self) -> Nonce {
+        match self {
+            TransactionNonce::Nonce { nonce } => *nonce,
+            TransactionNonce::GasKeyNonce { nonce, .. } => *nonce,
+        }
+    }
+
+    pub fn nonce_index(&self) -> Option<NonceIndex> {
+        match self {
+            TransactionNonce::Nonce { .. } => None,
+            TransactionNonce::GasKeyNonce { nonce_index, .. } => Some(*nonce_index),
+        }
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone, ProtocolSchema)]
 pub struct TransactionV1 {
     /// An account on which behalf transaction is signed
@@ -53,16 +86,15 @@ pub struct TransactionV1 {
     /// Access key holds permissions for calling certain kinds of actions.
     pub public_key: PublicKey,
     /// Nonce is used to determine order of transaction in the pool.
-    /// It increments for a combination of `signer_id` and `public_key`
-    pub nonce: Nonce,
+    /// It increments for a combination of `signer_id` and `public_key`,
+    /// and for gas key it also includes a `nonce_index`.
+    pub nonce: TransactionNonce,
     /// Receiver account for this transaction
     pub receiver_id: AccountId,
     /// The hash of the block in the blockchain on top of which the given transaction is valid
     pub block_hash: CryptoHash,
     /// A list of actions to be applied
     pub actions: Vec<Action>,
-    /// Priority fee. Unit is 10^12 yoctoNEAR
-    pub priority_fee: u64,
 }
 
 impl Transaction {
@@ -101,9 +133,9 @@ impl Transaction {
         }
     }
 
-    pub fn nonce(&self) -> Nonce {
+    pub fn nonce(&self) -> TransactionNonce {
         match self {
-            Transaction::V0(tx) => tx.nonce,
+            Transaction::V0(tx) => TransactionNonce::from_nonce(tx.nonce),
             Transaction::V1(tx) => tx.nonce,
         }
     }
@@ -126,13 +158,6 @@ impl Transaction {
         match self {
             Transaction::V0(tx) => &tx.block_hash,
             Transaction::V1(tx) => &tx.block_hash,
-        }
-    }
-
-    pub fn priority_fee(&self) -> Option<u64> {
-        match self {
-            Transaction::V0(_) => None,
-            Transaction::V1(tx) => Some(tx.priority_fee),
         }
     }
 }
@@ -167,6 +192,16 @@ impl BorshDeserialize for Transaction {
 
         let read_signer_id = |buf: [u8; 4], reader: &mut R| -> std::io::Result<AccountId> {
             let str_len = u32::from_le_bytes(buf);
+            if str_len > AccountId::MAX_LEN as u32 {
+                return Err(Error::new(
+                    ErrorKind::InvalidData,
+                    format!(
+                        "AccountId length {} exceeds maximum length {}",
+                        str_len,
+                        AccountId::MAX_LEN
+                    ),
+                ));
+            }
             let mut str_vec = Vec::with_capacity(str_len as usize);
             for _ in 0..str_len {
                 str_vec.push(u8::deserialize_reader(reader)?);
@@ -196,11 +231,10 @@ impl BorshDeserialize for Transaction {
             let u5 = u8::deserialize_reader(reader)?;
             let signer_id = read_signer_id([u2, u3, u4, u5], reader)?;
             let public_key = PublicKey::deserialize_reader(reader)?;
-            let nonce = Nonce::deserialize_reader(reader)?;
+            let nonce = TransactionNonce::deserialize_reader(reader)?;
             let receiver_id = AccountId::deserialize_reader(reader)?;
             let block_hash = CryptoHash::deserialize_reader(reader)?;
             let actions = Vec::<Action>::deserialize_reader(reader)?;
-            let priority_fee = u64::deserialize_reader(reader)?;
             Ok(Transaction::V1(TransactionV1 {
                 signer_id,
                 public_key,
@@ -208,7 +242,6 @@ impl BorshDeserialize for Transaction {
                 receiver_id,
                 block_hash,
                 actions,
-                priority_fee,
             }))
         }
     }
@@ -226,8 +259,9 @@ impl ValidatedTransaction {
     pub fn new(
         config: &RuntimeConfig,
         signed_tx: SignedTransaction,
+        protocol_version: ProtocolVersion,
     ) -> Result<Self, (InvalidTxError, SignedTransaction)> {
-        match Self::check_valid_for_config(config, &signed_tx) {
+        match Self::check_valid_for_config(config, &signed_tx, protocol_version) {
             Ok(()) => {}
             Err(err) => return Err((err, signed_tx)),
         }
@@ -246,9 +280,11 @@ impl ValidatedTransaction {
     pub fn check_valid_for_config(
         config: &RuntimeConfig,
         signed_tx: &SignedTransaction,
+        protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
-        // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
-        if matches!(signed_tx.transaction, Transaction::V1(_)) {
+        if !ProtocolFeature::GasKeys.enabled(protocol_version)
+            && matches!(signed_tx.transaction, Transaction::V1(_))
+        {
             return Err(InvalidTxError::InvalidTransactionVersion);
         }
         let tx_size = signed_tx.get_size();
@@ -298,7 +334,7 @@ impl ValidatedTransaction {
         self.to_tx().receiver_id()
     }
 
-    pub fn nonce(&self) -> Nonce {
+    pub fn nonce(&self) -> TransactionNonce {
         self.to_tx().nonce()
     }
 
@@ -509,9 +545,14 @@ pub struct ExecutionOutcome {
     // set and any code that attempts to use it will crash.
     #[borsh(skip)]
     pub compute_usage: Option<Compute>,
-    /// The amount of tokens burnt corresponding to the burnt gas amount.
-    /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
-    /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
+    /// Sum of tokens burnt for:
+    /// - Gas: This value doesn't always equal to the `gas_burnt` multiplied by the gas price,
+    ///   because the prepaid gas price might be lower than the actual gas price and it creates
+    ///   a deficit.
+    /// - Deleted gas keys: When a gas key or an account with gas keys is deleted, the remaining
+    ///   balance on the gas key(s) is burnt.
+    /// - Deployed global contracts: Tokens are burnt when deploying a global contract to
+    ///   compensate for permanently storing contract code in the state.
     pub tokens_burnt: Balance,
     /// The id of the account on which the execution happens. For transaction this is signer_id,
     /// for receipt this is receiver_id.
@@ -569,11 +610,23 @@ pub struct ExecutionOutcomeWithId {
 
 impl ExecutionOutcomeWithId {
     pub fn failed(transaction: &SignedTransaction, error: InvalidTxError) -> Self {
+        Self::failed_with_gas_burnt(transaction, error, Gas::ZERO, Balance::ZERO)
+    }
+
+    pub fn failed_with_gas_burnt(
+        transaction: &SignedTransaction,
+        error: InvalidTxError,
+        gas_burnt: Gas,
+        tokens_burnt: Balance,
+    ) -> Self {
         Self {
             id: transaction.get_hash(),
             outcome: ExecutionOutcome {
                 executor_id: transaction.transaction.signer_id().clone(),
                 status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error)),
+                gas_burnt,
+                compute_usage: Some(gas_burnt.as_gas()),
+                tokens_burnt,
                 ..Default::default()
             },
         }
@@ -699,7 +752,7 @@ mod tests {
         TransactionV1 {
             signer_id: "test.near".parse().unwrap(),
             public_key: public_key.clone(),
-            nonce: 1,
+            nonce: TransactionNonce::from_nonce(1),
             receiver_id: "123".parse().unwrap(),
             block_hash: Default::default(),
             actions: vec![
@@ -732,7 +785,6 @@ mod tests {
                     beneficiary_id: "123".parse().unwrap(),
                 }),
             ],
-            priority_fee: 1,
         }
     }
 
@@ -762,6 +814,24 @@ mod tests {
         let serialized_tx_v1 = borsh::to_vec(&transaction_v1).unwrap();
         let deserialized_tx_v1 = Transaction::try_from_slice(&serialized_tx_v1).unwrap();
         assert_eq!(transaction_v1, deserialized_tx_v1);
+    }
+
+    #[test]
+    fn test_deserialize_invalid_account_id_length() {
+        // Create a serialized transaction with an invalid account ID length
+        let mut serialized_tx = vec![];
+        // Version byte for V0
+        serialized_tx.push(0u8);
+        // Invalid length (e.g., 100 which exceeds MAX_LEN of 64)
+        serialized_tx.extend_from_slice(&100u32.to_le_bytes());
+        // The rest of the fields can be empty or default for this test
+        serialized_tx.extend_from_slice(&[0u8; 100]); // Placeholder bytes
+
+        let result = Transaction::try_from_slice(&serialized_tx);
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+        assert!(err.to_string().contains("exceeds maximum length"));
     }
 
     #[test]

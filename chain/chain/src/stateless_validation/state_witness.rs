@@ -15,7 +15,6 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
 };
 use near_primitives::types::{EpochId, ShardId};
-use near_primitives::version::ProtocolFeature;
 use std::collections::HashMap;
 
 /// Result of collecting state transition data from the database to generate a state witness.
@@ -78,7 +77,6 @@ impl ChainStore {
             prev_chunk_header,
         )?;
 
-        let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let state_witness = ChunkStateWitness::new(
             epoch_id,
             chunk_header,
@@ -90,11 +88,7 @@ impl ChainStore {
             applied_receipts_hash,
             prev_chunk.to_transactions().to_vec(),
             implicit_transitions,
-            if ProtocolFeature::ChunkPartChecks.enabled(protocol_version) {
-                chunk.to_transactions().to_vec()
-            } else {
-                vec![]
-            },
+            chunk.to_transactions().to_vec(),
         );
         Ok(CreateWitnessResult { state_witness, contract_updates, main_transition_shard_id })
     }
@@ -210,7 +204,7 @@ impl ChainStore {
             .get_ser(
                 near_store::DBCol::StateTransitionData,
                 &near_primitives::utils::get_block_shard_id(block_hash, shard_id),
-            )?
+            )
             .ok_or_else(|| {
                 let message = format!(
                     "Missing transition state proof for block {block_hash} and shard {shard_id}"

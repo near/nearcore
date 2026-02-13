@@ -34,14 +34,14 @@ pub fn initialize_sharded_genesis_state(
     genesis_epoch_config: &EpochConfig,
     home_dir: Option<&Path>,
 ) {
-    let shard_layout = genesis_epoch_config.legacy_shard_layout();
+    let shard_layout = genesis_epoch_config.static_shard_layout();
     let state_roots = if let Some(state_roots) =
         get_genesis_state_roots(&store).expect("Store failed on genesis initialization")
     {
         // TODO: with 2.6 release, remove storing genesis height
         let mut store_update: crate::StoreUpdate = store.store_update();
         set_genesis_height(&mut store_update, &genesis.config.genesis_height);
-        store_update.commit().expect("Store failed on genesis initialization");
+        store_update.commit();
 
         let genesis_height = get_genesis_height(&store)
             .expect("Store failed on genesis initialization")
@@ -64,7 +64,7 @@ pub fn initialize_sharded_genesis_state(
         let mut store_update = store.store_update();
         set_genesis_state_roots(&mut store_update, &state_roots);
         set_genesis_height(&mut store_update, &genesis.config.genesis_height);
-        store_update.commit().expect("Store failed on genesis initialization");
+        store_update.commit();
         state_roots
     };
 

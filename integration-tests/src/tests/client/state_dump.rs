@@ -29,13 +29,14 @@ use near_async::futures::TokioRuntimeFutureSpawner;
 #[test]
 /// Produce several blocks, wait for the state dump thread to notice and
 /// write files to a temp dir.
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_dump() {
     init_test_logger();
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = 25;
+    genesis.config.transaction_validity_period = 50;
 
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(1)
@@ -144,6 +145,7 @@ fn run_state_sync_with_dumped_parts(
     }
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
     let num_clients = 2;
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
@@ -157,8 +159,6 @@ fn run_state_sync_with_dumped_parts(
         Some(Arc::new(InMemoryValidatorSigner::from_signer(signer.clone()))),
         "validator_signer",
     );
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_hash = *genesis_block.hash();
 
     let mut blocks = vec![];
     let chain = &env.clients[0].chain;
@@ -198,6 +198,7 @@ fn run_state_sync_with_dumped_parts(
 
     for i in 1..=dump_node_head_height {
         if i == account_creation_at_height {
+            let head = env.clients[0].chain.head().unwrap();
             let tx = SignedTransaction::create_account(
                 1,
                 "test0".parse().unwrap(),
@@ -205,7 +206,7 @@ fn run_state_sync_with_dumped_parts(
                 Balance::from_near(1),
                 signer.public_key(),
                 &signer,
-                genesis_hash,
+                head.prev_block_hash,
             );
             assert_eq!(
                 env.rpc_handlers[0].process_tx(tx, false, false),
@@ -319,7 +320,7 @@ fn run_state_sync_with_dumped_parts(
             )
             .unwrap()
     );
-    store_update.commit().unwrap();
+    store_update.commit();
     let shard_id = ShardId::new(0);
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     for part_id in 0..num_parts {
@@ -399,7 +400,7 @@ fn run_state_sync_with_dumped_parts(
 /// - the dumping node's head is in new epoch but final block is not;
 /// - the dumping node's head and final block are in same epoch
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_2_non_final() {
     init_test_logger();
@@ -407,7 +408,7 @@ fn slow_test_state_sync_with_dumped_parts_2_non_final() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_2_final() {
     init_test_logger();
@@ -415,7 +416,7 @@ fn slow_test_state_sync_with_dumped_parts_2_final() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_3_non_final() {
     init_test_logger();
@@ -423,7 +424,7 @@ fn slow_test_state_sync_with_dumped_parts_3_non_final() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_3_final() {
     init_test_logger();
@@ -431,7 +432,7 @@ fn slow_test_state_sync_with_dumped_parts_3_final() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_4_non_final() {
     init_test_logger();
@@ -439,7 +440,7 @@ fn slow_test_state_sync_with_dumped_parts_4_non_final() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_4_final() {
     init_test_logger();

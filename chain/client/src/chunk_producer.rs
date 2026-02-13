@@ -56,6 +56,8 @@ pub enum AdvProduceChunksMode {
     ProduceWithoutTx,
     // Produce chunks but do not bother checking if included transactions pass validity check.
     ProduceWithoutTxValidityCheck,
+    // Include all pool transactions without running runtime verification.
+    ProduceWithoutTxVerification,
     // Randomly skip multiple chunks in a row.
     SkipWindow {
         // Size of the window in which to randomly pick a skip start.
@@ -202,7 +204,6 @@ impl ChunkProducer {
                     "other".parse().unwrap(),
                     3,
                     prev_block_hash,
-                    0,
                 ),
             );
             let validated_tx =
@@ -364,8 +365,8 @@ impl ChunkProducer {
                 &*validator_signer,
                 &mut self.reed_solomon_encoder,
             )
-        } else if ProtocolFeature::DynamicResharding.enabled(protocol_version) {
-            ShardChunkWithEncoding::new_for_dynamic_resharding(
+        } else {
+            ShardChunkWithEncoding::new(
                 prev_block_hash,
                 *chunk_extra.state_root(),
                 *chunk_extra.outcome_root(),
@@ -384,26 +385,7 @@ impl ChunkProducer {
                 chunk_extra.proposed_split().cloned(),
                 &*validator_signer,
                 &mut self.reed_solomon_encoder,
-            )
-        } else {
-            ShardChunkWithEncoding::new(
-                prev_block_hash,
-                *chunk_extra.state_root(),
-                *chunk_extra.outcome_root(),
-                next_height,
-                shard_id,
-                gas_used,
-                chunk_extra.gas_limit(),
-                chunk_extra.balance_burnt(),
-                chunk_extra.validator_proposals().collect(),
-                prepared_transactions.transactions,
-                outgoing_receipts.clone(),
-                outgoing_receipts_root,
-                tx_root,
-                congestion_info,
-                bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
-                &*validator_signer,
-                &mut self.reed_solomon_encoder,
+                protocol_version,
             )
         };
 
@@ -469,34 +451,42 @@ impl ChunkProducer {
         let mut pool_guard = self.sharded_tx_pool.lock();
         let prepared_transactions = if let Some(mut iter) = pool_guard.get_pool_iterator(shard_uid)
         {
-            if ProtocolFeature::Spice.enabled(protocol_version) {
+            #[cfg(feature = "test_features")]
+            let skip_verification = matches!(
+                self.adversarial.produce_mode,
+                Some(AdvProduceChunksMode::ProduceWithoutTxVerification)
+            );
+            #[cfg(not(feature = "test_features"))]
+            let skip_verification = false;
+
+            if skip_verification || ProtocolFeature::Spice.enabled(protocol_version) {
                 // TODO(spice): properly implement transaction preparation to respect limits
                 let mut res = vec![];
                 while let Some(iter) = iter.next() {
                     res.push(iter.next().unwrap());
                 }
-                return Ok(PreparedTransactions {
+                PreparedTransactions {
                     transactions: res,
                     limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
-                });
+                }
+            } else {
+                let storage_config = RuntimeStorageConfig {
+                    state_root: *chunk_extra.state_root(),
+                    use_flat_storage: true,
+                    source: near_chain::types::StorageDataSource::Db,
+                    state_patch: Default::default(),
+                };
+                let prev_block_context =
+                    PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
+                self.runtime_adapter.prepare_transactions(
+                    storage_config,
+                    shard_id,
+                    prev_block_context,
+                    &mut iter,
+                    chain_validate,
+                    self.chunk_transactions_time_limit.get(),
+                )?
             }
-
-            let storage_config = RuntimeStorageConfig {
-                state_root: *chunk_extra.state_root(),
-                use_flat_storage: true,
-                source: near_chain::types::StorageDataSource::Db,
-                state_patch: Default::default(),
-            };
-            let prev_block_context =
-                PrepareTransactionsBlockContext::new(prev_block, &*self.epoch_manager)?;
-            self.runtime_adapter.prepare_transactions(
-                storage_config,
-                shard_id,
-                prev_block_context,
-                &mut iter,
-                chain_validate,
-                self.chunk_transactions_time_limit.get(),
-            )?
         } else {
             PreparedTransactions::new()
         };
@@ -543,7 +533,8 @@ impl ChunkProducer {
                 ),
             AdvProduceChunksMode::Valid
             | AdvProduceChunksMode::ProduceWithoutTx
-            | AdvProduceChunksMode::ProduceWithoutTxValidityCheck => false,
+            | AdvProduceChunksMode::ProduceWithoutTxValidityCheck
+            | AdvProduceChunksMode::ProduceWithoutTxVerification => false,
         }
     }
 
@@ -612,7 +603,11 @@ impl ChunkProducer {
         }
 
         #[cfg(feature = "test_features")]
-        if matches!(self.adversarial.produce_mode, Some(AdvProduceChunksMode::ProduceWithoutTx)) {
+        if matches!(
+            self.adversarial.produce_mode,
+            Some(AdvProduceChunksMode::ProduceWithoutTx)
+                | Some(AdvProduceChunksMode::ProduceWithoutTxVerification)
+        ) {
             return;
         }
 

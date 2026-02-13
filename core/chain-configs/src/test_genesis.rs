@@ -74,7 +74,7 @@ pub struct TestGenesisBuilder {
     min_gas_price: Balance,
     max_gas_price: Balance,
     gas_limit: Gas,
-    transaction_validity_period: NumBlocks,
+    transaction_validity_period: Option<NumBlocks>,
     protocol_treasury_account: String,
     max_inflation_rate: Rational32,
     dynamic_resharding: bool,
@@ -86,6 +86,7 @@ pub struct TestGenesisBuilder {
     protocol_reward_rate: Rational32,
     max_kickout_stake_perc: u8,
     minimum_stake_divisor: u64,
+    minimum_stake_ratio: Rational32,
     protocol_upgrade_stake_threshold: Rational32,
     chunk_producer_assignment_changes_limit: NumSeats,
     user_accounts: Vec<UserAccount>,
@@ -159,6 +160,9 @@ impl TestEpochConfigBuilder {
         builder.num_chunk_producer_seats = genesis.config.num_chunk_producer_seats;
         builder.num_chunk_validator_seats = genesis.config.num_chunk_validator_seats;
         builder.genesis_protocol_version = Some(genesis.config.protocol_version);
+        builder.max_inflation_rate = genesis.config.max_inflation_rate;
+        builder.minimum_stake_divisor = genesis.config.minimum_stake_divisor;
+        builder.minimum_stake_ratio = genesis.config.minimum_stake_ratio;
         builder
     }
 
@@ -290,7 +294,7 @@ impl Default for TestGenesisBuilder {
             min_gas_price: Balance::ZERO,
             max_gas_price: Balance::ZERO,
             gas_limit: Gas::from_teragas(1000),
-            transaction_validity_period: 100,
+            transaction_validity_period: None,
             protocol_treasury_account: "near".to_string().parse().unwrap(),
             max_inflation_rate: Rational32::new(1, 1),
             user_accounts: vec![],
@@ -303,6 +307,7 @@ impl Default for TestGenesisBuilder {
             protocol_reward_rate: Rational32::new(0, 1),
             max_kickout_stake_perc: 100,
             minimum_stake_divisor: 10,
+            minimum_stake_ratio: Rational32::new(1, 6250),
             protocol_upgrade_stake_threshold: Rational32::new(8, 10),
             chunk_producer_assignment_changes_limit: 5,
         }
@@ -370,7 +375,7 @@ impl TestGenesisBuilder {
     }
 
     pub fn transaction_validity_period(mut self, transaction_validity_period: NumBlocks) -> Self {
-        self.transaction_validity_period = transaction_validity_period;
+        self.transaction_validity_period = Some(transaction_validity_period);
         self
     }
 
@@ -386,6 +391,16 @@ impl TestGenesisBuilder {
 
     pub fn protocol_reward_rate(mut self, protocol_reward_rate: Rational32) -> Self {
         self.protocol_reward_rate = protocol_reward_rate;
+        self
+    }
+
+    pub fn minimum_stake_divisor(mut self, minimum_stake_divisor: u64) -> Self {
+        self.minimum_stake_divisor = minimum_stake_divisor;
+        self
+    }
+
+    pub fn minimum_stake_ratio(mut self, minimum_stake_ratio: Rational32) -> Self {
+        self.minimum_stake_ratio = minimum_stake_ratio;
         self
     }
 
@@ -510,7 +525,9 @@ impl TestGenesisBuilder {
             gas_limit: self.gas_limit,
             dynamic_resharding: self.dynamic_resharding,
             fishermen_threshold: self.fishermen_threshold,
-            transaction_validity_period: self.transaction_validity_period,
+            transaction_validity_period: self
+                .transaction_validity_period
+                .unwrap_or(self.epoch_length * 2),
             protocol_version: self.protocol_version,
             protocol_treasury_account,
             online_min_threshold: self.online_min_threshold,
@@ -529,6 +546,7 @@ impl TestGenesisBuilder {
                 .map(|_| num_block_producer_seats)
                 .collect(),
             minimum_stake_divisor: self.minimum_stake_divisor,
+            minimum_stake_ratio: self.minimum_stake_ratio,
             max_inflation_rate: self.max_inflation_rate,
             protocol_upgrade_stake_threshold: self.protocol_upgrade_stake_threshold,
             num_chunk_producer_seats,

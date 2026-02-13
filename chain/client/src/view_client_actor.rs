@@ -7,6 +7,7 @@ use crate::{
 };
 use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
+use near_chain::spice_chain::SpiceChainReader;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, get_epoch_block_producers_view,
@@ -49,6 +50,7 @@ use near_primitives::types::{
     Finality, MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId,
     ValidatorInfoIdentifier,
 };
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -57,6 +59,7 @@ use near_primitives::views::{
     SignedTransactionView, SplitStorageInfoView, StateChangesKindsView, StateChangesView,
     TxExecutionStatus, TxStatusView,
 };
+use near_store::adapter::StoreAdapter as _;
 use near_store::merkle_proof::MerkleProofAccess;
 use near_store::{COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, HEAD_KEY};
 use parking_lot::RwLock;
@@ -90,6 +93,7 @@ pub struct ViewClientActor {
     network_adapter: PeerManagerAdapter,
     pub config: ClientConfig,
     request_manager: Arc<RwLock<ViewClientRequestManager>>,
+    spice_chain_reader: SpiceChainReader,
 }
 
 impl ViewClientRequestManager {
@@ -154,6 +158,11 @@ impl ViewClientActor {
             config.save_trie_changes,
             validator_signer,
         )?;
+        let spice_chain_reader = SpiceChainReader::new(
+            runtime.store().chain_store(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+        );
         Ok(Self {
             clock,
             adv,
@@ -164,6 +173,7 @@ impl ViewClientActor {
             network_adapter,
             config,
             request_manager: Arc::new(RwLock::new(ViewClientRequestManager::new())),
+            spice_chain_reader,
         })
     }
 
@@ -201,10 +211,19 @@ impl ViewClientActor {
         &self,
         finality: &Finality,
     ) -> Result<CryptoHash, near_chain::Error> {
-        match finality {
-            Finality::None => Ok(self.chain.head()?.last_block_hash),
-            Finality::DoomSlug => Ok(*self.chain.head_header()?.last_ds_final_block()),
-            Finality::Final => Ok(self.chain.final_head()?.last_block_hash),
+        let head = self.chain.head()?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&head.epoch_id)?;
+        let chain_head = match finality {
+            Finality::None => head.last_block_hash,
+            Finality::DoomSlug => *self.chain.head_header()?.last_ds_final_block(),
+            Finality::Final => self.chain.final_head()?.last_block_hash,
+        };
+        // TODO(spice): consider using `get_last_certified_block_header(chain_head)`
+        // for Finality::Final and Finality::DoomSlug.
+        if ProtocolFeature::Spice.enabled(protocol_version) {
+            Ok(*self.spice_chain_reader.find_first_executed_ancestor(&chain_head)?.hash())
+        } else {
+            Ok(chain_head)
         }
     }
 
@@ -217,24 +236,16 @@ impl ViewClientActor {
         &self,
         reference: &BlockReference,
     ) -> Result<Option<Arc<BlockHeader>>, near_chain::Error> {
-        // TODO(spice): Implement support for getting different finalities from execution.
-        if cfg!(feature = "protocol_feature_spice")
-            && matches!(reference, BlockReference::Finality(_))
-        {
-            return match self.chain.chain_store().spice_execution_head() {
-                Ok(tip) => self.chain.get_block_header(&tip.last_block_hash).map(Some),
-                Err(near_chain::Error::DBNotFoundErr(_)) => {
-                    Ok(Some(self.chain.genesis().clone().into()))
-                }
-                Err(err) => Err(err),
-            };
-        }
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
-                self.chain.get_block_header_by_height(*block_height).map(Some)
+                let header = self.chain.get_block_header_by_height(*block_height)?;
+                self.spice_chain_reader.check_block_executed(&header)?;
+                Ok(Some(header))
             }
             BlockReference::BlockId(BlockId::Hash(block_hash)) => {
-                self.chain.get_block_header(block_hash).map(Some)
+                let header = self.chain.get_block_header(block_hash)?;
+                self.spice_chain_reader.check_block_executed(&header)?;
+                Ok(Some(header))
             }
             BlockReference::Finality(finality) => self
                 .get_block_hash_by_finality(finality)
@@ -264,10 +275,14 @@ impl ViewClientActor {
     ) -> Result<Option<Arc<Block>>, near_chain::Error> {
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
-                self.chain.get_block_by_height(*block_height).map(Some)
+                let block = self.chain.get_block_by_height(*block_height)?;
+                self.spice_chain_reader.check_block_executed(block.header())?;
+                Ok(Some(block))
             }
             BlockReference::BlockId(BlockId::Hash(block_hash)) => {
-                self.chain.get_block(block_hash).map(Some)
+                let block = self.chain.get_block(block_hash)?;
+                self.spice_chain_reader.check_block_executed(block.header())?;
+                Ok(Some(block))
             }
             BlockReference::Finality(finality) => self
                 .get_block_hash_by_finality(finality)
@@ -340,7 +355,7 @@ impl ViewClientActor {
         Ok(windows)
     }
 
-    fn handle_query(&self, msg: Query) -> Result<QueryResponse, QueryError> {
+    pub fn handle_query(&self, msg: Query) -> Result<QueryResponse, QueryError> {
         let header = self.get_block_header_by_reference(&msg.block_reference);
         let header = match header {
             Ok(Some(header)) => Ok(header),
@@ -421,11 +436,6 @@ impl ViewClientActor {
                     block_height,
                     block_hash,
                 } => QueryError::UnknownAccessKey { public_key, block_height, block_hash },
-                near_chain::near_chain_primitives::error::QueryError::UnknownGasKey {
-                    public_key,
-                    block_height,
-                    block_hash,
-                } => QueryError::UnknownGasKey { public_key, block_height, block_hash },
                 near_chain::near_chain_primitives::error::QueryError::ContractExecutionError {
                     error_message,
                     error,
@@ -465,8 +475,7 @@ impl ViewClientActor {
             | QueryRequest::ViewState { account_id, .. }
             | QueryRequest::ViewAccessKey { account_id, .. }
             | QueryRequest::ViewAccessKeyList { account_id, .. }
-            | QueryRequest::ViewGasKey { account_id, .. }
-            | QueryRequest::ViewGasKeyList { account_id }
+            | QueryRequest::ViewGasKeyNonces { account_id, .. }
             | QueryRequest::CallFunction { account_id, .. }
             | QueryRequest::ViewCode { account_id, .. } => {
                 account_id_to_shard_id(self.epoch_manager.as_ref(), account_id, &epoch_id)
@@ -1443,11 +1452,11 @@ impl Handler<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageIn
         tracing::debug!(target: "client", ?msg);
 
         let store = self.chain.chain_store().store();
-        let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
-        let final_head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
-        let cold_head = store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
+        let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY);
+        let final_head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY);
+        let cold_head = store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY);
 
-        let hot_db_kind = store.get_db_kind()?.map(|kind| kind.to_string());
+        let hot_db_kind = store.get_db_kind().map(|kind| kind.to_string());
 
         Ok(SplitStorageInfoView {
             head_height: head.map(|tip| tip.height),

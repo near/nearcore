@@ -2,7 +2,7 @@ use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::action::DeleteAccountAction;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceiptPriority};
+use near_primitives::receipt::Receipt;
 use near_primitives::types::{AccountId, Balance, StateChangeCause};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::TestTriesBuilder;
@@ -26,7 +26,7 @@ pub(crate) fn setup_account(
     let trie_changes = state_update.finalize().unwrap().trie_changes;
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
-    store_update.commit().unwrap();
+    store_update.commit();
 
     tries.new_trie_update(ShardUId::single_shard(), root)
 }
@@ -45,11 +45,7 @@ pub(crate) fn test_delete_large_account(
     ));
     let mut actor_id = account_id.clone();
     let mut action_result = ActionResult::default();
-    let receipt = Receipt::new_balance_refund(
-        &"alice.near".parse().unwrap(),
-        Balance::ZERO,
-        ReceiptPriority::NoPriority,
-    );
+    let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), Balance::ZERO);
     let res = action_delete_account(
         state_update,
         &mut account,

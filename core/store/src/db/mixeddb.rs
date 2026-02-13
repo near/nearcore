@@ -1,4 +1,3 @@
-use std::io;
 use std::sync::Arc;
 
 use crate::DBCol;
@@ -64,18 +63,18 @@ impl MixedDB {
 }
 
 impl Database for MixedDB {
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
-        if let Ok(Some(first_result)) = self.first_db().get_raw_bytes(col, key) {
-            return Ok(Some(first_result));
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
+        if let Some(first_result) = self.first_db().get_raw_bytes(col, key) {
+            return Some(first_result);
         }
         self.second_db().get_raw_bytes(col, key)
     }
 
-    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> Option<DBSlice<'_>> {
         assert!(col.is_rc());
 
-        if let Ok(Some(first_result)) = self.first_db().get_with_rc_stripped(col, key) {
-            return Ok(Some(first_result));
+        if let Some(first_result) = self.first_db().get_with_rc_stripped(col, key) {
+            return Some(first_result);
         }
         self.second_db().get_with_rc_stripped(col, key)
     }
@@ -110,17 +109,17 @@ impl Database for MixedDB {
         );
     }
 
-    fn write(&self, batch: DBTransaction) -> io::Result<()> {
+    fn write(&self, batch: DBTransaction) {
         self.write_db.write(batch)
     }
 
     /// There is no need to flush a read-only DB.
-    fn flush(&self) -> io::Result<()> {
+    fn flush(&self) {
         self.write_db.flush()
     }
 
     /// There is no need to compact an immutable DB.
-    fn compact(&self) -> io::Result<()> {
+    fn compact(&self) {
         self.write_db.compact()
     }
 

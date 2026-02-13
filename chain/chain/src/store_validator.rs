@@ -11,6 +11,7 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ProcessedReceiptMetadata;
 use near_primitives::shard_layout::get_block_shard_uid_rev;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunk, StateSyncInfo};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
@@ -39,10 +40,14 @@ pub struct StoreValidatorCache {
     receipt_refcount: HashMap<CryptoHash, u64>,
     block_refcount: HashMap<CryptoHash, u64>,
     genesis_blocks: Vec<CryptoHash>,
+
+    // If present, the node was bootstrapped with epoch sync, and this block height
+    // represents the first block of the target epoch that we epoch synced to.
+    epoch_sync_boundary: Option<BlockHeight>,
 }
 
 impl StoreValidatorCache {
-    fn new() -> Self {
+    fn new(epoch_sync_boundary: Option<BlockHeight>) -> Self {
         Self {
             head: 0,
             header_head: 0,
@@ -53,7 +58,12 @@ impl StoreValidatorCache {
             receipt_refcount: HashMap::new(),
             block_refcount: HashMap::new(),
             genesis_blocks: vec![],
+            epoch_sync_boundary,
         }
+    }
+
+    pub fn is_height_below_epoch_sync_boundary(&self, height: &BlockHeight) -> bool {
+        if let Some(boundary) = self.epoch_sync_boundary { height < &boundary } else { false }
     }
 }
 
@@ -74,10 +84,6 @@ pub struct StoreValidator {
     timeout: Option<i64>,
     start_time: Instant,
     pub is_archival: bool,
-    // If present, the node was bootstrapped with epoch sync, and this block height
-    // represents the first block of the target epoch that we epoch synced to.
-    epoch_sync_boundary: Option<BlockHeight>,
-
     pub errors: Vec<ErrorMessage>,
     tests: u64,
 }
@@ -101,11 +107,10 @@ impl StoreValidator {
             shard_tracker,
             runtime,
             store,
-            inner: StoreValidatorCache::new(),
+            inner: StoreValidatorCache::new(epoch_sync_boundary),
             timeout: None,
             start_time: Clock::real().now(),
             is_archival,
-            epoch_sync_boundary,
             errors: vec![],
             tests: 0,
         }
@@ -126,8 +131,7 @@ impl StoreValidator {
         self.errors.push(ErrorMessage { key: format!("{key:?}"), col: col.to_string(), err })
     }
     fn validate_col(&mut self, col: DBCol) -> Result<(), StoreValidatorError> {
-        for item in self.store.clone().iter_raw_bytes(col) {
-            let (key, value) = item?;
+        for (key, value) in self.store.clone().iter_raw_bytes(col) {
             let key_ref = key.as_ref();
             let value_ref = value.as_ref();
             match col {
@@ -299,6 +303,17 @@ impl StoreValidator {
                         self.check(&validate::epoch_validity, &epoch_id, &epoch_info, col);
                     }
                 }
+                DBCol::ProcessedReceiptIds => {
+                    let (block_hash, shard_id) = get_block_shard_id_rev(key_ref)?;
+                    let metadata: Vec<ProcessedReceiptMetadata> =
+                        BorshDeserialize::try_from_slice(value_ref)?;
+                    self.check(
+                        &validate::processed_receipt_ids_exist_in_receipts,
+                        &(block_hash, shard_id),
+                        metadata.as_slice(),
+                        col,
+                    );
+                }
                 DBCol::Transactions => {
                     let (_value, rc) = refcount::decode_value_with_rc(value_ref);
                     let tx_hash = CryptoHash::try_from(key_ref)?;
@@ -343,8 +358,16 @@ impl StoreValidator {
             self.process_error(e, "HEAD / HEADER_HEAD / TAIL / CHUNK_TAIL", DBCol::BlockMisc)
         }
 
-        // Main loop
-        for col in DBCol::iter() {
+        // Main loop.
+        // Custom sort: PartialChunks and ProcessedReceiptIds must be
+        // validated before Receipts so that receipt refcounts are fully
+        // populated before we check them against the Receipts column.
+        let mut cols: Vec<DBCol> = DBCol::iter().collect();
+        cols.sort_by_key(|col| match col {
+            DBCol::PartialChunks | DBCol::ProcessedReceiptIds => 0,
+            other => 1 + other.into_usize(),
+        });
+        for col in cols {
             if let Err(e) = self.validate_col(col) {
                 self.process_error(e, col.to_string(), col)
             }
@@ -465,7 +488,7 @@ mod tests {
             chain.get_block_by_height(0).unwrap().hash().as_ref(),
             &[123],
         );
-        store_update.commit().unwrap();
+        store_update.commit();
         match sv.validate_col(DBCol::Block) {
             Err(StoreValidatorError::IOError(_)) => {}
             _ => assert!(false),
@@ -477,8 +500,8 @@ mod tests {
         let (chain, mut sv) = init();
         let mut store_update = chain.chain_store().store().store_update();
         assert!(sv.validate_col(DBCol::TrieChanges).is_ok());
-        store_update.set_ser::<[u8]>(DBCol::TrieChanges, "567".as_ref(), &[123]).unwrap();
-        store_update.commit().unwrap();
+        store_update.set_ser::<[u8]>(DBCol::TrieChanges, "567".as_ref(), &[123]);
+        store_update.commit();
         match sv.validate_col(DBCol::TrieChanges) {
             Err(StoreValidatorError::DBCorruption(_)) => {}
             _ => assert!(false),

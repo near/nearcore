@@ -56,7 +56,7 @@ mod tests {
             for key in &keys {
                 store_update.insert(DBCol::Block, key.clone(), vec![42]);
             }
-            store_update.commit().unwrap();
+            store_update.commit();
             println!("Populated");
             // Drops node_storage, which unlocks the DB.
         }
@@ -71,7 +71,7 @@ mod tests {
             let node_storage = opener.open().unwrap();
             let mut store_update = node_storage.get_hot_store().store_update();
             store_update.delete_all(DBCol::Block);
-            store_update.commit().unwrap();
+            store_update.commit();
             println!("Deleted");
         }
 
@@ -80,9 +80,8 @@ mod tests {
             .open_in_mode(Mode::ReadOnly)
             .unwrap();
         for key in keys {
-            let exists_original = node_storage.get_hot_store().exists(DBCol::Block, &key).unwrap();
-            let exists_snapshot =
-                snapshot_node_storage.get_hot_store().exists(DBCol::Block, &key).unwrap();
+            let exists_original = node_storage.get_hot_store().exists(DBCol::Block, &key);
+            let exists_snapshot = snapshot_node_storage.get_hot_store().exists(DBCol::Block, &key);
             println!("{exists_original},{exists_snapshot},{key:?}");
             assert!(!exists_original);
             assert!(exists_snapshot);

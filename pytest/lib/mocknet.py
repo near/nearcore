@@ -10,7 +10,7 @@ import functools
 
 import base58
 import requests
-from rc import run, pmap, gcloud
+from rc import run, pmap
 
 import data
 import os

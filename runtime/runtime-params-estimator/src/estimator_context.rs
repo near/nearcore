@@ -28,10 +28,10 @@ use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
 use node_runtime::config::tx_cost;
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, get_signer_and_access_key,
+    ApplyState, Runtime, SignedValidPeriodTransactions, TxVerdict, get_signer_and_access_key,
     set_tx_state_changes, verify_and_charge_tx_ephemeral,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::iter;
 use std::sync::Arc;
 
@@ -78,7 +78,7 @@ impl<'c> EstimatorContext<'c> {
             self.config.in_memory_db,
         );
         // Ensure decent RocksDB SST file layout.
-        store.compact().expect("compaction failed");
+        store.compact();
 
         assert!(roots.len() <= 1, "Parameter estimation works with one shard only.");
         assert!(!roots.is_empty(), "No state roots found.");
@@ -94,7 +94,7 @@ impl<'c> EstimatorContext<'c> {
                 flat_head: BlockInfo::genesis(CryptoHash::hash_borsh(0usize), 0),
             }),
         );
-        store_update.commit().unwrap();
+        store_update.commit();
         flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
 
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
@@ -330,7 +330,7 @@ impl Testbed<'_> {
         // Clear trie access tracker state
         self.apply_state.trie_access_tracker_state = Default::default();
         // Flush out writes hanging in memtable
-        self.tries.store().store().flush().unwrap();
+        self.tries.store().store().flush();
 
         // OS caches:
         // - only required in time based measurements, since ICount looks at syscalls directly.
@@ -384,7 +384,7 @@ impl Testbed<'_> {
         }
         near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
             .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
-        store_update.commit().unwrap();
+        store_update.commit();
         self.apply_state.block_height += 1;
         if let Some(congestion_info) = apply_result.congestion_info {
             self.apply_state
@@ -463,15 +463,18 @@ impl Testbed<'_> {
         let (mut signer, mut access_key) = get_signer_and_access_key(&state_update, &validated_tx)
             .expect("getting signer and access key should not fail in estimator");
 
-        verify_and_charge_tx_ephemeral(
+        let TxVerdict::Success(result) = verify_and_charge_tx_ephemeral(
             &self.apply_state.config,
-            &mut signer,
+            &signer,
             &mut access_key,
             validated_tx.to_tx(),
             &cost,
             block_height,
-        )
-        .expect("tx verification should not fail in estimator");
+            PROTOCOL_VERSION,
+        ) else {
+            panic!("tx verification should not fail in estimator");
+        };
+        result.apply(&mut signer, &mut access_key);
         set_tx_state_changes(&mut state_update, &validated_tx, &signer, &access_key);
         clock.elapsed()
     }
@@ -482,6 +485,7 @@ impl Testbed<'_> {
     pub(crate) fn apply_action_receipt(&self, receipt: &Receipt, metric: GasMetric) -> GasCost {
         let mut state_update = TrieUpdate::new(self.trie());
         let mut outgoing_receipts = vec![];
+        let mut instant_receipts = VecDeque::new();
         let mut validator_proposals = vec![];
         let mut stats =
             ChunkApplyStatsV0::new(self.apply_state.block_height, self.apply_state.shard_id);
@@ -493,6 +497,7 @@ impl Testbed<'_> {
             &self.apply_state,
             receipt,
             &mut outgoing_receipts,
+            &mut instant_receipts,
             &mut validator_proposals,
             &mut stats,
             &epoch_info_provider,

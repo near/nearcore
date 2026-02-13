@@ -26,6 +26,7 @@ fn test_undo_block(epoch_length: u64, stop_height: u64) {
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = epoch_length * 2;
 
     let store = create_test_store();
     let (mut env, epoch_manager) = setup_env(&genesis, store.clone());

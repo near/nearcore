@@ -51,11 +51,15 @@ fn check_tx_processing(
 fn view_request(env: &TestEnv, request: QueryRequest) -> QueryResponse {
     let head = env.clients[0].chain.head().unwrap();
     let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+    let prev_chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(head_block.header().prev_hash(), &ShardUId::single_shard())
+        .unwrap();
     env.clients[0]
         .runtime_adapter
         .query(
             ShardUId::single_shard(),
-            &head_block.chunks()[0].prev_state_root(),
+            prev_chunk_extra.state_root(),
             head.height,
             0,
             &head.prev_block_hash,
@@ -84,8 +88,6 @@ fn view_nonce(env: &TestEnv, account: &AccountIdRef, pk: PublicKey) -> u64 {
 
 /// Tests that ETH-implicit account is created correctly, with Wallet Contract hash.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_eth_implicit_account_creation() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
@@ -140,7 +142,7 @@ fn test_eth_implicit_account_creation() {
 
 /// Test that transactions from ETH-implicit accounts are rejected.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_from_eth_implicit_account_fail() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -215,7 +217,6 @@ fn test_transaction_from_eth_implicit_account_fail() {
             access_key: AccessKey::full_access(),
         }))],
         *block.hash(),
-        0,
     );
     let response =
         env.rpc_handlers[0].process_tx(add_access_key_to_eth_implicit_account_tx, false, false);
@@ -231,7 +232,6 @@ fn test_transaction_from_eth_implicit_account_fail() {
         &eth_implicit_account_signer,
         vec![Action::DeployContract(DeployContractAction { code: wallet_contract_code })],
         *block.hash(),
-        0,
     );
     let response =
         env.rpc_handlers[0].process_tx(add_access_key_to_eth_implicit_account_tx, false, false);
@@ -239,8 +239,6 @@ fn test_transaction_from_eth_implicit_account_fail() {
 }
 
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_wallet_contract_interaction() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), alice_account(), bob_account()], 1);
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
@@ -267,16 +265,14 @@ fn test_wallet_contract_interaction() {
     // here in order to make transfer later from this account.
     let deposit_for_account_creation = Balance::from_near(1);
     let actions = vec![Action::Transfer(TransferAction { deposit: deposit_for_account_creation })];
-    let nonce = view_nonce(&env, relayer_signer.account_id, relayer_signer.signer.public_key()) + 1;
     let block_hash = *genesis_block.hash();
     let signed_transaction = SignedTransaction::from_actions(
-        nonce,
+        1,
         relayer.clone(),
         eth_implicit_account.clone(),
         &relayer_signer.signer.clone().into(),
         actions,
         block_hash,
-        0,
     );
     height = check_tx_processing(&mut env, signed_transaction, height, blocks_number);
 
@@ -413,7 +409,6 @@ pub fn create_rlp_execute_tx(
         &near_signer.signer.clone(),
         actions,
         block_hash,
-        0,
     )
 }
 
@@ -447,6 +442,9 @@ fn abi_encode(target: String, action: Action) -> Vec<u8> {
                         permission.receiver_id,
                         permission.method_names,
                     ),
+                    // TODO(gas-keys): do we need to support GasKey permissions here?
+                    AccessKeyPermission::GasKeyFullAccess(_) => unimplemented!(),
+                    AccessKeyPermission::GasKeyFunctionCall(_, _) => unimplemented!(),
                 };
             // cspell:ignore ethabi
             let tokens = &[

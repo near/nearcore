@@ -1,0 +1,25 @@
+{
+	"tx_generator": {
+		"accounts_path": "{{near_accounts_path}}",
+		"receiver_accounts_path": "{{near_receiver_accounts_path}}",
+		"receivers_from_senders_ratio": "{{near_receivers_from_senders_ratio}}",
+		"sender_accounts_zipf_skew": 1.0,
+		"receiver_accounts_zipf_skew": 1.0,
+		"schedule": [
+			{ "tps": 1000, "duration_s": 120 },
+			{ "tps": 2000, "duration_s": 120 },
+			{ "tps": 4000, "duration_s": 120 },
+			{ "tps": 8000, "duration_s": 120 },
+			{ "tps": 16000, "duration_s": 120 },
+			{ "tps": 20000, "duration_s": 300 }
+		],
+		"controller": {
+			"target_block_production_time_s": 1.0,
+			"bps_filter_window_length": 6,
+			"gain_proportional": 10.0,
+			"gain_integral": 0,
+			"gain_derivative": 1.0,
+			"block_pause_threshold_ms": 6000
+		}
+	}
+}

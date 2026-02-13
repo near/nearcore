@@ -344,7 +344,7 @@ impl ForkNetworkCommand {
             &near_config.genesis.config,
             Some(home_dir),
         );
-        let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?.unwrap();
+        let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids: Vec<_> = shard_layout.shard_uids().collect();
         // get_epoch_config_from_protocol_version
@@ -352,7 +352,7 @@ impl ForkNetworkCommand {
             ShardLayoutOverride::UseShardLayoutFromProtocolVersion(protocol_version) => {
                 epoch_manager
                     .get_epoch_config_from_protocol_version(*protocol_version)
-                    .legacy_shard_layout()
+                    .static_shard_layout()
             }
             ShardLayoutOverride::UseShardLayoutFromFile(shard_layout_file) => {
                 let layout = std::fs::read_to_string(&shard_layout_file).with_context(|| {
@@ -409,13 +409,13 @@ impl ForkNetworkCommand {
         );
 
         let mut store_update = store.store_update();
-        store_update.set_ser(DBCol::Misc, EPOCH_ID_KEY, epoch_id)?;
-        store_update.set_ser(DBCol::Misc, FLAT_HEAD_KEY, &desired_flat_head)?;
-        store_update.set_ser(DBCol::Misc, SHARD_LAYOUT_KEY, &target_shard_layout)?;
+        store_update.set_ser(DBCol::Misc, EPOCH_ID_KEY, epoch_id);
+        store_update.set_ser(DBCol::Misc, FLAT_HEAD_KEY, &desired_flat_head);
+        store_update.set_ser(DBCol::Misc, SHARD_LAYOUT_KEY, &target_shard_layout);
         for (shard_uid, state_root) in &state_roots {
-            store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_uid), state_root)?;
+            store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_uid), state_root);
         }
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -677,7 +677,7 @@ impl ForkNetworkCommand {
                 genesis_block.header().height(),
             );
         }
-        store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -699,7 +699,7 @@ impl ForkNetworkCommand {
         // 1. Create default genesis and override its fields with given parameters.
         let (epoch_config, num_accounts_per_shard, chunk_producers) =
             Self::read_patches(patches_path)?;
-        let target_shard_layout = &epoch_config.legacy_shard_layout();
+        let target_shard_layout = &epoch_config.static_shard_layout();
         let validators = Self::read_validators(validators, home_dir)?;
         let num_seats = num_seats.unwrap_or(validators.len() as NumSeats);
         let mut genesis = Genesis::from_account_infos(
@@ -804,9 +804,9 @@ impl ForkNetworkCommand {
         store: Store,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId, ShardLayout)> {
-        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY)?.unwrap());
-        let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH")?.unwrap();
-        let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT")?.unwrap();
+        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY).unwrap());
+        let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH").unwrap();
+        let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT").unwrap();
         let block_height = u64::from_le_bytes(block_height.as_slice().try_into().unwrap());
 
         let flat_head = BlockInfo {
@@ -823,8 +823,9 @@ impl ForkNetworkCommand {
             .with_context(|| format!("Failed getting shard layout for epoch {}", &epoch_id.0))?;
 
         let mut state_roots = HashMap::new();
-        for item in store.iter_prefix(DBCol::Misc, LEGACY_FORKED_ROOTS_KEY_PREFIX.as_bytes()) {
-            let (key, value) = item?;
+        for (key, value) in
+            store.iter_prefix(DBCol::Misc, LEGACY_FORKED_ROOTS_KEY_PREFIX.as_bytes())
+        {
             let shard_id = parse_legacy_state_roots_key(&key)?;
             let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
             let state_root: StateRoot = borsh::from_slice(&value)?;
@@ -848,14 +849,13 @@ impl ForkNetworkCommand {
         store: Store,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId, ShardLayout)> {
-        let Some(flat_head) = store.get_ser(DBCol::Misc, FLAT_HEAD_KEY)? else {
+        let Some(flat_head) = store.get_ser(DBCol::Misc, FLAT_HEAD_KEY) else {
             return self.legacy_get_state_roots_and_hash(store, epoch_manager);
         };
-        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY)?.unwrap());
-        let shard_layout = store.get_ser(DBCol::Misc, SHARD_LAYOUT_KEY)?.unwrap();
+        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY).unwrap());
+        let shard_layout = store.get_ser(DBCol::Misc, SHARD_LAYOUT_KEY).unwrap();
         let mut state_roots = HashMap::new();
-        for item in store.iter_prefix(DBCol::Misc, FORKED_ROOTS_KEY_PREFIX) {
-            let (key, value) = item?;
+        for (key, value) in store.iter_prefix(DBCol::Misc, FORKED_ROOTS_KEY_PREFIX) {
             let shard_uid = parse_state_roots_key(&key)?;
             let state_root: StateRoot = borsh::from_slice(&value)?;
 
@@ -997,28 +997,6 @@ impl ForkNetworkCommand {
                             new_account_id,
                             replacement.public_key(),
                             access_key.clone(),
-                        )?;
-                    }
-                    StateRecord::GasKey { account_id, public_key, gas_key } => {
-                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                        if account_id.get_account_type() != AccountType::NearImplicitAccount
-                            && gas_key.permission == AccessKeyPermission::FullAccess
-                        {
-                            has_full_key.insert(account_id.clone());
-                        }
-                        let new_account_id = map_account(&account_id, None);
-                        let replacement = map_key(&public_key, None);
-                        let new_shard_id =
-                            target_shard_layout.account_id_to_shard_id(&new_account_id);
-                        let new_shard_idx =
-                            target_shard_layout.get_shard_index(new_shard_id).unwrap();
-
-                        storage_mutator.remove_gas_key(shard_uid, account_id, public_key)?;
-                        storage_mutator.set_gas_key(
-                            new_shard_idx,
-                            new_account_id,
-                            replacement.public_key(),
-                            gas_key,
                         )?;
                     }
                     StateRecord::GasKeyNonce { account_id, public_key, index, nonce } => {
@@ -1475,7 +1453,7 @@ impl ForkNetworkCommand {
         new_state_roots: Vec<StateRoot>,
         new_validator_accounts: Vec<AccountInfo>,
     ) -> anyhow::Result<()> {
-        let shard_layout = epoch_config.legacy_shard_layout();
+        let shard_layout = epoch_config.static_shard_layout();
         // TODO: deprecate these fields as unused.
         let num_block_producer_seats_per_shard = vec![
             original_config
@@ -1556,7 +1534,7 @@ fn get_fork_heads(all_shard_uids: &[ShardUId], store: Store) -> anyhow::Result<V
     // Iterate over each shard to check that flat storage is Ready.
     let flat_heads :Vec<BlockInfo> = all_shard_uids.iter().map(|shard_uid|{
         let flat_storage_status = store
-            .get_ser::<FlatStorageStatus>(DBCol::FlatStorageStatus, &shard_uid.to_bytes()).unwrap()
+            .get_ser::<FlatStorageStatus>(DBCol::FlatStorageStatus, &shard_uid.to_bytes())
             .unwrap();
         if let FlatStorageStatus::Ready(ready) = &flat_storage_status {
             ready.flat_head

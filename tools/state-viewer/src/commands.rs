@@ -1037,7 +1037,7 @@ pub(crate) fn print_epoch_analysis(
         let next_epoch_id = epoch_heights_to_ids.get(&next_epoch_info.epoch_height()).unwrap();
         epoch_manager.get_shard_layout(&next_epoch_id).unwrap().num_shards() as usize
     } else {
-        next_next_epoch_config.legacy_shard_layout().num_shards() as usize
+        next_next_epoch_config.static_shard_layout().num_shards() as usize
     };
 
     // Print data header.
@@ -1080,7 +1080,7 @@ pub(crate) fn print_epoch_analysis(
                 // TODO(dynamic_resharding): adjust layout if a shard was marked for splitting
                 next_shard_layout.clone()
             } else {
-                next_next_epoch_config.legacy_shard_layout()
+                next_next_epoch_config.static_shard_layout()
             };
 
         match mode {
@@ -1107,6 +1107,10 @@ pub(crate) fn print_epoch_analysis(
             epoch_heights_to_infos.get(&next_next_epoch_height).unwrap();
         let rng_seed = stored_next_next_epoch_info.rng_seed();
 
+        let last_resharding = (!has_same_shard_layout)
+            .then_some(next_next_epoch_height)
+            .or_else(|| next_epoch_info.last_resharding());
+
         let next_next_epoch_info = proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
@@ -1118,6 +1122,7 @@ pub(crate) fn print_epoch_analysis(
             next_next_protocol_version,
             next_next_shard_layout,
             has_same_shard_layout,
+            last_resharding,
         )
         .unwrap();
 
@@ -1265,7 +1270,7 @@ pub(crate) fn contract_accounts(
 
     let tries = state_roots.iter().enumerate().map(|(shard_index, &state_root)| {
         let epoch_config_store = EpochConfigStore::for_chain_id(MAINNET, None).unwrap();
-        let shard_layout = &epoch_config_store.get_config(PROTOCOL_VERSION).legacy_shard_layout();
+        let shard_layout = &epoch_config_store.get_config(PROTOCOL_VERSION).static_shard_layout();
         let shard_uid = shard_layout.get_shard_uid(shard_index).unwrap();
         // Use simple non-caching storage, we don't expect many duplicate lookups while iterating.
         let storage = TrieDBStorage::new(store.trie_store(), shard_uid);
@@ -1304,7 +1309,7 @@ pub(crate) fn contract_accounts(
 pub(crate) fn clear_cache(store: Store) {
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::CachedContractCode);
-    store_update.commit().unwrap();
+    store_update.commit();
 }
 
 /// Prints the state statistics for all shards. Please note that it relies on

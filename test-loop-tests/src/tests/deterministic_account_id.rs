@@ -33,7 +33,9 @@ use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfigStore;
-use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
+use near_primitives::action::{
+    DeterministicStateInitAction, GlobalContractDeployMode, GlobalContractIdentifier,
+};
 use near_primitives::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
@@ -44,10 +46,12 @@ use near_primitives::errors::{
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
+use near_primitives::transaction::Action;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::Gas;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::derive_near_deterministic_account_id;
+use near_primitives::version::ProtocolVersion;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{AccountView, QueryRequest, QueryResponse, QueryResponseKind};
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
@@ -135,8 +139,6 @@ fn check_deterministic_state_init(
 ///
 /// This test also checks that the signer is charged the balance correctly.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_repeated_deterministic_state_init() {
     if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
         return;
@@ -348,8 +350,6 @@ fn test_deterministic_state_init_named_receiver() {
 /// deterministic account first and later initialize it without adding balance,
 /// even if more storage than the ZBA limit is used.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_deterministic_state_init_prepay_for_storage() {
     if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
         return;
@@ -393,11 +393,61 @@ fn test_deterministic_state_init_prepay_for_storage() {
     env.shutdown();
 }
 
+/// Test that multi-action receipts fail to create deterministic accounts before
+/// `FixDeterministicAccountIdCreation` is enabled.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_deterministic_state_init_multi_action_before_fix() {
+    let version_before_fix =
+        ProtocolFeature::FixDeterministicAccountIdCreation.protocol_version() - 1;
+    assert!(
+        ProtocolFeature::DeterministicAccountIds.enabled(version_before_fix),
+        "DeterministicAccountIds must be enabled before FixDeterministicAccountIdCreation"
+    );
+
+    let mut env = TestEnv::setup_with_protocol_version(Balance::from_near(100), version_before_fix);
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
+
+    let tx = env.multi_action_deterministic_account_tx(Balance::from_near(5));
+    let outcome = env.try_execute_tx(tx).expect("tx should be submitted");
+
+    assert_matches!(
+        outcome.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::AccountDoesNotExist { .. },
+            ..
+        }))
+    );
+
+    env.shutdown();
+}
+
+/// Test that multi-action receipts can create deterministic accounts after
+/// `FixDeterministicAccountIdCreation` is enabled.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_deterministic_state_init_multi_action_after_fix() {
+    let version_with_fix = ProtocolFeature::FixDeterministicAccountIdCreation.protocol_version();
+    let mut env = TestEnv::setup_with_protocol_version(Balance::from_near(100), version_with_fix);
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
+
+    let balance = Balance::from_near(5);
+    let tx = env.multi_action_deterministic_account_tx(balance);
+    let det_account = tx.transaction.receiver_id().clone();
+
+    env.try_execute_tx(tx).expect("tx should be submitted").assert_success();
+
+    assert!(env.get_account_state(det_account.clone()).amount >= balance);
+    env.assert_test_contract_usable_on_account(det_account);
+
+    env.shutdown();
+}
+
 /// Deploy a sharded toy-contract and check it can do a "predecessor is owner"
 /// check as intended by NEP-616.
 #[test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_sharded_contract_owner_check() {
     if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
         return;
@@ -634,6 +684,13 @@ struct TestEnv {
 
 impl TestEnv {
     fn setup(initial_balance: Balance) -> Self {
+        Self::setup_with_protocol_version(initial_balance, PROTOCOL_VERSION)
+    }
+
+    fn setup_with_protocol_version(
+        initial_balance: Balance,
+        protocol_version: ProtocolVersion,
+    ) -> Self {
         init_test_logger();
 
         let [user_account, independent_account, global_contract_account] =
@@ -645,6 +702,7 @@ impl TestEnv {
         let clients = validators_spec_clients_with_rpc(&validators_spec);
 
         let genesis = TestLoopBuilder::new_genesis_builder()
+            .protocol_version(protocol_version)
             .validators_spec(validators_spec)
             .shard_layout(shard_layout)
             .add_user_accounts_simple(
@@ -767,6 +825,33 @@ impl TestEnv {
             balance,
         );
         self.try_execute_tx(create_deterministic_account_tx)
+    }
+
+    /// Creates a multi-action transaction: Transfer + DeterministicStateInit + FunctionCall.
+    fn multi_action_deterministic_account_tx(&mut self, balance: Balance) -> SignedTransaction {
+        let (state_init, det_account) = self.new_deterministic_account_with_data(small());
+        let signer = create_user_test_signer(&self.user_account());
+        let actions = vec![
+            Action::Transfer(near_primitives::transaction::TransferAction { deposit: balance }),
+            Action::DeterministicStateInit(Box::new(DeterministicStateInitAction {
+                state_init,
+                deposit: Balance::ZERO,
+            })),
+            Action::FunctionCall(Box::new(near_primitives::action::FunctionCallAction {
+                method_name: "log_something".to_owned(),
+                args: vec![],
+                gas: Gas::from_teragas(50),
+                deposit: Balance::ZERO,
+            })),
+        ];
+        SignedTransaction::from_actions(
+            self.next_nonce(),
+            self.user_account(),
+            det_account,
+            &signer,
+            actions,
+            self.get_tx_block_hash(),
+        )
     }
 
     /// Creates, on-chain, a deterministic account id owned by `user`.
@@ -953,12 +1038,8 @@ impl TestEnv {
         }
     }
 
-    fn runtime_query(&self, account_id: &AccountId, query: QueryRequest) -> QueryResponse {
-        TestLoopNode::rpc(&self.env.node_datas).runtime_query(
-            self.env.test_loop_data(),
-            account_id,
-            query,
-        )
+    fn runtime_query(&self, query: QueryRequest) -> QueryResponse {
+        TestLoopNode::rpc(&self.env.node_datas).runtime_query(self.env.test_loop_data(), query)
     }
 
     fn get_account_state(&mut self, account: AccountId) -> AccountView {
@@ -970,7 +1051,7 @@ impl TestEnv {
 
     fn view_account(&self, account: &AccountId) -> AccountView {
         let response =
-            self.runtime_query(account, QueryRequest::ViewAccount { account_id: account.clone() });
+            self.runtime_query(QueryRequest::ViewAccount { account_id: account.clone() });
         let QueryResponseKind::ViewAccount(account_view) = response.kind else { unreachable!() };
         account_view
     }

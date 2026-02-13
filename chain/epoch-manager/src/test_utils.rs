@@ -11,6 +11,7 @@ use near_primitives::epoch_manager::AllEpochConfig;
 use near_primitives::epoch_manager::{EpochConfigBuilder, EpochConfigStore};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::types::EpochId;
 use near_primitives::types::ProtocolVersion;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -127,6 +128,7 @@ pub fn epoch_info_with_num_seats(
         TEST_SEED,
         validator_mandates,
         shard_layout,
+        None,
     )
 }
 
@@ -320,6 +322,19 @@ pub fn record_block_with_final_block_hash(
     height: BlockHeight,
     proposals: Vec<ValidatorStake>,
 ) {
+    let epoch_id = epoch_manager.get_epoch_id(&prev_h).unwrap();
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
+        shard_layout
+            .shard_ids()
+            .map(|shard_id| {
+                let assignments = epoch_manager
+                    .get_chunk_validator_assignments(&epoch_id, shard_id, height)
+                    .unwrap();
+                vec![true; assignments.assignments().iter().len()]
+            })
+            .collect(),
+    );
     epoch_manager
         .record_block_info(
             BlockInfo::new(
@@ -332,17 +347,17 @@ pub fn record_block_with_final_block_hash(
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
                 PROTOCOL_VERSION,
+                PROTOCOL_VERSION,
                 height * NUM_NS_IN_SECOND,
+                chunk_endorsements,
                 None,
             ),
             [0; 32],
         )
         .unwrap()
-        .commit()
-        .unwrap();
+        .commit();
 }
 
-// TODO(#11900): Start using BlockInfoV3 in the tests.
 pub fn record_block(
     epoch_manager: &mut EpochManager,
     prev_h: CryptoHash,
@@ -361,6 +376,19 @@ pub fn record_block_with_version(
     proposals: Vec<ValidatorStake>,
     protocol_version: ProtocolVersion,
 ) {
+    let epoch_id = epoch_manager.get_epoch_id(&prev_h).unwrap();
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
+        shard_layout
+            .shard_ids()
+            .map(|shard_id| {
+                let assignments = epoch_manager
+                    .get_chunk_validator_assignments(&epoch_id, shard_id, height)
+                    .unwrap();
+                vec![true; assignments.assignments().iter().len()]
+            })
+            .collect(),
+    );
     epoch_manager
         .record_block_info(
             BlockInfo::new(
@@ -373,14 +401,15 @@ pub fn record_block_with_version(
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
                 protocol_version,
+                protocol_version,
                 height * NUM_NS_IN_SECOND,
+                chunk_endorsements,
                 None,
             ),
             [0; 32],
         )
         .unwrap()
-        .commit()
-        .unwrap();
+        .commit();
 }
 
 pub fn record_blocks<F>(
@@ -407,7 +436,7 @@ where
     (last_hash, height + count)
 }
 
-// TODO(#11900): Start using BlockInfoV3 in the tests.
+// TODO(dynamic_resharding): Start using BlockInfoV4 in the tests.
 #[allow(deprecated)]
 pub fn block_info(
     hash: CryptoHash,
@@ -437,5 +466,5 @@ pub fn block_info(
 }
 
 pub fn record_with_block_info(epoch_manager: &mut EpochManager, block_info: BlockInfo) {
-    epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
+    epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit();
 }

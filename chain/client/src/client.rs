@@ -9,10 +9,9 @@ use crate::chunk_producer::AdvProduceChunksMode;
 use crate::chunk_producer::ChunkProducer;
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
+use crate::spice_timer::SpiceTimer;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
-use crate::stateless_validation::chunk_validation_actor::{
-    BlockNotificationMessage, ChunkValidationSender,
-};
+use crate::stateless_validation::chunk_validation_actor::ChunkValidationSender;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
@@ -43,7 +42,7 @@ use near_chain::{
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::logic::{create_partial_chunk, persist_chunk};
-use near_client_primitives::types::{Error, StateSyncStatus, SyncStatus};
+use near_client_primitives::types::{BlockNotificationMessage, Error, StateSyncStatus, SyncStatus};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -52,6 +51,7 @@ use near_network::types::{NetworkRequests, PeerManagerAdapter, ReasonForBan};
 use near_primitives::block::{
     Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, SpiceNewBlockProductionInfo, Tip,
 };
+use near_primitives::block_body::SpiceCoreStatements;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::EpochError;
@@ -122,6 +122,7 @@ pub struct Client {
     pub config: ClientConfig,
     pub chain: Chain,
     pub doomslug: Doomslug,
+    pub spice_timer: SpiceTimer,
     pub epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub shard_tracker: ShardTracker,
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -180,6 +181,9 @@ pub struct Client {
     chunk_producer_accounts_cache: Option<(EpochId, Arc<Vec<AccountId>>)>,
     /// Reed-Solomon encoder for shadow chunk validation.
     shadow_validation_reed_solomon: OnceLock<Arc<ReedSolomon>>,
+    /// watch::Sender used to notify watchers about new postprocessed blocks.
+    pub block_notification_watch_sender:
+        tokio::sync::watch::Sender<Option<BlockNotificationMessage>>,
 }
 
 impl AsRef<Client> for Client {
@@ -276,6 +280,9 @@ impl Client {
         chain_sender_for_state_sync: ChainSenderForStateSync,
         myself_sender: ClientSenderForClient,
         chunk_validation_sender: ChunkValidationSender,
+        block_notification_watch_sender: tokio::sync::watch::Sender<
+            Option<BlockNotificationMessage>,
+        >,
         upgrade_schedule: ProtocolUpgradeVotingSchedule,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
@@ -360,6 +367,12 @@ impl Client {
             config.chunk_wait_mult,
             doomslug_threshold_mode,
         );
+        let spice_timer = SpiceTimer::new(
+            clock.clone(),
+            config.min_block_production_delay,
+            config.max_block_production_delay,
+            (config.max_block_production_delay - config.min_block_production_delay) / 10,
+        );
         let chunk_endorsement_tracker = Arc::new(ChunkEndorsementTracker::new(
             epoch_manager.clone(),
             chain.chain_store().store(),
@@ -385,6 +398,7 @@ impl Client {
             config: config.clone(),
             chain,
             doomslug,
+            spice_timer,
             epoch_manager,
             shard_tracker,
             runtime_adapter,
@@ -423,6 +437,7 @@ impl Client {
             last_optimistic_block_produced: None,
             chunk_producer_accounts_cache: None,
             shadow_validation_reed_solomon: OnceLock::new(),
+            block_notification_watch_sender,
         })
     }
 
@@ -481,16 +496,18 @@ impl Client {
                     .to_transactions()
                     .into_iter()
                     .cloned()
-                    .filter_map(|signed_tx| match ValidatedTransaction::new(&config, signed_tx) {
-                        Ok(validated_tx) => Some(validated_tx),
-                        Err((err, signed_tx)) => {
-                            tracing::debug!(
-                                target: "client",
-                                ?signed_tx,
-                                ?err,
-                                "validating signed tx failed with error"
-                            );
-                            None
+                    .filter_map(|signed_tx| {
+                        match ValidatedTransaction::new(&config, signed_tx, protocol_version) {
+                            Ok(validated_tx) => Some(validated_tx),
+                            Err((err, signed_tx)) => {
+                                tracing::debug!(
+                                    target: "client",
+                                    ?signed_tx,
+                                    ?err,
+                                    "validating signed tx failed with error"
+                                );
+                                None
+                            }
                         }
                     })
                     .collect::<Vec<_>>();
@@ -927,18 +944,44 @@ impl Client {
             None
         };
 
+        // Last final block **after this block is produced**
+        let last_final_block = prev.last_final_block_for_height(height);
+        let is_produced_block_last_in_epoch = self.epoch_manager.is_produced_block_last_in_epoch(
+            height,
+            &prev_hash,
+            &last_final_block,
+        )?;
+
+        // Compute shard_split if this is the last block of the epoch
+        let shard_split = if is_produced_block_last_in_epoch {
+            // Collect proposed splits from chunk headers
+            let mut proposed_splits = HashMap::new();
+            for header in &chunk_headers {
+                if let Some(split) = header.proposed_split() {
+                    proposed_splits.insert(header.shard_id(), split.clone());
+                }
+            }
+            self.epoch_manager.get_upcoming_shard_split(
+                protocol_version,
+                &prev_hash,
+                &proposed_splits,
+            )?
+        } else {
+            None
+        };
+
         let next_epoch_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
         let spice_info = if ProtocolFeature::Spice.enabled(protocol_version) {
-            let core_statements =
-                self.chain.spice_core_reader.core_statement_for_next_block(&prev_header)?;
+            let core_statements = SpiceCoreStatements::new(
+                self.chain.spice_core_reader.core_statements_for_next_block(&prev_header)?,
+            );
             let last_certified_block_execution_results =
                 self.chain.spice_core_reader.get_last_certified_execution_results_for_next_block(
                     prev_header,
                     &core_statements,
                 )?;
-
             Some(SpiceNewBlockProductionInfo {
                 core_statements,
                 last_certified_block_execution_results,
@@ -948,6 +991,7 @@ impl Client {
         };
 
         let block = Arc::new(Block::produce(
+            protocol_version,
             self.upgrade_schedule
                 .protocol_version_to_vote_for(self.clock.now_utc(), next_epoch_protocol_version),
             prev_header,
@@ -969,6 +1013,7 @@ impl Client {
             self.clock.clone(),
             sandbox_delta_time,
             optimistic_block,
+            shard_split,
             spice_info,
         ));
 
@@ -1154,7 +1199,7 @@ impl Client {
         // the height, drop the block.
         let is_on_head = block.header().prev_hash()
             == &self.chain.head().map_or_else(|_| CryptoHash::default(), |tip| tip.last_block_hash);
-        if !is_on_head && self.chain.is_height_processed(block_height)? {
+        if !is_on_head && self.chain.is_height_processed(block_height) {
             tracing::debug!(target: "client", ?hash, block_height, "dropping a block because we've seen this height before and we didn't request it");
             return Ok(false);
         }
@@ -1671,7 +1716,10 @@ impl Client {
 
         // Notify chunk validation actor about the new block for orphan witness processing
         let block_notification = BlockNotificationMessage { block: block.clone() };
-        self.chunk_validation_sender.block_notification.send(block_notification);
+        self.chunk_validation_sender.block_notification.send(block_notification.clone());
+
+        // Notify all subscribed watchers about the new block.
+        self.block_notification_watch_sender.send_replace(Some(block_notification));
     }
 
     /// Reconcile the transaction pool after processing a block.
@@ -1794,7 +1842,8 @@ impl Client {
                 #[cfg(feature = "test_features")]
                 let chain_validate: &dyn Fn(&SignedTransaction) -> bool = {
                     match self.chunk_producer.adversarial.produce_mode {
-                        Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => &|_| true,
+                        Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck)
+                        | Some(AdvProduceChunksMode::ProduceWithoutTxVerification) => &|_| true,
                         _ => &transaction_validity_check,
                     }
                 };
@@ -2267,18 +2316,12 @@ impl Client {
         fields(%hash, %peer_id)
     )]
     pub fn request_block(&self, hash: CryptoHash, peer_id: PeerId) {
-        match self.chain.block_exists(&hash) {
-            Ok(false) => {
-                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::BlockRequest { hash, peer_id },
-                ));
-            }
-            Ok(true) => {
-                tracing::debug!(target: "client", ?hash, "send_block_request_to_peer: block already known")
-            }
-            Err(err) => {
-                tracing::error!(target: "client", ?hash, ?err, "send_block_request_to_peer: failed to check block exists")
-            }
+        if !self.chain.block_exists(&hash) {
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::BlockRequest { hash, peer_id },
+            ));
+        } else {
+            tracing::debug!(target: "client", ?hash, "send_block_request_to_peer: block already known");
         }
     }
 

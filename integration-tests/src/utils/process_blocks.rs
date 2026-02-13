@@ -98,7 +98,6 @@ pub fn deploy_test_contract_with_protocol_version(
         &signer,
         vec![Action::DeployContract(DeployContractAction { code: wasm_code.to_vec() })],
         *block.hash(),
-        0,
     );
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     produce_blocks_from_height_with_protocol_version(env, epoch_length, height, protocol_version)
@@ -150,7 +149,6 @@ pub fn prepare_env_with_congestion(
             code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
         })],
         *genesis_block.hash(),
-        0,
     );
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     for i in 1..3 {
@@ -185,7 +183,6 @@ pub fn prepare_env_with_congestion(
                 deposit: Balance::ZERO,
             }))],
             *genesis_block.hash(),
-            0,
         );
         tx_hashes.push(signed_transaction.get_hash());
         assert_eq!(

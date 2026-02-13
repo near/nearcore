@@ -13,8 +13,8 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::CloudStorage;
-use near_store::archive::cloud_storage::download::CloudRetrievalError;
-use near_store::archive::cloud_storage::upload::CloudArchivingError;
+use near_store::archive::cloud_storage::archive::CloudArchivingError;
+use near_store::archive::cloud_storage::retrieve::CloudRetrievalError;
 use near_store::db::{CLOUD_HEAD_KEY, DBTransaction};
 use near_store::{DBCol, FINAL_HEAD_KEY, Store};
 use time::Duration;
@@ -258,6 +258,10 @@ impl CloudArchivalWriter {
         let tracked_shards =
             self.shard_tracker.get_tracked_shards_for_non_validator_in_epoch(&epoch_id)?;
 
+        if self.epoch_manager.is_next_block_epoch_start(&block_hash)? {
+            self.cloud_storage.archive_epoch_data(&self.hot_store, &shard_layout, epoch_id).await?;
+        }
+
         self.cloud_storage.archive_block_data(&self.hot_store, height).await?;
         for shard_uid in tracked_shards {
             self.cloud_storage
@@ -390,14 +394,14 @@ impl CloudArchivalWriter {
 
     /// Reads the hot final head height; falls back to `genesis_height` if unset.
     fn get_hot_final_head_height(&self) -> io::Result<BlockHeight> {
-        let hot_final_head = self.hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
+        let hot_final_head = self.hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY);
         let hot_final_head_height = hot_final_head.map_or(self.genesis_height, |tip| tip.height);
         Ok(hot_final_head_height)
     }
 
     /// Returns the locally stored cloud head, if any.
     fn get_cloud_head_local(&self) -> io::Result<Option<BlockHeight>> {
-        let cloud_head_tip = self.hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY)?;
+        let cloud_head_tip = self.hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY);
         let cloud_head = cloud_head_tip.map(|tip| tip.height);
         Ok(cloud_head)
     }
@@ -412,7 +416,7 @@ impl CloudArchivalWriter {
         let cloud_head_tip = Tip::from_header(&cloud_head_header);
         let mut transaction = DBTransaction::new();
         transaction.set(DBCol::BlockMisc, CLOUD_HEAD_KEY.to_vec(), borsh::to_vec(&cloud_head_tip)?);
-        self.hot_store.database().write(transaction)?;
+        self.hot_store.database().write(transaction);
         Ok(())
     }
 }

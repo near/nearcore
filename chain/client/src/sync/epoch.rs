@@ -135,9 +135,6 @@ impl EpochSync {
         highest_height: BlockHeight,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), Error> {
-        if self.config.disable_epoch_sync_for_bootstrapping {
-            return Ok(());
-        }
         let tip_height = chain.chain_store().header_head()?.height;
         if tip_height != chain.genesis().height() {
             // Epoch Sync only supports bootstrapping at genesis. This is because there is no reason
@@ -277,8 +274,13 @@ impl EpochSync {
         // It means that store contains header of last final block of the first block of current epoch.
         let last_header_last_finalized_height =
             store.chain_store().get_block_header(last_header.last_final_block())?.height();
-        let mut first_block_info_in_epoch =
-            BlockInfo::from_header(&last_header, last_header_last_finalized_height);
+        let current_protocol_version =
+            epoch_manager.get_epoch_protocol_version(last_header.epoch_id())?;
+        let mut first_block_info_in_epoch = BlockInfo::from_header(
+            &last_header,
+            last_header_last_finalized_height,
+            current_protocol_version,
+        );
         // We need to populate fields below manually, as they are set to defaults by `BlockInfo::from_header`.
         *first_block_info_in_epoch.epoch_first_block_mut() = *last_header.hash();
         *first_block_info_in_epoch.epoch_id_mut() = *last_header.epoch_id();
@@ -296,7 +298,7 @@ impl EpochSync {
             &proof.current_epoch.partial_merkle_tree_for_first_block,
         );
 
-        store_update.commit()?;
+        store_update.commit();
 
         *status = SyncStatus::EpochSyncDone;
         tracing::info!(epoch_id=?last_header.epoch_id(), "bootstrapped from epoch sync");
@@ -522,11 +524,6 @@ impl EpochSync {
 
 impl Handler<EpochSyncRequestMessage> for ClientActor {
     fn handle(&mut self, msg: EpochSyncRequestMessage) {
-        if self.client.sync_handler.epoch_sync.config.ignore_epoch_sync_network_requests {
-            // Temporary kill switch for the rare case there were issues with this network request.
-            return;
-        }
-
         if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
             // When ContinuousEpochSync is enabled, we simply return the stored compressed proof.
             // The proof is automatically updated at the beginning of each epoch via the epoch manager.

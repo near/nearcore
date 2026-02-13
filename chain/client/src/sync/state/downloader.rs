@@ -162,7 +162,7 @@ impl StateSyncDownloader {
             let handle =
                 task_tracker.get_handle(&format!("shard {} part {}", shard_id, part_id)).await;
             handle.set_status("Reading existing part");
-            if does_state_part_exist_on_disk(&store, sync_hash, shard_id, part_id)? {
+            if does_state_part_exist_on_disk(&store, sync_hash, shard_id, part_id) {
                 return Ok(());
             }
 
@@ -201,9 +201,7 @@ impl StateSyncDownloader {
                     let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
                     let bytes = part.to_bytes(protocol_version);
                     store_update.set(DBCol::StateParts, &key, &bytes);
-                    store_update.commit().map_err(|e| {
-                        near_chain::Error::Other(format!("Failed to store part: {}", e))
-                    })?;
+                    store_update.commit();
                 } else {
                     return Err(near_chain::Error::Other("Part data failed validation".to_owned()));
                 }
@@ -233,9 +231,9 @@ fn does_state_part_exist_on_disk(
     sync_hash: CryptoHash,
     shard_id: ShardId,
     part_id: u64,
-) -> Result<bool, near_chain::Error> {
-    Ok(store.exists(
+) -> bool {
+    store.exists(
         DBCol::StateParts,
         &borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap(),
-    )?)
+    )
 }

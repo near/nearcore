@@ -69,6 +69,7 @@ async fn query_status_not_crash() {
     block_merkle_tree.insert(*header.hash());
     let mut next_block = Block::produce(
         PROTOCOL_VERSION,
+        PROTOCOL_VERSION,
         &header,
         block.header.height + 1,
         header.block_ordinal() + 1,
@@ -86,6 +87,7 @@ async fn query_status_not_crash() {
         block.header.next_bp_hash,
         block_merkle_tree.root(),
         Clock::real(),
+        None,
         None,
         None,
         None,
@@ -117,7 +119,7 @@ async fn query_status_not_crash() {
 }
 
 #[tokio::test]
-// TODO(spice): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 async fn test_execution_outcome_for_chunk() {
     init_test_logger();
