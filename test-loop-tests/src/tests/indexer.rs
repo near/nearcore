@@ -109,7 +109,7 @@ fn test_indexer_instant_receipt() {
     let rpc_node = TestLoopNode::rpc(&env.node_datas);
 
     // Step 1: Call yield_create — produces a PromiseYield instant receipt that
-    // gets stored as a delayed receipt (waiting for data) and in DBCol::Receipts.
+    // gets stored/postponed as a PromiseYield receipt (awaiting data) and persisted in DBCol::Receipts.
     let yield_create_tx = SignedTransaction::call(
         next_nonce(),
         user_account(),
