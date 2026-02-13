@@ -42,7 +42,7 @@ pub enum ReceiptEnum {
 pub struct ActionReceiptV2 {
     /// A signer of the original transaction
     pub signer_id: AccountId,
-    /// The receiver of any balance refunds form this receipt if it is different from receiver_id.
+    /// The receiver of any balance refunds from this receipt if it is different from receiver_id.
     pub refund_to: Option<AccountId>,
     /// An access key which was used to sign the original transaction
     pub signer_public_key: PublicKey,
