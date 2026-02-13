@@ -5,7 +5,7 @@ use near_primitives::state::FlatStateValue;
 
 use crate::flat::delta::{BlockWithChangesInfo, KeyForFlatStateDelta};
 use crate::flat::{
-    FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStateIterator, FlatStorageError,
+    FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStateIterator,
     FlatStorageReadyStatus, FlatStorageStatus,
 };
 use crate::{DBCol, Store, StoreUpdate};
@@ -42,14 +42,10 @@ impl FlatStoreAdapter {
         self.store.get_ser(DBCol::FlatState, &db_key)
     }
 
-    pub fn get_flat_storage_status(
-        &self,
-        shard_uid: ShardUId,
-    ) -> Result<FlatStorageStatus, FlatStorageError> {
-        Ok(self
-            .store
+    pub fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus {
+        self.store
             .get_ser(DBCol::FlatStorageStatus, &shard_uid.to_bytes())
-            .unwrap_or(FlatStorageStatus::Empty))
+            .unwrap_or(FlatStorageStatus::Empty)
     }
 
     pub fn get_delta(
@@ -73,15 +69,15 @@ impl FlatStoreAdapter {
         shard_uid: ShardUId,
         block_hash: CryptoHash,
         prev_hash: CryptoHash,
-    ) -> Result<Option<BlockWithChangesInfo>, FlatStorageError> {
+    ) -> Option<BlockWithChangesInfo> {
         let key = KeyForFlatStateDelta { shard_uid, block_hash: prev_hash }.to_bytes();
         let prev_delta_metadata: Option<FlatStateDeltaMetadata> =
             self.store.get_ser(DBCol::FlatStateDeltaMetadata, &key);
 
-        let prev_block_with_changes = match prev_delta_metadata {
+        match prev_delta_metadata {
             None => {
                 // DeltaMetadata not found, which means the prev block is the flat head.
-                let flat_storage_status = self.get_flat_storage_status(shard_uid)?;
+                let flat_storage_status = self.get_flat_storage_status(shard_uid);
                 match flat_storage_status {
                     FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }) => {
                         if flat_head.hash == prev_hash {
@@ -103,8 +99,7 @@ impl FlatStoreAdapter {
                     height: metadata.block.height,
                 }))
             }
-        };
-        Ok(prev_block_with_changes)
+        }
     }
 
     /// Returns iterator over entire range of flat storage entries.

@@ -54,18 +54,12 @@ impl ShardUpdateState {
         let max_delta_height = deltas.iter().map(|d| d.block.height).max();
         let max_delta_height = match max_delta_height {
             Some(h) => h,
-            None => {
-                match flat_store.get_flat_storage_status(shard_uid).with_context(|| {
-                    format!("failed getting flat storage status for {}", shard_uid)
-                })? {
-                    FlatStorageStatus::Ready(status) => status.flat_head.height,
-                    status => anyhow::bail!(
-                        "expected Ready flat storage for {}, got {:?}",
-                        shard_uid,
-                        status
-                    ),
+            None => match flat_store.get_flat_storage_status(shard_uid) {
+                FlatStorageStatus::Ready(status) => status.flat_head.height,
+                status => {
+                    anyhow::bail!("expected Ready flat storage for {}, got {:?}", shard_uid, status)
                 }
-            }
+            },
         };
         Ok(Self {
             root: Arc::new(Mutex::new(Some(InProgressRoot {

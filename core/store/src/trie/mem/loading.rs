@@ -115,7 +115,7 @@ pub fn load_trie_from_flat_state_and_delta(
 ) -> Result<MemTries, StorageError> {
     tracing::debug!(target: "memtrie", %shard_uid, "loading base trie from flat state");
     let flat_store = store.flat_store();
-    let flat_head = match flat_store.get_flat_storage_status(shard_uid)? {
+    let flat_head = match flat_store.get_flat_storage_status(shard_uid) {
         FlatStorageStatus::Ready(status) => status.flat_head,
         FlatStorageStatus::Resharding(FlatStorageReshardingStatus::SplittingParent(status)) => {
             tracing::warn!(
