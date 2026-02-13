@@ -67,10 +67,12 @@ pub mod col {
     pub const GLOBAL_CONTRACT_CODE: u8 = 18;
     /// Global contract deployment nonce. Values are u64.
     pub const GLOBAL_CONTRACT_NONCE: u8 = 19;
+    /// Status of a yielded receipt. Values are of type `PromiseYieldStatus`.
+    pub const PROMISE_YIELD_STATUS: u8 = 20;
 
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
-    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 9] = [
+    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 10] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -80,9 +82,10 @@ pub mod col {
         (POSTPONED_RECEIPT, "PostponedReceipt"),
         (CONTRACT_DATA, "ContractData"),
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
+        (PROMISE_YIELD_STATUS, "PromiseYieldStatus"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 19] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 20] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -102,6 +105,7 @@ pub mod col {
         (BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM, "BufferedReceiptGroupsQueueItem"),
         (GLOBAL_CONTRACT_CODE, "GlobalContractCode"),
         (GLOBAL_CONTRACT_NONCE, "GlobalContractNonce"),
+        (PROMISE_YIELD_STATUS, "PromiseYieldStatus"),
     ];
 }
 
@@ -242,6 +246,15 @@ pub enum TrieKey {
     GlobalContractCode {
         identifier: GlobalContractCodeIdentifier,
     } = col::GLOBAL_CONTRACT_CODE,
+    /// Global contract deployment nonce. Stores the nonce of the last
+    /// deployment for nonce-based idempotency during distribution.
+    GlobalContractNonce {
+        identifier: GlobalContractCodeIdentifier,
+    } = col::GLOBAL_CONTRACT_NONCE,
+    PromiseYieldStatus {
+        receiver_id: AccountId,
+        data_id: CryptoHash,
+    } = col::PROMISE_YIELD_STATUS,
     /// Represents a single nonce for a gas key. Stored under `col::ACCESS_KEY`
     /// with a special key format: If an access key is used as a gas key, the
     /// keys used to store its nonces extend the access key trie key with a
@@ -250,12 +263,7 @@ pub enum TrieKey {
         account_id: AccountId,
         public_key: PublicKey,
         index: NonceIndex,
-    } = 19,
-    /// Global contract deployment nonce. Stores the nonce of the last
-    /// deployment for nonce-based idempotency during distribution.
-    GlobalContractNonce {
-        identifier: GlobalContractCodeIdentifier,
-    } = 20,
+    } = 21,
 }
 
 /// Provides `len` function.
@@ -356,6 +364,12 @@ impl TrieKey {
             }
             TrieKey::GlobalContractNonce { identifier } => {
                 col::GLOBAL_CONTRACT_NONCE.len() + identifier.len()
+            }
+            TrieKey::PromiseYieldStatus { receiver_id, data_id } => {
+                col::PROMISE_YIELD_STATUS.len()
+                    + receiver_id.len()
+                    + ACCOUNT_DATA_SEPARATOR.len()
+                    + data_id.as_ref().len()
             }
         }
     }
@@ -465,6 +479,12 @@ impl TrieKey {
                 buf.push(col::GLOBAL_CONTRACT_NONCE);
                 identifier.append_into(buf);
             }
+            TrieKey::PromiseYieldStatus { receiver_id, data_id } => {
+                buf.push(col::PROMISE_YIELD_STATUS);
+                buf.extend(receiver_id.as_bytes());
+                buf.push(ACCOUNT_DATA_SEPARATOR);
+                buf.extend(data_id.as_ref());
+            }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -501,6 +521,7 @@ impl TrieKey {
             // correspond to the data stored for that account id, so always returning None here.
             TrieKey::GlobalContractCode { .. } => None,
             TrieKey::GlobalContractNonce { .. } => None,
+            TrieKey::PromiseYieldStatus { receiver_id, .. } => Some(receiver_id.clone()),
         }
     }
 }
