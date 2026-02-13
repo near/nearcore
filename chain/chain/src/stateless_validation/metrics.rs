@@ -221,10 +221,10 @@ fn record_witness_size_metrics_fallible(
         .observe(encoded_size as f64);
     CHUNK_STATE_WITNESS_MAIN_STATE_TRANSITION_SIZE
         .with_label_values(&[shard_id.as_str()])
-        .observe(borsh::object_length(&witness.main_state_transition())? as f64);
+        .observe(borsh::object_length(&witness.main_state_transition()).unwrap() as f64);
     CHUNK_STATE_WITNESS_SOURCE_RECEIPT_PROOFS_SIZE
         .with_label_values(&[&shard_id.as_str()])
-        .observe(borsh::object_length(&witness.source_receipt_proofs())? as f64);
+        .observe(borsh::object_length(&witness.source_receipt_proofs()).unwrap() as f64);
     Ok(())
 }
 

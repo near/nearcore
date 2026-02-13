@@ -354,7 +354,7 @@ impl ChainStoreAdapter {
         shard_id: ShardId,
         block_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
-        let key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
+        let key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash)).unwrap();
         self.store
             .get_ser(DBCol::StateHeaders, &key)
             .ok_or_else(|| Error::Other("Cannot get shard_state_header".into()))
