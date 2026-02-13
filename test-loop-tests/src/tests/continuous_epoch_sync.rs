@@ -31,6 +31,8 @@ fn test_epoch_sync_proof_update() {
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
+        // GC period is 10 epochs. Required for generating proof from scratch in derive_epoch_sync_proof_from_last_block.
+        .gc_num_epochs_to_keep(10)
         .clients(clients)
         .build()
         .warmup();

@@ -265,7 +265,7 @@ mod test {
 
         // Test 3: Try reading from a non-cold column and verify it returns None
         // even if the value is set in the cold db.
-        let col = DBCol::BlockHeader;
+        let col = DBCol::BlockMerkleTree;
         let key = BAZ;
 
         set(&cold, col, key, BAZ);
