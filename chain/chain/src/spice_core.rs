@@ -372,70 +372,118 @@ impl SpiceCoreReader {
         Ok(())
     }
 
-    pub fn get_last_certified_execution_results_for_next_block(
+    /// Returns execution results for all blocks that become newly certified when
+    /// `core_statements_for_next_block` is applied to the current chain state.
+    /// The results are ordered oldest-first. When no new certification frontier
+    /// advancement occurs but the last certified block is genesis, returns genesis
+    /// execution results to bootstrap gas price computation.
+    pub fn get_newly_certified_block_execution_results_for_next_block(
         &self,
         block_header: &BlockHeader,
         core_statements_for_next_block: &SpiceCoreStatements,
-    ) -> Result<BlockExecutionResults, Error> {
+    ) -> Result<Vec<BlockExecutionResults>, Error> {
+        // Find old last certified (before applying new core statements).
+        let old_last_certified =
+            get_last_certified_block_header(&self.chain_store, block_header.hash())?;
+
+        // Find new last certified (after applying new core statements).
         let newly_certified_chunks: HashSet<&SpiceChunkId> =
             core_statements_for_next_block.iter_execution_results().map(|(id, _)| id).collect();
-
         let mut uncertified_chunks =
             get_uncertified_chunks(&self.chain_store, block_header.hash())?;
         uncertified_chunks
             .retain(|chunk_info| !newly_certified_chunks.contains(&chunk_info.chunk_id));
         let oldest_uncertified_block_header =
             find_oldest_uncertified_block_header(&self.chain_store, uncertified_chunks)?;
-        let last_certified_block_header =
+        let new_last_certified =
             if let Some(oldest_uncertified_block_header) = oldest_uncertified_block_header {
-                &self.chain_store.get_block_header(oldest_uncertified_block_header.prev_hash())?
+                self.chain_store.get_block_header(oldest_uncertified_block_header.prev_hash())?
             } else {
-                // If there are no uncertified blocks it means block with block_header is last certified.
-                block_header
+                // After applying new core statements, all blocks up to block_header are certified.
+                Arc::new(block_header.clone())
             };
 
-        if last_certified_block_header.is_genesis() {
-            return Ok(BlockExecutionResults(
-                self.get_execution_results_by_shard_id(last_certified_block_header)?,
-            ));
+        if new_last_certified.hash() == old_last_certified.hash() {
+            if old_last_certified.is_genesis() {
+                // Genesis is certified by definition. Return its execution results so gas price
+                // is computed from genesis gas_limit until the first real certification.
+                return Ok(vec![BlockExecutionResults(
+                    self.get_execution_results_by_shard_id(&old_last_certified)?,
+                )]);
+            }
+            return Ok(vec![]);
         }
+        assert!(
+            old_last_certified.height() < new_last_certified.height(),
+            "old last certified should be a strict ancestor of new"
+        );
 
-        let last_certified_hash = *last_certified_block_header.hash();
-        let num_shards =
-            self.epoch_manager.shard_ids(last_certified_block_header.epoch_id())?.len();
-        let mut execution_results: HashMap<ShardId, Arc<ChunkExecutionResult>> = HashMap::new();
+        // Enumerate newly certified blocks by walking backwards from new_last_certified
+        // to old_last_certified (exclusive), then reverse for oldest-first order.
+        let mut newly_certified_hashes = Vec::new();
+        let mut current = new_last_certified;
+        while current.hash() != old_last_certified.hash()
+            && current.height() > old_last_certified.height()
+        {
+            newly_certified_hashes.push(*current.hash());
+            current = self.chain_store.get_block_header(current.prev_hash())?;
+        }
+        newly_certified_hashes.reverse();
+
+        // Collect execution results from core_statements_for_next_block and block ancestry,
+        // grouped by block_hash.
+        let newly_certified_set: HashSet<CryptoHash> =
+            newly_certified_hashes.iter().copied().collect();
+        let mut results_by_block: HashMap<CryptoHash, HashMap<ShardId, Arc<ChunkExecutionResult>>> =
+            HashMap::new();
         for (chunk_id, result) in core_statements_for_next_block.iter_execution_results() {
-            if chunk_id.block_hash != last_certified_hash {
+            if !newly_certified_set.contains(&chunk_id.block_hash) {
                 continue;
             }
-            execution_results.entry(chunk_id.shard_id).or_insert_with(|| Arc::new(result.clone()));
+            results_by_block
+                .entry(chunk_id.block_hash)
+                .or_default()
+                .entry(chunk_id.shard_id)
+                .or_insert_with(|| Arc::new(result.clone()));
         }
 
-        // Walk backwards from block_header, collecting execution results from
-        // each block's core statements. We can't depend on reading from
-        // DBCol::execution_results, which SpiceCoreWriterActor writes
-        // asynchronously. So, during orphan processing, the results we need
-        // here may not be persisted to that column yet.
+        // Walk backwards from block_header through ancestry, collecting execution results
+        // from each block's core statements. We can't depend on DBCol::execution_results
+        // which SpiceCoreWriterActor writes asynchronously.
         let mut current_hash = *block_header.hash();
-        while execution_results.len() < num_shards && current_hash != last_certified_hash {
+        while current_hash != *old_last_certified.hash() {
             let block = self.chain_store.get_block(&current_hash)?;
+            if block.header().height() <= old_last_certified.height() {
+                break;
+            }
             for (chunk_id, result) in block.spice_core_statements().iter_execution_results() {
-                if chunk_id.block_hash != last_certified_hash {
+                if !newly_certified_set.contains(&chunk_id.block_hash) {
                     continue;
                 }
-                execution_results
+                results_by_block
+                    .entry(chunk_id.block_hash)
+                    .or_default()
                     .entry(chunk_id.shard_id)
                     .or_insert_with(|| Arc::new(result.clone()));
             }
             current_hash = *block.header().prev_hash();
         }
 
-        assert_eq!(
-            execution_results.len(),
-            num_shards,
-            "should have found all shard's execution results for last certified block"
-        );
-        Ok(BlockExecutionResults(execution_results))
+        // Build result for each newly certified block, oldest-first.
+        let mut result = Vec::with_capacity(newly_certified_hashes.len());
+        for block_hash in &newly_certified_hashes {
+            let block_header = self.chain_store.get_block_header(block_hash)?;
+            let num_shards = self.epoch_manager.shard_ids(block_header.epoch_id())?.len();
+            let execution_results = results_by_block.remove(block_hash).unwrap_or_default();
+            assert_eq!(
+                execution_results.len(),
+                num_shards,
+                "should have found all shard's execution results for newly certified block {}",
+                block_hash,
+            );
+            result.push(BlockExecutionResults(execution_results));
+        }
+        Ok(result)
     }
 }
 
