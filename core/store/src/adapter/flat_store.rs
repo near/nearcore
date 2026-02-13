@@ -39,13 +39,9 @@ impl FlatStoreAdapter {
         self.store.exists(DBCol::FlatState, &db_key)
     }
 
-    pub fn get(
-        &self,
-        shard_uid: ShardUId,
-        key: &[u8],
-    ) -> Result<Option<FlatStateValue>, FlatStorageError> {
+    pub fn get(&self, shard_uid: ShardUId, key: &[u8]) -> Option<FlatStateValue> {
         let db_key = encode_flat_state_db_key(shard_uid, key);
-        Ok(self.store.get_ser(DBCol::FlatState, &db_key))
+        self.store.get_ser(DBCol::FlatState, &db_key)
     }
 
     pub fn get_flat_storage_status(
@@ -62,20 +58,16 @@ impl FlatStoreAdapter {
         &self,
         shard_uid: ShardUId,
         block_hash: CryptoHash,
-    ) -> Result<Option<FlatStateChanges>, FlatStorageError> {
+    ) -> Option<FlatStateChanges> {
         let key = KeyForFlatStateDelta { shard_uid, block_hash };
-        Ok(self.store.get_ser::<FlatStateChanges>(DBCol::FlatStateChanges, &key.to_bytes()))
+        self.store.get_ser::<FlatStateChanges>(DBCol::FlatStateChanges, &key.to_bytes())
     }
 
-    pub fn get_all_deltas_metadata(
-        &self,
-        shard_uid: ShardUId,
-    ) -> Result<Vec<FlatStateDeltaMetadata>, FlatStorageError> {
-        Ok(self
-            .store
+    pub fn get_all_deltas_metadata(&self, shard_uid: ShardUId) -> Vec<FlatStateDeltaMetadata> {
+        self.store
             .iter_prefix_ser(DBCol::FlatStateDeltaMetadata, &shard_uid.to_bytes())
             .map(|(_, value)| value)
-            .collect())
+            .collect()
     }
 
     pub fn get_prev_block_with_changes(

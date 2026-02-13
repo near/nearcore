@@ -501,12 +501,7 @@ impl FlatStorageResharder {
         // Get all the delta iterators and wrap the items in Result to match the flat
         // storage iter so that they can be chained.
         for block in blocks_to_head {
-            let deltas = flat_store.get_delta(*shard_uid, block).map_err(|err| {
-                StorageError::StorageInconsistentState(format!(
-                    "can't retrieve deltas for flat storage at {block}/{shard_uid:?}({err})"
-                ))
-            })?;
-            let Some(deltas) = deltas else {
+            let Some(deltas) = flat_store.get_delta(*shard_uid, block) else {
                 continue;
             };
             // Chain the iterators effectively adding a block worth of deltas.
@@ -694,10 +689,7 @@ impl FlatStorageResharder {
                 prev_hash: *next_header.prev_hash(),
             };
 
-            if let Some(changes) = store
-                .get_delta(shard_uid, flat_head.hash)
-                .map_err(|err| Into::<StorageError>::into(err))?
-            {
+            if let Some(changes) = store.get_delta(shard_uid, flat_head.hash) {
                 merged_changes.merge(changes);
                 store_update.remove_delta(shard_uid, flat_head.hash);
             }
@@ -751,9 +743,7 @@ impl FlatStorageResharder {
         let store = self.runtime.store().flat_store();
         let mut store_update = store.store_update();
         // Deltas must exist because we applied them previously.
-        let deltas_metadata = store.get_all_deltas_metadata(shard_uid).unwrap_or_else(|_| {
-            panic!("Cannot read flat state deltas metadata for shard {shard_uid} from storage")
-        });
+        let deltas_metadata = store.get_all_deltas_metadata(shard_uid);
         let mut deltas_gc_count = 0;
         for delta_metadata in deltas_metadata {
             if delta_metadata.block.height <= flat_head.height {
@@ -1164,7 +1154,7 @@ mod tests {
         let store = flat_storage_resharder.runtime.store().flat_store();
         for (key, _) in &test_keys {
             for child_shard in [split_params.left_child_shard, split_params.right_child_shard] {
-                assert!(store.get(child_shard, key).unwrap().is_none());
+                assert!(store.get(child_shard, key).is_none());
             }
         }
     }
@@ -1312,12 +1302,12 @@ mod tests {
         Box::new(move |left_child_shard: ShardUId, right_child_shard: ShardUId| {
             // Check each child has the correct keys assigned to itself.
             for key in &account_mm_keys {
-                assert_eq!(flat_store.get(left_child_shard, key), Ok(test_value.clone()));
-                assert_eq!(flat_store.get(right_child_shard, key), Ok(None));
+                assert_eq!(flat_store.get(left_child_shard, key), test_value.clone());
+                assert_eq!(flat_store.get(right_child_shard, key), None);
             }
             for key in &account_vv_keys {
-                assert_eq!(flat_store.get(left_child_shard, key), Ok(None));
-                assert_eq!(flat_store.get(right_child_shard, key), Ok(test_value.clone()));
+                assert_eq!(flat_store.get(left_child_shard, key), None);
+                assert_eq!(flat_store.get(right_child_shard, key), test_value.clone());
             }
         })
     }
@@ -1350,11 +1340,11 @@ mod tests {
             for child_shard in [left_child_shard, right_child_shard] {
                 assert_eq!(
                     flat_store.get(child_shard, &delayed_receipt_indices_key),
-                    Ok(delayed_receipt_indices_value.clone())
+                    delayed_receipt_indices_value.clone()
                 );
                 assert_eq!(
                     flat_store.get(child_shard, &delayed_receipt_key),
-                    Ok(delayed_receipt_value.clone())
+                    delayed_receipt_value.clone()
                 );
             }
         })
@@ -1414,23 +1404,23 @@ mod tests {
             for child_shard in [left_child_shard, right_child_shard] {
                 assert_eq!(
                     flat_store.get(child_shard, &promise_yield_indices_key),
-                    Ok(promise_yield_indices_value.clone())
+                    promise_yield_indices_value.clone()
                 );
                 assert_eq!(
                     flat_store.get(child_shard, &promise_yield_timeout_key),
-                    Ok(promise_yield_timeout_value.clone())
+                    promise_yield_timeout_value.clone()
                 );
             }
             // Receipts work differently: these should be split depending on the account.
             assert_eq!(
                 flat_store.get(left_child_shard, &promise_yield_receipt_mm_key),
-                Ok(promise_yield_receipt_value.clone())
+                promise_yield_receipt_value.clone()
             );
-            assert_eq!(flat_store.get(left_child_shard, &promise_yield_receipt_vv_key), Ok(None));
-            assert_eq!(flat_store.get(right_child_shard, &promise_yield_receipt_mm_key), Ok(None));
+            assert_eq!(flat_store.get(left_child_shard, &promise_yield_receipt_vv_key), None);
+            assert_eq!(flat_store.get(right_child_shard, &promise_yield_receipt_mm_key), None);
             assert_eq!(
                 flat_store.get(right_child_shard, &promise_yield_receipt_vv_key),
-                Ok(promise_yield_receipt_value)
+                promise_yield_receipt_value
             );
         })
     }
@@ -1467,14 +1457,14 @@ mod tests {
             // Check that only the first child contain the buffered receipt.
             assert_eq!(
                 flat_store.get(left_child_shard, &buffered_receipt_indices_key),
-                Ok(buffered_receipt_indices_value)
+                buffered_receipt_indices_value
             );
-            assert_eq!(flat_store.get(right_child_shard, &buffered_receipt_indices_key), Ok(None));
+            assert_eq!(flat_store.get(right_child_shard, &buffered_receipt_indices_key), None);
             assert_eq!(
                 flat_store.get(left_child_shard, &buffered_receipt_key),
-                Ok(buffered_receipt_value)
+                buffered_receipt_value
             );
-            assert_eq!(flat_store.get(right_child_shard, &buffered_receipt_key), Ok(None));
+            assert_eq!(flat_store.get(right_child_shard, &buffered_receipt_key), None);
         })
     }
 
