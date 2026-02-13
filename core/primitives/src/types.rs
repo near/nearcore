@@ -1318,6 +1318,18 @@ impl BlockExecutionResults {
             acc.checked_add(execution_result.chunk_extra.gas_limit())
         })
     }
+
+    pub fn compute_gas_used_checked(&self) -> Option<Gas> {
+        self.0.iter().try_fold(Gas::ZERO, |acc, (_shard_id, execution_result)| {
+            acc.checked_add(execution_result.chunk_extra.gas_used())
+        })
+    }
+
+    pub fn compute_balance_burnt_checked(&self) -> Option<Balance> {
+        self.0.iter().try_fold(Balance::ZERO, |acc, (_shard_id, execution_result)| {
+            acc.checked_add(execution_result.chunk_extra.balance_burnt())
+        })
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Hash)]
