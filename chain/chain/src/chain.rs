@@ -2390,7 +2390,7 @@ impl Chain {
 
         if !block.verify_total_supply(prev.total_supply(), minted_amount) {
             byzantine_assert!(false);
-            return Err(Error::InvalidGasPrice);
+            return Err(Error::InvalidTotalSupply);
         }
 
         let prev_block = self.get_block(&prev_hash)?;
