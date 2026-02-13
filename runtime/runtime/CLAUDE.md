@@ -23,7 +23,7 @@ pub struct ReceiptV0 {
     pub predecessor_id: AccountId,
     /// `receiver_id` is a receipt destination.
     pub receiver_id: AccountId,
-    /// An unique id for the receipt
+    /// A unique id for the receipt
     pub receipt_id: CryptoHash,
     /// A receipt type
     pub receipt: ReceiptEnum,
