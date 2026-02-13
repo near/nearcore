@@ -1039,7 +1039,9 @@ impl TestEnv {
     }
 
     fn runtime_query(&self, query: QueryRequest) -> QueryResponse {
-        TestLoopNode::rpc(&self.env.node_datas).runtime_query(self.env.test_loop_data(), query)
+        TestLoopNode::rpc(&self.env.node_datas)
+            .runtime_query(self.env.test_loop_data(), query)
+            .unwrap()
     }
 
     fn get_account_state(&mut self, account: AccountId) -> AccountView {
