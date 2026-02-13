@@ -26,9 +26,9 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
 use near_store::flat::{
-    BlockInfo, FlatStateChanges, FlatStorageError, FlatStorageReadyStatus,
-    FlatStorageReshardingShardCatchUpMetrics, FlatStorageReshardingShardSplitMetrics,
-    FlatStorageReshardingStatus, FlatStorageStatus, ParentSplitParameters,
+    BlockInfo, FlatStateChanges, FlatStorageReadyStatus, FlatStorageReshardingShardCatchUpMetrics,
+    FlatStorageReshardingShardSplitMetrics, FlatStorageReshardingStatus, FlatStorageStatus,
+    ParentSplitParameters,
 };
 use near_store::{ShardUId, StorageError};
 
@@ -342,7 +342,7 @@ impl FlatStorageResharder {
                 match iter.next() {
                     // Stop iterating and commit the batch.
                     Some(FlatStorageAndDeltaIterItem::CommitPoint) => break,
-                    Some(FlatStorageAndDeltaIterItem::Entry(Ok((key, value)))) => {
+                    Some(FlatStorageAndDeltaIterItem::Entry((key, value))) => {
                         processed_size += key.len() + value.as_ref().map_or(0, |v| v.size());
                         if let Err(err) = shard_split_handle_key_value(
                             key,
@@ -353,10 +353,6 @@ impl FlatStorageResharder {
                             tracing::error!(target: "resharding", ?err, "failed to handle flat storage key");
                             return FlatStorageReshardingTaskResult::Failed;
                         }
-                    }
-                    Some(FlatStorageAndDeltaIterItem::Entry(Err(err))) => {
-                        tracing::error!(target: "resharding", ?err, "failed to read flat storage value from parent shard");
-                        return FlatStorageReshardingTaskResult::Failed;
                     }
                     None => {
                         iter_exhausted = true;
@@ -475,9 +471,7 @@ impl FlatStorageResharder {
                 .iter(*shard_uid)
                 // Get the flat storage iter and wrap the value in Optional::Some to
                 // match the delta iterator so that they can be chained.
-                .map_ok(|(key, value)| (key, Some(value)))
-                // Wrap the iterator's item into an Entry.
-                .map(|entry| FlatStorageAndDeltaIterItem::Entry(entry)),
+                .map(|(key, value)| FlatStorageAndDeltaIterItem::Entry((key, Some(value)))),
         );
 
         // Get all the blocks from flat head to the wanted block hash.
@@ -508,7 +502,7 @@ impl FlatStorageResharder {
             // Before doing so insert a commit point to separate changes to the same key in different transactions.
             iter = Box::new(iter.chain(iter::once(FlatStorageAndDeltaIterItem::CommitPoint)));
             let deltas_iter = deltas.0.into_iter();
-            let deltas_iter = deltas_iter.map(|item| FlatStorageAndDeltaIterItem::Entry(Ok(item)));
+            let deltas_iter = deltas_iter.map(|item| FlatStorageAndDeltaIterItem::Entry(item));
             iter = Box::new(iter.chain(deltas_iter));
         }
 
@@ -775,7 +769,7 @@ impl FlatStorageResharder {
 /// necessary because otherwise deltas might set again the value of a flat storage entry inside the
 /// same transaction.
 enum FlatStorageAndDeltaIterItem {
-    Entry(Result<(Vec<u8>, Option<FlatStateValue>), FlatStorageError>),
+    Entry((Vec<u8>, Option<FlatStateValue>)),
     CommitPoint,
 }
 
