@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use near_crypto::SecretKey;
 use near_parameters::RuntimeConfigView;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::Balance;
@@ -166,14 +167,10 @@ pub async fn test_gas_key_changes_to_transactions(
     //   - Receipt 3: key_a balance decreased to 0.3 NEAR (-0.2 NEAR gas usage, no fee type)
     //   - Receipt 4: key_a deleted (burned remaining 0.3 NEAR)
     //   - Transaction 5: key_d balance decreased to 0.2 NEAR (-0.2 NEAR gas prepayment)
-    let key_a =
-        near_crypto::SecretKey::from_seed(near_crypto::KeyType::ED25519, "gas-key-a").public_key();
-    let key_b =
-        near_crypto::SecretKey::from_seed(near_crypto::KeyType::ED25519, "gas-key-b").public_key();
-    let key_c =
-        near_crypto::SecretKey::from_seed(near_crypto::KeyType::ED25519, "gas-key-c").public_key();
-    let key_d =
-        near_crypto::SecretKey::from_seed(near_crypto::KeyType::ED25519, "gas-key-d").public_key();
+    let key_a = SecretKey::from_seed(near_crypto::KeyType::ED25519, "gas-key-a").public_key();
+    let key_b = SecretKey::from_seed(near_crypto::KeyType::ED25519, "gas-key-b").public_key();
+    let key_c = SecretKey::from_seed(near_crypto::KeyType::ED25519, "gas-key-c").public_key();
+    let key_d = SecretKey::from_seed(near_crypto::KeyType::ED25519, "gas-key-d").public_key();
     let previous_gas_keys = crate::gas_key_utils::GasKeyInfo::from_entries([(
         "nfvalidator1.near".parse().unwrap(),
         HashMap::from([
@@ -195,11 +192,8 @@ pub async fn test_gas_key_changes_to_transactions(
             gas_prepay_tx_hash,
             SignedTransactionView {
                 signer_id: "nfvalidator1.near".parse().unwrap(),
-                public_key: near_crypto::SecretKey::from_seed(
-                    near_crypto::KeyType::ED25519,
-                    "signer",
-                )
-                .public_key(),
+                public_key: SecretKey::from_seed(near_crypto::KeyType::ED25519, "signer")
+                    .public_key(),
                 nonce: 1,
                 receiver_id: "nfvalidator1.near".parse().unwrap(),
                 actions: vec![],

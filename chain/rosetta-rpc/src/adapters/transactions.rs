@@ -93,7 +93,7 @@ impl ExecutionToReceipts {
         }
     }
 
-    /// Creates a mapping with the given receipts and transactions.  Useful for tests.
+    /// Creates a mapping with the given receipts and transactions. Useful for tests.
     pub(crate) fn with_data(
         receipts: HashMap<CryptoHash, AccountId>,
         transactions: HashMap<CryptoHash, SignedTransactionView>,
@@ -676,7 +676,7 @@ async fn convert_gas_key_changes_to_operations(
                 ops.push(crate::models::Operation {
                     operation_identifier: crate::models::OperationIdentifier::new(ops),
                     related_operations: None,
-                    account: crate::models::AccountIdentifier {
+                    account: AccountIdentifier {
                         address: account_id.into(),
                         sub_account: Some(crate::models::SubAccount::GasKey.into()),
                         metadata: None,
@@ -719,7 +719,7 @@ fn push_gas_key_burn(
     operations.push(crate::models::Operation {
         operation_identifier: crate::models::OperationIdentifier::new(operations),
         related_operations: None,
-        account: crate::models::AccountIdentifier {
+        account: AccountIdentifier {
             address: account_id.into(),
             sub_account: Some(crate::models::SubAccount::GasKey.into()),
             metadata: None,
