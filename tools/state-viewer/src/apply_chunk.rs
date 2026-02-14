@@ -295,7 +295,7 @@ fn apply_tx_in_chunk(
     tx_hash: &CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<Vec<ApplyChunkResult>> {
-    if chain_store.get_transaction(tx_hash)?.is_none() {
+    if chain_store.get_transaction(tx_hash).is_none() {
         return Err(anyhow!("tx with hash {} not known", tx_hash));
     }
 

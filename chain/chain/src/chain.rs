@@ -2929,7 +2929,7 @@ impl Chain {
         self.get_recursive_transaction_results(&mut outcomes, transaction_hash, true)?;
         let status = self.get_execution_status(&outcomes, transaction_hash);
         let receipts_outcome = outcomes.split_off(1);
-        let transaction = self.chain_store.get_transaction(transaction_hash)?.ok_or_else(|| {
+        let transaction = self.chain_store.get_transaction(transaction_hash).ok_or_else(|| {
             Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
         })?;
         let transaction = SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
@@ -2943,7 +2943,7 @@ impl Chain {
         &self,
         transaction_hash: &CryptoHash,
     ) -> Result<FinalExecutionOutcomeView, Error> {
-        let transaction = self.chain_store.get_transaction(transaction_hash)?.ok_or_else(|| {
+        let transaction = self.chain_store.get_transaction(transaction_hash).ok_or_else(|| {
             Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
         })?;
         let transaction = SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
@@ -2982,11 +2982,14 @@ impl Chain {
                 if Some(outcome.id) == receipt_id_from_transaction && is_local_receipt {
                     None
                 } else {
-                    Some(self.chain_store.get_receipt(&outcome.id).and_then(|r| {
-                        r.map(|r| Receipt::clone(&r).into()).ok_or_else(|| {
-                            Error::DBNotFoundErr(format!("Receipt {} is not found", outcome.id))
-                        })
-                    }))
+                    Some(
+                        self.chain_store
+                            .get_receipt(&outcome.id)
+                            .map(|r| Receipt::clone(&r).into())
+                            .ok_or_else(|| {
+                                Error::DBNotFoundErr(format!("Receipt {} is not found", outcome.id))
+                            }),
+                    )
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;

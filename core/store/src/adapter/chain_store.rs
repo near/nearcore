@@ -248,11 +248,8 @@ impl ChainStoreAdapter {
         self.store.get_ser(DBCol::BlocksToCatchup, prev_hash.as_ref()).unwrap_or_default()
     }
 
-    pub fn get_transaction(
-        &self,
-        tx_hash: &CryptoHash,
-    ) -> Result<Option<Arc<SignedTransaction>>, Error> {
-        Ok(self.store.get_ser(DBCol::Transactions, tx_hash.as_ref()))
+    pub fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>> {
+        self.store.get_ser(DBCol::Transactions, tx_hash.as_ref())
     }
 
     /// Fetch a receipt by id, if it is stored in the store.
@@ -260,8 +257,8 @@ impl ChainStoreAdapter {
     /// Note that not _all_ receipts are persisted. Some receipts are ephemeral,
     /// get processed immediately after creation and don't even get to the
     /// database.
-    pub fn get_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error> {
-        Ok(self.store.get_ser(DBCol::Receipts, receipt_id.as_ref()))
+    pub fn get_receipt(&self, receipt_id: &CryptoHash) -> Option<Arc<Receipt>> {
+        self.store.get_ser(DBCol::Receipts, receipt_id.as_ref())
     }
 
     pub fn get_block_merkle_tree(
@@ -310,10 +307,9 @@ impl ChainStoreAdapter {
         &self,
         id: &CryptoHash,
         block_hash: &CryptoHash,
-    ) -> Result<Option<ExecutionOutcomeWithProof>, Error> {
-        Ok(self
-            .store
-            .get_ser(DBCol::TransactionResultForBlock, &get_outcome_id_block_hash(id, block_hash)))
+    ) -> Option<ExecutionOutcomeWithProof> {
+        self.store
+            .get_ser(DBCol::TransactionResultForBlock, &get_outcome_id_block_hash(id, block_hash))
     }
 
     /// Returns a vector of Outcome ids for given block and shard id
@@ -321,11 +317,10 @@ impl ChainStoreAdapter {
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<Vec<CryptoHash>, Error> {
-        Ok(self
-            .store
+    ) -> Vec<CryptoHash> {
+        self.store
             .get_ser(DBCol::OutcomeIds, &get_block_shard_id(block_hash, shard_id))
-            .unwrap_or_default())
+            .unwrap_or_default()
     }
 
     /// Returns a vector of all known processed next block hashes.
