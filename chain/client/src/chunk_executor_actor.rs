@@ -504,7 +504,7 @@ impl ChunkExecutorActor {
     }
 
     fn try_process_next_blocks(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
-        let next_block_hashes = self.chain_store.get_all_next_block_hashes(block_hash)?;
+        let next_block_hashes = self.chain_store.get_all_next_block_hashes(block_hash);
         if next_block_hashes.is_empty() {
             // Next block wasn't received yet.
             tracing::debug!(target: "chunk_executor", %block_hash, "no next block hash is available");
@@ -983,7 +983,7 @@ impl ChunkExecutorActor {
         };
 
         let mut next_block_hashes: VecDeque<_> =
-            self.chain_store.get_all_next_block_hashes(&start_block)?.into();
+            self.chain_store.get_all_next_block_hashes(&start_block).into();
         while let Some(block_hash) = next_block_hashes.pop_front() {
             if !matches!(
                 self.try_apply_chunks(&block_hash)?,
@@ -991,7 +991,7 @@ impl ChunkExecutorActor {
             ) {
                 continue;
             }
-            next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash)?);
+            next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash));
         }
 
         Ok(())

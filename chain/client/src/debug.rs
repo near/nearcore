@@ -207,11 +207,7 @@ fn get_block_hashes_to_fetch(
     final_height: BlockHeight,
 ) -> Vec<CryptoHash> {
     if height_to_fetch >= final_height {
-        chain_store
-            .get_all_header_hashes_by_height(height_to_fetch)
-            .unwrap_or_default()
-            .into_iter()
-            .collect()
+        chain_store.get_all_header_hashes_by_height(height_to_fetch).into_iter().collect()
     } else {
         chain_store.get_block_hash_by_height(height_to_fetch).ok().into_iter().collect()
     }

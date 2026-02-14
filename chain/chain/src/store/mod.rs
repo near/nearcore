@@ -183,7 +183,7 @@ pub trait ChainStoreAccess {
         shard_id: ShardId,
     ) -> Result<Arc<Vec<ReceiptProof>>, Error>;
 
-    fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error>;
+    fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Vec<CryptoHash>;
 
     /// Returns encoded chunk if it's invalid otherwise None.
     fn is_invalid_chunk(
@@ -247,7 +247,7 @@ pub trait ChainStoreAccess {
         }
     }
 
-    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Result<Option<CryptoHash>, Error>;
+    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Option<CryptoHash>;
 }
 
 /// Given a vector of receipts return only the receipts that should be assigned
@@ -817,7 +817,7 @@ impl ChainStore {
         // applied for the next epoch, while for the first block in a particular epoch this method
         // returns true if the block is ready to have state applied for the current epoch (and
         // otherwise should be orphaned)
-        Ok(!chain_store.get_blocks_to_catchup(prev_prev_hash)?.contains(prev_hash))
+        Ok(!chain_store.get_blocks_to_catchup(prev_prev_hash).contains(prev_hash))
     }
 }
 
@@ -983,7 +983,7 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_incoming_receipts(self, block_hash, shard_id)
     }
 
-    fn get_blocks_to_catchup(&self, hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
+    fn get_blocks_to_catchup(&self, hash: &CryptoHash) -> Vec<CryptoHash> {
         ChainStoreAdapter::get_blocks_to_catchup(self, hash)
     }
 
@@ -1024,7 +1024,7 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::is_height_processed(self, height)
     }
 
-    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Result<Option<CryptoHash>, Error> {
+    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Option<CryptoHash> {
         ChainStoreAdapter::get_current_epoch_sync_hash(self, epoch_id)
     }
 }
@@ -1390,7 +1390,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
+    fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Vec<CryptoHash> {
         // Make sure we never request a block to catchup after altering the data structure
         assert_eq!(self.add_blocks_to_catchup.len(), 0);
         assert_eq!(self.remove_blocks_to_catchup.len(), 0);
@@ -1462,7 +1462,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Result<Option<CryptoHash>, Error> {
+    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Option<CryptoHash> {
         self.chain_store.get_current_epoch_sync_hash(epoch_id)
     }
 }
@@ -1900,7 +1900,7 @@ impl<'a> ChainStoreUpdate<'a> {
             if let Some(block) = &self.chain_store_cache_update.block {
                 let mut map = HashMap::clone(
                     self.chain_store
-                        .get_all_block_hashes_by_height(block.header().height())?
+                        .get_all_block_hashes_by_height(block.header().height())
                         .as_ref(),
                 );
                 map.entry(*block.header().epoch_id())
@@ -1915,7 +1915,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 if cfg!(feature = "protocol_feature_spice") {
                     let prev_hash = block.header().prev_hash();
                     let mut prev_next_hashes =
-                        self.chain_store.get_all_next_block_hashes(prev_hash)?;
+                        self.chain_store.get_all_next_block_hashes(prev_hash);
                     prev_next_hashes.push(*block.hash());
                     store_update.set_ser(
                         DBCol::all_next_block_hashes(),
@@ -1935,11 +1935,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.insert_ser(DBCol::BlockHeader, hash.as_ref(), header);
             }
             for (height, headers) in headers_by_height {
-                let mut hash_set = match self.chain_store.get_all_header_hashes_by_height(height) {
-                    Ok(hashes) => hashes,
-                    Err(Error::DBNotFoundErr(_)) => HashSet::with_capacity(headers.len()),
-                    Err(e) => return Err(e),
-                };
+                let mut hash_set = self.chain_store.get_all_header_hashes_by_height(height);
                 hash_set.extend(headers.iter().map(|header| *header.hash()));
                 store_update.set_ser(
                     DBCol::HeaderHashesByHeight,
@@ -2150,8 +2146,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
                 affected_catchup_blocks.insert(prev_hash);
 
-                let mut prev_table =
-                    self.chain_store.get_blocks_to_catchup(&prev_hash).unwrap_or_else(|_| vec![]);
+                let mut prev_table = self.chain_store.get_blocks_to_catchup(&prev_hash);
 
                 let mut remove_idx = prev_table.len();
                 for (i, val) in prev_table.iter().enumerate() {
@@ -2189,8 +2184,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
                 affected_catchup_blocks.insert(prev_hash);
 
-                let mut prev_table =
-                    self.chain_store.get_blocks_to_catchup(&prev_hash).unwrap_or_else(|_| vec![]);
+                let mut prev_table = self.chain_store.get_blocks_to_catchup(&prev_hash);
                 prev_table.push(new_hash);
                 store_update.set_ser(DBCol::BlocksToCatchup, prev_hash.as_ref(), &prev_table);
             }
