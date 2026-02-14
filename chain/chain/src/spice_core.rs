@@ -64,11 +64,10 @@ impl SpiceCoreReader {
         block_hash: &CryptoHash,
         shard_id: ShardId,
         account_id: &AccountId,
-    ) -> Result<Option<SpiceStoredVerifiedEndorsement>, std::io::Error> {
-        Ok(self.chain_store.store().get_ser(
-            DBCol::endorsements(),
-            &get_endorsements_key(block_hash, shard_id, &account_id),
-        ))
+    ) -> Option<SpiceStoredVerifiedEndorsement> {
+        self.chain_store
+            .store()
+            .get_ser(DBCol::endorsements(), &get_endorsements_key(block_hash, shard_id, account_id))
     }
 
     fn get_execution_result(
@@ -165,7 +164,7 @@ impl SpiceCoreReader {
                     &chunk_info.chunk_id.block_hash,
                     chunk_info.chunk_id.shard_id,
                     &account_id,
-                )? {
+                ) {
                     core_statements.push(
                         endorsement.into_core_statement(chunk_info.chunk_id.clone(), account_id),
                     );
