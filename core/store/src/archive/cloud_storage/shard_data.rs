@@ -75,7 +75,7 @@ pub fn build_shard_data(
     let transactions = chunk.to_transactions().iter().cloned().collect();
     let receipts = chunk.prev_outgoing_receipts().iter().cloned().collect();
 
-    let outcome_ids = chain_store.get_outcomes_by_block_hash_and_shard_id(&block_hash, shard_id)?;
+    let outcome_ids = chain_store.get_outcomes_by_block_hash_and_shard_id(&block_hash, shard_id);
     // TODO(cloud_archival): Check why this `if` is required and whether there's a cleaner approach.
     let incoming_receipts = if block_height > genesis_height + 1 {
         chain_store.get_incoming_receipts(&block_hash, shard_id)?.to_vec()

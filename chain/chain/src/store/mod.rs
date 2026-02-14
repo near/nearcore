@@ -191,17 +191,14 @@ pub trait ChainStoreAccess {
         chunk_hash: &ChunkHash,
     ) -> Result<Option<Arc<EncodedShardChunk>>, Error>;
 
-    fn get_transaction(
-        &self,
-        tx_hash: &CryptoHash,
-    ) -> Result<Option<Arc<SignedTransaction>>, Error>;
+    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>>;
 
     /// Fetch a receipt by id, if it is stored in the store.
     ///
     /// Note that not _all_ receipts are persisted. Some receipts are ephemeral,
     /// get processed immediately after creation and don't even get to the
     /// database.
-    fn get_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error>;
+    fn get_receipt(&self, receipt_id: &CryptoHash) -> Option<Arc<Receipt>>;
 
     fn get_genesis_height(&self) -> BlockHeight;
 
@@ -558,11 +555,11 @@ impl ChainStore {
         for chunk_header in chunk_headers {
             let shard_id = chunk_header.shard_id();
             let outcomes = self
-                .get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?
+                .get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)
                 .into_iter()
                 .filter_map(|id| {
                     let outcome_with_proof =
-                        self.get_outcome_by_id_and_block_hash(&id, block_hash).ok()??;
+                        self.get_outcome_by_id_and_block_hash(&id, block_hash)?;
                     Some(ExecutionOutcomeWithIdAndProof {
                         proof: outcome_with_proof.proof,
                         block_hash: *block_hash,
@@ -994,14 +991,11 @@ impl ChainStoreAccess for ChainStore {
         self.chunk_store().is_invalid_chunk(chunk_hash)
     }
 
-    fn get_transaction(
-        &self,
-        tx_hash: &CryptoHash,
-    ) -> Result<Option<Arc<SignedTransaction>>, Error> {
+    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>> {
         ChainStoreAdapter::get_transaction(self, tx_hash)
     }
 
-    fn get_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error> {
+    fn get_receipt(&self, receipt_id: &CryptoHash) -> Option<Arc<Receipt>> {
         ChainStoreAdapter::get_receipt(self, receipt_id)
     }
 
@@ -1410,20 +1404,17 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_transaction(
-        &self,
-        tx_hash: &CryptoHash,
-    ) -> Result<Option<Arc<SignedTransaction>>, Error> {
+    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>> {
         if let Some(tx) = self.chain_store_cache_update.transactions.get(tx_hash) {
-            Ok(Some(Arc::clone(tx)))
+            Some(Arc::clone(tx))
         } else {
             self.chain_store.get_transaction(tx_hash)
         }
     }
 
-    fn get_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error> {
+    fn get_receipt(&self, receipt_id: &CryptoHash) -> Option<Arc<Receipt>> {
         if let Some(receipt) = self.chain_store_cache_update.receipts.get(receipt_id) {
-            Ok(Some(Arc::clone(receipt)))
+            Some(Arc::clone(receipt))
         } else {
             self.chain_store.get_receipt(receipt_id)
         }

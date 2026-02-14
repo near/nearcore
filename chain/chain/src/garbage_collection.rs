@@ -1118,7 +1118,7 @@ impl<'a> ChainStoreUpdate<'a> {
             // chunk. An old chunk may have the shard id from the parent shard.
             let shard_id = chunk_header.shard_id();
             let outcome_ids =
-                self.chain_store().get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?;
+                self.chain_store().get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id);
             for outcome_id in outcome_ids {
                 self.gc_col(
                     DBCol::TransactionResultForBlock,
