@@ -96,24 +96,7 @@ Middleware: CORS (configurable via `cors_allowed_origins`) and request body size
 
 ### The JsonRpcHandler
 
-The `JsonRpcHandler` struct is the core of the RPC server. It holds async message senders to the backend actors:
-
-```
-struct JsonRpcHandler {
-    client_sender: ClientSenderForRpc,           // -> ClientActor
-    view_client_sender: ViewClientSenderForRpc,  // -> ViewClientActor
-    process_tx_sender: ProcessTxSenderForRpc,    // -> RpcHandlerActor
-    peer_manager_sender: PeerManagerSenderForRpc, // -> PeerManagerActor
-    polling_config: RpcPollingConfig,
-    genesis_config: GenesisConfig,
-    enable_debug_rpc: bool,
-    debug_pages_src_path: Option<PathBuf>,
-    entity_debug_handler: Arc<dyn EntityDebugHandler>,
-    block_notification_watcher: Receiver<Option<BlockNotificationMessage>>,
-}
-```
-
-It is wrapped in an `Arc` and passed as Axum shared state to all route handlers.
+`JsonRpcHandler` (in `lib.rs`) is the core of the RPC server. It holds async message senders to the four backend actors (ClientActor, ViewClientActor, RpcHandlerActor, PeerManagerActor), polling configuration, the genesis config, and a `block_notification_watcher` (a `tokio::sync::watch::Receiver` that gets notified each time a new block is accepted by the client). It is wrapped in an `Arc` and passed as Axum shared state to all route handlers.
 
 ### Request Processing Pipeline
 
@@ -155,7 +138,7 @@ Methods registered in `process_basic_requests_internal()`:
 
 **Other:** `block_effects`/`EXPERIMENTAL_changes_in_block`, `changes`/`EXPERIMENTAL_changes`, `genesis_config`/`EXPERIMENTAL_genesis_config`, `maintenance_windows`/`EXPERIMENTAL_maintenance_windows`, `client_config`
 
-**EXPERIMENTAL:** `EXPERIMENTAL_view_account`, `EXPERIMENTAL_view_code`, `EXPERIMENTAL_view_state`, `EXPERIMENTAL_view_access_key`, `EXPERIMENTAL_view_access_key_list`, `EXPERIMENTAL_call_function`, `EXPERIMENTAL_congestion_level`, `EXPERIMENTAL_light_client_proof`, `EXPERIMENTAL_light_client_block_proof`, `EXPERIMENTAL_protocol_config`, `EXPERIMENTAL_receipt`, `EXPERIMENTAL_tx_status`, `EXPERIMENTAL_validators_ordered`, `EXPERIMENTAL_split_storage_info`
+**EXPERIMENTAL:** ~14 methods for direct queries, protocol config, receipts, tx status, validators, congestion level, light client block proofs, etc. All follow the same `process_method_call` pattern. See `process_basic_requests_internal()` for the full list.
 
 **Sandbox** (only with `sandbox` feature): `sandbox_patch_state`, `sandbox_fast_forward`
 
@@ -188,24 +171,24 @@ The RPC layer communicates with the blockchain backend through four actors via a
 
 ### Message Sender Types
 
-Defined using the `near_async` `MultiSend` macro system:
+Defined using the `near_async` `MultiSend` macro system in `lib.rs`. Each sender type wraps `AsyncSender` channels for specific message types:
 
-- **`ClientSenderForRpc`** -> `ClientActor`. Handles: `Status`, `GetNetworkInfo`, `GetClientConfig`, `DebugStatus`.
-- **`ViewClientSenderForRpc`** -> `ViewClientActor`. Handles: `GetBlock`, `GetChunk`, `ClientQuery`, `TxStatus`, `GetGasPrice`, `GetReceipt`, `GetProtocolConfig`, `GetValidatorInfo`, `GetValidatorOrdered`, `GetExecutionOutcome`, `GetNextLightClientBlock`, `GetBlockProof`, `GetStateChanges`, `GetStateChangesInBlock`, `GetMaintenanceWindows`, `GetSplitStorageInfo`.
-- **`ProcessTxSenderForRpc`** -> `RpcHandlerActor`. Handles: `ProcessTxRequest` (async and fire-and-forget variants).
-- **`PeerManagerSenderForRpc`** -> `PeerManagerActor`. Handles: `GetDebugStatus`.
+- **`ClientSenderForRpc`** -> `ClientActor`. A few messages: `Status`, `GetNetworkInfo`, `GetClientConfig`, `DebugStatus`.
+- **`ViewClientSenderForRpc`** -> `ViewClientActor`. The workhorse — handles ~16 message types for all read-only queries (blocks, chunks, queries, tx status, gas price, validators, light client, state changes, etc.).
+- **`ProcessTxSenderForRpc`** -> `RpcHandlerActor`. Only `ProcessTxRequest`, with both async (returns `ProcessTxResponse`) and fire-and-forget variants.
+- **`PeerManagerSenderForRpc`** -> `PeerManagerActor`. Only `GetDebugStatus`.
 
-The `client_send()`, `view_client_send()`, and `peer_manager_send()` helper methods handle the send-and-await pattern, mapping `AsyncSendError` to RPC errors.
+The `client_send()`, `view_client_send()`, and `peer_manager_send()` helper methods on `JsonRpcHandler` handle the send-and-await pattern, mapping `AsyncSendError` to RPC errors. All messages to `ClientActor` are wrapped with `SpanWrapped` for distributed tracing.
 
 ### ViewClientActor
 
-Defined in `chain/client/src/view_client_actor.rs`. The primary read-only actor. Holds a `Chain`, `EpochManagerAdapter`, `ShardTracker`, and `RuntimeAdapter`. Implements `Handler<M, R>` for each message type.
+Defined in `chain/client/src/view_client_actor.rs`. The primary read-only actor, spawned as a **multithread actor**. Holds a `Chain`, `EpochManagerAdapter`, `ShardTracker`, and `RuntimeAdapter`. Implements `Handler<M, R>` for each message type.
 
 The `ClientQuery` handler delegates to the runtime adapter, which executes state reads (account lookup, view function call, state access, etc.) against the Trie at the specified block height.
 
 ### RpcHandlerActor
 
-Defined in `chain/client/src/rpc_handler.rs`. Multithreaded actor for transaction pre-processing (`handler_threads` in config).
+Defined in `chain/client/src/rpc_handler.rs`. A **separate multithreaded actor** dedicated to transaction pre-processing. It exists to keep transaction validation work (signature checks, nonce lookups, balance verification) off the consensus-critical `ClientActor`. Thread count is configurable via `handler_threads`.
 
 When `process_tx()` is called with a `SignedTransaction`:
 
@@ -216,7 +199,7 @@ When `process_tx()` is called with a `SignedTransaction`:
 
 ### ClientActor
 
-Handles node-level operations: `Status` (for `/status` and `/health`) and `GetNetworkInfo`.
+Handles node-level operations: `Status` (for `/status` and `/health`) and `GetNetworkInfo`. Runs on a **Tokio runtime handle** (not multithread actor), since these operations are infrequent and lightweight.
 
 ### Wiring at Node Startup
 
