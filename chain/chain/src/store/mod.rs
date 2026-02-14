@@ -77,11 +77,11 @@ pub trait ChainStoreAccess {
     /// The chain head.
     fn head(&self) -> Result<Arc<Tip>, Error>;
     /// The chain Blocks Tail height.
-    fn tail(&self) -> Result<BlockHeight, Error>;
+    fn tail(&self) -> BlockHeight;
     /// The chain Chunks Tail height.
-    fn chunk_tail(&self) -> Result<BlockHeight, Error>;
+    fn chunk_tail(&self) -> BlockHeight;
     /// Tail height of the fork cleaning process.
-    fn fork_tail(&self) -> Result<BlockHeight, Error>;
+    fn fork_tail(&self) -> BlockHeight;
     /// Head of the header chain (not the same thing as head_header).
     fn header_head(&self) -> Result<Arc<Tip>, Error>;
     /// Header of the block at the head of the block chain (not the same thing as header_head).
@@ -93,9 +93,9 @@ pub trait ChainStoreAccess {
     /// Last block of the chain that we executed.
     fn spice_execution_head(&self) -> Result<Arc<Tip>, Error>;
     /// Largest approval target height sent by us
-    fn largest_target_height(&self) -> Result<BlockHeight, Error>;
+    fn largest_target_height(&self) -> BlockHeight;
     /// Stop height observed during the last garbage collection iteration.
-    fn gc_stop_height(&self) -> Result<BlockHeight, Error>;
+    fn gc_stop_height(&self) -> BlockHeight;
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error>;
     /// Get full chunk.
@@ -136,7 +136,7 @@ pub trait ChainStoreAccess {
         // block.
         // The earliest block can be the genesis block.
         let head_header_height = self.head_header()?.height();
-        let tail = self.tail()?;
+        let tail = self.tail();
 
         // There is a corner case when there are no blocks after the tail, and
         // the tail is in fact the earliest block available on the chain.
@@ -835,16 +835,16 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// The chain Blocks Tail height, used by GC.
-    fn tail(&self) -> Result<BlockHeight, Error> {
+    fn tail(&self) -> BlockHeight {
         ChainStoreAdapter::tail(self)
     }
 
     /// The chain Chunks Tail height, used by GC.
-    fn chunk_tail(&self) -> Result<BlockHeight, Error> {
+    fn chunk_tail(&self) -> BlockHeight {
         ChainStoreAdapter::chunk_tail(self)
     }
 
-    fn fork_tail(&self) -> Result<BlockHeight, Error> {
+    fn fork_tail(&self) -> BlockHeight {
         ChainStoreAdapter::fork_tail(self)
     }
 
@@ -854,11 +854,11 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Largest height for which we created a doomslug endorsement
-    fn largest_target_height(&self) -> Result<BlockHeight, Error> {
+    fn largest_target_height(&self) -> BlockHeight {
         ChainStoreAdapter::largest_target_height(self)
     }
 
-    fn gc_stop_height(&self) -> Result<BlockHeight, Error> {
+    fn gc_stop_height(&self) -> BlockHeight {
         ChainStoreAdapter::gc_stop_height(self)
     }
 
@@ -1138,23 +1138,23 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     /// The chain Block Tail height, used by GC.
-    fn tail(&self) -> Result<BlockHeight, Error> {
-        if let Some(tail) = &self.tail { Ok(*tail) } else { self.chain_store.tail() }
+    fn tail(&self) -> BlockHeight {
+        if let Some(tail) = &self.tail { *tail } else { self.chain_store.tail() }
     }
 
     /// The chain Chunks Tail height, used by GC.
-    fn chunk_tail(&self) -> Result<BlockHeight, Error> {
+    fn chunk_tail(&self) -> BlockHeight {
         if let Some(chunk_tail) = &self.chunk_tail {
-            Ok(*chunk_tail)
+            *chunk_tail
         } else {
             self.chain_store.chunk_tail()
         }
     }
 
     /// Fork tail used by GC
-    fn fork_tail(&self) -> Result<BlockHeight, Error> {
+    fn fork_tail(&self) -> BlockHeight {
         if let Some(fork_tail) = &self.fork_tail {
-            Ok(*fork_tail)
+            *fork_tail
         } else {
             self.chain_store.fork_tail()
         }
@@ -1193,17 +1193,17 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn largest_target_height(&self) -> Result<BlockHeight, Error> {
+    fn largest_target_height(&self) -> BlockHeight {
         if let Some(largest_target_height) = &self.largest_target_height {
-            Ok(*largest_target_height)
+            *largest_target_height
         } else {
             self.chain_store.largest_target_height()
         }
     }
 
-    fn gc_stop_height(&self) -> Result<BlockHeight, Error> {
+    fn gc_stop_height(&self) -> BlockHeight {
         if let Some(gc_stop_height) = &self.gc_stop_height {
-            Ok(*gc_stop_height)
+            *gc_stop_height
         } else {
             self.chain_store.gc_stop_height()
         }
@@ -1824,20 +1824,19 @@ impl<'a> ChainStoreUpdate<'a> {
         self.fork_tail = None;
     }
 
-    pub fn update_tail(&mut self, height: BlockHeight) -> Result<(), Error> {
+    pub fn update_tail(&mut self, height: BlockHeight) {
         self.tail = Some(height);
         let genesis_height = self.get_genesis_height();
         // When fork tail is behind tail, it doesn't hurt to set it to tail for consistency.
-        if self.fork_tail()? < height {
+        if self.fork_tail() < height {
             self.fork_tail = Some(height);
         }
 
-        let chunk_tail = self.chunk_tail()?;
+        let chunk_tail = self.chunk_tail();
         if chunk_tail == genesis_height {
             // For consistency, Chunk Tail should be set if Tail is set
             self.chunk_tail = Some(self.get_genesis_height());
         }
-        Ok(())
     }
 
     pub fn update_fork_tail(&mut self, height: BlockHeight) {

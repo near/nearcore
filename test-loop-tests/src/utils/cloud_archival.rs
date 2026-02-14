@@ -46,7 +46,7 @@ pub fn gc_and_heads_sanity_checks(
     let cloud_head_block_info = epoch_store.get_block_info(&cloud_head_hash).unwrap();
     epoch_store.get_block_info(cloud_head_block_info.epoch_first_block()).unwrap();
 
-    let gc_tail = chain_store.tail().unwrap();
+    let gc_tail = chain_store.tail();
     if split_store_enabled {
         let cold_head = chain_store.store().get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY);
         let cold_head_height = cold_head.unwrap().height;

@@ -96,7 +96,7 @@ impl<'a> TestLoopNode<'a> {
     }
 
     pub fn tail(&self, test_loop_data: &TestLoopData) -> BlockHeight {
-        self.client(test_loop_data).chain.tail().unwrap()
+        self.client(test_loop_data).chain.tail()
     }
 
     pub fn head(&self, test_loop_data: &TestLoopData) -> Arc<Tip> {

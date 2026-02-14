@@ -578,9 +578,9 @@ impl Chain {
         metrics::HEADER_HEAD_HEIGHT.set(header_head.height as i64);
         metrics::BOOT_TIME_SECONDS.set(clock.now_utc().unix_timestamp());
 
-        metrics::TAIL_HEIGHT.set(chain_store.tail()? as i64);
-        metrics::CHUNK_TAIL_HEIGHT.set(chain_store.chunk_tail()? as i64);
-        metrics::FORK_TAIL_HEIGHT.set(chain_store.fork_tail()? as i64);
+        metrics::TAIL_HEIGHT.set(chain_store.tail() as i64);
+        metrics::CHUNK_TAIL_HEIGHT.set(chain_store.chunk_tail() as i64);
+        metrics::FORK_TAIL_HEIGHT.set(chain_store.fork_tail() as i64);
 
         // Even though the channel is unbounded, the channel size is practically bounded by the size
         // of blocks_in_processing, which is set to 5 now.
@@ -1599,7 +1599,7 @@ impl Chain {
         // Reset final head to genesis since at this point we don't have the last final block.
         chain_store_update.save_final_head(&final_head)?;
         // New Tail can not be earlier than `prev_block.header.inner_lite.height`
-        chain_store_update.update_tail(new_tail)?;
+        chain_store_update.update_tail(new_tail);
         // New Chunk Tail can not be earlier than minimum of height_created in Block `prev_block`
         chain_store_update.update_chunk_tail(new_chunk_tail);
         chain_store_update.commit()?;
@@ -1664,7 +1664,7 @@ impl Chain {
                 preprocess_timer.stop_and_discard();
                 match &e {
                     Error::Orphan => {
-                        let tail_height = self.chain_store.tail()?;
+                        let tail_height = self.chain_store.tail();
                         // we only add blocks that couldn't have been gc'ed to the orphan pool.
                         if block_height >= tail_height {
                             let requested_missing_chunks = if let Some(orphan_missing_chunks) =
@@ -3608,7 +3608,7 @@ impl Chain {
 
     /// Gets chain tail height
     #[inline]
-    pub fn tail(&self) -> Result<BlockHeight, Error> {
+    pub fn tail(&self) -> BlockHeight {
         self.chain_store.tail()
     }
 
