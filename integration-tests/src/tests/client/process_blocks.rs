@@ -867,7 +867,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
             );
         }
     }
-    assert_eq!(env.clients[0].chain.chain_store().chunk_tail().unwrap(), epoch_length - 1);
+    assert_eq!(env.clients[0].chain.chain_store().chunk_tail(), epoch_length - 1);
 }
 
 #[test]
@@ -1119,7 +1119,7 @@ fn test_gc_chunk_tail() {
     let mut chunk_tail = 0;
     for i in (1..10).chain(101..epoch_length * 6) {
         env.produce_block(0, i);
-        let cur_chunk_tail = env.clients[0].chain.chain_store().chunk_tail().unwrap();
+        let cur_chunk_tail = env.clients[0].chain.chain_store().chunk_tail();
         assert!(cur_chunk_tail >= chunk_tail);
         chunk_tail = cur_chunk_tail;
     }
@@ -1296,8 +1296,8 @@ fn test_gc_fork_tail() {
     assert!(
         env.clients[1].runtime_adapter.get_gc_stop_height(&head.last_block_hash) > epoch_length
     );
-    let tail = env.clients[1].chain.chain_store().tail().unwrap();
-    let fork_tail = env.clients[1].chain.chain_store().fork_tail().unwrap();
+    let tail = env.clients[1].chain.chain_store().tail();
+    let fork_tail = env.clients[1].chain.chain_store().fork_tail();
     assert!(tail <= fork_tail && fork_tail < second_epoch_start.unwrap());
 }
 
@@ -1521,7 +1521,7 @@ fn test_gc_tail_update() {
         )
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
-    assert_eq!(env.clients[1].chain.chain_store().tail().unwrap(), prev_sync_height);
+    assert_eq!(env.clients[1].chain.chain_store().tail(), prev_sync_height);
 }
 
 /// Test that transaction does not become invalid when there is some gas price change.

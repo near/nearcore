@@ -58,27 +58,24 @@ impl ChainStoreAdapter {
     }
 
     /// The chain Blocks Tail height.
-    pub fn tail(&self) -> Result<BlockHeight, Error> {
-        Ok(self
-            .store
+    pub fn tail(&self) -> BlockHeight {
+        self.store
             .get_ser(DBCol::BlockMisc, TAIL_KEY)
-            .unwrap_or_else(|| self.get_or_init_genesis_height()))
+            .unwrap_or_else(|| self.get_or_init_genesis_height())
     }
 
     /// The chain Chunks Tail height.
-    pub fn chunk_tail(&self) -> Result<BlockHeight, Error> {
-        Ok(self
-            .store
+    pub fn chunk_tail(&self) -> BlockHeight {
+        self.store
             .get_ser(DBCol::BlockMisc, CHUNK_TAIL_KEY)
-            .unwrap_or_else(|| self.get_or_init_genesis_height()))
+            .unwrap_or_else(|| self.get_or_init_genesis_height())
     }
 
     /// Tail height of the fork cleaning process.
-    pub fn fork_tail(&self) -> Result<BlockHeight, Error> {
-        Ok(self
-            .store
+    pub fn fork_tail(&self) -> BlockHeight {
+        self.store
             .get_ser(DBCol::BlockMisc, FORK_TAIL_KEY)
-            .unwrap_or_else(|| self.get_or_init_genesis_height()))
+            .unwrap_or_else(|| self.get_or_init_genesis_height())
     }
 
     /// Head of the header chain (not the same thing as head_header).
@@ -121,15 +118,14 @@ impl ChainStoreAdapter {
     }
 
     /// Largest approval target height sent by us
-    pub fn largest_target_height(&self) -> Result<BlockHeight, Error> {
-        Ok(self.store.get_ser(DBCol::BlockMisc, LARGEST_TARGET_HEIGHT_KEY).unwrap_or(0))
+    pub fn largest_target_height(&self) -> BlockHeight {
+        self.store.get_ser(DBCol::BlockMisc, LARGEST_TARGET_HEIGHT_KEY).unwrap_or(0)
     }
 
-    pub fn gc_stop_height(&self) -> Result<BlockHeight, Error> {
-        Ok(self
-            .store
+    pub fn gc_stop_height(&self) -> BlockHeight {
+        self.store
             .get_ser(DBCol::BlockMisc, GC_STOP_HEIGHT_KEY)
-            .unwrap_or_else(|| self.get_or_init_genesis_height()))
+            .unwrap_or_else(|| self.get_or_init_genesis_height())
     }
 
     /// Get full block.

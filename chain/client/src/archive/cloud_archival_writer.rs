@@ -381,7 +381,7 @@ impl CloudArchivalWriter {
     ) -> Result<(), CloudArchivalInitializationError> {
         let block_hash = self.hot_store.chain_store().get_block_hash_by_height(cloud_head)?;
         let gc_stop_height = runtime_adapter.get_gc_stop_height(&block_hash);
-        let gc_tail = self.hot_store.chain_store().tail()?;
+        let gc_tail = self.hot_store.chain_store().tail();
         if gc_tail > gc_stop_height {
             return Err(CloudArchivalInitializationError::CloudHeadTooOld {
                 cloud_head,

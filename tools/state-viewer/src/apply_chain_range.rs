@@ -653,7 +653,7 @@ pub fn apply_chain_range(
             (ready.flat_head.height + 1, 0)
         }
         (_, StorageSource::Trie | StorageSource::TrieFree) => (
-            start_height.unwrap_or_else(|| chain_store.tail().unwrap()),
+            start_height.unwrap_or_else(|| chain_store.tail()),
             end_height.unwrap_or_else(|| chain_store.head().unwrap().height),
         ),
         (_, StorageSource::FlatStorage | StorageSource::Memtrie) => {

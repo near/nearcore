@@ -427,7 +427,7 @@ pub fn create_cold_store_actor(
     let cold_head_height = cold_store.head().map(|tip| tip.height).unwrap_or(genesis_height);
     let hot_final_head_height =
         hot_store.chain_store().final_head().map(|tip| tip.height).unwrap_or(genesis_height);
-    let hot_tail_height = hot_store.chain_store().tail().unwrap_or(genesis_height);
+    let hot_tail_height = hot_store.chain_store().tail();
 
     sanity_check(cold_head_height, hot_final_head_height, hot_tail_height)?;
     debug_assert!(shard_tracker.is_valid_for_cold_store());

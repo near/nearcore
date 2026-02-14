@@ -847,20 +847,20 @@ fn test_fork_chunk_tail_updates() {
             i,
         );
     }
-    assert_eq!(chain.tail().unwrap(), 0);
+    assert_eq!(chain.tail(), 0);
 
     {
         let mut store_update = chain.mut_chain_store().store_update();
-        assert_eq!(store_update.tail().unwrap(), 0);
-        store_update.update_tail(1).unwrap();
+        assert_eq!(store_update.tail(), 0);
+        store_update.update_tail(1);
         store_update.commit().unwrap();
     }
     // Chunk tail should be auto updated to genesis (if not set) and fork_tail to the tail.
     {
         let store_update = chain.mut_chain_store().store_update();
-        assert_eq!(store_update.tail().unwrap(), 1);
-        assert_eq!(store_update.fork_tail().unwrap(), 1);
-        assert_eq!(store_update.chunk_tail().unwrap(), 0);
+        assert_eq!(store_update.tail(), 1);
+        assert_eq!(store_update.fork_tail(), 1);
+        assert_eq!(store_update.chunk_tail(), 0);
     }
     {
         let mut store_update = chain.mut_chain_store().store_update();
@@ -869,13 +869,13 @@ fn test_fork_chunk_tail_updates() {
     }
     {
         let mut store_update = chain.mut_chain_store().store_update();
-        store_update.update_tail(2).unwrap();
+        store_update.update_tail(2);
         store_update.commit().unwrap();
     }
     {
         let store_update = chain.mut_chain_store().store_update();
-        assert_eq!(store_update.tail().unwrap(), 2);
-        assert_eq!(store_update.fork_tail().unwrap(), 3);
-        assert_eq!(store_update.chunk_tail().unwrap(), 0);
+        assert_eq!(store_update.tail(), 2);
+        assert_eq!(store_update.fork_tail(), 3);
+        assert_eq!(store_update.chunk_tail(), 0);
     }
 }

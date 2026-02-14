@@ -141,7 +141,7 @@ fn update_epoch_sync_proof(
 // as the headers that are stored in DBCol::BlockHeader
 fn verify_block_headers(store: &Store) -> anyhow::Result<()> {
     let chain_store = store.chain_store();
-    let tail_height = chain_store.tail().unwrap();
+    let tail_height = chain_store.tail();
     let latest_known_height =
         store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY).unwrap().height;
 
@@ -172,7 +172,7 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
     store_update.delete_all(DBCol::BlockHeader);
     store_update.commit();
     let chain_store = store.chain_store();
-    let tail_height = chain_store.tail().unwrap();
+    let tail_height = chain_store.tail();
     let latest_known_height =
         store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY).unwrap().height;
 

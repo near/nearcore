@@ -359,7 +359,7 @@ impl Client {
 
         let doomslug = Doomslug::new(
             clock.clone(),
-            chain.chain_store().largest_target_height()?,
+            chain.chain_store().largest_target_height(),
             config.min_block_production_delay,
             config.max_block_production_delay,
             config.max_block_production_delay / 10,
@@ -1177,7 +1177,7 @@ impl Client {
             tracing::debug!(target: "client", head_height = head.height, "dropping a block that is too far ahead");
             return Ok(false);
         }
-        let tail = self.chain.tail()?;
+        let tail = self.chain.tail();
         if block_height < tail {
             tracing::debug!(target: "client", tail_height = tail, "dropping a block that is too far behind");
             return Ok(false);
