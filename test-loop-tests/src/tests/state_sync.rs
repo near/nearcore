@@ -265,8 +265,7 @@ fn assert_fork_happened(env: &TestLoopEnv, skip_block_height: BlockHeight) {
 
     // The way it's implemented currently, only one client will be aware of the fork
     for client in clients {
-        let hashes =
-            client.chain.chain_store.get_all_block_hashes_by_height(skip_block_height).unwrap();
+        let hashes = client.chain.chain_store.get_all_block_hashes_by_height(skip_block_height);
         if !hashes.is_empty() {
             return;
         }

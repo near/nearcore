@@ -851,7 +851,6 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                     .chain
                     .mut_chain_store()
                     .get_all_block_hashes_by_height(i as BlockHeight)
-                    .unwrap()
                     .is_empty()
             );
         } else {
@@ -862,7 +861,6 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                     .chain
                     .mut_chain_store()
                     .get_all_block_hashes_by_height(i as BlockHeight)
-                    .unwrap()
                     .is_empty()
             );
         }
@@ -921,13 +919,7 @@ fn test_archival_save_trie_changes() {
 
         assert!(chain.get_block(block.hash()).is_ok());
         assert!(chain.get_block_by_height(i).is_ok());
-        assert!(
-            !chain
-                .chain_store()
-                .get_all_block_hashes_by_height(i as BlockHeight)
-                .unwrap()
-                .is_empty()
-        );
+        assert!(!chain.chain_store().get_all_block_hashes_by_height(i as BlockHeight).is_empty());
 
         // The genesis block does not contain trie changes.
         if i == 0 {
@@ -1028,11 +1020,7 @@ fn test_archival_gc_common(
             assert!(chain.get_block(block.hash()).is_ok());
             assert!(chain.get_block_by_height(i).is_ok());
             assert!(
-                !chain
-                    .chain_store()
-                    .get_all_block_hashes_by_height(i as BlockHeight)
-                    .unwrap()
-                    .is_empty()
+                !chain.chain_store().get_all_block_hashes_by_height(i as BlockHeight).is_empty()
             );
         }
     }
@@ -3276,11 +3264,7 @@ fn test_catchup_no_sharding_change() {
             env.clients[0].process_block_test(block.clone().into(), Provenance::PRODUCED).unwrap();
         assert_eq!(env.clients[0].chain.chain_store().iterate_state_sync_infos().unwrap(), vec![]);
         assert_eq!(
-            env.clients[0]
-                .chain
-                .chain_store()
-                .get_blocks_to_catchup(block.header().prev_hash())
-                .unwrap(),
+            env.clients[0].chain.chain_store().get_blocks_to_catchup(block.header().prev_hash()),
             vec![]
         );
     }

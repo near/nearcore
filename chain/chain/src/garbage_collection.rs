@@ -264,7 +264,7 @@ impl ChainStore {
             }
             let blocks_current_height = self
                 .chain_store()
-                .get_all_block_hashes_by_height(height)?
+                .get_all_block_hashes_by_height(height)
                 .values()
                 .flatten()
                 .cloned()
@@ -473,7 +473,7 @@ impl ChainStore {
     ) -> Result<(), Error> {
         let blocks_current_height = self
             .chain_store()
-            .get_all_block_hashes_by_height(height)?
+            .get_all_block_hashes_by_height(height)
             .values()
             .flatten()
             .cloned()
@@ -553,7 +553,7 @@ impl ChainStore {
         for height in tail..gc_height {
             let blocks_current_height = self
                 .chain_store()
-                .get_all_block_hashes_by_height(height)?
+                .get_all_block_hashes_by_height(height)
                 .values()
                 .flatten()
                 .cloned()
@@ -610,7 +610,7 @@ impl<'a> ChainStoreUpdate<'a> {
         end: BlockHeight,
     ) -> Result<(), Error> {
         for height in start..=end {
-            let header_hashes = self.chain_store().get_all_header_hashes_by_height(height)?;
+            let header_hashes = self.chain_store().get_all_header_hashes_by_height(height);
             for header_hash in header_hashes {
                 // Delete header_hash-indexed data: block header
                 let mut store_update = self.store().store_update();
@@ -652,7 +652,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.gc_col(DBCol::InvalidChunks, chunk_hash);
             }
 
-            let header_hashes = self.chain_store().get_all_header_hashes_by_height(height)?;
+            let header_hashes = self.chain_store().get_all_header_hashes_by_height(height);
             for _header_hash in header_hashes {
                 // 3. Delete header_hash-indexed data
                 // TODO #3488: enable
@@ -1060,7 +1060,7 @@ impl<'a> ChainStoreUpdate<'a> {
     ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
         let mut epoch_to_hashes =
-            HashMap::clone(self.chain_store().get_all_block_hashes_by_height(height)?.as_ref());
+            HashMap::clone(self.chain_store().get_all_block_hashes_by_height(height).as_ref());
         let hashes = epoch_to_hashes.get_mut(epoch_id).ok_or_else(|| {
             near_chain_primitives::Error::Other("current epoch id should exist".into())
         })?;

@@ -2080,30 +2080,26 @@ impl Client {
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
-                match self.chain.chain_store().get_all_block_hashes_by_height(*parent_height) {
-                    Ok(hashes) => {
-                        // If there is more than one block at the height, all of them will be
-                        // eligible to build the next block on, so we just pick one.
-                        let hash = hashes.values().flatten().next();
-                        match hash {
-                            Some(hash) => *hash,
-                            None => {
-                                self.handle_process_approval_error(
-                                    approval,
-                                    approval_type,
-                                    true,
-                                    near_chain::Error::DBNotFoundErr(format!(
-                                        "Cannot find any block on height {}",
-                                        parent_height
-                                    )),
-                                );
-                                return;
-                            }
+                {
+                    let hashes =
+                        self.chain.chain_store().get_all_block_hashes_by_height(*parent_height);
+                    // If there is more than one block at the height, all of them will be
+                    // eligible to build the next block on, so we just pick one.
+                    let hash = hashes.values().flatten().next();
+                    match hash {
+                        Some(hash) => *hash,
+                        None => {
+                            self.handle_process_approval_error(
+                                approval,
+                                approval_type,
+                                true,
+                                near_chain::Error::DBNotFoundErr(format!(
+                                    "Cannot find any block on height {}",
+                                    parent_height
+                                )),
+                            );
+                            return;
                         }
-                    }
-                    Err(e) => {
-                        self.handle_process_approval_error(approval, approval_type, true, e);
-                        return;
                     }
                 }
             }

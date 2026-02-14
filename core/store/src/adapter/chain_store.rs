@@ -188,19 +188,13 @@ impl ChainStoreAdapter {
     pub fn get_all_block_hashes_by_height(
         &self,
         height: BlockHeight,
-    ) -> Result<Arc<HashMap<EpochId, HashSet<CryptoHash>>>, Error> {
-        Ok(self.store.get_ser(DBCol::BlockPerHeight, &index_to_bytes(height)).unwrap_or_default())
+    ) -> Arc<HashMap<EpochId, HashSet<CryptoHash>>> {
+        self.store.get_ser(DBCol::BlockPerHeight, &index_to_bytes(height)).unwrap_or_default()
     }
 
     /// Returns a HashSet of Header Hashes for current Height
-    pub fn get_all_header_hashes_by_height(
-        &self,
-        height: BlockHeight,
-    ) -> Result<HashSet<CryptoHash>, Error> {
-        Ok(self
-            .store
-            .get_ser(DBCol::HeaderHashesByHeight, &index_to_bytes(height))
-            .unwrap_or_default())
+    pub fn get_all_header_hashes_by_height(&self, height: BlockHeight) -> HashSet<CryptoHash> {
+        self.store.get_ser(DBCol::HeaderHashesByHeight, &index_to_bytes(height)).unwrap_or_default()
     }
 
     /// Returns block header from the current chain for given height if present.
@@ -254,8 +248,8 @@ impl ChainStoreAdapter {
         )
     }
 
-    pub fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
-        Ok(self.store.get_ser(DBCol::BlocksToCatchup, prev_hash.as_ref()).unwrap_or_default())
+    pub fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Vec<CryptoHash> {
+        self.store.get_ser(DBCol::BlocksToCatchup, prev_hash.as_ref()).unwrap_or_default()
     }
 
     pub fn get_transaction(
@@ -339,14 +333,8 @@ impl ChainStoreAdapter {
     }
 
     /// Returns a vector of all known processed next block hashes.
-    pub fn get_all_next_block_hashes(
-        &self,
-        block_hash: &CryptoHash,
-    ) -> Result<Vec<CryptoHash>, Error> {
-        Ok(self
-            .store
-            .get_ser(DBCol::all_next_block_hashes(), block_hash.as_ref())
-            .unwrap_or_default())
+    pub fn get_all_next_block_hashes(&self, block_hash: &CryptoHash) -> Vec<CryptoHash> {
+        self.store.get_ser(DBCol::all_next_block_hashes(), block_hash.as_ref()).unwrap_or_default()
     }
 
     pub fn get_state_header(
@@ -360,11 +348,8 @@ impl ChainStoreAdapter {
             .ok_or_else(|| Error::Other("Cannot get shard_state_header".into()))
     }
 
-    pub fn get_current_epoch_sync_hash(
-        &self,
-        epoch_id: &EpochId,
-    ) -> Result<Option<CryptoHash>, Error> {
-        Ok(self.store.get_ser(DBCol::StateSyncHashes, epoch_id.as_ref()))
+    pub fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Option<CryptoHash> {
+        self.store.get_ser(DBCol::StateSyncHashes, epoch_id.as_ref())
     }
 
     /// Get height of genesis
@@ -451,7 +436,7 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
     pub fn update_block_header_hashes_by_height(&mut self, header: &BlockHeader) {
         let height = header.height();
         let mut hash_set =
-            self.store_update.store.chain_store().get_all_header_hashes_by_height(height).unwrap();
+            self.store_update.store.chain_store().get_all_header_hashes_by_height(height);
         hash_set.insert(*header.hash());
         self.set_block_header_hashes_by_height(height, &hash_set);
     }

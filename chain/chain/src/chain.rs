@@ -2638,7 +2638,7 @@ impl Chain {
                     Ok(_) => {
                         let mut saw_one = false;
                         for next_block_hash in
-                            self.chain_store.get_blocks_to_catchup(&queued_block)?.clone()
+                            self.chain_store.get_blocks_to_catchup(&queued_block).clone()
                         {
                             saw_one = true;
                             blocks_catch_up_state.pending_blocks.push(next_block_hash);
