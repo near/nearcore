@@ -348,6 +348,10 @@ pub enum ProtocolFeature {
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
     /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
     InstantPromiseYield,
+    /// Improve functionality of Yield/Resume. Keep the current status of yielded receipt in the
+    /// trie state. Allows to call yield and resume in two actions within the same transaction.
+    /// Keeping the status in the state could allow to query it from contracts.
+    YieldResumeImprovements,
     /// Includes tokens burnt as part of global contract deploys into corresponding
     /// execution outcome's `tokens_burnt`.
     IncludeDeployGlobalContractOutcomeBurntStorage,
@@ -465,12 +469,13 @@ impl ProtocolFeature {
             | ProtocolFeature::FixAccessKeyAllowanceCharging
             | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
             | ProtocolFeature::FixDeterministicAccountIdCreation
-            | ProtocolFeature::GlobalContractDistributionNonce => 83,
+            | ProtocolFeature::GlobalContractDistributionNonce
+            | ProtocolFeature::InstantPromiseYield
+            | ProtocolFeature::YieldResumeImprovements => 83,
             ProtocolFeature::Wasmtime => 84,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
-            ProtocolFeature::InstantPromiseYield => 130,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,

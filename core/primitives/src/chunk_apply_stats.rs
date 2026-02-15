@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::{Balance, BlockHeight, Gas, ShardId};
+use near_schema_checker_lib::ProtocolSchema;
 
 use crate::bandwidth_scheduler::{
     Bandwidth, BandwidthRequest, BandwidthRequestValues, BandwidthRequests,
@@ -12,7 +13,7 @@ use crate::bandwidth_scheduler::{
 /// Provides insight into what happened when the chunk was applied.
 /// How many transactions and receipts were processed, buffered, forwarded, etc.
 /// Useful for debugging, metrics and sanity checks.
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum ChunkApplyStats {
@@ -23,7 +24,7 @@ pub enum ChunkApplyStats {
 /// This feature is still in development. Consider V0 as unstable, fields might be added or removed
 /// from it at any time. We will do proper versioning after stabilization when there will be other
 /// services depending on this structure.
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkApplyStatsV0 {
     /// Height at which the chunk was applied
     pub height: BlockHeight,
@@ -81,7 +82,7 @@ impl ChunkApplyStatsV0 {
     }
 }
 
-#[derive(Debug, Clone, Default, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, Default, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct BandwidthSchedulerStats {
     /// Scheduler params, should always be Some but there is no Default impl.
     pub params: Option<BandwidthSchedulerParams>,
@@ -146,7 +147,7 @@ impl BandwidthSchedulerStats {
     }
 }
 
-#[derive(Debug, Clone, Default, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, Default, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ReceiptSinkStats {
     /// Outgoing size and gas limits to every shard.
     pub outgoing_limits: BTreeMap<ShardId, OutgoingLimitStats>,
@@ -173,14 +174,14 @@ impl ReceiptSinkStats {
     }
 }
 
-#[derive(Debug, Clone, Default, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, Default, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct OutgoingLimitStats {
     pub size: u64,
     pub gas: Gas,
 }
 
 /// Stats about a set of receipts
-#[derive(Debug, Clone, Default, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, Default, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ReceiptsStats {
     /// Number of receipts
     pub num: u64,
@@ -200,7 +201,7 @@ impl ReceiptsStats {
 }
 
 /// Stats about token balance, used in balance checker.
-#[derive(Debug, Clone, Default, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, Default, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct BalanceStats {
     pub tx_burnt_amount: Balance,
     pub slashed_burnt_amount: Balance,

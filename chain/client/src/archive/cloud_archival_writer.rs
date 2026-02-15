@@ -381,7 +381,7 @@ impl CloudArchivalWriter {
     ) -> Result<(), CloudArchivalInitializationError> {
         let block_hash = self.hot_store.chain_store().get_block_hash_by_height(cloud_head)?;
         let gc_stop_height = runtime_adapter.get_gc_stop_height(&block_hash);
-        let gc_tail = self.hot_store.chain_store().tail()?;
+        let gc_tail = self.hot_store.chain_store().tail();
         if gc_tail > gc_stop_height {
             return Err(CloudArchivalInitializationError::CloudHeadTooOld {
                 cloud_head,
@@ -415,7 +415,11 @@ impl CloudArchivalWriter {
             self.hot_store.chain_store().get_block_header_by_height(new_head)?;
         let cloud_head_tip = Tip::from_header(&cloud_head_header);
         let mut transaction = DBTransaction::new();
-        transaction.set(DBCol::BlockMisc, CLOUD_HEAD_KEY.to_vec(), borsh::to_vec(&cloud_head_tip)?);
+        transaction.set(
+            DBCol::BlockMisc,
+            CLOUD_HEAD_KEY.to_vec(),
+            borsh::to_vec(&cloud_head_tip).unwrap(),
+        );
         self.hot_store.database().write(transaction);
         Ok(())
     }

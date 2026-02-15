@@ -103,7 +103,7 @@ impl StateRequestActor {
             return Ok(None);
         }
         let header = self.chain_store.get_block_header(block_hash)?;
-        self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
+        Ok(self.chain_store.get_current_epoch_sync_hash(header.epoch_id()))
     }
 
     // TODO(darioush): Remove the code duplication with Chain.

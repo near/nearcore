@@ -185,18 +185,18 @@ impl ChainStore {
             // Nothing to do if head is at genesis. Return early because some of the later queries would fail.
             return Ok(());
         }
-        let tail = self.tail()?;
+        let tail = self.tail();
         let gc_stop_height = runtime_adapter.get_gc_stop_height(&head.last_block_hash);
         if gc_stop_height > head.height {
             return Err(Error::GCError("gc_stop_height cannot be larger than head.height".into()));
         }
-        let mut fork_tail = self.fork_tail()?;
-        let chunk_tail = self.chain_store().chunk_tail()?;
+        let mut fork_tail = self.fork_tail();
+        let chunk_tail = self.chain_store().chunk_tail();
         metrics::TAIL_HEIGHT.set(tail as i64);
         metrics::FORK_TAIL_HEIGHT.set(fork_tail as i64);
         metrics::CHUNK_TAIL_HEIGHT.set(chunk_tail as i64);
         metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
-        let last_known_gc_heigh = self.gc_stop_height()?;
+        let last_known_gc_heigh = self.gc_stop_height();
         if last_known_gc_heigh != gc_stop_height {
             tracing::debug!(
                 target: "garbage_collection",
@@ -264,7 +264,7 @@ impl ChainStore {
             }
             let blocks_current_height = self
                 .chain_store()
-                .get_all_block_hashes_by_height(height)?
+                .get_all_block_hashes_by_height(height)
                 .values()
                 .flatten()
                 .cloned()
@@ -310,7 +310,7 @@ impl ChainStore {
 
                 gc_blocks_remaining -= 1;
             }
-            chain_store_update.update_tail(height)?;
+            chain_store_update.update_tail(height);
             chain_store_update.commit()?;
         }
 
@@ -459,7 +459,7 @@ impl ChainStore {
 
         let mut chain_store_update = self.store_update();
         chain_store_update.clear_redundant_chunk_data(gc_stop_height, gc_height_limit)?;
-        metrics::CHUNK_TAIL_HEIGHT.set(chain_store_update.chunk_tail()? as i64);
+        metrics::CHUNK_TAIL_HEIGHT.set(chain_store_update.chunk_tail() as i64);
         metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
         chain_store_update.commit()
     }
@@ -473,7 +473,7 @@ impl ChainStore {
     ) -> Result<(), Error> {
         let blocks_current_height = self
             .chain_store()
-            .get_all_block_hashes_by_height(height)?
+            .get_all_block_hashes_by_height(height)
             .values()
             .flatten()
             .cloned()
@@ -548,12 +548,12 @@ impl ChainStore {
 
         // GC all the data from current tail up to `gc_height`. In case tail points to a height where
         // there is no block, we need to make sure that the last block before tail is cleaned.
-        let tail = self.chain_store().tail()?;
+        let tail = self.chain_store().tail();
         let mut tail_prev_block_cleaned = false;
         for height in tail..gc_height {
             let blocks_current_height = self
                 .chain_store()
-                .get_all_block_hashes_by_height(height)?
+                .get_all_block_hashes_by_height(height)
                 .values()
                 .flatten()
                 .cloned()
@@ -610,7 +610,7 @@ impl<'a> ChainStoreUpdate<'a> {
         end: BlockHeight,
     ) -> Result<(), Error> {
         for height in start..=end {
-            let header_hashes = self.chain_store().get_all_header_hashes_by_height(height)?;
+            let header_hashes = self.chain_store().get_all_header_hashes_by_height(height);
             for header_hash in header_hashes {
                 // Delete header_hash-indexed data: block header
                 let mut store_update = self.store().store_update();
@@ -625,7 +625,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     fn clear_chunk_data_and_headers(&mut self, min_chunk_height: BlockHeight) -> Result<(), Error> {
-        let chunk_tail = self.chunk_tail()?;
+        let chunk_tail = self.chunk_tail();
         for height in chunk_tail..min_chunk_height {
             let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height)?;
             for chunk_hash in chunk_hashes {
@@ -652,7 +652,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.gc_col(DBCol::InvalidChunks, chunk_hash);
             }
 
-            let header_hashes = self.chain_store().get_all_header_hashes_by_height(height)?;
+            let header_hashes = self.chain_store().get_all_header_hashes_by_height(height);
             for _header_hash in header_hashes {
                 // 3. Delete header_hash-indexed data
                 // TODO #3488: enable
@@ -688,7 +688,7 @@ impl<'a> ChainStoreUpdate<'a> {
         gc_stop_height: BlockHeight,
         gc_height_limit: BlockHeightDelta,
     ) -> Result<(), Error> {
-        let mut height = self.chunk_tail()?;
+        let mut height = self.chunk_tail();
         let mut remaining = gc_height_limit;
         while height < gc_stop_height && remaining > 0 {
             let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height)?;
@@ -786,7 +786,7 @@ impl<'a> ChainStoreUpdate<'a> {
             {
                 let state_num_parts = shard_state_header.num_state_parts();
                 self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
-                let key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
+                let key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash)).unwrap();
                 self.gc_col(DBCol::StateHeaders, &key);
             }
         }
@@ -838,7 +838,7 @@ impl<'a> ChainStoreUpdate<'a> {
             GCMode::Canonical(_) => {
                 // 6. Canonical Chain only clearing
                 // Delete chunks, chunk-indexed data and block headers
-                let mut min_chunk_height = self.tail()?;
+                let mut min_chunk_height = self.tail();
                 for chunk_header in block.chunks().iter() {
                     if min_chunk_height > chunk_header.height_created() {
                         min_chunk_height = chunk_header.height_created();
@@ -975,7 +975,8 @@ impl<'a> ChainStoreUpdate<'a> {
             {
                 let state_num_parts = shard_state_header.num_state_parts();
                 self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
-                let state_header_key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
+                let state_header_key =
+                    borsh::to_vec(&StateHeaderKey(shard_id, block_hash)).unwrap();
                 self.gc_col(DBCol::StateHeaders, &state_header_key);
             }
 
@@ -1060,7 +1061,7 @@ impl<'a> ChainStoreUpdate<'a> {
     ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
         let mut epoch_to_hashes =
-            HashMap::clone(self.chain_store().get_all_block_hashes_by_height(height)?.as_ref());
+            HashMap::clone(self.chain_store().get_all_block_hashes_by_height(height).as_ref());
         let hashes = epoch_to_hashes.get_mut(epoch_id).ok_or_else(|| {
             near_chain_primitives::Error::Other("current epoch id should exist".into())
         })?;
@@ -1088,7 +1089,7 @@ impl<'a> ChainStoreUpdate<'a> {
         num_parts: u64,
     ) -> Result<(), Error> {
         for part_id in 0..num_parts {
-            let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
+            let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
             self.gc_col(DBCol::StateParts, &key);
             self.gc_col(DBCol::StatePartsApplied, &key);
         }
@@ -1118,7 +1119,7 @@ impl<'a> ChainStoreUpdate<'a> {
             // chunk. An old chunk may have the shard id from the parent shard.
             let shard_id = chunk_header.shard_id();
             let outcome_ids =
-                self.chain_store().get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?;
+                self.chain_store().get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id);
             for outcome_id in outcome_ids {
                 self.gc_col(
                     DBCol::TransactionResultForBlock,

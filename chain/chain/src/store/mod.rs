@@ -9,7 +9,7 @@ use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV0};
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
-use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource};
+use near_primitives::receipt::{ProcessedReceipt, ProcessedReceiptMetadata, Receipt};
 use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
     ArcedShardChunk, ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk,
@@ -77,11 +77,11 @@ pub trait ChainStoreAccess {
     /// The chain head.
     fn head(&self) -> Result<Arc<Tip>, Error>;
     /// The chain Blocks Tail height.
-    fn tail(&self) -> Result<BlockHeight, Error>;
+    fn tail(&self) -> BlockHeight;
     /// The chain Chunks Tail height.
-    fn chunk_tail(&self) -> Result<BlockHeight, Error>;
+    fn chunk_tail(&self) -> BlockHeight;
     /// Tail height of the fork cleaning process.
-    fn fork_tail(&self) -> Result<BlockHeight, Error>;
+    fn fork_tail(&self) -> BlockHeight;
     /// Head of the header chain (not the same thing as head_header).
     fn header_head(&self) -> Result<Arc<Tip>, Error>;
     /// Header of the block at the head of the block chain (not the same thing as header_head).
@@ -93,9 +93,9 @@ pub trait ChainStoreAccess {
     /// Last block of the chain that we executed.
     fn spice_execution_head(&self) -> Result<Arc<Tip>, Error>;
     /// Largest approval target height sent by us
-    fn largest_target_height(&self) -> Result<BlockHeight, Error>;
+    fn largest_target_height(&self) -> BlockHeight;
     /// Stop height observed during the last garbage collection iteration.
-    fn gc_stop_height(&self) -> Result<BlockHeight, Error>;
+    fn gc_stop_height(&self) -> BlockHeight;
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Arc<Block>, Error>;
     /// Get full chunk.
@@ -136,7 +136,7 @@ pub trait ChainStoreAccess {
         // block.
         // The earliest block can be the genesis block.
         let head_header_height = self.head_header()?.height();
-        let tail = self.tail()?;
+        let tail = self.tail();
 
         // There is a corner case when there are no blocks after the tail, and
         // the tail is in fact the earliest block available on the chain.
@@ -183,7 +183,7 @@ pub trait ChainStoreAccess {
         shard_id: ShardId,
     ) -> Result<Arc<Vec<ReceiptProof>>, Error>;
 
-    fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error>;
+    fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Vec<CryptoHash>;
 
     /// Returns encoded chunk if it's invalid otherwise None.
     fn is_invalid_chunk(
@@ -191,17 +191,14 @@ pub trait ChainStoreAccess {
         chunk_hash: &ChunkHash,
     ) -> Result<Option<Arc<EncodedShardChunk>>, Error>;
 
-    fn get_transaction(
-        &self,
-        tx_hash: &CryptoHash,
-    ) -> Result<Option<Arc<SignedTransaction>>, Error>;
+    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>>;
 
     /// Fetch a receipt by id, if it is stored in the store.
     ///
     /// Note that not _all_ receipts are persisted. Some receipts are ephemeral,
     /// get processed immediately after creation and don't even get to the
     /// database.
-    fn get_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error>;
+    fn get_receipt(&self, receipt_id: &CryptoHash) -> Option<Arc<Receipt>>;
 
     fn get_genesis_height(&self) -> BlockHeight;
 
@@ -247,7 +244,7 @@ pub trait ChainStoreAccess {
         }
     }
 
-    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Result<Option<CryptoHash>, Error>;
+    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Option<CryptoHash>;
 }
 
 /// Given a vector of receipts return only the receipts that should be assigned
@@ -532,8 +529,7 @@ impl ChainStore {
                 DBCol::TransactionResultForBlock,
                 id.as_ref(),
             )
-            .map(|item| {
-                let (key, outcome_with_proof) = item?;
+            .map(|(key, outcome_with_proof)| {
                 let (_, block_hash) = get_outcome_id_block_hash_rev(key.as_ref())?;
                 Ok(ExecutionOutcomeWithIdAndProof {
                     proof: outcome_with_proof.proof,
@@ -559,11 +555,11 @@ impl ChainStore {
         for chunk_header in chunk_headers {
             let shard_id = chunk_header.shard_id();
             let outcomes = self
-                .get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?
+                .get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)
                 .into_iter()
                 .filter_map(|id| {
                     let outcome_with_proof =
-                        self.get_outcome_by_id_and_block_hash(&id, block_hash).ok()??;
+                        self.get_outcome_by_id_and_block_hash(&id, block_hash)?;
                     Some(ExecutionOutcomeWithIdAndProof {
                         proof: outcome_with_proof.proof,
                         block_hash: *block_hash,
@@ -768,27 +764,25 @@ impl ChainStore {
         self.store
             .store_ref()
             .iter_prefix_ser::<StateSyncDumpProgress>(DBCol::BlockMisc, STATE_SYNC_DUMP_KEY)
-            .map(|item| {
-                item.and_then(|(key, progress)| {
-                    // + 1 for the ':'
-                    let prefix_len = STATE_SYNC_DUMP_KEY.len() + 1;
-                    let int_part = &key[prefix_len..];
-                    let int_part = int_part.try_into().map_err(|_| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!("Bad StateSyncDump column key length: {}", key.len()),
-                        )
-                    })?;
-                    let shard_id = ShardId::from_le_bytes(int_part);
-                    Ok((
-                        shard_id,
-                        match progress {
-                            StateSyncDumpProgress::AllDumped { epoch_id, .. } => (epoch_id, true),
-                            StateSyncDumpProgress::InProgress { epoch_id, .. } => (epoch_id, false),
-                            StateSyncDumpProgress::Skipped { epoch_id, .. } => (epoch_id, true),
-                        },
-                    ))
-                })
+            .map(|(key, progress)| {
+                // + 1 for the ':'
+                let prefix_len = STATE_SYNC_DUMP_KEY.len() + 1;
+                let int_part = &key[prefix_len..];
+                let int_part = int_part.try_into().map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("Bad StateSyncDump column key length: {}", key.len()),
+                    )
+                })?;
+                let shard_id = ShardId::from_le_bytes(int_part);
+                Ok((
+                    shard_id,
+                    match progress {
+                        StateSyncDumpProgress::AllDumped { epoch_id, .. } => (epoch_id, true),
+                        StateSyncDumpProgress::InProgress { epoch_id, .. } => (epoch_id, false),
+                        StateSyncDumpProgress::Skipped { epoch_id, .. } => (epoch_id, true),
+                    },
+                ))
             })
     }
 
@@ -820,7 +814,7 @@ impl ChainStore {
         // applied for the next epoch, while for the first block in a particular epoch this method
         // returns true if the block is ready to have state applied for the current epoch (and
         // otherwise should be orphaned)
-        Ok(!chain_store.get_blocks_to_catchup(prev_prev_hash)?.contains(prev_hash))
+        Ok(!chain_store.get_blocks_to_catchup(prev_prev_hash).contains(prev_hash))
     }
 }
 
@@ -838,16 +832,16 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// The chain Blocks Tail height, used by GC.
-    fn tail(&self) -> Result<BlockHeight, Error> {
+    fn tail(&self) -> BlockHeight {
         ChainStoreAdapter::tail(self)
     }
 
     /// The chain Chunks Tail height, used by GC.
-    fn chunk_tail(&self) -> Result<BlockHeight, Error> {
+    fn chunk_tail(&self) -> BlockHeight {
         ChainStoreAdapter::chunk_tail(self)
     }
 
-    fn fork_tail(&self) -> Result<BlockHeight, Error> {
+    fn fork_tail(&self) -> BlockHeight {
         ChainStoreAdapter::fork_tail(self)
     }
 
@@ -857,11 +851,11 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Largest height for which we created a doomslug endorsement
-    fn largest_target_height(&self) -> Result<BlockHeight, Error> {
+    fn largest_target_height(&self) -> BlockHeight {
         ChainStoreAdapter::largest_target_height(self)
     }
 
-    fn gc_stop_height(&self) -> Result<BlockHeight, Error> {
+    fn gc_stop_height(&self) -> BlockHeight {
         ChainStoreAdapter::gc_stop_height(self)
     }
 
@@ -986,7 +980,7 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_incoming_receipts(self, block_hash, shard_id)
     }
 
-    fn get_blocks_to_catchup(&self, hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
+    fn get_blocks_to_catchup(&self, hash: &CryptoHash) -> Vec<CryptoHash> {
         ChainStoreAdapter::get_blocks_to_catchup(self, hash)
     }
 
@@ -997,14 +991,11 @@ impl ChainStoreAccess for ChainStore {
         self.chunk_store().is_invalid_chunk(chunk_hash)
     }
 
-    fn get_transaction(
-        &self,
-        tx_hash: &CryptoHash,
-    ) -> Result<Option<Arc<SignedTransaction>>, Error> {
+    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>> {
         ChainStoreAdapter::get_transaction(self, tx_hash)
     }
 
-    fn get_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error> {
+    fn get_receipt(&self, receipt_id: &CryptoHash) -> Option<Arc<Receipt>> {
         ChainStoreAdapter::get_receipt(self, receipt_id)
     }
 
@@ -1027,7 +1018,7 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::is_height_processed(self, height)
     }
 
-    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Result<Option<CryptoHash>, Error> {
+    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Option<CryptoHash> {
         ChainStoreAdapter::get_current_epoch_sync_hash(self, epoch_id)
     }
 }
@@ -1141,23 +1132,23 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     }
 
     /// The chain Block Tail height, used by GC.
-    fn tail(&self) -> Result<BlockHeight, Error> {
-        if let Some(tail) = &self.tail { Ok(*tail) } else { self.chain_store.tail() }
+    fn tail(&self) -> BlockHeight {
+        if let Some(tail) = &self.tail { *tail } else { self.chain_store.tail() }
     }
 
     /// The chain Chunks Tail height, used by GC.
-    fn chunk_tail(&self) -> Result<BlockHeight, Error> {
+    fn chunk_tail(&self) -> BlockHeight {
         if let Some(chunk_tail) = &self.chunk_tail {
-            Ok(*chunk_tail)
+            *chunk_tail
         } else {
             self.chain_store.chunk_tail()
         }
     }
 
     /// Fork tail used by GC
-    fn fork_tail(&self) -> Result<BlockHeight, Error> {
+    fn fork_tail(&self) -> BlockHeight {
         if let Some(fork_tail) = &self.fork_tail {
-            Ok(*fork_tail)
+            *fork_tail
         } else {
             self.chain_store.fork_tail()
         }
@@ -1196,17 +1187,17 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn largest_target_height(&self) -> Result<BlockHeight, Error> {
+    fn largest_target_height(&self) -> BlockHeight {
         if let Some(largest_target_height) = &self.largest_target_height {
-            Ok(*largest_target_height)
+            *largest_target_height
         } else {
             self.chain_store.largest_target_height()
         }
     }
 
-    fn gc_stop_height(&self) -> Result<BlockHeight, Error> {
+    fn gc_stop_height(&self) -> BlockHeight {
         if let Some(gc_stop_height) = &self.gc_stop_height {
-            Ok(*gc_stop_height)
+            *gc_stop_height
         } else {
             self.chain_store.gc_stop_height()
         }
@@ -1393,7 +1384,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
+    fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Vec<CryptoHash> {
         // Make sure we never request a block to catchup after altering the data structure
         assert_eq!(self.add_blocks_to_catchup.len(), 0);
         assert_eq!(self.remove_blocks_to_catchup.len(), 0);
@@ -1413,20 +1404,17 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_transaction(
-        &self,
-        tx_hash: &CryptoHash,
-    ) -> Result<Option<Arc<SignedTransaction>>, Error> {
+    fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>> {
         if let Some(tx) = self.chain_store_cache_update.transactions.get(tx_hash) {
-            Ok(Some(Arc::clone(tx)))
+            Some(Arc::clone(tx))
         } else {
             self.chain_store.get_transaction(tx_hash)
         }
     }
 
-    fn get_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error> {
+    fn get_receipt(&self, receipt_id: &CryptoHash) -> Option<Arc<Receipt>> {
         if let Some(receipt) = self.chain_store_cache_update.receipts.get(receipt_id) {
-            Ok(Some(Arc::clone(receipt)))
+            Some(Arc::clone(receipt))
         } else {
             self.chain_store.get_receipt(receipt_id)
         }
@@ -1465,7 +1453,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         }
     }
 
-    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Result<Option<CryptoHash>, Error> {
+    fn get_current_epoch_sync_hash(&self, epoch_id: &EpochId) -> Option<CryptoHash> {
         self.chain_store.get_current_epoch_sync_hash(epoch_id)
     }
 }
@@ -1689,15 +1677,15 @@ impl<'a> ChainStoreUpdate<'a> {
         &mut self,
         hash: &CryptoHash,
         shard_id: ShardId,
-        receipts: Vec<(Receipt, ReceiptSource)>,
+        processed_receipts: Vec<ProcessedReceipt>,
     ) {
-        let metadata: Vec<ProcessedReceiptMetadata> = receipts
+        let metadata: Vec<ProcessedReceiptMetadata> = processed_receipts
             .iter()
-            .map(|(r, source)| ProcessedReceiptMetadata::new(*r.receipt_id(), source.clone()))
+            .map(|pr| ProcessedReceiptMetadata::new(*pr.receipt.receipt_id(), pr.source.clone()))
             .collect();
         self.chain_store_cache_update
             .processed_receipts_to_save
-            .extend(receipts.into_iter().map(|(r, _)| r));
+            .extend(processed_receipts.into_iter().map(|pr| pr.receipt));
         self.chain_store_cache_update
             .processed_receipt_ids
             .insert((*hash, shard_id), Arc::new(metadata));
@@ -1827,20 +1815,19 @@ impl<'a> ChainStoreUpdate<'a> {
         self.fork_tail = None;
     }
 
-    pub fn update_tail(&mut self, height: BlockHeight) -> Result<(), Error> {
+    pub fn update_tail(&mut self, height: BlockHeight) {
         self.tail = Some(height);
         let genesis_height = self.get_genesis_height();
         // When fork tail is behind tail, it doesn't hurt to set it to tail for consistency.
-        if self.fork_tail()? < height {
+        if self.fork_tail() < height {
             self.fork_tail = Some(height);
         }
 
-        let chunk_tail = self.chunk_tail()?;
+        let chunk_tail = self.chunk_tail();
         if chunk_tail == genesis_height {
             // For consistency, Chunk Tail should be set if Tail is set
             self.chunk_tail = Some(self.get_genesis_height());
         }
-        Ok(())
     }
 
     pub fn update_fork_tail(&mut self, height: BlockHeight) {
@@ -1904,7 +1891,7 @@ impl<'a> ChainStoreUpdate<'a> {
             if let Some(block) = &self.chain_store_cache_update.block {
                 let mut map = HashMap::clone(
                     self.chain_store
-                        .get_all_block_hashes_by_height(block.header().height())?
+                        .get_all_block_hashes_by_height(block.header().height())
                         .as_ref(),
                 );
                 map.entry(*block.header().epoch_id())
@@ -1919,7 +1906,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 if cfg!(feature = "protocol_feature_spice") {
                     let prev_hash = block.header().prev_hash();
                     let mut prev_next_hashes =
-                        self.chain_store.get_all_next_block_hashes(prev_hash)?;
+                        self.chain_store.get_all_next_block_hashes(prev_hash);
                     prev_next_hashes.push(*block.hash());
                     store_update.set_ser(
                         DBCol::all_next_block_hashes(),
@@ -1939,11 +1926,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.insert_ser(DBCol::BlockHeader, hash.as_ref(), header);
             }
             for (height, headers) in headers_by_height {
-                let mut hash_set = match self.chain_store.get_all_header_hashes_by_height(height) {
-                    Ok(hashes) => hashes,
-                    Err(Error::DBNotFoundErr(_)) => HashSet::with_capacity(headers.len()),
-                    Err(e) => return Err(e),
-                };
+                let mut hash_set = self.chain_store.get_all_header_hashes_by_height(height);
                 hash_set.extend(headers.iter().map(|header| *header.hash()));
                 store_update.set_ser(
                     DBCol::HeaderHashesByHeight,
@@ -2154,8 +2137,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
                 affected_catchup_blocks.insert(prev_hash);
 
-                let mut prev_table =
-                    self.chain_store.get_blocks_to_catchup(&prev_hash).unwrap_or_else(|_| vec![]);
+                let mut prev_table = self.chain_store.get_blocks_to_catchup(&prev_hash);
 
                 let mut remove_idx = prev_table.len();
                 for (i, val) in prev_table.iter().enumerate() {
@@ -2193,8 +2175,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
                 affected_catchup_blocks.insert(prev_hash);
 
-                let mut prev_table =
-                    self.chain_store.get_blocks_to_catchup(&prev_hash).unwrap_or_else(|_| vec![]);
+                let mut prev_table = self.chain_store.get_blocks_to_catchup(&prev_hash);
                 prev_table.push(new_hash);
                 store_update.set_ser(DBCol::BlocksToCatchup, prev_hash.as_ref(), &prev_table);
             }

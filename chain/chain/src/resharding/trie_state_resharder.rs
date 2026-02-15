@@ -180,7 +180,7 @@ impl TrieStateResharder {
             store_update.set(
                 DBCol::Misc,
                 TRIE_STATE_RESHARDING_STATUS_KEY,
-                &borsh::to_vec(status)?,
+                &borsh::to_vec(status).unwrap(),
             );
         }
         store_update.commit();
@@ -310,7 +310,11 @@ impl TrieStateResharder {
         );
 
         let mut store_update = self.runtime.store().store_update();
-        store_update.set(DBCol::Misc, TRIE_STATE_RESHARDING_STATUS_KEY, &borsh::to_vec(&status)?);
+        store_update.set(
+            DBCol::Misc,
+            TRIE_STATE_RESHARDING_STATUS_KEY,
+            &borsh::to_vec(&status).unwrap(),
+        );
         store_update.commit();
 
         Ok(())

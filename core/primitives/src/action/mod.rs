@@ -309,7 +309,10 @@ pub struct TransferToGasKeyAction {
     pub deposit: Balance,
 }
 
-/// Withdraw NEAR from a gas key's balance to the account
+/// Withdraw NEAR from a gas key's balance to the account.
+///
+/// This action must only be available via transactions, not via contract execution
+/// (there is no corresponding promise batch action host function).
 #[derive(
     BorshSerialize,
     BorshDeserialize,

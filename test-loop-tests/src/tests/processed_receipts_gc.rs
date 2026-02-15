@@ -1,6 +1,11 @@
+use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource};
+use near_primitives::action::{Action, FunctionCallAction};
+use near_primitives::gas::Gas;
+use near_primitives::receipt::{
+    ProcessedReceiptMetadata, Receipt, ReceiptSource, VersionedReceiptEnum,
+};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -15,11 +20,13 @@ use crate::utils::node::TestLoopNode;
 const EPOCH_LENGTH: u64 = 5;
 const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 
-/// Tests that local receipts are saved to the Receipts column and later garbage collected.
+/// Tests that processed local and instant receipts are saved to the Receipts column
+/// and later garbage collected.
 ///
-/// Sets up a single-validator single-shard network, deploys a contract (producing a local receipt),
-/// verifies the receipt exists in DBCol::Receipts, then runs enough epochs for GC to kick in and
-/// verifies the receipt is cleaned up.
+/// Deploys a contract, then calls `call_yield_create_return_promise` which produces
+/// a local receipt (from the transaction) and a PromiseYield instant receipt.
+/// Verifies both exist in DBCol::Receipts with appropriate metadata, then runs enough
+/// epochs for GC to kick in and verifies cleanup.
 #[test]
 fn test_processed_receipt_ids_gc() {
     init_test_logger();
@@ -44,46 +51,95 @@ fn test_processed_receipt_ids_gc() {
         .warmup();
 
     let node = TestLoopNode::for_account(&env.node_datas, &env.node_datas[0].account_id);
+    let signer = create_user_test_signer(&user_account);
 
-    // Deploy a contract — the deploy action produces a local receipt.
+    // Deploy the test contract.
     let contract_code = near_test_contracts::rs_contract().to_vec();
     let block_hash = node.head(env.test_loop_data()).last_block_hash;
-    let signer = create_user_test_signer(&user_account);
-    let tx =
+    let deploy_tx =
         SignedTransaction::deploy_contract(1, &user_account, contract_code, &signer, block_hash);
+    node.run_tx(&mut env.test_loop, deploy_tx, Duration::seconds(5));
+
+    // Call yield_create — produces a local receipt and a PromiseYield instant receipt.
+    let block_hash = node.head(env.test_loop_data()).last_block_hash;
+    let tx = SignedTransaction::from_actions(
+        2,
+        user_account.clone(),
+        user_account,
+        &signer,
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: "call_yield_create_return_promise".to_string(),
+            args: vec![42u8; 16],
+            gas: Gas::from_teragas(300),
+            deposit: Balance::ZERO,
+        }))],
+        block_hash,
+    );
     let tx_hash = tx.get_hash();
-    node.run_tx(&mut env.test_loop, tx, Duration::seconds(5));
+    node.submit_tx(tx);
 
-    // Get the receipt ID produced by the transaction.
-    let receipt_id = node.tx_receipt_id(env.test_loop_data(), tx_hash);
-    let receipt_execution_block_hash =
-        node.execution_outcome_with_proof(env.test_loop_data(), receipt_id).block_hash;
+    // Wait for the local receipt to be processed (the transaction won't fully
+    // complete because the yield callback is waiting for a resume).
+    let tx_outcome =
+        node.run_until_outcome_available(&mut env.test_loop, tx_hash, Duration::seconds(5));
+    let [local_receipt_id] = tx_outcome.outcome_with_id.outcome.receipt_ids[..] else {
+        panic!("expected single receipt from transaction")
+    };
+    let local_outcome = node.run_until_outcome_available(
+        &mut env.test_loop,
+        local_receipt_id,
+        Duration::seconds(5),
+    );
+    // The local receipt produces exactly one child receipt — the PromiseYield instant receipt.
+    let [instant_receipt_id] = local_outcome.outcome_with_id.outcome.receipt_ids[..] else {
+        panic!("expected single receipt from local receipt execution")
+    };
+
+    let receipt_execution_block_hash = local_outcome.block_hash;
     let metadata_key = get_block_shard_id(&receipt_execution_block_hash, ShardId::new(0));
-    let expected_metadata = ProcessedReceiptMetadata::new(receipt_id, ReceiptSource::Local);
 
+    // Verify local receipt exists in DBCol::Receipts.
     let store = node.store(env.test_loop_data());
     let receipt = store
-        .get_ser::<Receipt>(DBCol::Receipts, receipt_id.as_ref())
-        .expect("receipt should exist in DBCol::Receipts after processing");
-    assert_eq!(receipt.receipt_id(), &receipt_id);
+        .get_ser::<Receipt>(DBCol::Receipts, local_receipt_id.as_ref())
+        .expect("local receipt should exist in DBCol::Receipts after processing");
+    assert_eq!(receipt.receipt_id(), &local_receipt_id);
+
+    // Verify instant receipt exists in DBCol::Receipts.
+    let receipt = store
+        .get_ser::<Receipt>(DBCol::Receipts, instant_receipt_id.as_ref())
+        .expect("instant receipt should exist in DBCol::Receipts after processing");
+    assert_eq!(receipt.receipt_id(), &instant_receipt_id);
+    assert_matches!(receipt.versioned_receipt(), VersionedReceiptEnum::PromiseYield(_));
+
+    // Verify both local and instant metadata exist in DBCol::ProcessedReceiptIds.
     let all_metadata = store
         .get_ser::<Vec<ProcessedReceiptMetadata>>(DBCol::ProcessedReceiptIds, &metadata_key)
         .expect("metadata should exist in DBCol::ProcessedReceiptIds after processing");
-    let [metadata] = &all_metadata[..] else { panic!("expected single receipt metadata") };
-    assert_eq!(metadata, &expected_metadata);
+    assert_eq!(
+        all_metadata,
+        vec![
+            ProcessedReceiptMetadata::new(instant_receipt_id, ReceiptSource::Instant),
+            ProcessedReceiptMetadata::new(local_receipt_id, ReceiptSource::Local),
+        ]
+    );
 
     #[cfg(feature = "test_features")]
     node.validate_store(&mut env.test_loop.data);
 
-    // Run enough epochs for GC to clean up the receipt.
+    // Run enough epochs for GC to clean up the receipts.
     let num_blocks = EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP + 1;
     node.run_for_number_of_blocks(&mut env.test_loop, num_blocks as usize);
 
-    // Verify the receipt has been garbage collected.
+    // Verify the receipts have been garbage collected.
     let store = node.store(env.test_loop_data());
     assert!(
-        store.get(DBCol::Receipts, receipt_id.as_ref()).is_none(),
-        "receipt should be garbage collected from DBCol::Receipts"
+        store.get(DBCol::Receipts, local_receipt_id.as_ref()).is_none(),
+        "local receipt should be garbage collected from DBCol::Receipts"
+    );
+    assert!(
+        store.get(DBCol::Receipts, instant_receipt_id.as_ref()).is_none(),
+        "instant receipt should be garbage collected from DBCol::Receipts"
     );
     assert!(
         store.get(DBCol::ProcessedReceiptIds, &metadata_key).is_none(),

@@ -713,7 +713,7 @@ fn test_clear_old_data() {
         let expected_removed = i < max_height - DEFAULT_GC_NUM_EPOCHS_TO_KEEP as usize;
         let get_block_result = chain.get_block(blocks[i].hash());
         let blocks_by_heigh =
-            chain.mut_chain_store().get_all_block_hashes_by_height(i as BlockHeight).unwrap();
+            chain.mut_chain_store().get_all_block_hashes_by_height(i as BlockHeight);
         assert_eq!(get_block_result.is_err(), expected_removed);
         assert_eq!(blocks_by_heigh.is_empty(), expected_removed);
     }
@@ -797,7 +797,6 @@ fn test_clear_old_data_fixed_height() {
         chain
             .mut_chain_store()
             .get_all_block_hashes_by_height(5)
-            .unwrap()
             .values()
             .flatten()
             .collect::<Vec<_>>(),
@@ -821,9 +820,9 @@ fn test_clear_old_data_fixed_height() {
     assert!(chain.get_block_header(blocks[4].hash()).is_ok());
     assert!(chain.get_block_header(blocks[5].hash()).is_ok());
     assert!(chain.get_block_header(blocks[6].hash()).is_ok());
-    assert!(chain.mut_chain_store().get_all_block_hashes_by_height(4).unwrap().is_empty());
-    assert!(!chain.mut_chain_store().get_all_block_hashes_by_height(5).unwrap().is_empty());
-    assert!(!chain.mut_chain_store().get_all_block_hashes_by_height(6).unwrap().is_empty());
+    assert!(chain.mut_chain_store().get_all_block_hashes_by_height(4).is_empty());
+    assert!(!chain.mut_chain_store().get_all_block_hashes_by_height(5).is_empty());
+    assert!(!chain.mut_chain_store().get_all_block_hashes_by_height(6).is_empty());
     assert!(chain.mut_chain_store().get_next_block_hash(blocks[4].hash()).is_err());
     assert!(chain.mut_chain_store().get_next_block_hash(blocks[5].hash()).is_ok());
     assert!(chain.mut_chain_store().get_next_block_hash(blocks[6].hash()).is_ok());
@@ -847,20 +846,20 @@ fn test_fork_chunk_tail_updates() {
             i,
         );
     }
-    assert_eq!(chain.tail().unwrap(), 0);
+    assert_eq!(chain.tail(), 0);
 
     {
         let mut store_update = chain.mut_chain_store().store_update();
-        assert_eq!(store_update.tail().unwrap(), 0);
-        store_update.update_tail(1).unwrap();
+        assert_eq!(store_update.tail(), 0);
+        store_update.update_tail(1);
         store_update.commit().unwrap();
     }
     // Chunk tail should be auto updated to genesis (if not set) and fork_tail to the tail.
     {
         let store_update = chain.mut_chain_store().store_update();
-        assert_eq!(store_update.tail().unwrap(), 1);
-        assert_eq!(store_update.fork_tail().unwrap(), 1);
-        assert_eq!(store_update.chunk_tail().unwrap(), 0);
+        assert_eq!(store_update.tail(), 1);
+        assert_eq!(store_update.fork_tail(), 1);
+        assert_eq!(store_update.chunk_tail(), 0);
     }
     {
         let mut store_update = chain.mut_chain_store().store_update();
@@ -869,13 +868,13 @@ fn test_fork_chunk_tail_updates() {
     }
     {
         let mut store_update = chain.mut_chain_store().store_update();
-        store_update.update_tail(2).unwrap();
+        store_update.update_tail(2);
         store_update.commit().unwrap();
     }
     {
         let store_update = chain.mut_chain_store().store_update();
-        assert_eq!(store_update.tail().unwrap(), 2);
-        assert_eq!(store_update.fork_tail().unwrap(), 3);
-        assert_eq!(store_update.chunk_tail().unwrap(), 0);
+        assert_eq!(store_update.tail(), 2);
+        assert_eq!(store_update.fork_tail(), 3);
+        assert_eq!(store_update.chunk_tail(), 0);
     }
 }

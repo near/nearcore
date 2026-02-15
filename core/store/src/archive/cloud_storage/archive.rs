@@ -50,7 +50,7 @@ impl CloudStorage {
     ) -> Result<(), CloudArchivingError> {
         let epoch_data = build_epoch_data(hot_store, shard_layout.clone(), epoch_id)?;
         let file_id = CloudStorageFileID::Epoch(epoch_id);
-        let blob = borsh::to_vec(&epoch_data)?;
+        let blob = borsh::to_vec(&epoch_data).unwrap();
         self.upload(file_id, blob).await
     }
 
@@ -62,7 +62,7 @@ impl CloudStorage {
     ) -> Result<(), CloudArchivingError> {
         let block_data = build_block_data(hot_store, block_height)?;
         let file_id = CloudStorageFileID::Block(block_height);
-        let blob = borsh::to_vec(&block_data)?;
+        let blob = borsh::to_vec(&block_data).unwrap();
         self.upload(file_id, blob).await
     }
 
@@ -78,13 +78,13 @@ impl CloudStorage {
         let shard_data =
             build_shard_data(hot_store, genesis_height, shard_layout, block_height, shard_uid)?;
         let file_id = CloudStorageFileID::Shard(block_height, shard_uid.shard_id());
-        let blob = borsh::to_vec(&shard_data)?;
+        let blob = borsh::to_vec(&shard_data).unwrap();
         self.upload(file_id, blob).await
     }
 
     /// Persists the cloud head to external storage.
     pub async fn update_cloud_head(&self, head: BlockHeight) -> Result<(), CloudArchivingError> {
-        self.upload(CloudStorageFileID::Head, borsh::to_vec(&head)?).await
+        self.upload(CloudStorageFileID::Head, borsh::to_vec(&head).unwrap()).await
     }
 
     /// Uploads the given value to the external cloud storage under the specified
