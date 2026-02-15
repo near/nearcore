@@ -432,7 +432,7 @@ impl ReplayController {
             BlockInfo::from_header(block.header(), last_finalized_height, current_protocol_version),
             *block.header().random_value(),
         )?;
-        let _ = store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 

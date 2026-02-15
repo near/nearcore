@@ -230,11 +230,10 @@ fn get_gas_usage_in_block(
         // The outcome of each transaction and receipt executed in this chunk is saved in the database as an ExecutionOutcome.
         // Go through all ExecutionOutcomes from this chunk and record the gas usage.
         let outcome_ids =
-            chain_store.get_outcomes_by_block_hash_and_shard_id(block.hash(), shard_id).unwrap();
+            chain_store.get_outcomes_by_block_hash_and_shard_id(block.hash(), shard_id);
         for outcome_id in outcome_ids {
             let outcome = chain_store
                 .get_outcome_by_id_and_block_hash(&outcome_id, block.hash())
-                .unwrap()
                 .unwrap()
                 .outcome;
 

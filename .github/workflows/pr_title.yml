@@ -1,0 +1,49 @@
+name: PR Title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  merge_group:
+
+jobs:
+  check-pr-title:
+    name: "PR Title"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          # Skip validation for merge_group events since PR title was already validated
+          if [[ "${{ github.event_name }}" == "merge_group" ]]; then
+            echo "Skipping PR title validation for merge_group event"
+            exit 0
+          fi
+
+          # PR title must match: <type>: <title> or <type>(<project>): <title>
+          # See CONTRIBUTING.md for details.
+
+          VALID_TYPES="fix|feat|refactor|doc|test|chore|perf|revert"
+          PATTERN="^(${VALID_TYPES})(\([a-z][a-z0-9-]*\))?: [a-z]"
+
+          if [[ ! "$PR_TITLE" =~ $PATTERN ]]; then
+            echo "::error::PR title does not follow the required format."
+            echo ""
+            echo "Expected: <type>: <title> or <type>(<project>): <title>"
+            echo "Got:      $PR_TITLE"
+            echo ""
+            echo "Rules:"
+            echo "  - type must be one of: fix, feat, refactor, doc, test, chore, perf, revert"
+            echo "  - project (if provided) must be lowercase (e.g. spice, resharding, state-sync)"
+            echo "  - title must not be capitalized"
+            echo ""
+            echo "Examples:"
+            echo "  test: add delayed receipt example"
+            echo "  feat(spice): add catchup logic"
+            echo "  fix(state-sync): properly validate header"
+            echo ""
+            echo "See CONTRIBUTING.md for full guidelines."
+            exit 1
+          fi
+
+          echo "PR title is valid: $PR_TITLE"

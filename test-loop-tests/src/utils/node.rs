@@ -9,8 +9,7 @@ use near_async::time::Duration;
 use near_chain::types::Tip;
 use near_chain::{Block, BlockHeader};
 use near_client::client_actor::ClientActor;
-use near_client::{Client, ProcessTxRequest, ViewClientActor};
-use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
+use near_client::{Client, ProcessTxRequest, Query, QueryError, ViewClientActor};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
@@ -23,6 +22,8 @@ use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponse,
     QueryResponseKind,
 };
+use near_store::Store;
+use near_store::adapter::StoreAdapter as _;
 
 use crate::setup::state::NodeExecutionData;
 use crate::utils::account::rpc_account_id;
@@ -77,6 +78,10 @@ impl<'a> TestLoopNode<'a> {
         &test_loop_data.get(&client_handle).client
     }
 
+    pub fn store(&self, test_loop_data: &TestLoopData) -> Store {
+        self.client(test_loop_data).chain.chain_store.store().store()
+    }
+
     pub fn client_actor<'b>(&self, test_loop_data: &'b mut TestLoopData) -> &'b mut ClientActor {
         let client_handle = self.data().client_sender.actor_handle();
         test_loop_data.get_mut(&client_handle)
@@ -91,7 +96,7 @@ impl<'a> TestLoopNode<'a> {
     }
 
     pub fn tail(&self, test_loop_data: &TestLoopData) -> BlockHeight {
-        self.client(test_loop_data).chain.tail().unwrap()
+        self.client(test_loop_data).chain.tail()
     }
 
     pub fn head(&self, test_loop_data: &TestLoopData) -> Arc<Tip> {
@@ -129,18 +134,25 @@ impl<'a> TestLoopNode<'a> {
             .collect()
     }
 
-    pub fn execution_outcome(
+    pub fn execution_outcome_with_proof(
         &self,
         test_loop_data: &TestLoopData,
         tx_hash_or_receipt_id: CryptoHash,
-    ) -> ExecutionOutcomeWithId {
+    ) -> ExecutionOutcomeWithIdAndProof {
         self.client(test_loop_data)
             .chain
             .get_execution_outcome(&tx_hash_or_receipt_id)
             .unwrap_or_else(|err| {
                 panic!("outcome with id {tx_hash_or_receipt_id} is not available: {err}")
             })
-            .outcome_with_id
+    }
+
+    pub fn execution_outcome(
+        &self,
+        test_loop_data: &TestLoopData,
+        tx_hash_or_receipt_id: CryptoHash,
+    ) -> ExecutionOutcomeWithId {
+        self.execution_outcome_with_proof(test_loop_data, tx_hash_or_receipt_id).outcome_with_id
     }
 
     pub fn tx_receipt_id(&self, test_loop_data: &TestLoopData, tx_hash: CryptoHash) -> CryptoHash {
@@ -158,6 +170,20 @@ impl<'a> TestLoopNode<'a> {
             test_loop,
             height,
             self.calculate_block_distance_timeout(&test_loop.data, height_diff),
+        );
+    }
+
+    pub fn run_until_executed_height(&self, test_loop: &mut TestLoopV2, height: BlockHeight) {
+        let initial_height = self.last_executed(&test_loop.data).height;
+        let height_diff = height.saturating_sub(initial_height) as usize;
+        // Wait some extra blocks, in case spice execution has not started yet.
+        // For example for block `N` produced after genesis, we should wait `N`
+        // blocks for it to be produced and an additional
+        // `expected_execution_delay` blocks for it to execute.
+        let extra = self.data().expected_execution_delay() as usize;
+        test_loop.run_until(
+            |test_loop_data| self.last_executed(test_loop_data).height >= height,
+            self.calculate_block_distance_timeout(&test_loop.data, height_diff + extra),
         );
     }
 
@@ -306,50 +332,31 @@ impl<'a> TestLoopNode<'a> {
     pub fn runtime_query(
         &self,
         test_loop_data: &TestLoopData,
-        account_id: &AccountId,
         query: QueryRequest,
-    ) -> QueryResponse {
-        let client = self.client(test_loop_data);
-        let head = self.head(test_loop_data);
-        let last_block = client.chain.get_block(&head.last_block_hash).unwrap();
-        let shard_id =
-            account_id_to_shard_id(client.epoch_manager.as_ref(), &account_id, &head.epoch_id)
-                .unwrap();
-        let shard_uid =
-            shard_id_to_uid(client.epoch_manager.as_ref(), shard_id, &head.epoch_id).unwrap();
-        let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
-        let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-        let last_chunk_header = &last_block.chunks()[shard_index];
-
-        client
-            .runtime_adapter
-            .query(
-                shard_uid,
-                &last_chunk_header.prev_state_root(),
-                last_block.header().height(),
-                last_block.header().raw_timestamp(),
-                last_block.header().prev_hash(),
-                last_block.header().hash(),
-                last_block.header().epoch_id(),
-                &query,
-            )
-            .unwrap()
+    ) -> Result<QueryResponse, QueryError> {
+        let handle = self.data().view_client_sender.actor_handle();
+        let view_client: &ViewClientActor = test_loop_data.get(&handle);
+        view_client.handle_query(Query::new(
+            near_primitives::types::BlockReference::Finality(
+                near_primitives::types::Finality::None,
+            ),
+            query,
+        ))
     }
 
     pub fn view_account_query(
         &self,
         test_loop_data: &TestLoopData,
         account_id: &AccountId,
-    ) -> AccountView {
+    ) -> Result<AccountView, QueryError> {
         let response = self.runtime_query(
             test_loop_data,
-            &account_id,
             QueryRequest::ViewAccount { account_id: account_id.clone() },
-        );
+        )?;
         let QueryResponseKind::ViewAccount(account_view) = response.kind else {
-            panic!("Unexpected query response type")
+            panic!("unexpected query response type")
         };
-        account_view
+        Ok(account_view)
     }
 
     #[cfg(feature = "test_features")]
@@ -365,6 +372,25 @@ impl<'a> TestLoopNode<'a> {
                 client_sender.send(message);
             },
         );
+    }
+
+    /// Triggers store validation via the AdvCheckStorageConsistency adversarial
+    /// message handler. Panics if the store is in an inconsistent state.
+    #[cfg(feature = "test_features")]
+    pub fn validate_store(&self, test_loop_data: &mut TestLoopData) {
+        // TODO(spice): Store validation fails with spice enabled:
+        // "Transaction only header doesn't include prev_state_root"
+        if cfg!(feature = "protocol_feature_spice") {
+            return;
+        }
+        use near_async::messaging::Handler;
+        use near_client::NetworkAdversarialMessage;
+        let client_actor = self.client_actor(test_loop_data);
+        let result = Handler::<NetworkAdversarialMessage, Option<u64>>::handle(
+            client_actor,
+            NetworkAdversarialMessage::AdvCheckStorageConsistency,
+        );
+        assert_ne!(result, Some(0), "store validation failed");
     }
 
     fn calculate_block_distance_timeout(

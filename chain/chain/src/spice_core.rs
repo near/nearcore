@@ -64,11 +64,10 @@ impl SpiceCoreReader {
         block_hash: &CryptoHash,
         shard_id: ShardId,
         account_id: &AccountId,
-    ) -> Result<Option<SpiceStoredVerifiedEndorsement>, std::io::Error> {
-        self.chain_store.store().get_ser(
-            DBCol::endorsements(),
-            &get_endorsements_key(block_hash, shard_id, &account_id),
-        )
+    ) -> Option<SpiceStoredVerifiedEndorsement> {
+        self.chain_store
+            .store()
+            .get_ser(DBCol::endorsements(), &get_endorsements_key(block_hash, shard_id, account_id))
     }
 
     fn get_execution_result(
@@ -89,7 +88,7 @@ impl SpiceCoreReader {
                 outgoing_receipts_root: CryptoHash::default(),
             })))
         } else {
-            Ok(self.get_execution_result_from_store(block_header.hash(), shard_id)?)
+            Ok(self.get_execution_result_from_store(block_header.hash(), shard_id))
         }
     }
 
@@ -97,7 +96,7 @@ impl SpiceCoreReader {
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<Option<Arc<ChunkExecutionResult>>, std::io::Error> {
+    ) -> Option<Arc<ChunkExecutionResult>> {
         let key = get_execution_results_key(block_hash, shard_id);
         self.chain_store.store().caching_get_ser(DBCol::execution_results(), &key)
     }
@@ -165,7 +164,7 @@ impl SpiceCoreReader {
                     &chunk_info.chunk_id.block_hash,
                     chunk_info.chunk_id.shard_id,
                     &account_id,
-                )? {
+                ) {
                     core_statements.push(
                         endorsement.into_core_statement(chunk_info.chunk_id.clone(), account_id),
                     );
@@ -175,8 +174,7 @@ impl SpiceCoreReader {
             let Some(execution_result) = self.get_execution_result_from_store(
                 &chunk_info.chunk_id.block_hash,
                 chunk_info.chunk_id.shard_id,
-            )?
-            else {
+            ) else {
                 continue;
             };
             // Execution results are stored only for endorsed chunks.
@@ -200,7 +198,6 @@ impl SpiceCoreReader {
         ) -> Result<Arc<Block>, InvalidSpiceCoreStatementsError> {
             store
                 .caching_get_ser(DBCol::Block, block_hash.as_ref())
-                .map_err(|error| IoError { error })?
                 .ok_or(UnknownBlock { block_hash: *block_hash })
         }
 
@@ -451,7 +448,7 @@ fn get_uncertified_chunks(
         Ok(vec![])
     } else {
         let Some(uncertified_chunks) =
-            chain_store.store_ref().get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())?
+            chain_store.store_ref().get_ser(DBCol::uncertified_chunks(), block_hash.as_ref())
         else {
             debug_assert!(
                 false,
@@ -532,7 +529,7 @@ pub fn record_uncertified_chunks_for_block(
         DBCol::uncertified_chunks(),
         block.header().hash().as_ref(),
         &uncertified_chunks,
-    )?;
+    );
     chain_store_update.merge(store_update);
     Ok(())
 }

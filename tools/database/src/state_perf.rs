@@ -179,9 +179,7 @@ fn generate_state_requests(store: FlatStoreAdapter, samples: usize) -> Vec<(Shar
     for shard_uid in shard_uids {
         let shard_samples = samples / num_shards;
         let mut keys_read = std::collections::HashSet::new();
-        for value_ref in
-            store.iter(shard_uid).flat_map(|res| res.map(|(_, value)| value.to_value_ref()))
-        {
+        for value_ref in store.iter(shard_uid).map(|(_, value)| value.to_value_ref()) {
             if value_ref.length > 4096 || !keys_read.insert(value_ref.hash) {
                 continue;
             }

@@ -64,7 +64,7 @@ impl GCActor {
         // *and* that the migration to split storage is finished we can check
         // the store kind. It's only set to hot after the migration is finished.
         let store = self.store.store();
-        let kind = store.get_db_kind()?;
+        let kind = store.get_db_kind();
         if kind == Some(DbKind::Hot) {
             return self.store.clear_data(
                 &self.gc_config,

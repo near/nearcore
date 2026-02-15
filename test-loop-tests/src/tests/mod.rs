@@ -34,6 +34,7 @@ mod multinode_stateless_validators;
 mod network_drop;
 mod optimistic_block;
 mod process_blocks;
+mod processed_receipts_gc;
 mod protocol_upgrade;
 mod reject_outdated_blocks;
 mod resharding_v3;

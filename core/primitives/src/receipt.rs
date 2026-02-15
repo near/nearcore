@@ -868,10 +868,26 @@ impl fmt::Debug for ReceivedData {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum GlobalContractDistributionReceipt {
     V1(GlobalContractDistributionReceiptV1) = 0,
+    V2(GlobalContractDistributionReceiptV2) = 1,
 }
 
 impl GlobalContractDistributionReceipt {
     pub fn new(
+        id: GlobalContractIdentifier,
+        target_shard: ShardId,
+        already_delivered_shards: Vec<ShardId>,
+        code: Arc<[u8]>,
+        nonce: u64,
+        protocol_version: ProtocolVersion,
+    ) -> Self {
+        if ProtocolFeature::GlobalContractDistributionNonce.enabled(protocol_version) {
+            Self::new_v2(id, target_shard, already_delivered_shards, code, nonce)
+        } else {
+            Self::new_v1(id, target_shard, already_delivered_shards, code)
+        }
+    }
+
+    pub fn new_v1(
         id: GlobalContractIdentifier,
         target_shard: ShardId,
         already_delivered_shards: Vec<ShardId>,
@@ -885,27 +901,81 @@ impl GlobalContractDistributionReceipt {
         })
     }
 
+    pub fn new_v2(
+        id: GlobalContractIdentifier,
+        target_shard: ShardId,
+        already_delivered_shards: Vec<ShardId>,
+        code: Arc<[u8]>,
+        nonce: u64,
+    ) -> Self {
+        Self::V2(GlobalContractDistributionReceiptV2 {
+            id,
+            target_shard,
+            already_delivered_shards,
+            code,
+            nonce,
+        })
+    }
+
     pub fn id(&self) -> &GlobalContractIdentifier {
         match &self {
             Self::V1(v1) => &v1.id,
+            Self::V2(v2) => &v2.id,
         }
     }
 
     pub fn target_shard(&self) -> ShardId {
         match &self {
             Self::V1(v1) => v1.target_shard,
+            Self::V2(v2) => v2.target_shard,
         }
     }
 
     pub fn already_delivered_shards(&self) -> &[ShardId] {
         match &self {
             Self::V1(v1) => &v1.already_delivered_shards,
+            Self::V2(v2) => &v2.already_delivered_shards,
         }
     }
 
     pub fn code(&self) -> &Arc<[u8]> {
         match &self {
             Self::V1(v1) => &v1.code,
+            Self::V2(v2) => &v2.code,
+        }
+    }
+
+    /// Returns the nonce of the distribution.
+    /// V1 receipts return 0, V2 receipts return their stored nonce.
+    pub fn nonce(&self) -> u64 {
+        match &self {
+            Self::V1(_) => 0,
+            Self::V2(v2) => v2.nonce,
+        }
+    }
+
+    /// Returns the nonce of the distribution.
+    /// V1 receipts return None, V2 receipts return their stored nonce.
+    pub fn maybe_nonce(&self) -> Option<u64> {
+        match &self {
+            Self::V1(_) => None,
+            Self::V2(v2) => Some(v2.nonce),
+        }
+    }
+
+    /// Clones the receipt with an updated target shard and already-delivered shards list.
+    pub fn forward(&self, target_shard: ShardId, already_delivered_shards: Vec<ShardId>) -> Self {
+        match self {
+            Self::V1(v1) => Self::V1(GlobalContractDistributionReceiptV1 {
+                target_shard,
+                already_delivered_shards,
+                ..v1.clone()
+            }),
+            Self::V2(v2) => Self::V2(GlobalContractDistributionReceiptV2 {
+                target_shard,
+                already_delivered_shards,
+                ..v2.clone()
+            }),
         }
     }
 }
@@ -939,6 +1009,41 @@ impl fmt::Debug for GlobalContractDistributionReceiptV1 {
             .field("target_shard", &self.target_shard)
             .field("already_delivered_shards", &self.already_delivered_shards)
             .field("code", &..)
+            .finish()
+    }
+}
+
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Hash,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Deserialize,
+    serde::Serialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct GlobalContractDistributionReceiptV2 {
+    id: GlobalContractIdentifier,
+    target_shard: ShardId,
+    already_delivered_shards: Vec<ShardId>,
+    #[serde_as(as = "Base64")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    code: Arc<[u8]>,
+    nonce: u64,
+}
+
+impl fmt::Debug for GlobalContractDistributionReceiptV2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GlobalContractDistributionReceiptV2")
+            .field("id", &self.id)
+            .field("target_shard", &self.target_shard)
+            .field("already_delivered_shards", &self.already_delivered_shards)
+            .field("code", &..)
+            .field("nonce", &self.nonce)
             .finish()
     }
 }
@@ -1071,6 +1176,46 @@ mod tests {
     }
 
     #[test]
+    fn test_global_contract_distribution_receipt_v1_nonce() {
+        let receipt = GlobalContractDistributionReceipt::new_v1(
+            GlobalContractIdentifier::AccountId("test.near".parse().unwrap()),
+            ShardId::new(0),
+            vec![],
+            vec![0u8; 10].into(),
+        );
+        // V1 receipts have no nonce, should return 0
+        assert_eq!(receipt.nonce(), 0);
+    }
+
+    #[test]
+    fn test_global_contract_distribution_receipt_v2_nonce() {
+        let receipt = GlobalContractDistributionReceipt::new_v2(
+            GlobalContractIdentifier::AccountId("test.near".parse().unwrap()),
+            ShardId::new(0),
+            vec![],
+            vec![0u8; 10].into(),
+            42,
+        );
+        assert_eq!(receipt.nonce(), 42);
+    }
+
+    #[test]
+    fn test_global_contract_distribution_receipt_v2_serialization() {
+        let receipt = GlobalContractDistributionReceipt::new_v2(
+            GlobalContractIdentifier::AccountId("test.near".parse().unwrap()),
+            ShardId::new(1),
+            vec![ShardId::new(0)],
+            vec![1u8, 2, 3].into(),
+            100,
+        );
+        let serialized = borsh::to_vec(&receipt).unwrap();
+        let deserialized = GlobalContractDistributionReceipt::try_from_slice(&serialized).unwrap();
+        assert_eq!(receipt, deserialized);
+        assert_eq!(deserialized.nonce(), 100);
+        assert_eq!(deserialized.target_shard(), ShardId::new(1));
+    }
+
+    #[test]
     fn test_receipt_or_state_stored_receipt_serialization() {
         // Case 1:
         // Receipt V0 can be deserialized as ReceiptOrStateStoredReceipt
@@ -1139,4 +1284,49 @@ mod tests {
             assert_eq!(receipt_or_state_stored_receipt, deserialized_receipt);
         }
     }
+}
+
+/// Source of a processed receipt, used to track how a receipt was applied.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+pub enum ReceiptSource {
+    Local,
+    Delayed,
+    Instant,
+}
+
+/// A processed receipt together with its source. Runtime-only struct, not serialized to DB.
+#[derive(Debug)]
+pub struct ProcessedReceipt {
+    pub receipt: Receipt,
+    pub source: ReceiptSource,
+}
+
+/// Lightweight metadata about a processed receipt, stored instead of the full receipt.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+pub enum ProcessedReceiptMetadata {
+    V0(ProcessedReceiptMetadataV0),
+}
+
+impl ProcessedReceiptMetadata {
+    pub fn new(receipt_id: CryptoHash, source: ReceiptSource) -> Self {
+        Self::V0(ProcessedReceiptMetadataV0 { receipt_id, source })
+    }
+
+    pub fn receipt_id(&self) -> &CryptoHash {
+        match self {
+            Self::V0(v0) => &v0.receipt_id,
+        }
+    }
+
+    pub fn source(&self) -> &ReceiptSource {
+        match self {
+            Self::V0(v0) => &v0.source,
+        }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
+pub struct ProcessedReceiptMetadataV0 {
+    pub receipt_id: CryptoHash,
+    pub source: ReceiptSource,
 }

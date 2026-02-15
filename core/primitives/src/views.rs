@@ -2245,6 +2245,8 @@ pub enum ReceiptEnumView {
         #[serde_as(as = "Base64")]
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
         code: Vec<u8>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nonce: Option<u64>,
     } = 2,
 }
 
@@ -2285,6 +2287,7 @@ impl From<Receipt> for ReceiptView {
                         target_shard: receipt.target_shard(),
                         already_delivered_shards: receipt.already_delivered_shards().to_vec(),
                         code: hash(receipt.code()).as_bytes().to_vec(),
+                        nonce: receipt.maybe_nonce(),
                     }
                 }
             },
@@ -2323,7 +2326,6 @@ impl ReceiptEnumView {
         }
     }
 }
-
 
 /// Information about this epoch validators and next epoch validators
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone, ProtocolSchema)]

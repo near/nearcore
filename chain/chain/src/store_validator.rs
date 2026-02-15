@@ -11,6 +11,7 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ProcessedReceiptMetadata;
 use near_primitives::shard_layout::get_block_shard_uid_rev;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunk, StateSyncInfo};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
@@ -302,6 +303,17 @@ impl StoreValidator {
                         self.check(&validate::epoch_validity, &epoch_id, &epoch_info, col);
                     }
                 }
+                DBCol::ProcessedReceiptIds => {
+                    let (block_hash, shard_id) = get_block_shard_id_rev(key_ref)?;
+                    let metadata: Vec<ProcessedReceiptMetadata> =
+                        BorshDeserialize::try_from_slice(value_ref)?;
+                    self.check(
+                        &validate::processed_receipt_ids_exist_in_receipts,
+                        &(block_hash, shard_id),
+                        metadata.as_slice(),
+                        col,
+                    );
+                }
                 DBCol::Transactions => {
                     let (_value, rc) = refcount::decode_value_with_rc(value_ref);
                     let tx_hash = CryptoHash::try_from(key_ref)?;
@@ -346,8 +358,16 @@ impl StoreValidator {
             self.process_error(e, "HEAD / HEADER_HEAD / TAIL / CHUNK_TAIL", DBCol::BlockMisc)
         }
 
-        // Main loop
-        for col in DBCol::iter() {
+        // Main loop.
+        // Custom sort: PartialChunks and ProcessedReceiptIds must be
+        // validated before Receipts so that receipt refcounts are fully
+        // populated before we check them against the Receipts column.
+        let mut cols: Vec<DBCol> = DBCol::iter().collect();
+        cols.sort_by_key(|col| match col {
+            DBCol::PartialChunks | DBCol::ProcessedReceiptIds => 0,
+            other => 1 + other.into_usize(),
+        });
+        for col in cols {
             if let Err(e) = self.validate_col(col) {
                 self.process_error(e, col.to_string(), col)
             }
@@ -468,7 +488,7 @@ mod tests {
             chain.get_block_by_height(0).unwrap().hash().as_ref(),
             &[123],
         );
-        store_update.commit().unwrap();
+        store_update.commit();
         match sv.validate_col(DBCol::Block) {
             Err(StoreValidatorError::IOError(_)) => {}
             _ => assert!(false),
@@ -480,8 +500,8 @@ mod tests {
         let (chain, mut sv) = init();
         let mut store_update = chain.chain_store().store().store_update();
         assert!(sv.validate_col(DBCol::TrieChanges).is_ok());
-        store_update.set_ser::<[u8]>(DBCol::TrieChanges, "567".as_ref(), &[123]).unwrap();
-        store_update.commit().unwrap();
+        store_update.set_ser::<[u8]>(DBCol::TrieChanges, "567".as_ref(), &[123]);
+        store_update.commit();
         match sv.validate_col(DBCol::TrieChanges) {
             Err(StoreValidatorError::DBCorruption(_)) => {}
             _ => assert!(false),
