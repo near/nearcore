@@ -11,7 +11,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
-use crate::utils::node::TestLoopNode;
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 
 #[test]
@@ -50,20 +49,20 @@ fn resharding_example_test() {
         .build()
         .warmup();
 
-    let node = TestLoopNode::from(&env.node_datas[0]);
-    let epoch_manager = node.client(&env.test_loop.data).chain.epoch_manager.clone();
-    let epoch_id = node.head(env.test_loop_data()).epoch_id;
+    let epoch_manager = env.node(0).client().epoch_manager.clone();
+    let epoch_id = env.node(0).head().epoch_id;
     assert_eq!(epoch_manager.get_shard_layout(&epoch_id).unwrap(), base_shard_layout);
 
-    env.test_loop.run_until(
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
+    env.node(0).run_until(
         |test_loop_data| {
-            let epoch_id = node.head(test_loop_data).epoch_id;
+            let epoch_id = test_loop_data.get(&client_handle).client.chain.head().unwrap().epoch_id;
             epoch_manager.get_shard_layout(&epoch_id).unwrap() == new_shard_layout
         },
         Duration::seconds((3 * epoch_length) as i64),
     );
 
-    let epoch_id = node.head(env.test_loop_data()).epoch_id;
+    let epoch_id = env.node(0).head().epoch_id;
     assert_eq!(epoch_manager.get_shard_layout(&epoch_id).unwrap(), new_shard_layout);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));

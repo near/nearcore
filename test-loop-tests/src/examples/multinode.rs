@@ -9,7 +9,6 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{
     create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
 };
-use crate::utils::node::TestLoopNode;
 
 // Demonstrates the most basic multinode test loop setup
 // and sends tokens between accounts
@@ -34,13 +33,13 @@ fn test_cross_shard_token_transfer() {
         .clients(clients)
         .build()
         .warmup();
-    let rpc_node = TestLoopNode::rpc(&env.node_datas);
+    let mut rpc_node = env.rpc_node();
 
     let sender_account = &user_accounts[0];
     let receiver_account = &user_accounts[1];
     let transfer_amount = Balance::from_near(42);
 
-    let block_hash = rpc_node.head(env.test_loop_data()).last_block_hash;
+    let block_hash = rpc_node.head().last_block_hash;
     let nonce = 1;
     let tx = SignedTransaction::send_money(
         nonce,
@@ -50,20 +49,21 @@ fn test_cross_shard_token_transfer() {
         transfer_amount,
         block_hash,
     );
-    rpc_node.run_tx(&mut env.test_loop, tx, Duration::seconds(5));
+    rpc_node.run_tx(tx, Duration::seconds(5));
     // Run for 1 more block for the transfer to be reflected in chunks prev state root.
-    rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
+    rpc_node.run_for_number_of_blocks(1);
 
     assert_eq!(
-        rpc_node.view_account_query(env.test_loop_data(), &sender_account).unwrap().amount,
+        rpc_node.view_account_query(&sender_account).unwrap().amount,
         initial_balance.checked_sub(transfer_amount).unwrap()
     );
     assert_eq!(
-        rpc_node.view_account_query(env.test_loop_data(), &receiver_account).unwrap().amount,
+        rpc_node.view_account_query(&receiver_account).unwrap().amount,
         initial_balance.checked_add(transfer_amount).unwrap()
     );
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
+    drop(rpc_node);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

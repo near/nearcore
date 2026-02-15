@@ -1,4 +1,3 @@
-use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
@@ -8,7 +7,7 @@ use near_primitives::types::{BlockHeight, NumShards};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
-use crate::utils::node::TestLoopNode;
+use crate::utils::node_v2::TestLoopNodeV2;
 
 /// This test demonstrates how to trigger missing chunk at a certain height.
 /// Requires "test_features" feature to be enabled.
@@ -30,7 +29,6 @@ fn missing_chunk_example_test() {
         .clients(clients)
         .build()
         .warmup();
-    let validator_node = TestLoopNode::from(&env.node_datas[0]);
 
     // Note: waiting for height H results in chunk already produced for H+1.
     // That is why if we want to have missing chunk at H we do the following:
@@ -38,30 +36,21 @@ fn missing_chunk_example_test() {
     // 2. Disable chunk production
     // 3. Wait for H-1, chunk is skipped at H
     // 4. Enable chunk production, chunks are produced again after H
-    validator_node.run_until_head_height(&mut env.test_loop, missing_chunk_heigh - 2);
-    validator_node.send_adversarial_message(
-        &mut env.test_loop,
-        NetworkAdversarialMessage::AdvProduceChunks(AdvProduceChunksMode::StopProduce),
-    );
-    validator_node.run_until_head_height(&mut env.test_loop, missing_chunk_heigh - 1);
-    validator_node.send_adversarial_message(
-        &mut env.test_loop,
-        NetworkAdversarialMessage::AdvProduceChunks(AdvProduceChunksMode::Valid),
-    );
-    validator_node.run_until_head_height(&mut env.test_loop, missing_chunk_heigh + 1);
+    env.node(0).run_until_head_height(missing_chunk_heigh - 2);
+    env.node(0).send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
+        AdvProduceChunksMode::StopProduce,
+    ));
+    env.node(0).run_until_head_height(missing_chunk_heigh - 1);
+    env.node(0).send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
+        AdvProduceChunksMode::Valid,
+    ));
+    env.node(0).run_until_head_height(missing_chunk_heigh + 1);
 
-    assert_eq!(
-        get_chunk_mask(&validator_node, env.test_loop_data(), missing_chunk_heigh - 1),
-        vec![true, true]
-    );
-    assert_eq!(
-        get_chunk_mask(&validator_node, env.test_loop_data(), missing_chunk_heigh),
-        vec![false, true]
-    );
-    assert_eq!(
-        get_chunk_mask(&validator_node, env.test_loop_data(), missing_chunk_heigh + 1),
-        vec![true, true]
-    );
+    let node = env.node(0);
+    assert_eq!(get_chunk_mask(&node, missing_chunk_heigh - 1), vec![true, true]);
+    assert_eq!(get_chunk_mask(&node, missing_chunk_heigh), vec![false, true]);
+    assert_eq!(get_chunk_mask(&node, missing_chunk_heigh + 1), vec![true, true]);
+    drop(node);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
@@ -83,25 +72,20 @@ fn missing_chunk_window_example_test() {
         .clients(clients)
         .build()
         .warmup();
-    let validator_nodes = TestLoopNode::all(&env.node_datas);
 
     let window_size = 5;
     let skip_length = 2;
     let window_start_height = 2 * window_size;
-    validator_nodes[0].run_until_head_height(&mut env.test_loop, window_start_height - 2);
+    env.node(0).run_until_head_height(window_start_height - 2);
 
-    for node in &validator_nodes {
-        node.send_adversarial_message(
-            &mut env.test_loop,
-            NetworkAdversarialMessage::AdvProduceChunks(AdvProduceChunksMode::SkipWindow {
-                window_size,
-                skip_length,
-            }),
-        );
+    let num_nodes = env.node_datas.len();
+    for i in 0..num_nodes {
+        env.node(i).send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
+            AdvProduceChunksMode::SkipWindow { window_size, skip_length },
+        ));
     }
 
-    validator_nodes[0]
-        .run_until_head_height(&mut env.test_loop, window_start_height + window_size - 1);
+    env.node(0).run_until_head_height(window_start_height + window_size - 1);
 
     #[derive(Clone)]
     struct ShardMissingChunkState {
@@ -113,8 +97,10 @@ fn missing_chunk_window_example_test() {
             ShardMissingChunkState { last_missing_height: None, missing_count: 0 };
             num_shards as usize
         ];
+
+    let node = env.node(0);
     for height in window_start_height..window_start_height + window_size {
-        let mask = get_chunk_mask(&validator_nodes[0], env.test_loop_data(), height);
+        let mask = get_chunk_mask(&node, height);
         for (shard_id, has_chunk) in mask.into_iter().enumerate() {
             if !has_chunk {
                 let shard_state = &mut shard_missing_chunk_states[shard_id];
@@ -130,6 +116,7 @@ fn missing_chunk_window_example_test() {
             }
         }
     }
+    drop(node);
 
     for (shard_id, shard_state) in shard_missing_chunk_states.iter().enumerate() {
         assert_eq!(
@@ -150,16 +137,6 @@ fn missing_chunk_window_example_test() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
-fn get_chunk_mask(
-    node: &TestLoopNode<'_>,
-    test_loop_data: &TestLoopData,
-    block_height: BlockHeight,
-) -> Vec<bool> {
-    node.client(test_loop_data)
-        .chain
-        .get_block_by_height(block_height)
-        .unwrap()
-        .header()
-        .chunk_mask()
-        .to_vec()
+fn get_chunk_mask(node: &TestLoopNodeV2<'_>, block_height: BlockHeight) -> Vec<bool> {
+    node.client().chain.get_block_by_height(block_height).unwrap().header().chunk_mask().to_vec()
 }

@@ -12,9 +12,8 @@ use near_primitives::types::{Balance, Nonce};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{
-    create_account_id, create_validators_spec, validators_spec_clients_with_rpc,
+    create_account_id, create_validators_spec, rpc_account_id, validators_spec_clients_with_rpc,
 };
-use crate::utils::node::TestLoopNode;
 
 /// Example test that creates a chunk which, when applied, creates a delayed receipt.
 /// Requires "test_features" feature to be enabled in order to use `burn_gas_raw`
@@ -40,7 +39,6 @@ fn delayed_receipt_example_test() {
         .build()
         .warmup();
 
-    let rpc_node = TestLoopNode::rpc(&env.node_datas);
     let mut nonce: Nonce = 0;
     let mut next_nonce = || {
         nonce += 1;
@@ -52,9 +50,9 @@ fn delayed_receipt_example_test() {
         &user_account,
         near_test_contracts::rs_contract().to_vec(),
         &create_user_test_signer(&user_account),
-        rpc_node.head(env.test_loop_data()).last_block_hash,
+        env.rpc_node().head().last_block_hash,
     );
-    rpc_node.run_tx(&mut env.test_loop, deploy_test_contract_tx, Duration::seconds(2));
+    env.rpc_node().run_tx(deploy_test_contract_tx, Duration::seconds(2));
 
     // Each transaction generates local receipt consuming more than a half
     // the chunk space, so chunk can only fit 2 such receipts.
@@ -69,30 +67,39 @@ fn delayed_receipt_example_test() {
             "burn_gas_raw".to_owned(),
             gas_to_burn.as_gas().to_le_bytes().to_vec(),
             gas_limit,
-            rpc_node.head(env.test_loop_data()).last_block_hash,
+            env.rpc_node().head().last_block_hash,
         )
     })
     .take(3)
     .collect_vec();
     for tx in &txs {
-        rpc_node.submit_tx(tx.clone());
+        env.rpc_node().submit_tx(tx.clone());
     }
-    env.test_loop.run_until(
+    let rpc_id = rpc_account_id();
+    let client_handle = env
+        .node_datas
+        .iter()
+        .rfind(|d| d.account_id == rpc_id)
+        .unwrap()
+        .client_sender
+        .actor_handle();
+    env.rpc_node().run_until(
         |test_loop_data| {
-            let head_block = rpc_node.head_block(test_loop_data);
-            let chunk = rpc_node.block_chunks(test_loop_data, &head_block).pop().unwrap();
+            let client = &test_loop_data.get(&client_handle).client;
+            let head_hash = client.chain.head().unwrap().last_block_hash;
+            let head_block = client.chain.get_block(&head_hash).unwrap();
+            let chunks = head_block.chunks();
+            let chunk_header = chunks.iter_raw().next().unwrap();
+            let chunk = client.chain.get_chunk(chunk_header.chunk_hash()).unwrap();
             chunk.to_transactions() == &txs
         },
         Duration::seconds(2),
     );
-    let block_with_txs = rpc_node.head_block(env.test_loop_data());
+    let block_with_txs = env.rpc_node().head_block();
 
-    rpc_node.run_until_block_executed(
-        &mut env.test_loop,
-        block_with_txs.header(),
-        Duration::seconds(2),
-    );
-    let chain = &rpc_node.client(env.test_loop_data()).chain;
+    env.rpc_node().run_until_block_executed(block_with_txs.header(), Duration::seconds(2));
+    let rpc_node = env.rpc_node();
+    let chain = &rpc_node.client().chain;
     let tx_receipt_ids = txs
         .iter()
         .map(|tx| {
@@ -111,14 +118,11 @@ fn delayed_receipt_example_test() {
     assert!(receipt_outcomes[0].is_ok());
     assert!(receipt_outcomes[1].is_ok());
     assert_matches!(receipt_outcomes[2], Err(Error::DBNotFoundErr(_)));
+    drop(rpc_node);
 
-    rpc_node.run_until_outcome_available(
-        &mut env.test_loop,
-        tx_receipt_ids[2],
-        Duration::seconds(1),
-    );
+    env.rpc_node().run_until_outcome_available(tx_receipt_ids[2], Duration::seconds(1));
 
-    let last_receipts_executed_block = rpc_node.last_executed_block(env.test_loop_data());
+    let last_receipts_executed_block = env.rpc_node().last_executed_block();
     assert_eq!(
         block_with_txs.header().height(),
         last_receipts_executed_block.header().prev_height().unwrap()
