@@ -13,12 +13,13 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{BlockHeightDelta, ShardId, StateChangeCause};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreUpdateAdapter;
+use near_store::archive::cold_storage::{join_two_keys, rc_aware_set};
 use near_store::db::metadata::{DB_VERSION, DbVersion, MIN_SUPPORTED_DB_VERSION};
 use near_store::db::{ColdDB, DBTransaction, Database};
 use near_store::flat::FlatStorageManager;
 use near_store::{
     DBCol, LATEST_KNOWN_KEY, ShardTries, ShardUId, StateSnapshotConfig, Store, StoreConfig,
-    TrieConfig, TrieUpdate, get_genesis_height, set,
+    TrieChanges, TrieConfig, TrieUpdate, get_genesis_height, set,
 };
 
 use crate::NearConfig;
@@ -101,16 +102,27 @@ fn migrate_47_to_48(
         StateSnapshotConfig::Disabled,
     );
 
-    let mut cold_store_update = cold_store.trie_store().store_update();
-    recover_shard_1_at_block_height_115185108(&tries, &mut cold_store_update)?;
-    cold_store_update.commit();
+    // We ignore the store update, as we need to construct a transaction manually from trie changes.
+    let trie_changes = recover_shard_1_at_block_height_115185108(
+        &tries,
+        &mut cold_store.trie_store().store_update(),
+    )?;
+    let mut transaction = DBTransaction::new();
+    let child_shard_uid = ShardUId::new(3, ShardId::new(1));
+    for op in trie_changes.insertions() {
+        let key = join_two_keys(&child_shard_uid.to_bytes(), op.hash().as_bytes());
+        let value = op.payload().to_vec();
+        rc_aware_set(&mut transaction, DBCol::State, key, value);
+    }
+    tracing::info!(target: "migrations", "Writing changes to the database");
+    cold_db.write(transaction);
     Ok(())
 }
 
 fn recover_shard_1_at_block_height_115185108(
     tries: &ShardTries,
     store_update: &mut TrieStoreUpdateAdapter,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<TrieChanges> {
     let parent_shard_uid = ShardUId::new(2, ShardId::new(1));
     let child_shard_uid = ShardUId::new(3, ShardId::new(1));
 
@@ -137,7 +149,7 @@ fn recover_shard_1_at_block_height_115185108(
             expected_new_state_root
         ));
     }
-    Ok(())
+    Ok(trie_changes)
 }
 
 /// This migration does three things:
