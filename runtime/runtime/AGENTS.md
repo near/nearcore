@@ -10,7 +10,6 @@ fn apply() contains the following steps:
 - Read buffered outgoing receipts and send out as many as possible within the outgoing limits
 - Process transactions in the chunk and convert them to the receipts
 - Process receipts, executing them and producing new outgoing receipts
-- Finalize the post-state
 
 `process_transactions` takes all transactions in a chunk, validates them, charges gas, and converts them to local receipts.
 
