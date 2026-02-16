@@ -83,7 +83,7 @@ impl StateSnapshotActor {
     ) -> anyhow::Result<bool> {
         let shard_uids = shard_indexes_and_uids.iter().map(|(_idx, uid)| *uid);
         let Some(min_height) =
-            self.flat_storage_manager.resharding_catchup_height_reached(shard_uids)?
+            self.flat_storage_manager.resharding_catchup_height_reached(shard_uids)
         else {
             // No flat storage split + catchup is in progress, ok to proceed
             return Ok(false);

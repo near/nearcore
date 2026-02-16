@@ -10,11 +10,8 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, Store, StoreUpdate};
 use std::sync::Arc;
 
-fn get_state_sync_new_chunks(
-    store: &Store,
-    block_hash: &CryptoHash,
-) -> Result<Option<Vec<u8>>, Error> {
-    Ok(store.get_ser(DBCol::StateSyncNewChunks, block_hash.as_ref()))
+fn get_state_sync_new_chunks(store: &Store, block_hash: &CryptoHash) -> Option<Vec<u8>> {
+    store.get_ser(DBCol::StateSyncNewChunks, block_hash.as_ref())
 }
 
 fn iter_state_sync_hashes_keys<'a>(
@@ -30,7 +27,7 @@ fn save_epoch_new_chunks<T: ChainStoreAccess>(
     header: &BlockHeader,
 ) -> Result<bool, Error> {
     let Some(mut num_new_chunks) =
-        get_state_sync_new_chunks(&chain_store.store(), header.prev_hash())?
+        get_state_sync_new_chunks(&chain_store.store(), header.prev_hash())
     else {
         // This might happen in the case of epoch sync where we save individual headers without having all
         // headers that belong to the epoch.
@@ -98,7 +95,7 @@ fn maybe_get_block_header<T: ChainStoreAccess>(
 }
 
 fn has_enough_new_chunks(store: &Store, block_hash: &CryptoHash) -> Result<Option<bool>, Error> {
-    let Some(num_new_chunks) = get_state_sync_new_chunks(store, block_hash)? else {
+    let Some(num_new_chunks) = get_state_sync_new_chunks(store, block_hash) else {
         // This might happen in the case of epoch sync where we save individual headers without having all
         // headers that belong to the epoch.
         return Ok(None);
@@ -224,14 +221,14 @@ pub(crate) fn is_sync_prev_hash(chain_store: &ChainStoreAdapter, tip: &Tip) -> R
         return Ok(sync_header.prev_hash() == &tip.last_block_hash);
     }
     let store = chain_store.store_ref();
-    let Some(new_chunks) = get_state_sync_new_chunks(store, &tip.last_block_hash)? else {
+    let Some(new_chunks) = get_state_sync_new_chunks(store, &tip.last_block_hash) else {
         return Ok(false);
     };
     let done = new_chunks.iter().all(|num_chunks| *num_chunks >= 2);
     if !done {
         return Ok(false);
     }
-    let Some(prev_new_chunks) = get_state_sync_new_chunks(store, &tip.prev_block_hash)? else {
+    let Some(prev_new_chunks) = get_state_sync_new_chunks(store, &tip.prev_block_hash) else {
         return Ok(false);
     };
     let prev_done = prev_new_chunks.iter().all(|num_chunks| *num_chunks >= 2);
