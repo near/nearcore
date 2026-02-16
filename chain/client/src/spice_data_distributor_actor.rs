@@ -94,8 +94,6 @@ pub(crate) enum Error {
     DataIsIrrelevant(SpiceDataIdentifier),
     #[error("error decoding the data: {0}")]
     DecodeError(std::io::Error),
-    #[error("store io error")]
-    StoreIoError(std::io::Error),
     #[error("other error: {0}")]
     Other(&'static str),
 }
