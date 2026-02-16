@@ -30,26 +30,27 @@ fn missing_chunk_example_test() {
         .build()
         .warmup();
 
+    let mut validator_runner = env.node_runner(0);
     // Note: waiting for height H results in chunk already produced for H+1.
     // That is why if we want to have missing chunk at H we do the following:
     // 1. Wait for H-2, chunk at H-1 is produced at this point
     // 2. Disable chunk production
     // 3. Wait for H-1, chunk is skipped at H
     // 4. Enable chunk production, chunks are produced again after H
-    env.node_runner(0).run_until_head_height(missing_chunk_heigh - 2);
-    env.node_runner(0).send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
+    validator_runner.run_until_head_height(missing_chunk_heigh - 2);
+    validator_runner.send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
         AdvProduceChunksMode::StopProduce,
     ));
-    env.node_runner(0).run_until_head_height(missing_chunk_heigh - 1);
-    env.node_runner(0).send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
+    validator_runner.run_until_head_height(missing_chunk_heigh - 1);
+    validator_runner.send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
         AdvProduceChunksMode::Valid,
     ));
-    env.node_runner(0).run_until_head_height(missing_chunk_heigh + 1);
+    validator_runner.run_until_head_height(missing_chunk_heigh + 1);
 
-    let node = env.node(0);
-    assert_eq!(get_chunk_mask(&node, missing_chunk_heigh - 1), vec![true, true]);
-    assert_eq!(get_chunk_mask(&node, missing_chunk_heigh), vec![false, true]);
-    assert_eq!(get_chunk_mask(&node, missing_chunk_heigh + 1), vec![true, true]);
+    let validator_node = env.node(0);
+    assert_eq!(get_chunk_mask(&validator_node, missing_chunk_heigh - 1), vec![true, true]);
+    assert_eq!(get_chunk_mask(&validator_node, missing_chunk_heigh), vec![false, true]);
+    assert_eq!(get_chunk_mask(&validator_node, missing_chunk_heigh + 1), vec![true, true]);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
