@@ -997,78 +997,128 @@ fn action_deterministic_state_init_base_per_entry_per_byte(
     (base, per_entry, per_byte)
 }
 
+/// Whole-transaction gas key transfer cost, decomposed by key type.
+/// Measures [AddKey + TransferToGasKey] tx with ED25519 and SECP256K1, subtracts
+/// receipt creation and AddKey overhead, then decomposes by pk_len difference.
 fn action_gas_key_transfer_base(ctx: &mut EstimatorContext) -> GasCost {
-    let total_cost = {
-        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
-            let sender = tb.random_unused_account();
-            let receiver = sender.clone();
-            let pk = near_crypto::PublicKey::from_seed(KeyType::ED25519, "gas-key-seed");
-            let actions = vec![
-                Action::AddKey(Box::new(AddKeyAction {
-                    public_key: pk.clone(),
-                    access_key: AccessKey::gas_key_full_access(1),
-                })),
-                Action::TransferToGasKey(Box::new(
-                    near_primitives::action::TransferToGasKeyAction {
-                        public_key: pk,
-                        deposit: Balance::from_millinear(1),
-                    },
-                )),
-            ];
-            tb.transaction_from_actions(sender, receiver, actions)
+    let measure_for_key_type =
+        |ctx: &mut EstimatorContext, key_type: near_crypto::KeyType| -> GasCost {
+            let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+                let sender = tb.random_unused_account();
+                let receiver = sender.clone();
+                let pk = near_crypto::PublicKey::from_seed(key_type, "gas-key-seed");
+                let actions = vec![
+                    Action::AddKey(Box::new(AddKeyAction {
+                        public_key: pk.clone(),
+                        access_key: AccessKey::gas_key_full_access(1),
+                    })),
+                    Action::TransferToGasKey(Box::new(
+                        near_primitives::action::TransferToGasKeyAction {
+                            public_key: pk,
+                            deposit: Balance::from_millinear(1),
+                        },
+                    )),
+                ];
+                tb.transaction_from_actions(sender, receiver, actions)
+            };
+            let total = transaction_cost(ctx, &mut make_transaction);
+            let base_cost = action_sir_receipt_creation(ctx);
+            let add_key_cost = action_add_full_access_key(ctx);
+            total
+                .saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
+                .saturating_sub(&add_key_cost, &NonNegativeTolerance::PER_MILLE)
         };
-        transaction_cost(ctx, &mut make_transaction)
-    };
-    let base_cost = action_sir_receipt_creation(ctx);
-    let add_key_cost = action_add_full_access_key(ctx);
-    total_cost
-        .saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
-        .saturating_sub(&add_key_cost, &NonNegativeTolerance::PER_MILLE)
+    let m_ed = measure_for_key_type(ctx, KeyType::ED25519);
+    let m_secp = measure_for_key_type(ctx, KeyType::SECP256K1);
+    let pk_ed = near_crypto::PublicKey::from_seed(KeyType::ED25519, "gas-key-seed").len() as u64;
+    let pk_secp =
+        near_crypto::PublicKey::from_seed(KeyType::SECP256K1, "gas-key-seed").len() as u64;
+    let key_byte =
+        m_secp.saturating_sub(&m_ed, &NonNegativeTolerance::PER_MILLE) / (pk_secp - pk_ed);
+    m_ed.saturating_sub(&(key_byte * pk_ed), &NonNegativeTolerance::PER_MILLE)
 }
 
 fn action_gas_key_key_byte(ctx: &mut EstimatorContext) -> GasCost {
-    let transfer_base = action_gas_key_transfer_base(ctx);
-    let pk = near_crypto::PublicKey::from_seed(KeyType::ED25519, "gas-key-seed");
-    let key_bytes = pk.len() as u64;
-    transfer_base / key_bytes
+    let measure_for_key_type =
+        |ctx: &mut EstimatorContext, key_type: near_crypto::KeyType| -> GasCost {
+            let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+                let sender = tb.random_unused_account();
+                let receiver = sender.clone();
+                let pk = near_crypto::PublicKey::from_seed(key_type, "gas-key-seed");
+                let actions = vec![
+                    Action::AddKey(Box::new(AddKeyAction {
+                        public_key: pk.clone(),
+                        access_key: AccessKey::gas_key_full_access(1),
+                    })),
+                    Action::TransferToGasKey(Box::new(
+                        near_primitives::action::TransferToGasKeyAction {
+                            public_key: pk,
+                            deposit: Balance::from_millinear(1),
+                        },
+                    )),
+                ];
+                tb.transaction_from_actions(sender, receiver, actions)
+            };
+            let total = transaction_cost(ctx, &mut make_transaction);
+            let base_cost = action_sir_receipt_creation(ctx);
+            let add_key_cost = action_add_full_access_key(ctx);
+            total
+                .saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
+                .saturating_sub(&add_key_cost, &NonNegativeTolerance::PER_MILLE)
+        };
+    let m_ed = measure_for_key_type(ctx, KeyType::ED25519);
+    let m_secp = measure_for_key_type(ctx, KeyType::SECP256K1);
+    let pk_ed = near_crypto::PublicKey::from_seed(KeyType::ED25519, "gas-key-seed").len() as u64;
+    let pk_secp =
+        near_crypto::PublicKey::from_seed(KeyType::SECP256K1, "gas-key-seed").len() as u64;
+    m_secp.saturating_sub(&m_ed, &NonNegativeTolerance::PER_MILLE) / (pk_secp - pk_ed)
 }
 
-fn action_gas_key_value_byte(ctx: &mut EstimatorContext) -> GasCost {
-    let transfer_base = action_gas_key_transfer_base(ctx);
-    let value_bytes = near_primitives::account::GasKeyInfo::borsh_len() as u64;
-    transfer_base / value_bytes
+fn action_gas_key_value_byte(_ctx: &mut EstimatorContext) -> GasCost {
+    GasCost::zero()
 }
 
 fn action_gas_key_nonce(ctx: &mut EstimatorContext) -> GasCost {
     let many_nonces = 100u16;
-    let with_nonces = {
-        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
-            let sender = tb.random_unused_account();
-            let receiver = sender.clone();
-            let pk = near_crypto::PublicKey::from_seed(KeyType::ED25519, "gas-key-seed");
-            let actions = vec![Action::AddKey(Box::new(AddKeyAction {
-                public_key: pk,
-                access_key: AccessKey::gas_key_full_access(many_nonces),
-            }))];
-            tb.transaction_from_actions(sender, receiver, actions)
+    let measure_for_key_type =
+        |ctx: &mut EstimatorContext, key_type: near_crypto::KeyType| -> GasCost {
+            let with_nonces = {
+                let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+                    let sender = tb.random_unused_account();
+                    let receiver = sender.clone();
+                    let pk = near_crypto::PublicKey::from_seed(key_type, "gas-key-seed");
+                    let actions = vec![Action::AddKey(Box::new(AddKeyAction {
+                        public_key: pk,
+                        access_key: AccessKey::gas_key_full_access(many_nonces),
+                    }))];
+                    tb.transaction_from_actions(sender, receiver, actions)
+                };
+                transaction_cost(ctx, &mut make_transaction)
+            };
+            let without_nonces = {
+                let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+                    let sender = tb.random_unused_account();
+                    let receiver = sender.clone();
+                    let pk = near_crypto::PublicKey::from_seed(key_type, "gas-key-seed");
+                    let actions = vec![Action::AddKey(Box::new(AddKeyAction {
+                        public_key: pk,
+                        access_key: AccessKey::gas_key_full_access(1),
+                    }))];
+                    tb.transaction_from_actions(sender, receiver, actions)
+                };
+                transaction_cost(ctx, &mut make_transaction)
+            };
+            with_nonces.saturating_sub(&without_nonces, &NonNegativeTolerance::PER_MILLE)
+                / (many_nonces - 1) as u64
         };
-        transaction_cost(ctx, &mut make_transaction)
-    };
-    let without_nonces = {
-        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
-            let sender = tb.random_unused_account();
-            let receiver = sender.clone();
-            let pk = near_crypto::PublicKey::from_seed(KeyType::ED25519, "gas-key-seed");
-            let actions = vec![Action::AddKey(Box::new(AddKeyAction {
-                public_key: pk,
-                access_key: AccessKey::gas_key_full_access(1),
-            }))];
-            tb.transaction_from_actions(sender, receiver, actions)
-        };
-        transaction_cost(ctx, &mut make_transaction)
-    };
-    with_nonces.saturating_sub(&without_nonces, &NonNegativeTolerance::PER_MILLE)
-        / (many_nonces - 1) as u64
+    let m_ed = measure_for_key_type(ctx, KeyType::ED25519);
+    let m_secp = measure_for_key_type(ctx, KeyType::SECP256K1);
+    let pk_ed = near_crypto::PublicKey::from_seed(KeyType::ED25519, "gas-key-seed").len() as u64;
+    let pk_secp =
+        near_crypto::PublicKey::from_seed(KeyType::SECP256K1, "gas-key-seed").len() as u64;
+    let key_byte =
+        m_secp.saturating_sub(&m_ed, &NonNegativeTolerance::PER_MILLE) / (pk_secp - pk_ed);
+    m_ed.saturating_sub(&(key_byte * pk_ed), &NonNegativeTolerance::PER_MILLE)
 }
 
 fn deterministic_state_init_cost(
