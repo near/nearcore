@@ -622,7 +622,7 @@ impl ChainStore {
         let store = self.store.store();
         let mut block_changes = storage_key.find_iter(&store);
 
-        Ok(StateChangesKinds::from_changes(&mut block_changes)?)
+        Ok(StateChangesKinds::from_changes(&mut block_changes))
     }
 
     pub fn get_state_changes_with_cause_in_block(
@@ -634,7 +634,7 @@ impl ChainStore {
         let store = self.store.store();
         let mut block_changes = storage_key.find_iter(&store);
 
-        Ok(StateChanges::from_changes(&mut block_changes)?)
+        Ok(StateChanges::from_changes(&mut block_changes))
     }
 
     /// Retrieve the key-value changes from the store and decode them appropriately.
@@ -677,7 +677,7 @@ impl ChainStore {
                     let data_key = TrieKey::Account { account_id: account_id.clone() };
                     let storage_key = KeyForStateChanges::from_trie_key(block_hash, &data_key);
                     let changes_per_key = storage_key.find_exact_iter(&store);
-                    changes.extend(StateChanges::from_account_changes(changes_per_key)?);
+                    changes.extend(StateChanges::from_account_changes(changes_per_key));
                 }
                 changes
             }
@@ -690,7 +690,7 @@ impl ChainStore {
                     };
                     let storage_key = KeyForStateChanges::from_trie_key(block_hash, &data_key);
                     let changes_per_key = storage_key.find_iter(&store);
-                    changes.extend(StateChanges::from_access_key_changes(changes_per_key)?);
+                    changes.extend(StateChanges::from_access_key_changes(changes_per_key));
                 }
                 changes
             }
@@ -700,7 +700,7 @@ impl ChainStore {
                     let data_key = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
                     let storage_key = KeyForStateChanges::from_raw_key(block_hash, &data_key);
                     let changes_per_key_prefix = storage_key.find_iter(&store);
-                    changes.extend(StateChanges::from_access_key_changes(changes_per_key_prefix)?);
+                    changes.extend(StateChanges::from_access_key_changes(changes_per_key_prefix));
                 }
                 changes
             }
@@ -710,7 +710,7 @@ impl ChainStore {
                     let data_key = TrieKey::ContractCode { account_id: account_id.clone() };
                     let storage_key = KeyForStateChanges::from_trie_key(block_hash, &data_key);
                     let changes_per_key = storage_key.find_exact_iter(&store);
-                    changes.extend(StateChanges::from_contract_code_changes(changes_per_key)?);
+                    changes.extend(StateChanges::from_contract_code_changes(changes_per_key));
                 }
                 changes
             }
@@ -723,7 +723,7 @@ impl ChainStore {
                     );
                     let storage_key = KeyForStateChanges::from_raw_key(block_hash, &data_key);
                     let changes_per_key_prefix = storage_key.find_iter(&store);
-                    changes.extend(StateChanges::from_data_changes(changes_per_key_prefix)?);
+                    changes.extend(StateChanges::from_data_changes(changes_per_key_prefix));
                 }
                 changes
             }

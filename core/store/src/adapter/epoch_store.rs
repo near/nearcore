@@ -82,16 +82,14 @@ impl EpochStoreAdapter {
             .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 
-    pub fn get_compressed_epoch_sync_proof(
-        &self,
-    ) -> Result<Option<CompressedEpochSyncProof>, EpochError> {
+    pub fn get_compressed_epoch_sync_proof(&self) -> Option<CompressedEpochSyncProof> {
         // Use this function only when ProtocolFeature::ContinuousEpochSync is enabled
         assert!(ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION));
         let proof = self.store.caching_get_ser::<CompressedEpochSyncProof>(
             DBCol::EpochSyncProof,
             COMPRESSED_EPOCH_SYNC_PROOF_KEY,
         );
-        Ok(proof.as_deref().cloned())
+        proof.as_deref().cloned()
     }
 
     /// Slightly expensive function, decodes the compressed epoch sync proof
@@ -99,7 +97,7 @@ impl EpochStoreAdapter {
         // It's fine to check ProtocolFeature::ContinuousEpochSync against PROTOCOL_VERSION here
         // Enabling ContinuousEpochSync performs a migration to store the compressed proof.
         if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
-            if let Some(proof) = self.get_compressed_epoch_sync_proof()? {
+            if let Some(proof) = self.get_compressed_epoch_sync_proof() {
                 let (decoded_proof, _) = proof.decode()?;
                 Ok(Some(decoded_proof.into_v1()))
             } else {

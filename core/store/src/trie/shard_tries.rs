@@ -780,33 +780,25 @@ impl KeyForStateChanges {
     pub fn find_iter<'a>(
         &'a self,
         store: &'a Store,
-    ) -> impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>> + 'a {
+    ) -> impl Iterator<Item = RawStateChangesWithTrieKey> + 'a {
         // Split off the irrelevant part of the key, so only the original trie_key is left.
-        self.find_rows_iter(store).map(|row| row.map(|kv| kv.1))
+        self.find_rows_iter(store).map(|kv| kv.1)
     }
 
     /// Iterates over deserialized row values where the row key matches `self` exactly.
     pub fn find_exact_iter<'a>(
         &'a self,
         store: &'a Store,
-    ) -> impl Iterator<Item = std::io::Result<RawStateChangesWithTrieKey>> + 'a {
+    ) -> impl Iterator<Item = RawStateChangesWithTrieKey> + 'a {
         let trie_key_len = self.0.len() - Self::PREFIX_LEN;
-        self.find_iter(store).filter_map(move |result| match result {
-            Ok(changes) if changes.trie_key.len() == trie_key_len => {
-                debug_assert_eq!(changes.trie_key.to_vec(), &self.0[Self::PREFIX_LEN..]);
-                Some(Ok(changes))
-            }
-            Ok(_) => None,
-            Err(err) => Some(Err(err)),
-        })
+        self.find_iter(store).filter(move |changes| changes.trie_key.len() == trie_key_len)
     }
 
     /// Iterates over pairs of `(row key, deserialized row value)` where row key matches `self`.
     pub fn find_rows_iter<'a>(
         &'a self,
         store: &'a Store,
-    ) -> impl Iterator<Item = Result<(Box<[u8]>, RawStateChangesWithTrieKey), std::io::Error>> + 'a
-    {
+    ) -> impl Iterator<Item = (Box<[u8]>, RawStateChangesWithTrieKey)> + 'a {
         debug_assert!(
             self.0.len() >= Self::PREFIX_LEN,
             "Key length: {}, prefix length: {}, key: {:?}",
@@ -818,7 +810,7 @@ impl KeyForStateChanges {
             move |(key, state_changes)| {
                 // Split off the irrelevant part of the key, so only the original trie_key is left.
                 debug_assert!(key.starts_with(&self.0), "Key: {:?}, row key: {:?}", self.0, key);
-                Ok((key, state_changes))
+                (key, state_changes)
             },
         )
     }
