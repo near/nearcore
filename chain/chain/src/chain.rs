@@ -1737,7 +1737,7 @@ impl Chain {
 
         if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
             // This is the end of the epoch. Next epoch we will generate new state parts. We can drop the old ones.
-            self.clear_all_downloaded_parts()?;
+            self.clear_all_downloaded_parts();
         }
 
         // 2) Start creating snapshot if needed.
@@ -2602,13 +2602,12 @@ impl Chain {
     }
 
     /// Drop all downloaded or generated state parts and headers.
-    pub fn clear_all_downloaded_parts(&mut self) -> Result<(), Error> {
+    pub fn clear_all_downloaded_parts(&mut self) {
         tracing::debug!(target: "state_sync", "clear old state parts");
         let mut store_update = self.chain_store.store().store_update();
         store_update.delete_all(DBCol::StateParts);
         store_update.delete_all(DBCol::StateHeaders);
         store_update.commit();
-        Ok(())
     }
 
     pub fn catchup_blocks_step(

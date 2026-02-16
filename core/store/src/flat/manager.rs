@@ -278,7 +278,7 @@ impl FlatStorageManager {
     pub fn resharding_catchup_height_reached(
         &self,
         shard_uids: impl Iterator<Item = ShardUId>,
-    ) -> Result<Option<Option<BlockHeight>>, StorageError> {
+    ) -> Option<Option<BlockHeight>> {
         let mut ret = None;
         for shard_uid in shard_uids {
             match self.0.store.get_flat_storage_status(shard_uid) {
@@ -291,11 +291,11 @@ impl FlatStorageManager {
                         ret = Some(Some(flat_head.height));
                     }
                 }
-                FlatStorageStatus::Resharding(_) => return Ok(Some(None)),
+                FlatStorageStatus::Resharding(_) => return Some(None),
                 _ => {}
             };
         }
-        Ok(ret)
+        ret
     }
 
     /// Should be called when we want to take a state snapshot. Disallows flat head updates, and signals to any resharding
