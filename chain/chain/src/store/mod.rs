@@ -120,7 +120,7 @@ pub trait ChainStoreAccess {
         &self,
         block_hash: &CryptoHash,
         shard_id: &ShardId,
-    ) -> Result<Option<ChunkApplyStats>, Error>;
+    ) -> Option<ChunkApplyStats>;
     /// Get block header.
     fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error>;
     /// Returns hash of the block on the main chain for given height.
@@ -186,10 +186,7 @@ pub trait ChainStoreAccess {
     fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Vec<CryptoHash>;
 
     /// Returns encoded chunk if it's invalid otherwise None.
-    fn is_invalid_chunk(
-        &self,
-        chunk_hash: &ChunkHash,
-    ) -> Result<Option<Arc<EncodedShardChunk>>, Error>;
+    fn is_invalid_chunk(&self, chunk_hash: &ChunkHash) -> Option<Arc<EncodedShardChunk>>;
 
     fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>>;
 
@@ -925,7 +922,7 @@ impl ChainStoreAccess for ChainStore {
         &self,
         block_hash: &CryptoHash,
         shard_id: &ShardId,
-    ) -> Result<Option<ChunkApplyStats>, Error> {
+    ) -> Option<ChunkApplyStats> {
         self.chunk_store().get_chunk_apply_stats(block_hash, shard_id)
     }
 
@@ -984,10 +981,7 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_blocks_to_catchup(self, hash)
     }
 
-    fn is_invalid_chunk(
-        &self,
-        chunk_hash: &ChunkHash,
-    ) -> Result<Option<Arc<EncodedShardChunk>>, Error> {
+    fn is_invalid_chunk(&self, chunk_hash: &ChunkHash) -> Option<Arc<EncodedShardChunk>> {
         self.chunk_store().is_invalid_chunk(chunk_hash)
     }
 
@@ -1270,9 +1264,9 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         &self,
         block_hash: &CryptoHash,
         shard_id: &ShardId,
-    ) -> Result<Option<ChunkApplyStats>, Error> {
+    ) -> Option<ChunkApplyStats> {
         if let Some(stats) = self.chunk_apply_stats.get(&(*block_hash, *shard_id)) {
-            Ok(Some(stats.clone()))
+            Some(stats.clone())
         } else {
             self.chain_store.get_chunk_apply_stats(block_hash, shard_id)
         }
@@ -1393,12 +1387,9 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.get_blocks_to_catchup(prev_hash)
     }
 
-    fn is_invalid_chunk(
-        &self,
-        chunk_hash: &ChunkHash,
-    ) -> Result<Option<Arc<EncodedShardChunk>>, Error> {
+    fn is_invalid_chunk(&self, chunk_hash: &ChunkHash) -> Option<Arc<EncodedShardChunk>> {
         if let Some(chunk) = self.chain_store_cache_update.invalid_chunks.get(chunk_hash) {
-            Ok(Some(Arc::clone(chunk)))
+            Some(Arc::clone(chunk))
         } else {
             self.chain_store.is_invalid_chunk(chunk_hash)
         }
@@ -1967,10 +1958,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     Entry::Vacant(entry) => {
                         let chunk_store = self.chain_store.chunk_store();
                         let mut hash_set =
-                            match chunk_store.get_all_chunk_hashes_by_height(height_created) {
-                                Ok(hash_set) => hash_set.clone(),
-                                Err(_) => HashSet::new(),
-                            };
+                            chunk_store.get_all_chunk_hashes_by_height(height_created);
                         hash_set.insert(chunk_hash.clone());
                         entry.insert(hash_set);
                     }

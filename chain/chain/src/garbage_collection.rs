@@ -627,7 +627,7 @@ impl<'a> ChainStoreUpdate<'a> {
     fn clear_chunk_data_and_headers(&mut self, min_chunk_height: BlockHeight) -> Result<(), Error> {
         let chunk_tail = self.chunk_tail();
         for height in chunk_tail..min_chunk_height {
-            let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height)?;
+            let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height);
             for chunk_hash in chunk_hashes {
                 // 1. Delete chunk-related data
                 let chunk = self.get_chunk(&chunk_hash)?;
@@ -691,7 +691,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut height = self.chunk_tail();
         let mut remaining = gc_height_limit;
         while height < gc_stop_height && remaining > 0 {
-            let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height)?;
+            let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height);
             height += 1;
             if !chunk_hashes.is_empty() {
                 remaining -= 1;
@@ -1021,7 +1021,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     fn clear_chunk_data_at_height(&mut self, height: BlockHeight) -> Result<(), Error> {
-        let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height)?;
+        let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height);
         for chunk_hash in chunk_hashes {
             // 1. Delete chunk-related data
             let chunk = self.get_chunk(&chunk_hash)?;
