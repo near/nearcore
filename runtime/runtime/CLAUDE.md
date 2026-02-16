@@ -14,81 +14,14 @@ fn apply() contains the following steps:
 
 `process_transactions` takes all transactions in a chunk, validates them, charges gas, and converts them to local receipts.
 
+Important structs:
+struct Receipt
+enum ReceiptEnum
+struct ActionReceiptV2
+enum Action
+struct Account
+
 Receipt is an internal representation of a task to execute.
-
-```rust
-pub struct ReceiptV0 {
-    /// An issuer account_id of a particular receipt.
-    /// `predecessor_id` could be either `Transaction` `signer_id` or intermediate contract's `account_id`.
-    pub predecessor_id: AccountId,
-    /// `receiver_id` is a receipt destination.
-    pub receiver_id: AccountId,
-    /// A unique id for the receipt
-    pub receipt_id: CryptoHash,
-    /// A receipt type
-    pub receipt: ReceiptEnum,
-}
-
-pub enum ReceiptEnum {
-    Action(ActionReceipt) = 0,
-    Data(DataReceipt) = 1,
-    PromiseYield(ActionReceipt) = 2,
-    PromiseResume(DataReceipt) = 3,
-    GlobalContractDistribution(GlobalContractDistributionReceipt) = 4,
-    ActionV2(ActionReceiptV2) = 5,
-    PromiseYieldV2(ActionReceiptV2) = 6,
-}
-
-pub struct ActionReceiptV2 {
-    /// A signer of the original transaction
-    pub signer_id: AccountId,
-    /// The receiver of any balance refunds from this receipt if it is different from receiver_id.
-    pub refund_to: Option<AccountId>,
-    /// An access key which was used to sign the original transaction
-    pub signer_public_key: PublicKey,
-    /// A gas_price which has been used to buy gas in the original transaction
-    pub gas_price: Balance,
-    /// If present, where to route the output data
-    pub output_data_receivers: Vec<DataReceiver>,
-    /// A list of the input data dependencies for this Receipt to process.
-    /// If all `input_data_ids` for this receipt are delivered to the account
-    /// that means we have all the `ReceivedData` input which will be then converted to a
-    /// `PromiseResult::Successful(value)` or `PromiseResult::Failed`
-    /// depending on `ReceivedData` is `Some(_)` or `None`
-    pub input_data_ids: Vec<CryptoHash>,
-    /// A list of actions to process when all input_data_ids are filled
-    pub actions: Vec<Action>,
-}
-
-pub enum Action {
-    CreateAccount(CreateAccountAction) = 0,
-    DeployContract(DeployContractAction) = 1,
-    FunctionCall(Box<FunctionCallAction>) = 2,
-    Transfer(TransferAction) = 3,
-    Stake(Box<StakeAction>) = 4,
-    AddKey(Box<AddKeyAction>) = 5,
-    DeleteKey(Box<DeleteKeyAction>) = 6,
-    DeleteAccount(DeleteAccountAction) = 7,
-    Delegate(Box<delegate::SignedDelegateAction>) = 8,
-    DeployGlobalContract(DeployGlobalContractAction) = 9,
-    UseGlobalContract(Box<UseGlobalContractAction>) = 10,
-    DeterministicStateInit(Box<DeterministicStateInitAction>) = 11,
-    TransferToGasKey(Box<TransferToGasKeyAction>) = 12,
-    WithdrawFromGasKey(Box<WithdrawFromGasKeyAction>) = 13,
-}
-
-pub struct AccountV2 {
-    /// The total not locked tokens.
-    amount: Balance,
-    /// The amount locked due to staking.
-    locked: Balance,
-    /// Storage used by the given account, includes account id, this struct, access keys and other data.
-    storage_usage: StorageUsage,
-    /// Type of contract deployed to this account, if any.
-    contract: AccountContract,
-}
-```
-
 Receipts have a `predecessor_id` (the account which created the receipt) and a `receiver_id` (the account where the receipt should execute).
 
 There are a few kinds of receipts:
