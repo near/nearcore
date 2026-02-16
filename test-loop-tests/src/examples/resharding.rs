@@ -49,11 +49,11 @@ fn resharding_example_test() {
         .build()
         .warmup();
 
-    let epoch_manager = env.node(0).client().epoch_manager.clone();
-    let epoch_id = env.node(0).head().epoch_id;
+    let epoch_manager = env.validator().client().epoch_manager.clone();
+    let epoch_id = env.validator().head().epoch_id;
     assert_eq!(epoch_manager.get_shard_layout(&epoch_id).unwrap(), base_shard_layout);
 
-    env.node_runner(0).run_until(
+    env.validator_runner().run_until(
         |node| {
             let epoch_id = node.head().epoch_id;
             epoch_manager.get_shard_layout(&epoch_id).unwrap() == new_shard_layout
@@ -61,7 +61,7 @@ fn resharding_example_test() {
         Duration::seconds((3 * epoch_length) as i64),
     );
 
-    let epoch_id = env.node(0).head().epoch_id;
+    let epoch_id = env.validator().head().epoch_id;
     assert_eq!(epoch_manager.get_shard_layout(&epoch_id).unwrap(), new_shard_layout);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));

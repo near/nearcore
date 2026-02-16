@@ -178,6 +178,14 @@ impl TestLoopEnv {
         &self.test_loop.data
     }
 
+    pub fn validator(&mut self) -> TestLoopNodeV2<'_> {
+        self.node(0)
+    }
+
+    pub fn validator_runner(&mut self) -> NodeRunner<'_> {
+        self.node_runner(0)
+    }
+
     pub fn rpc_node(&mut self) -> TestLoopNodeV2<'_> {
         let idx = self
             .node_datas
