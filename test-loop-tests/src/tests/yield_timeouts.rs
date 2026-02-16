@@ -133,6 +133,44 @@ fn get_yield_data_ids_in_state(
     result
 }
 
+fn get_promise_yield_statuses_in_state(
+    client: &Client,
+    state_root: CryptoHash,
+    shard_uid: ShardUId,
+) -> Vec<(Vec<u8>, Vec<u8>)> {
+    let store = client.chain.chain_store().store();
+    let trie_storage = Arc::new(TrieDBStorage::new(store.trie_store(), shard_uid));
+    let trie = Trie::new(trie_storage, state_root, None);
+    let locked_trie = trie.lock_for_iter();
+    let mut iter = locked_trie.iter().unwrap();
+    iter.seek_prefix(&[col::PROMISE_YIELD_STATUS]).unwrap();
+
+    let mut result = vec![];
+    for item in iter {
+        let (key, val) = item.unwrap();
+        if !key.starts_with(&[col::PROMISE_YIELD_STATUS]) {
+            break;
+        }
+
+        result.push((key, val))
+    }
+    result
+}
+
+/// Assert that there are no leftover PromiseYieldStatus values stored in the Trie.
+pub(crate) fn assert_no_promise_yield_status_in_state(env: &TestLoopEnv) {
+    let client = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap())
+        .client(env.test_loop_data());
+    let head = client.chain.head().unwrap();
+    let epoch_id = head.epoch_id;
+    let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    let shard_uid = shard_layout.account_id_to_shard_uid(&"test0".parse::<AccountId>().unwrap());
+
+    let state_root = get_latest_state_state_root(client, head.last_block_hash, shard_uid);
+    let promise_yield_statuses = get_promise_yield_statuses_in_state(client, state_root, shard_uid);
+    assert_eq!(promise_yield_statuses, Vec::new());
+}
+
 /// Create environment with an unresolved promise yield callback.
 /// Returns the test environment, the yield tx hash, and the data id for resuming the yield.
 fn prepare_env_with_yield(
@@ -353,6 +391,7 @@ fn test_simple_yield_timeout() {
         FinalExecutionStatus::SuccessValue(vec![0u8]),
     );
 
+    assert_no_promise_yield_status_in_state(&env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
@@ -408,6 +447,7 @@ fn test_yield_timeout_under_congestion() {
         Duration::seconds(15),
     );
 
+    assert_no_promise_yield_status_in_state(&env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
@@ -465,6 +505,7 @@ fn test_yield_resume_just_before_timeout() {
         FinalExecutionStatus::SuccessValue(vec![16u8]),
     );
 
+    assert_no_promise_yield_status_in_state(&env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
@@ -523,6 +564,7 @@ fn test_yield_resume_after_timeout_height() {
         Duration::seconds(15),
     );
 
+    assert_no_promise_yield_status_in_state(&env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
@@ -599,5 +641,6 @@ fn test_skip_timeout_height() {
         FinalExecutionStatus::SuccessValue(vec![0u8]),
     );
 
+    assert_no_promise_yield_status_in_state(&env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

@@ -226,9 +226,6 @@ pub fn get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> ShardU
 fn maybe_get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> Option<ShardUId> {
     store
         .caching_get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &child_shard_uid.to_bytes())
-        .unwrap_or_else(|_| {
-            panic!("get_shard_uid_mapping() failed for child_shard_uid = {}", child_shard_uid)
-        })
         .map(|v| *v)
 }
 

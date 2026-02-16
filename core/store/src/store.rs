@@ -74,9 +74,9 @@ impl Store {
         &self,
         column: DBCol,
         key: &[u8],
-    ) -> io::Result<Option<Arc<T>>> {
+    ) -> Option<Arc<T>> {
         let Some(cache) = self.cache.work_with(column) else {
-            return Ok(self.get_ser::<T>(column, key).map(Into::into));
+            return self.get_ser::<T>(column, key).map(Into::into);
         };
 
         let cached_generation = {
@@ -86,7 +86,7 @@ impl Store {
                     // If the value is already cached, try to downcast it to the requested type.
                     // If it fails, we log a debug message and continue to fetch from the database.
                     match Arc::downcast::<T>(Arc::clone(value)) {
-                        Ok(result) => return Ok(Some(result)),
+                        Ok(result) => return Some(result),
                         Err(_) => {
                             tracing::debug!(
                                 target: "store",
@@ -98,7 +98,7 @@ impl Store {
                 } else {
                     // Value is cached as `None`, which means it was previously fetched
                     // but was not found in the database.
-                    return Ok(None);
+                    return None;
                 }
             }
             // If a writer is in progress (active_flushes > 0) the DB may contain
@@ -119,7 +119,7 @@ impl Store {
                 lock.values.put(key.into(), None);
             }
         }
-        Ok(value)
+        value
     }
 
     pub fn exists(&self, column: DBCol, key: &[u8]) -> bool {
@@ -137,8 +137,10 @@ impl Store {
     pub fn iter_ser<'a, T: BorshDeserialize>(
         &'a self,
         col: DBCol,
-    ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
-        self.storage.iter(col).map(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?)))
+    ) -> impl Iterator<Item = (Box<[u8]>, T)> + 'a {
+        self.storage.iter(col).map(|(key, value)| {
+            (key, T::try_from_slice(value.as_ref()).expect("borsh deserialization"))
+        })
     }
 
     /// Fetches raw key/value pairs from the database.
@@ -172,11 +174,11 @@ impl Store {
         &'a self,
         col: DBCol,
         key_prefix: &'a [u8],
-    ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
+    ) -> impl Iterator<Item = (Box<[u8]>, T)> + 'a {
         assert!(col != DBCol::State, "can't iter prefix ser of State column");
-        self.storage
-            .iter_prefix(col, key_prefix)
-            .map(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?)))
+        self.storage.iter_prefix(col, key_prefix).map(|(key, value)| {
+            (key, T::try_from_slice(value.as_ref()).expect("borsh deserialization"))
+        })
     }
 
     /// Saves state (`State` and `FlatState` columns) to given file.
@@ -682,7 +684,7 @@ mod tests {
     }
 
     fn read_cached(store: &Store, key: &[u8]) -> u64 {
-        *store.caching_get_ser::<u64>(COL, key).unwrap().unwrap()
+        *store.caching_get_ser::<u64>(COL, key).unwrap()
     }
 
     /// Writer completes a full write cycle while the reader is between its DB

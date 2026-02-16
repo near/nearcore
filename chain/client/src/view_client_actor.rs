@@ -650,8 +650,7 @@ impl ViewClientActor {
                     Ok(TxStatusView { execution_outcome: Some(res), status })
                 }
                 Err(near_chain::Error::DBNotFoundErr(_)) => {
-                    if let Ok(Some(transaction)) = self.chain.chain_store.get_transaction(&tx_hash)
-                    {
+                    if let Some(transaction) = self.chain.chain_store.get_transaction(&tx_hash) {
                         let transaction =
                             SignedTransactionView::from(Arc::unwrap_or_clone(transaction));
                         if let Ok(tx_outcome) = self.chain.get_execution_outcome(&tx_hash) {
@@ -1209,7 +1208,7 @@ impl Handler<GetReceipt, Result<Option<ReceiptView>, GetReceiptError>> for ViewC
         Ok(self
             .chain
             .chain_store()
-            .get_receipt(&msg.receipt_id)?
+            .get_receipt(&msg.receipt_id)
             .map(|receipt| Receipt::clone(&receipt).into()))
     }
 }

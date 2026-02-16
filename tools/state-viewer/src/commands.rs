@@ -1440,9 +1440,6 @@ fn get_state_stats_group_by<'a>(
         .map(|(type_byte, _)| chunk_view.iter_range(Some(&[*type_byte]), Some(&[*type_byte + 1])))
         .into_iter();
 
-    // Filter out any errors.
-    let type_iters = type_iters.map(|type_iter| type_iter.filter_map(|item| item.ok())).into_iter();
-
     // Read the values from and convert items to StateStatsStateRecord.
     let type_iters = type_iters
         .map(move |type_iter| {

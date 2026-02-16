@@ -90,7 +90,7 @@ impl EpochStoreAdapter {
         let proof = self.store.caching_get_ser::<CompressedEpochSyncProof>(
             DBCol::EpochSyncProof,
             COMPRESSED_EPOCH_SYNC_PROOF_KEY,
-        )?;
+        );
         Ok(proof.as_deref().cloned())
     }
 

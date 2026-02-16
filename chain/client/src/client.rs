@@ -359,7 +359,7 @@ impl Client {
 
         let doomslug = Doomslug::new(
             clock.clone(),
-            chain.chain_store().largest_target_height()?,
+            chain.chain_store().largest_target_height(),
             config.min_block_production_delay,
             config.max_block_production_delay,
             config.max_block_production_delay / 10,
@@ -1177,7 +1177,7 @@ impl Client {
             tracing::debug!(target: "client", head_height = head.height, "dropping a block that is too far ahead");
             return Ok(false);
         }
-        let tail = self.chain.tail()?;
+        let tail = self.chain.tail();
         if block_height < tail {
             tracing::debug!(target: "client", tail_height = tail, "dropping a block that is too far behind");
             return Ok(false);
@@ -1842,7 +1842,8 @@ impl Client {
                 #[cfg(feature = "test_features")]
                 let chain_validate: &dyn Fn(&SignedTransaction) -> bool = {
                     match self.chunk_producer.adversarial.produce_mode {
-                        Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => &|_| true,
+                        Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck)
+                        | Some(AdvProduceChunksMode::ProduceWithoutTxVerification) => &|_| true,
                         _ => &transaction_validity_check,
                     }
                 };
@@ -2079,30 +2080,26 @@ impl Client {
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
-                match self.chain.chain_store().get_all_block_hashes_by_height(*parent_height) {
-                    Ok(hashes) => {
-                        // If there is more than one block at the height, all of them will be
-                        // eligible to build the next block on, so we just pick one.
-                        let hash = hashes.values().flatten().next();
-                        match hash {
-                            Some(hash) => *hash,
-                            None => {
-                                self.handle_process_approval_error(
-                                    approval,
-                                    approval_type,
-                                    true,
-                                    near_chain::Error::DBNotFoundErr(format!(
-                                        "Cannot find any block on height {}",
-                                        parent_height
-                                    )),
-                                );
-                                return;
-                            }
+                {
+                    let hashes =
+                        self.chain.chain_store().get_all_block_hashes_by_height(*parent_height);
+                    // If there is more than one block at the height, all of them will be
+                    // eligible to build the next block on, so we just pick one.
+                    let hash = hashes.values().flatten().next();
+                    match hash {
+                        Some(hash) => *hash,
+                        None => {
+                            self.handle_process_approval_error(
+                                approval,
+                                approval_type,
+                                true,
+                                near_chain::Error::DBNotFoundErr(format!(
+                                    "Cannot find any block on height {}",
+                                    parent_height
+                                )),
+                            );
+                            return;
                         }
-                    }
-                    Err(e) => {
-                        self.handle_process_approval_error(approval, approval_type, true, e);
-                        return;
                     }
                 }
             }

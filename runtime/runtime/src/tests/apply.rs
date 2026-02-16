@@ -3966,8 +3966,9 @@ fn test_gas_key_tx_deposit_insufficient_charges_gas() {
         }
         other => panic!("expected NotEnoughBalanceForDeposit, got {:?}", other),
     }
-    assert_eq!(outcome.outcome.gas_burnt, transaction_cost.gas_burnt);
-    assert_eq!(outcome.outcome.tokens_burnt, transaction_cost.burnt_amount);
+    let total_gas = transaction_cost.gas_burnt.checked_add(transaction_cost.gas_remaining).unwrap();
+    assert_eq!(outcome.outcome.gas_burnt, total_gas);
+    assert_eq!(outcome.outcome.tokens_burnt, transaction_cost.gas_cost);
 
     // Commit and verify state
     let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);

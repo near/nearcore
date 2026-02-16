@@ -49,8 +49,8 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    DataReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
-    ReceiptOrStateStoredReceipt, ReceiptV0, ReceivedData, VersionedActionReceipt,
+    DataReceipt, ProcessedReceipt, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
+    ReceiptOrStateStoredReceipt, ReceiptSource, ReceiptV0, ReceivedData, VersionedActionReceipt,
     VersionedReceiptEnum,
 };
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -61,6 +61,7 @@ use near_primitives::transaction::{
     SignedTransaction, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
+use near_primitives::types::PromiseYieldStatus;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, Compute, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce,
     NonceIndex, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
@@ -77,9 +78,10 @@ use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
     PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_access_key,
-    get_account, get_gas_key_nonce, get_postponed_receipt, get_promise_yield_receipt, get_pure,
-    get_received_data, has_received_data, remove_postponed_receipt, remove_promise_yield_receipt,
-    set, set_access_key, set_account, set_gas_key_nonce, set_postponed_receipt,
+    get_account, get_gas_key_nonce, get_postponed_receipt, get_promise_yield_receipt,
+    get_promise_yield_status, get_pure, get_received_data, has_received_data,
+    remove_postponed_receipt, remove_promise_yield_receipt, remove_promise_yield_status, set,
+    set_access_key, set_account, set_gas_key_nonce, set_postponed_receipt,
     set_promise_yield_receipt, set_received_data,
 };
 use near_vm_runner::ContractCode;
@@ -312,8 +314,7 @@ pub struct ApplyResult {
     pub outcomes: Vec<ExecutionOutcomeWithId>,
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
     pub stats: ChunkApplyStatsV0,
-    pub processed_delayed_receipts: Vec<Receipt>,
-    pub processed_local_receipts: Vec<Receipt>,
+    pub processed_receipts: Vec<ProcessedReceipt>,
     pub processed_yield_timeouts: Vec<PromiseYieldTimeout>,
     pub proof: Option<PartialStorage>,
     pub delayed_receipts_count: u64,
@@ -506,6 +507,7 @@ impl Runtime {
                 metrics::ACTION_CALLED_COUNT.deploy_global_contract.inc();
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 action_deploy_global_contract(
+                    state_update,
                     account,
                     account_id,
                     apply_state,
@@ -1198,6 +1200,19 @@ impl Runtime {
                 set_promise_yield_receipt(state_update, receipt);
             }
             VersionedReceiptEnum::PromiseResume(data_receipt) => {
+                if data_receipt.data.is_none()
+                    && ProtocolFeature::YieldResumeImprovements
+                        .enabled(apply_state.current_protocol_version)
+                {
+                    // This is a timeout resume. Check the status to see if the receipt has been resumed.
+                    let status =
+                        get_promise_yield_status(state_update, account_id, data_receipt.data_id)?;
+                    if status == Some(PromiseYieldStatus::ResumeInitiated) {
+                        // A non-timeout resume receipt has been sent, cancel the timeout.
+                        return Ok(None);
+                    }
+                }
+
                 // Received a new PromiseResume receipt delivering input data for a PromiseYield.
                 // It is guaranteed that the PromiseYield has exactly one input data dependency
                 // and that it arrives first, so we can simply find and execute it.
@@ -1206,6 +1221,13 @@ impl Runtime {
                 {
                     // Remove the receipt from the state
                     remove_promise_yield_receipt(state_update, account_id, data_receipt.data_id);
+
+                    if ProtocolFeature::YieldResumeImprovements
+                        .enabled(apply_state.current_protocol_version)
+                    {
+                        // Clear the PromiseYield status
+                        remove_promise_yield_status(state_update, account_id, data_receipt.data_id);
+                    }
 
                     // Save the data into the state keyed by the data_id
                     set_received_data(
@@ -1926,12 +1948,18 @@ impl Runtime {
             let (outcome, result) = match verdict {
                 TxVerdict::DepositFailed { result, error } => {
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
-                    tracing::debug!(%tx_hash, error = &error as &dyn std::error::Error, "gas key transaction failed deposit check, charging gas");
+                    tracing::debug!(
+                        %tx_hash,
+                        error = &error as &dyn std::error::Error,
+                        "gas key transaction failed deposit check, charging gas"
+                    );
+                    // All prepaid gas is burnt (no receipt created to refund remaining gas).
+                    let total_gas = cost.gas_burnt.checked_add_result(cost.gas_remaining)?;
                     let outcome = ExecutionOutcomeWithId::failed_with_gas_burnt(
                         tx,
                         error,
-                        result.gas_burnt,
-                        result.burnt_amount,
+                        total_gas,
+                        cost.gas_cost,
                     );
                     (outcome, result)
                 }
@@ -2138,7 +2166,7 @@ impl Runtime {
         receipt_sink: &mut ReceiptSink,
         compute_limit: u64,
         validator_proposals: &mut Vec<ValidatorStake>,
-    ) -> Result<Vec<Receipt>, RuntimeError> {
+    ) -> Result<(), RuntimeError> {
         let local_processing_start = std::time::Instant::now();
         let local_receipt_count = processing_state.local_receipts.len();
         let local_receipts = std::mem::take(&mut processing_state.local_receipts);
@@ -2159,7 +2187,6 @@ impl Runtime {
             &mut prep_lookahead_iter,
         );
 
-        let mut processed_local_receipts = vec![];
         for receipt in &local_receipts {
             if processing_state.total.compute >= compute_limit
                 || processing_state.state_update.trie.check_proof_size_limit_exceed()
@@ -2191,7 +2218,10 @@ impl Runtime {
                     receipt_sink,
                     validator_proposals,
                 )?;
-                processed_local_receipts.push(receipt.clone());
+                processing_state.processed_receipts.push(ProcessedReceipt {
+                    receipt: receipt.clone(),
+                    source: ReceiptSource::Local,
+                });
             }
         }
 
@@ -2204,7 +2234,7 @@ impl Runtime {
             processing_state.total.gas,
             processing_state.total.compute,
         );
-        Ok(processed_local_receipts)
+        Ok(())
     }
 
     #[instrument(
@@ -2220,11 +2250,10 @@ impl Runtime {
         receipt_sink: &mut ReceiptSink,
         compute_limit: u64,
         validator_proposals: &mut Vec<ValidatorStake>,
-    ) -> Result<Vec<Receipt>, RuntimeError> {
+    ) -> Result<(), RuntimeError> {
         let delayed_processing_start = std::time::Instant::now();
         let protocol_version = processing_state.protocol_version;
         let mut delayed_receipt_count = 0;
-        let mut processed_delayed_receipts = vec![];
 
         let mut next_schedule_after = {
             let mut prep_lookahead_iter =
@@ -2293,7 +2322,9 @@ impl Runtime {
                 receipt_sink,
                 validator_proposals,
             )?;
-            processed_delayed_receipts.push(receipt);
+            processing_state
+                .processed_receipts
+                .push(ProcessedReceipt { receipt, source: ReceiptSource::Delayed });
         }
         let span = tracing::Span::current();
         span.record("gas_burnt", processing_state.total.gas);
@@ -2305,7 +2336,7 @@ impl Runtime {
             processing_state.total.compute,
         );
 
-        Ok(processed_delayed_receipts)
+        Ok(())
     }
 
     #[instrument(target = "runtime", level = "debug", "process_incoming_receipts", skip_all, fields(
@@ -2412,6 +2443,10 @@ impl Runtime {
                 receipt_sink,
                 validator_proposals,
             )?;
+            processing_state.processed_receipts.push(ProcessedReceipt {
+                receipt: instant_receipt,
+                source: ReceiptSource::Instant,
+            });
         }
 
         Ok(())
@@ -2439,7 +2474,7 @@ impl Runtime {
         let compute_limit = apply_state.gas_limit.map(|g| g.as_gas()).unwrap_or(u64::MAX);
 
         // We first process local receipts. They contain staking, local contract calls, etc.
-        let processed_local_receipts = self.process_local_receipts(
+        self.process_local_receipts(
             processing_state,
             receipt_sink,
             compute_limit,
@@ -2447,7 +2482,7 @@ impl Runtime {
         )?;
 
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
-        let processed_delayed_receipts = self.process_delayed_receipts(
+        self.process_delayed_receipts(
             processing_state,
             receipt_sink,
             compute_limit,
@@ -2481,12 +2516,7 @@ impl Runtime {
                 .inc();
         }
 
-        Ok(ProcessReceiptsResult {
-            promise_yield_result,
-            validator_proposals,
-            processed_delayed_receipts,
-            processed_local_receipts,
-        })
+        Ok(ProcessReceiptsResult { promise_yield_result, validator_proposals })
     }
 
     #[instrument(
@@ -2510,14 +2540,10 @@ impl Runtime {
             mut state_update,
             delayed_receipts: pending_delayed_receipts,
             prefetcher,
+            processed_receipts,
             ..
         } = processing_state;
-        let ProcessReceiptsResult {
-            promise_yield_result,
-            processed_delayed_receipts,
-            processed_local_receipts,
-            ..
-        } = process_receipts_result;
+        let ProcessReceiptsResult { promise_yield_result, .. } = process_receipts_result;
         let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
 
         if promise_yield_result.promise_yield_indices
@@ -2633,8 +2659,7 @@ impl Runtime {
             outcomes: processing_state.outcomes,
             state_changes,
             stats,
-            processed_delayed_receipts,
-            processed_local_receipts,
+            processed_receipts,
             processed_yield_timeouts,
             proof,
             delayed_receipts_count,
@@ -2767,8 +2792,7 @@ fn missing_chunk_apply_result(
         outcomes: vec![],
         state_changes,
         stats: processing_state.stats,
-        processed_delayed_receipts: vec![],
-        processed_local_receipts: vec![],
+        processed_receipts: vec![],
         processed_yield_timeouts: vec![],
         proof,
         delayed_receipts_count: delayed_receipts.upper_bound_len(),
@@ -2895,8 +2919,6 @@ impl TotalResourceGuard {
 struct ProcessReceiptsResult {
     promise_yield_result: ResolvePromiseYieldTimeoutsResult,
     validator_proposals: Vec<ValidatorStake>,
-    processed_delayed_receipts: Vec<Receipt>,
-    processed_local_receipts: Vec<Receipt>,
 }
 
 struct ResolvePromiseYieldTimeoutsResult {
@@ -2970,6 +2992,7 @@ impl<'a> ApplyProcessingState<'a> {
             instant_receipts: VecDeque::new(),
             incoming_receipts,
             delayed_receipts,
+            processed_receipts: Vec::new(),
         }
     }
 }
@@ -2993,6 +3016,7 @@ struct ApplyProcessingReceiptState<'a> {
     incoming_receipts: &'a [Receipt],
     delayed_receipts: DelayedReceiptQueueWrapper<'a>,
     pipeline_manager: pipelining::ReceiptPreparationPipeline,
+    processed_receipts: Vec<ProcessedReceipt>,
 }
 
 trait MaybeRefReceipt {

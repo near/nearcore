@@ -37,7 +37,6 @@ impl ChunkStoreAdapter {
     ) -> Result<Arc<PartialEncodedChunk>, ChunkAccessError> {
         self.store
             .caching_get_ser(DBCol::PartialChunks, chunk_hash.as_ref())
-            .expect("Borsh should not have failed here")
             .ok_or_else(|| ChunkAccessError::ChunkMissing(chunk_hash.clone()))
     }
 
@@ -84,7 +83,7 @@ impl ChunkStoreAdapter {
     ) -> Result<Arc<ChunkExtra>, Error> {
         option_to_not_found(
             self.store
-                .caching_get_ser(DBCol::ChunkExtra, &get_block_shard_uid(block_hash, shard_uid))?,
+                .caching_get_ser(DBCol::ChunkExtra, &get_block_shard_uid(block_hash, shard_uid)),
             format_args!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid),
         )
     }

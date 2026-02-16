@@ -175,7 +175,7 @@ pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
     store_update: &mut StoreUpdate,
     header: &BlockHeader,
 ) -> Result<(), Error> {
-    let sync_hash = chain_store.get_current_epoch_sync_hash(header.epoch_id())?;
+    let sync_hash = chain_store.get_current_epoch_sync_hash(header.epoch_id());
     if sync_hash.is_some() || header.height() == chain_store.get_genesis_height() {
         return Ok(());
     }
@@ -219,7 +219,7 @@ pub(crate) fn is_sync_prev_hash(chain_store: &ChainStoreAdapter, tip: &Tip) -> R
     // found yet. But we still need to check this because it's possible that the sync hash was found
     // during header sync, in which case the contents of the StateSyncNewChunks column will have been cleared,
     // and the conditions below can't be checked.
-    if let Some(sync_hash) = chain_store.get_current_epoch_sync_hash(&tip.epoch_id)? {
+    if let Some(sync_hash) = chain_store.get_current_epoch_sync_hash(&tip.epoch_id) {
         let sync_header = chain_store.get_block_header(&sync_hash)?;
         return Ok(sync_header.prev_hash() == &tip.last_block_hash);
     }
@@ -250,7 +250,7 @@ impl Chain {
             return Ok(None);
         }
         let header = self.get_block_header(block_hash)?;
-        self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
+        Ok(self.chain_store.get_current_epoch_sync_hash(header.epoch_id()))
     }
 
     /// Select the block hash we are using to sync state. It will sync with the state before applying the
