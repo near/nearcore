@@ -1,9 +1,9 @@
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressIterator};
-use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::flat_store::FlatStoreAdapter;
+use near_store::flat::FlatStorageStatus;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Write};
 use std::path::Path;
@@ -167,12 +167,19 @@ impl PerfContext {
 
 fn generate_state_requests(store: FlatStoreAdapter, samples: usize) -> Vec<(ShardUId, ValueRef)> {
     eprintln!("Generate {samples} requests to State");
-    let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let shard_uids = epoch_config_store
-        .get_config(PROTOCOL_VERSION)
-        .static_shard_layout()
-        .shard_uids()
-        .collect::<Vec<_>>();
+    // Retrieve shard UIDs from the database by reading which shards have flat storage ready.
+    // Reading them from epoch config store would not work with dynamic resharding.
+    let shard_uids: Vec<ShardUId> = store
+        .store_ref()
+        .iter(DBCol::FlatStorageStatus)
+        .filter_map(|(key, _)| {
+            let shard_uid = ShardUId::try_from(key.as_ref()).ok()?;
+            match store.get_flat_storage_status(shard_uid) {
+                FlatStorageStatus::Ready(_) => Some(shard_uid),
+                _ => None,
+            }
+        })
+        .collect();
     let num_shards = shard_uids.len();
     let mut ret = Vec::new();
     let progress = ProgressBar::new(samples as u64);

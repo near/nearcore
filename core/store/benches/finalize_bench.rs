@@ -16,10 +16,10 @@ use borsh::BorshSerialize;
 use near_chain::Chain;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePathItem, merklize};
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptV0};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
     PartialEncodedChunkV2, ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV3,
@@ -244,8 +244,9 @@ fn encoded_chunk_to_partial_encoded_chunk(
     let header = encoded_chunk.cloned_header();
     let shard_id = header.shard_id();
 
-    let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let shard_layout = epoch_config_store.get_config(PROTOCOL_VERSION).static_shard_layout();
+    // Single shard is sufficient: all benchmark receipts use the same receiver
+    // account, so they all land in one shard regardless of layout.
+    let shard_layout = ShardLayout::single_shard();
 
     let hashes = Chain::build_receipts_hashes(&receipts, &shard_layout).unwrap();
     let (_root, proofs) = merklize(&hashes);

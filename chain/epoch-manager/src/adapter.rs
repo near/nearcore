@@ -17,7 +17,7 @@ use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
     ValidatorInfoIdentifier,
 };
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
 use near_store::ShardUId;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
@@ -162,7 +162,9 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
-        self.get_epoch_config(epoch_id).map(ShardConfig::new)
+        let epoch_config = self.get_epoch_config(epoch_id)?;
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        Ok(ShardConfig::new(epoch_config, shard_layout))
     }
 
     /// For each `ShardId` in the current block, returns its parent `ShardInfo`
@@ -289,13 +291,9 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(shard_layout != prev_shard_layout)
     }
 
-    // TODO(dynamic_resharding): remove this method
-    fn static_shard_layout_for_protocol_version(
-        &self,
-        protocol_version: ProtocolVersion,
-    ) -> ShardLayout;
-
-    fn try_static_shard_layout_for_protocol_version(
+    /// Get *static* shard layout for the given protocol version.
+    /// Returns `None` if the epoch config for this protocol version has dynamic layout.
+    fn get_static_shard_layout_for_protocol_version(
         &self,
         protocol_version: ProtocolVersion,
     ) -> Option<ShardLayout>;
@@ -760,7 +758,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         client_protocol_version: ProtocolVersion,
     ) -> Result<HashSet<ShardUId>, Error> {
         let Some(head_shard_layout) =
-            self.try_static_shard_layout_for_protocol_version(head_protocol_version)
+            self.get_static_shard_layout_for_protocol_version(head_protocol_version)
         else {
             // With dynamic resharding enabled, there is no point in trying to preload shards
             // pending resharding, as they cannot be known upfront.
@@ -879,22 +877,12 @@ impl EpochManagerAdapter for EpochManagerHandle {
         self.read().get_epoch_start_from_epoch_id(epoch_id)
     }
 
-    // TODO(dynamic_resharding): remove this method
-    fn static_shard_layout_for_protocol_version(
-        &self,
-        protocol_version: ProtocolVersion,
-    ) -> ShardLayout {
-        debug_assert!(!ProtocolFeature::DynamicResharding.enabled(protocol_version));
-        let epoch_manager = self.read();
-        epoch_manager.get_epoch_config(protocol_version).static_shard_layout()
-    }
-
-    fn try_static_shard_layout_for_protocol_version(
+    fn get_static_shard_layout_for_protocol_version(
         &self,
         protocol_version: ProtocolVersion,
     ) -> Option<ShardLayout> {
         let epoch_manager = self.read();
-        epoch_manager.get_epoch_config(protocol_version).try_static_shard_layout()
+        epoch_manager.get_epoch_config(protocol_version).static_shard_layout()
     }
 
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {

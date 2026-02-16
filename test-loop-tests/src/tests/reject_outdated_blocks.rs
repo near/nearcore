@@ -8,7 +8,6 @@ use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_crypto::InMemorySigner;
 use near_crypto::KeyType;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, AccountInfo, Balance};
@@ -42,7 +41,6 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
     init_test_logger();
 
     let test_loop_builder = TestLoopBuilder::new();
-    let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let epoch_length = 10;
 
     let initial_balance = Balance::from_near(1_000_000);
@@ -57,7 +55,6 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
 
     let genesis = TestGenesisBuilder::new()
         .genesis_time_from_clock(&test_loop_builder.clock())
-        .shard_layout(epoch_config_store.get_config(PROTOCOL_VERSION).static_shard_layout())
         .epoch_length(epoch_length)
         .validators_spec(ValidatorsSpec::raw(validators, 3, 3, 3))
         .max_inflation_rate(Rational32::new(0, 1))
@@ -66,7 +63,7 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
 
     let TestLoopEnv { mut test_loop, node_datas, shared_state } = test_loop_builder
         .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
+        .epoch_config_store_from_genesis()
         .clients(clients)
         .build()
         .warmup();
