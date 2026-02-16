@@ -68,8 +68,7 @@ fn load_memtrie_single_thread(
     let mut arena = STArena::new(shard_uid.to_string());
     let mut recon = TrieConstructor::new(&mut arena);
     let mut num_keys_loaded = 0;
-    for item in store.flat_store().iter(shard_uid) {
-        let (key, value) = item?;
+    for (key, value) in store.flat_store().iter(shard_uid) {
         recon.add_leaf(NibbleSlice::new(&key), value);
         num_keys_loaded += 1;
         if num_keys_loaded % 1000000 == 0 {
@@ -93,12 +92,6 @@ fn get_state_root(
 ) -> Result<StateRoot, StorageError> {
     let chunk_extra = store
         .get_ser::<ChunkExtra>(DBCol::ChunkExtra, &get_block_shard_uid(&block_hash, &shard_uid))
-        .map_err(|err| {
-            StorageError::StorageInconsistentState(format!(
-                "Cannot fetch ChunkExtra for block {} in shard {}: {:?}",
-                block_hash, shard_uid, err
-            ))
-        })?
         .ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "No ChunkExtra for block {} in shard {}",
@@ -122,7 +115,7 @@ pub fn load_trie_from_flat_state_and_delta(
 ) -> Result<MemTries, StorageError> {
     tracing::debug!(target: "memtrie", %shard_uid, "loading base trie from flat state");
     let flat_store = store.flat_store();
-    let flat_head = match flat_store.get_flat_storage_status(shard_uid)? {
+    let flat_head = match flat_store.get_flat_storage_status(shard_uid) {
         FlatStorageStatus::Ready(status) => status.flat_head,
         FlatStorageStatus::Resharding(FlatStorageReshardingStatus::SplittingParent(status)) => {
             tracing::warn!(
@@ -151,14 +144,13 @@ pub fn load_trie_from_flat_state_and_delta(
     // We load the deltas in order of height, so that we always have the previous state root
     // already loaded.
     let mut sorted_deltas: BTreeSet<(BlockHeight, CryptoHash, CryptoHash)> = Default::default();
-    for delta in flat_store.get_all_deltas_metadata(shard_uid).unwrap() {
+    for delta in flat_store.get_all_deltas_metadata(shard_uid) {
         sorted_deltas.insert((delta.block.height, delta.block.hash, delta.block.prev_hash));
     }
 
     tracing::debug!(target: "memtrie", %shard_uid, num_deltas = sorted_deltas.len(), "deltas to apply");
     for (height, hash, prev_hash) in sorted_deltas {
-        let delta = flat_store.get_delta(shard_uid, hash).unwrap();
-        if let Some(changes) = delta {
+        if let Some(changes) = flat_store.get_delta(shard_uid, hash) {
             let old_state_root = get_state_root(store, prev_hash, shard_uid)?;
             let new_state_root = get_state_root(store, hash, shard_uid)?;
 
@@ -539,9 +531,11 @@ mod tests {
     ) {
         let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
         let mut store_update = store.store_update();
-        store_update
-            .set_ser(DBCol::ChunkExtra, &get_block_shard_uid(&block_hash, &shard_uid), &chunk_extra)
-            .unwrap();
+        store_update.set_ser(
+            DBCol::ChunkExtra,
+            &get_block_shard_uid(&block_hash, &shard_uid),
+            &chunk_extra,
+        );
         store_update.commit();
     }
 }

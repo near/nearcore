@@ -5,12 +5,17 @@ use near_primitives::account::id::AccountType;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, PromiseYieldStatus,
+};
 use near_primitives::utils::create_receipt_id_from_action_hash;
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::contract::ContractStorage;
 use near_store::trie::{AccessOptions, AccessTracker};
-use near_store::{KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, has_promise_yield_receipt};
+use near_store::{
+    KeyLookupMode, TrieUpdate, TrieUpdateValuePtr, has_promise_yield_receipt,
+    has_promise_yield_status, set_promise_yield_status,
+};
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
 use near_vm_runner::logic::types::{
     ActionIndex, GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex,
@@ -343,9 +348,21 @@ impl<'a> External for RuntimeExt<'a> {
         receiver_id: AccountId,
     ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError> {
         let input_data_id = self.generate_data_id();
-        self.receipt_manager
-            .create_promise_yield_receipt(input_data_id, receiver_id)
-            .map(|receipt_index| (receipt_index, input_data_id))
+        let receipt_index = self
+            .receipt_manager
+            .create_promise_yield_receipt(input_data_id, receiver_id.clone())
+            .map(|receipt_index| (receipt_index, input_data_id))?;
+
+        if ProtocolFeature::YieldResumeImprovements.enabled(self.current_protocol_version) {
+            set_promise_yield_status(
+                &mut self.trie_update,
+                &receiver_id,
+                input_data_id,
+                PromiseYieldStatus::Yielded,
+            );
+        }
+
+        Ok(receipt_index)
     }
 
     fn submit_promise_resume_data(
@@ -353,17 +370,37 @@ impl<'a> External for RuntimeExt<'a> {
         data_id: CryptoHash,
         data: Vec<u8>,
     ) -> Result<bool, VMLogicError> {
-        // If the yielded promise was created by a previous transaction, we'll find it in the trie
-        if has_promise_yield_receipt(self.trie_update, self.account_id.clone(), data_id)
-            .map_err(wrap_storage_error)?
-        {
-            self.receipt_manager.create_promise_resume_receipt(data_id, data)?;
-            return Ok(true);
-        }
+        let has_yield_receipt_in_state =
+            has_promise_yield_receipt(self.trie_update, self.account_id.clone(), data_id)
+                .map_err(wrap_storage_error)?;
 
-        // If the yielded promise was created by the current transaction, we'll find it in the
-        // receipt manager.
-        self.receipt_manager.checked_resolve_promise_yield(data_id, data)
+        if ProtocolFeature::YieldResumeImprovements.enabled(self.current_protocol_version) {
+            let has_yield_status_in_state =
+                has_promise_yield_status(self.trie_update, &self.account_id, data_id)
+                    .map_err(wrap_storage_error)?;
+
+            if has_yield_receipt_in_state || has_yield_status_in_state {
+                self.receipt_manager.create_promise_resume_receipt(data_id, data)?;
+                set_promise_yield_status(
+                    &mut self.trie_update,
+                    &self.account_id,
+                    data_id,
+                    PromiseYieldStatus::ResumeInitiated,
+                );
+                return Ok(true);
+            }
+
+            Ok(false)
+        } else {
+            if has_yield_receipt_in_state {
+                self.receipt_manager.create_promise_resume_receipt(data_id, data)?;
+                return Ok(true);
+            }
+
+            // If the yielded promise was created by the current transaction, we'll find it in the
+            // receipt manager.
+            self.receipt_manager.checked_resolve_promise_yield(data_id, data)
+        }
     }
 
     fn append_action_create_account(

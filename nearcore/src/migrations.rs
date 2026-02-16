@@ -215,7 +215,7 @@ fn update_epoch_sync_proof(
     // Note that while accessing the proof, we need to read directly from DBCol::EpochSyncProof
     // as we can't use the epoch_store.get_epoch_sync_proof() method due to
     // ProtocolFeature::ContinuousEpochSync being enabled
-    if let Some(proof) = store.get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[]).unwrap() {
+    if let Some(proof) = store.get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[]) {
         let mut store_update = epoch_store.store_update();
         store_update.set_epoch_sync_proof(&proof);
         store_update.commit();
@@ -241,14 +241,14 @@ fn update_epoch_sync_proof(
 // as the headers that are stored in DBCol::BlockHeader
 fn verify_block_headers(store: &Store) -> anyhow::Result<()> {
     let chain_store = store.chain_store();
-    let tail_height = chain_store.tail().unwrap();
+    let tail_height = chain_store.tail();
     let latest_known_height =
-        store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY)?.unwrap().height;
+        store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY).unwrap().height;
 
     tracing::info!(target: "migrations", ?tail_height, ?latest_known_height, "verifying block headers before deletion");
 
     for height in tail_height..(latest_known_height + 1) {
-        for block_hash in chain_store.get_all_header_hashes_by_height(height)? {
+        for block_hash in chain_store.get_all_header_hashes_by_height(height) {
             let block = match chain_store.get_block(&block_hash) {
                 Ok(block) => block,
                 // It's possible that some blocks are missing in the DB when we have forks etc.
@@ -272,15 +272,15 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
     store_update.delete_all(DBCol::BlockHeader);
     store_update.commit();
     let chain_store = store.chain_store();
-    let tail_height = chain_store.tail().unwrap();
+    let tail_height = chain_store.tail();
     let latest_known_height =
-        store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY)?.unwrap().height;
+        store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY).unwrap().height;
 
     tracing::info!(target: "migrations", ?tail_height, ?latest_known_height, "adding required block headers to hot store");
 
     let mut store_update = chain_store.store_update();
     for height in tail_height..(latest_known_height + 1) {
-        for block_hash in chain_store.get_all_header_hashes_by_height(height)? {
+        for block_hash in chain_store.get_all_header_hashes_by_height(height) {
             // We've already checked for errors and missing blocks in the verify_block_headers function
             if let Ok(block) = chain_store.get_block(&block_hash) {
                 store_update.set_block_header_only(block.header());

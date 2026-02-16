@@ -48,7 +48,7 @@ impl WriteCryptoHashCommand {
                         DBCol::BlockMisc,
                         near_store::STATE_SNAPSHOT_KEY,
                         &self.hash,
-                    )?;
+                    );
                 }
             },
         }

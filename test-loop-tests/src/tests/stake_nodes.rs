@@ -176,7 +176,7 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
             }
             // Also wait for kicked nodes' locked amounts to return to zero
             for i in 0..2 {
-                let view = node.view_account_query(test_loop_data, &accounts[i]);
+                let view = node.view_account_query(test_loop_data, &accounts[i]).unwrap();
                 if !view.locked.is_zero() {
                     return false;
                 }
@@ -189,7 +189,7 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
     // Verify kicked nodes have locked == 0 and stake returned to balance
     let expected_balance = TESTING_INIT_BALANCE.checked_add(TESTING_INIT_STAKE).unwrap();
     for i in 0..2 {
-        let view = node.view_account_query(&env.test_loop.data, &accounts[i]);
+        let view = node.view_account_query(&env.test_loop.data, &accounts[i]).unwrap();
         assert!(view.locked.is_zero(), "kicked node {i}");
         assert_eq!(view.amount, expected_balance, "kicked node {i}");
     }
@@ -197,7 +197,7 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
     // Verify remaining validators have locked == TESTING_INIT_STAKE
     // Note: Genesis builder sets amount separately from validator stake (not deducted)
     for i in 2..4 {
-        let view = node.view_account_query(&env.test_loop.data, &accounts[i]);
+        let view = node.view_account_query(&env.test_loop.data, &accounts[i]).unwrap();
         assert_eq!(view.locked, TESTING_INIT_STAKE, "remaining validator {i}");
         assert_eq!(view.amount, TESTING_INIT_BALANCE, "remaining validator {i}");
     }
@@ -289,12 +289,12 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
                 return false;
             }
             // Wait for node1's locked amount to return to zero
-            let view = node.view_account_query(test_loop_data, &accounts[1]);
+            let view = node.view_account_query(test_loop_data, &accounts[1]).unwrap();
             if !view.locked.is_zero() {
                 return false;
             }
             // Wait for node2's locked amount to equal TESTING_INIT_STAKE
-            let view = node.view_account_query(test_loop_data, &accounts[2]);
+            let view = node.view_account_query(test_loop_data, &accounts[2]).unwrap();
             view.locked == TESTING_INIT_STAKE
         },
         Duration::seconds(120),
