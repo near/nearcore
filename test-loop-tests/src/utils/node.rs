@@ -13,6 +13,7 @@ use near_client::{Client, ProcessTxRequest, Query, QueryError, ViewClientActor};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
+use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
@@ -357,6 +358,21 @@ impl<'a> TestLoopNode<'a> {
             panic!("unexpected query response type")
         };
         Ok(account_view)
+    }
+
+    pub fn get_next_nonce(&self, test_loop_data: &TestLoopData, account_id: &AccountId) -> u64 {
+        let signer: near_crypto::Signer = create_user_test_signer(account_id);
+        let response = self.runtime_query(
+            test_loop_data,
+            QueryRequest::ViewAccessKey {
+                account_id: account_id.clone(),
+                public_key: signer.public_key(),
+            },
+        );
+        let QueryResponseKind::AccessKey(access_key) = response.unwrap().kind else {
+            panic!("Expected AccessKey response");
+        };
+        access_key.nonce + 1
     }
 
     #[cfg(feature = "test_features")]
