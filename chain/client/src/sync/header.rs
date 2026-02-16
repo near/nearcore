@@ -946,8 +946,7 @@ mod test {
         }
 
         let head = chain.head().unwrap();
-        let mut sync_status =
-            SyncStatus::StateSync(StateSyncStatus::new(head.last_block_hash.clone()));
+        let mut sync_status = SyncStatus::StateSync(StateSyncStatus::new(head.last_block_hash));
 
         let peer1 = FullPeerInfo {
             peer_info: PeerInfo::random(),
