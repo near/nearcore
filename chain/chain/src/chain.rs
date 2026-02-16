@@ -1090,7 +1090,7 @@ impl Chain {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
             let chunk_hash = chunk_header.chunk_hash();
             // Check if any chunks are invalid in this block.
-            if let Some(encoded_chunk) = self.chain_store.is_invalid_chunk(chunk_hash)? {
+            if let Some(encoded_chunk) = self.chain_store.is_invalid_chunk(chunk_hash) {
                 let merkle_paths = block.chunks().compute_chunk_headers_root().1;
                 let merkle_proof =
                     merkle_paths.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;

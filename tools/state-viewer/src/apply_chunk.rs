@@ -43,7 +43,7 @@ fn get_incoming_receipts(
 ) -> anyhow::Result<Vec<Receipt>> {
     let mut receipt_proofs = vec![];
 
-    let chunk_hashes = chain_store.chunk_store().get_all_chunk_hashes_by_height(target_height)?;
+    let chunk_hashes = chain_store.chunk_store().get_all_chunk_hashes_by_height(target_height);
     if !chunk_hashes.contains(chunk_hash) {
         return Err(anyhow!(
             "given chunk hash is not listed in DBCol::ChunkHashesByHeight[{}]",
