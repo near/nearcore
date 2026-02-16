@@ -6,8 +6,7 @@ use near_primitives::action::DeployGlobalContractAction;
 use near_primitives::errors::IntegerOverflowError;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 use near_parameters::{
-    ActionCosts, ExtCosts, ExtCostsConfig, RuntimeConfig, RuntimeFeesConfig, transfer_exec_fee,
-    transfer_send_fee,
+    ActionCosts, RuntimeConfig, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee,
 };
 pub use near_primitives::num_rational::Rational32;
 use near_primitives::transaction::{Action, DeployContractAction, Transaction};
@@ -47,38 +46,29 @@ pub fn safe_add_compute(a: Compute, b: Compute) -> Result<Compute, IntegerOverfl
     a.checked_add(b).ok_or(IntegerOverflowError {})
 }
 
-fn storage_read_gas(ext: &ExtCostsConfig, key_len: usize, value_len: usize) -> Gas {
-    let key_len = key_len as u64;
-    let value_len = value_len as u64;
-    ext.gas_cost(ExtCosts::storage_read_base)
-        .checked_add(ext.gas_cost(ExtCosts::storage_read_key_byte).checked_mul(key_len).unwrap())
-        .unwrap()
-        .checked_add(
-            ext.gas_cost(ExtCosts::storage_read_value_byte).checked_mul(value_len).unwrap(),
-        )
-        .unwrap()
-}
-
-fn storage_write_gas(ext: &ExtCostsConfig, key_len: usize, value_len: usize) -> Gas {
-    let key_len = key_len as u64;
-    let value_len = value_len as u64;
-    ext.gas_cost(ExtCosts::storage_write_base)
-        .checked_add(ext.gas_cost(ExtCosts::storage_write_key_byte).checked_mul(key_len).unwrap())
-        .unwrap()
-        .checked_add(
-            ext.gas_cost(ExtCosts::storage_write_value_byte).checked_mul(value_len).unwrap(),
-        )
-        .unwrap()
-}
-
 fn gas_key_transfer_send_fee(
     fees: &RuntimeFeesConfig,
     sender_is_receiver: bool,
     public_key_len: usize,
 ) -> Gas {
     let base_fee = fees.fee(ActionCosts::gas_key_transfer_base).send_fee(sender_is_receiver);
-    let byte_fee = fees.fee(ActionCosts::gas_key_byte).send_fee(sender_is_receiver);
-    base_fee.checked_add(byte_fee.checked_mul(public_key_len as u64).unwrap()).unwrap()
+    let key_byte_fee = fees.fee(ActionCosts::gas_key_key_byte).send_fee(sender_is_receiver);
+    base_fee.checked_add(key_byte_fee.checked_mul(public_key_len as u64).unwrap()).unwrap()
+}
+
+fn gas_key_transfer_exec_fee(
+    fees: &RuntimeFeesConfig,
+    ak_key_len: usize,
+    estimated_value_len: usize,
+) -> Gas {
+    let base_fee = fees.fee(ActionCosts::gas_key_transfer_base).exec_fee();
+    let key_byte_fee = fees.fee(ActionCosts::gas_key_key_byte).exec_fee();
+    let value_byte_fee = fees.fee(ActionCosts::gas_key_value_byte).exec_fee();
+    base_fee
+        .checked_add(key_byte_fee.checked_mul(ak_key_len as u64).unwrap())
+        .unwrap()
+        .checked_add(value_byte_fee.checked_mul(estimated_value_len as u64).unwrap())
+        .unwrap()
 }
 
 /// Total sum of gas that needs to be burnt to send these actions.
@@ -223,7 +213,7 @@ fn permission_send_fees(
     };
     let gas_key_info_fee = match permission {
         AccessKeyPermission::GasKeyFunctionCall(..) | AccessKeyPermission::GasKeyFullAccess(_) => {
-            let byte_fee = fees.fee(ActionCosts::gas_key_byte).send_fee(sender_is_receiver);
+            let byte_fee = fees.fee(ActionCosts::gas_key_key_byte).send_fee(sender_is_receiver);
             byte_fee.checked_mul(GasKeyInfo::borsh_len() as u64).unwrap()
         }
         _ => Gas::ZERO,
@@ -330,32 +320,14 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
         }
         TransferToGasKey(action) => {
-            let ext = &config.wasm_config.ext_costs;
             let ak_key_len = access_key_key_len(receiver_id, &action.public_key);
-            // Use minimum as an estimate for the value length. At the time of sending,
-            // we don't know the variable portion (FunctionCallPermission) of the
-            // specified gas key to transfer to.
             let estimated_value_len = AccessKey::min_gas_key_borsh_len();
-            fees.fee(ActionCosts::gas_key_transfer_base)
-                .exec_fee()
-                .checked_add(storage_read_gas(ext, ak_key_len, estimated_value_len))
-                .unwrap()
-                .checked_add(storage_write_gas(ext, ak_key_len, estimated_value_len))
-                .unwrap()
+            gas_key_transfer_exec_fee(fees, ak_key_len, estimated_value_len)
         }
         WithdrawFromGasKey(action) => {
-            let ext = &config.wasm_config.ext_costs;
             let ak_key_len = access_key_key_len(receiver_id, &action.public_key);
-            // Use minimum as an estimate for the value length. At the time of sending,
-            // we don't know the variable portion (FunctionCallPermission) of the
-            // specified gas key to withdraw from.
             let estimated_value_len = AccessKey::min_gas_key_borsh_len();
-            fees.fee(ActionCosts::gas_key_transfer_base)
-                .exec_fee()
-                .checked_add(storage_read_gas(ext, ak_key_len, estimated_value_len))
-                .unwrap()
-                .checked_add(storage_write_gas(ext, ak_key_len, estimated_value_len))
-                .unwrap()
+            gas_key_transfer_exec_fee(fees, ak_key_len, estimated_value_len)
         }
     }
 }
@@ -391,12 +363,17 @@ fn permission_exec_fees(
         | AccessKeyPermission::GasKeyFunctionCall(info, _) => info,
         _ => return key_fee,
     };
-    let ext = &config.wasm_config.ext_costs;
-    let nonce_key_len = gas_key_nonce_key_len(account_id, public_key);
-    let nonce_write_gas = storage_write_gas(ext, nonce_key_len, AccessKey::NONCE_VALUE_LEN);
-    key_fee
-        .checked_add(nonce_write_gas.checked_mul(gas_key_info.num_nonces as u64).unwrap())
+    let nonce_key_len = gas_key_nonce_key_len(account_id, public_key) as u64;
+    let nonce_value_len = AccessKey::NONCE_VALUE_LEN as u64;
+    let nonce_base = fees.fee(ActionCosts::gas_key_nonce).exec_fee();
+    let nonce_key_byte = fees.fee(ActionCosts::gas_key_key_byte).exec_fee();
+    let nonce_value_byte = fees.fee(ActionCosts::gas_key_value_byte).exec_fee();
+    let per_nonce = nonce_base
+        .checked_add(nonce_key_byte.checked_mul(nonce_key_len).unwrap())
         .unwrap()
+        .checked_add(nonce_value_byte.checked_mul(nonce_value_len).unwrap())
+        .unwrap();
+    key_fee.checked_add(per_nonce.checked_mul(gas_key_info.num_nonces as u64).unwrap()).unwrap()
 }
 
 /// Returns transaction costs for a given transaction.
