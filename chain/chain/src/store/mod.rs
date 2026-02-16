@@ -586,11 +586,10 @@ impl ChainStore {
 
     /// Save the latest known.
     /// TODO(store): What is this doing here? Cleanup
-    pub fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error> {
+    pub fn save_latest_known(&mut self, latest_known: LatestKnown) {
         let mut store_update = self.store.store().store_update();
         store_update.set_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY, &latest_known);
         store_update.commit();
-        Ok(())
     }
 
     /// Retrieve the kinds of state changes occurred in a given block.
@@ -789,7 +788,7 @@ impl ChainStore {
         &self,
         shard_id: ShardId,
         value: Option<StateSyncDumpProgress>,
-    ) -> Result<(), Error> {
+    ) {
         let mut store_update = self.store.store().store_update();
         let key = ChainStore::state_sync_dump_progress_key(shard_id);
         match value {
@@ -797,7 +796,6 @@ impl ChainStore {
             Some(value) => store_update.set_ser(DBCol::BlockMisc, &key, &value),
         }
         store_update.commit();
-        Ok(())
     }
 
     pub fn prev_block_is_caught_up(
@@ -1557,7 +1555,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let latest_known = self.chain_store.get_latest_known().ok();
         if latest_known.is_none() || height > latest_known.unwrap().height {
             self.chain_store
-                .save_latest_known(LatestKnown { height, seen: to_timestamp(Utc::now()) })?;
+                .save_latest_known(LatestKnown { height, seen: to_timestamp(Utc::now()) });
         }
         Ok(())
     }
@@ -1566,8 +1564,7 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn adv_save_latest_known(&mut self, height: BlockHeight) -> Result<(), Error> {
         let header = self.get_block_header_by_height(height)?;
         let tip = Tip::from_header(&header);
-        self.chain_store
-            .save_latest_known(LatestKnown { height, seen: to_timestamp(Utc::now()) })?;
+        self.chain_store.save_latest_known(LatestKnown { height, seen: to_timestamp(Utc::now()) });
         self.save_head(&tip)?;
         Ok(())
     }
@@ -1842,11 +1839,10 @@ impl<'a> ChainStoreUpdate<'a> {
         store_update: &mut StoreUpdate,
         key: &[u8],
         value: &mut Option<T>,
-    ) -> Result<(), Error> {
+    ) {
         if let Some(t) = value.take() {
             store_update.set_ser(DBCol::BlockMisc, key, &t);
         }
-        Ok(())
     }
 
     #[tracing::instrument(level = "debug", target = "store", "ChainUpdate::finalize", skip_all)]
@@ -1854,28 +1850,28 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut store_update = self.store().store_update();
         {
             let _span = tracing::trace_span!(target: "store", "write_col_misc").entered();
-            Self::write_col_misc(&mut store_update, HEAD_KEY, &mut self.head)?;
-            Self::write_col_misc(&mut store_update, TAIL_KEY, &mut self.tail)?;
-            Self::write_col_misc(&mut store_update, CHUNK_TAIL_KEY, &mut self.chunk_tail)?;
-            Self::write_col_misc(&mut store_update, FORK_TAIL_KEY, &mut self.fork_tail)?;
-            Self::write_col_misc(&mut store_update, HEADER_HEAD_KEY, &mut self.header_head)?;
-            Self::write_col_misc(&mut store_update, FINAL_HEAD_KEY, &mut self.final_head)?;
+            Self::write_col_misc(&mut store_update, HEAD_KEY, &mut self.head);
+            Self::write_col_misc(&mut store_update, TAIL_KEY, &mut self.tail);
+            Self::write_col_misc(&mut store_update, CHUNK_TAIL_KEY, &mut self.chunk_tail);
+            Self::write_col_misc(&mut store_update, FORK_TAIL_KEY, &mut self.fork_tail);
+            Self::write_col_misc(&mut store_update, HEADER_HEAD_KEY, &mut self.header_head);
+            Self::write_col_misc(&mut store_update, FINAL_HEAD_KEY, &mut self.final_head);
             Self::write_col_misc(
                 &mut store_update,
                 SPICE_FINAL_EXECUTION_HEAD_KEY,
                 &mut self.spice_final_execution_head,
-            )?;
+            );
             Self::write_col_misc(
                 &mut store_update,
                 SPICE_EXECUTION_HEAD_KEY,
                 &mut self.spice_execution_head,
-            )?;
+            );
             Self::write_col_misc(
                 &mut store_update,
                 LARGEST_TARGET_HEIGHT_KEY,
                 &mut self.largest_target_height,
-            )?;
-            Self::write_col_misc(&mut store_update, GC_STOP_HEIGHT_KEY, &mut self.gc_stop_height)?;
+            );
+            Self::write_col_misc(&mut store_update, GC_STOP_HEIGHT_KEY, &mut self.gc_stop_height);
         }
         {
             let _span = tracing::trace_span!(target: "store", "write_block").entered();

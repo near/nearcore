@@ -2725,27 +2725,19 @@ fn test_discard_non_finalizable_block() {
     env.process_block(0, first_block.clone(), Provenance::PRODUCED);
     // Produce, but not process test block on top of block (1).
     let non_finalizable_block = env.clients[0].produce_block(6).unwrap().unwrap();
-    env.clients[0]
-        .chain
-        .mut_chain_store()
-        .save_latest_known(LatestKnown {
-            height: first_block.header().height(),
-            seen: first_block.header().raw_timestamp(),
-        })
-        .unwrap();
+    env.clients[0].chain.mut_chain_store().save_latest_known(LatestKnown {
+        height: first_block.header().height(),
+        seen: first_block.header().raw_timestamp(),
+    });
 
     let second_block = env.clients[0].produce_block(2).unwrap().unwrap();
     env.process_block(0, second_block.clone(), Provenance::PRODUCED);
     // Produce, but not process test block on top of block (2).
     let finalizable_block = env.clients[0].produce_block(7).unwrap().unwrap();
-    env.clients[0]
-        .chain
-        .mut_chain_store()
-        .save_latest_known(LatestKnown {
-            height: second_block.header().height(),
-            seen: second_block.header().raw_timestamp(),
-        })
-        .unwrap();
+    env.clients[0].chain.mut_chain_store().save_latest_known(LatestKnown {
+        height: second_block.header().height(),
+        seen: second_block.header().raw_timestamp(),
+    });
 
     // Produce and process two more blocks.
     for i in 3..5 {
@@ -2826,14 +2818,10 @@ fn test_query_final_state() {
         };
 
     let fork1_block = env.clients[0].produce_block(5).unwrap().unwrap();
-    env.clients[0]
-        .chain
-        .mut_chain_store()
-        .save_latest_known(LatestKnown {
-            height: blocks.last().unwrap().header().height(),
-            seen: blocks.last().unwrap().header().raw_timestamp(),
-        })
-        .unwrap();
+    env.clients[0].chain.mut_chain_store().save_latest_known(LatestKnown {
+        height: blocks.last().unwrap().header().height(),
+        seen: blocks.last().unwrap().header().raw_timestamp(),
+    });
     let fork2_block = env.clients[0].produce_block(6).unwrap().unwrap();
     assert_eq!(fork1_block.header().prev_hash(), fork2_block.header().prev_hash());
     env.process_block(0, fork1_block, Provenance::NONE);
@@ -3123,14 +3111,10 @@ fn test_block_ordinal() {
     ordinal += 1;
     assert_eq!(last_block.header().block_ordinal(), ordinal);
     let fork1_block = env.clients[0].produce_block(100).unwrap().unwrap();
-    env.clients[0]
-        .chain
-        .mut_chain_store()
-        .save_latest_known(LatestKnown {
-            height: last_block.header().height(),
-            seen: last_block.header().raw_timestamp(),
-        })
-        .unwrap();
+    env.clients[0].chain.mut_chain_store().save_latest_known(LatestKnown {
+        height: last_block.header().height(),
+        seen: last_block.header().raw_timestamp(),
+    });
     let fork2_block = env.clients[0].produce_block(101).unwrap().unwrap();
     assert_eq!(fork1_block.header().prev_hash(), fork2_block.header().prev_hash());
     env.process_block(0, fork1_block.clone(), Provenance::NONE);

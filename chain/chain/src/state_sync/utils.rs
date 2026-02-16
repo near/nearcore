@@ -62,10 +62,9 @@ fn save_epoch_new_chunks<T: ChainStoreAccess>(
     Ok(done)
 }
 
-fn on_new_epoch(store_update: &mut StoreUpdate, header: &BlockHeader) -> Result<(), Error> {
+fn on_new_epoch(store_update: &mut StoreUpdate, header: &BlockHeader) {
     let num_new_chunks = vec![0u8; header.chunk_mask().len()];
     store_update.set_ser(DBCol::StateSyncNewChunks, header.hash().as_ref(), &num_new_chunks);
-    Ok(())
 }
 
 fn remove_old_epochs(
@@ -189,13 +188,14 @@ pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
     };
 
     if prev_header.height() == chain_store.get_genesis_height() {
-        return on_new_epoch(store_update, header);
+        on_new_epoch(store_update, header);
+        return Ok(());
     }
     if prev_header.epoch_id() != header.epoch_id() {
         // Here we remove any sync hashes stored for old epochs after saving [0,...,0] in the StateSyncNewChunks
         // column for this block. This means we will no longer remember sync hashes for these old epochs, which
         // should be fine as we only care to state sync to (and provide state parts for) the latest state
-        on_new_epoch(store_update, header)?;
+        on_new_epoch(store_update, header);
         return remove_old_epochs(&chain_store.store(), store_update, header, &prev_header);
     }
 

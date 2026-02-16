@@ -1020,7 +1020,7 @@ impl Client {
         // Update latest known even before returning block out, to prevent race conditions.
         self.chain
             .mut_chain_store()
-            .save_latest_known(LatestKnown { height, seen: block.header().raw_timestamp() })?;
+            .save_latest_known(LatestKnown { height, seen: block.header().raw_timestamp() });
 
         metrics::BLOCK_PRODUCED_TOTAL.inc();
 
