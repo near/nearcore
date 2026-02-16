@@ -87,7 +87,7 @@ impl StateSyncDumper {
         .unwrap();
         if let Some(shards) = dump_config.restart_dump_for_shards.as_ref() {
             for shard_id in shards {
-                chain.chain_store().set_state_sync_dump_progress(*shard_id, None).unwrap();
+                chain.chain_store().set_state_sync_dump_progress(*shard_id, None);
                 tracing::debug!(target: "state_sync_dump", %shard_id, "dropped existing progress");
             }
         }
@@ -603,10 +603,7 @@ impl StateDumper {
             let (shard_id, (dumped_epoch_id, done)) =
                 res.context("failed iterating over stored dump progress")?;
             if &dumped_epoch_id != epoch_id {
-                self.chain
-                    .chain_store()
-                    .set_state_sync_dump_progress(shard_id, None)
-                    .context("failed setting state dump progress")?;
+                self.chain.chain_store().set_state_sync_dump_progress(shard_id, None);
             } else if done {
                 dump.dump_state.remove(&shard_id);
                 senders.remove(&shard_id);
@@ -801,17 +798,14 @@ impl StateDumper {
     /// with the info and progress represented in `dump`.
     fn new_dump(&mut self, dump: DumpState, sync_hash: CryptoHash) -> anyhow::Result<()> {
         for (shard_id, _) in &dump.dump_state {
-            self.chain
-                .chain_store()
-                .set_state_sync_dump_progress(
-                    *shard_id,
-                    Some(StateSyncDumpProgress::InProgress {
-                        epoch_id: dump.epoch_id,
-                        epoch_height: dump.epoch_height,
-                        sync_hash,
-                    }),
-                )
-                .context("failed setting state dump progress")?;
+            self.chain.chain_store().set_state_sync_dump_progress(
+                *shard_id,
+                Some(StateSyncDumpProgress::InProgress {
+                    epoch_id: dump.epoch_id,
+                    epoch_height: dump.epoch_height,
+                    sync_hash,
+                }),
+            );
         }
         self.current_dump = CurrentDump::InProgress(dump);
         Ok(())
@@ -864,16 +858,13 @@ impl StateDumper {
             }
         }
 
-        self.chain
-            .chain_store()
-            .set_state_sync_dump_progress(
-                shard_id,
-                Some(StateSyncDumpProgress::AllDumped {
-                    epoch_id: dump.epoch_id,
-                    epoch_height: dump.epoch_height,
-                }),
-            )
-            .context("failed setting state dump progress")?;
+        self.chain.chain_store().set_state_sync_dump_progress(
+            shard_id,
+            Some(StateSyncDumpProgress::AllDumped {
+                epoch_id: dump.epoch_id,
+                epoch_height: dump.epoch_height,
+            }),
+        );
 
         if dump.dump_state.is_empty() {
             self.current_dump = CurrentDump::Done(dump.epoch_id);
