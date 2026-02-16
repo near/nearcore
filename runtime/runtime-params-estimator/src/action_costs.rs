@@ -11,7 +11,9 @@ use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::AccountRequirement;
 use crate::utils::{average_cost, percentiles};
 use near_crypto::{KeyType, PublicKey};
-use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::account::{
+    AccessKey, AccessKeyPermission, FunctionCallPermission, GasKeyInfo,
+};
 use near_primitives::action::{DeterministicStateInitAction, GlobalContractIdentifier};
 use near_primitives::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
@@ -925,107 +927,111 @@ pub(crate) fn det_state_init_action(
 //   exec: transfer_base.exec + key_byte.exec * ak_key_len + value_byte.exec * value_len
 //   nonce exec: nonce.exec + key_byte.exec * nonce_key_len + value_byte.exec * nonce_value_len
 //
-// To decompose, we measure with two key types (ED25519=33, SECP256K1=65) and
-// solve the linear system for key_byte and transfer_base. value_byte is lumped
-// into transfer_base/nonce (set to 0) since value_len is fixed and can't be varied.
+// Send decomposition uses two independent equations:
+//   (1) M_transfer_send = transfer_base.send + key_byte.send * pk_len
+//   (2) M_addkey_send - add_full_access_key.send = key_byte.send * GasKeyInfo::borsh_len()
+// giving key_byte.send from (2), then transfer_base.send from (1).
+//
+// Exec: we can't independently vary account_id length in the testbed
+// (all accounts are 46 bytes), so per-byte exec costs are 0.
+// The full measured exec cost goes into transfer_base.exec / nonce.exec.
 
-fn add_gas_key_action(key_type: KeyType, num_nonces: u16) -> Action {
+fn add_gas_key_action(num_nonces: u16) -> Action {
     Action::AddKey(Box::new(near_primitives::transaction::AddKeyAction {
-        public_key: PublicKey::from_seed(key_type, "gas-key-seed"),
+        public_key: PublicKey::from_seed(KeyType::ED25519, "gas-key-seed"),
         access_key: AccessKey::gas_key_full_access(num_nonces),
     }))
 }
 
-fn transfer_to_gas_key_action_with_key_type(key_type: KeyType) -> Action {
+fn transfer_to_gas_key_action() -> Action {
     Action::TransferToGasKey(Box::new(near_primitives::action::TransferToGasKeyAction {
-        public_key: PublicKey::from_seed(key_type, "gas-key-seed"),
+        public_key: PublicKey::from_seed(KeyType::ED25519, "gas-key-seed"),
         deposit: Balance::from_millinear(1),
     }))
 }
 
-/// Measure TransferToGasKey send cost for a given key type.
-fn gas_key_transfer_send_for_key_type(
-    ctx: &mut EstimatorContext,
-    key_type: KeyType,
-    sir: bool,
-) -> GasCost {
-    let action = transfer_to_gas_key_action_with_key_type(key_type);
+/// Measure TransferToGasKey send cost.
+fn gas_key_transfer_send(ctx: &mut EstimatorContext, sir: bool) -> GasCost {
     let builder = if sir { ActionEstimation::new_sir(ctx) } else { ActionEstimation::new(ctx) };
-    builder.add_action(action).verify_cost(&mut ctx.testbed())
+    builder.add_action(transfer_to_gas_key_action()).verify_cost(&mut ctx.testbed())
 }
 
-/// Measure TransferToGasKey exec cost for a given key type.
+/// Measure AddKey(GasKeyFullAccess(1)) send cost.
+fn gas_key_add_key_send(ctx: &mut EstimatorContext, sir: bool) -> GasCost {
+    let builder = if sir { ActionEstimation::new_sir(ctx) } else { ActionEstimation::new(ctx) };
+    builder.add_action(add_gas_key_action(1)).verify_cost(&mut ctx.testbed())
+}
+
+/// Measure TransferToGasKey exec cost (total, including per-byte components).
 /// Uses [AddGasKey + TransferToGasKey x N] minus [AddGasKey] baseline.
-fn gas_key_transfer_exec_for_key_type(ctx: &mut EstimatorContext, key_type: KeyType) -> GasCost {
+fn gas_key_transfer_exec(ctx: &mut EstimatorContext) -> GasCost {
     let manual_inner_iters = 100u64;
     let mut builder =
-        ActionEstimation::new_sir(ctx).inner_iters(1).add_action(add_gas_key_action(key_type, 1));
+        ActionEstimation::new_sir(ctx).inner_iters(1).add_action(add_gas_key_action(1));
     for _ in 0..manual_inner_iters {
-        builder = builder.add_action(transfer_to_gas_key_action_with_key_type(key_type));
+        builder = builder.add_action(transfer_to_gas_key_action());
     }
     let total = builder.apply_cost(&mut ctx.testbed());
     let base = ActionEstimation::new_sir(ctx)
         .inner_iters(1)
-        .add_action(add_gas_key_action(key_type, 1))
+        .add_action(add_gas_key_action(1))
         .apply_cost(&mut ctx.testbed());
     (total - base) / manual_inner_iters
 }
 
-/// Solve: M_ed = base + key_byte * pk_len_ed, M_secp = base + key_byte * pk_len_secp
-/// Returns (key_byte, base).
-fn decompose_by_key_type(m_ed: GasCost, m_secp: GasCost) -> (GasCost, GasCost) {
-    let pk_len_ed = PublicKey::from_seed(KeyType::ED25519, "gas-key-seed").len() as u64;
-    let pk_len_secp = PublicKey::from_seed(KeyType::SECP256K1, "gas-key-seed").len() as u64;
-    let delta_len = pk_len_secp - pk_len_ed; // 65 - 33 = 32
-    let key_byte = m_secp.saturating_sub(&m_ed, &NonNegativeTolerance::PER_MILLE) / delta_len;
-    let base =
-        m_ed.saturating_sub(&(key_byte.clone() * pk_len_ed), &NonNegativeTolerance::PER_MILLE);
-    (key_byte, base)
+/// Measure per-nonce exec cost (total, including per-byte components).
+fn gas_key_nonce_exec_total(ctx: &mut EstimatorContext) -> GasCost {
+    let many_nonces = 100u16;
+    let with = ActionEstimation::new_sir(ctx)
+        .inner_iters(1)
+        .add_action(add_gas_key_action(many_nonces))
+        .apply_cost(&mut ctx.testbed());
+    let without = ActionEstimation::new_sir(ctx)
+        .inner_iters(1)
+        .add_action(add_gas_key_action(1))
+        .apply_cost(&mut ctx.testbed());
+    with.saturating_sub(&without, &NonNegativeTolerance::PER_MILLE) / (many_nonces - 1) as u64
 }
 
 pub(crate) fn gas_key_transfer_base_send_sir(ctx: &mut EstimatorContext) -> GasCost {
-    let m_ed = gas_key_transfer_send_for_key_type(ctx, KeyType::ED25519, true);
-    let m_secp = gas_key_transfer_send_for_key_type(ctx, KeyType::SECP256K1, true);
-    let (_key_byte, base) = decompose_by_key_type(m_ed, m_secp);
-    base
+    let m_transfer = gas_key_transfer_send(ctx, true);
+    let key_byte = gas_key_key_byte_send_sir(ctx);
+    let pk_len = PublicKey::from_seed(KeyType::ED25519, "gas-key-seed").len() as u64;
+    m_transfer.saturating_sub(&(key_byte * pk_len), &NonNegativeTolerance::PER_MILLE)
 }
 
 pub(crate) fn gas_key_transfer_base_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
-    let m_ed = gas_key_transfer_send_for_key_type(ctx, KeyType::ED25519, false);
-    let m_secp = gas_key_transfer_send_for_key_type(ctx, KeyType::SECP256K1, false);
-    let (_key_byte, base) = decompose_by_key_type(m_ed, m_secp);
-    base
+    let m_transfer = gas_key_transfer_send(ctx, false);
+    let key_byte = gas_key_key_byte_send_not_sir(ctx);
+    let pk_len = PublicKey::from_seed(KeyType::ED25519, "gas-key-seed").len() as u64;
+    m_transfer.saturating_sub(&(key_byte * pk_len), &NonNegativeTolerance::PER_MILLE)
 }
 
+/// Total TransferToGasKey exec cost. Per-byte exec costs are 0, so this
+/// is the full base.
 pub(crate) fn gas_key_transfer_base_exec(ctx: &mut EstimatorContext) -> GasCost {
-    let m_ed = gas_key_transfer_exec_for_key_type(ctx, KeyType::ED25519);
-    let m_secp = gas_key_transfer_exec_for_key_type(ctx, KeyType::SECP256K1);
-    // exec formula: transfer_base + key_byte * ak_key_len + value_byte * value_len
-    // ak_key_len differs by pk_len between key types, so decompose gives key_byte
-    // and (transfer_base + value_byte * value_len) lumped together.
-    let (_key_byte, base_plus_value) = decompose_by_key_type(m_ed, m_secp);
-    base_plus_value
+    gas_key_transfer_exec(ctx)
 }
 
 pub(crate) fn gas_key_key_byte_send_sir(ctx: &mut EstimatorContext) -> GasCost {
-    let m_ed = gas_key_transfer_send_for_key_type(ctx, KeyType::ED25519, true);
-    let m_secp = gas_key_transfer_send_for_key_type(ctx, KeyType::SECP256K1, true);
-    let (key_byte, _base) = decompose_by_key_type(m_ed, m_secp);
-    key_byte
+    let add_gas_key = gas_key_add_key_send(ctx, true);
+    let add_full_access = add_full_access_key_send_sir(ctx);
+    let gas_key_info_len = GasKeyInfo::borsh_len() as u64;
+    add_gas_key.saturating_sub(&add_full_access, &NonNegativeTolerance::PER_MILLE)
+        / gas_key_info_len
 }
 
 pub(crate) fn gas_key_key_byte_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
-    let m_ed = gas_key_transfer_send_for_key_type(ctx, KeyType::ED25519, false);
-    let m_secp = gas_key_transfer_send_for_key_type(ctx, KeyType::SECP256K1, false);
-    let (key_byte, _base) = decompose_by_key_type(m_ed, m_secp);
-    key_byte
+    let add_gas_key = gas_key_add_key_send(ctx, false);
+    let add_full_access = add_full_access_key_send_not_sir(ctx);
+    let gas_key_info_len = GasKeyInfo::borsh_len() as u64;
+    add_gas_key.saturating_sub(&add_full_access, &NonNegativeTolerance::PER_MILLE)
+        / gas_key_info_len
 }
 
-pub(crate) fn gas_key_key_byte_exec(ctx: &mut EstimatorContext) -> GasCost {
-    let m_ed = gas_key_transfer_exec_for_key_type(ctx, KeyType::ED25519);
-    let m_secp = gas_key_transfer_exec_for_key_type(ctx, KeyType::SECP256K1);
-    let (key_byte, _base) = decompose_by_key_type(m_ed, m_secp);
-    key_byte
+/// Per-byte exec costs are 0 (absorbed into base).
+pub(crate) fn gas_key_key_byte_exec(_ctx: &mut EstimatorContext) -> GasCost {
+    GasCost::zero()
 }
 
 pub(crate) fn gas_key_value_byte_send_sir(_ctx: &mut EstimatorContext) -> GasCost {
@@ -1036,8 +1042,7 @@ pub(crate) fn gas_key_value_byte_send_not_sir(_ctx: &mut EstimatorContext) -> Ga
     GasCost::zero()
 }
 
-// value_byte.exec is lumped into transfer_base.exec and nonce.exec since
-// value_len is fixed and can't be independently varied.
+/// Per-byte exec costs are 0 (absorbed into base).
 pub(crate) fn gas_key_value_byte_exec(_ctx: &mut EstimatorContext) -> GasCost {
     GasCost::zero()
 }
@@ -1050,26 +1055,10 @@ pub(crate) fn gas_key_nonce_send_not_sir(_ctx: &mut EstimatorContext) -> GasCost
     GasCost::zero()
 }
 
+/// Total per-nonce exec cost. Per-byte exec costs are 0, so this is the
+/// full nonce base.
 pub(crate) fn gas_key_nonce_exec(ctx: &mut EstimatorContext) -> GasCost {
-    // Measure AddKey with many nonces minus AddKey with 1 nonce, for both key types.
-    // Per-nonce exec = nonce.exec + key_byte.exec * nonce_key_len + value_byte.exec * nonce_value_len
-    // Decompose by key type to isolate key_byte, then nonce.exec absorbs value_byte contribution.
-    let many_nonces = 100u16;
-    let measure_nonce_for_key_type = |ctx: &mut EstimatorContext, key_type: KeyType| -> GasCost {
-        let with = ActionEstimation::new_sir(ctx)
-            .inner_iters(1)
-            .add_action(add_gas_key_action(key_type, many_nonces))
-            .apply_cost(&mut ctx.testbed());
-        let without = ActionEstimation::new_sir(ctx)
-            .inner_iters(1)
-            .add_action(add_gas_key_action(key_type, 1))
-            .apply_cost(&mut ctx.testbed());
-        with.saturating_sub(&without, &NonNegativeTolerance::PER_MILLE) / (many_nonces - 1) as u64
-    };
-    let m_ed = measure_nonce_for_key_type(ctx, KeyType::ED25519);
-    let m_secp = measure_nonce_for_key_type(ctx, KeyType::SECP256K1);
-    let (_key_byte, base_plus_value) = decompose_by_key_type(m_ed, m_secp);
-    base_plus_value
+    gas_key_nonce_exec_total(ctx)
 }
 
 /// Helper enum to select how large an action should be generated.

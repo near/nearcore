@@ -58,16 +58,6 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
         })
     };
 
-    let asymmetric_fee = |sir: Cost, not_sir: Cost, exec: Cost| -> anyhow::Result<Fee> {
-        Ok(Fee {
-            send_sir: cost_table.get(sir).with_context(|| format!("undefined cost: {}", sir))?,
-            send_not_sir: cost_table
-                .get(not_sir)
-                .with_context(|| format!("undefined cost: {}", not_sir))?,
-            execution: cost_table.get(exec).with_context(|| format!("undefined cost: {}", exec))?,
-        })
-    };
-
     let config_store = RuntimeConfigStore::new(None);
     let actual_fees_config = &config_store.get_config(PROTOCOL_VERSION).fees;
     let res = RuntimeFeesConfig {
@@ -95,30 +85,64 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             ActionCosts::deterministic_state_init_base => fee(Cost::ActionDeterministicStateInitBase)?,
             ActionCosts::deterministic_state_init_byte => fee(Cost::ActionDeterministicStateInitPerByte)?,
             ActionCosts::deterministic_state_init_entry => fee(Cost::ActionDeterministicStateInitPerEntry)?,
-            ActionCosts::gas_key_transfer_base => asymmetric_fee(
-                Cost::ActionGasKeyTransferBaseSendSir,
-                Cost::ActionGasKeyTransferBaseSendNotSir,
-                Cost::ActionGasKeyTransferBaseExec,
-            )?,
-            ActionCosts::gas_key_key_byte => asymmetric_fee(
-                Cost::ActionGasKeyKeyByteSendSir,
-                Cost::ActionGasKeyKeyByteSendNotSir,
-                Cost::ActionGasKeyKeyByteExec,
-            )?,
-            ActionCosts::gas_key_value_byte => asymmetric_fee(
-                Cost::ActionGasKeyValueByteSendSir,
-                Cost::ActionGasKeyValueByteSendNotSir,
-                Cost::ActionGasKeyValueByteExec,
-            )?,
-            ActionCosts::gas_key_nonce => asymmetric_fee(
-                Cost::ActionGasKeyNonceSendSir,
-                Cost::ActionGasKeyNonceSendNotSir,
-                Cost::ActionGasKeyNonceExec,
-            )?,
+            ActionCosts::gas_key_transfer_base => gas_key_transfer_base_fee(cost_table)?,
+            ActionCosts::gas_key_key_byte => gas_key_key_byte_fee(cost_table)?,
+            ActionCosts::gas_key_value_byte => gas_key_value_byte_fee(cost_table)?,
+            ActionCosts::gas_key_nonce => gas_key_nonce_fee(cost_table)?,
         },
         ..RuntimeFeesConfig::clone(&actual_fees_config)
     };
     Ok(res)
+}
+
+/// Gas key exec estimators measure the total cost (base + key_byte * key_len +
+/// value_byte * value_len) at the testbed account length. We can't independently
+/// vary account_id length in the testbed, so per-byte exec costs are set to 0
+/// and the full measured exec cost goes into the base.
+fn gas_key_transfer_base_fee(cost_table: &CostTable) -> anyhow::Result<Fee> {
+    let send_sir = cost_table
+        .get(Cost::ActionGasKeyTransferBaseSendSir)
+        .with_context(|| "undefined: ActionGasKeyTransferBaseSendSir")?;
+    let send_not_sir = cost_table
+        .get(Cost::ActionGasKeyTransferBaseSendNotSir)
+        .with_context(|| "undefined: ActionGasKeyTransferBaseSendNotSir")?;
+    let execution = cost_table
+        .get(Cost::ActionGasKeyTransferBaseExec)
+        .with_context(|| "undefined: ActionGasKeyTransferBaseExec")?;
+    Ok(Fee { send_sir, send_not_sir, execution })
+}
+
+fn gas_key_key_byte_fee(cost_table: &CostTable) -> anyhow::Result<Fee> {
+    let send_sir = cost_table
+        .get(Cost::ActionGasKeyKeyByteSendSir)
+        .with_context(|| "undefined: ActionGasKeyKeyByteSendSir")?;
+    let send_not_sir = cost_table
+        .get(Cost::ActionGasKeyKeyByteSendNotSir)
+        .with_context(|| "undefined: ActionGasKeyKeyByteSendNotSir")?;
+    Ok(Fee { send_sir, send_not_sir, execution: Gas::ZERO })
+}
+
+fn gas_key_value_byte_fee(cost_table: &CostTable) -> anyhow::Result<Fee> {
+    let send_sir = cost_table
+        .get(Cost::ActionGasKeyValueByteSendSir)
+        .with_context(|| "undefined: ActionGasKeyValueByteSendSir")?;
+    let send_not_sir = cost_table
+        .get(Cost::ActionGasKeyValueByteSendNotSir)
+        .with_context(|| "undefined: ActionGasKeyValueByteSendNotSir")?;
+    Ok(Fee { send_sir, send_not_sir, execution: Gas::ZERO })
+}
+
+fn gas_key_nonce_fee(cost_table: &CostTable) -> anyhow::Result<Fee> {
+    let send_sir = cost_table
+        .get(Cost::ActionGasKeyNonceSendSir)
+        .with_context(|| "undefined: ActionGasKeyNonceSendSir")?;
+    let send_not_sir = cost_table
+        .get(Cost::ActionGasKeyNonceSendNotSir)
+        .with_context(|| "undefined: ActionGasKeyNonceSendNotSir")?;
+    let execution = cost_table
+        .get(Cost::ActionGasKeyNonceExec)
+        .with_context(|| "undefined: ActionGasKeyNonceExec")?;
+    Ok(Fee { send_sir, send_not_sir, execution })
 }
 
 fn ext_costs_config(cost_table: &CostTable) -> anyhow::Result<ExtCostsConfig> {
