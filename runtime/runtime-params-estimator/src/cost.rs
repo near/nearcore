@@ -238,6 +238,23 @@ pub enum Cost {
     ActionDeterministicStateInitPerEntrySendNotSir,
     ActionDeterministicStateInitPerEntrySendSir,
     ActionDeterministicStateInitPerEntryExec,
+    // Gas key costs
+    ActionGasKeyTransferBase,
+    ActionGasKeyTransferBaseSendNotSir,
+    ActionGasKeyTransferBaseSendSir,
+    ActionGasKeyTransferBaseExec,
+    ActionGasKeyKeyByte,
+    ActionGasKeyKeyByteSendNotSir,
+    ActionGasKeyKeyByteSendSir,
+    ActionGasKeyKeyByteExec,
+    ActionGasKeyValueByte,
+    ActionGasKeyValueByteSendNotSir,
+    ActionGasKeyValueByteSendSir,
+    ActionGasKeyValueByteExec,
+    ActionGasKeyNonce,
+    ActionGasKeyNonceSendNotSir,
+    ActionGasKeyNonceSendSir,
+    ActionGasKeyNonceExec,
 
     /// Estimates `wasm_config.ext_costs.base` which is intended to be charged
     /// once on every host function call. However, this is currently
