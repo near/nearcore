@@ -1107,7 +1107,7 @@ pub struct ChunkHeaderView {
     pub congestion_info: Option<CongestionInfoView>,
     pub bandwidth_requests: Option<BandwidthRequests>,
     /// Proposed trie split for dynamic resharding
-    /// `None`: field missing (`ChunkHeaderInnerV4` or earlier)
+    /// `None`: field missing (`ShardChunkHeaderInnerV4` or earlier)
     /// `Some(None)`: field present, but not set (`ChunkHeaderInnerV5` or later)
     /// `Some(Some(split))`: field present and set
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1162,126 +1162,90 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
 
 impl From<ChunkHeaderView> for ShardChunkHeader {
     fn from(view: ChunkHeaderView) -> Self {
-        match (view.proposed_split, view.bandwidth_requests, view.congestion_info) {
+        let prev_validator_proposals =
+            view.validator_proposals.into_iter().map(Into::into).collect();
+        let inner = match (view.proposed_split, view.bandwidth_requests, view.congestion_info) {
             (Some(proposed_split), Some(bandwidth_requests), Some(congestion_info)) => {
-                let mut header = ShardChunkHeaderV3 {
-                    inner: ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5 {
-                        prev_block_hash: view.prev_block_hash,
-                        prev_state_root: view.prev_state_root,
-                        prev_outcome_root: view.outcome_root,
-                        encoded_merkle_root: view.encoded_merkle_root,
-                        encoded_length: view.encoded_length,
-                        height_created: view.height_created,
-                        shard_id: view.shard_id,
-                        prev_gas_used: view.gas_used,
-                        gas_limit: view.gas_limit,
-                        prev_balance_burnt: view.balance_burnt,
-                        prev_outgoing_receipts_root: view.outgoing_receipts_root,
-                        tx_root: view.tx_root,
-                        prev_validator_proposals: view
-                            .validator_proposals
-                            .into_iter()
-                            .map(Into::into)
-                            .collect(),
-                        congestion_info: congestion_info.into(),
-                        bandwidth_requests,
-                        proposed_split,
-                    }),
-                    height_included: view.height_included,
-                    signature: view.signature,
-                    hash: ChunkHash::default(),
-                };
-                header.init();
-                ShardChunkHeader::V3(header)
+                ShardChunkHeaderInner::V5(ShardChunkHeaderInnerV5 {
+                    prev_block_hash: view.prev_block_hash,
+                    prev_state_root: view.prev_state_root,
+                    prev_outcome_root: view.outcome_root,
+                    encoded_merkle_root: view.encoded_merkle_root,
+                    encoded_length: view.encoded_length,
+                    height_created: view.height_created,
+                    shard_id: view.shard_id,
+                    prev_gas_used: view.gas_used,
+                    gas_limit: view.gas_limit,
+                    prev_balance_burnt: view.balance_burnt,
+                    prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                    tx_root: view.tx_root,
+                    prev_validator_proposals,
+                    congestion_info: congestion_info.into(),
+                    bandwidth_requests,
+                    proposed_split,
+                })
             }
             (None, Some(bandwidth_requests), Some(congestion_info)) => {
-                let mut header = ShardChunkHeaderV3 {
-                    inner: ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
-                        prev_block_hash: view.prev_block_hash,
-                        prev_state_root: view.prev_state_root,
-                        prev_outcome_root: view.outcome_root,
-                        encoded_merkle_root: view.encoded_merkle_root,
-                        encoded_length: view.encoded_length,
-                        height_created: view.height_created,
-                        shard_id: view.shard_id,
-                        prev_gas_used: view.gas_used,
-                        gas_limit: view.gas_limit,
-                        prev_balance_burnt: view.balance_burnt,
-                        prev_outgoing_receipts_root: view.outgoing_receipts_root,
-                        tx_root: view.tx_root,
-                        prev_validator_proposals: view
-                            .validator_proposals
-                            .into_iter()
-                            .map(Into::into)
-                            .collect(),
-                        congestion_info: congestion_info.into(),
-                        bandwidth_requests,
-                    }),
-                    height_included: view.height_included,
-                    signature: view.signature,
-                    hash: ChunkHash::default(),
-                };
-                header.init();
-                ShardChunkHeader::V3(header)
+                ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
+                    prev_block_hash: view.prev_block_hash,
+                    prev_state_root: view.prev_state_root,
+                    prev_outcome_root: view.outcome_root,
+                    encoded_merkle_root: view.encoded_merkle_root,
+                    encoded_length: view.encoded_length,
+                    height_created: view.height_created,
+                    shard_id: view.shard_id,
+                    prev_gas_used: view.gas_used,
+                    gas_limit: view.gas_limit,
+                    prev_balance_burnt: view.balance_burnt,
+                    prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                    tx_root: view.tx_root,
+                    prev_validator_proposals,
+                    congestion_info: congestion_info.into(),
+                    bandwidth_requests,
+                })
             }
             (_, None, Some(congestion_info)) => {
-                let mut header = ShardChunkHeaderV3 {
-                    inner: ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
-                        prev_block_hash: view.prev_block_hash,
-                        prev_state_root: view.prev_state_root,
-                        prev_outcome_root: view.outcome_root,
-                        encoded_merkle_root: view.encoded_merkle_root,
-                        encoded_length: view.encoded_length,
-                        height_created: view.height_created,
-                        shard_id: view.shard_id,
-                        prev_gas_used: view.gas_used,
-                        gas_limit: view.gas_limit,
-                        prev_balance_burnt: view.balance_burnt,
-                        prev_outgoing_receipts_root: view.outgoing_receipts_root,
-                        tx_root: view.tx_root,
-                        prev_validator_proposals: view
-                            .validator_proposals
-                            .into_iter()
-                            .map(Into::into)
-                            .collect(),
-                        congestion_info: congestion_info.into(),
-                    }),
-                    height_included: view.height_included,
-                    signature: view.signature,
-                    hash: ChunkHash::default(),
-                };
-                header.init();
-                ShardChunkHeader::V3(header)
+                ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
+                    prev_block_hash: view.prev_block_hash,
+                    prev_state_root: view.prev_state_root,
+                    prev_outcome_root: view.outcome_root,
+                    encoded_merkle_root: view.encoded_merkle_root,
+                    encoded_length: view.encoded_length,
+                    height_created: view.height_created,
+                    shard_id: view.shard_id,
+                    prev_gas_used: view.gas_used,
+                    gas_limit: view.gas_limit,
+                    prev_balance_burnt: view.balance_burnt,
+                    prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                    tx_root: view.tx_root,
+                    prev_validator_proposals,
+                    congestion_info: congestion_info.into(),
+                })
             }
-            _ => {
-                let mut header = ShardChunkHeaderV3 {
-                    inner: ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
-                        prev_block_hash: view.prev_block_hash,
-                        prev_state_root: view.prev_state_root,
-                        prev_outcome_root: view.outcome_root,
-                        encoded_merkle_root: view.encoded_merkle_root,
-                        encoded_length: view.encoded_length,
-                        height_created: view.height_created,
-                        shard_id: view.shard_id,
-                        prev_gas_used: view.gas_used,
-                        gas_limit: view.gas_limit,
-                        prev_balance_burnt: view.balance_burnt,
-                        prev_outgoing_receipts_root: view.outgoing_receipts_root,
-                        tx_root: view.tx_root,
-                        prev_validator_proposals: view
-                            .validator_proposals
-                            .into_iter()
-                            .map(Into::into)
-                            .collect(),
-                    }),
-                    height_included: view.height_included,
-                    signature: view.signature,
-                    hash: ChunkHash::default(),
-                };
-                header.init();
-                ShardChunkHeader::V3(header)
-            }
-        }
+            _ => ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
+                prev_block_hash: view.prev_block_hash,
+                prev_state_root: view.prev_state_root,
+                prev_outcome_root: view.outcome_root,
+                encoded_merkle_root: view.encoded_merkle_root,
+                encoded_length: view.encoded_length,
+                height_created: view.height_created,
+                shard_id: view.shard_id,
+                prev_gas_used: view.gas_used,
+                gas_limit: view.gas_limit,
+                prev_balance_burnt: view.balance_burnt,
+                prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                tx_root: view.tx_root,
+                prev_validator_proposals,
+            }),
+        };
+        let mut header = ShardChunkHeaderV3 {
+            inner,
+            height_included: view.height_included,
+            signature: view.signature,
+            hash: ChunkHash::default(),
+        };
+        header.init();
+        ShardChunkHeader::V3(header)
     }
 }
 

@@ -3683,7 +3683,7 @@
                 "nullable": true
               }
             ],
-            "description": "Proposed trie split for dynamic resharding\n`None`: field missing (`ChunkHeaderInnerV4` or earlier)\n`Some(None)`: field present, but not set (`ChunkHeaderInnerV5` or later)\n`Some(Some(split))`: field present and set"
+            "description": "Proposed trie split for dynamic resharding\n`None`: field missing (`ShardChunkHeaderInnerV4` or earlier)\n`Some(None)`: field present, but not set (`ChunkHeaderInnerV5` or later)\n`Some(Some(split))`: field present and set"
           },
           "rent_paid": {
             "allOf": [
