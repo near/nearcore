@@ -67,6 +67,7 @@ impl TestLoopRpcServer {
             enable_debug_rpc: false,
             experimental_debug_pages_src_path: None,
         };
+        let listen_addr = *rpc_config.addr;
         let app: Router = create_jsonrpc_app(
             rpc_config,
             genesis.config.clone(),
@@ -80,9 +81,11 @@ impl TestLoopRpcServer {
             Arc::new(DummyEntityDebugHandler {}),
         );
 
-        // Create an in-memory TestServer.
-        let test_server: TestServer =
-            TestServer::builder().http_transport().build(app).expect("Failed to create TestServer");
+        // Create an HTTP TestServer bound to the reserved address.
+        let test_server: TestServer = TestServer::builder()
+            .http_transport_with_ip_port(Some(listen_addr.ip()), Some(listen_addr.port()))
+            .build(app)
+            .expect("Failed to create TestServer");
         let server_addr = test_server.server_address().unwrap().to_string();
 
         Self { server_addr, actor_system: Some(actor_system), _test_server: test_server }
