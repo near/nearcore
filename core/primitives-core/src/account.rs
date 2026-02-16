@@ -544,6 +544,12 @@ pub struct GasKeyInfo {
     pub num_nonces: NonceIndex,
 }
 
+impl GasKeyInfo {
+    pub fn borsh_len() -> usize {
+        borsh::object_length(&Self { balance: Balance::from_yoctonear(0), num_nonces: 0 }).unwrap()
+    }
+}
+
 /// Defines permissions for AccessKey
 #[derive(
     BorshSerialize,

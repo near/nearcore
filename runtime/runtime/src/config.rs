@@ -1,7 +1,7 @@
 //! Settings of the parameters of the runtime.
 
 use near_crypto::PublicKey;
-use near_primitives::account::{AccessKey, AccessKeyPermission};
+use near_primitives::account::{AccessKey, AccessKeyPermission, GasKeyInfo};
 use near_primitives::action::DeployGlobalContractAction;
 use near_primitives::errors::IntegerOverflowError;
 // Just re-exporting RuntimeConfig for backwards compatibility.
@@ -71,16 +71,14 @@ fn storage_write_gas(ext: &ExtCostsConfig, key_len: usize, value_len: usize) -> 
         .unwrap()
 }
 
-/// Based on `Transfer` send fees, without implicit account creation. Charges
-/// extra for the public_key field making the receipt larger.
 fn gas_key_transfer_send_fee(
     fees: &RuntimeFeesConfig,
     sender_is_receiver: bool,
     public_key_len: usize,
 ) -> Gas {
-    let transfer_fee = fees.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
-    let pk_byte_fee = fees.fee(ActionCosts::new_data_receipt_byte).send_fee(sender_is_receiver);
-    transfer_fee.checked_add(pk_byte_fee.checked_mul(public_key_len as u64).unwrap()).unwrap()
+    let base_fee = fees.fee(ActionCosts::gas_key_transfer_base).send_fee(sender_is_receiver);
+    let byte_fee = fees.fee(ActionCosts::gas_key_byte).send_fee(sender_is_receiver);
+    base_fee.checked_add(byte_fee.checked_mul(public_key_len as u64).unwrap()).unwrap()
 }
 
 /// Total sum of gas that needs to be burnt to send these actions.
@@ -203,7 +201,7 @@ fn permission_send_fees(
     fees: &RuntimeFeesConfig,
     sender_is_receiver: bool,
 ) -> Gas {
-    match permission {
+    let key_fee = match permission {
         AccessKeyPermission::FunctionCall(perm)
         | AccessKeyPermission::GasKeyFunctionCall(_, perm) => {
             let num_bytes = perm
@@ -222,7 +220,15 @@ fn permission_send_fees(
         AccessKeyPermission::FullAccess | AccessKeyPermission::GasKeyFullAccess(_) => {
             fees.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
         }
-    }
+    };
+    let gas_key_info_fee = match permission {
+        AccessKeyPermission::GasKeyFunctionCall(..) | AccessKeyPermission::GasKeyFullAccess(_) => {
+            let byte_fee = fees.fee(ActionCosts::gas_key_byte).send_fee(sender_is_receiver);
+            byte_fee.checked_mul(GasKeyInfo::borsh_len() as u64).unwrap()
+        }
+        _ => Gas::ZERO,
+    };
+    key_fee.checked_add(gas_key_info_fee).unwrap()
 }
 
 /// Total sum of gas that needs to be burnt to send the inner actions of DelegateAction
@@ -329,9 +335,8 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             // Use minimum as an estimate for the value length. At the time of sending,
             // we don't know the variable portion (FunctionCallPermission) of the
             // specified gas key to transfer to.
-            // Note tx_cost is calculated at the time of sending.
             let estimated_value_len = AccessKey::min_gas_key_borsh_len();
-            fees.fee(ActionCosts::transfer)
+            fees.fee(ActionCosts::gas_key_transfer_base)
                 .exec_fee()
                 .checked_add(storage_read_gas(ext, ak_key_len, estimated_value_len))
                 .unwrap()
@@ -345,7 +350,7 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             // we don't know the variable portion (FunctionCallPermission) of the
             // specified gas key to withdraw from.
             let estimated_value_len = AccessKey::min_gas_key_borsh_len();
-            fees.fee(ActionCosts::transfer)
+            fees.fee(ActionCosts::gas_key_transfer_base)
                 .exec_fee()
                 .checked_add(storage_read_gas(ext, ak_key_len, estimated_value_len))
                 .unwrap()
