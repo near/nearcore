@@ -202,6 +202,12 @@ pub enum Error {
     /// Invalid bandwidth requests
     #[error("Invalid bandwidth requests - chunk extra doesn't match chunk header: {0}")]
     InvalidBandwidthRequests(String),
+    /// Invalid proposed_split in chunk header
+    #[error("Invalid proposed split in chunk header")]
+    InvalidProposedSplit,
+    /// Invalid shard_split in block header
+    #[error("Invalid shard split in block header: {0}")]
+    InvalidShardSplit(String),
     /// Invalid shard id
     #[error("Shard id {0} does not exist")]
     InvalidShardId(ShardId),
@@ -343,6 +349,8 @@ impl Error {
             | Error::InvalidTotalSupply
             | Error::InvalidCongestionInfo(_)
             | Error::InvalidBandwidthRequests(_)
+            | Error::InvalidProposedSplit
+            | Error::InvalidShardSplit(_)
             | Error::InvalidShardId(_)
             | Error::InvalidShardIndex(_)
             | Error::NoParentShardId(_)
@@ -427,6 +435,8 @@ impl Error {
             Error::InvalidTotalSupply => "invalid_total_supply",
             Error::InvalidCongestionInfo(_) => "invalid_congestion_info",
             Error::InvalidBandwidthRequests(_) => "invalid_bandwidth_requests",
+            Error::InvalidProposedSplit => "invalid_proposed_split",
+            Error::InvalidShardSplit(_) => "invalid_shard_split",
             Error::InvalidShardId(_) => "invalid_shard_id",
             Error::InvalidShardIndex(_) => "invalid_shard_index",
             Error::NoParentShardId(_) => "no_parent_shard_id",
@@ -476,6 +486,7 @@ impl From<ShardLayoutError> for Error {
             }
             ShardLayoutError::NoParent { shard_id } => Error::NoParentShardId(shard_id),
             ShardLayoutError::CannotDeriveLayout => Error::CannotDeriveLayout,
+            ShardLayoutError::DuplicateBoundaryAccount { .. } => Error::CannotDeriveLayout,
         }
     }
 }

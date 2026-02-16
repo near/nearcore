@@ -4,6 +4,7 @@ use crate::{ChainStore, Error};
 use borsh::BorshSerialize;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
+use near_primitives::block::BlockHeader;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -181,6 +182,49 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
         prev_chunk_extra.bandwidth_requests(),
         chunk_header.bandwidth_requests(),
     )?;
+
+    if prev_chunk_extra.proposed_split() != chunk_header.proposed_split() {
+        return Err(Error::InvalidProposedSplit);
+    }
+
+    Ok(())
+}
+
+/// Validate that the `shard_split` in the given `block_header` is correctly computed based on
+/// `proposed_split` fields from chunk headers. This prevents a malicious block producer from
+/// forging the `shard_split` value.
+pub fn validate_block_shard_split(
+    epoch_manager: &dyn EpochManagerAdapter,
+    header: &BlockHeader,
+    chunk_headers: &[ShardChunkHeader],
+) -> Result<(), Error> {
+    let is_last_block = epoch_manager.is_produced_block_last_in_epoch(
+        header.height(),
+        header.prev_hash(),
+        header.last_final_block(),
+    )?;
+
+    let expected_shard_split = if !is_last_block {
+        None
+    } else {
+        let protocol_version = epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
+        epoch_manager.get_upcoming_shard_split(
+            protocol_version,
+            header.prev_hash(),
+            chunk_headers,
+        )?
+    };
+
+    let header_shard_split = header.shard_split();
+    if header_shard_split != expected_shard_split.as_ref() {
+        return Err(Error::InvalidShardSplit(format!(
+            "header has {:?}, expected {:?} (block hash: {:?} height: {:?})",
+            header_shard_split,
+            expected_shard_split,
+            header.hash(),
+            header.height(),
+        )));
+    }
 
     Ok(())
 }
