@@ -40,7 +40,7 @@ def _parse_args():
     parser.add_argument(
         "--cancel",
         "-c",
-        help="Cancel scheduled run. In progress tests cannot be stopped.",
+        help="Cancel scheduled run. In progress tests cannot be stopped. Only pending tests will be cancelled.",
     )
     parser.add_argument("--branch",
                         "-b",
