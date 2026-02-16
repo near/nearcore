@@ -766,8 +766,10 @@ pub trait EpochManagerAdapter: Send + Sync {
             // pending resharding, as they cannot be known upfront.
             return Ok(Default::default());
         };
-        let shard_layouts =
+        let mut shard_layouts =
             self.get_shard_layout_history(client_protocol_version, Some(head_protocol_version + 1));
+        // Loop below expects layouts to be ordered oldest-to-newest
+        shard_layouts.reverse();
 
         let mut result = HashSet::new();
         for shard_uid in head_shard_layout.shard_uids() {
@@ -789,7 +791,7 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     /// Get all static shard layouts from the given `latest_protocol_version` (inclusive) back to
     /// `earliest_protocol_version` (or genesis version if `None`), ordered from newest to oldest.
-    /// Protocol versions for which  dynamic resharding is enabled are skipped.
+    /// Protocol versions for which dynamic resharding is enabled are skipped.
     fn get_shard_layout_history(
         &self,
         latest_protocol_version: ProtocolVersion,

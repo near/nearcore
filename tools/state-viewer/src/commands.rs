@@ -1071,7 +1071,23 @@ pub(crate) fn print_epoch_analysis(
         let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
         let epoch_protocol_version = epoch_info.protocol_version();
         let epoch_config = epoch_manager.get_epoch_config(epoch_protocol_version);
-        let block_info = epoch_manager.get_block_info(&next_epoch_id.0).unwrap();
+        let block_info = epoch_manager.get_block_info(&next_next_epoch_id.0).unwrap();
+
+        match mode {
+            EpochAnalysisMode::CheckConsistency => {
+                // Retrieve remaining parameters from the stored information about epochs. Must
+                // happen before next_next_shard_layout so it uses the correct config for epoch N+2.
+                next_epoch_info =
+                    epoch_heights_to_infos.get(&next_epoch_height).unwrap().as_ref().clone();
+                next_next_epoch_config =
+                    epoch_manager.get_epoch_config(original_next_next_protocol_version);
+                next_next_protocol_version = original_next_next_protocol_version;
+            }
+            EpochAnalysisMode::Backtest => {
+                next_next_protocol_version = PROTOCOL_VERSION;
+            }
+        };
+
         let next_next_shard_layout = epoch_manager
             .next_next_shard_layout(
                 &epoch_config,
@@ -1081,23 +1097,9 @@ pub(crate) fn print_epoch_analysis(
                 &block_info,
             )
             .unwrap();
-
-        match mode {
-            EpochAnalysisMode::CheckConsistency => {
-                // Retrieve remaining parameters from the stored information
-                // about epochs.
-                next_epoch_info =
-                    epoch_heights_to_infos.get(&next_epoch_height).unwrap().as_ref().clone();
-                next_next_epoch_config = epoch_manager.get_epoch_config(
-                    epoch_manager.get_epoch_info(next_next_epoch_id).unwrap().protocol_version(),
-                );
-                has_same_shard_layout = next_shard_layout == next_next_shard_layout;
-                next_next_protocol_version = original_next_next_protocol_version;
-            }
-            EpochAnalysisMode::Backtest => {
-                has_same_shard_layout = true;
-                next_next_protocol_version = PROTOCOL_VERSION;
-            }
+        has_same_shard_layout = match mode {
+            EpochAnalysisMode::CheckConsistency => next_shard_layout == next_next_shard_layout,
+            EpochAnalysisMode::Backtest => true,
         };
 
         // Use "future" information to generate next next epoch which is stored

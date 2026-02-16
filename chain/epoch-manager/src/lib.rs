@@ -692,7 +692,7 @@ impl EpochManager {
 
     /// Get all static shard layouts from the given `latest_protocol_version` (inclusive) back to
     /// `earliest_protocol_version` (or genesis version if `None`), ordered from newest to oldest.
-    /// Protocol versions for which  dynamic resharding is enabled are skipped.
+    /// Protocol versions for which dynamic resharding is enabled are skipped.
     fn get_shard_layout_history(
         &self,
         latest_protocol_version: ProtocolVersion,
