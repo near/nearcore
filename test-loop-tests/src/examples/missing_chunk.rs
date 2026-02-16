@@ -50,7 +50,6 @@ fn missing_chunk_example_test() {
     assert_eq!(get_chunk_mask(&node, missing_chunk_heigh - 1), vec![true, true]);
     assert_eq!(get_chunk_mask(&node, missing_chunk_heigh), vec![false, true]);
     assert_eq!(get_chunk_mask(&node, missing_chunk_heigh + 1), vec![true, true]);
-    drop(node);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
@@ -116,7 +115,6 @@ fn missing_chunk_window_example_test() {
             }
         }
     }
-    drop(node);
 
     for (shard_id, shard_state) in shard_missing_chunk_states.iter().enumerate() {
         assert_eq!(

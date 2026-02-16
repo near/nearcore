@@ -32,6 +32,7 @@ pub struct TestLoopNodeV2<'a> {
     pub(crate) node_data: &'a NodeExecutionData,
 }
 
+#[allow(dead_code)]
 impl<'a> TestLoopNodeV2<'a> {
     pub fn data(&self) -> &NodeExecutionData {
         self.node_data
@@ -164,6 +165,7 @@ pub struct NodeRunner<'a> {
     pub(crate) node_data: &'a NodeExecutionData,
 }
 
+#[allow(dead_code)]
 impl<'a> NodeRunner<'a> {
     pub fn run_until(
         &mut self,

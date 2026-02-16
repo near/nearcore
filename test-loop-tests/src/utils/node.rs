@@ -82,6 +82,7 @@ impl<'a> TestLoopNode<'a> {
         self.client(test_loop_data).chain.chain_store.store().store()
     }
 
+    #[allow(dead_code)]
     pub fn client_actor<'b>(&self, test_loop_data: &'b mut TestLoopData) -> &'b mut ClientActor {
         let client_handle = self.data().client_sender.actor_handle();
         test_loop_data.get_mut(&client_handle)
@@ -111,11 +112,13 @@ impl<'a> TestLoopNode<'a> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn head_block(&self, test_loop_data: &TestLoopData) -> Arc<Block> {
         let block_hash = self.client(test_loop_data).chain.head().unwrap().last_block_hash;
         self.block(test_loop_data, block_hash)
     }
 
+    #[allow(dead_code)]
     pub fn last_executed_block(&self, test_loop_data: &TestLoopData) -> Arc<Block> {
         let block_hash = self.last_executed(test_loop_data).last_block_hash;
         self.block(test_loop_data, block_hash)
@@ -125,6 +128,7 @@ impl<'a> TestLoopNode<'a> {
         self.client(test_loop_data).chain.get_block(&block_hash).unwrap()
     }
 
+    #[allow(dead_code)]
     pub fn block_chunks(&self, test_loop_data: &TestLoopData, block: &Block) -> Vec<ShardChunk> {
         let chain = &self.client(test_loop_data).chain;
         block

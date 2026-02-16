@@ -106,7 +106,6 @@ fn delayed_receipt_example_test() {
     assert!(receipt_outcomes[0].is_ok());
     assert!(receipt_outcomes[1].is_ok());
     assert_matches!(receipt_outcomes[2], Err(Error::DBNotFoundErr(_)));
-    drop(rpc_node);
 
     env.rpc_runner().run_until_outcome_available(tx_receipt_ids[2], Duration::seconds(1));
 
