@@ -30,6 +30,7 @@ use parking_lot::Mutex;
 
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::NodeExecutionData;
+use crate::utils::node::TestLoopNode;
 
 use super::client_queries::ClientQueries;
 use super::get_node_data;
@@ -275,7 +276,8 @@ pub fn delete_account(
     beneficiary_id: &AccountId,
 ) -> CryptoHash {
     let signer: Signer = create_user_test_signer(&account_id).into();
-    let nonce = get_next_nonce(&test_loop_data, node_datas, account_id);
+    let rpc_node = TestLoopNode::for_account(node_datas, rpc_id);
+    let nonce = rpc_node.get_next_nonce(test_loop_data, account_id);
     let block_hash = get_shared_block_hash(node_datas, test_loop_data);
 
     let tx = SignedTransaction::delete_account(
