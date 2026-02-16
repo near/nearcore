@@ -720,7 +720,7 @@ impl ForkNetworkCommand {
 
         // 2. Initialize chain and state storage so we can add benchmark
         // accounts there.
-        let prev_state_roots = get_genesis_state_roots(&store)?.unwrap();
+        let prev_state_roots = get_genesis_state_roots(&store).unwrap();
         let shard_uids: Vec<_> = target_shard_layout.shard_uids().collect();
 
         let base_epoch_config_store = EpochConfigStore::test(BTreeMap::from([(

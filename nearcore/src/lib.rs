@@ -493,7 +493,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let telemetry =
         TelemetryActor::spawn_tokio_actor(actor_system.clone(), config.telemetry_config.clone());
     let chain_genesis = ChainGenesis::new(&config.genesis.config);
-    let state_roots = near_store::get_genesis_state_roots(runtime.store())?
+    let state_roots = near_store::get_genesis_state_roots(runtime.store())
         .expect("genesis should be initialized.");
     let (genesis_block, _genesis_chunks) = Chain::make_genesis_block(
         epoch_manager.as_ref(),

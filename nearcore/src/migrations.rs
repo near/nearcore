@@ -179,7 +179,7 @@ fn migrate_48_to_49(
 // Typically this is NOT recommended as ColdDB has specific ways for storing data, example RC columns.
 // But in our case this is fine as the block headers are stored as-is in both hot and cold DBs.
 fn copy_block_headers_to_cold_db(hot_store: &Store, cold_db: &ColdDB) -> anyhow::Result<()> {
-    let genesis_height = get_genesis_height(hot_store)?.unwrap();
+    let genesis_height = get_genesis_height(hot_store).unwrap();
     let head_height = hot_store.chain_store().head().unwrap().height;
     let approx_num_blocks = head_height - genesis_height;
 

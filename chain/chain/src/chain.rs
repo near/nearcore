@@ -402,7 +402,7 @@ impl Chain {
             epoch_manager.clone(),
             runtime_adapter.clone(),
         );
-        let state_roots = get_genesis_state_roots(runtime_adapter.store())?
+        let state_roots = get_genesis_state_roots(runtime_adapter.store())
             .expect("genesis should be initialized.");
         let (genesis, _genesis_chunks) = Self::make_genesis_block(
             epoch_manager.as_ref(),
@@ -474,7 +474,7 @@ impl Chain {
         resharding_sender: ReshardingSender,
         on_post_state_ready_sender: Option<PostStateReadySender>,
     ) -> Result<Chain, Error> {
-        let state_roots = get_genesis_state_roots(runtime_adapter.store())?
+        let state_roots = get_genesis_state_roots(runtime_adapter.store())
             .expect("genesis should be initialized.");
         let (genesis, genesis_chunks) = Self::make_genesis_block(
             epoch_manager.as_ref(),
