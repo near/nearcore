@@ -15,7 +15,6 @@ use near_network::state_witness::{
     PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
-use near_parameters::RuntimeConfig;
 use near_primitives::reed_solomon::{
     REED_SOLOMON_MAX_PARTS, ReedSolomonEncoder, ReedSolomonEncoderCache,
 };
@@ -35,7 +34,7 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
-use near_vm_runner::{ContractCode, ContractRuntimeCache};
+use near_vm_runner::ContractCode;
 use parking_lot::Mutex;
 use rand::Rng;
 use rayon::iter::{
@@ -670,7 +669,11 @@ impl PartialWitnessActor {
                 .contracts()
                 .iter()
                 .filter(|&hash| {
-                    !contracts_cache_contains_contract(contracts_cache, hash, &runtime_config)
+                    !crate::stateless_validation::contracts_cache_contains_contract(
+                        contracts_cache,
+                        hash,
+                        &runtime_config,
+                    )
                 })
                 .cloned(),
         );
@@ -950,13 +953,4 @@ pub fn compress_witness(witness: &ChunkStateWitness) -> Result<EncodedChunkState
         witness,
     );
     Ok(witness_bytes)
-}
-
-fn contracts_cache_contains_contract(
-    cache: &dyn ContractRuntimeCache,
-    contract_hash: &CodeHash,
-    runtime_config: &RuntimeConfig,
-) -> bool {
-    near_vm_runner::contract_cached(Arc::clone(&runtime_config.wasm_config), cache, contract_hash.0)
-        .is_ok_and(|b| b)
 }

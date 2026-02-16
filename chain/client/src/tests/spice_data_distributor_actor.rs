@@ -267,6 +267,8 @@ impl ActorBuilder {
                         .unwrap();
                 }
             }),
+            Sender::from_fn(|_| {}),
+            Sender::from_fn(|_| {}),
         )
     }
 }
@@ -450,7 +452,10 @@ fn test_witness_can_be_reconstructed_impl(num_chunk_producers: usize, num_valida
         .map(|producer| new_actor_for_account(producers_messages_sc.clone(), &chain, producer))
         .collect_vec();
     for producer in &mut producers {
-        producer.handle(SpiceDistributorStateWitness { state_witness: state_witness.clone() })
+        producer.handle(SpiceDistributorStateWitness {
+            contract_accesses: HashSet::new(),
+            state_witness: state_witness.clone(),
+        })
     }
 
     let (receiver_messages_sc, mut receiver_messages_rc) = unbounded_channel();
@@ -464,7 +469,7 @@ fn test_witness_can_be_reconstructed_impl(num_chunk_producers: usize, num_valida
             request: NetworkRequests::SpicePartialData { partial_data, recipients },
         } = message
         else {
-            panic!()
+            continue; // Skip non-partial-data messages (e.g. SpiceChunkContractAccesses)
         };
         assert!(recipients.contains(validator));
         receiver.handle(SpiceIncomingPartialData { data: partial_data.clone() });
@@ -504,7 +509,10 @@ fn test_witness_is_distributed_to_all_validators_impl(
         .map(|producer| new_actor_for_account(producers_messages_sc.clone(), &chain, producer))
         .collect_vec();
     for producer in &mut producers {
-        producer.handle(SpiceDistributorStateWitness { state_witness: state_witness.clone() })
+        producer.handle(SpiceDistributorStateWitness {
+            contract_accesses: HashSet::new(),
+            state_witness: state_witness.clone(),
+        })
     }
 
     while let Ok(message) = producers_messages_rc.try_recv() {
@@ -513,7 +521,7 @@ fn test_witness_is_distributed_to_all_validators_impl(
             ..
         } = message
         else {
-            panic!()
+            continue; // Skip non-partial-data messages (e.g. SpiceChunkContractAccesses)
         };
         assert_eq!(message_recipients.len(), recipient_accounts.len());
         let message_recipients = HashSet::from_iter(message_recipients.into_iter());
@@ -755,8 +763,11 @@ fn receipt_proof_incoming_data(
 fn witness_incoming_data(chain: &Chain, block: &Block) -> (SpiceIncomingPartialData, AccountId) {
     let state_witness = new_test_witness(&block);
     let producer = witness_producer_accounts(chain, block, &state_witness).swap_remove(0);
-    let (data, recipient) =
-        get_incoming_data(&producer, chain, SpiceDistributorStateWitness { state_witness });
+    let (data, recipient) = get_incoming_data(
+        &producer,
+        chain,
+        SpiceDistributorStateWitness { contract_accesses: HashSet::new(), state_witness },
+    );
     (data, recipient.unwrap())
 }
 
@@ -1118,7 +1129,10 @@ fn test_incoming_partial_data_for_witness_with_wrong_shard_id() {
     let (incoming_data, recipient) = get_incoming_data(
         &producer,
         &chain,
-        SpiceDistributorStateWitness { state_witness: state_witness.clone() },
+        SpiceDistributorStateWitness {
+            contract_accesses: HashSet::new(),
+            state_witness: state_witness.clone(),
+        },
     );
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient.unwrap());
@@ -1136,7 +1150,10 @@ fn test_incoming_partial_data_for_witness_with_wrong_shard_id() {
         let (incoming_data_for_different_witness, _recipient) = get_incoming_data(
             &producer,
             &chain,
-            SpiceDistributorStateWitness { state_witness: witness_with_different_shard },
+            SpiceDistributorStateWitness {
+                contract_accesses: HashSet::new(),
+                state_witness: witness_with_different_shard,
+            },
         );
         let incoming_data_for_different_witness =
             data_into_verified(incoming_data_for_different_witness.data);
@@ -1164,8 +1181,11 @@ fn test_incoming_partial_data_for_witness_with_wrong_block_hash() {
     let state_witness = new_test_witness(&block);
     let producer = witness_producer_accounts(&chain, &block, &state_witness).swap_remove(0);
 
-    let (incoming_data, recipient) =
-        get_incoming_data(&producer, &chain, SpiceDistributorStateWitness { state_witness });
+    let (incoming_data, recipient) = get_incoming_data(
+        &producer,
+        &chain,
+        SpiceDistributorStateWitness { contract_accesses: HashSet::new(), state_witness },
+    );
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &recipient.unwrap());
     {
