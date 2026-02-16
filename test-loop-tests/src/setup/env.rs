@@ -221,7 +221,6 @@ impl TestLoopEnv {
         NodeRunner { test_loop: &mut self.test_loop, node_data: &self.node_datas[idx] }
     }
 
-    #[allow(dead_code)]
     pub fn runner_for_account(&mut self, account_id: &AccountId) -> NodeRunner<'_> {
         let idx = self
             .node_datas

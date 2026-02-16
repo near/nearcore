@@ -26,16 +26,18 @@ fn test_restart_node() {
         .build()
         .warmup();
 
-    let restart_account = env.node_datas[0].account_id.clone();
-    let restart_identifier = env.node_datas[0].identifier.clone();
+    let stable_node_idx = 1;
+    let restart_node_data = &env.node_datas[0];
+    let restart_account = restart_node_data.account_id.clone();
+    let restart_identifier = restart_node_data.identifier.clone();
 
     let kill_height = 2 * epoch_length;
-    env.node_runner(0).run_until_head_height(kill_height);
+    env.runner_for_account(&restart_account).run_until_head_height(kill_height);
 
     let killed_node_state = env.kill_node(&restart_identifier);
 
     let restart_height = kill_height + 2 * epoch_length;
-    env.node_runner(1).run_until_head_height(restart_height);
+    env.node_runner(stable_node_idx).run_until_head_height(restart_height);
 
     let new_node_identifier = format!("{}-restart", restart_identifier);
     env.restart_node(&new_node_identifier, killed_node_state);
@@ -43,7 +45,7 @@ fn test_restart_node() {
     assert_eq!(env.node_for_account(&restart_account).head().height, kill_height);
 
     // Give a few blocks for the restarted node to catch up
-    env.node_runner(1).run_for_number_of_blocks(5);
+    env.node_runner(stable_node_idx).run_for_number_of_blocks(5);
 
     assert_eq!(env.node_for_account(&restart_account).head().height, env.node(1).head().height);
 
