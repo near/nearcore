@@ -23,6 +23,7 @@ use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
 
 use crate::utils::peer_manager_actor::{TestLoopNetworkSharedState, UnreachableActor};
+use crate::utils::rpc::TestLoopRpcServer;
 
 use super::env::TestLoopEnv;
 use super::setup::setup_client;
@@ -60,6 +61,8 @@ pub(crate) struct TestLoopBuilder {
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
     /// If not explicitly set, the chain_id from genesis determines the schedule.
     upgrade_schedule: Option<ProtocolUpgradeVotingSchedule>,
+    /// Whether to start a jsonrpc server for each node.
+    with_jsonrpc: bool,
 }
 
 impl TestLoopBuilder {
@@ -79,6 +82,7 @@ impl TestLoopBuilder {
             track_all_shards: false,
             load_memtries_for_tracked_shards: true,
             upgrade_schedule: None,
+            with_jsonrpc: false,
         }
     }
 
@@ -175,6 +179,16 @@ impl TestLoopBuilder {
         self
     }
 
+    /// Start a basic jsonrpc server for each node in the test loop.
+    /// Starts a new `ViewClientActor` that runs outside of testloop to answer jsonrpc queries.
+    /// The jsonrpc server can answer basic queries that can be handled using the current state.
+    /// Queries that require real time timeouts (e.g. tx_status) don't work.
+    /// Submitting transactions is not supported for now.
+    pub fn with_jsonrpc(mut self) -> Self {
+        self.with_jsonrpc = true;
+        self
+    }
+
     /// Build the test loop environment.
     pub(crate) fn build(self) -> TestLoopEnv {
         self.ensure_genesis().ensure_epoch_config_store().ensure_clients().build_impl()
@@ -202,6 +216,7 @@ impl TestLoopBuilder {
 
     fn build_impl(self) -> TestLoopEnv {
         let warmup_pending = self.warmup_pending.clone();
+        let with_jsonrpc = self.with_jsonrpc;
         self.test_loop.send_adhoc_event("warmup_pending".into(), move |_| {
             assert!(
                 !warmup_pending.load(Ordering::Relaxed),
@@ -212,13 +227,21 @@ impl TestLoopBuilder {
         let node_states =
             (0..self.clients.len()).map(|idx| self.setup_node_state(idx)).collect_vec();
         let (mut test_loop, shared_state) = self.setup_shared_state();
-        let datas = node_states
+        let mut datas: Vec<_> = node_states
             .into_iter()
             .map(|node_state| {
                 let account_id = node_state.account_id.clone();
                 setup_client(account_id.as_str(), &mut test_loop, node_state, &shared_state)
             })
-            .collect_vec();
+            .collect();
+
+        if with_jsonrpc {
+            for node_data in &mut datas {
+                let rpc_setup =
+                    TestLoopRpcServer::new(&test_loop.data, &shared_state.genesis, node_data);
+                node_data.rpc_setup = Some(Arc::new(rpc_setup));
+            }
+        }
 
         TestLoopEnv { test_loop, node_datas: datas, shared_state }
     }

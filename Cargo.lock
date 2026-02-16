@@ -8048,6 +8048,8 @@ name = "test-loop-tests"
 version = "0.0.0"
 dependencies = [
  "assert_matches",
+ "axum",
+ "axum-test",
  "borsh",
  "bytesize 1.1.0",
  "derive_builder",
@@ -8064,6 +8066,8 @@ dependencies = [
  "near-external-storage",
  "near-indexer",
  "near-jsonrpc",
+ "near-jsonrpc-client-internal",
+ "near-jsonrpc-primitives",
  "near-network",
  "near-o11y",
  "near-parameters",

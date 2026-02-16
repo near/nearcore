@@ -551,6 +551,7 @@ pub fn setup_client(
         cloud_storage_sender,
         cloud_archival_writer_handle,
         expected_execution_delay: Arc::new(AtomicU64::new(0)),
+        rpc_setup: None,
     };
 
     // Add the client to the network shared state before returning data

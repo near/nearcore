@@ -13,6 +13,8 @@ workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
+axum.workspace = true
+axum-test.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
 derive_builder.workspace = true
@@ -38,6 +40,8 @@ near-epoch-manager.workspace = true
 near-external-storage.workspace = true
 near-indexer.workspace = true
 near-jsonrpc.workspace = true
+near-jsonrpc-client-internal.workspace = true
+near-jsonrpc-primitives.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true

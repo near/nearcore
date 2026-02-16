@@ -40,6 +40,7 @@ use crate::utils::peer_manager_actor::{
     TestLoopNetworkSharedState, TestLoopPeerManagerActor, TxRequestHandleSenderForTestLoopNetwork,
     ViewClientSenderForTestLoopNetwork,
 };
+use crate::utils::rpc::TestLoopRpcServer;
 
 use super::drop_condition::{DropCondition, TestLoopChunksStorage};
 
@@ -101,6 +102,8 @@ pub struct NodeExecutionData {
     /// Set by delay_endorsements_propagation to account for certification delay in timeouts.
     /// It is Arc<_> so updates are visible through clones.
     pub(super) expected_execution_delay: Arc<AtomicU64>,
+    /// JSON-RPC test server for this node. Wrapped in Arc so that NodeExecutionData remains Clone.
+    pub(crate) rpc_setup: Option<Arc<TestLoopRpcServer>>,
 }
 
 impl NodeExecutionData {
@@ -110,6 +113,16 @@ impl NodeExecutionData {
 
     pub fn set_expected_execution_delay(&self, delay: u64) {
         self.expected_execution_delay.store(delay, Ordering::Relaxed);
+    }
+
+    /// Returns the JSON-RPC server address for this node.
+    /// Panics if JSON-RPC was not enabled (use `.with_jsonrpc()` on the builder).
+    pub fn jsonrpc_addr(&self) -> &str {
+        &self
+            .rpc_setup
+            .as_ref()
+            .expect("JSON-RPC not enabled; use .with_jsonrpc() on TestLoopBuilder")
+            .server_addr
     }
 }
 
