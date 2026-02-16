@@ -924,12 +924,10 @@ impl SpiceDataDistributorActor {
                     *to_shard_id,
                     *from_shard_id,
                 )
-                .map_err(Error::StoreIoError)?
                 .map(SpiceData::ReceiptProof)
             }
             SpiceDataIdentifier::Witness { block_hash, shard_id } => {
                 get_witness(self.chain_store.store_ref(), block_hash, *shard_id)
-                    .map_err(Error::StoreIoError)?
                     .map(Box::new)
                     .map(SpiceData::StateWitness)
             }
