@@ -55,9 +55,11 @@ fn bench_generate_state_witness_parts(c: &mut Criterion) {
                 encoder.clone(),
                 epoch_id,
                 &chunk_header,
+                CryptoHash::default(),
                 witness_bytes.clone(),
                 &chunk_validators,
                 &signer,
+                near_primitives::version::PROTOCOL_VERSION,
             ));
         });
     });

@@ -3,17 +3,17 @@ use near_async::{MultiSend, MultiSenderFrom};
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
 };
-use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChunkStateWitnessAckMessage(pub ChunkStateWitnessAck);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PartialEncodedStateWitnessMessage(pub PartialEncodedStateWitness);
+pub struct PartialEncodedStateWitnessMessage(pub VersionedPartialEncodedStateWitness);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PartialEncodedStateWitnessForwardMessage(pub PartialEncodedStateWitness);
+pub struct PartialEncodedStateWitnessForwardMessage(pub VersionedPartialEncodedStateWitness);
 
 /// Message to partial witness actor (on a chunk validator) that contains code-hashes of
 /// the contracts that are accessed when applying the previous chunk.
