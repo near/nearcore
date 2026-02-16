@@ -46,9 +46,7 @@ impl ChainStoreAdapter {
     /// Helper method to lazily initialize and retrieve the genesis height.
     fn get_or_init_genesis_height(&self) -> BlockHeight {
         *self.genesis_height.get_or_init(|| {
-            get_genesis_height(&self.store)
-                .expect("Store failed on fetching genesis height")
-                .expect("Genesis height not found in storage")
+            get_genesis_height(&self.store).expect("Genesis height not found in storage")
         })
     }
 

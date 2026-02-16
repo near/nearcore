@@ -84,7 +84,7 @@ fn test_missing_genesis_congestion_infos_bootstrap() {
     // Step 1: Initialize genesis to get state roots
     let store1 = create_test_store();
     initialize_genesis_state(store1.clone(), &genesis, None);
-    let genesis_state_roots = near_store::get_genesis_state_roots(&store1).unwrap().unwrap();
+    let genesis_state_roots = near_store::get_genesis_state_roots(&store1).unwrap();
 
     // Step 2: Create a new fresh store (equivalent to a deleted data folder)
     let store2 = create_test_store();
@@ -123,9 +123,8 @@ fn test_missing_genesis_congestion_infos_bootstrap() {
 fn check_genesis_congestion_info_in_store(client: &mut Client) {
     client.chain.clear_data(&client.config.gc).unwrap();
 
-    let infos = near_store::get_genesis_congestion_infos(&client.chain.chain_store().store())
-        .unwrap()
-        .unwrap();
+    let infos =
+        near_store::get_genesis_congestion_infos(&client.chain.chain_store().store()).unwrap();
     assert_eq!(infos.len(), NUM_SHARDS);
     for i in 0..NUM_SHARDS {
         assert_eq!(infos[i].buffered_receipts_gas(), 0);
