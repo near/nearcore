@@ -190,17 +190,7 @@ pub fn total_send_fees(
                 base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
             }
             WithdrawFromGasKey(action) => {
-                let ext = &config.wasm_config.ext_costs;
-                let ak_key_len = access_key_key_len(receiver_id, &action.public_key);
-                // Use minimum as an estimate for the value length. At the time of sending,
-                // we don't know the variable portion (FunctionCallPermission) of the
-                // specified gas key to withdraw from.
-                let estimated_value_len = AccessKey::min_gas_key_borsh_len();
                 gas_key_transfer_send_fee(fees, sender_is_receiver, action.public_key.len())
-                    .checked_add(storage_read_gas(ext, ak_key_len, estimated_value_len))
-                    .unwrap()
-                    .checked_add(storage_write_gas(ext, ak_key_len, estimated_value_len))
-                    .unwrap()
             }
         };
         result = result.checked_add_result(delta)?;
@@ -348,8 +338,20 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
                 .checked_add(storage_write_gas(ext, ak_key_len, estimated_value_len))
                 .unwrap()
         }
-        // Like Transfer, with no implicit account creation.
-        WithdrawFromGasKey(_) => fees.fee(ActionCosts::transfer).exec_fee(),
+        WithdrawFromGasKey(action) => {
+            let ext = &config.wasm_config.ext_costs;
+            let ak_key_len = access_key_key_len(receiver_id, &action.public_key);
+            // Use minimum as an estimate for the value length. At the time of sending,
+            // we don't know the variable portion (FunctionCallPermission) of the
+            // specified gas key to withdraw from.
+            let estimated_value_len = AccessKey::min_gas_key_borsh_len();
+            fees.fee(ActionCosts::transfer)
+                .exec_fee()
+                .checked_add(storage_read_gas(ext, ak_key_len, estimated_value_len))
+                .unwrap()
+                .checked_add(storage_write_gas(ext, ak_key_len, estimated_value_len))
+                .unwrap()
+        }
     }
 }
 
