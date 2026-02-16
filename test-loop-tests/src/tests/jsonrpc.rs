@@ -8,7 +8,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::validators_spec_clients_with_rpc;
 use crate::utils::node::TestLoopNode;
 
-/// Retrieve block by hash via JSON-RPC.
+/// Retrieve block by height via JSON-RPC.
 #[tokio::test]
 async fn test_block_by_height() {
     init_test_logger();
