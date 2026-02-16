@@ -9,6 +9,7 @@
 
 ### Non-protocol Changes
 * Replace polling for transaction status with event notifications to improve jsonrpc response latency
+* Added a database migration to backfill trie data lost due to a bug in resharding. The migration runs automatically on node startup and takes approximately 5 minutes on an archival node. Non-archival nodes are not affected. ([#15044](https://github.com/near/nearcore/pull/15044))
 
 ## [2.10.0]
 
