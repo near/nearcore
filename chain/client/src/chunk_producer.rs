@@ -265,7 +265,7 @@ impl ChunkProducer {
             // If we are to start new epoch, check if the previous block is
             // caught up. If it is not the case, we wouldn't be able to
             // apply block with the new chunk, so we also skip chunk production.
-            if !ChainStore::prev_block_is_caught_up(&self.chain, &prev_prev_hash, &prev_block_hash)?
+            if !ChainStore::prev_block_is_caught_up(&self.chain, &prev_prev_hash, &prev_block_hash)
             {
                 tracing::debug!(target: "client", "prev block is not caught up");
                 return Err(Error::ChunkProducer(
