@@ -187,12 +187,8 @@ impl TestLoopEnv {
     }
 
     pub fn rpc_node(&mut self) -> TestLoopNodeV2<'_> {
-        let idx = self
-            .node_datas
-            .iter()
-            .rposition(|d| d.account_id == rpc_account_id())
-            .expect("rpc node not found");
-        TestLoopNodeV2 { data: &mut self.test_loop.data, node_data: &self.node_datas[idx] }
+        let idx = self.rpc_idx();
+        self.node(idx)
     }
 
     pub fn node(&mut self, idx: usize) -> TestLoopNodeV2<'_> {
@@ -200,21 +196,13 @@ impl TestLoopEnv {
     }
 
     pub fn node_for_account(&mut self, account_id: &AccountId) -> TestLoopNodeV2<'_> {
-        let idx = self
-            .node_datas
-            .iter()
-            .rposition(|d| &d.account_id == account_id)
-            .unwrap_or_else(|| panic!("node with account id {account_id} not found"));
-        TestLoopNodeV2 { data: &mut self.test_loop.data, node_data: &self.node_datas[idx] }
+        let idx = self.account_idx(account_id);
+        self.node(idx)
     }
 
     pub fn rpc_runner(&mut self) -> NodeRunner<'_> {
-        let idx = self
-            .node_datas
-            .iter()
-            .rposition(|d| d.account_id == rpc_account_id())
-            .expect("rpc node not found");
-        NodeRunner { test_loop: &mut self.test_loop, node_data: &self.node_datas[idx] }
+        let idx = self.rpc_idx();
+        self.node_runner(idx)
     }
 
     pub fn node_runner(&mut self, idx: usize) -> NodeRunner<'_> {
@@ -222,11 +210,18 @@ impl TestLoopEnv {
     }
 
     pub fn runner_for_account(&mut self, account_id: &AccountId) -> NodeRunner<'_> {
-        let idx = self
-            .node_datas
+        let idx = self.account_idx(account_id);
+        self.node_runner(idx)
+    }
+
+    fn account_idx(&self, account_id: &AccountId) -> usize {
+        self.node_datas
             .iter()
             .rposition(|d| &d.account_id == account_id)
-            .unwrap_or_else(|| panic!("node with account id {account_id} not found"));
-        NodeRunner { test_loop: &mut self.test_loop, node_data: &self.node_datas[idx] }
+            .unwrap_or_else(|| panic!("node with account id {account_id} not found"))
+    }
+
+    fn rpc_idx(&self) -> usize {
+        self.account_idx(&rpc_account_id())
     }
 }
