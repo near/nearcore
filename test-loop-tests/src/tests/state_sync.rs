@@ -1049,7 +1049,7 @@ fn slow_test_state_sync_no_parts_provided() {
     let initial_epoch_id = healthy_client.chain.head().unwrap().epoch_id;
     let min_block_production_delay = healthy_client.config.min_block_production_delay;
 
-    // Run for 4 epochs
+    // Run for 3 epochs
     let epochs_to_run = 3;
     let blocks_to_run = epochs_to_run * EPOCH_LENGTH;
     let epoch_timeout = min_block_production_delay * blocks_to_run as u32 + Duration::seconds(20);

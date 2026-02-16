@@ -490,7 +490,7 @@ impl Client {
                 .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
             {
                 // By now the chunk must be in store, otherwise the block would have been orphaned
-                let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
+                let chunk = self.chain.get_chunk(&chunk_header.chunk_hash())?;
 
                 let validated_txs = chunk
                     .to_transactions()
