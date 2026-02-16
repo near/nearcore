@@ -36,15 +36,15 @@ fn missing_chunk_example_test() {
     // 2. Disable chunk production
     // 3. Wait for H-1, chunk is skipped at H
     // 4. Enable chunk production, chunks are produced again after H
-    env.node(0).run_until_head_height(missing_chunk_heigh - 2);
-    env.node(0).send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
+    env.node_runner(0).run_until_head_height(missing_chunk_heigh - 2);
+    env.node_runner(0).send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
         AdvProduceChunksMode::StopProduce,
     ));
-    env.node(0).run_until_head_height(missing_chunk_heigh - 1);
-    env.node(0).send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
+    env.node_runner(0).run_until_head_height(missing_chunk_heigh - 1);
+    env.node_runner(0).send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
         AdvProduceChunksMode::Valid,
     ));
-    env.node(0).run_until_head_height(missing_chunk_heigh + 1);
+    env.node_runner(0).run_until_head_height(missing_chunk_heigh + 1);
 
     let node = env.node(0);
     assert_eq!(get_chunk_mask(&node, missing_chunk_heigh - 1), vec![true, true]);
@@ -76,16 +76,16 @@ fn missing_chunk_window_example_test() {
     let window_size = 5;
     let skip_length = 2;
     let window_start_height = 2 * window_size;
-    env.node(0).run_until_head_height(window_start_height - 2);
+    env.node_runner(0).run_until_head_height(window_start_height - 2);
 
     let num_nodes = env.node_datas.len();
     for i in 0..num_nodes {
-        env.node(i).send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
+        env.node_runner(i).send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
             AdvProduceChunksMode::SkipWindow { window_size, skip_length },
         ));
     }
 
-    env.node(0).run_until_head_height(window_start_height + window_size - 1);
+    env.node_runner(0).run_until_head_height(window_start_height + window_size - 1);
 
     #[derive(Clone)]
     struct ShardMissingChunkState {

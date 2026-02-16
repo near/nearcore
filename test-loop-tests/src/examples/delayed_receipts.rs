@@ -12,7 +12,7 @@ use near_primitives::types::{Balance, Nonce};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{
-    create_account_id, create_validators_spec, rpc_account_id, validators_spec_clients_with_rpc,
+    create_account_id, create_validators_spec, validators_spec_clients_with_rpc,
 };
 
 /// Example test that creates a chunk which, when applied, creates a delayed receipt.
@@ -52,7 +52,7 @@ fn delayed_receipt_example_test() {
         &create_user_test_signer(&user_account),
         env.rpc_node().head().last_block_hash,
     );
-    env.rpc_node().run_tx(deploy_test_contract_tx, Duration::seconds(2));
+    env.rpc_runner().run_tx(deploy_test_contract_tx, Duration::seconds(2));
 
     // Each transaction generates local receipt consuming more than a half
     // the chunk space, so chunk can only fit 2 such receipts.
@@ -75,29 +75,17 @@ fn delayed_receipt_example_test() {
     for tx in &txs {
         env.rpc_node().submit_tx(tx.clone());
     }
-    let rpc_id = rpc_account_id();
-    let client_handle = env
-        .node_datas
-        .iter()
-        .rfind(|d| d.account_id == rpc_id)
-        .unwrap()
-        .client_sender
-        .actor_handle();
-    env.rpc_node().run_until(
-        |test_loop_data| {
-            let client = &test_loop_data.get(&client_handle).client;
-            let head_hash = client.chain.head().unwrap().last_block_hash;
-            let head_block = client.chain.get_block(&head_hash).unwrap();
-            let chunks = head_block.chunks();
-            let chunk_header = chunks.iter_raw().next().unwrap();
-            let chunk = client.chain.get_chunk(chunk_header.chunk_hash()).unwrap();
+    env.rpc_runner().run_until(
+        |node| {
+            let head_block = node.head_block();
+            let chunk = node.block_chunks(&head_block).pop().unwrap();
             chunk.to_transactions() == &txs
         },
         Duration::seconds(2),
     );
     let block_with_txs = env.rpc_node().head_block();
 
-    env.rpc_node().run_until_block_executed(block_with_txs.header(), Duration::seconds(2));
+    env.rpc_runner().run_until_block_executed(block_with_txs.header(), Duration::seconds(2));
     let rpc_node = env.rpc_node();
     let chain = &rpc_node.client().chain;
     let tx_receipt_ids = txs
@@ -120,7 +108,7 @@ fn delayed_receipt_example_test() {
     assert_matches!(receipt_outcomes[2], Err(Error::DBNotFoundErr(_)));
     drop(rpc_node);
 
-    env.rpc_node().run_until_outcome_available(tx_receipt_ids[2], Duration::seconds(1));
+    env.rpc_runner().run_until_outcome_available(tx_receipt_ids[2], Duration::seconds(1));
 
     let last_receipts_executed_block = env.rpc_node().last_executed_block();
     assert_eq!(

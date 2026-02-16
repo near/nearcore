@@ -53,10 +53,9 @@ fn resharding_example_test() {
     let epoch_id = env.node(0).head().epoch_id;
     assert_eq!(epoch_manager.get_shard_layout(&epoch_id).unwrap(), base_shard_layout);
 
-    let client_handle = env.node_datas[0].client_sender.actor_handle();
-    env.node(0).run_until(
-        |test_loop_data| {
-            let epoch_id = test_loop_data.get(&client_handle).client.chain.head().unwrap().epoch_id;
+    env.node_runner(0).run_until(
+        |node| {
+            let epoch_id = node.head().epoch_id;
             epoch_manager.get_shard_layout(&epoch_id).unwrap() == new_shard_layout
         },
         Duration::seconds((3 * epoch_length) as i64),

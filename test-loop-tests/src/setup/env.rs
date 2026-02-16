@@ -2,7 +2,7 @@ use super::drop_condition::DropCondition;
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::rpc_account_id;
-use crate::utils::node_v2::TestLoopNodeV2;
+use crate::utils::node_v2::{NodeRunner, TestLoopNodeV2};
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
@@ -184,11 +184,11 @@ impl TestLoopEnv {
             .iter()
             .rposition(|d| d.account_id == rpc_account_id())
             .expect("rpc node not found");
-        TestLoopNodeV2 { env: self, idx }
+        TestLoopNodeV2 { data: &mut self.test_loop.data, node_data: &self.node_datas[idx] }
     }
 
     pub fn node(&mut self, idx: usize) -> TestLoopNodeV2<'_> {
-        TestLoopNodeV2 { env: self, idx }
+        TestLoopNodeV2 { data: &mut self.test_loop.data, node_data: &self.node_datas[idx] }
     }
 
     pub fn node_for_account(&mut self, account_id: &AccountId) -> TestLoopNodeV2<'_> {
@@ -197,6 +197,28 @@ impl TestLoopEnv {
             .iter()
             .rposition(|d| &d.account_id == account_id)
             .unwrap_or_else(|| panic!("node with account id {account_id} not found"));
-        TestLoopNodeV2 { env: self, idx }
+        TestLoopNodeV2 { data: &mut self.test_loop.data, node_data: &self.node_datas[idx] }
+    }
+
+    pub fn rpc_runner(&mut self) -> NodeRunner<'_> {
+        let idx = self
+            .node_datas
+            .iter()
+            .rposition(|d| d.account_id == rpc_account_id())
+            .expect("rpc node not found");
+        NodeRunner { test_loop: &mut self.test_loop, node_data: &self.node_datas[idx] }
+    }
+
+    pub fn node_runner(&mut self, idx: usize) -> NodeRunner<'_> {
+        NodeRunner { test_loop: &mut self.test_loop, node_data: &self.node_datas[idx] }
+    }
+
+    pub fn runner_for_account(&mut self, account_id: &AccountId) -> NodeRunner<'_> {
+        let idx = self
+            .node_datas
+            .iter()
+            .rposition(|d| &d.account_id == account_id)
+            .unwrap_or_else(|| panic!("node with account id {account_id} not found"));
+        NodeRunner { test_loop: &mut self.test_loop, node_data: &self.node_datas[idx] }
     }
 }

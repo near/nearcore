@@ -30,12 +30,12 @@ fn test_restart_node() {
     let restart_identifier = env.node_datas[0].identifier.clone();
 
     let kill_height = 2 * epoch_length;
-    env.node(0).run_until_head_height(kill_height);
+    env.node_runner(0).run_until_head_height(kill_height);
 
     let killed_node_state = env.kill_node(&restart_identifier);
 
     let restart_height = kill_height + 2 * epoch_length;
-    env.node(1).run_until_head_height(restart_height);
+    env.node_runner(1).run_until_head_height(restart_height);
 
     let new_node_identifier = format!("{}-restart", restart_identifier);
     env.restart_node(&new_node_identifier, killed_node_state);
@@ -43,9 +43,21 @@ fn test_restart_node() {
     assert_eq!(env.node_for_account(&restart_account).head().height, kill_height);
 
     // Give a few blocks for the restarted node to catch up
-    env.node(1).run_for_number_of_blocks(5);
+    env.node_runner(1).run_for_number_of_blocks(5);
 
-    assert_eq!(env.node_for_account(&restart_account).head().height, env.node(1).head().height,);
+    assert_eq!(env.node_for_account(&restart_account).head().height, env.node(1).head().height);
+
+    /*
+    // TODO(pugachag): add a separate test for adding new node based on the code below
+    // Add new node
+    let genesis = env.shared_state.genesis.clone();
+    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
+    let new_node_state = NodeStateBuilder::new(genesis, tempdir_path)
+        .account_id(accounts[NUM_CLIENTS].clone())
+        .build();
+    env.add_node(accounts[NUM_CLIENTS].as_str(), new_node_state);
+    env.test_loop.run_for(Duration::seconds(3 * epoch_length as i64));
+    */
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
