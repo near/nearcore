@@ -791,7 +791,14 @@ impl KeyForStateChanges {
         store: &'a Store,
     ) -> impl Iterator<Item = RawStateChangesWithTrieKey> + 'a {
         let trie_key_len = self.0.len() - Self::PREFIX_LEN;
-        self.find_iter(store).filter(move |changes| changes.trie_key.len() == trie_key_len)
+        self.find_iter(store).filter_map(move |changes| {
+            if changes.trie_key.len() == trie_key_len {
+                debug_assert_eq!(changes.trie_key.to_vec(), &self.0[Self::PREFIX_LEN..]);
+                Some(changes)
+            } else {
+                None
+            }
+        })
     }
 
     /// Iterates over pairs of `(row key, deserialized row value)` where row key matches `self`.
