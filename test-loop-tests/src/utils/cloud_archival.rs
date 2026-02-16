@@ -46,10 +46,10 @@ pub fn gc_and_heads_sanity_checks(
     let cloud_head_block_info = epoch_store.get_block_info(&cloud_head_hash).unwrap();
     epoch_store.get_block_info(cloud_head_block_info.epoch_first_block()).unwrap();
 
-    let gc_tail = chain_store.tail().unwrap();
+    let gc_tail = chain_store.tail();
     if split_store_enabled {
         let cold_head = chain_store.store().get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY);
-        let cold_head_height = cold_head.unwrap().unwrap().height;
+        let cold_head_height = cold_head.unwrap().height;
         assert!(cold_head_height > gc_tail);
     }
     assert!(cloud_head > gc_tail);
@@ -125,7 +125,7 @@ fn get_cloud_storage(env: &TestLoopEnv, archival_id: &AccountId) -> Arc<CloudSto
 
 fn get_cloud_head(env: &TestLoopEnv, writer_id: &AccountId) -> BlockHeight {
     let hot_store = get_hot_store(env, writer_id);
-    hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY).unwrap().unwrap().height
+    hot_store.get_ser::<Tip>(DBCol::BlockMisc, CLOUD_HEAD_KEY).unwrap().height
 }
 
 /// Runs tests verifying that data for the block height exists in the archive,

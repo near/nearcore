@@ -458,14 +458,11 @@ mod trie_recording_tests {
         // ChunkExtra is needed for in-memory trie loading code to query state roots.
         let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
         let mut update_for_chunk_extra = tries_for_building.store_update();
-        update_for_chunk_extra
-            .store_update()
-            .set_ser(
-                DBCol::ChunkExtra,
-                &get_block_shard_uid(&CryptoHash::default(), &shard_uid),
-                &chunk_extra,
-            )
-            .unwrap();
+        update_for_chunk_extra.store_update().set_ser(
+            DBCol::ChunkExtra,
+            &get_block_shard_uid(&CryptoHash::default(), &shard_uid),
+            &chunk_extra,
+        );
         update_for_chunk_extra.commit();
 
         let data_in_trie = trie_changes

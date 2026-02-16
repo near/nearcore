@@ -176,7 +176,7 @@ impl crate::ChainAccess for ChainAccess {
     }
 
     async fn get_receipt(&self, id: &CryptoHash) -> Result<Arc<Receipt>, ChainError> {
-        self.chain.get_receipt(id)?.ok_or(ChainError::Unknown)
+        self.chain.get_receipt(id).ok_or(ChainError::Unknown)
     }
 
     async fn get_full_access_keys(

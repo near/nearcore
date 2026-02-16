@@ -545,6 +545,10 @@ pub struct GasKeyInfo {
 }
 
 impl GasKeyInfo {
+    /// Maximum gas key balance that can be burned during key or account deletion.
+    /// Deletion fails if the (sum of) gas key balance(s) exceeds this threshold.
+    pub const MAX_BALANCE_TO_BURN: Balance = Balance::from_near(1);
+
     pub fn borsh_len() -> usize {
         borsh::object_length(&Self { balance: Balance::from_yoctonear(0), num_nonces: 0 }).unwrap()
     }

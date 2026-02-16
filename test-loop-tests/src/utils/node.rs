@@ -9,10 +9,11 @@ use near_async::time::Duration;
 use near_chain::types::Tip;
 use near_chain::{Block, BlockHeader};
 use near_client::client_actor::ClientActor;
-use near_client::{Client, ProcessTxRequest, Query, ViewClientActor};
+use near_client::{Client, ProcessTxRequest, Query, QueryError, ViewClientActor};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
+use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
@@ -96,7 +97,7 @@ impl<'a> TestLoopNode<'a> {
     }
 
     pub fn tail(&self, test_loop_data: &TestLoopData) -> BlockHeight {
-        self.client(test_loop_data).chain.tail().unwrap()
+        self.client(test_loop_data).chain.tail()
     }
 
     pub fn head(&self, test_loop_data: &TestLoopData) -> Arc<Tip> {
@@ -333,32 +334,45 @@ impl<'a> TestLoopNode<'a> {
         &self,
         test_loop_data: &TestLoopData,
         query: QueryRequest,
-    ) -> QueryResponse {
+    ) -> Result<QueryResponse, QueryError> {
         let handle = self.data().view_client_sender.actor_handle();
         let view_client: &ViewClientActor = test_loop_data.get(&handle);
-        view_client
-            .handle_query(Query::new(
-                near_primitives::types::BlockReference::Finality(
-                    near_primitives::types::Finality::None,
-                ),
-                query,
-            ))
-            .unwrap()
+        view_client.handle_query(Query::new(
+            near_primitives::types::BlockReference::Finality(
+                near_primitives::types::Finality::None,
+            ),
+            query,
+        ))
     }
 
     pub fn view_account_query(
         &self,
         test_loop_data: &TestLoopData,
         account_id: &AccountId,
-    ) -> AccountView {
+    ) -> Result<AccountView, QueryError> {
         let response = self.runtime_query(
             test_loop_data,
             QueryRequest::ViewAccount { account_id: account_id.clone() },
-        );
+        )?;
         let QueryResponseKind::ViewAccount(account_view) = response.kind else {
-            panic!("Unexpected query response type")
+            panic!("unexpected query response type")
         };
-        account_view
+        Ok(account_view)
+    }
+
+    pub fn get_next_nonce(&self, test_loop_data: &TestLoopData, account_id: &AccountId) -> u64 {
+        let signer: near_crypto::Signer = create_user_test_signer(account_id);
+        let response = self.runtime_query(
+            test_loop_data,
+            QueryRequest::ViewAccessKey {
+                account_id: account_id.clone(),
+                public_key: signer.public_key(),
+            },
+        );
+        let QueryResponseKind::AccessKey(access_key) = response.unwrap().kind else {
+            panic!("Expected AccessKey response");
+        };
+        access_key.nonce + 1
     }
 
     #[cfg(feature = "test_features")]

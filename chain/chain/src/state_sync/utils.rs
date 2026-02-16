@@ -14,7 +14,7 @@ fn get_state_sync_new_chunks(
     store: &Store,
     block_hash: &CryptoHash,
 ) -> Result<Option<Vec<u8>>, Error> {
-    Ok(store.get_ser(DBCol::StateSyncNewChunks, block_hash.as_ref())?)
+    Ok(store.get_ser(DBCol::StateSyncNewChunks, block_hash.as_ref()))
 }
 
 fn iter_state_sync_hashes_keys<'a>(
@@ -58,13 +58,13 @@ fn save_epoch_new_chunks<T: ChainStoreAccess>(
         }
     }
 
-    store_update.set_ser(DBCol::StateSyncNewChunks, header.hash().as_ref(), &num_new_chunks)?;
+    store_update.set_ser(DBCol::StateSyncNewChunks, header.hash().as_ref(), &num_new_chunks);
     Ok(done)
 }
 
 fn on_new_epoch(store_update: &mut StoreUpdate, header: &BlockHeader) -> Result<(), Error> {
     let num_new_chunks = vec![0u8; header.chunk_mask().len()];
-    store_update.set_ser(DBCol::StateSyncNewChunks, header.hash().as_ref(), &num_new_chunks)?;
+    store_update.set_ser(DBCol::StateSyncNewChunks, header.hash().as_ref(), &num_new_chunks);
     Ok(())
 }
 
@@ -160,7 +160,7 @@ fn on_new_header<T: ChainStoreAccess>(
         if !prev_prev_done {
             // `sync_prev_prev` doesn't have enough new chunks, and `sync_prev` does, meaning `sync` is the first final
             // valid sync block
-            store_update.set_ser(DBCol::StateSyncHashes, epoch_id.as_ref(), sync.hash())?;
+            store_update.set_ser(DBCol::StateSyncHashes, epoch_id.as_ref(), sync.hash());
             store_update.delete_all(DBCol::StateSyncNewChunks);
             return Ok(());
         }
@@ -175,7 +175,7 @@ pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
     store_update: &mut StoreUpdate,
     header: &BlockHeader,
 ) -> Result<(), Error> {
-    let sync_hash = chain_store.get_current_epoch_sync_hash(header.epoch_id())?;
+    let sync_hash = chain_store.get_current_epoch_sync_hash(header.epoch_id());
     if sync_hash.is_some() || header.height() == chain_store.get_genesis_height() {
         return Ok(());
     }
@@ -219,7 +219,7 @@ pub(crate) fn is_sync_prev_hash(chain_store: &ChainStoreAdapter, tip: &Tip) -> R
     // found yet. But we still need to check this because it's possible that the sync hash was found
     // during header sync, in which case the contents of the StateSyncNewChunks column will have been cleared,
     // and the conditions below can't be checked.
-    if let Some(sync_hash) = chain_store.get_current_epoch_sync_hash(&tip.epoch_id)? {
+    if let Some(sync_hash) = chain_store.get_current_epoch_sync_hash(&tip.epoch_id) {
         let sync_header = chain_store.get_block_header(&sync_hash)?;
         return Ok(sync_header.prev_hash() == &tip.last_block_hash);
     }
@@ -250,7 +250,7 @@ impl Chain {
             return Ok(None);
         }
         let header = self.get_block_header(block_hash)?;
-        self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
+        Ok(self.chain_store.get_current_epoch_sync_hash(header.epoch_id()))
     }
 
     /// Select the block hash we are using to sync state. It will sync with the state before applying the

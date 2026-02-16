@@ -143,7 +143,9 @@ impl EpochSync {
             // scratch.
             return Ok(());
         }
-        if tip_height + self.config.epoch_sync_horizon >= highest_height {
+        if tip_height + self.config.epoch_sync_horizon_num_epochs * chain.epoch_length
+            >= highest_height
+        {
             return Ok(());
         }
         match status {
@@ -208,7 +210,7 @@ impl EpochSync {
                 .current_epoch
                 .first_block_header_in_epoch
                 .height()
-                .saturating_add(self.config.epoch_sync_horizon)
+                .saturating_add(self.config.epoch_sync_horizon_num_epochs * chain.epoch_length)
                 < status.source_peer_height
             {
                 tracing::error!(

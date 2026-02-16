@@ -105,6 +105,15 @@ fn delete_gas_key(
     access_key: &AccessKey,
     gas_key_info: &GasKeyInfo,
 ) -> Result<(), RuntimeError> {
+    if gas_key_info.balance > GasKeyInfo::MAX_BALANCE_TO_BURN {
+        result.result = Err(ActionErrorKind::GasKeyBalanceTooHigh {
+            account_id: account_id.clone(),
+            public_key: Some(Box::new(public_key.clone())),
+            balance: gas_key_info.balance,
+        }
+        .into());
+        return Ok(());
+    }
     result.tokens_burnt =
         result.tokens_burnt.checked_add(gas_key_info.balance).ok_or(IntegerOverflowError)?;
     for i in 0..gas_key_info.num_nonces {
@@ -335,7 +344,7 @@ mod tests {
     use crate::state_viewer::TrieViewer;
 
     use super::*;
-    use near_crypto::{InMemorySigner, KeyType, SecretKey};
+    use near_crypto::{InMemorySigner, KeyType};
     use near_parameters::RuntimeConfig;
     use near_primitives::account::{AccessKey, AccessKeyPermission, Account, GasKeyInfo};
     use near_primitives::apply::ApplyChunkReason;
@@ -631,8 +640,9 @@ mod tests {
     #[test]
     fn test_delete_account_removes_gas_keys() {
         let (account_id, public_key, access_key) = test_account_keys();
-        let public_keys: Vec<PublicKey> =
-            (0..3).map(|_| SecretKey::from_random(KeyType::ED25519).public_key()).collect();
+        let public_keys: Vec<PublicKey> = (0..3)
+            .map(|i| PublicKey::from_seed(KeyType::ED25519, &format!("gas_key_{i}")))
+            .collect();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
         let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
         for public_key in &public_keys {
@@ -656,8 +666,9 @@ mod tests {
     #[test]
     fn test_delete_account_burns_gas_key_balances() {
         let (account_id, public_key, access_key) = test_account_keys();
-        let public_keys: Vec<PublicKey> =
-            (0..3).map(|_| SecretKey::from_random(KeyType::ED25519).public_key()).collect();
+        let public_keys: Vec<PublicKey> = (0..3)
+            .map(|i| PublicKey::from_seed(KeyType::ED25519, &format!("gas_key_{i}")))
+            .collect();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
         let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
         for public_key in &public_keys {
@@ -971,5 +982,147 @@ mod tests {
             }
             .into())
         );
+    }
+
+    #[test]
+    fn test_delete_gas_key_balance_too_high() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+
+        let gas_key_public_key =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "gas_key").public_key();
+        add_gas_key_to_account(&mut state_update, &mut account, &account_id, &gas_key_public_key);
+
+        let deposit_amount = Balance::from_near(1).checked_add(Balance::from_yoctonear(1)).unwrap();
+        transfer_to_gas_key(&mut state_update, &account_id, &gas_key_public_key, deposit_amount);
+
+        let mut result = ActionResult::default();
+        let action = DeleteKeyAction { public_key: gas_key_public_key.clone() };
+        action_delete_key(
+            &RuntimeFeesConfig::test(),
+            &mut state_update,
+            &mut account,
+            &mut result,
+            &account_id,
+            &action,
+        )
+        .unwrap();
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::GasKeyBalanceTooHigh {
+                account_id: account_id.clone(),
+                public_key: Some(Box::new(gas_key_public_key.clone())),
+                balance: deposit_amount,
+            }
+            .into())
+        );
+        assert_eq!(result.tokens_burnt, Balance::ZERO);
+
+        // Key should still exist
+        let stored_key = get_access_key(&state_update, &account_id, &gas_key_public_key).unwrap();
+        assert!(stored_key.is_some());
+    }
+
+    #[test]
+    fn test_delete_gas_key_balance_at_threshold() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+
+        let gas_key_public_key =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "gas_key").public_key();
+        add_gas_key_to_account(&mut state_update, &mut account, &account_id, &gas_key_public_key);
+
+        let deposit_amount = Balance::from_near(1);
+        transfer_to_gas_key(&mut state_update, &account_id, &gas_key_public_key, deposit_amount);
+
+        let mut result = ActionResult::default();
+        let action = DeleteKeyAction { public_key: gas_key_public_key.clone() };
+        action_delete_key(
+            &RuntimeFeesConfig::test(),
+            &mut state_update,
+            &mut account,
+            &mut result,
+            &account_id,
+            &action,
+        )
+        .unwrap();
+        assert!(result.result.is_ok());
+        assert_eq!(result.tokens_burnt, deposit_amount);
+
+        // Key should be deleted
+        let stored_key = get_access_key(&state_update, &account_id, &gas_key_public_key).unwrap();
+        assert!(stored_key.is_none());
+    }
+
+    #[test]
+    fn test_delete_account_gas_key_balance_too_high() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let public_keys: Vec<PublicKey> = (0..3)
+            .map(|i| PublicKey::from_seed(KeyType::ED25519, &format!("gas_key_{i}")))
+            .collect();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        for public_key in &public_keys {
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, public_key);
+        }
+
+        // Fund gas keys so total exceeds 1 NEAR
+        let deposit_amounts = [
+            Balance::from_millinear(400),
+            Balance::from_millinear(400),
+            Balance::from_millinear(201),
+        ];
+        for (pk, amount) in public_keys.iter().zip(deposit_amounts.iter()) {
+            transfer_to_gas_key(&mut state_update, &account_id, pk, *amount);
+        }
+        state_update.commit(StateChangeCause::InitialState);
+
+        let action_result =
+            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
+        let expected_total =
+            deposit_amounts.iter().fold(Balance::ZERO, |acc, x| acc.checked_add(*x).unwrap());
+        assert_eq!(
+            action_result.result,
+            Err(ActionErrorKind::GasKeyBalanceTooHigh {
+                account_id: account_id.clone(),
+                public_key: None,
+                balance: expected_total,
+            }
+            .into())
+        );
+        assert_eq!(action_result.tokens_burnt, Balance::ZERO);
+    }
+
+    #[test]
+    fn test_delete_account_gas_key_balance_at_threshold() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let public_keys: Vec<PublicKey> = (0..3)
+            .map(|i| PublicKey::from_seed(KeyType::ED25519, &format!("gas_key_{i}")))
+            .collect();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        for public_key in &public_keys {
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, public_key);
+        }
+
+        // Fund gas keys so total is exactly 1 NEAR
+        let deposit_amounts = [
+            Balance::from_millinear(400),
+            Balance::from_millinear(400),
+            Balance::from_millinear(200),
+        ];
+        for (pk, amount) in public_keys.iter().zip(deposit_amounts.iter()) {
+            transfer_to_gas_key(&mut state_update, &account_id, pk, *amount);
+        }
+        state_update.commit(StateChangeCause::InitialState);
+
+        let action_result =
+            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
+        assert!(action_result.result.is_ok());
+        let expected_burnt =
+            deposit_amounts.iter().fold(Balance::ZERO, |acc, x| acc.checked_add(*x).unwrap());
+        assert_eq!(action_result.tokens_burnt, expected_burnt);
     }
 }

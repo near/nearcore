@@ -782,15 +782,13 @@ impl PartialWitnessActor {
             .start_timer();
 
         let main_transition_key = request.main_transition();
-        let Some(transition_data) =
-            self.runtime.store().get_ser::<StoredChunkStateTransitionData>(
-                DBCol::StateTransitionData,
-                &near_primitives::utils::get_block_shard_id(
-                    &main_transition_key.block_hash,
-                    main_transition_key.shard_id,
-                ),
-            )?
-        else {
+        let Some(transition_data) = self.runtime.store().get_ser::<StoredChunkStateTransitionData>(
+            DBCol::StateTransitionData,
+            &near_primitives::utils::get_block_shard_id(
+                &main_transition_key.block_hash,
+                main_transition_key.shard_id,
+            ),
+        ) else {
             tracing::warn!(
                 target: "client",
                 ?key,

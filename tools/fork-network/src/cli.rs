@@ -344,7 +344,7 @@ impl ForkNetworkCommand {
             &near_config.genesis.config,
             Some(home_dir),
         );
-        let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?.unwrap();
+        let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids: Vec<_> = shard_layout.shard_uids().collect();
         // get_epoch_config_from_protocol_version
@@ -409,11 +409,11 @@ impl ForkNetworkCommand {
         );
 
         let mut store_update = store.store_update();
-        store_update.set_ser(DBCol::Misc, EPOCH_ID_KEY, epoch_id)?;
-        store_update.set_ser(DBCol::Misc, FLAT_HEAD_KEY, &desired_flat_head)?;
-        store_update.set_ser(DBCol::Misc, SHARD_LAYOUT_KEY, &target_shard_layout)?;
+        store_update.set_ser(DBCol::Misc, EPOCH_ID_KEY, epoch_id);
+        store_update.set_ser(DBCol::Misc, FLAT_HEAD_KEY, &desired_flat_head);
+        store_update.set_ser(DBCol::Misc, SHARD_LAYOUT_KEY, &target_shard_layout);
         for (shard_uid, state_root) in &state_roots {
-            store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_uid), state_root)?;
+            store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_uid), state_root);
         }
         store_update.commit();
         Ok(())
@@ -804,8 +804,8 @@ impl ForkNetworkCommand {
         store: Store,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId, ShardLayout)> {
-        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY)?.unwrap());
-        let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH")?.unwrap();
+        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY).unwrap());
+        let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH").unwrap();
         let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT").unwrap();
         let block_height = u64::from_le_bytes(block_height.as_slice().try_into().unwrap());
 
@@ -849,11 +849,11 @@ impl ForkNetworkCommand {
         store: Store,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId, ShardLayout)> {
-        let Some(flat_head) = store.get_ser(DBCol::Misc, FLAT_HEAD_KEY)? else {
+        let Some(flat_head) = store.get_ser(DBCol::Misc, FLAT_HEAD_KEY) else {
             return self.legacy_get_state_roots_and_hash(store, epoch_manager);
         };
-        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY)?.unwrap());
-        let shard_layout = store.get_ser(DBCol::Misc, SHARD_LAYOUT_KEY)?.unwrap();
+        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY).unwrap());
+        let shard_layout = store.get_ser(DBCol::Misc, SHARD_LAYOUT_KEY).unwrap();
         let mut state_roots = HashMap::new();
         for (key, value) in store.iter_prefix(DBCol::Misc, FORKED_ROOTS_KEY_PREFIX) {
             let shard_uid = parse_state_roots_key(&key)?;
@@ -966,14 +966,13 @@ impl ForkNetworkCommand {
         let mut records_not_parsed = 0;
         let mut records_parsed = 0;
 
-        for item in store.flat_store().iter(shard_uid) {
-            let (key, value) = match item {
-                Ok((key, FlatStateValue::Ref(ref_value))) => {
+        for (key, flat_value) in store.flat_store().iter(shard_uid) {
+            let (key, value) = match flat_value {
+                FlatStateValue::Ref(ref_value) => {
                     ref_keys_retrieved += 1;
                     (key, trie_storage.retrieve_raw_bytes(&ref_value.hash)?.to_vec())
                 }
-                Ok((key, FlatStateValue::Inlined(value))) => (key, value),
-                otherwise => panic!("Unexpected flat state value: {otherwise:?}"),
+                FlatStateValue::Inlined(value) => (key, value),
             };
             if let Some(sr) = StateRecord::from_raw_key_value(&key, value.clone()) {
                 match sr {
@@ -1094,47 +1093,45 @@ impl ForkNetworkCommand {
         // TODO: Just remember what accounts we saw in the above iteration
         let mut num_added = 0;
         let mut num_accounts = 0;
-        for item in store.flat_store().iter(shard_uid) {
-            if let Ok((key, _)) = item {
-                if key[0] == col::ACCOUNT {
-                    num_accounts += 1;
-                    let account_id = match parse_account_id_from_account_key(&key) {
-                        Ok(account_id) => account_id,
-                        Err(err) => {
-                            tracing::error!(
-                                ?err,
-                                key = %hex::encode(&key),
-                                "failed to parse account id"
-                            );
-                            continue;
-                        }
-                    };
-                    if account_id.get_account_type() == AccountType::NearImplicitAccount
-                        || has_full_key.contains(&account_id)
-                    {
+        for (key, _) in store.flat_store().iter(shard_uid) {
+            if key[0] == col::ACCOUNT {
+                num_accounts += 1;
+                let account_id = match parse_account_id_from_account_key(&key) {
+                    Ok(account_id) => account_id,
+                    Err(err) => {
+                        tracing::error!(
+                            ?err,
+                            key = %hex::encode(&key),
+                            "failed to parse account id"
+                        );
                         continue;
                     }
-                    let shard_id = source_shard_layout.account_id_to_shard_id(&account_id);
-                    if shard_id != shard_uid.shard_id() {
-                        tracing::warn!(
-                            %account_id,
-                            %shard_id,
-                            found_in_shard = %shard_uid.shard_id(),
-                            "account belongs to shard but was found in flat storage for different shard"
-                        );
-                    }
-                    let shard_idx = source_shard_layout.get_shard_index(shard_id).unwrap();
-                    storage_mutator.set_access_key(
-                        shard_idx,
-                        account_id,
-                        default_key.clone(),
-                        AccessKey::full_access(),
-                    )?;
-                    num_added += 1;
-                    if storage_mutator.should_commit(batch_size) {
-                        storage_mutator.commit()?;
-                        storage_mutator = make_storage_mutator(update_state.clone())?;
-                    }
+                };
+                if account_id.get_account_type() == AccountType::NearImplicitAccount
+                    || has_full_key.contains(&account_id)
+                {
+                    continue;
+                }
+                let shard_id = source_shard_layout.account_id_to_shard_id(&account_id);
+                if shard_id != shard_uid.shard_id() {
+                    tracing::warn!(
+                        %account_id,
+                        %shard_id,
+                        found_in_shard = %shard_uid.shard_id(),
+                        "account belongs to shard but was found in flat storage for different shard"
+                    );
+                }
+                let shard_idx = source_shard_layout.get_shard_index(shard_id).unwrap();
+                storage_mutator.set_access_key(
+                    shard_idx,
+                    account_id,
+                    default_key.clone(),
+                    AccessKey::full_access(),
+                )?;
+                num_added += 1;
+                if storage_mutator.should_commit(batch_size) {
+                    storage_mutator.commit()?;
+                    storage_mutator = make_storage_mutator(update_state.clone())?;
                 }
             }
         }
@@ -1534,7 +1531,7 @@ fn get_fork_heads(all_shard_uids: &[ShardUId], store: Store) -> anyhow::Result<V
     // Iterate over each shard to check that flat storage is Ready.
     let flat_heads :Vec<BlockInfo> = all_shard_uids.iter().map(|shard_uid|{
         let flat_storage_status = store
-            .get_ser::<FlatStorageStatus>(DBCol::FlatStorageStatus, &shard_uid.to_bytes()).unwrap()
+            .get_ser::<FlatStorageStatus>(DBCol::FlatStorageStatus, &shard_uid.to_bytes())
             .unwrap();
         if let FlatStorageStatus::Ready(ready) = &flat_storage_status {
             ready.flat_head

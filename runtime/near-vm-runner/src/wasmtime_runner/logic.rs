@@ -3507,9 +3507,10 @@ pub fn promise_yield_resume(
     let (memory, ctx) = memory.data_and_store_mut(caller);
     ctx.result_state.gas_counter.pay_base(base)?;
     if ctx.context.is_view() {
-        return Err(
-            HostError::ProhibitedInView { method_name: "promise_submit_data".to_string() }.into()
-        );
+        return Err(HostError::ProhibitedInView {
+            method_name: "promise_yield_resume".to_string(),
+        }
+        .into());
     }
     ctx.result_state.gas_counter.pay_base(yield_resume_base)?;
     ctx.result_state.gas_counter.pay_per(yield_resume_byte, payload_len)?;

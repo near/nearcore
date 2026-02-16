@@ -356,8 +356,7 @@ impl NightshadeRuntime {
             total_gas_burnt,
             total_balance_burnt,
             proof: apply_result.proof,
-            processed_delayed_receipts: apply_result.processed_delayed_receipts,
-            processed_local_receipts: apply_result.processed_local_receipts,
+            processed_receipts: apply_result.processed_receipts,
             processed_yield_timeouts: apply_result.processed_yield_timeouts,
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
             congestion_info: apply_result.congestion_info,
@@ -569,8 +568,7 @@ fn get_epoch_start_height_from_archival_head(
     epoch_manager: &EpochManager,
     archival_head_key: &[u8],
 ) -> Result<Option<BlockHeight>, Error> {
-    let archival_head = store.get_ser::<Tip>(DBCol::BlockMisc, archival_head_key)?;
-    let Some(archival_head) = archival_head else {
+    let Some(archival_head) = store.get_ser::<Tip>(DBCol::BlockMisc, archival_head_key) else {
         return Ok(None);
     };
     let archival_head_hash = archival_head.last_block_hash;

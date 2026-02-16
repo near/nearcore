@@ -152,7 +152,7 @@ impl ChainStore {
             witness.chunk_production_key();
         let _span = tracing::info_span!(target: "client", "save_latest_chunk_state_witness", ?height_created, %shard_id).entered();
 
-        let serialized_witness = borsh::to_vec(witness)?;
+        let serialized_witness = borsh::to_vec(witness).unwrap();
         let witness_size: u64 =
             serialized_witness.len().try_into().expect("Cannot convert usize to u64");
 
@@ -168,7 +168,7 @@ impl ChainStore {
         // Read the current `LatestWitnessesInfo`, or create a new one if there is none.
         let mut info = self
             .store()
-            .get_ser::<LatestWitnessesInfo>(DBCol::Misc, LATEST_WITNESSES_INFO)?
+            .get_ser::<LatestWitnessesInfo>(DBCol::Misc, LATEST_WITNESSES_INFO)
             .unwrap_or_default();
 
         let new_witness_index = info.next_witness_index;
@@ -217,7 +217,7 @@ impl ChainStore {
         );
 
         // Update LatestWitnessesInfo
-        store_update.set(DBCol::Misc, &LATEST_WITNESSES_INFO, &borsh::to_vec(&info)?);
+        store_update.set(DBCol::Misc, &LATEST_WITNESSES_INFO, &borsh::to_vec(&info).unwrap());
 
         let store_update_time = start_time.elapsed();
 
@@ -267,9 +267,9 @@ impl ChainStore {
 
         let mut result: Vec<ChunkStateWitness> = Vec::new();
 
-        for read_result in self.store().iter_prefix_ser::<ChunkStateWitness>(db_col, &key_prefix) {
-            let (key_bytes, witness) = read_result?;
-
+        for (key_bytes, witness) in
+            self.store().iter_prefix_ser::<ChunkStateWitness>(db_col, &key_prefix)
+        {
             let key = StoredWitnessesKey::deserialize(&key_bytes)?;
             if let Some(h) = height {
                 if key.height_created != h {
@@ -337,7 +337,7 @@ pub fn save_invalid_chunk_state_witness(
     )
     .entered();
 
-    let serialized_witness = borsh::to_vec(witness)?;
+    let serialized_witness = borsh::to_vec(witness).unwrap();
     let serialized_witness_size: u64 =
         serialized_witness.len().try_into().expect("Cannot convert usize to u64");
 
@@ -352,7 +352,7 @@ pub fn save_invalid_chunk_state_witness(
 
     // Read the current `InvalidWitnessesInfo`, or create a new one if there is none.
     let mut info = store
-        .get_ser::<InvalidWitnessesInfo>(DBCol::Misc, INVALID_WITNESSES_INFO)?
+        .get_ser::<InvalidWitnessesInfo>(DBCol::Misc, INVALID_WITNESSES_INFO)
         .unwrap_or_default();
 
     let new_witness_index = info.next_witness_index;
@@ -408,7 +408,7 @@ pub fn save_invalid_chunk_state_witness(
         );
 
         // Update InvalidWitnessesInfo
-        store_update.set(DBCol::Misc, &INVALID_WITNESSES_INFO, &borsh::to_vec(&info)?);
+        store_update.set(DBCol::Misc, &INVALID_WITNESSES_INFO, &borsh::to_vec(&info).unwrap());
 
         let store_update_time = start_time.elapsed();
 

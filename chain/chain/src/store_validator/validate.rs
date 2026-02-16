@@ -84,14 +84,8 @@ macro_rules! unwrap_or_err {
 macro_rules! unwrap_or_err_db {
     ($obj: expr, $($x: expr),*) => {
         match $obj {
-            Ok(Some(value)) => value,
-            Err(e) => {
-                return Err(StoreValidatorError::DBNotFound {
-                    func_name: get_parent_function_name!(),
-                    reason: format!("{}, error: {}", format!($($x),*), e)
-                })
-            }
-            _ => {
+            Some(value) => value,
+            None => {
                 return Err(StoreValidatorError::DBNotFound {
                     func_name: get_parent_function_name!(),
                     reason: format!($($x),*)
@@ -107,18 +101,9 @@ pub(crate) fn head_tail_validity(sv: &mut StoreValidator) -> Result<(), StoreVal
     let mut tail = sv.config.genesis_height;
     let mut chunk_tail = sv.config.genesis_height;
     let mut fork_tail = sv.config.genesis_height;
-    let tail_db = unwrap_or_err!(
-        sv.store.get_ser::<BlockHeight>(DBCol::BlockMisc, TAIL_KEY),
-        "Can't get Tail from storage"
-    );
-    let chunk_tail_db = unwrap_or_err!(
-        sv.store.get_ser::<BlockHeight>(DBCol::BlockMisc, CHUNK_TAIL_KEY),
-        "Can't get Chunk Tail from storage"
-    );
-    let fork_tail_db = unwrap_or_err!(
-        sv.store.get_ser::<BlockHeight>(DBCol::BlockMisc, FORK_TAIL_KEY),
-        "Can't get Chunk Tail from storage"
-    );
+    let tail_db = sv.store.get_ser::<BlockHeight>(DBCol::BlockMisc, TAIL_KEY);
+    let chunk_tail_db = sv.store.get_ser::<BlockHeight>(DBCol::BlockMisc, CHUNK_TAIL_KEY);
+    let fork_tail_db = sv.store.get_ser::<BlockHeight>(DBCol::BlockMisc, FORK_TAIL_KEY);
     if tail_db.is_none() != chunk_tail_db.is_none() {
         // Archival nodes can have chunk_tail set without tail being set.
         // TODO(cloud_archival) Think about the cloud archival case
@@ -339,13 +324,9 @@ pub(crate) fn header_hash_indexed_by_height(
     header: &BlockHeader,
 ) -> Result<(), StoreValidatorError> {
     let height = header.height();
-    let _hashes = match sv
+    let _hashes = sv
         .store
-        .get_ser::<HashSet<CryptoHash>>(DBCol::HeaderHashesByHeight, &index_to_bytes(height))
-    {
-        Ok(hashes) => hashes,
-        Err(e) => err!("Storage error, {:?}", e),
-    };
+        .get_ser::<HashSet<CryptoHash>>(DBCol::HeaderHashesByHeight, &index_to_bytes(height));
     // TODO #3488: enable
     // This check is disabled because currently we can accept Headers that below chunk_tail.
     // It creates a mess which records for DBCol::HeaderHashesByHeight exist.
@@ -394,8 +375,7 @@ pub(crate) fn block_chunks_exist(
     _block_hash: &CryptoHash,
     block: &Block,
 ) -> Result<(), StoreValidatorError> {
-    let tail_height =
-        sv.store.get_ser::<BlockHeight>(DBCol::BlockMisc, TAIL_KEY).unwrap().unwrap_or(0);
+    let tail_height = sv.store.get_ser::<BlockHeight>(DBCol::BlockMisc, TAIL_KEY).unwrap_or(0);
     if block.header().height() <= tail_height {
         // If this node has undergone state sync to block H (where H is the first block of an epoch),
         // then it appears that blocks before H may not have the chunk bodies in storage.
@@ -549,11 +529,8 @@ pub(crate) fn canonical_prev_block_validity(
         );
 
         for cur_height in prev_height + 1..*height {
-            let cur_hash = unwrap_or_err!(
-                sv.store.get_ser::<CryptoHash>(DBCol::BlockHeight, &index_to_bytes(cur_height)),
-                "DB error while getting Block Hash from DBCol::BlockHeight by Height {:?}",
-                cur_height
-            );
+            let cur_hash =
+                sv.store.get_ser::<CryptoHash>(DBCol::BlockHeight, &index_to_bytes(cur_height));
             if cur_hash.is_some() {
                 err!(
                     "Unexpected Block on the Canonical Chain is found between Heights {:?} and {:?}, {:?}",
@@ -588,7 +565,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
     );
     check_discrepancy!(chunk_extra.state_root(), &new_root, "State Root discrepancy");
     // 3) Chunk Extra with `prev_block_hash` and `shard_uid` should match with the old root if available
-    if let Ok(Some(prev_chunk_extra)) = sv.store.get_ser::<ChunkExtra>(
+    if let Some(prev_chunk_extra) = sv.store.get_ser::<ChunkExtra>(
         DBCol::ChunkExtra,
         &get_block_shard_uid(block.header().prev_hash(), shard_uid),
     ) {
@@ -748,7 +725,7 @@ pub(crate) fn outcome_indexed_by_block_hash(
             func_name: "get_shard_layout",
             reason: err.to_string(),
         })?;
-        if let Ok(Some(_)) = sv.store.get_ser::<ChunkExtra>(
+        if let Some(_) = sv.store.get_ser::<ChunkExtra>(
             DBCol::ChunkExtra,
             &get_block_shard_uid(block.hash(), &shard_uid),
         ) {

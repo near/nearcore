@@ -56,7 +56,7 @@ pub fn undo_only_block_head(
     let current_header_head = chain_store.header_head()?;
     let current_header_height = current_header_head.height;
 
-    let tail_height = chain_store.tail()?;
+    let tail_height = chain_store.tail();
     let tail_header = chain_store.get_block_header_by_height(tail_height)?;
     let new_head = Tip::from_header(&tail_header);
 
