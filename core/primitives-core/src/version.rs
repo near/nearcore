@@ -366,6 +366,10 @@ pub enum ProtocolFeature {
     /// prevents race conditions in the case of multiple distribution attempts
     /// for the same contract.
     GlobalContractDistributionNonce,
+    /// Process action receipts containing a single DeleteAccount action as
+    /// instant receipts, executing them immediately after the receipt that
+    /// produced them rather than sending them as outgoing receipts.
+    InstantDeleteAccount,
 }
 
 impl ProtocolFeature {
@@ -471,7 +475,8 @@ impl ProtocolFeature {
             | ProtocolFeature::FixDeterministicAccountIdCreation
             | ProtocolFeature::GlobalContractDistributionNonce
             | ProtocolFeature::InstantPromiseYield
-            | ProtocolFeature::YieldResumeImprovements => 83,
+            | ProtocolFeature::YieldResumeImprovements
+            | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
 
             // Nightly features:
