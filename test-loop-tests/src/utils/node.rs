@@ -203,14 +203,14 @@ pub struct NodeRunner<'a> {
 impl<'a> NodeRunner<'a> {
     pub fn run_until(
         &mut self,
-        mut condition: impl FnMut(&TestLoopNode<'_>) -> bool,
+        mut condition: impl FnMut(&mut TestLoopNode<'_>) -> bool,
         maximum_duration: Duration,
     ) {
         let node_data = self.node_data;
         self.test_loop.run_until(
             |test_loop_data| {
-                let node = TestLoopNode { data: test_loop_data, node_data };
-                condition(&node)
+                let mut node = TestLoopNode { data: test_loop_data, node_data };
+                condition(&mut node)
             },
             maximum_duration,
         );

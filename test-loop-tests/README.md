@@ -73,7 +73,7 @@ env.validator_runner().run_until_head_height(10);
 ```
 
 `NodeRunner::run_until` can be used to progress the blockchain until a
-condition is met. The condition closure receives a `&TestLoopNode` for
+condition is met. The condition closure receives a `&mut TestLoopNode` for
 the associated node:
 
 ```rust
