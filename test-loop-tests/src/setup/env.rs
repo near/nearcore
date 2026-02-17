@@ -158,7 +158,7 @@ impl TestLoopEnv {
     /// TestLoop itself, as it asserts that all events have been handled.
     pub fn shutdown_and_drain_remaining_events(mut self, timeout: Duration) {
         // State sync dumper is not an Actor, handle stopping separately.
-        for node_data in self.node_datas {
+        for node_data in &self.node_datas {
             self.test_loop.data.get_mut(&node_data.state_sync_dumper_handle).stop();
         }
 
