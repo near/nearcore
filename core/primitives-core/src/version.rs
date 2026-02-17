@@ -485,6 +485,7 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::GasKeys => 149,
             ProtocolFeature::BlockHashInPartialWitness => 84,
+            ProtocolFeature::DynamicResharding => 150,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
@@ -492,9 +493,6 @@ impl ProtocolFeature {
 
             // Place features that are not yet in Nightly below this line.
             ProtocolFeature::ContinuousEpochSync => 201,
-            // TODO(dynamic_resharding): This should be 152, but some resharding tests bump
-            //     protocol version to trigger resharding and accidentally turn on this feature
-            ProtocolFeature::DynamicResharding => 252,
         }
     }
 

@@ -416,8 +416,7 @@ impl Chain {
             shard_tracker.clone(),
             noop().into_multi_sender(),
         );
-        let thread_limit =
-            runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize * 3;
+        let thread_limit = runtime_adapter.get_shard_limit(PROTOCOL_VERSION) as usize * 3;
         let spice_core_reader = SpiceCoreReader::new(
             store.chain_store(),
             epoch_manager.clone(),
@@ -592,11 +591,11 @@ impl Chain {
         );
 
         // The number of shards for the binary's latest `PROTOCOL_VERSION` is used to compute the thread limit. This assumes that:
-        // a) The number of shards will not grow above this limit without the binary being updated (no dynamic resharding),
+        // a) The number of shards will not grow above this limit without the binary being updated,
         // b) Under normal conditions, the number of chunks processed concurrently will stay on the same order as the number
         //    of shards, even though we allow up to 3x that many concurrent tasks.
         let apply_chunks_thread_limit =
-            runtime_adapter.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize * 3;
+            runtime_adapter.get_shard_limit(PROTOCOL_VERSION) as usize * 3;
         let apply_chunks_spawner = apply_chunks_spawner.into_spawner(apply_chunks_thread_limit);
         let spice_core_reader = SpiceCoreReader::new(
             chain_store.store().chain_store(),
