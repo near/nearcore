@@ -216,6 +216,7 @@ impl Config {
         self.limit_config.max_gas_burnt = Gas::MAX;
     }
 
+    /// Enable all protocol features. Only used for gas cost estimations.
     pub fn enable_all_features(&mut self) {
         self.eth_implicit_accounts = true;
         self.eth_implicit_global_contract = true;
