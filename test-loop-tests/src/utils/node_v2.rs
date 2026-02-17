@@ -9,17 +9,19 @@ use near_chain::types::Tip;
 use near_chain::{Block, BlockHeader};
 use near_client::client_actor::ClientActor;
 use near_client::{Client, ProcessTxRequest, Query, QueryError, ViewClientActor};
+use near_crypto::{PublicKey, Signer};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
+use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
-    AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponse,
-    QueryResponseKind,
+    AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
+    QueryResponse, QueryResponseKind,
 };
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
@@ -135,6 +137,27 @@ impl<'a> TestLoopNodeV2<'a> {
             panic!("unexpected query response type")
         };
         Ok(account_view)
+    }
+
+    pub fn view_access_key_query(
+        &self,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<AccessKeyView, QueryError> {
+        let response = self.runtime_query(QueryRequest::ViewAccessKey {
+            account_id: account_id.clone(),
+            public_key: public_key.clone(),
+        })?;
+        let QueryResponseKind::AccessKey(access_key_view) = response.kind else {
+            panic!("unexpected query response type")
+        };
+        Ok(access_key_view)
+    }
+
+    pub fn get_next_nonce(&self, account_id: &AccountId) -> u64 {
+        let signer: Signer = create_user_test_signer(account_id);
+        let access_key = self.view_access_key_query(account_id, &signer.public_key()).unwrap();
+        access_key.nonce + 1
     }
 
     pub fn submit_tx(&self, tx: SignedTransaction) {

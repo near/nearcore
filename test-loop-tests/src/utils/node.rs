@@ -34,22 +34,26 @@ use crate::utils::transactions::TransactionRunner;
 /// access to Client and other actors by providing more user friendly API.
 /// It serves as a main interface for test actions such as sending
 /// transactions, waiting for blocks to be produces, querying state, etc.
+#[allow(dead_code)]
 pub struct TestLoopNode<'a> {
     data: Cow<'a, NodeExecutionData>,
 }
 
+#[allow(dead_code)]
 impl<'a> From<&'a NodeExecutionData> for TestLoopNode<'a> {
     fn from(value: &'a NodeExecutionData) -> Self {
         Self { data: Cow::Borrowed(value) }
     }
 }
 
+#[allow(dead_code)]
 impl From<NodeExecutionData> for TestLoopNode<'_> {
     fn from(value: NodeExecutionData) -> Self {
         Self { data: Cow::Owned(value) }
     }
 }
 
+#[allow(dead_code)]
 impl<'a> TestLoopNode<'a> {
     pub fn for_account(node_datas: &'a [NodeExecutionData], account_id: &AccountId) -> Self {
         // cspell:ignore rfind

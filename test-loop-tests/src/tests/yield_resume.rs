@@ -28,15 +28,14 @@ use crate::tests::yield_timeouts::{
     assert_no_promise_yield_status_in_state, get_yield_data_ids_in_latest_state,
 };
 use crate::utils::account::validators_spec_clients;
-use crate::utils::node::TestLoopNode;
 
 // The height of the next block after environment setup is complete.
 const NEXT_BLOCK_HEIGHT_AFTER_SETUP: u64 = 3;
 
-fn get_outgoing_receipts_from_latest_executed_block(env: &TestLoopEnv) -> Vec<Receipt> {
-    let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
-    let last_executed = node.last_executed(env.test_loop_data());
-    let client = node.client(env.test_loop_data());
+fn get_outgoing_receipts_from_latest_executed_block(env: &mut TestLoopEnv) -> Vec<Receipt> {
+    let node = env.validator();
+    let client = node.client();
+    let last_executed = node.last_executed();
     let genesis_block = client.chain.get_block_by_height(0).unwrap();
     let epoch_id = *genesis_block.header().epoch_id();
     let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
@@ -52,7 +51,7 @@ fn get_outgoing_receipts_from_latest_executed_block(env: &TestLoopEnv) -> Vec<Re
         .unwrap()
 }
 
-fn get_promise_yield_data_ids_from_latest_executed_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
+fn get_promise_yield_data_ids_from_latest_executed_block(env: &mut TestLoopEnv) -> Vec<CryptoHash> {
     let mut result = vec![];
     for receipt in get_outgoing_receipts_from_latest_executed_block(env) {
         if let VersionedReceiptEnum::PromiseYield(action_receipt) = receipt.versioned_receipt() {
@@ -62,7 +61,9 @@ fn get_promise_yield_data_ids_from_latest_executed_block(env: &TestLoopEnv) -> V
     result
 }
 
-fn get_promise_resume_data_ids_from_latest_executed_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
+fn get_promise_resume_data_ids_from_latest_executed_block(
+    env: &mut TestLoopEnv,
+) -> Vec<CryptoHash> {
     let mut result = vec![];
     for receipt in get_outgoing_receipts_from_latest_executed_block(env) {
         if let ReceiptEnum::PromiseResume(data_receipt) = receipt.receipt() {
@@ -72,10 +73,10 @@ fn get_promise_resume_data_ids_from_latest_executed_block(env: &TestLoopEnv) -> 
     result
 }
 
-fn get_transaction_hashes_in_latest_executed_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
-    let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
-    let last_executed = node.last_executed(env.test_loop_data());
-    let client = node.client(env.test_loop_data());
+fn get_transaction_hashes_in_latest_executed_block(env: &mut TestLoopEnv) -> Vec<CryptoHash> {
+    let node = env.validator();
+    let client = node.client();
+    let last_executed = node.last_executed();
     let chain = &client.chain;
     let block = chain.get_block(&last_executed.last_block_hash).unwrap();
 
@@ -117,14 +118,13 @@ fn prepare_env() -> TestLoopEnv {
     let mut env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store_from_genesis()
-        .clients(clients.clone())
+        .clients(clients)
         .skip_warmup()
         .build();
 
-    let node = TestLoopNode::for_account(&env.node_datas, &clients[0]);
-    assert_eq!(node.head(env.test_loop_data()).height, 0);
+    assert_eq!(env.validator().head().height, 0);
 
-    let genesis_block = node.client(env.test_loop_data()).chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
     let deploy_contract_tx = SignedTransaction::deploy_contract(
         1,
         &test_account,
@@ -132,12 +132,13 @@ fn prepare_env() -> TestLoopEnv {
         &test_account_signer,
         *genesis_block.hash(),
     );
-    node.submit_tx(deploy_contract_tx.clone());
+    env.validator().submit_tx(deploy_contract_tx.clone());
 
     // Allow two blocks for the contract to be deployed
-    node.run_until_executed_height(&mut env.test_loop, 2);
+    env.validator_runner().run_until_executed_height(2);
     assert!(matches!(
-        node.client(env.test_loop_data())
+        env.validator()
+            .client()
             .chain
             .get_final_transaction_result(&deploy_contract_tx.get_hash())
             .unwrap()
@@ -145,7 +146,7 @@ fn prepare_env() -> TestLoopEnv {
         FinalExecutionStatus::SuccessValue(_),
     ));
 
-    let last_block_height = node.last_executed(env.test_loop_data()).height;
+    let last_block_height = env.validator().last_executed().height;
     assert_eq!(NEXT_BLOCK_HEIGHT_AFTER_SETUP, last_block_height + 1);
 
     env
@@ -159,8 +160,7 @@ fn prepare_env() -> TestLoopEnv {
 fn test_yield_then_resume_one_block_apart() {
     let mut env = prepare_env();
     let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
-    let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
-    let genesis_block = node.client(env.test_loop_data()).chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
     let mut next_block_height = NEXT_BLOCK_HEIGHT_AFTER_SETUP;
     let yield_payload = vec![6u8; 16];
 
@@ -179,15 +179,16 @@ fn test_yield_then_resume_one_block_apart() {
         *genesis_block.hash(),
     );
     let yield_tx_hash = yield_transaction.get_hash();
-    node.submit_tx(yield_transaction);
+    env.validator().submit_tx(yield_transaction);
 
     // Allow the yield create to be included and processed.
     for _ in 0..2 {
-        node.run_until_executed_height(&mut env.test_loop, next_block_height);
+        env.validator_runner().run_until_executed_height(next_block_height);
         next_block_height += 1;
     }
     assert_eq!(
-        node.client(env.test_loop_data())
+        env.validator()
+            .client()
             .chain
             .get_partial_transaction_result(&yield_tx_hash)
             .unwrap()
@@ -197,14 +198,14 @@ fn test_yield_then_resume_one_block_apart() {
     if ProtocolFeature::InstantPromiseYield.enabled(PROTOCOL_VERSION) {
         // After InstantPromiseYield, the PromiseYield receipt is applied instantly, it's not an
         // outgoing receipt.
-        assert_eq!(get_promise_yield_data_ids_from_latest_executed_block(&env).len(), 0);
+        assert_eq!(get_promise_yield_data_ids_from_latest_executed_block(&mut env).len(), 0);
 
         // The PromiseYield receipt should be saved in the state.
-        assert_eq!(get_yield_data_ids_in_latest_state(&env).len(), 1);
+        assert_eq!(get_yield_data_ids_in_latest_state(&mut env).len(), 1);
     } else {
         // Before InstantPromiseYield, there should be an outgoing PromiseYield receipt generated by
         // the latest block.
-        assert_eq!(get_promise_yield_data_ids_from_latest_executed_block(&env).len(), 1);
+        assert_eq!(get_promise_yield_data_ids_from_latest_executed_block(&mut env).len(), 1);
     }
 
     // Add another transaction invoking `yield_resume`.
@@ -221,19 +222,20 @@ fn test_yield_then_resume_one_block_apart() {
         }))],
         *genesis_block.hash(),
     );
-    node.submit_tx(resume_transaction);
+    env.validator().submit_tx(resume_transaction);
 
     // Allow the yield resume to be included and processed.
     for _ in 0..2 {
-        node.run_until_executed_height(&mut env.test_loop, next_block_height);
+        env.validator_runner().run_until_executed_height(next_block_height);
         next_block_height += 1;
     }
-    assert_eq!(get_promise_resume_data_ids_from_latest_executed_block(&env).len(), 1);
+    assert_eq!(get_promise_resume_data_ids_from_latest_executed_block(&mut env).len(), 1);
 
     // In the next block the callback is executed and the promise resolves to its final result.
-    node.run_until_executed_height(&mut env.test_loop, next_block_height);
+    env.validator_runner().run_until_executed_height(next_block_height);
     assert_eq!(
-        node.client(env.test_loop_data())
+        env.validator()
+            .client()
             .chain
             .get_partial_transaction_result(&yield_tx_hash)
             .unwrap()
@@ -241,7 +243,7 @@ fn test_yield_then_resume_one_block_apart() {
         FinalExecutionStatus::SuccessValue(vec![16u8]),
     );
 
-    assert_no_promise_yield_status_in_state(&env);
+    assert_no_promise_yield_status_in_state(&mut env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
@@ -256,8 +258,7 @@ fn test_yield_then_resume_one_block_apart() {
 fn test_yield_then_resume_same_block() {
     let mut env = prepare_env();
     let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
-    let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
-    let genesis_block = node.client(env.test_loop_data()).chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
     let mut next_block_height = NEXT_BLOCK_HEIGHT_AFTER_SETUP;
     let yield_payload = vec![6u8; 16];
 
@@ -276,7 +277,7 @@ fn test_yield_then_resume_same_block() {
         *genesis_block.hash(),
     );
     let yield_tx_hash = yield_transaction.get_hash();
-    node.submit_tx(yield_transaction);
+    env.validator().submit_tx(yield_transaction);
 
     // Add another transaction invoking `yield_resume`.
     let resume_transaction = SignedTransaction::from_actions(
@@ -293,48 +294,51 @@ fn test_yield_then_resume_same_block() {
         *genesis_block.hash(),
     );
     let resume_tx_hash = resume_transaction.get_hash();
-    node.submit_tx(resume_transaction);
+    env.validator().submit_tx(resume_transaction);
 
     // Allow the yield create and resume to be included and processed.
     for _ in 0..2 {
-        node.run_until_executed_height(&mut env.test_loop, next_block_height);
+        env.validator_runner().run_until_executed_height(next_block_height);
         next_block_height += 1;
     }
 
     // Both transactions should be included in the same block.
     let mut expected_txs = vec![resume_tx_hash, yield_tx_hash];
     expected_txs.sort();
-    assert_eq!(get_transaction_hashes_in_latest_executed_block(&env), expected_txs);
+    assert_eq!(get_transaction_hashes_in_latest_executed_block(&mut env), expected_txs);
 
     // Run one more block to execute the resume callback.
-    node.run_until_executed_height(&mut env.test_loop, next_block_height);
+    env.validator_runner().run_until_executed_height(next_block_height);
 
-    let client = node.client(env.test_loop_data());
-    if ProtocolFeature::InstantPromiseYield.enabled(PROTOCOL_VERSION) {
-        // Resumed callback executed, transaction finished successfully
-        assert_eq!(
-            client.chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
-            FinalExecutionStatus::SuccessValue(vec![16u8]),
-        );
-        // promise_yield_resume returned 1 (resumption succeeded)
-        assert_eq!(
-            client.chain.get_partial_transaction_result(&resume_tx_hash).unwrap().status,
-            FinalExecutionStatus::SuccessValue(vec![1u8]),
-        );
-    } else {
-        // Resume callback has not executed, transaction is still waiting for resume
-        assert_eq!(
-            client.chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
-            FinalExecutionStatus::Started,
-        );
-        // promise_yield_resume returned 0 (resumption failed)
-        assert_eq!(
-            client.chain.get_partial_transaction_result(&resume_tx_hash).unwrap().status,
-            FinalExecutionStatus::SuccessValue(vec![0u8]),
-        );
+    {
+        let node = env.validator();
+        let client = node.client();
+        if ProtocolFeature::InstantPromiseYield.enabled(PROTOCOL_VERSION) {
+            // Resumed callback executed, transaction finished successfully
+            assert_eq!(
+                client.chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
+                FinalExecutionStatus::SuccessValue(vec![16u8]),
+            );
+            // promise_yield_resume returned 1 (resumption succeeded)
+            assert_eq!(
+                client.chain.get_partial_transaction_result(&resume_tx_hash).unwrap().status,
+                FinalExecutionStatus::SuccessValue(vec![1u8]),
+            );
+        } else {
+            // Resume callback has not executed, transaction is still waiting for resume
+            assert_eq!(
+                client.chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
+                FinalExecutionStatus::Started,
+            );
+            // promise_yield_resume returned 0 (resumption failed)
+            assert_eq!(
+                client.chain.get_partial_transaction_result(&resume_tx_hash).unwrap().status,
+                FinalExecutionStatus::SuccessValue(vec![0u8]),
+            );
+        }
     }
 
-    assert_no_promise_yield_status_in_state(&env);
+    assert_no_promise_yield_status_in_state(&mut env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
@@ -350,8 +354,7 @@ fn test_yield_then_resume_same_block() {
 fn test_yield_then_resume_two_actions() {
     let mut env = prepare_env();
     let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
-    let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
-    let genesis_block = node.client(env.test_loop_data()).chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
     let yield_payload = vec![6u8; 16];
 
     let yield_resume_transaction = SignedTransaction::from_actions(
@@ -375,41 +378,44 @@ fn test_yield_then_resume_two_actions() {
         ],
         *genesis_block.hash(),
     );
-    node.submit_tx(yield_resume_transaction.clone());
-    node.run_for_number_of_blocks(&mut env.test_loop, 3);
+    env.validator().submit_tx(yield_resume_transaction.clone());
+    env.validator_runner().run_for_number_of_blocks(3);
 
-    let client = node.client(env.test_loop_data());
-    if ProtocolFeature::YieldResumeImprovements.enabled(PROTOCOL_VERSION) {
-        // promise_yield_resume returned 1 (resumption succeeded)
-        assert_eq!(
-            client
-                .chain
-                .get_final_transaction_result(&yield_resume_transaction.get_hash())
-                .unwrap()
-                .status,
-            FinalExecutionStatus::SuccessValue(vec![1u8]),
-        );
-    } else {
-        // promise_yield_resume returned 0 (resumption failed)
-        assert_eq!(
-            client
-                .chain
-                .get_partial_transaction_result(&yield_resume_transaction.get_hash())
-                .unwrap()
-                .status,
-            FinalExecutionStatus::SuccessValue(vec![0u8]),
-        );
+    {
+        let node = env.validator();
+        let client = node.client();
+        if ProtocolFeature::YieldResumeImprovements.enabled(PROTOCOL_VERSION) {
+            // promise_yield_resume returned 1 (resumption succeeded)
+            assert_eq!(
+                client
+                    .chain
+                    .get_final_transaction_result(&yield_resume_transaction.get_hash())
+                    .unwrap()
+                    .status,
+                FinalExecutionStatus::SuccessValue(vec![1u8]),
+            );
+        } else {
+            // promise_yield_resume returned 0 (resumption failed)
+            assert_eq!(
+                client
+                    .chain
+                    .get_partial_transaction_result(&yield_resume_transaction.get_hash())
+                    .unwrap()
+                    .status,
+                FinalExecutionStatus::SuccessValue(vec![0u8]),
+            );
 
-        // The receipt has not been resumed. Final status unavailable.
-        assert_matches!(
-            client.chain.get_final_transaction_result(&yield_resume_transaction.get_hash()),
-            Err(_)
-        );
+            // The receipt has not been resumed. Final status unavailable.
+            assert_matches!(
+                client.chain.get_final_transaction_result(&yield_resume_transaction.get_hash()),
+                Err(_)
+            );
 
-        // 200 blocks later the PromiseYield times out and the transaction finishes.
+            // 200 blocks later the PromiseYield times out and the transaction finishes.
+        }
     }
 
-    assert_no_promise_yield_status_in_state(&env);
+    assert_no_promise_yield_status_in_state(&mut env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
@@ -422,8 +428,7 @@ fn test_yield_then_resume_two_actions() {
 fn test_yield_then_resume_two_actions_failure() {
     let mut env = prepare_env();
     let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
-    let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
-    let genesis_block = node.client(env.test_loop_data()).chain.get_block_by_height(0).unwrap();
+    let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
     let yield_payload = vec![6u8; 16];
 
     let tx = SignedTransaction::from_actions(
@@ -454,11 +459,11 @@ fn test_yield_then_resume_two_actions_failure() {
         *genesis_block.hash(),
     );
 
-    let res = node.execute_tx(&mut env.test_loop, tx, Duration::seconds(5));
+    let res = env.validator_runner().execute_tx(tx, Duration::seconds(5));
     assert_matches!(res.unwrap().status, FinalExecutionStatus::Failure(_));
 
     // PromiseYieldStatus change was not committed to the trie.
-    assert_no_promise_yield_status_in_state(&env);
+    assert_no_promise_yield_status_in_state(&mut env);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
@@ -554,12 +559,11 @@ fn test_yield_resume_across_protocol_upgrade() {
         .build()
         .warmup();
 
-    let node = TestLoopNode::for_account(&env.node_datas, &"validator0".parse().unwrap());
-
     // We're in the epoch corresponding to the old_protocol_version
-    let start_head = node.head(env.test_loop_data());
+    let start_head = env.validator().head();
     assert_eq!(
-        node.client(env.test_loop_data())
+        env.validator()
+            .client()
             .epoch_manager
             .get_epoch_protocol_version(&start_head.epoch_id)
             .unwrap(),
@@ -574,7 +578,7 @@ fn test_yield_resume_across_protocol_upgrade() {
         &test_account_signer,
         start_head.last_block_hash,
     );
-    node.run_tx(&mut env.test_loop, deploy_contract_tx, Duration::seconds(5));
+    env.validator_runner().run_tx(deploy_contract_tx, Duration::seconds(5));
 
     // Perform promise_yield_create
     let yield_payload = vec![6u8; 16];
@@ -592,12 +596,13 @@ fn test_yield_resume_across_protocol_upgrade() {
         start_head.last_block_hash,
     );
     let yield_tx_hash = yield_transaction.get_hash();
-    node.submit_tx(yield_transaction);
+    env.validator().submit_tx(yield_transaction);
 
     // Allow the yield create to be included and processed.
-    node.run_for_number_of_blocks(&mut env.test_loop, 2);
+    env.validator_runner().run_for_number_of_blocks(2);
     assert_eq!(
-        node.client(env.test_loop_data())
+        env.validator()
+            .client()
             .chain
             .get_partial_transaction_result(&yield_tx_hash)
             .unwrap()
@@ -606,21 +611,19 @@ fn test_yield_resume_across_protocol_upgrade() {
     );
 
     // Make sure we're still on the old protocol version
+    let epoch_id = env.validator().head().epoch_id;
     assert_eq!(
-        node.client(env.test_loop_data())
-            .epoch_manager
-            .get_epoch_protocol_version(&node.head(env.test_loop_data()).epoch_id)
-            .unwrap(),
+        env.validator().client().epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap(),
         old_protocol
     );
 
     // Upgrade to the new protocol version
-    env.test_loop.run_until(
-        |tl_data| {
+    env.validator_runner().run_until(
+        |node| {
             let cur_epoch_protocol_version = node
-                .client(tl_data)
+                .client()
                 .epoch_manager
-                .get_epoch_protocol_version(&node.head(tl_data).epoch_id)
+                .get_epoch_protocol_version(&node.head().epoch_id)
                 .unwrap();
             cur_epoch_protocol_version == new_protocol
         },
@@ -641,22 +644,18 @@ fn test_yield_resume_across_protocol_upgrade() {
         }))],
         start_head.last_block_hash,
     );
-    let resume_res = node.run_tx(&mut env.test_loop, resume_transaction, Duration::seconds(5));
+    let resume_res = env.validator_runner().run_tx(resume_transaction, Duration::seconds(5));
     assert_eq!(resume_res, vec![1u8]);
 
     // Allow the resume to execute
-    node.run_for_number_of_blocks(&mut env.test_loop, 2);
+    env.validator_runner().run_for_number_of_blocks(2);
 
     // Resumed callback executed, transaction finished successfully
     assert_eq!(
-        node.client(env.test_loop_data())
-            .chain
-            .get_final_transaction_result(&yield_tx_hash)
-            .unwrap()
-            .status,
+        env.validator().client().chain.get_final_transaction_result(&yield_tx_hash).unwrap().status,
         FinalExecutionStatus::SuccessValue(vec![16u8]),
     );
 
-    assert_no_promise_yield_status_in_state(&env);
+    assert_no_promise_yield_status_in_state(&mut env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

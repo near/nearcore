@@ -174,10 +174,6 @@ impl TestLoopEnv {
         self.node_datas.iter().find(|data| &data.account_id == account_id)
     }
 
-    pub fn test_loop_data(&self) -> &TestLoopData {
-        &self.test_loop.data
-    }
-
     pub fn validator(&mut self) -> TestLoopNodeV2<'_> {
         self.node(0)
     }
@@ -187,7 +183,7 @@ impl TestLoopEnv {
     }
 
     pub fn rpc_node(&mut self) -> TestLoopNodeV2<'_> {
-        let idx = self.rpc_idx();
+        let idx = self.rpc_data_idx();
         self.node(idx)
     }
 
@@ -196,12 +192,12 @@ impl TestLoopEnv {
     }
 
     pub fn node_for_account(&mut self, account_id: &AccountId) -> TestLoopNodeV2<'_> {
-        let idx = self.account_idx(account_id);
+        let idx = self.account_data_idx(account_id);
         self.node(idx)
     }
 
     pub fn rpc_runner(&mut self) -> NodeRunner<'_> {
-        let idx = self.rpc_idx();
+        let idx = self.rpc_data_idx();
         self.node_runner(idx)
     }
 
@@ -210,18 +206,18 @@ impl TestLoopEnv {
     }
 
     pub fn runner_for_account(&mut self, account_id: &AccountId) -> NodeRunner<'_> {
-        let idx = self.account_idx(account_id);
+        let idx = self.account_data_idx(account_id);
         self.node_runner(idx)
     }
 
-    fn account_idx(&self, account_id: &AccountId) -> usize {
+    pub fn account_data_idx(&self, account_id: &AccountId) -> usize {
         self.node_datas
             .iter()
             .rposition(|d| &d.account_id == account_id)
             .unwrap_or_else(|| panic!("node with account id {account_id} not found"))
     }
 
-    fn rpc_idx(&self) -> usize {
-        self.account_idx(&rpc_account_id())
+    pub fn rpc_data_idx(&self) -> usize {
+        self.account_data_idx(&rpc_account_id())
     }
 }

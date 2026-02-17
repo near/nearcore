@@ -8,7 +8,6 @@ use near_store::adapter::epoch_store::EpochStoreAdapter;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
-use crate::utils::node::TestLoopNode;
 
 // Test that epoch sync proof is correctly updated after each epoch.
 // Validate the updated proof against derive_epoch_sync_proof_from_last_block.
@@ -34,20 +33,18 @@ fn test_epoch_sync_proof_update() {
         .clients(clients)
         .build()
         .warmup();
-    let validator_node = TestLoopNode::from(&env.node_datas[0]);
 
-    let client = validator_node.client(env.test_loop_data());
-    let epoch_store = client.chain.chain_store.epoch_store();
+    let epoch_store = env.validator().client().chain.chain_store.epoch_store();
 
     // Run for 5 epochs
     for _ in 0..5 {
-        validator_node.run_until_new_epoch(&mut env.test_loop);
+        env.validator_runner().run_until_new_epoch();
     }
 
     // Run for another 5 epochs
     for _ in 0..5 {
-        validator_node.run_until_new_epoch(&mut env.test_loop);
-        let head_hash = validator_node.head(&env.test_loop_data()).last_block_hash;
+        env.validator_runner().run_until_new_epoch();
+        let head_hash = env.validator().head().last_block_hash;
         validate_epoch_sync_proof(&epoch_store, &head_hash);
     }
 
@@ -80,35 +77,45 @@ fn test_epoch_sync_proof_update_with_forks() {
         .clients(clients)
         .build()
         .warmup();
-    let validator_node = TestLoopNode::from(&env.node_datas[0]);
 
     // Run for 5 epochs
     for _ in 0..5 {
-        validator_node.run_until_new_epoch(&mut env.test_loop);
+        env.validator_runner().run_until_new_epoch();
     }
 
     // verify if this is the first block of an epoch
-    let chain_store = validator_node.client(env.test_loop_data()).chain.chain_store.chain_store();
-    let head = chain_store.head().unwrap();
-    let prev_block_header = chain_store.get_block_header(&head.prev_block_hash).unwrap();
-    assert_ne!(&head.epoch_id, prev_block_header.epoch_id());
+    {
+        let node = env.validator();
+        let chain_store = node.client().chain.chain_store.chain_store();
+        let head = chain_store.head().unwrap();
+        let prev_block_header = chain_store.get_block_header(&head.prev_block_hash).unwrap();
+        assert_ne!(&head.epoch_id, prev_block_header.epoch_id());
+    }
 
     // create a fork
+    let head = env.validator().head();
     let height_selection = AdvProduceBlockHeightSelection::NextHeightOnSelectedBlock {
         base_block_height: head.height - 1,
     };
-    let client_actor = validator_node.client_actor(&mut env.test_loop.data);
-    client_actor.adv_produce_blocks_on(3, true, height_selection);
+    env.validator().client_actor().adv_produce_blocks_on(3, true, height_selection);
 
     // verify proof after processing fork
-    validate_epoch_sync_proof(&chain_store.epoch_store(), &head.last_block_hash);
+    {
+        let node = env.validator();
+        let chain_store = node.client().chain.chain_store.chain_store();
+        validate_epoch_sync_proof(&chain_store.epoch_store(), &head.last_block_hash);
+    }
 
     // run for another epoch
-    validator_node.run_until_new_epoch(&mut env.test_loop);
+    env.validator_runner().run_until_new_epoch();
 
     // verify proof
-    let head = chain_store.head().unwrap();
-    validate_epoch_sync_proof(&chain_store.epoch_store(), &head.last_block_hash);
+    {
+        let node = env.validator();
+        let chain_store = node.client().chain.chain_store.chain_store();
+        let head = chain_store.head().unwrap();
+        validate_epoch_sync_proof(&chain_store.epoch_store(), &head.last_block_hash);
+    }
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }

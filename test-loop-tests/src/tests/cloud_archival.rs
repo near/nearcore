@@ -111,7 +111,7 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
 
     println!("Final sanity checks");
     gc_and_heads_sanity_checks(
-        &env,
+        &mut env,
         &archival_id,
         params.enable_cold_storage,
         Some(MIN_EPOCH_LENGTH),

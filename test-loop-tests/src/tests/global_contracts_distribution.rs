@@ -4,7 +4,6 @@ use std::sync::Arc;
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
-use near_client::Client;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -19,7 +18,7 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{
     create_account_id, create_account_ids, create_validators_spec, validators_spec_clients,
 };
-use crate::utils::node::TestLoopNode;
+use crate::utils::node_v2::TestLoopNodeV2;
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use crate::utils::transactions::{
     call_contract, check_txs, deploy_global_contract, use_global_contract,
@@ -70,15 +69,24 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
     // Verify that global contract distribution receipt has target shard from the old shard layout,
     // while its block has the new layout.
     {
-        let block =
-            env.client().chain.get_block_by_height(expected_new_shard_layout_height).unwrap();
-        let block_shard_layout =
-            env.client().epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
+        let block = env
+            .chunk_producer_node()
+            .client()
+            .chain
+            .get_block_by_height(expected_new_shard_layout_height)
+            .unwrap();
+        let block_shard_layout = env
+            .chunk_producer_node()
+            .client()
+            .epoch_manager
+            .get_shard_layout(block.header().epoch_id())
+            .unwrap();
         assert_eq!(block_shard_layout, env.new_shard_layout);
         let chunks = block.chunks();
         // Expect new chunk
         assert!(chunks[0].is_new_chunk(block.header().height()));
-        let chunk = env.client().chain.get_chunk(&chunks[0].compute_hash()).unwrap();
+        let chunk =
+            env.chunk_producer_node().client().chain.get_chunk(&chunks[0].compute_hash()).unwrap();
         let [distribution_receipt] = chunk
             .prev_outgoing_receipts()
             .iter()
@@ -269,19 +277,18 @@ impl GlobalContractsReshardingTestEnv {
     }
 
     fn run_until_head_height(&mut self, height: BlockHeight) {
-        TestLoopNode::for_account(&self.env.node_datas, &self.chunk_producer)
-            .run_until_head_height(&mut self.env.test_loop, height);
+        self.env.runner_for_account(&self.chunk_producer).run_until_head_height(height);
     }
 
-    fn client(&self) -> &Client {
-        TestLoopNode::for_account(&self.env.node_datas, &self.chunk_producer)
-            .client(self.env.test_loop_data())
+    fn current_shard_layout(&mut self) -> ShardLayout {
+        let node = self.chunk_producer_node();
+        let client = node.client();
+        let epoch_id = client.chain.chain_store().head().unwrap().epoch_id;
+        client.epoch_manager.get_shard_layout(&epoch_id).unwrap()
     }
 
-    fn current_shard_layout(&self) -> ShardLayout {
-        let epoch_id = self.client().chain.chain_store().head().unwrap().epoch_id;
-        let epoch_manager = self.client().epoch_manager.clone();
-        epoch_manager.get_shard_layout(&epoch_id).unwrap()
+    fn chunk_producer_node(&mut self) -> TestLoopNodeV2<'_> {
+        self.env.node_for_account(&self.chunk_producer)
     }
 
     fn shutdown(self) {

@@ -5,7 +5,6 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
 use crate::utils::client_queries::ClientQueries;
-use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::get_anchor_hash;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
@@ -175,9 +174,8 @@ fn test_producer_sending_large_encoded_length_chunks() {
         .build()
         .warmup();
 
-    let node = TestLoopNode::from(env.node_datas[0].clone());
-    let epoch_manager = node.client(env.test_loop_data()).epoch_manager.clone();
-    let peer_manager_actor_handle = node.data().peer_manager_sender.actor_handle();
+    let epoch_manager = env.node(0).client().epoch_manager.clone();
+    let peer_manager_actor_handle = env.node_datas[0].peer_manager_sender.actor_handle();
     let peer_manager_actor = env.test_loop.data.get_mut(&peer_manager_actor_handle);
     peer_manager_actor.register_override_handler(Box::new(
         move |request| -> Option<NetworkRequests> {
@@ -231,7 +229,7 @@ fn test_producer_sending_large_encoded_length_chunks() {
         },
     ));
 
-    node.run_for_number_of_blocks(&mut env.test_loop, 10);
+    env.node_runner(0).run_for_number_of_blocks(10);
 
     env.test_loop.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
