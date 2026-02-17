@@ -49,7 +49,10 @@ let mut env = TestLoopBuilder::new()
 `TestLoopEnv` provides two main abstractions for interacting with nodes:
 
 - **`TestLoopNode`** — read-only access to a node's state (head, client, store,
-  runtime queries).
+  runtime queries). Holds `&TestLoopData`, so accessors like `env.node()` take
+  `&self` and multiple nodes can be held simultaneously.
+- **`TestLoopNodeMut`** — mutable access to a node for operations like
+  `client_actor()` or `view_client_actor()`. Holds `&mut TestLoopData`.
 - **`NodeRunner`** — drives the test loop forward while observing a specific
   node (run until a condition, produce blocks, execute transactions).
 
@@ -61,6 +64,14 @@ Convenience accessors on `TestLoopEnv`:
 | `env.rpc_node()` / `env.rpc_runner()` | `TestLoopNode` / `NodeRunner` | The RPC node |
 | `env.node(i)` / `env.node_runner(i)` | `TestLoopNode` / `NodeRunner` | Node at index `i` |
 | `env.node_for_account(id)` / `env.runner_for_account(id)` | `TestLoopNode` / `NodeRunner` | Node with given account id |
+
+Mutable node access is available via `_mut()` variants (`env.validator_mut()`,
+`env.node_mut(i)`, etc.) which return `TestLoopNodeMut`:
+
+```rust
+// Access ClientActor for adversarial testing.
+env.validator_mut().client_actor().adv_produce_blocks_on(3, true, height_selection);
+```
 
 Example usage:
 
