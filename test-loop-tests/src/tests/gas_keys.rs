@@ -20,14 +20,15 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{
     create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
 };
+use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::get_shared_block_hash;
 
 fn query_gas_key_and_balance(
-    env: &mut TestLoopEnv,
+    node: &TestLoopNode<'_>,
     account_id: &AccountId,
     public_key: &PublicKey,
 ) -> (AccessKeyView, Balance) {
-    let view = env.rpc_node().view_access_key_query(account_id, public_key).unwrap();
+    let view = node.view_access_key_query(account_id, public_key).unwrap();
     let balance = match &view.permission {
         AccessKeyPermissionView::GasKeyFullAccess { balance, .. }
         | AccessKeyPermissionView::GasKeyFunctionCall { balance, .. } => *balance,
@@ -145,7 +146,7 @@ fn test_gas_key_transaction() {
     // Record balances before the gas key transaction
     let sender_balance_before = env.rpc_node().view_account_query(sender).unwrap().amount;
     let (_, gas_key_balance_before) =
-        query_gas_key_and_balance(&mut env, sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
 
     // Send a transfer using the gas key
     let nonce_index = 0;
@@ -176,7 +177,7 @@ fn test_gas_key_transaction() {
     let gas_cost = total_tokens_burnt(&outcome);
     assert!(!gas_cost.is_zero());
     let (_, gas_key_balance_after) =
-        query_gas_key_and_balance(&mut env, sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
     assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_sub(gas_cost).unwrap());
 
     // Verify receiver got the transfer
@@ -253,7 +254,7 @@ fn test_gas_key_refund() {
     // Record balances before the gas key transaction
     let sender_balance_before = env.rpc_node().view_account_query(sender).unwrap().amount;
     let (_, gas_key_balance_before) =
-        query_gas_key_and_balance(&mut env, sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
 
     // Call a non-existing function on receiver (no contract deployed) with a deposit.
     // This will fail, producing both a balance refund (to account) and a gas refund (to gas key).
@@ -287,7 +288,7 @@ fn test_gas_key_refund() {
 
     // Verify gas key balance: should be initial minus tokens_burnt (gas refund went back to gas key).
     let (_, gas_key_balance_after) =
-        query_gas_key_and_balance(&mut env, sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
     assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_sub(tokens_burnt).unwrap());
 
     // Verify sender account balance is unchanged: deposit was deducted when the tx was
@@ -373,7 +374,7 @@ fn test_gas_key_deposit_failed() {
     // Record balances before
     let sender_balance_before = env.rpc_node().view_account_query(sender).unwrap().amount;
     let (_, gas_key_balance_before) =
-        query_gas_key_and_balance(&mut env, sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
     let nonce_index: NonceIndex = 0;
     let gas_key_nonce =
         get_gas_key_nonce(&mut env, sender, &gas_key_signer.public_key(), nonce_index);
@@ -435,7 +436,7 @@ fn test_gas_key_deposit_failed() {
 
     // Verify: gas key balance decreased by exactly tokens_burnt
     let (_, gas_key_balance_after) =
-        query_gas_key_and_balance(&mut env, sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
     assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_sub(tokens_burnt).unwrap());
 
     // Verify: account balance unchanged
