@@ -49,6 +49,31 @@ pub fn wallet_contract_magic_bytes(chain_id: &str) -> Arc<ContractCode> {
     }
 }
 
+/// Returns the global contract hash for the ETH wallet contract on a given chain.
+/// This is the hash of the deployed global contract that ETH implicit accounts
+/// should use when the EthImplicitGlobalContract protocol feature is enabled.
+///
+/// For other chains (localnet, test chains): Uses the hash of the embedded
+/// wallet contract WASM, allowing tests to deploy the same contract as a
+/// global contract.
+pub fn eth_wallet_global_contract_hash(chain_id: &str) -> CryptoHash {
+    match chain_id {
+        // 2zodJZK2e4nnv5AqwCRnenNSmkikXhEd7PPY6BmfTmW4
+        chains::MAINNET | chains::MOCKNET => CryptoHash([
+            0x1d, 0xaa, 0x83, 0x5c, 0x46, 0x37, 0xf7, 0xae, 0x3d, 0x92, 0x40, 0x95, 0xba, 0x3f,
+            0x0b, 0xf2, 0x82, 0x9b, 0xcf, 0xa1, 0x7b, 0x10, 0x68, 0xcd, 0x58, 0xbd, 0x85, 0x3d,
+            0xca, 0xd7, 0xce, 0xb5,
+        ]),
+        // 3PpYvRxBfC5BkZxTw8ZFG3D52w1ZRhvDDWirKoxphMDn
+        chains::TESTNET => CryptoHash([
+            0x23, 0x8f, 0xea, 0xc1, 0xf8, 0x6c, 0xc9, 0xf9, 0xf4, 0x00, 0x3e, 0x3f, 0x6d, 0x5a,
+            0xeb, 0xc0, 0x4e, 0xae, 0xa9, 0xc3, 0x94, 0x03, 0x2b, 0xd2, 0x94, 0x70, 0xe9, 0x60,
+            0x9b, 0x67, 0xf6, 0xc5,
+        ]),
+        _ => *LOCALNET.read_contract().hash(),
+    }
+}
+
 /// Checks if the given code hash corresponds to the wallet contract (signalling
 /// the runtime should treat the wallet contract as the code for the account).
 pub fn code_hash_matches_wallet_contract(chain_id: &str, code_hash: &CryptoHash) -> bool {
@@ -98,9 +123,12 @@ impl WalletContract {
 
 #[cfg(test)]
 mod tests {
-    use crate::{OLD_TESTNET, code_hash_matches_wallet_contract, wallet_contract_magic_bytes};
+    use crate::{
+        OLD_TESTNET, code_hash_matches_wallet_contract, eth_wallet_global_contract_hash,
+        wallet_contract_magic_bytes,
+    };
     use near_primitives_core::{
-        chains::{MAINNET, TESTNET},
+        chains::{MAINNET, MOCKNET, TESTNET},
         hash::CryptoHash,
     };
     use std::str::FromStr;
@@ -126,5 +154,16 @@ mod tests {
                 "Other code hashes do not match wallet contract"
             );
         }
+    }
+
+    #[test]
+    fn test_eth_wallet_global_contract_hash_values() {
+        let mainnet_expected: CryptoHash =
+            "2zodJZK2e4nnv5AqwCRnenNSmkikXhEd7PPY6BmfTmW4".parse().unwrap();
+        let testnet_expected: CryptoHash =
+            "3PpYvRxBfC5BkZxTw8ZFG3D52w1ZRhvDDWirKoxphMDn".parse().unwrap();
+        assert_eq!(eth_wallet_global_contract_hash(MAINNET), mainnet_expected);
+        assert_eq!(eth_wallet_global_contract_hash(MOCKNET), mainnet_expected);
+        assert_eq!(eth_wallet_global_contract_hash(TESTNET), testnet_expected);
     }
 }

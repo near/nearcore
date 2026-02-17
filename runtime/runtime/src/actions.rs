@@ -33,7 +33,9 @@ use near_store::{
 };
 use near_vm_runner::precompile_contract;
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
-use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
+use near_wallet_contract::{
+    eth_wallet_global_contract_hash, wallet_contract, wallet_contract_magic_bytes,
+};
 use std::sync::Arc;
 
 pub(crate) fn action_stake(
@@ -227,33 +229,49 @@ pub(crate) fn action_implicit_account_creation_transfer(
         AccountType::EthImplicitAccount => {
             let chain_id = epoch_info_provider.chain_id();
 
-            // We deploy "near[wallet contract hash]" magic bytes as the contract code,
-            // to mark that this is a neard-defined contract. It will not be used on a function call.
-            // Instead, neard-defined Wallet Contract implementation will be used.
-            let magic_bytes = wallet_contract_magic_bytes(&chain_id);
+            if ProtocolFeature::EthImplicitGlobalContract
+                .enabled(apply_state.current_protocol_version)
+            {
+                // Use a deployed global contract for ETH implicit accounts.
+                let global_contract_hash = eth_wallet_global_contract_hash(&chain_id);
+                let storage_usage = fee_config.storage_usage_config.num_bytes_account
+                    + global_contract_hash.as_bytes().len() as u64;
 
-            let storage_usage = fee_config.storage_usage_config.num_bytes_account
-                + magic_bytes.code().len() as u64
-                + fee_config.storage_usage_config.num_extra_bytes_record;
+                *account = Some(Account::new(
+                    deposit,
+                    Balance::ZERO,
+                    AccountContract::Global(global_contract_hash),
+                    storage_usage,
+                ));
+            } else {
+                // We deploy "near[wallet contract hash]" magic bytes as the contract code,
+                // to mark that this is a neard-defined contract. It will not be used on a function call.
+                // Instead, neard-defined Wallet Contract implementation will be used.
+                let magic_bytes = wallet_contract_magic_bytes(&chain_id);
 
-            let contract_hash = *magic_bytes.hash();
-            *account = Some(Account::new(
-                deposit,
-                Balance::ZERO,
-                AccountContract::from_local_code_hash(contract_hash),
-                storage_usage,
-            ));
-            state_update.set_code(account_id.clone(), &magic_bytes);
+                let storage_usage = fee_config.storage_usage_config.num_bytes_account
+                    + magic_bytes.code().len() as u64
+                    + fee_config.storage_usage_config.num_extra_bytes_record;
 
-            // Precompile Wallet Contract and store result (compiled code or error) in the database.
-            // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
-            // is a no-op if the contract was already compiled.
-            precompile_contract(
-                &wallet_contract(contract_hash).expect("should definitely exist"),
-                Arc::clone(&apply_state.config.wasm_config),
-                apply_state.cache.as_deref(),
-            )
-            .ok();
+                let contract_hash = *magic_bytes.hash();
+                *account = Some(Account::new(
+                    deposit,
+                    Balance::ZERO,
+                    AccountContract::from_local_code_hash(contract_hash),
+                    storage_usage,
+                ));
+                state_update.set_code(account_id.clone(), &magic_bytes);
+
+                // Precompile Wallet Contract and store result (compiled code or error) in the database.
+                // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
+                // is a no-op if the contract was already compiled.
+                precompile_contract(
+                    &wallet_contract(contract_hash).expect("should definitely exist"),
+                    Arc::clone(&apply_state.config.wasm_config),
+                    apply_state.cache.as_deref(),
+                )
+                .ok();
+            }
         }
         AccountType::NearDeterministicAccount => {
             *account = Some(create_deterministic_account(

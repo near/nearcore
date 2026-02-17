@@ -1,6 +1,7 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
+snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -207,6 +208,7 @@ expression: config_view
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
     "eth_implicit_accounts": true,
+    "eth_implicit_global_contract": false,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
       "max_stack_height": 262144,

@@ -11924,6 +11924,10 @@
             "description": "See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).",
             "type": "boolean"
           },
+          "eth_implicit_global_contract": {
+            "description": "See [VMConfig::eth_implicit_global_contract](crate::vm::Config::eth_implicit_global_contract).",
+            "type": "boolean"
+          },
           "ext_costs": {
             "allOf": [
               {
@@ -12012,6 +12016,7 @@
           "fix_contract_loading_cost",
           "implicit_account_creation",
           "eth_implicit_accounts",
+          "eth_implicit_global_contract",
           "limit_config"
         ],
         "title": "VMConfigView",
