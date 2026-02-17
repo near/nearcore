@@ -1029,7 +1029,8 @@ fn deterministic_state_init_cost(
 
 #[cfg(feature = "nightly")]
 fn action_transfer_to_gas_key(ctx: &mut EstimatorContext) -> GasCost {
-    let total_cost = {
+    // Measure [AddKey + TransferToGasKey] - [AddKey] to isolate TransferToGasKey.
+    let with_transfer = {
         let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
             let receiver = sender.clone();
@@ -1053,13 +1054,25 @@ fn action_transfer_to_gas_key(ctx: &mut EstimatorContext) -> GasCost {
         };
         transaction_cost(ctx, &mut make_transaction)
     };
-    let base_cost = action_sir_receipt_creation(ctx);
-    total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
+    let without_transfer = {
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+            let sender = tb.random_unused_account();
+            let receiver = sender.clone();
+            let actions = vec![Action::AddKey(Box::new(AddKeyAction {
+                public_key: "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847".parse().unwrap(),
+                access_key: AccessKey::gas_key_full_access(1),
+            }))];
+            tb.transaction_from_actions(sender, receiver, actions)
+        };
+        transaction_cost(ctx, &mut make_transaction)
+    };
+    with_transfer.saturating_sub(&without_transfer, &NonNegativeTolerance::PER_MILLE)
 }
 
 #[cfg(feature = "nightly")]
 fn action_withdraw_from_gas_key(ctx: &mut EstimatorContext) -> GasCost {
-    let total_cost = {
+    // Measure [AddKey + Transfer + Withdraw] - [AddKey + Transfer] to isolate WithdrawFromGasKey.
+    let with_withdraw = {
         let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
             let receiver = sender.clone();
@@ -1091,8 +1104,31 @@ fn action_withdraw_from_gas_key(ctx: &mut EstimatorContext) -> GasCost {
         };
         transaction_cost(ctx, &mut make_transaction)
     };
-    let base_cost = action_sir_receipt_creation(ctx);
-    total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
+    let without_withdraw = {
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+            let sender = tb.random_unused_account();
+            let receiver = sender.clone();
+            let actions = vec![
+                Action::AddKey(Box::new(AddKeyAction {
+                    public_key: "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847"
+                        .parse()
+                        .unwrap(),
+                    access_key: AccessKey::gas_key_full_access(1),
+                })),
+                Action::TransferToGasKey(Box::new(
+                    near_primitives::action::TransferToGasKeyAction {
+                        public_key: "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847"
+                            .parse()
+                            .unwrap(),
+                        deposit: Balance::from_near(1),
+                    },
+                )),
+            ];
+            tb.transaction_from_actions(sender, receiver, actions)
+        };
+        transaction_cost(ctx, &mut make_transaction)
+    };
+    with_withdraw.saturating_sub(&without_withdraw, &NonNegativeTolerance::PER_MILLE)
 }
 
 #[cfg(feature = "nightly")]
