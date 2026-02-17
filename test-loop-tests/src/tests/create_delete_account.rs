@@ -6,6 +6,8 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::QueryError;
 use near_client::client_actor::ClientActor;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::action::Action;
+use near_primitives::receipt::{Receipt, VersionedActionReceipt, VersionedReceiptEnum};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, Gas};
@@ -202,12 +204,17 @@ fn test_instant_delete_account() {
     );
 
     let call_promise_outcome = &outcome.receipts_outcome[0];
+    let call_promise_receipt = env.rpc_node().receipt(call_promise_outcome.id);
+    assert_matches!(as_action_receipt(&call_promise_receipt).actions(), [Action::FunctionCall(_)]);
+
     let delete_outcome = &outcome.receipts_outcome[1];
     assert_eq!(
         call_promise_outcome.outcome.receipt_ids,
         vec![delete_outcome.id],
-        "call_promise should produce exactly the DeleteAccount receipt"
+        "call_promise expected to produce exactly the DeleteAccount receipt"
     );
+    let delete_receipt = env.rpc_node().receipt(delete_outcome.id);
+    assert_matches!(as_action_receipt(&delete_receipt).actions(), [Action::DeleteAccount(_)]);
 
     // The key assertion: the DeleteAccount receipt was processed in the same
     // block as the parent call_promise receipt, proving it was an instant receipt.
@@ -223,4 +230,11 @@ fn test_instant_delete_account() {
     );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+fn as_action_receipt(receipt: &Receipt) -> VersionedActionReceipt<'_> {
+    let VersionedReceiptEnum::Action(action_receipt) = receipt.versioned_receipt() else {
+        panic!("expected action receipt")
+    };
+    action_receipt
 }
