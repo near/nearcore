@@ -12,6 +12,7 @@ use near_client::{Client, ProcessTxRequest, Query, QueryError, ViewClientActor};
 use near_crypto::PublicKey;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
@@ -86,6 +87,10 @@ impl<'a> TestLoopNode<'a> {
             .iter_raw()
             .map(|chunk_header| chain.get_chunk(chunk_header.chunk_hash()).unwrap())
             .collect()
+    }
+
+    pub fn receipt(&self, receipt_id: CryptoHash) -> Arc<Receipt> {
+        self.client().chain.chain_store.get_receipt(&receipt_id).unwrap()
     }
 
     pub fn execution_outcome_with_proof(

@@ -368,6 +368,10 @@ pub enum ProtocolFeature {
     GlobalContractDistributionNonce,
     /// Use global contract for ETH implicit accounts instead of embedded WASM.
     EthImplicitGlobalContract,
+    /// Process action receipts containing a single DeleteAccount action as
+    /// instant receipts, executing them immediately after the receipt that
+    /// produced them rather than sending them as outgoing receipts.
+    InstantDeleteAccount,
 }
 
 impl ProtocolFeature {
@@ -474,7 +478,8 @@ impl ProtocolFeature {
             | ProtocolFeature::GlobalContractDistributionNonce
             | ProtocolFeature::InstantPromiseYield
             | ProtocolFeature::YieldResumeImprovements
-            | ProtocolFeature::EthImplicitGlobalContract => 83,
+            | ProtocolFeature::EthImplicitGlobalContract
+            | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
 
             // Nightly features:
