@@ -29,6 +29,11 @@ use near_store::adapter::StoreAdapter as _;
 use crate::setup::state::NodeExecutionData;
 use crate::utils::transactions::TransactionRunner;
 
+/// Represents a single node in the test loop setup.
+///
+/// Provides high-level read-only access to node state such as head, client,
+/// store, and runtime queries. Obtained via [`TestLoopEnv::node`],
+/// [`TestLoopEnv::validator`], etc.
 pub struct TestLoopNode<'a> {
     pub(crate) data: &'a mut TestLoopData,
     pub(crate) node_data: &'a NodeExecutionData,
@@ -183,6 +188,12 @@ impl<'a> TestLoopNode<'a> {
     }
 }
 
+/// Drives the test loop forward while observing a specific node.
+///
+/// Provides methods to advance the test loop (run until a condition,
+/// produce blocks, execute transactions) with conditions evaluated against
+/// the associated node. Obtained via [`TestLoopEnv::node_runner`],
+/// [`TestLoopEnv::validator_runner`], etc.
 pub struct NodeRunner<'a> {
     pub(crate) test_loop: &'a mut TestLoopV2,
     pub(crate) node_data: &'a NodeExecutionData,
