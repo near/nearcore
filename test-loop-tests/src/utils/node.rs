@@ -9,11 +9,10 @@ use near_chain::types::Tip;
 use near_chain::{Block, BlockHeader};
 use near_client::client_actor::ClientActor;
 use near_client::{Client, ProcessTxRequest, Query, QueryError, ViewClientActor};
-use near_crypto::{PublicKey, Signer};
+use near_crypto::PublicKey;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
@@ -39,12 +38,7 @@ pub struct TestLoopNode<'a> {
     pub(crate) node_data: &'a NodeExecutionData,
 }
 
-#[allow(dead_code)]
 impl<'a> TestLoopNode<'a> {
-    pub fn data(&self) -> &NodeExecutionData {
-        self.node_data
-    }
-
     pub fn client(&self) -> &Client {
         let handle = self.node_data.client_sender.actor_handle();
         &self.data.get(&handle).client
@@ -159,12 +153,6 @@ impl<'a> TestLoopNode<'a> {
         Ok(access_key_view)
     }
 
-    pub fn get_next_nonce(&self, account_id: &AccountId) -> u64 {
-        let signer: Signer = create_user_test_signer(account_id);
-        let access_key = self.view_access_key_query(account_id, &signer.public_key()).unwrap();
-        access_key.nonce + 1
-    }
-
     pub fn submit_tx(&self, tx: SignedTransaction) {
         let process_tx_request =
             ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
@@ -199,7 +187,6 @@ pub struct NodeRunner<'a> {
     pub(crate) node_data: &'a NodeExecutionData,
 }
 
-#[allow(dead_code)]
 impl<'a> NodeRunner<'a> {
     pub fn run_until(
         &mut self,
@@ -214,10 +201,6 @@ impl<'a> NodeRunner<'a> {
             },
             maximum_duration,
         );
-    }
-
-    pub fn run_for(&mut self, duration: Duration) {
-        self.test_loop.run_for(duration);
     }
 
     pub fn run_until_head_height(&mut self, height: BlockHeight) {
