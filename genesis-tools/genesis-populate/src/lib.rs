@@ -148,7 +148,7 @@ impl GenesisBuilder {
 
     pub fn build(mut self) -> Result<Self> {
         // First, apply whatever is defined by the genesis config.
-        let roots = get_genesis_state_roots(self.runtime.store())?
+        let roots = get_genesis_state_roots(self.runtime.store())
             .expect("genesis state roots not initialized.");
         let shard_layout = &self.genesis.config.shard_layout;
         let genesis_shard_version = shard_layout.version();
@@ -234,7 +234,7 @@ impl GenesisBuilder {
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         near_store::flat::FlatStateChanges::from_state_changes(&state_changes)
             .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
-        store_update.commit()?;
+        store_update.commit();
 
         self.roots.insert(shard_id, root);
         self.state_updates.insert(shard_id, tries.new_trie_update(shard_uid, root));

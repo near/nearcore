@@ -196,7 +196,7 @@ mod trie_storage_tests {
             .collect();
         let mut store_update = tries.store_update();
         tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
         tries.store()
     }
 

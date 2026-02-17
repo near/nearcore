@@ -582,11 +582,10 @@ pub(crate) fn print_chunk_apply_stats(
         near_config.genesis.config.transaction_validity_period,
     );
     match chain_store.get_chunk_apply_stats(block_hash, &ShardId::new(shard_id)) {
-        Ok(Some(stats)) => println!("{:#?}", stats),
-        Ok(None) => {
+        Some(stats) => println!("{:#?}", stats),
+        None => {
             println!("\nNo stats found for block hash {} and shard {}\n", block_hash, shard_id)
         }
-        Err(e) => eprintln!("Error: {:#?}", e),
     }
 }
 
@@ -857,8 +856,7 @@ pub(crate) fn view_genesis(
 
     if view_config || compare {
         tracing::info!(target: "state_viewer", "computing genesis from config");
-        let state_roots =
-            near_store::get_genesis_state_roots(&chain_store.store()).unwrap().unwrap();
+        let state_roots = near_store::get_genesis_state_roots(&chain_store.store()).unwrap();
         let (genesis_block, genesis_chunks) = Chain::make_genesis_block(
             epoch_manager.as_ref(),
             runtime_adapter.as_ref(),
@@ -1107,6 +1105,10 @@ pub(crate) fn print_epoch_analysis(
             epoch_heights_to_infos.get(&next_next_epoch_height).unwrap();
         let rng_seed = stored_next_next_epoch_info.rng_seed();
 
+        let last_resharding = (!has_same_shard_layout)
+            .then_some(next_next_epoch_height)
+            .or_else(|| next_epoch_info.last_resharding());
+
         let next_next_epoch_info = proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
@@ -1118,6 +1120,7 @@ pub(crate) fn print_epoch_analysis(
             next_next_protocol_version,
             next_next_shard_layout,
             has_same_shard_layout,
+            last_resharding,
         )
         .unwrap();
 
@@ -1304,7 +1307,7 @@ pub(crate) fn contract_accounts(
 pub(crate) fn clear_cache(store: Store) {
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::CachedContractCode);
-    store_update.commit().unwrap();
+    store_update.commit();
 }
 
 /// Prints the state statistics for all shards. Please note that it relies on
@@ -1434,9 +1437,6 @@ fn get_state_stats_group_by<'a>(
         .iter()
         .map(|(type_byte, _)| chunk_view.iter_range(Some(&[*type_byte]), Some(&[*type_byte + 1])))
         .into_iter();
-
-    // Filter out any errors.
-    let type_iters = type_iters.map(|type_iter| type_iter.filter_map(|item| item.ok())).into_iter();
 
     // Read the values from and convert items to StateStatsStateRecord.
     let type_iters = type_iters

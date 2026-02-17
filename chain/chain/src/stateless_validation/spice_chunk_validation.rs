@@ -996,7 +996,7 @@ mod tests {
             let shard_layout = self.shard_layout();
             let mut prev_execution_results = BlockExecutionResults(HashMap::new());
             let genesis_state_root =
-                get_genesis_state_roots(&self.chain.chain_store.store()).unwrap().unwrap()[0];
+                get_genesis_state_roots(&self.chain.chain_store.store()).unwrap()[0];
             for shard_id in shard_layout.shard_ids() {
                 let receipts = self.receipts_for_shard(shard_id);
                 let (root, _proofs) = Chain::create_receipts_proofs_from_outgoing_receipts(

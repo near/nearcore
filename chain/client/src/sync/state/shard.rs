@@ -79,7 +79,7 @@ pub(super) async fn run_state_sync_for_shard(
     let state_root = header.chunk_prev_state_root();
     let num_parts = header.num_state_parts();
     let block_header =
-        store.get_ser::<BlockHeader>(DBCol::BlockHeader, sync_hash.as_bytes())?.ok_or_else(
+        store.get_ser::<BlockHeader>(DBCol::BlockHeader, sync_hash.as_bytes()).ok_or_else(
             || near_chain::Error::DBNotFoundErr(format!("No block header {}", sync_hash)),
         )?;
     let epoch_id = *block_header.epoch_id();
@@ -160,7 +160,7 @@ pub(super) async fn run_state_sync_for_shard(
         runtime
             .get_flat_storage_manager()
             .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update())?;
-        store_update.commit()?;
+        store_update.commit();
     }
 
     return_if_cancelled!(cancel);
@@ -249,7 +249,7 @@ fn create_flat_storage_for_shard(
 
     let flat_head_hash = *chunk.prev_block();
     let flat_head_header =
-        store.get_ser::<BlockHeader>(DBCol::BlockHeader, flat_head_hash.as_bytes())?.ok_or_else(
+        store.get_ser::<BlockHeader>(DBCol::BlockHeader, flat_head_hash.as_bytes()).ok_or_else(
             || near_chain::Error::DBNotFoundErr(format!("No block header {}", flat_head_hash)),
         )?;
     let flat_head_prev_hash = *flat_head_header.prev_hash();
@@ -268,7 +268,7 @@ fn create_flat_storage_for_shard(
             },
         }),
     );
-    store_update.commit()?;
+    store_update.commit();
     flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
     Ok(())
 }
@@ -326,8 +326,8 @@ async fn apply_state_part(
 
     // Mark part as applied.
     let mut store_update = store.store_update();
-    store_update.set_ser(DBCol::StatePartsApplied, &key_bytes, &true)?;
-    store_update.commit()?;
+    store_update.set_ser(DBCol::StatePartsApplied, &key_bytes, &true);
+    store_update.commit();
 
     Ok(StatePartApplyResult::Applied)
 }
@@ -393,7 +393,7 @@ mod tests {
 
         let mut store_update = store.store_update();
         store_update.set(DBCol::StateParts, &key_bytes, &part_bytes);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         // Apply the state part for the first time
         let result = apply_state_part(

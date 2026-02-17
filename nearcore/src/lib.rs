@@ -192,7 +192,7 @@ pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result
 
     assert_eq!(
         near_config.config.archive,
-        storage.is_local_archive()? || storage.is_cloud_archive()
+        storage.is_local_archive() || storage.is_cloud_archive()
     );
     Ok(storage)
 }
@@ -217,7 +217,7 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
     // SplitStore should only be used if the migration is finished. The
     // migration to cold store is finished when the db kind of the hot store is
     // changed from Archive to Hot.
-    if storage.get_hot_store().get_db_kind()? != Some(DbKind::Hot) {
+    if storage.get_hot_store().get_db_kind() != Some(DbKind::Hot) {
         return Ok(None);
     }
 
@@ -493,7 +493,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let telemetry =
         TelemetryActor::spawn_tokio_actor(actor_system.clone(), config.telemetry_config.clone());
     let chain_genesis = ChainGenesis::new(&config.genesis.config);
-    let state_roots = near_store::get_genesis_state_roots(runtime.store())?
+    let state_roots = near_store::get_genesis_state_roots(runtime.store())
         .expect("genesis should be initialized.");
     let (genesis_block, _genesis_chunks) = Chain::make_genesis_block(
         epoch_manager.as_ref(),
@@ -581,7 +581,7 @@ pub async fn start_with_config_and_synchronization_impl(
         epoch_manager.clone(),
         shard_tracker.clone(),
         config.client_config.gc.clone(),
-        storage.is_local_archive()?,
+        storage.is_local_archive(),
     ));
 
     let resharding_handle = ReshardingHandle::new();

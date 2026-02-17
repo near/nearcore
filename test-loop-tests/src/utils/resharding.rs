@@ -769,7 +769,7 @@ fn retain_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
         let node_hash = CryptoHash::try_from_slice(&key[8..]).unwrap();
         store_update.decrement_refcount_by(shard_uid, &node_hash, NonZero::new(rc as u32).unwrap());
     }
-    store_update.commit().unwrap();
+    store_update.commit();
 }
 
 /// Asserts that all other shards State except `the_only_shard_uid` have been cleaned-up.
@@ -825,19 +825,13 @@ pub(crate) fn check_resharding_skipped_when_no_children_tracked(
                     let status = flat_store.get_flat_storage_status(parent_shard_uid);
 
                     match status {
-                        Ok(FlatStorageStatus::Ready(_)) => {
+                        FlatStorageStatus::Ready(_) => {
                             // Flat storage should be Ready.
                         }
-                        Ok(status) => {
+                        status => {
                             panic!(
                                 "Unexpected parent shard status {:?} for shard {:?}",
                                 status, parent_shard_uid
-                            );
-                        }
-                        Err(e) => {
-                            panic!(
-                                "Error checking parent shard {:?} flat storage status: {:?}",
-                                parent_shard_uid, e
                             );
                         }
                     }

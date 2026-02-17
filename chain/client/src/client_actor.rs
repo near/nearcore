@@ -603,10 +603,7 @@ impl Handler<SpanWrapped<BlockResponse>> for ClientActor {
         tracing::debug!(target: "client", block_height = block.header().height(), block_hash = ?block.header().hash(), "received block response");
         let blocks_at_height =
             self.client.chain.chain_store().get_all_block_hashes_by_height(block.header().height());
-        if was_requested
-            || blocks_at_height.is_err()
-            || blocks_at_height.as_ref().unwrap().is_empty()
-        {
+        if was_requested || blocks_at_height.is_empty() {
             // This is a very sneaky piece of logic.
             if self.maybe_receive_state_sync_blocks(Arc::clone(&block)) {
                 // A node is syncing its state. Don't consider receiving
@@ -623,7 +620,7 @@ impl Handler<SpanWrapped<BlockResponse>> for ClientActor {
             match self.client.epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())
             {
                 Ok(epoch_id) => {
-                    if let Some(hashes) = blocks_at_height.unwrap().get(&epoch_id) {
+                    if let Some(hashes) = blocks_at_height.get(&epoch_id) {
                         if !hashes.contains(block.header().hash()) {
                             tracing::warn!(target: "client", block_hash = ?block.header().hash(), block_height = block.header().height(), "rejecting un-requested block");
                         }
@@ -1107,7 +1104,7 @@ impl ClientActor {
             if let Some(new_latest_known) =
                 self.sandbox_process_fast_forward(latest_known.height)?
             {
-                self.client.chain.mut_chain_store().save_latest_known(new_latest_known)?;
+                self.client.chain.mut_chain_store().save_latest_known(new_latest_known);
                 self.client.sandbox_update_tip(new_latest_known.height)?;
             }
         }

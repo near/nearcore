@@ -19,7 +19,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::chunk_extra::{ChunkExtra, ChunkExtraV2};
 use near_primitives::types::{Balance, EpochId, Gas, ShardId, StateRoot};
-use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
+use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::{Store, get_genesis_state_roots};
 use near_vm_runner::logic::ProtocolVersion;
@@ -146,6 +146,10 @@ impl Chain {
         let header_head = block_head.clone();
         store_update.save_head(&block_head)?;
         store_update.save_final_head(&header_head)?;
+        if ProtocolFeature::Spice.enabled(genesis_protocol_version) {
+            store_update.save_spice_execution_head(block_head.clone())?;
+            store_update.save_spice_final_execution_head(&block_head)?;
+        }
 
         // Set the root block of flat state to be the genesis block. Later, when we
         // init FlatStorages, we will read the from this column in storage, so it
@@ -222,13 +226,13 @@ impl Chain {
         gas_limit: Gas,
     ) -> Result<ChunkExtra, Error> {
         let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let state_root = *get_genesis_state_roots(store)?
+        let state_root = *get_genesis_state_roots(store)
             .ok_or_else(|| Error::Other("genesis state roots do not exist in the db".to_owned()))?
             .get(shard_index)
             .ok_or_else(|| {
                 Error::Other(format!("genesis state root does not exist for shard id {shard_id} shard index {shard_index}"))
             })?;
-        let congestion_info = *near_store::get_genesis_congestion_infos(store)?
+        let congestion_info = *near_store::get_genesis_congestion_infos(store)
             .ok_or_else(|| Error::Other("genesis congestion infos do not exist in the db".to_owned()))?
             .get(shard_index)
             .ok_or_else(|| {
@@ -297,7 +301,7 @@ fn get_genesis_congestion_infos_impl(
     let genesis_shard_layout = epoch_manager.get_shard_layout(&genesis_epoch_id)?;
 
     // Check we had already computed the congestion infos from the genesis state roots.
-    if let Some(saved_infos) = near_store::get_genesis_congestion_infos(runtime.store())? {
+    if let Some(saved_infos) = near_store::get_genesis_congestion_infos(runtime.store()) {
         tracing::debug!(target: "chain", "reading genesis congestion infos from database");
         return Ok(saved_infos);
     }
@@ -331,7 +335,7 @@ fn get_genesis_congestion_infos_impl(
     tracing::debug!(target: "chain", "saving genesis congestion infos to database");
     let mut store_update = runtime.store().store_update();
     near_store::set_genesis_congestion_infos(&mut store_update, &new_infos);
-    store_update.commit()?;
+    store_update.commit();
 
     Ok(new_infos)
 }

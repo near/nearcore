@@ -393,7 +393,7 @@ mod tests {
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
         let trie_update2 = tries.new_trie_update(shard_uid, new_root);
         assert_eq!(
             trie_update2.get(&test_key(b"dog".to_vec()), AccessOptions::DEFAULT),
@@ -424,7 +424,7 @@ mod tests {
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
         assert_eq!(new_root, Trie::EMPTY_ROOT);
 
         // Add and right away delete element.
@@ -442,7 +442,7 @@ mod tests {
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
         assert_eq!(new_root, Trie::EMPTY_ROOT);
 
         // Add, apply changes and then delete element.
@@ -453,7 +453,7 @@ mod tests {
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
         assert_ne!(new_root, Trie::EMPTY_ROOT);
         let mut trie_update = tries.new_trie_update(shard_uid, new_root);
         trie_update.remove(test_key(b"dog".to_vec()));
@@ -462,7 +462,7 @@ mod tests {
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
         assert_eq!(new_root, Trie::EMPTY_ROOT);
     }
 
@@ -477,7 +477,7 @@ mod tests {
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
         trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());

@@ -320,7 +320,7 @@ fn run_state_sync_with_dumped_parts(
             )
             .unwrap()
     );
-    store_update.commit().unwrap();
+    store_update.commit();
     let shard_id = ShardId::new(0);
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
     for part_id in 0..num_parts {
@@ -450,15 +450,14 @@ fn slow_test_state_sync_with_dumped_parts_4_final() {
 fn count_flat_state_value_kinds(store: &Store) -> (u64, u64) {
     let mut num_inlined_values = 0;
     let mut num_ref_values = 0;
-    for item in store.flat_store().iter(ShardUId::single_shard()) {
-        match item {
-            Ok((_, FlatStateValue::Ref(_))) => {
+    for (_, value) in store.flat_store().iter(ShardUId::single_shard()) {
+        match value {
+            FlatStateValue::Ref(_) => {
                 num_ref_values += 1;
             }
-            Ok((_, FlatStateValue::Inlined(_))) => {
+            FlatStateValue::Inlined(_) => {
                 num_inlined_values += 1;
             }
-            _ => {}
         }
     }
     (num_inlined_values, num_ref_values)

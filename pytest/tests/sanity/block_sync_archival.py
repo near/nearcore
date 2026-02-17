@@ -54,6 +54,9 @@ class Cluster:
         node_config = {
             'archive': True,
             'tracked_shards_config': 'AllShards',
+            'epoch_sync': {
+                'epoch_sync_horizon_num_epochs': 100,
+            },
         }
 
         self._config = cluster.load_config()

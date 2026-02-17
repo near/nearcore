@@ -104,8 +104,7 @@ impl Handler<ProcessedBlock> for SpiceChunkValidatorActor {
 impl Handler<ExecutionResultEndorsed> for SpiceChunkValidatorActor {
     fn handle(&mut self, ExecutionResultEndorsed { block_hash }: ExecutionResultEndorsed) {
         if let Some(signer) = self.validator_signer.get() {
-            let next_block_hashes =
-                self.chain_store.get_all_next_block_hashes(&block_hash).unwrap();
+            let next_block_hashes = self.chain_store.get_all_next_block_hashes(&block_hash);
             for next_block_hash in next_block_hashes {
                 let next_block = self.chain_store.get_block(&next_block_hash).expect(
                     "block added to next blocks only after it's processed so it should be in store",
