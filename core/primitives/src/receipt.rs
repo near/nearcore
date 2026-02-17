@@ -478,10 +478,12 @@ impl Receipt {
                 ProtocolFeature::InstantPromiseYield.enabled(protocol_version)
             }
             VersionedReceiptEnum::Action(action_receipt) => {
-                // Action receipts containing a single DeleteAccount action are instant receipts.
+                // Action receipts containing a single DeleteAccount action and no input
+                // promises are instant receipts.
                 // Deleting an account is a quick trie operation, it's okay to make it instant.
-                matches!(action_receipt.actions(), [Action::DeleteAccount(_)])
-                    && ProtocolFeature::InstantDeleteAccount.enabled(protocol_version)
+                ProtocolFeature::InstantDeleteAccount.enabled(protocol_version)
+                    && matches!(action_receipt.actions(), [Action::DeleteAccount(_)])
+                    && action_receipt.input_data_ids().is_empty()
             }
             VersionedReceiptEnum::Data(_)
             | VersionedReceiptEnum::PromiseResume(_)
