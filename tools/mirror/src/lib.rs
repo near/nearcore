@@ -1036,35 +1036,27 @@ impl<T: ChainAccess> TxMirror<T> {
         nonce_updates: HashSet<(AccountId, PublicKey)>,
     ) -> anyhow::Result<TargetChainTx> {
         let target_public_key = target_secret_key.public_key();
-        // TODO: clean up this function. The logic is hard to follow
-        let target_nonce = match source_height.as_ref() {
-            Some(_) => None,
-            None => Some(
-                crate::chain_tracker::TxTracker::insert_nonce(
-                    tracker,
-                    tx_block_queue,
-                    target_view_client,
-                    &self.db,
-                    &target_signer_id,
-                    &target_public_key,
-                    target_secret_key,
-                )
-                .await?,
-            ),
-        };
-        let target_nonce = match source_height {
-            Some(source_height) => {
-                crate::chain_tracker::TxTracker::next_nonce(
-                    tracker,
-                    target_view_client,
-                    &self.db,
-                    &target_signer_id,
-                    &target_public_key,
-                    source_height,
-                )
-                .await?
-            }
-            None => target_nonce.unwrap(),
+        let target_nonce = if let Some(source_height) = source_height {
+            crate::chain_tracker::TxTracker::next_nonce(
+                tracker,
+                target_view_client,
+                &self.db,
+                &target_signer_id,
+                &target_public_key,
+                source_height,
+            )
+            .await?
+        } else {
+            crate::chain_tracker::TxTracker::insert_nonce(
+                tracker,
+                tx_block_queue,
+                target_view_client,
+                &self.db,
+                &target_signer_id,
+                &target_public_key,
+                target_secret_key,
+            )
+            .await?
         };
 
         if target_nonce.pending_outcomes.is_empty() && target_nonce.nonce.is_some() {
