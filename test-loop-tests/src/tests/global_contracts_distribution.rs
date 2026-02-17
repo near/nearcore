@@ -280,14 +280,14 @@ impl GlobalContractsReshardingTestEnv {
         self.env.runner_for_account(&self.chunk_producer).run_until_head_height(height);
     }
 
-    fn current_shard_layout(&mut self) -> ShardLayout {
+    fn current_shard_layout(&self) -> ShardLayout {
         let node = self.chunk_producer_node();
         let client = node.client();
         let epoch_id = client.chain.chain_store().head().unwrap().epoch_id;
         client.epoch_manager.get_shard_layout(&epoch_id).unwrap()
     }
 
-    fn chunk_producer_node(&mut self) -> TestLoopNode<'_> {
+    fn chunk_producer_node(&self) -> TestLoopNode<'_> {
         self.env.node_for_account(&self.chunk_producer)
     }
 

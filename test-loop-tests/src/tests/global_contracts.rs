@@ -398,7 +398,7 @@ impl GlobalContractsTestEnv {
         self.run_tx(tx);
     }
 
-    fn view_call_global_contract(&mut self, account: &AccountId) -> CallResult {
+    fn view_call_global_contract(&self, account: &AccountId) -> CallResult {
         let query = QueryRequest::CallFunction {
             account_id: account.clone(),
             method_name: "log_something".to_owned(),
@@ -477,18 +477,18 @@ impl GlobalContractsTestEnv {
         self.view_account(&account)
     }
 
-    fn view_account(&mut self, account: &AccountId) -> AccountView {
+    fn view_account(&self, account: &AccountId) -> AccountView {
         self.env.rpc_node().view_account_query(account).unwrap()
     }
 
-    fn view_code(&mut self, account: &AccountId) -> ContractCodeView {
+    fn view_code(&self, account: &AccountId) -> ContractCodeView {
         let response = self.runtime_query(QueryRequest::ViewCode { account_id: account.clone() });
         let QueryResponseKind::ViewCode(contract_code_view) = response.kind else { unreachable!() };
         contract_code_view
     }
 
     fn view_global_contract_code(
-        &mut self,
+        &self,
         identifier: GlobalContractIdentifier,
     ) -> ContractCodeView {
         let query = match identifier {
@@ -536,7 +536,7 @@ impl GlobalContractsTestEnv {
         }
     }
 
-    fn runtime_query(&mut self, query: QueryRequest) -> QueryResponse {
+    fn runtime_query(&self, query: QueryRequest) -> QueryResponse {
         self.env.rpc_node().runtime_query(query).unwrap()
     }
 

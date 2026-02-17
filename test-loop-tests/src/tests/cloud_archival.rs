@@ -111,16 +111,16 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
 
     println!("Final sanity checks");
     gc_and_heads_sanity_checks(
-        &mut env,
+        &env,
         &archival_id,
         params.enable_cold_storage,
         Some(MIN_EPOCH_LENGTH),
     );
 
     if let Some(block_height) = params.check_data_at_height {
-        check_data_at_height(&mut env, &archival_id, block_height);
+        check_data_at_height(&env, &archival_id, block_height);
     }
-    snapshots_sanity_check(&mut env, &archival_id, params.num_epochs_to_wait);
+    snapshots_sanity_check(&env, &archival_id, params.num_epochs_to_wait);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }

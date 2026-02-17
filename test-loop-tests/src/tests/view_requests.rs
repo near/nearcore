@@ -61,7 +61,7 @@ fn test_access_key_changes_includes_gas_key_nonces() {
     let tx_block_hash = outcome.transaction_outcome.block_hash;
     let tx_block_header = env.rpc_node().client().chain.get_block_header(&tx_block_hash).unwrap();
     env.rpc_runner().run_until_block_executed(&tx_block_header, Duration::seconds(10));
-    let mut rpc = env.rpc_node();
+    let mut rpc = env.rpc_node_mut();
     let view_client = rpc.view_client_actor();
 
     // Test AllAccessKey changes request

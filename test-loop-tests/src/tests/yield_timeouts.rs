@@ -37,7 +37,7 @@ const YIELD_TIMEOUT_HEIGHT: u64 = YIELD_CREATE_HEIGHT + TEST_CONFIG_YIELD_TIMEOU
 
 /// Helper function which checks the outgoing receipts from the latest block.
 /// Returns yield data ids for all PromiseYield and PromiseResume receipts.
-fn find_yield_data_ids_from_latest_block(env: &mut TestLoopEnv) -> Vec<CryptoHash> {
+fn find_yield_data_ids_from_latest_block(env: &TestLoopEnv) -> Vec<CryptoHash> {
     let node = env.validator();
     let client = node.client();
     let genesis_block = client.chain.get_block_by_height(0).unwrap();
@@ -66,7 +66,7 @@ fn find_yield_data_ids_from_latest_block(env: &mut TestLoopEnv) -> Vec<CryptoHas
 }
 
 /// Read all the `PromiseYield` receipts stored in the latest state and collect their data_ids.
-pub(crate) fn get_yield_data_ids_in_latest_state(env: &mut TestLoopEnv) -> Vec<CryptoHash> {
+pub(crate) fn get_yield_data_ids_in_latest_state(env: &TestLoopEnv) -> Vec<CryptoHash> {
     let node = env.validator();
     let client = node.client();
     let head = client.chain.head().unwrap();
@@ -157,7 +157,7 @@ fn get_promise_yield_statuses_in_state(
 }
 
 /// Assert that there are no leftover PromiseYieldStatus values stored in the Trie.
-pub(crate) fn assert_no_promise_yield_status_in_state(env: &mut TestLoopEnv) {
+pub(crate) fn assert_no_promise_yield_status_in_state(env: &TestLoopEnv) {
     let node = env.validator();
     let client = node.client();
     let head = client.chain.head().unwrap();
@@ -272,10 +272,10 @@ fn prepare_env_with_yield(
 
     let yield_data_ids = if ProtocolFeature::InstantPromiseYield.enabled(PROTOCOL_VERSION) {
         // After InstantPromiseYield, the PromiseYield receipt is immediately processed and saved in the state.
-        get_yield_data_ids_in_latest_state(&mut env)
+        get_yield_data_ids_in_latest_state(&env)
     } else {
         // Before InstantPromiseYield, the PromiseYield receipt was sent as an outgoing receipt.
-        find_yield_data_ids_from_latest_block(&mut env)
+        find_yield_data_ids_from_latest_block(&env)
     };
     assert_eq!(yield_data_ids.len(), 1);
 
@@ -286,7 +286,7 @@ fn prepare_env_with_yield(
 }
 
 fn invoke_yield_resume(
-    env: &mut TestLoopEnv,
+    env: &TestLoopEnv,
     data_id: CryptoHash,
     yield_payload: Vec<u8>,
 ) -> CryptoHash {
@@ -315,7 +315,7 @@ fn invoke_yield_resume(
 ///
 /// Note that these transactions start to be processed in the *second* block produced after they are
 /// inserted to client 0's mempool.
-fn create_congestion(env: &mut TestLoopEnv) {
+fn create_congestion(env: &TestLoopEnv) {
     let signer = create_user_test_signer(&AccountId::from_str("test0").unwrap());
     let genesis_block = env.validator().client().chain.get_block_by_height(0).unwrap();
 
@@ -365,7 +365,7 @@ fn test_simple_yield_timeout() {
     // In this block the timeout is processed, producing a YieldResume receipt.
     env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT);
     // Checks that the anticipated YieldResume receipt was produced.
-    assert_eq!(find_yield_data_ids_from_latest_block(&mut env), vec![data_id]);
+    assert_eq!(find_yield_data_ids_from_latest_block(&env), vec![data_id]);
     assert_eq!(
         env.validator()
             .client()
@@ -388,7 +388,7 @@ fn test_simple_yield_timeout() {
         FinalExecutionStatus::SuccessValue(vec![0u8]),
     );
 
-    assert_no_promise_yield_status_in_state(&mut env);
+    assert_no_promise_yield_status_in_state(&env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
@@ -406,7 +406,7 @@ fn test_yield_timeout_under_congestion() {
     for block_height in NEXT_BLOCK_HEIGHT_AFTER_SETUP..(YIELD_TIMEOUT_HEIGHT + 3) {
         // Submit txns to congest the block at height YIELD_TIMEOUT_HEIGHT and delay the timeout
         if block_height == YIELD_TIMEOUT_HEIGHT - 1 {
-            create_congestion(&mut env);
+            create_congestion(&env);
         }
 
         env.validator_runner().run_until_head_height(block_height);
@@ -439,7 +439,7 @@ fn test_yield_timeout_under_congestion() {
         Duration::seconds(15),
     );
 
-    assert_no_promise_yield_status_in_state(&mut env);
+    assert_no_promise_yield_status_in_state(&env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
@@ -455,7 +455,7 @@ fn test_yield_resume_just_before_timeout() {
     for block_height in NEXT_BLOCK_HEIGHT_AFTER_SETUP..YIELD_TIMEOUT_HEIGHT {
         // Submit txn so that yield_resume is invoked in the block at height YIELD_TIMEOUT_HEIGHT
         if block_height == YIELD_TIMEOUT_HEIGHT - 1 {
-            invoke_yield_resume(&mut env, data_id, yield_payload.clone());
+            invoke_yield_resume(&env, data_id, yield_payload.clone());
         }
 
         env.validator_runner().run_until_head_height(block_height);
@@ -484,7 +484,7 @@ fn test_yield_resume_just_before_timeout() {
         FinalExecutionStatus::Started
     );
     // Here we expect two receipts to be produced; one from yield_resume and one from timeout.
-    assert_eq!(find_yield_data_ids_from_latest_block(&mut env), vec![data_id, data_id]);
+    assert_eq!(find_yield_data_ids_from_latest_block(&env), vec![data_id, data_id]);
 
     // In this block the resume receipt is applied and the callback is executed with the resume payload.
     env.validator_runner().run_until_head_height(YIELD_TIMEOUT_HEIGHT + 1);
@@ -498,7 +498,7 @@ fn test_yield_resume_just_before_timeout() {
         FinalExecutionStatus::SuccessValue(vec![16u8]),
     );
 
-    assert_no_promise_yield_status_in_state(&mut env);
+    assert_no_promise_yield_status_in_state(&env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
@@ -517,7 +517,7 @@ fn test_yield_resume_after_timeout_height() {
     for block_height in NEXT_BLOCK_HEIGHT_AFTER_SETUP..(YIELD_TIMEOUT_HEIGHT + 3) {
         // Submit txns to congest the block at height YIELD_TIMEOUT_HEIGHT and delay the timeout
         if block_height == YIELD_TIMEOUT_HEIGHT - 1 {
-            create_congestion(&mut env);
+            create_congestion(&env);
         }
 
         env.validator_runner().run_until_head_height(block_height);
@@ -534,7 +534,7 @@ fn test_yield_resume_after_timeout_height() {
         );
     }
 
-    invoke_yield_resume(&mut env, data_id, yield_payload);
+    invoke_yield_resume(&env, data_id, yield_payload);
 
     // Advance until the congestion clears and the yield callback is executed.
     env.validator_runner().run_until(
@@ -552,7 +552,7 @@ fn test_yield_resume_after_timeout_height() {
         Duration::seconds(15),
     );
 
-    assert_no_promise_yield_status_in_state(&mut env);
+    assert_no_promise_yield_status_in_state(&env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
@@ -588,7 +588,7 @@ fn test_skip_timeout_height() {
     // We still expect the timeout to be processed and produce a YieldResume receipt.
     assert_eq!(env.validator().head().height, YIELD_TIMEOUT_HEIGHT - 1);
     // Produce block at YIELD_TIMEOUT_HEIGHT+1 using the one at YIELD_TIMEOUT_HEIGHT-1 as the previous block.
-    env.validator().client_actor().adv_produce_blocks_on(
+    env.validator_mut().client_actor().adv_produce_blocks_on(
         1,
         true,
         near_client::client_actor::AdvProduceBlockHeightSelection::SelectedHeightOnLatestKnown {
@@ -605,7 +605,7 @@ fn test_skip_timeout_height() {
     );
 
     // Checks that the anticipated YieldResume receipt was produced.
-    assert_eq!(find_yield_data_ids_from_latest_block(&mut env), vec![data_id]);
+    assert_eq!(find_yield_data_ids_from_latest_block(&env), vec![data_id]);
     assert_eq!(
         env.validator()
             .client()
@@ -628,6 +628,6 @@ fn test_skip_timeout_height() {
         FinalExecutionStatus::SuccessValue(vec![0u8]),
     );
 
-    assert_no_promise_yield_status_in_state(&mut env);
+    assert_no_promise_yield_status_in_state(&env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

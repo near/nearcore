@@ -60,7 +60,7 @@ fn total_tokens_burnt(outcome: &FinalExecutionOutcomeView) -> Balance {
 
 /// Get the nonce for a gas key with specific nonce_index.
 fn get_gas_key_nonce(
-    env: &mut TestLoopEnv,
+    env: &TestLoopEnv,
     account_id: &AccountId,
     public_key: &PublicKey,
     nonce_index: NonceIndex,
@@ -150,8 +150,7 @@ fn test_gas_key_transaction() {
 
     // Send a transfer using the gas key
     let nonce_index = 0;
-    let gas_key_nonce =
-        get_gas_key_nonce(&mut env, sender, &gas_key_signer.public_key(), nonce_index);
+    let gas_key_nonce = get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let transfer_amount = Balance::from_near(10);
     let gas_key_tx = SignedTransaction::from_actions_v1(
@@ -168,7 +167,7 @@ fn test_gas_key_transaction() {
 
     // Check that the nonce for the gas key has been incremented
     let updated_gas_key_nonce =
-        get_gas_key_nonce(&mut env, sender, &gas_key_signer.public_key(), nonce_index);
+        get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
     assert_eq!(updated_gas_key_nonce, gas_key_nonce + 1);
 
     // Verify account balance pays for deposit, gas key balance pays for gas.
@@ -259,8 +258,7 @@ fn test_gas_key_refund() {
     // Call a non-existing function on receiver (no contract deployed) with a deposit.
     // This will fail, producing both a balance refund (to account) and a gas refund (to gas key).
     let nonce_index = 0;
-    let gas_key_nonce =
-        get_gas_key_nonce(&mut env, sender, &gas_key_signer.public_key(), nonce_index);
+    let gas_key_nonce = get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let prepaid_gas = near_primitives::types::Gas::from_teragas(100);
     let deposit_amount = Balance::from_near(5);
@@ -376,8 +374,7 @@ fn test_gas_key_deposit_failed() {
     let (_, gas_key_balance_before) =
         query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
     let nonce_index: NonceIndex = 0;
-    let gas_key_nonce =
-        get_gas_key_nonce(&mut env, sender, &gas_key_signer.public_key(), nonce_index);
+    let gas_key_nonce = get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
 
     // Enable adversarial mode: skip runtime verification during chunk preparation.
     env.node_runner(0).send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
@@ -445,7 +442,7 @@ fn test_gas_key_deposit_failed() {
 
     // Verify: gas key nonce incremented
     let gas_key_nonce_after =
-        get_gas_key_nonce(&mut env, sender, &gas_key_signer.public_key(), nonce_index);
+        get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
     assert_eq!(gas_key_nonce_after, gas_key_nonce + 1);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));

@@ -28,7 +28,7 @@ fn execute_future<F: Future>(fut: F) -> F::Output {
 
 /// Sanity checks: heads alignment, GC tail bounds, and optional minimum GC progress.
 pub fn gc_and_heads_sanity_checks(
-    env: &mut TestLoopEnv,
+    env: &TestLoopEnv,
     writer_id: &AccountId,
     split_store_enabled: bool,
     num_gced_blocks: Option<BlockHeightDelta>,
@@ -132,7 +132,7 @@ pub fn check_data_at_height(env: &TestLoopEnv, archival_id: &AccountId, height: 
 /// Checks that each epoch (except the final one) has a state header uploaded for each
 /// shards. Panics if headers are missing for some shards within an epoch.
 pub fn snapshots_sanity_check(
-    env: &mut TestLoopEnv,
+    env: &TestLoopEnv,
     archival_id: &AccountId,
     final_epoch_height: EpochHeight,
 ) {

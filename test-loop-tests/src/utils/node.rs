@@ -34,10 +34,11 @@ use crate::utils::transactions::TransactionRunner;
 /// store, and runtime queries. Obtained via [`TestLoopEnv::node`],
 /// [`TestLoopEnv::validator`], etc.
 pub struct TestLoopNode<'a> {
-    pub(crate) data: &'a mut TestLoopData,
+    pub(crate) data: &'a TestLoopData,
     pub(crate) node_data: &'a NodeExecutionData,
 }
 
+#[cfg_attr(not(feature = "test_features"), allow(dead_code))]
 impl<'a> TestLoopNode<'a> {
     pub fn client(&self) -> &Client {
         let handle = self.node_data.client_sender.actor_handle();
@@ -46,16 +47,6 @@ impl<'a> TestLoopNode<'a> {
 
     pub fn store(&self) -> Store {
         self.client().chain.chain_store.store().store()
-    }
-
-    pub fn client_actor(&mut self) -> &mut ClientActor {
-        let handle = self.node_data.client_sender.actor_handle();
-        self.data.get_mut(&handle)
-    }
-
-    pub fn view_client_actor(&mut self) -> &mut ViewClientActor {
-        let handle = self.node_data.view_client_sender.actor_handle();
-        self.data.get_mut(&handle)
     }
 
     pub fn tail(&self) -> BlockHeight {
@@ -158,6 +149,27 @@ impl<'a> TestLoopNode<'a> {
             ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
         self.node_data.rpc_handler_sender.send(process_tx_request);
     }
+}
+
+/// Mutable variant of [`TestLoopNode`] for operations that require
+/// `&mut TestLoopData` (e.g. accessing `ClientActor` or `ViewClientActor`).
+/// Obtained via [`TestLoopEnv::node_mut`], [`TestLoopEnv::validator_mut`], etc.
+pub struct TestLoopNodeMut<'a> {
+    pub(crate) data: &'a mut TestLoopData,
+    pub(crate) node_data: &'a NodeExecutionData,
+}
+
+#[cfg_attr(not(feature = "test_features"), allow(dead_code))]
+impl<'a> TestLoopNodeMut<'a> {
+    pub fn client_actor(&mut self) -> &mut ClientActor {
+        let handle = self.node_data.client_sender.actor_handle();
+        self.data.get_mut(&handle)
+    }
+
+    pub fn view_client_actor(&mut self) -> &mut ViewClientActor {
+        let handle = self.node_data.view_client_sender.actor_handle();
+        self.data.get_mut(&handle)
+    }
 
     #[cfg(feature = "test_features")]
     pub fn validate_store(&mut self) {
@@ -187,17 +199,18 @@ pub struct NodeRunner<'a> {
     pub(crate) node_data: &'a NodeExecutionData,
 }
 
+#[cfg_attr(not(feature = "test_features"), allow(dead_code))]
 impl<'a> NodeRunner<'a> {
     pub fn run_until(
         &mut self,
-        mut condition: impl FnMut(&mut TestLoopNode<'_>) -> bool,
+        mut condition: impl FnMut(&TestLoopNode<'_>) -> bool,
         maximum_duration: Duration,
     ) {
         let node_data = self.node_data;
         self.test_loop.run_until(
             |test_loop_data| {
-                let mut node = TestLoopNode { data: test_loop_data, node_data };
-                condition(&mut node)
+                let node = TestLoopNode { data: test_loop_data, node_data };
+                condition(&node)
             },
             maximum_duration,
         );

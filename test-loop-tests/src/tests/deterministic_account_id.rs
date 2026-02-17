@@ -1034,7 +1034,7 @@ impl TestEnv {
         self.view_account(&account)
     }
 
-    fn view_account(&mut self, account: &AccountId) -> AccountView {
+    fn view_account(&self, account: &AccountId) -> AccountView {
         self.env.rpc_node().view_account_query(account).unwrap()
     }
 }

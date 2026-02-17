@@ -2,7 +2,7 @@ use super::drop_condition::DropCondition;
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::rpc_account_id;
-use crate::utils::node::{NodeRunner, TestLoopNode};
+use crate::utils::node::{NodeRunner, TestLoopNode, TestLoopNodeMut};
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
@@ -172,26 +172,46 @@ impl TestLoopEnv {
         &self.node_datas[idx]
     }
 
-    pub fn validator(&mut self) -> TestLoopNode<'_> {
+    pub fn validator(&self) -> TestLoopNode<'_> {
         self.node(0)
+    }
+
+    #[cfg_attr(not(feature = "test_features"), allow(dead_code))]
+    pub fn validator_mut(&mut self) -> TestLoopNodeMut<'_> {
+        self.node_mut(0)
     }
 
     pub fn validator_runner(&mut self) -> NodeRunner<'_> {
         self.node_runner(0)
     }
 
-    pub fn rpc_node(&mut self) -> TestLoopNode<'_> {
+    pub fn rpc_node(&self) -> TestLoopNode<'_> {
         let idx = self.rpc_data_idx();
         self.node(idx)
     }
 
-    pub fn node(&mut self, idx: usize) -> TestLoopNode<'_> {
-        TestLoopNode { data: &mut self.test_loop.data, node_data: &self.node_datas[idx] }
+    pub fn rpc_node_mut(&mut self) -> TestLoopNodeMut<'_> {
+        let idx = self.rpc_data_idx();
+        self.node_mut(idx)
     }
 
-    pub fn node_for_account(&mut self, account_id: &AccountId) -> TestLoopNode<'_> {
+    pub fn node(&self, idx: usize) -> TestLoopNode<'_> {
+        TestLoopNode { data: &self.test_loop.data, node_data: &self.node_datas[idx] }
+    }
+
+    pub fn node_mut(&mut self, idx: usize) -> TestLoopNodeMut<'_> {
+        TestLoopNodeMut { data: &mut self.test_loop.data, node_data: &self.node_datas[idx] }
+    }
+
+    pub fn node_for_account(&self, account_id: &AccountId) -> TestLoopNode<'_> {
         let idx = self.account_data_idx(account_id);
         self.node(idx)
+    }
+
+    #[allow(dead_code)]
+    pub fn node_for_account_mut(&mut self, account_id: &AccountId) -> TestLoopNodeMut<'_> {
+        let idx = self.account_data_idx(account_id);
+        self.node_mut(idx)
     }
 
     pub fn rpc_runner(&mut self) -> NodeRunner<'_> {

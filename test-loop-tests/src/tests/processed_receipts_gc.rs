@@ -120,7 +120,7 @@ fn test_processed_receipt_ids_gc() {
     );
 
     #[cfg(feature = "test_features")]
-    env.validator().validate_store();
+    env.validator_mut().validate_store();
 
     // Run enough epochs for GC to clean up the receipts.
     let num_blocks = EPOCH_LENGTH * GC_NUM_EPOCHS_TO_KEEP + 1;
