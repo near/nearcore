@@ -42,7 +42,6 @@ use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::{Balance, EpochHeight};
-use near_primitives_core::version::ProtocolFeature;
 use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
@@ -1030,13 +1029,8 @@ pub(crate) fn print_epoch_analysis(
     let mut has_same_shard_layout;
     let mut next_next_protocol_version;
 
-    let num_shards = if ProtocolFeature::DynamicResharding.enabled(PROTOCOL_VERSION) {
-        // TODO(dynamic_resharding): adjust number of shards if a shard was marked for splitting
-        let next_epoch_id = epoch_heights_to_ids.get(&next_epoch_info.epoch_height()).unwrap();
-        epoch_manager.get_shard_layout(&next_epoch_id).unwrap().num_shards() as usize
-    } else {
-        next_next_epoch_config.static_shard_layout().num_shards() as usize
-    };
+    let next_epoch_id = epoch_heights_to_ids.get(&next_epoch_info.epoch_height()).unwrap();
+    let num_shards = epoch_manager.get_shard_layout(&next_epoch_id).unwrap().num_shards() as usize;
 
     // Print data header.
     match mode {
@@ -1063,7 +1057,7 @@ pub(crate) fn print_epoch_analysis(
     // Each iteration will generate and print *next next* epoch info based on
     // *next* epoch info for `epoch_height`. This follows epoch generation
     // logic in the protocol.
-    for (epoch_height, _epoch_info) in
+    for (epoch_height, epoch_info) in
         epoch_heights_to_infos.range(min_epoch_height..=max_epoch_height)
     {
         let next_epoch_height = epoch_height.saturating_add(1);
@@ -1073,30 +1067,37 @@ pub(crate) fn print_epoch_analysis(
         let epoch_summary = epoch_heights_to_validator_infos.get(epoch_height).unwrap();
         let original_next_next_protocol_version = epoch_summary.next_next_epoch_version;
         let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
-        let next_next_shard_layout =
-            if ProtocolFeature::DynamicResharding.enabled(original_next_next_protocol_version) {
-                // TODO(dynamic_resharding): adjust layout if a shard was marked for splitting
-                next_shard_layout.clone()
-            } else {
-                next_next_epoch_config.static_shard_layout()
-            };
+        let epoch_protocol_version = epoch_info.protocol_version();
+        let epoch_config = epoch_manager.get_epoch_config(epoch_protocol_version);
+        let block_info = epoch_manager.get_block_info(&next_next_epoch_id.0).unwrap();
 
         match mode {
             EpochAnalysisMode::CheckConsistency => {
-                // Retrieve remaining parameters from the stored information
-                // about epochs.
+                // Retrieve remaining parameters from the stored information about epochs. Must
+                // happen before next_next_shard_layout so it uses the correct config for epoch N+2.
                 next_epoch_info =
                     epoch_heights_to_infos.get(&next_epoch_height).unwrap().as_ref().clone();
-                next_next_epoch_config = epoch_manager.get_epoch_config(
-                    epoch_manager.get_epoch_info(next_next_epoch_id).unwrap().protocol_version(),
-                );
-                has_same_shard_layout = next_shard_layout == next_next_shard_layout;
+                next_next_epoch_config =
+                    epoch_manager.get_epoch_config(original_next_next_protocol_version);
                 next_next_protocol_version = original_next_next_protocol_version;
             }
             EpochAnalysisMode::Backtest => {
-                has_same_shard_layout = true;
                 next_next_protocol_version = PROTOCOL_VERSION;
             }
+        };
+
+        let next_next_shard_layout = epoch_manager
+            .next_next_shard_layout(
+                &epoch_config,
+                epoch_protocol_version,
+                &next_next_epoch_config,
+                &next_shard_layout,
+                &block_info,
+            )
+            .unwrap();
+        has_same_shard_layout = match mode {
+            EpochAnalysisMode::CheckConsistency => next_shard_layout == next_next_shard_layout,
+            EpochAnalysisMode::Backtest => true,
         };
 
         // Use "future" information to generate next next epoch which is stored
