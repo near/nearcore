@@ -4,7 +4,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta};
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::cloud_archival::{
@@ -17,6 +17,8 @@ const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 const MIN_EPOCH_LENGTH: BlockHeightDelta = 10;
 /// Minimum number of epochs to wait before GC can trigger.
 const MIN_NUM_EPOCHS_TO_WAIT: u64 = MIN_GC_NUM_EPOCHS_TO_KEEP + 1;
+
+const TEST_USER_ACCOUNT: &str = "user_account";
 
 /// Parameters controlling the behavior of cloud archival tests.
 #[derive(derive_builder::Builder)]
@@ -65,6 +67,7 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
     let validators_spec = ValidatorsSpec::desired_roles(&[validator_id.as_str()], &[]);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(MIN_EPOCH_LENGTH)
+        .add_user_account_simple(TEST_USER_ACCOUNT.parse().unwrap(), Balance::from_near(42))
         .validators_spec(validators_spec)
         .shard_layout(shard_layout)
         .build();
@@ -127,6 +130,11 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
     let reader_id: AccountId = "reader".parse().unwrap();
     if let Some(target_block_height) = params.bootstrap_reader_at_height {
         bootstrap_reader_at_height(&mut env, &reader_id, target_block_height);
+        // Kill the reader node immediately after bootstrapping. We only want to
+        // verify that state sync + delta application produces the correct state.
+        // If left running, the reader tries to sync to the latest chain head and
+        // requests blocks from cp0 that have already been garbage collected.
+        env.kill_node(reader_id.as_ref());
     }
     env.test_loop.run_for(Duration::seconds(5));
 

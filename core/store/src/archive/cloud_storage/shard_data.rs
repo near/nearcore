@@ -153,4 +153,16 @@ impl ShardData {
             ShardData::V1(data) => &data.chunk,
         }
     }
+
+    pub fn state_changes(&self) -> &Vec<RawStateChangesWithTrieKey> {
+        match self {
+            ShardData::V1(data) => &data.state_changes,
+        }
+    }
+
+    pub fn chunk_extra(&self) -> &ChunkExtra {
+        match self {
+            ShardData::V1(data) => &data.chunk_extra,
+        }
+    }
 }
