@@ -959,11 +959,19 @@ pub(crate) fn transfer_to_gas_key_send_not_sir(ctx: &mut EstimatorContext) -> Ga
 }
 
 pub(crate) fn transfer_to_gas_key_exec(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new_sir(ctx)
+    // Measure [AddKey + TransferToGasKey] - [AddKey] to isolate TransferToGasKey exec cost.
+    let with = ActionEstimation::new_sir(ctx)
         .add_action(add_gas_key_full_access_action(1))
         .add_action(transfer_to_gas_key_action())
+        .subtract_base(false)
         .inner_iters(1)
-        .apply_cost(&mut ctx.testbed())
+        .apply_cost(&mut ctx.testbed());
+    let without = ActionEstimation::new_sir(ctx)
+        .add_action(add_gas_key_full_access_action(1))
+        .subtract_base(false)
+        .inner_iters(1)
+        .apply_cost(&mut ctx.testbed());
+    with.saturating_sub(&without, &NonNegativeTolerance::PER_MILLE)
 }
 
 pub(crate) fn withdraw_from_gas_key_send_sir(ctx: &mut EstimatorContext) -> GasCost {
@@ -979,12 +987,21 @@ pub(crate) fn withdraw_from_gas_key_send_not_sir(ctx: &mut EstimatorContext) -> 
 }
 
 pub(crate) fn withdraw_from_gas_key_exec(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new_sir(ctx)
+    // Measure [AddKey + Transfer + Withdraw] - [AddKey + Transfer] to isolate Withdraw exec cost.
+    let with = ActionEstimation::new_sir(ctx)
         .add_action(add_gas_key_full_access_action(1))
         .add_action(transfer_to_gas_key_action())
         .add_action(withdraw_from_gas_key_action())
+        .subtract_base(false)
         .inner_iters(1)
-        .apply_cost(&mut ctx.testbed())
+        .apply_cost(&mut ctx.testbed());
+    let without = ActionEstimation::new_sir(ctx)
+        .add_action(add_gas_key_full_access_action(1))
+        .add_action(transfer_to_gas_key_action())
+        .subtract_base(false)
+        .inner_iters(1)
+        .apply_cost(&mut ctx.testbed());
+    with.saturating_sub(&without, &NonNegativeTolerance::PER_MILLE)
 }
 
 pub(crate) fn add_gas_key_per_nonce_send_sir(ctx: &mut EstimatorContext) -> GasCost {
