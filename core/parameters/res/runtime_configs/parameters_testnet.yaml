@@ -135,17 +135,12 @@ action_gas_key_transfer: {
   send_not_sir: 115_123_062_500,
   execution: 235_676_644_250,
 }
-action_gas_key_key_byte: {
+action_gas_key_byte: {
   send_sir: 59_357_464,
   send_not_sir: 59_357_464,
   execution: 101_435_400,
 }
-action_gas_key_value_byte: {
-  send_sir: 0,
-  send_not_sir: 0,
-  execution: 36_629_544,
-}
-action_gas_key_nonce: {
+action_gas_key_nonce_write_base: {
   send_sir: 0,
   send_not_sir: 0,
   execution: 64_196_736_000,

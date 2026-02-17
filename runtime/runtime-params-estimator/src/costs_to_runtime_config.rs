@@ -87,9 +87,8 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             ActionCosts::deterministic_state_init_entry => fee(Cost::ActionDeterministicStateInitPerEntry)?,
             // No estimator for gas key costs; use values from the config store.
             ActionCosts::gas_key_transfer_base => actual_fees_config.fee(ActionCosts::gas_key_transfer_base).clone(),
-            ActionCosts::gas_key_key_byte => actual_fees_config.fee(ActionCosts::gas_key_key_byte).clone(),
-            ActionCosts::gas_key_value_byte => actual_fees_config.fee(ActionCosts::gas_key_value_byte).clone(),
-            ActionCosts::gas_key_nonce => actual_fees_config.fee(ActionCosts::gas_key_nonce).clone(),
+            ActionCosts::gas_key_byte => actual_fees_config.fee(ActionCosts::gas_key_byte).clone(),
+            ActionCosts::gas_key_nonce_write_base => actual_fees_config.fee(ActionCosts::gas_key_nonce_write_base).clone(),
         },
         ..RuntimeFeesConfig::clone(&actual_fees_config)
     };

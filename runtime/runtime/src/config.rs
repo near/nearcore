@@ -52,8 +52,8 @@ fn gas_key_transfer_send_fee(
     public_key_len: usize,
 ) -> Gas {
     let base_fee = fees.fee(ActionCosts::gas_key_transfer_base).send_fee(sender_is_receiver);
-    let key_byte_fee = fees.fee(ActionCosts::gas_key_key_byte).send_fee(sender_is_receiver);
-    base_fee.checked_add(key_byte_fee.checked_mul(public_key_len as u64).unwrap()).unwrap()
+    let byte_fee = fees.fee(ActionCosts::gas_key_byte).send_fee(sender_is_receiver);
+    base_fee.checked_add(byte_fee.checked_mul(public_key_len as u64).unwrap()).unwrap()
 }
 
 fn gas_key_transfer_exec_fee(
@@ -62,12 +62,9 @@ fn gas_key_transfer_exec_fee(
     estimated_value_len: usize,
 ) -> Gas {
     let base_fee = fees.fee(ActionCosts::gas_key_transfer_base).exec_fee();
-    let key_byte_fee = fees.fee(ActionCosts::gas_key_key_byte).exec_fee();
-    let value_byte_fee = fees.fee(ActionCosts::gas_key_value_byte).exec_fee();
+    let byte_fee = fees.fee(ActionCosts::gas_key_byte).exec_fee();
     base_fee
-        .checked_add(key_byte_fee.checked_mul(ak_key_len as u64).unwrap())
-        .unwrap()
-        .checked_add(value_byte_fee.checked_mul(estimated_value_len as u64).unwrap())
+        .checked_add(byte_fee.checked_mul((ak_key_len + estimated_value_len) as u64).unwrap())
         .unwrap()
 }
 
@@ -213,7 +210,7 @@ fn permission_send_fees(
     };
     let gas_key_info_fee = match permission {
         AccessKeyPermission::GasKeyFunctionCall(..) | AccessKeyPermission::GasKeyFullAccess(_) => {
-            let byte_fee = fees.fee(ActionCosts::gas_key_key_byte).send_fee(sender_is_receiver);
+            let byte_fee = fees.fee(ActionCosts::gas_key_byte).send_fee(sender_is_receiver);
             byte_fee.checked_mul(GasKeyInfo::borsh_len() as u64).unwrap()
         }
         _ => Gas::ZERO,
@@ -365,13 +362,10 @@ fn permission_exec_fees(
     };
     let nonce_key_len = gas_key_nonce_key_len(account_id, public_key) as u64;
     let nonce_value_len = AccessKey::NONCE_VALUE_LEN as u64;
-    let nonce_base = fees.fee(ActionCosts::gas_key_nonce).exec_fee();
-    let nonce_key_byte = fees.fee(ActionCosts::gas_key_key_byte).exec_fee();
-    let nonce_value_byte = fees.fee(ActionCosts::gas_key_value_byte).exec_fee();
+    let nonce_base = fees.fee(ActionCosts::gas_key_nonce_write_base).exec_fee();
+    let nonce_byte = fees.fee(ActionCosts::gas_key_byte).exec_fee();
     let per_nonce = nonce_base
-        .checked_add(nonce_key_byte.checked_mul(nonce_key_len).unwrap())
-        .unwrap()
-        .checked_add(nonce_value_byte.checked_mul(nonce_value_len).unwrap())
+        .checked_add(nonce_byte.checked_mul(nonce_key_len + nonce_value_len).unwrap())
         .unwrap();
     key_fee.checked_add(per_nonce.checked_mul(gas_key_info.num_nonces as u64).unwrap()).unwrap()
 }
