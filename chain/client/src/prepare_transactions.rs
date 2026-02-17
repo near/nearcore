@@ -310,9 +310,7 @@ mod tests {
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime =
             NightshadeRuntime::test(tempdir.path(), store.clone(), &genesis.config, epoch_manager);
-        let roots = get_genesis_state_roots(&store)
-            .expect("Error getting genesis state roots")
-            .expect("Genesis state roots must exist");
+        let roots = get_genesis_state_roots(&store).expect("Genesis state roots must exist");
         let root = roots.iter().next().expect("Genesis state root for shard must exist");
         let tries = TestTriesBuilder::new().with_store(store).build();
         (runtime, tries.new_trie_update(ShardUId::single_shard(), *root))

@@ -741,7 +741,7 @@ impl RocksDB {
         // out if there are any necessary migrations to perform.
         let cols = [DBCol::DbVersion];
         let db = Self::open_with_columns(path, config, Mode::ReadOnly, Temperature::Hot, &cols)?;
-        Some(metadata::DbMetadata::read(&db)).transpose()
+        Ok(Some(metadata::DbMetadata::read(&db)))
     }
 
     /// Gets every int property in CF_PROPERTY_NAMES for every column in DBCol.
@@ -908,12 +908,12 @@ mod tests {
         {
             let mut store_update = store.store_update();
             store_update.increment_refcount(DBCol::State, &[1; 8], &[1]);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         {
             let mut store_update = store.store_update();
             store_update.increment_refcount(DBCol::State, &[1; 8], &[1]);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         assert_eq!(store.get(DBCol::State, &[1; 8]).as_deref(), Some(&[1][..]));
         assert_eq!(
@@ -923,7 +923,7 @@ mod tests {
         {
             let mut store_update = store.store_update();
             store_update.decrement_refcount(DBCol::State, &[1; 8]);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         assert_eq!(store.get(DBCol::State, &[1; 8]).as_deref(), Some(&[1][..]));
         assert_eq!(
@@ -933,7 +933,7 @@ mod tests {
         {
             let mut store_update = store.store_update();
             store_update.decrement_refcount(DBCol::State, &[1; 8]);
-            store_update.commit().unwrap();
+            store_update.commit();
         }
         // Refcount goes to 0 -> get() returns None
         assert_eq!(store.get(DBCol::State, &[1; 8]), None);
@@ -998,11 +998,11 @@ mod tests {
         for key in &keys {
             store_update.insert(column, key.clone(), vec![42]);
         }
-        store_update.commit().unwrap();
+        store_update.commit();
 
         let mut store_update = store.store_update();
         store_update.delete_range(column, &keys[1], &keys[3]);
-        store_update.commit().unwrap();
+        store_update.commit();
 
         assert_matches!(store.exists(column, &keys[0]), true);
         assert_matches!(store.exists(column, &keys[1]), false);

@@ -7,6 +7,7 @@ use crate::{DBCol, DBTransaction, Database, Store, TrieChanges, metrics};
 use borsh::BorshDeserialize;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ProcessedReceiptMetadata;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -113,7 +114,7 @@ pub fn update_cold_db(
                 .map(|col: DBCol| -> io::Result<()> {
                     if col == DBCol::State {
                         if is_resharding_boundary {
-                            update_state_shard_uid_mapping(cold_db, shard_layout)?;
+                            update_state_shard_uid_mapping(cold_db, shard_layout);
                         }
                         copy_state_from_store(
                             shard_layout,
@@ -175,7 +176,7 @@ pub fn rc_aware_set(
 /// children will point to the grandparent.
 /// This should be called once while processing the block at the resharding
 /// boundary and before calling `copy_state_from_store`.
-fn update_state_shard_uid_mapping(cold_db: &ColdDB, shard_layout: &ShardLayout) -> io::Result<()> {
+fn update_state_shard_uid_mapping(cold_db: &ColdDB, shard_layout: &ShardLayout) {
     let _span = tracing::debug_span!(target: "cold_store", "update_state_shard_uid_mapping");
     let cold_store = cold_db.as_store();
     let mut update = cold_store.store_update();
@@ -190,7 +191,7 @@ fn update_state_shard_uid_mapping(cold_db: &ColdDB, shard_layout: &ShardLayout) 
             update.trie_store_update().set_shard_uid_mapping(child_shard_uid, mapped_shard_uid);
         }
     }
-    update.commit()
+    update.commit();
 }
 
 // A specialized version of copy_from_store for the State column. Finds all the
@@ -228,7 +229,7 @@ fn copy_state_from_store(
         let shard_uid_key = shard_uid.to_bytes();
         let key = join_two_keys(&block_hash_key, &shard_uid_key);
         let trie_changes: Option<TrieChanges> =
-            hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &key)?;
+            hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &key);
 
         let Some(trie_changes) = trie_changes else { continue };
         copied_shards.insert(shard_uid);
@@ -377,21 +378,21 @@ pub fn update_cold_head(
     // Write HEAD to the cold db.
     {
         let mut transaction = DBTransaction::new();
-        transaction.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
+        transaction.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), borsh::to_vec(&tip).unwrap());
         cold_db.write(transaction);
     }
 
     // Write COLD_HEAD_KEY to the cold db.
     {
         let mut transaction = DBTransaction::new();
-        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
+        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip).unwrap());
         cold_db.write(transaction);
     }
 
     // Write COLD_HEAD to the hot db.
     {
         let mut transaction = DBTransaction::new();
-        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
+        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip).unwrap());
         hot_store.database().write(transaction);
 
         crate::metrics::COLD_HEAD_HEIGHT.set(*height as i64);
@@ -431,9 +432,9 @@ pub fn copy_all_data_to_cold(
                     tracing::debug!(target: "cold_store", "stopping copy_all_data_to_cold");
                     return Ok(CopyAllDataToColdStatus::Interrupted);
                 }
-                transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec())?;
+                transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec());
             }
-            transaction.write()?;
+            transaction.write();
             tracing::info!(target: "cold_store", ?col, "finished column migration");
         }
     }
@@ -557,12 +558,29 @@ fn get_keys_from_store(
                         c.to_transactions().iter().map(|t| t.get_hash().as_bytes().to_vec())
                     })
                     .collect(),
-                DBKeyType::ReceiptHash => chunks
-                    .iter()
-                    .flat_map(|c| {
-                        c.prev_outgoing_receipts().iter().map(|r| r.get_hash().as_bytes().to_vec())
-                    })
-                    .collect(),
+                DBKeyType::ReceiptHash => {
+                    let mut receipt_ids = vec![];
+                    for chunk in &chunks {
+                        let processed_receipts_metadata: Vec<ProcessedReceiptMetadata> = store
+                            .get_ser(
+                                DBCol::ProcessedReceiptIds,
+                                &join_two_keys(&block_hash_key, &chunk.shard_id().to_le_bytes()),
+                            )
+                            .unwrap_or_default();
+                        receipt_ids.extend(
+                            chunk
+                                .prev_outgoing_receipts()
+                                .iter()
+                                .map(|r| r.get_hash().as_bytes().to_vec())
+                                .chain(
+                                    processed_receipts_metadata
+                                        .iter()
+                                        .map(|m| m.receipt_id().as_bytes().to_vec()),
+                                ),
+                        );
+                    }
+                    receipt_ids
+                }
                 DBKeyType::ChunkHash => {
                     chunk_hashes.iter().map(|chunk_hash| chunk_hash.as_bytes().to_vec()).collect()
                 }
@@ -573,16 +591,12 @@ fn get_keys_from_store(
                     );
                     shard_layout
                         .shard_ids()
-                        .map(|shard_id| {
-                            store.get_ser(
-                                DBCol::OutcomeIds,
-                                &join_two_keys(&block_hash_key, &shard_id.to_le_bytes()),
-                            )
-                        })
-                        .collect::<io::Result<Vec<Option<Vec<CryptoHash>>>>>()?
-                        .into_iter()
-                        .flat_map(|hashes| {
-                            hashes
+                        .flat_map(|shard_id| {
+                            store
+                                .get_ser::<Vec<CryptoHash>>(
+                                    DBCol::OutcomeIds,
+                                    &join_two_keys(&block_hash_key, &shard_id.to_le_bytes()),
+                                )
                                 .unwrap_or_default()
                                 .into_iter()
                                 .map(|hash| hash.as_bytes().to_vec())
@@ -714,26 +728,20 @@ impl BatchTransaction {
 
     /// Adds a set DBOp to `self.transaction`. Updates `self.transaction_size`.
     /// If `self.transaction_size` becomes too big, calls for write.
-    pub fn set_and_write_if_full(
-        &mut self,
-        col: DBCol,
-        key: Vec<u8>,
-        value: Vec<u8>,
-    ) -> io::Result<()> {
+    pub fn set_and_write_if_full(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
         let size = rc_aware_set(&mut self.transaction, col, key, value);
         self.transaction_size += size;
 
         if self.transaction_size > self.threshold_transaction_size {
-            self.write()?;
+            self.write();
         }
-        Ok(())
     }
 
     /// Writes `self.transaction` and replaces it with new empty DBTransaction.
     /// Sets `self.transaction_size` to 0.
-    fn write(&mut self) -> io::Result<()> {
+    fn write(&mut self) {
         if self.transaction.ops.is_empty() {
-            return Ok(());
+            return;
         }
 
         let column_label = [<&str>::from(self.transaction.ops[0].col())];
@@ -754,8 +762,6 @@ impl BatchTransaction {
         let transaction = std::mem::take(&mut self.transaction);
         self.cold_db.write(transaction);
         self.transaction_size = 0;
-
-        Ok(())
     }
 }
 

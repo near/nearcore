@@ -5,9 +5,11 @@
 ### Protocol Changes
 * The contract runtime has been upgraded to use the new Wasmtime-based runtime;
 * The contract runtime now allows for bulk memory instructions in Wasm code.
+* Yield/Resume improvements - from now on, calling `promise_yield_resume` after `promise_yield_create` will always work. Previously there were some cases where calling `resume` would fail if called too quickly after `create`. See the [github issue](https://github.com/near/nearcore/issues/14904) for details. Strictly speaking, this could be a breaking change for contracts which expected the resume to fail in these situations, but it shouldn't affect normal use cases.
 
 ### Non-protocol Changes
 * Replace polling for transaction status with event notifications to improve jsonrpc response latency
+* Added a database migration to backfill trie data lost due to a bug in resharding. The migration runs automatically on node startup and takes approximately 5 minutes on an archival node. Non-archival nodes are not affected. ([#15044](https://github.com/near/nearcore/pull/15044))
 
 ## [2.10.0]
 

@@ -29,9 +29,9 @@ impl SetVersionCommand {
         let storage = opener.open_unsafe()?;
         let store = storage.get_hot_store();
 
-        println!("Current hot db version is: {:?}", store.get_db_version()?);
+        println!("Current hot db version is: {:?}", store.get_db_version());
         if let Some(cold_store) = storage.get_cold_store() {
-            println!("Current cold db version is: {:?}", cold_store.get_db_version()?);
+            println!("Current cold db version is: {:?}", cold_store.get_db_version());
         }
 
         if !get_user_confirmation(&format!(
@@ -44,10 +44,10 @@ impl SetVersionCommand {
         }
 
         println!("Setting hot db version to {}... ", self.version);
-        store.set_db_version(self.version)?;
+        store.set_db_version(self.version);
         if let Some(cold_store) = storage.get_cold_store() {
             println!("Setting cold db version to {}... ", self.version);
-            cold_store.set_db_version(self.version)?;
+            cold_store.set_db_version(self.version);
         }
 
         println!("Database version set to {}", self.version);

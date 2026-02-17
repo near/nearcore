@@ -25,7 +25,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
 use near_primitives::optimistic_block::OptimisticBlockKeySource;
-use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
+use near_primitives::receipt::{ProcessedReceipt, PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
@@ -117,7 +117,7 @@ pub struct ApplyChunkResult {
     pub total_gas_burnt: Gas,
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
-    pub processed_delayed_receipts: Vec<Receipt>,
+    pub processed_receipts: Vec<ProcessedReceipt>,
     pub processed_yield_timeouts: Vec<PromiseYieldTimeout>,
     /// Hash of Vec<Receipt> which were applied in a chunk, later used for
     /// chunk validation with state witness.

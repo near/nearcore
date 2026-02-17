@@ -348,6 +348,10 @@ pub enum ProtocolFeature {
     /// Apply PromiseYield receipts immediately after emitting them. Allows to perform the resume
     /// sooner, without waiting for the PromiseYield receipt to pass through outgoing receipts.
     InstantPromiseYield,
+    /// Improve functionality of Yield/Resume. Keep the current status of yielded receipt in the
+    /// trie state. Allows to call yield and resume in two actions within the same transaction.
+    /// Keeping the status in the state could allow to query it from contracts.
+    YieldResumeImprovements,
     /// Includes tokens burnt as part of global contract deploys into corresponding
     /// execution outcome's `tokens_burnt`.
     IncludeDeployGlobalContractOutcomeBurntStorage,
@@ -360,6 +364,12 @@ pub enum ProtocolFeature {
     /// and PartialEncodedContractDeploys wire types to enable block-hash-based
     /// chunk producer lookup for validation.
     BlockHashInPartialWitness,
+    /// Nonce-based idempotency for global contract distribution receipts. Each
+    /// distribution carries an auto-incremented nonce. Any distribution receipt
+    /// with a nonce less than the one already stored will be dropped. This
+    /// prevents race conditions in the case of multiple distribution attempts
+    /// for the same contract.
+    GlobalContractDistributionNonce,
 }
 
 impl ProtocolFeature {
@@ -462,12 +472,14 @@ impl ProtocolFeature {
             | ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen
             | ProtocolFeature::FixAccessKeyAllowanceCharging
             | ProtocolFeature::IncludeDeployGlobalContractOutcomeBurntStorage
-            | ProtocolFeature::FixDeterministicAccountIdCreation => 83,
+            | ProtocolFeature::FixDeterministicAccountIdCreation
+            | ProtocolFeature::GlobalContractDistributionNonce
+            | ProtocolFeature::InstantPromiseYield
+            | ProtocolFeature::YieldResumeImprovements => 83,
             ProtocolFeature::Wasmtime => 84,
 
             // Nightly features:
             ProtocolFeature::FixContractLoadingCost => 129,
-            ProtocolFeature::InstantPromiseYield => 130,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,

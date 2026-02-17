@@ -649,8 +649,7 @@ mod tests {
                 [0; 32],
             )
             .unwrap()
-            .commit()
-            .unwrap();
+            .commit();
     }
 
     // Simulates block production over the given height range using the specified protocol version and block hashes.

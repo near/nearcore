@@ -111,7 +111,7 @@ fn retrieve_starting_chunk_hash(
     head_height: BlockHeight,
 ) -> anyhow::Result<ChunkHash> {
     let mut last_err = None;
-    for height in (chain.tail().context("failed fetching chain tail")? + 1..=head_height).rev() {
+    for height in (chain.tail() + 1..=head_height).rev() {
         match chain
             .get_block_hash_by_height(height)
             .and_then(|hash| chain.get_block(&hash))
@@ -139,7 +139,7 @@ fn get_head_block(
     chain: &ChainStoreAdapter,
     max_height: BlockHeight,
 ) -> anyhow::Result<Arc<Block>> {
-    let tail = chain.tail().context("failed fetching chain tail")?;
+    let tail = chain.tail();
     for height in (tail + 1..=max_height).rev() {
         let hash = match chain.get_block_hash_by_height(height) {
             Ok(h) => h,

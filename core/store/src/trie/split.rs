@@ -1275,7 +1275,7 @@ mod tests {
             let mut store_update = shard_tries.store_update();
             let new_root = shard_tries.apply_all(&trie_changes, shard_uid, &mut store_update);
             shard_tries.apply_memtrie_changes(&trie_changes, shard_uid, 0);
-            store_update.commit().unwrap();
+            store_update.commit();
 
             new_root
         }

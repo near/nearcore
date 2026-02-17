@@ -535,6 +535,12 @@ pub struct GasKeyInfo {
     pub num_nonces: NonceIndex,
 }
 
+impl GasKeyInfo {
+    /// Maximum gas key balance that can be burned during key or account deletion.
+    /// Deletion fails if the (sum of) gas key balance(s) exceeds this threshold.
+    pub const MAX_BALANCE_TO_BURN: Balance = Balance::from_near(1);
+}
+
 /// Defines permissions for AccessKey
 #[derive(
     BorshSerialize,

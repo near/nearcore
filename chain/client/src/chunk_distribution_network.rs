@@ -197,7 +197,7 @@ impl ChunkDistributionClient for ChunkDistributionNetwork {
         chunk: &PartialEncodedChunk,
     ) -> Result<Self::Response, Self::Error> {
         let prev_hash = chunk.prev_block();
-        let bytes = borsh::to_vec(chunk)?;
+        let bytes = borsh::to_vec(chunk).unwrap();
         let url = &self.config.uris.set;
         let request = self
             .client

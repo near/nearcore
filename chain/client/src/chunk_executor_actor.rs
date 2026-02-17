@@ -463,7 +463,7 @@ impl ChunkExecutorActor {
                 vec![]
             } else {
                 let proofs =
-                    get_receipt_proofs_for_shard(&store, prev_block_hash, prev_block_shard_id)?;
+                    get_receipt_proofs_for_shard(&store, prev_block_hash, prev_block_shard_id);
                 if proofs.len() != prev_block_shard_ids.len() {
                     let to_shard_id = prev_block_shard_id;
                     return Ok(TryApplyChunksOutcome::missing_receipts(
@@ -504,7 +504,7 @@ impl ChunkExecutorActor {
     }
 
     fn try_process_next_blocks(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
-        let next_block_hashes = self.chain_store.get_all_next_block_hashes(block_hash)?;
+        let next_block_hashes = self.chain_store.get_all_next_block_hashes(block_hash);
         if next_block_hashes.is_empty() {
             // Next block wasn't received yet.
             tracing::debug!(target: "chunk_executor", %block_hash, "no next block hash is available");
@@ -630,7 +630,7 @@ impl ChunkExecutorActor {
                     shard_id,
                     new_chunk_result.apply_result.outgoing_receipts.clone(),
                 )?;
-            self.save_produced_receipts(&block_hash, &receipt_proofs)?;
+            self.save_produced_receipts(&block_hash, &receipt_proofs);
 
             let Some(my_signer) = self.validator_signer.get() else {
                 // If node isn't validator it shouldn't send outgoing receipts, endorsed and witnesses.
@@ -698,7 +698,7 @@ impl ChunkExecutorActor {
         let state_witness =
             self.create_witness(block, apply_result, shard_id, execution_result_hash)?;
 
-        save_witness(&self.chain_store, block.hash(), shard_id, &state_witness)?;
+        save_witness(&self.chain_store, block.hash(), shard_id, &state_witness);
 
         self.data_distributor_adapter.send(SpiceDistributorStateWitness { state_witness });
         Ok(())
@@ -754,7 +754,7 @@ impl ChunkExecutorActor {
                 &self.chain_store.store(),
                 prev_block_hash,
                 prev_block_shard_id,
-            )?;
+            );
             receipt_proofs
                 .into_iter()
                 .map(|proof| -> Result<_, Error> { Ok((proof.1.from_shard_id, proof)) })
@@ -863,27 +863,21 @@ impl ChunkExecutorActor {
         )
     }
 
-    fn save_produced_receipts(
-        &self,
-        block_hash: &CryptoHash,
-        receipt_proofs: &[ReceiptProof],
-    ) -> Result<(), Error> {
+    fn save_produced_receipts(&self, block_hash: &CryptoHash, receipt_proofs: &[ReceiptProof]) {
         let store = self.chain_store.store();
         let mut store_update = store.store_update();
         for proof in receipt_proofs {
-            save_receipt_proof(&mut store_update, &block_hash, &proof)?
+            save_receipt_proof(&mut store_update, &block_hash, &proof)
         }
-        store_update.commit()?;
-        Ok(())
+        store_update.commit();
     }
 
-    fn save_verified_receipts(&self, verified_receipts: &VerifiedReceipts) -> Result<(), Error> {
+    fn save_verified_receipts(&self, verified_receipts: &VerifiedReceipts) {
         let store = self.chain_store.store();
         let mut store_update = store.store_update();
         let VerifiedReceipts { receipt_proof, block_hash } = verified_receipts;
-        save_receipt_proof(&mut store_update, &block_hash, &receipt_proof)?;
-        store_update.commit()?;
-        Ok(())
+        save_receipt_proof(&mut store_update, &block_hash, &receipt_proof);
+        store_update.commit();
     }
 
     fn receipts_verification_context(
@@ -918,7 +912,7 @@ impl ChunkExecutorActor {
                     continue;
                 }
             };
-            self.save_verified_receipts(&verified_receipts)?;
+            self.save_verified_receipts(&verified_receipts);
         }
         Ok(())
     }
@@ -983,7 +977,7 @@ impl ChunkExecutorActor {
         };
 
         let mut next_block_hashes: VecDeque<_> =
-            self.chain_store.get_all_next_block_hashes(&start_block)?.into();
+            self.chain_store.get_all_next_block_hashes(&start_block).into();
         while let Some(block_hash) = next_block_hashes.pop_front() {
             if !matches!(
                 self.try_apply_chunks(&block_hash)?,
@@ -991,7 +985,7 @@ impl ChunkExecutorActor {
             ) {
                 continue;
             }
-            next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash)?);
+            next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash));
         }
 
         Ok(())
@@ -1018,12 +1012,11 @@ pub(crate) fn save_receipt_proof(
     store_update: &mut StoreUpdate,
     block_hash: &CryptoHash,
     receipt_proof: &ReceiptProof,
-) -> Result<(), std::io::Error> {
+) {
     let &ReceiptProof(_, ShardProof { from_shard_id, to_shard_id, .. }) = receipt_proof;
     let key = get_receipt_proof_key(block_hash, from_shard_id, to_shard_id);
-    let value = borsh::to_vec(&receipt_proof)?;
+    let value = borsh::to_vec(&receipt_proof).unwrap();
     store_update.set(DBCol::receipt_proofs(), &key, &value);
-    Ok(())
 }
 
 pub(crate) fn save_witness(
@@ -1031,32 +1024,28 @@ pub(crate) fn save_witness(
     block_hash: &CryptoHash,
     shard_id: ShardId,
     witness: &SpiceChunkStateWitness,
-) -> Result<(), Error> {
+) {
     let mut store_update = chain_store.store().store_update();
     let key = get_witnesses_key(block_hash, shard_id);
-    let value = borsh::to_vec(&witness)?;
+    let value = borsh::to_vec(&witness).unwrap();
     store_update.set(DBCol::witnesses(), &key, &value);
-    store_update.commit()?;
-    Ok(())
+    store_update.commit();
 }
 
 fn get_receipt_proofs_for_shard(
     store: &Store,
     block_hash: &CryptoHash,
     to_shard_id: ShardId,
-) -> Result<Vec<ReceiptProof>, std::io::Error> {
+) -> Vec<ReceiptProof> {
     let prefix = get_receipt_proof_target_shard_prefix(block_hash, to_shard_id);
-    store
-        .iter_prefix_ser::<ReceiptProof>(DBCol::receipt_proofs(), &prefix)
-        .map(|res| res.map(|kv| kv.1))
-        .collect()
+    store.iter_prefix_ser::<ReceiptProof>(DBCol::receipt_proofs(), &prefix).map(|kv| kv.1).collect()
 }
 
 pub fn get_witness(
     store: &Store,
     block_hash: &CryptoHash,
     shard_id: ShardId,
-) -> Result<Option<SpiceChunkStateWitness>, std::io::Error> {
+) -> Option<SpiceChunkStateWitness> {
     let key = get_witnesses_key(block_hash, shard_id);
     store.get_ser(DBCol::witnesses(), &key)
 }
@@ -1066,7 +1055,7 @@ pub fn get_receipt_proof(
     block_hash: &CryptoHash,
     to_shard_id: ShardId,
     from_shard_id: ShardId,
-) -> Result<Option<ReceiptProof>, std::io::Error> {
+) -> Option<ReceiptProof> {
     let key = get_receipt_proof_key(block_hash, from_shard_id, to_shard_id);
     store.get_ser(DBCol::receipt_proofs(), &key)
 }

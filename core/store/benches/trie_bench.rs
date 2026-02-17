@@ -23,7 +23,7 @@ fn trie_lookup(bench: &mut Bencher) {
         let trie_changes = trie.update(changes, AccessOptions::DEFAULT).unwrap();
         let mut state_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut state_update);
-        state_update.commit().expect("Failed to commit");
+        state_update.commit();
 
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
         (changed_keys, trie)

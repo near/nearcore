@@ -139,8 +139,6 @@ fn check_deterministic_state_init(
 ///
 /// This test also checks that the signer is charged the balance correctly.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_repeated_deterministic_state_init() {
     if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
         return;
@@ -352,8 +350,6 @@ fn test_deterministic_state_init_named_receiver() {
 /// deterministic account first and later initialize it without adding balance,
 /// even if more storage than the ZBA limit is used.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_deterministic_state_init_prepay_for_storage() {
     if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
         return;
@@ -452,8 +448,6 @@ fn test_deterministic_state_init_multi_action_after_fix() {
 /// Deploy a sharded toy-contract and check it can do a "predecessor is owner"
 /// check as intended by NEP-616.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_sharded_contract_owner_check() {
     if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
         return;
@@ -1044,12 +1038,10 @@ impl TestEnv {
         }
     }
 
-    fn runtime_query(&self, account_id: &AccountId, query: QueryRequest) -> QueryResponse {
-        TestLoopNode::rpc(&self.env.node_datas).runtime_query(
-            self.env.test_loop_data(),
-            account_id,
-            query,
-        )
+    fn runtime_query(&self, query: QueryRequest) -> QueryResponse {
+        TestLoopNode::rpc(&self.env.node_datas)
+            .runtime_query(self.env.test_loop_data(), query)
+            .unwrap()
     }
 
     fn get_account_state(&mut self, account: AccountId) -> AccountView {
@@ -1061,7 +1053,7 @@ impl TestEnv {
 
     fn view_account(&self, account: &AccountId) -> AccountView {
         let response =
-            self.runtime_query(account, QueryRequest::ViewAccount { account_id: account.clone() });
+            self.runtime_query(QueryRequest::ViewAccount { account_id: account.clone() });
         let QueryResponseKind::ViewAccount(account_view) = response.kind else { unreachable!() };
         account_view
     }

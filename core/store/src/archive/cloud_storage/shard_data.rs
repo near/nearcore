@@ -75,7 +75,7 @@ pub fn build_shard_data(
     let transactions = chunk.to_transactions().iter().cloned().collect();
     let receipts = chunk.prev_outgoing_receipts().iter().cloned().collect();
 
-    let outcome_ids = chain_store.get_outcomes_by_block_hash_and_shard_id(&block_hash, shard_id)?;
+    let outcome_ids = chain_store.get_outcomes_by_block_hash_and_shard_id(&block_hash, shard_id);
     // TODO(cloud_archival): Check why this `if` is required and whether there's a cleaner approach.
     let incoming_receipts = if block_height > genesis_height + 1 {
         chain_store.get_incoming_receipts(&block_hash, shard_id)?.to_vec()
@@ -92,7 +92,7 @@ pub fn build_shard_data(
     let chunk_extra = (*chunk_store.get_chunk_extra(&block_hash, &shard_uid)?).clone();
     let state_changes = get_state_changes(store, shard_layout, &block_hash, shard_uid)?;
     let chunk_apply_stats =
-        chunk_store.get_chunk_apply_stats(&block_hash, &shard_id)?.ok_or_else(|| {
+        chunk_store.get_chunk_apply_stats(&block_hash, &shard_id).ok_or_else(|| {
             Error::DBNotFoundErr(format!(
                 "CHUNK APPLY STATS, block height: {}, shard ID: {:?}",
                 block_height, shard_id
@@ -126,10 +126,9 @@ fn get_state_changes(
 ) -> Result<Vec<RawStateChangesWithTrieKey>, Error> {
     let storage_key = KeyForStateChanges::for_block(&block_hash);
     let mut state_changes = vec![];
-    for item in store
+    for (key, changes) in store
         .iter_prefix_ser::<RawStateChangesWithTrieKey>(DBCol::StateChanges, storage_key.as_ref())
     {
-        let (key, changes) = item?;
         let decoded_shard_uid = if let Some(account_id) = changes.trie_key.get_account_id() {
             shard_layout.account_id_to_shard_uid(&account_id)
         } else {

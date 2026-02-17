@@ -45,6 +45,7 @@ impl ChangeDbKindCommand {
                 storage.get_cold_store().ok_or_else(|| anyhow::anyhow!("No cold store"))?
             }
         };
-        Ok(store.set_db_kind(self.new_kind)?)
+        store.set_db_kind(self.new_kind);
+        Ok(())
     }
 }

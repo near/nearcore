@@ -94,8 +94,6 @@ pub(crate) enum Error {
     DataIsIrrelevant(SpiceDataIdentifier),
     #[error("error decoding the data: {0}")]
     DecodeError(std::io::Error),
-    #[error("store io error")]
-    StoreIoError(std::io::Error),
     #[error("other error: {0}")]
     Other(&'static str),
 }
@@ -924,12 +922,10 @@ impl SpiceDataDistributorActor {
                     *to_shard_id,
                     *from_shard_id,
                 )
-                .map_err(Error::StoreIoError)?
                 .map(SpiceData::ReceiptProof)
             }
             SpiceDataIdentifier::Witness { block_hash, shard_id } => {
                 get_witness(self.chain_store.store_ref(), block_hash, *shard_id)
-                    .map_err(Error::StoreIoError)?
                     .map(Box::new)
                     .map(SpiceData::StateWitness)
             }
@@ -990,10 +986,10 @@ impl SpiceDataDistributorActor {
         };
 
         let mut next_block_hashes: VecDeque<_> =
-            self.chain_store.get_all_next_block_hashes(&start_block)?.into();
+            self.chain_store.get_all_next_block_hashes(&start_block).into();
         while let Some(block_hash) = next_block_hashes.pop_front() {
             self.start_waiting_on_data(&block_hash)?;
-            next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash)?);
+            next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash));
         }
         Ok(())
     }
