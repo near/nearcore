@@ -2,7 +2,7 @@ use super::drop_condition::DropCondition;
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::rpc_account_id;
-use crate::utils::node_v2::{NodeRunner, TestLoopNodeV2};
+use crate::utils::node::{NodeRunner, TestLoopNode};
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
@@ -174,7 +174,7 @@ impl TestLoopEnv {
         self.node_datas.iter().find(|data| &data.account_id == account_id)
     }
 
-    pub fn validator(&mut self) -> TestLoopNodeV2<'_> {
+    pub fn validator(&mut self) -> TestLoopNode<'_> {
         self.node(0)
     }
 
@@ -182,16 +182,16 @@ impl TestLoopEnv {
         self.node_runner(0)
     }
 
-    pub fn rpc_node(&mut self) -> TestLoopNodeV2<'_> {
+    pub fn rpc_node(&mut self) -> TestLoopNode<'_> {
         let idx = self.rpc_data_idx();
         self.node(idx)
     }
 
-    pub fn node(&mut self, idx: usize) -> TestLoopNodeV2<'_> {
-        TestLoopNodeV2 { data: &mut self.test_loop.data, node_data: &self.node_datas[idx] }
+    pub fn node(&mut self, idx: usize) -> TestLoopNode<'_> {
+        TestLoopNode { data: &mut self.test_loop.data, node_data: &self.node_datas[idx] }
     }
 
-    pub fn node_for_account(&mut self, account_id: &AccountId) -> TestLoopNodeV2<'_> {
+    pub fn node_for_account(&mut self, account_id: &AccountId) -> TestLoopNode<'_> {
         let idx = self.account_data_idx(account_id);
         self.node(idx)
     }

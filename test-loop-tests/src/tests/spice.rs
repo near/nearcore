@@ -30,7 +30,7 @@ use crate::utils::account::{
     validators_spec_clients_with_rpc,
 };
 use crate::utils::get_node_data;
-use crate::utils::node_v2::TestLoopNodeV2;
+use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{TransactionRunner, get_anchor_hash};
 
 use super::spice_utils::delay_endorsements_propagation;
@@ -96,7 +96,7 @@ fn test_spice_chain() {
         let cp =
             &epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id).unwrap()[0];
         let node_data = get_node_data(&node_datas, cp);
-        let node = TestLoopNodeV2 { data: test_loop_data, node_data };
+        let node = TestLoopNode { data: test_loop_data, node_data };
         node.view_account_query(account).unwrap().amount
     };
 

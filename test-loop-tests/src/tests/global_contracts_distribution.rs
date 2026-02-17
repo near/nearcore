@@ -18,7 +18,7 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{
     create_account_id, create_account_ids, create_validators_spec, validators_spec_clients,
 };
-use crate::utils::node_v2::TestLoopNodeV2;
+use crate::utils::node::TestLoopNode;
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use crate::utils::transactions::{
     call_contract, check_txs, deploy_global_contract, use_global_contract,
@@ -287,7 +287,7 @@ impl GlobalContractsReshardingTestEnv {
         client.epoch_manager.get_shard_layout(&epoch_id).unwrap()
     }
 
-    fn chunk_producer_node(&mut self) -> TestLoopNodeV2<'_> {
+    fn chunk_producer_node(&mut self) -> TestLoopNode<'_> {
         self.env.node_for_account(&self.chunk_producer)
     }
 
