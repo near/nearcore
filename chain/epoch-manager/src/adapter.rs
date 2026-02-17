@@ -290,10 +290,15 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     // TODO(dynamic_resharding): remove this method
-    fn get_shard_layout_from_protocol_version(
+    fn static_shard_layout_for_protocol_version(
         &self,
         protocol_version: ProtocolVersion,
     ) -> ShardLayout;
+
+    fn try_static_shard_layout_for_protocol_version(
+        &self,
+        protocol_version: ProtocolVersion,
+    ) -> Option<ShardLayout>;
 
     /// Get [`EpochId`] from a block belonging to the epoch.
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError>;
@@ -751,6 +756,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(vec![])
     }
 
+    // TODO(dynamic_resharding): remove this method when dynamic trie loading is implemented
     /// Returns the list of ShardUIds in the current shard layout that will be
     /// resharded in the future within this client. Those shards should be
     /// loaded into memory on node startup.
@@ -776,19 +782,17 @@ pub trait EpochManagerAdapter: Send + Sync {
         head_protocol_version: ProtocolVersion,
         client_protocol_version: ProtocolVersion,
     ) -> Result<HashSet<ShardUId>, Error> {
-        let head_shard_layout = self.get_shard_layout_from_protocol_version(head_protocol_version);
-        let mut shard_layouts = vec![];
-        for protocol_version in head_protocol_version + 1..=client_protocol_version {
-            let shard_layout = self.get_shard_layout_from_protocol_version(protocol_version);
-            if shard_layout == head_shard_layout {
-                continue;
-            }
-
-            let last_shard_layout = shard_layouts.last();
-            if last_shard_layout != Some(&shard_layout) {
-                shard_layouts.push(shard_layout);
-            }
-        }
+        let Some(head_shard_layout) =
+            self.try_static_shard_layout_for_protocol_version(head_protocol_version)
+        else {
+            // With dynamic resharding enabled, there is no point in trying to preload shards
+            // pending resharding, as they cannot be known upfront.
+            return Ok(Default::default());
+        };
+        let mut shard_layouts =
+            self.get_shard_layout_history(client_protocol_version, Some(head_protocol_version + 1));
+        // Loop below expects layouts to be ordered oldest-to-newest
+        shard_layouts.reverse();
 
         let mut result = HashSet::new();
         for shard_uid in head_shard_layout.shard_uids() {
@@ -807,6 +811,15 @@ pub trait EpochManagerAdapter: Send + Sync {
 
         Ok(result)
     }
+
+    /// Get all static shard layouts from the given `latest_protocol_version` (inclusive) back to
+    /// `earliest_protocol_version` (or genesis version if `None`), ordered from newest to oldest.
+    /// Protocol versions for which dynamic resharding is enabled are skipped.
+    fn get_shard_layout_history(
+        &self,
+        latest_protocol_version: ProtocolVersion,
+        earliest_protocol_version: Option<ProtocolVersion>,
+    ) -> Vec<ShardLayout>;
 
     /// Get the shard split to include in the block header, if any.
     ///
@@ -890,13 +903,21 @@ impl EpochManagerAdapter for EpochManagerHandle {
     }
 
     // TODO(dynamic_resharding): remove this method
-    fn get_shard_layout_from_protocol_version(
+    fn static_shard_layout_for_protocol_version(
         &self,
         protocol_version: ProtocolVersion,
     ) -> ShardLayout {
         debug_assert!(!ProtocolFeature::DynamicResharding.enabled(protocol_version));
         let epoch_manager = self.read();
         epoch_manager.get_epoch_config(protocol_version).static_shard_layout()
+    }
+
+    fn try_static_shard_layout_for_protocol_version(
+        &self,
+        protocol_version: ProtocolVersion,
+    ) -> Option<ShardLayout> {
+        let epoch_manager = self.read();
+        epoch_manager.get_epoch_config(protocol_version).try_static_shard_layout()
     }
 
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
@@ -993,6 +1014,15 @@ impl EpochManagerAdapter for EpochManagerHandle {
             next_epoch_id,
             next_epoch_info,
         )
+    }
+
+    fn get_shard_layout_history(
+        &self,
+        latest_protocol_version: ProtocolVersion,
+        earliest_protocol_version: Option<ProtocolVersion>,
+    ) -> Vec<ShardLayout> {
+        let epoch_manager = self.read();
+        epoch_manager.get_shard_layout_history(latest_protocol_version, earliest_protocol_version)
     }
 
     fn get_upcoming_shard_split(
