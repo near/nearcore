@@ -161,9 +161,8 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
     run_txs_parallel(&mut env.test_loop, txs, &env.node_datas, Duration::seconds(30));
 
     let expected: Vec<String> = vec!["validator2".to_string(), "validator3".to_string()];
-    let validator_idx = 0;
 
-    env.node_runner(validator_idx).run_until(
+    env.validator_runner().run_until(
         |node| {
             if get_epoch_all_validators_sorted(node.client()) != expected {
                 return false;
@@ -183,7 +182,7 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
     // Verify kicked nodes have locked == 0 and stake returned to balance
     let expected_balance = TESTING_INIT_BALANCE.checked_add(TESTING_INIT_STAKE).unwrap();
     for i in 0..2 {
-        let view = env.node(validator_idx).view_account_query(&accounts[i]).unwrap();
+        let view = env.validator().view_account_query(&accounts[i]).unwrap();
         assert!(view.locked.is_zero(), "kicked node {i}");
         assert_eq!(view.amount, expected_balance, "kicked node {i}");
     }
@@ -191,7 +190,7 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
     // Verify remaining validators have locked == TESTING_INIT_STAKE
     // Note: Genesis builder sets amount separately from validator stake (not deducted)
     for i in 2..4 {
-        let view = env.node(validator_idx).view_account_query(&accounts[i]).unwrap();
+        let view = env.validator().view_account_query(&accounts[i]).unwrap();
         assert_eq!(view.locked, TESTING_INIT_STAKE, "remaining validator {i}");
         assert_eq!(view.amount, TESTING_INIT_BALANCE, "remaining validator {i}");
     }
