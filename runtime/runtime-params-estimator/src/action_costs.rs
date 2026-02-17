@@ -11,7 +11,6 @@ use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::AccountRequirement;
 use crate::utils::{average_cost, percentiles};
 use near_crypto::{KeyType, PublicKey};
-use near_primitives::account::GasKeyInfo;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::{DeterministicStateInitAction, GlobalContractIdentifier};
 use near_primitives::deterministic_account_id::{
@@ -922,13 +921,7 @@ pub(crate) fn det_state_init_action(
 fn add_gas_key_full_access_action(num_nonces: u16) -> Action {
     Action::AddKey(Box::new(near_primitives::transaction::AddKeyAction {
         public_key: PublicKey::from_seed(KeyType::ED25519, "gas-key-seed"),
-        access_key: AccessKey {
-            nonce: 0,
-            permission: AccessKeyPermission::GasKeyFullAccess(GasKeyInfo {
-                balance: Balance::from_near(1),
-                num_nonces,
-            }),
-        },
+        access_key: AccessKey::gas_key_full_access(num_nonces),
     }))
 }
 
