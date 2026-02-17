@@ -170,8 +170,9 @@ impl TestLoopEnv {
     pub fn get_node_data_by_account_id(
         &self,
         account_id: &AccountId,
-    ) -> Option<&NodeExecutionData> {
-        self.node_datas.iter().find(|data| &data.account_id == account_id)
+    ) -> &NodeExecutionData {
+        let idx = self.account_data_idx(account_id);
+        &self.node_datas[idx]
     }
 
     pub fn validator(&mut self) -> TestLoopNode<'_> {
