@@ -14,7 +14,6 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{
     create_validator_ids, create_validators_spec, validators_spec_clients,
 };
-use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{get_shared_block_hash, run_tx, run_txs_parallel};
 use crate::utils::validators::get_epoch_all_validators_sorted;
 
@@ -77,14 +76,10 @@ fn test_stake_nodes_impl(epoch_length: u64, execution_delay: u64) {
     );
     run_tx(&mut env.test_loop, &accounts[0], tx, &env.node_datas, Duration::seconds(30));
 
-    let node = TestLoopNode::from(&env.node_datas[0]);
     let expected: Vec<String> = vec!["validator0".to_string(), "validator1".to_string()];
 
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let client = node.client(test_loop_data);
-            get_epoch_all_validators_sorted(client) == expected
-        },
+    env.node_runner(0).run_until(
+        |node| get_epoch_all_validators_sorted(node.client()) == expected,
         Duration::seconds(60),
     );
 
@@ -165,18 +160,16 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
         .collect();
     run_txs_parallel(&mut env.test_loop, txs, &env.node_datas, Duration::seconds(30));
 
-    let node = TestLoopNode::from(&env.node_datas[0]);
     let expected: Vec<String> = vec!["validator2".to_string(), "validator3".to_string()];
 
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let client = node.client(test_loop_data);
-            if get_epoch_all_validators_sorted(client) != expected {
+    env.validator_runner().run_until(
+        |node| {
+            if get_epoch_all_validators_sorted(node.client()) != expected {
                 return false;
             }
             // Also wait for kicked nodes' locked amounts to return to zero
             for i in 0..2 {
-                let view = node.view_account_query(test_loop_data, &accounts[i]).unwrap();
+                let view = node.view_account_query(&accounts[i]).unwrap();
                 if !view.locked.is_zero() {
                     return false;
                 }
@@ -189,7 +182,7 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
     // Verify kicked nodes have locked == 0 and stake returned to balance
     let expected_balance = TESTING_INIT_BALANCE.checked_add(TESTING_INIT_STAKE).unwrap();
     for i in 0..2 {
-        let view = node.view_account_query(&env.test_loop.data, &accounts[i]).unwrap();
+        let view = env.validator().view_account_query(&accounts[i]).unwrap();
         assert!(view.locked.is_zero(), "kicked node {i}");
         assert_eq!(view.amount, expected_balance, "kicked node {i}");
     }
@@ -197,7 +190,7 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
     // Verify remaining validators have locked == TESTING_INIT_STAKE
     // Note: Genesis builder sets amount separately from validator stake (not deducted)
     for i in 2..4 {
-        let view = node.view_account_query(&env.test_loop.data, &accounts[i]).unwrap();
+        let view = env.validator().view_account_query(&accounts[i]).unwrap();
         assert_eq!(view.locked, TESTING_INIT_STAKE, "remaining validator {i}");
         assert_eq!(view.amount, TESTING_INIT_BALANCE, "remaining validator {i}");
     }
@@ -279,22 +272,20 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
     ];
     run_txs_parallel(&mut env.test_loop, txs, &env.node_datas, Duration::seconds(30));
 
-    let node = TestLoopNode::from(&env.node_datas[0]);
     let expected: Vec<String> = vec!["validator0".to_string(), "validator2".to_string()];
 
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let client = node.client(test_loop_data);
-            if get_epoch_all_validators_sorted(client) != expected {
+    env.node_runner(0).run_until(
+        |node| {
+            if get_epoch_all_validators_sorted(node.client()) != expected {
                 return false;
             }
             // Wait for node1's locked amount to return to zero
-            let view = node.view_account_query(test_loop_data, &accounts[1]).unwrap();
+            let view = node.view_account_query(&accounts[1]).unwrap();
             if !view.locked.is_zero() {
                 return false;
             }
             // Wait for node2's locked amount to equal TESTING_INIT_STAKE
-            let view = node.view_account_query(test_loop_data, &accounts[2]).unwrap();
+            let view = node.view_account_query(&accounts[2]).unwrap();
             view.locked == TESTING_INIT_STAKE
         },
         Duration::seconds(120),
@@ -334,11 +325,10 @@ fn test_inflation() {
         .build()
         .warmup();
 
-    let node = TestLoopNode::from(&env.node_datas[0]);
-
     // Check total_supply unchanged in epoch 1
     {
-        let client = node.client(&env.test_loop.data);
+        let node = env.node(0);
+        let client = node.client();
         let head = client.chain.head().unwrap();
         let block = client.chain.get_block(&head.last_block_hash).unwrap();
         assert_eq!(
@@ -349,11 +339,12 @@ fn test_inflation() {
     }
 
     // Advance to epoch 2
-    node.run_until_new_epoch(&mut env.test_loop);
+    env.node_runner(0).run_until_new_epoch();
 
     // Check total_supply matches expected inflation in epoch 2
     {
-        let client = node.client(&env.test_loop.data);
+        let node = env.node(0);
+        let client = node.client();
         let head = client.chain.head().unwrap();
         let block = client.chain.get_block(&head.last_block_hash).unwrap();
 

@@ -11,7 +11,6 @@ use near_primitives::sharding::ShardChunkHeader;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
-use crate::utils::node::TestLoopNode;
 
 const TIMEOUT_SECONDS: i64 = 5;
 
@@ -53,11 +52,8 @@ fn block_chunk_signature_rejection() {
 
     env.test_loop.run_for(Duration::seconds(TIMEOUT_SECONDS));
 
-    let node0 = TestLoopNode::from(&env.node_datas[0]);
-    let node1 = TestLoopNode::from(&env.node_datas[1]);
-    let test_loop_data = env.test_loop_data();
-    let height0 = node0.head(test_loop_data).height;
-    let height1 = node1.head(test_loop_data).height;
+    let height0 = env.node(0).head().height;
+    let height1 = env.node(1).head().height;
 
     assert!(height0 <= 3, "expected node0 to stall after signature tampering");
     assert!(height1 <= 3, "expected node1 to stall after signature tampering");
