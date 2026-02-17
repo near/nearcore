@@ -87,23 +87,18 @@ expression: view
     },
     {
       "cost_category": "ACTION_COST",
-      "cost": "GAS_KEY_KEY_BYTE",
+      "cost": "GAS_KEY_BYTE",
       "gas_used": "1024"
     },
     {
       "cost_category": "ACTION_COST",
-      "cost": "GAS_KEY_NONCE",
-      "gas_used": "1026"
+      "cost": "GAS_KEY_NONCE_WRITE_BASE",
+      "gas_used": "1025"
     },
     {
       "cost_category": "ACTION_COST",
       "cost": "GAS_KEY_TRANSFER_BASE",
       "gas_used": "1023"
-    },
-    {
-      "cost_category": "ACTION_COST",
-      "cost": "GAS_KEY_VALUE_BYTE",
-      "gas_used": "1025"
     },
     {
       "cost_category": "ACTION_COST",

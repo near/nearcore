@@ -265,7 +265,7 @@ mod test {
         let pretty_debug_str = format!("{profile_data:#?}");
         expect_test::expect![[r#"
             ------------------------------
-            Action gas: 27351
+            Action gas: 26325
             ------ Host functions --------
             contract_loading_base -> 1 [0% host]
             contract_loading_bytes -> 2 [0% host]
