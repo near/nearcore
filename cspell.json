@@ -59,6 +59,7 @@
         "borsh",
         "bson",
         "bufbuild",
+		  "bytecode",
         "bytecheck",
         "bytesize",
         "calimero",
