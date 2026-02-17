@@ -709,7 +709,7 @@ pub async fn start_with_config_and_synchronization_impl(
         validator: config.validator_signer.clone(),
         future_spawner: state_sync_spawner,
     };
-    state_sync_dumper.start()?;
+    state_sync_dumper.start();
 
     let hot_store = storage.get_hot_store();
     let cold_store = storage.get_cold_store();
