@@ -4,7 +4,7 @@ use std::sync::Arc;
 use aurora_engine_transactions::{EthTransactionKind, eip_2930::Transaction2930};
 use aurora_engine_types::types::Wei;
 use ethabi::ethereum_types::U256;
-use near_async::{test_loop::data::TestLoopData, time::Duration};
+use near_async::time::Duration;
 use near_chain_configs::test_genesis::{
     TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
 };
@@ -30,7 +30,7 @@ use sha3::{Digest, Keccak256};
 
 use crate::{
     setup::{builder::TestLoopBuilder, env::TestLoopEnv},
-    utils::{node::TestLoopNode, transactions},
+    utils::transactions,
 };
 
 const GLOBAL_CONTRACT_MAINNET_WASM: &[u8] =
@@ -95,7 +95,7 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
         (new_pv, Arc::new(epoch_config)),
     ]));
 
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
+    let mut env = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .protocol_upgrade_schedule(ProtocolUpgradeVotingSchedule::new_immediate(new_pv))
@@ -103,7 +103,6 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
         .build()
         .warmup();
 
-    let node = TestLoopNode::for_account(&node_datas, &"validator0".parse().unwrap());
     let relayer_signer = create_user_test_signer(&relayer);
     let mut relayer_nonce = 0;
     let transfer_amount = Balance::from_near(1).checked_div(7).unwrap();
@@ -113,9 +112,8 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
     let eth_old = derive_eth_implicit_account_id(secret_key_old.public_key().unwrap_as_secp256k1());
 
     relayer_nonce += 1;
-    let block_hash = transactions::get_shared_block_hash(&node_datas, &test_loop.data);
-    node.run_tx(
-        &mut test_loop,
+    let block_hash = transactions::get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    env.validator_runner().run_tx(
         SignedTransaction::send_money(
             relayer_nonce,
             relayer.clone(),
@@ -126,14 +124,14 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
         ),
         Duration::seconds(5),
     );
-    test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::seconds(2));
 
-    assert_eq!(view_global_contract_hash(&node, &test_loop.data, &eth_old), None);
+    assert_eq!(view_global_contract_hash(&env, &eth_old), None);
 
     // Phase 2: Wait for protocol upgrade to PV 83.
-    let client_handle = node_datas[0].client_sender.actor_handle();
-    test_loop.run_until(
-        |data: &mut TestLoopData| {
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
+    env.test_loop.run_until(
+        |data| {
             let head = data.get(&client_handle).client.chain.head().unwrap();
             data.get(&client_handle)
                 .client
@@ -148,9 +146,8 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
 
     // Phase 3: Deploy real mainnet WASM as global contract.
     relayer_nonce += 1;
-    let block_hash = transactions::get_shared_block_hash(&node_datas, &test_loop.data);
-    node.run_tx(
-        &mut test_loop,
+    let block_hash = transactions::get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    env.validator_runner().run_tx(
         SignedTransaction::deploy_global_contract(
             relayer_nonce,
             relayer.clone(),
@@ -161,14 +158,13 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
         ),
         Duration::seconds(5),
     );
-    test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::seconds(2));
 
     // Phase 4: Old account still works after upgrade (rlp_execute transfer).
-    let before = node.view_account_query(&test_loop.data, &receiver).unwrap().amount;
+    let before = env.validator().view_account_query(&receiver).unwrap().amount;
     relayer_nonce += 1;
-    let block_hash = transactions::get_shared_block_hash(&node_datas, &test_loop.data);
-    node.run_tx(
-        &mut test_loop,
+    let block_hash = transactions::get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    env.validator_runner().run_tx(
         build_rlp_execute_tx(
             &receiver,
             transfer_amount,
@@ -182,8 +178,8 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
         ),
         Duration::seconds(5),
     );
-    test_loop.run_for(Duration::seconds(2));
-    let after = node.view_account_query(&test_loop.data, &receiver).unwrap().amount;
+    env.test_loop.run_for(Duration::seconds(2));
+    let after = env.validator().view_account_query(&receiver).unwrap().amount;
     assert_eq!(after.checked_sub(before).unwrap(), transfer_amount, "old account transfer failed");
 
     // Phase 5: Create new ETH implicit account at PV 83 (global contract path).
@@ -191,9 +187,8 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
     let eth_new = derive_eth_implicit_account_id(secret_key_new.public_key().unwrap_as_secp256k1());
 
     relayer_nonce += 1;
-    let block_hash = transactions::get_shared_block_hash(&node_datas, &test_loop.data);
-    node.run_tx(
-        &mut test_loop,
+    let block_hash = transactions::get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    env.validator_runner().run_tx(
         SignedTransaction::send_money(
             relayer_nonce,
             relayer.clone(),
@@ -204,16 +199,15 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
         ),
         Duration::seconds(5),
     );
-    test_loop.run_for(Duration::seconds(2));
+    env.test_loop.run_for(Duration::seconds(2));
 
-    assert_eq!(view_global_contract_hash(&node, &test_loop.data, &eth_new), Some(expected_hash),);
+    assert_eq!(view_global_contract_hash(&env, &eth_new), Some(expected_hash));
 
     // Phase 6: New account works via rlp_execute transfer.
-    let before = node.view_account_query(&test_loop.data, &receiver).unwrap().amount;
+    let before = env.validator().view_account_query(&receiver).unwrap().amount;
     relayer_nonce += 1;
-    let block_hash = transactions::get_shared_block_hash(&node_datas, &test_loop.data);
-    node.run_tx(
-        &mut test_loop,
+    let block_hash = transactions::get_shared_block_hash(&env.node_datas, &env.test_loop.data);
+    env.validator_runner().run_tx(
         build_rlp_execute_tx(
             &receiver,
             transfer_amount,
@@ -227,21 +221,17 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
         ),
         Duration::seconds(5),
     );
-    test_loop.run_for(Duration::seconds(2));
-    let after = node.view_account_query(&test_loop.data, &receiver).unwrap().amount;
+    env.test_loop.run_for(Duration::seconds(2));
+    let after = env.validator().view_account_query(&receiver).unwrap().amount;
     assert_eq!(after.checked_sub(before).unwrap(), transfer_amount, "new account transfer failed");
 
-    drop(shared_state);
-    test_loop.shutdown_and_drain_remaining_events(Duration::seconds(10));
+    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
-fn view_global_contract_hash(
-    node: &TestLoopNode,
-    data: &TestLoopData,
-    account: &AccountId,
-) -> Option<CryptoHash> {
-    match node
-        .runtime_query(data, QueryRequest::ViewAccount { account_id: account.clone() })
+fn view_global_contract_hash(env: &TestLoopEnv, account: &AccountId) -> Option<CryptoHash> {
+    match env
+        .validator()
+        .runtime_query(QueryRequest::ViewAccount { account_id: account.clone() })
         .unwrap()
         .kind
     {
