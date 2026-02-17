@@ -300,7 +300,8 @@ impl HeaderSync {
                                 }
                             }
                             _ => {
-                                // Unexpected
+                                // Background header sync (StateSync, BlockSync):
+                                // intentionally skip peer banning.
                             }
                         }
                     }
