@@ -402,7 +402,7 @@ impl Chain {
             epoch_manager.clone(),
             runtime_adapter.clone(),
         );
-        let state_roots = get_genesis_state_roots(runtime_adapter.store())?
+        let state_roots = get_genesis_state_roots(runtime_adapter.store())
             .expect("genesis should be initialized.");
         let (genesis, _genesis_chunks) = Self::make_genesis_block(
             epoch_manager.as_ref(),
@@ -473,7 +473,7 @@ impl Chain {
         resharding_sender: ReshardingSender,
         on_post_state_ready_sender: Option<PostStateReadySender>,
     ) -> Result<Chain, Error> {
-        let state_roots = get_genesis_state_roots(runtime_adapter.store())?
+        let state_roots = get_genesis_state_roots(runtime_adapter.store())
             .expect("genesis should be initialized.");
         let (genesis, genesis_chunks) = Self::make_genesis_block(
             epoch_manager.as_ref(),
@@ -1089,7 +1089,7 @@ impl Chain {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
             let chunk_hash = chunk_header.chunk_hash();
             // Check if any chunks are invalid in this block.
-            if let Some(encoded_chunk) = self.chain_store.is_invalid_chunk(chunk_hash)? {
+            if let Some(encoded_chunk) = self.chain_store.is_invalid_chunk(chunk_hash) {
                 let merkle_paths = block.chunks().compute_chunk_headers_root().1;
                 let merkle_proof =
                     merkle_paths.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
@@ -1736,7 +1736,7 @@ impl Chain {
 
         if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
             // This is the end of the epoch. Next epoch we will generate new state parts. We can drop the old ones.
-            self.clear_all_downloaded_parts()?;
+            self.clear_all_downloaded_parts();
         }
 
         // 2) Start creating snapshot if needed.
@@ -2464,9 +2464,9 @@ impl Chain {
         prev_prev_hash: &CryptoHash,
     ) -> Result<(bool, Option<StateSyncInfo>), Error> {
         if !self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
-            return Ok((self.prev_block_is_caught_up(prev_prev_hash, prev_hash)?, None));
+            return Ok((self.prev_block_is_caught_up(prev_prev_hash, prev_hash), None));
         }
-        if !self.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
+        if !self.prev_block_is_caught_up(prev_prev_hash, prev_hash) {
             // The previous block is not caught up for the next epoch relative to the previous
             // block, which is the current epoch for this block, so this block cannot be applied
             // at all yet, needs to be orphaned
@@ -2491,8 +2491,8 @@ impl Chain {
         &self,
         prev_prev_hash: &CryptoHash,
         prev_hash: &CryptoHash,
-    ) -> Result<bool, Error> {
-        Ok(ChainStore::prev_block_is_caught_up(&self.chain_store, prev_prev_hash, prev_hash)?)
+    ) -> bool {
+        ChainStore::prev_block_is_caught_up(&self.chain_store, prev_prev_hash, prev_hash)
     }
 
     /// Check if any block with missing chunk is ready to be processed and start processing these blocks
@@ -2601,13 +2601,12 @@ impl Chain {
     }
 
     /// Drop all downloaded or generated state parts and headers.
-    pub fn clear_all_downloaded_parts(&mut self) -> Result<(), Error> {
+    pub fn clear_all_downloaded_parts(&mut self) {
         tracing::debug!(target: "state_sync", "clear old state parts");
         let mut store_update = self.chain_store.store().store_update();
         store_update.delete_all(DBCol::StateParts);
         store_update.delete_all(DBCol::StateHeaders);
         store_update.commit();
-        Ok(())
     }
 
     pub fn catchup_blocks_step(

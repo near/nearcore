@@ -120,7 +120,7 @@ pub trait ChainStoreAccess {
         &self,
         block_hash: &CryptoHash,
         shard_id: &ShardId,
-    ) -> Result<Option<ChunkApplyStats>, Error>;
+    ) -> Option<ChunkApplyStats>;
     /// Get block header.
     fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error>;
     /// Returns hash of the block on the main chain for given height.
@@ -186,10 +186,7 @@ pub trait ChainStoreAccess {
     fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Vec<CryptoHash>;
 
     /// Returns encoded chunk if it's invalid otherwise None.
-    fn is_invalid_chunk(
-        &self,
-        chunk_hash: &ChunkHash,
-    ) -> Result<Option<Arc<EncodedShardChunk>>, Error>;
+    fn is_invalid_chunk(&self, chunk_hash: &ChunkHash) -> Option<Arc<EncodedShardChunk>>;
 
     fn get_transaction(&self, tx_hash: &CryptoHash) -> Option<Arc<SignedTransaction>>;
 
@@ -589,11 +586,10 @@ impl ChainStore {
 
     /// Save the latest known.
     /// TODO(store): What is this doing here? Cleanup
-    pub fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error> {
+    pub fn save_latest_known(&mut self, latest_known: LatestKnown) {
         let mut store_update = self.store.store().store_update();
         store_update.set_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY, &latest_known);
         store_update.commit();
-        Ok(())
     }
 
     /// Retrieve the kinds of state changes occurred in a given block.
@@ -622,7 +618,7 @@ impl ChainStore {
         let store = self.store.store();
         let mut block_changes = storage_key.find_iter(&store);
 
-        Ok(StateChangesKinds::from_changes(&mut block_changes)?)
+        Ok(StateChangesKinds::from_changes(&mut block_changes))
     }
 
     pub fn get_state_changes_with_cause_in_block(
@@ -634,7 +630,7 @@ impl ChainStore {
         let store = self.store.store();
         let mut block_changes = storage_key.find_iter(&store);
 
-        Ok(StateChanges::from_changes(&mut block_changes)?)
+        Ok(StateChanges::from_changes(&mut block_changes))
     }
 
     /// Retrieve the key-value changes from the store and decode them appropriately.
@@ -677,7 +673,7 @@ impl ChainStore {
                     let data_key = TrieKey::Account { account_id: account_id.clone() };
                     let storage_key = KeyForStateChanges::from_trie_key(block_hash, &data_key);
                     let changes_per_key = storage_key.find_exact_iter(&store);
-                    changes.extend(StateChanges::from_account_changes(changes_per_key)?);
+                    changes.extend(StateChanges::from_account_changes(changes_per_key));
                 }
                 changes
             }
@@ -690,7 +686,7 @@ impl ChainStore {
                     };
                     let storage_key = KeyForStateChanges::from_trie_key(block_hash, &data_key);
                     let changes_per_key = storage_key.find_iter(&store);
-                    changes.extend(StateChanges::from_access_key_changes(changes_per_key)?);
+                    changes.extend(StateChanges::from_access_key_changes(changes_per_key));
                 }
                 changes
             }
@@ -700,7 +696,7 @@ impl ChainStore {
                     let data_key = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
                     let storage_key = KeyForStateChanges::from_raw_key(block_hash, &data_key);
                     let changes_per_key_prefix = storage_key.find_iter(&store);
-                    changes.extend(StateChanges::from_access_key_changes(changes_per_key_prefix)?);
+                    changes.extend(StateChanges::from_access_key_changes(changes_per_key_prefix));
                 }
                 changes
             }
@@ -710,7 +706,7 @@ impl ChainStore {
                     let data_key = TrieKey::ContractCode { account_id: account_id.clone() };
                     let storage_key = KeyForStateChanges::from_trie_key(block_hash, &data_key);
                     let changes_per_key = storage_key.find_exact_iter(&store);
-                    changes.extend(StateChanges::from_contract_code_changes(changes_per_key)?);
+                    changes.extend(StateChanges::from_contract_code_changes(changes_per_key));
                 }
                 changes
             }
@@ -723,7 +719,7 @@ impl ChainStore {
                     );
                     let storage_key = KeyForStateChanges::from_raw_key(block_hash, &data_key);
                     let changes_per_key_prefix = storage_key.find_iter(&store);
-                    changes.extend(StateChanges::from_data_changes(changes_per_key_prefix)?);
+                    changes.extend(StateChanges::from_data_changes(changes_per_key_prefix));
                 }
                 changes
             }
@@ -792,7 +788,7 @@ impl ChainStore {
         &self,
         shard_id: ShardId,
         value: Option<StateSyncDumpProgress>,
-    ) -> Result<(), Error> {
+    ) {
         let mut store_update = self.store.store().store_update();
         let key = ChainStore::state_sync_dump_progress_key(shard_id);
         match value {
@@ -800,21 +796,20 @@ impl ChainStore {
             Some(value) => store_update.set_ser(DBCol::BlockMisc, &key, &value),
         }
         store_update.commit();
-        Ok(())
     }
 
     pub fn prev_block_is_caught_up(
         chain_store: &ChainStoreAdapter,
         prev_prev_hash: &CryptoHash,
         prev_hash: &CryptoHash,
-    ) -> Result<bool, Error> {
+    ) -> bool {
         // Needs to be used with care: for the first block of each epoch the semantic is slightly
         // different, since the prev_block is in a different epoch. So for all the blocks but the
         // first one in each epoch this method returns true if the block is ready to have state
         // applied for the next epoch, while for the first block in a particular epoch this method
         // returns true if the block is ready to have state applied for the current epoch (and
         // otherwise should be orphaned)
-        Ok(!chain_store.get_blocks_to_catchup(prev_prev_hash).contains(prev_hash))
+        !chain_store.get_blocks_to_catchup(prev_prev_hash).contains(prev_hash)
     }
 }
 
@@ -925,7 +920,7 @@ impl ChainStoreAccess for ChainStore {
         &self,
         block_hash: &CryptoHash,
         shard_id: &ShardId,
-    ) -> Result<Option<ChunkApplyStats>, Error> {
+    ) -> Option<ChunkApplyStats> {
         self.chunk_store().get_chunk_apply_stats(block_hash, shard_id)
     }
 
@@ -984,10 +979,7 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_blocks_to_catchup(self, hash)
     }
 
-    fn is_invalid_chunk(
-        &self,
-        chunk_hash: &ChunkHash,
-    ) -> Result<Option<Arc<EncodedShardChunk>>, Error> {
+    fn is_invalid_chunk(&self, chunk_hash: &ChunkHash) -> Option<Arc<EncodedShardChunk>> {
         self.chunk_store().is_invalid_chunk(chunk_hash)
     }
 
@@ -1270,9 +1262,9 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         &self,
         block_hash: &CryptoHash,
         shard_id: &ShardId,
-    ) -> Result<Option<ChunkApplyStats>, Error> {
+    ) -> Option<ChunkApplyStats> {
         if let Some(stats) = self.chunk_apply_stats.get(&(*block_hash, *shard_id)) {
-            Ok(Some(stats.clone()))
+            Some(stats.clone())
         } else {
             self.chain_store.get_chunk_apply_stats(block_hash, shard_id)
         }
@@ -1393,12 +1385,9 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.chain_store.get_blocks_to_catchup(prev_hash)
     }
 
-    fn is_invalid_chunk(
-        &self,
-        chunk_hash: &ChunkHash,
-    ) -> Result<Option<Arc<EncodedShardChunk>>, Error> {
+    fn is_invalid_chunk(&self, chunk_hash: &ChunkHash) -> Option<Arc<EncodedShardChunk>> {
         if let Some(chunk) = self.chain_store_cache_update.invalid_chunks.get(chunk_hash) {
-            Ok(Some(Arc::clone(chunk)))
+            Some(Arc::clone(chunk))
         } else {
             self.chain_store.is_invalid_chunk(chunk_hash)
         }
@@ -1566,7 +1555,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let latest_known = self.chain_store.get_latest_known().ok();
         if latest_known.is_none() || height > latest_known.unwrap().height {
             self.chain_store
-                .save_latest_known(LatestKnown { height, seen: to_timestamp(Utc::now()) })?;
+                .save_latest_known(LatestKnown { height, seen: to_timestamp(Utc::now()) });
         }
         Ok(())
     }
@@ -1575,8 +1564,7 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn adv_save_latest_known(&mut self, height: BlockHeight) -> Result<(), Error> {
         let header = self.get_block_header_by_height(height)?;
         let tip = Tip::from_header(&header);
-        self.chain_store
-            .save_latest_known(LatestKnown { height, seen: to_timestamp(Utc::now()) })?;
+        self.chain_store.save_latest_known(LatestKnown { height, seen: to_timestamp(Utc::now()) });
         self.save_head(&tip)?;
         Ok(())
     }
@@ -1851,11 +1839,10 @@ impl<'a> ChainStoreUpdate<'a> {
         store_update: &mut StoreUpdate,
         key: &[u8],
         value: &mut Option<T>,
-    ) -> Result<(), Error> {
+    ) {
         if let Some(t) = value.take() {
             store_update.set_ser(DBCol::BlockMisc, key, &t);
         }
-        Ok(())
     }
 
     #[tracing::instrument(level = "debug", target = "store", "ChainUpdate::finalize", skip_all)]
@@ -1863,28 +1850,28 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut store_update = self.store().store_update();
         {
             let _span = tracing::trace_span!(target: "store", "write_col_misc").entered();
-            Self::write_col_misc(&mut store_update, HEAD_KEY, &mut self.head)?;
-            Self::write_col_misc(&mut store_update, TAIL_KEY, &mut self.tail)?;
-            Self::write_col_misc(&mut store_update, CHUNK_TAIL_KEY, &mut self.chunk_tail)?;
-            Self::write_col_misc(&mut store_update, FORK_TAIL_KEY, &mut self.fork_tail)?;
-            Self::write_col_misc(&mut store_update, HEADER_HEAD_KEY, &mut self.header_head)?;
-            Self::write_col_misc(&mut store_update, FINAL_HEAD_KEY, &mut self.final_head)?;
+            Self::write_col_misc(&mut store_update, HEAD_KEY, &mut self.head);
+            Self::write_col_misc(&mut store_update, TAIL_KEY, &mut self.tail);
+            Self::write_col_misc(&mut store_update, CHUNK_TAIL_KEY, &mut self.chunk_tail);
+            Self::write_col_misc(&mut store_update, FORK_TAIL_KEY, &mut self.fork_tail);
+            Self::write_col_misc(&mut store_update, HEADER_HEAD_KEY, &mut self.header_head);
+            Self::write_col_misc(&mut store_update, FINAL_HEAD_KEY, &mut self.final_head);
             Self::write_col_misc(
                 &mut store_update,
                 SPICE_FINAL_EXECUTION_HEAD_KEY,
                 &mut self.spice_final_execution_head,
-            )?;
+            );
             Self::write_col_misc(
                 &mut store_update,
                 SPICE_EXECUTION_HEAD_KEY,
                 &mut self.spice_execution_head,
-            )?;
+            );
             Self::write_col_misc(
                 &mut store_update,
                 LARGEST_TARGET_HEIGHT_KEY,
                 &mut self.largest_target_height,
-            )?;
-            Self::write_col_misc(&mut store_update, GC_STOP_HEIGHT_KEY, &mut self.gc_stop_height)?;
+            );
+            Self::write_col_misc(&mut store_update, GC_STOP_HEIGHT_KEY, &mut self.gc_stop_height);
         }
         {
             let _span = tracing::trace_span!(target: "store", "write_block").entered();
@@ -1967,10 +1954,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     Entry::Vacant(entry) => {
                         let chunk_store = self.chain_store.chunk_store();
                         let mut hash_set =
-                            match chunk_store.get_all_chunk_hashes_by_height(height_created) {
-                                Ok(hash_set) => hash_set.clone(),
-                                Err(_) => HashSet::new(),
-                            };
+                            chunk_store.get_all_chunk_hashes_by_height(height_created);
                         hash_set.insert(chunk_hash.clone());
                         entry.insert(hash_set);
                     }

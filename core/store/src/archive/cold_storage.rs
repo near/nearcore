@@ -114,7 +114,7 @@ pub fn update_cold_db(
                 .map(|col: DBCol| -> io::Result<()> {
                     if col == DBCol::State {
                         if is_resharding_boundary {
-                            update_state_shard_uid_mapping(cold_db, shard_layout)?;
+                            update_state_shard_uid_mapping(cold_db, shard_layout);
                         }
                         copy_state_from_store(
                             shard_layout,
@@ -176,7 +176,7 @@ pub fn rc_aware_set(
 /// children will point to the grandparent.
 /// This should be called once while processing the block at the resharding
 /// boundary and before calling `copy_state_from_store`.
-fn update_state_shard_uid_mapping(cold_db: &ColdDB, shard_layout: &ShardLayout) -> io::Result<()> {
+fn update_state_shard_uid_mapping(cold_db: &ColdDB, shard_layout: &ShardLayout) {
     let _span = tracing::debug_span!(target: "cold_store", "update_state_shard_uid_mapping");
     let cold_store = cold_db.as_store();
     let mut update = cold_store.store_update();
@@ -192,7 +192,6 @@ fn update_state_shard_uid_mapping(cold_db: &ColdDB, shard_layout: &ShardLayout) 
         }
     }
     update.commit();
-    Ok(())
 }
 
 // A specialized version of copy_from_store for the State column. Finds all the
@@ -433,9 +432,9 @@ pub fn copy_all_data_to_cold(
                     tracing::debug!(target: "cold_store", "stopping copy_all_data_to_cold");
                     return Ok(CopyAllDataToColdStatus::Interrupted);
                 }
-                transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec())?;
+                transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec());
             }
-            transaction.write()?;
+            transaction.write();
             tracing::info!(target: "cold_store", ?col, "finished column migration");
         }
     }
@@ -729,26 +728,20 @@ impl BatchTransaction {
 
     /// Adds a set DBOp to `self.transaction`. Updates `self.transaction_size`.
     /// If `self.transaction_size` becomes too big, calls for write.
-    pub fn set_and_write_if_full(
-        &mut self,
-        col: DBCol,
-        key: Vec<u8>,
-        value: Vec<u8>,
-    ) -> io::Result<()> {
+    pub fn set_and_write_if_full(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
         let size = rc_aware_set(&mut self.transaction, col, key, value);
         self.transaction_size += size;
 
         if self.transaction_size > self.threshold_transaction_size {
-            self.write()?;
+            self.write();
         }
-        Ok(())
     }
 
     /// Writes `self.transaction` and replaces it with new empty DBTransaction.
     /// Sets `self.transaction_size` to 0.
-    fn write(&mut self) -> io::Result<()> {
+    fn write(&mut self) {
         if self.transaction.ops.is_empty() {
-            return Ok(());
+            return;
         }
 
         let column_label = [<&str>::from(self.transaction.ops[0].col())];
@@ -769,8 +762,6 @@ impl BatchTransaction {
         let transaction = std::mem::take(&mut self.transaction);
         self.cold_db.write(transaction);
         self.transaction_size = 0;
-
-        Ok(())
     }
 }
 

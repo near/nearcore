@@ -185,7 +185,7 @@ impl FlatStorageResharder {
                     // On resume, flat storage status is already set correctly and read from DB.
                     // Thus, we don't need to care about cancelling other existing resharding events.
                     // Children are not both ready, so we need to clean them and restart resharding.
-                    self.clean_children_shards(&status)?;
+                    self.clean_children_shards(&status);
                     self.start_resharding_blocking_impl(parent_shard_uid, status);
                 }
             }
@@ -248,7 +248,7 @@ impl FlatStorageResharder {
         skip_all,
         fields(left_child_shard = ?status.left_child_shard, right_child_shard = ?status.right_child_shard)
     )]
-    fn clean_children_shards(&self, status: &ParentSplitParameters) -> Result<(), Error> {
+    fn clean_children_shards(&self, status: &ParentSplitParameters) {
         let ParentSplitParameters { left_child_shard, right_child_shard, .. } = status;
         tracing::info!(target: "resharding", ?left_child_shard, ?right_child_shard, "cleaning up children shards flat storage's content");
         let mut store_update = self.runtime.store().flat_store().store_update();
@@ -256,7 +256,6 @@ impl FlatStorageResharder {
             store_update.remove_all_values(*child);
         }
         store_update.commit();
-        Ok(())
     }
 
     /// Task to perform the actual split of a flat storage shard. This may be a long operation

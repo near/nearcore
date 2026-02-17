@@ -1005,8 +1005,7 @@ fn test_witness_is_saved() {
     actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
     assert!(block_executed(&actor, &block));
 
-    let witness =
-        get_witness(actor.chain.chain_store().store_ref(), block.hash(), shard_id).unwrap();
+    let witness = get_witness(actor.chain.chain_store().store_ref(), block.hash(), shard_id);
     assert!(witness.is_some());
 }
 

@@ -33,10 +33,8 @@ pub fn undo_block(
 
     chain_store_update.commit()?;
 
-    chain_store.save_latest_known(LatestKnown {
-        height: prev_tip.height,
-        seen: to_timestamp(Utc::now()),
-    })?;
+    chain_store
+        .save_latest_known(LatestKnown { height: prev_tip.height, seen: to_timestamp(Utc::now()) });
 
     let new_chain_store_head = chain_store.head()?;
     let new_chain_store_header_head = chain_store.header_head()?;

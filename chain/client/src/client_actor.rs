@@ -1104,7 +1104,7 @@ impl ClientActor {
             if let Some(new_latest_known) =
                 self.sandbox_process_fast_forward(latest_known.height)?
             {
-                self.client.chain.mut_chain_store().save_latest_known(new_latest_known)?;
+                self.client.chain.mut_chain_store().save_latest_known(new_latest_known);
                 self.client.sandbox_update_tip(new_latest_known.height)?;
             }
         }

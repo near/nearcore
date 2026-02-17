@@ -581,11 +581,10 @@ pub(crate) fn print_chunk_apply_stats(
         near_config.genesis.config.transaction_validity_period,
     );
     match chain_store.get_chunk_apply_stats(block_hash, &ShardId::new(shard_id)) {
-        Ok(Some(stats)) => println!("{:#?}", stats),
-        Ok(None) => {
+        Some(stats) => println!("{:#?}", stats),
+        None => {
             println!("\nNo stats found for block hash {} and shard {}\n", block_hash, shard_id)
         }
-        Err(e) => eprintln!("Error: {:#?}", e),
     }
 }
 
@@ -856,8 +855,7 @@ pub(crate) fn view_genesis(
 
     if view_config || compare {
         tracing::info!(target: "state_viewer", "computing genesis from config");
-        let state_roots =
-            near_store::get_genesis_state_roots(&chain_store.store()).unwrap().unwrap();
+        let state_roots = near_store::get_genesis_state_roots(&chain_store.store()).unwrap();
         let (genesis_block, genesis_chunks) = Chain::make_genesis_block(
             epoch_manager.as_ref(),
             runtime_adapter.as_ref(),

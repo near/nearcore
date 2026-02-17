@@ -572,7 +572,7 @@ impl Client {
         let prev_hash = prev_header.hash();
         if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
             let prev_prev_hash = prev_header.prev_hash();
-            if !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
+            if !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash) {
                 tracing::debug!(target: "client", height, "skipping block production, prev block is not caught up");
                 return Ok(false);
             }
@@ -1020,7 +1020,7 @@ impl Client {
         // Update latest known even before returning block out, to prevent race conditions.
         self.chain
             .mut_chain_store()
-            .save_latest_known(LatestKnown { height, seen: block.header().raw_timestamp() })?;
+            .save_latest_known(LatestKnown { height, seen: block.header().raw_timestamp() });
 
         metrics::BLOCK_PRODUCED_TOTAL.inc();
 

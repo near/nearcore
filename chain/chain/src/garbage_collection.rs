@@ -627,7 +627,7 @@ impl<'a> ChainStoreUpdate<'a> {
     fn clear_chunk_data_and_headers(&mut self, min_chunk_height: BlockHeight) -> Result<(), Error> {
         let chunk_tail = self.chunk_tail();
         for height in chunk_tail..min_chunk_height {
-            let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height)?;
+            let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height);
             for chunk_hash in chunk_hashes {
                 // 1. Delete chunk-related data
                 let chunk = self.get_chunk(&chunk_hash)?;
@@ -691,7 +691,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut height = self.chunk_tail();
         let mut remaining = gc_height_limit;
         while height < gc_stop_height && remaining > 0 {
-            let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height)?;
+            let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height);
             height += 1;
             if !chunk_hashes.is_empty() {
                 remaining -= 1;
@@ -746,7 +746,7 @@ impl<'a> ChainStoreUpdate<'a> {
         tracing::debug!(target: "garbage_collection", ?gc_mode, ?block_hash, "GC block_hash");
 
         // 1. Garbage collect TrieChanges.
-        self.gc_trie_changes(epoch_manager, block_hash, &gc_mode, &mut store_update)?;
+        self.gc_trie_changes(epoch_manager, block_hash, &gc_mode, &mut store_update);
 
         if matches!(gc_mode, GCMode::Canonical(_)) {
             // If you know why do we do this in case of canonical chain please add a comment here.
@@ -818,14 +818,14 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(DBCol::StateChanges, &key);
         }
         self.gc_col(DBCol::BlockRefCount, block_hash.as_bytes());
-        self.gc_outcomes(&block)?;
+        self.gc_outcomes(&block);
         match gc_mode {
             GCMode::StateSync { clear_block_info: false } => {}
             _ => self.gc_col(DBCol::BlockInfo, block_hash.as_bytes()),
         }
         self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
 
-        self.gc_spice_core_data(&block_hash, &shard_layout)?;
+        self.gc_spice_core_data(&block_hash, &shard_layout);
 
         // 4. Update or delete block_hash_per_height
         self.gc_col_block_per_height(&block_hash, height, block.header().epoch_id())?;
@@ -855,13 +855,9 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    fn gc_spice_core_data(
-        &mut self,
-        block_hash: &CryptoHash,
-        shard_layout: &ShardLayout,
-    ) -> Result<(), Error> {
+    fn gc_spice_core_data(&mut self, block_hash: &CryptoHash, shard_layout: &ShardLayout) {
         if !cfg!(feature = "protocol_feature_spice") {
-            return Ok(());
+            return;
         }
 
         for shard_id in shard_layout.shard_ids() {
@@ -894,7 +890,6 @@ impl<'a> ChainStoreUpdate<'a> {
             );
         }
         self.gc_col(DBCol::uncertified_chunks(), block_hash.as_ref());
-        Ok(())
     }
 
     fn gc_trie_changes(
@@ -903,7 +898,7 @@ impl<'a> ChainStoreUpdate<'a> {
         block_hash: CryptoHash,
         gc_mode: &GCMode,
         store_update: &mut near_store::adapter::trie_store::TrieStoreUpdateAdapter<'_>,
-    ) -> Result<(), Error> {
+    ) {
         let shard_uids_to_gc = self.get_shard_uids_to_gc(epoch_manager, &block_hash);
         for shard_uid in shard_uids_to_gc {
             let trie_changes_key = get_block_shard_uid(&block_hash, &shard_uid);
@@ -928,7 +923,6 @@ impl<'a> ChainStoreUpdate<'a> {
 
             self.gc_col(DBCol::TrieChanges, &trie_changes_key);
         }
-        Ok(())
     }
 
     // Delete all data in rocksdb that are partially or wholly indexed and can be looked up by hash of the current head of the chain
@@ -1001,7 +995,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(DBCol::StateChanges, &key);
         }
         self.gc_col(DBCol::BlockRefCount, block_hash.as_bytes());
-        self.gc_outcomes(&block)?;
+        self.gc_outcomes(&block);
         self.gc_col(DBCol::BlockInfo, block_hash.as_bytes());
         self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
         self.gc_col(DBCol::StateSyncNewChunks, block_hash.as_bytes());
@@ -1021,7 +1015,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     fn clear_chunk_data_at_height(&mut self, height: BlockHeight) -> Result<(), Error> {
-        let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height)?;
+        let chunk_hashes = self.store().chunk_store().get_all_chunk_hashes_by_height(height);
         for chunk_hash in chunk_hashes {
             // 1. Delete chunk-related data
             let chunk = self.get_chunk(&chunk_hash)?;
@@ -1111,7 +1105,7 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_col(DBCol::ProcessedReceiptIds, &get_block_shard_id(block_hash, shard_id));
     }
 
-    fn gc_outcomes(&mut self, block: &Block) -> Result<(), Error> {
+    fn gc_outcomes(&mut self, block: &Block) {
         let block_hash = block.hash();
         let store_update = self.store().store_update();
         for chunk_header in block.chunks().iter_new() {
@@ -1129,7 +1123,6 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(DBCol::OutcomeIds, &get_block_shard_id(block_hash, shard_id));
         }
         self.merge(store_update);
-        Ok(())
     }
 
     fn gc_col(&mut self, col: DBCol, key: &[u8]) {

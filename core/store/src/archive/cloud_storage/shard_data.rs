@@ -92,7 +92,7 @@ pub fn build_shard_data(
     let chunk_extra = (*chunk_store.get_chunk_extra(&block_hash, &shard_uid)?).clone();
     let state_changes = get_state_changes(store, shard_layout, &block_hash, shard_uid)?;
     let chunk_apply_stats =
-        chunk_store.get_chunk_apply_stats(&block_hash, &shard_id)?.ok_or_else(|| {
+        chunk_store.get_chunk_apply_stats(&block_hash, &shard_id).ok_or_else(|| {
             Error::DBNotFoundErr(format!(
                 "CHUNK APPLY STATS, block height: {}, shard ID: {:?}",
                 block_height, shard_id

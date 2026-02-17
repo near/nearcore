@@ -202,16 +202,6 @@ pub fn record_witness_size_metrics(
     encoded_size: usize,
     witness: &ChunkStateWitness,
 ) {
-    if let Err(err) = record_witness_size_metrics_fallible(decoded_size, encoded_size, witness) {
-        tracing::warn!(target: "client", ?err, "failed to record witness size metrics");
-    }
-}
-
-fn record_witness_size_metrics_fallible(
-    decoded_size: usize,
-    encoded_size: usize,
-    witness: &ChunkStateWitness,
-) -> Result<(), std::io::Error> {
     let shard_id = witness.chunk_header().shard_id().to_string();
     CHUNK_STATE_WITNESS_RAW_SIZE
         .with_label_values(&[shard_id.as_str()])
@@ -225,7 +215,6 @@ fn record_witness_size_metrics_fallible(
     CHUNK_STATE_WITNESS_SOURCE_RECEIPT_PROOFS_SIZE
         .with_label_values(&[&shard_id.as_str()])
         .observe(borsh::object_length(&witness.source_receipt_proofs()).unwrap() as f64);
-    Ok(())
 }
 
 /// Buckets from 0 to 10MB

@@ -19,7 +19,6 @@ use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, Nonce, NonceIndex, PromiseYieldStatus, StateRoot,
 };
-use std::io;
 
 /// Reads an object from Trie.
 /// # Errors
@@ -456,12 +455,12 @@ pub fn remove_account(
     Ok(())
 }
 
-pub fn get_genesis_state_roots(store: &Store) -> io::Result<Option<Vec<StateRoot>>> {
-    Ok(store.get_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY))
+pub fn get_genesis_state_roots(store: &Store) -> Option<Vec<StateRoot>> {
+    store.get_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY)
 }
 
-pub fn get_genesis_congestion_infos(store: &Store) -> io::Result<Option<Vec<CongestionInfo>>> {
-    Ok(store.get_ser::<Vec<CongestionInfo>>(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY))
+pub fn get_genesis_congestion_infos(store: &Store) -> Option<Vec<CongestionInfo>> {
+    store.get_ser::<Vec<CongestionInfo>>(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY)
 }
 
 pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &[StateRoot]) {
@@ -475,8 +474,8 @@ pub fn set_genesis_congestion_infos(
     store_update.set_ser(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY, &congestion_infos);
 }
 
-pub fn get_genesis_height(store: &Store) -> io::Result<Option<BlockHeight>> {
-    Ok(store.get_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY))
+pub fn get_genesis_height(store: &Store) -> Option<BlockHeight> {
+    store.get_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY)
 }
 
 pub fn set_genesis_height(store_update: &mut StoreUpdate, genesis_height: &BlockHeight) {

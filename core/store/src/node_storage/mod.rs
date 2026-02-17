@@ -5,7 +5,6 @@ use crate::archive::cloud_storage::config::CloudStorageContext;
 use crate::db::{Database, SplitDB, metadata};
 use crate::{Store, StoreConfig};
 use opener::StoreOpener;
-use std::io;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 
@@ -199,15 +198,15 @@ impl NodeStorage {
     }
 
     /// Reads database metadata and returns `true` if it is split storage or legacy archival node.
-    pub fn is_local_archive(&self) -> io::Result<bool> {
+    pub fn is_local_archive(&self) -> bool {
         if self.cold_storage.is_some() {
-            return Ok(true);
+            return true;
         }
-        Ok(match metadata::DbMetadata::read(self.hot_storage.as_ref()).kind.unwrap() {
+        match metadata::DbMetadata::read(self.hot_storage.as_ref()).kind.unwrap() {
             metadata::DbKind::RPC => false,
             metadata::DbKind::Archive => true,
             metadata::DbKind::Hot | metadata::DbKind::Cold => true,
-        })
+        }
     }
 
     pub fn is_cloud_archive(&self) -> bool {
