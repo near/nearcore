@@ -366,6 +366,8 @@ pub enum ProtocolFeature {
     /// prevents race conditions in the case of multiple distribution attempts
     /// for the same contract.
     GlobalContractDistributionNonce,
+    /// Use global contract for ETH implicit accounts instead of embedded WASM.
+    EthImplicitGlobalContract,
 }
 
 impl ProtocolFeature {
@@ -471,7 +473,8 @@ impl ProtocolFeature {
             | ProtocolFeature::FixDeterministicAccountIdCreation
             | ProtocolFeature::GlobalContractDistributionNonce
             | ProtocolFeature::InstantPromiseYield
-            | ProtocolFeature::YieldResumeImprovements => 83,
+            | ProtocolFeature::YieldResumeImprovements
+            | ProtocolFeature::EthImplicitGlobalContract => 83,
             ProtocolFeature::Wasmtime => 84,
 
             // Nightly features:
