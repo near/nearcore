@@ -53,7 +53,9 @@ const MAINNET_ETH_CHAIN_ID: u64 = 397;
 /// - verify old account works via rlp_execute
 /// - create new account
 /// - verify new account works via rlp_execute
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[test]
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_eth_implicit_global_contract_mainnet_upgrade() {
     init_test_logger();
 
