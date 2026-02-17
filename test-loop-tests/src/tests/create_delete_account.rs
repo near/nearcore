@@ -16,7 +16,6 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{
     create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
 };
-use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{
     call_contract, check_txs, do_create_account, do_delete_account, do_deploy_contract,
     get_next_nonce,
@@ -149,14 +148,13 @@ fn test_instant_delete_account() {
         .clients(clients)
         .build()
         .warmup();
-    let rpc_node = TestLoopNode::rpc(&env.node_datas);
 
     let [contract_account, beneficiary] = &user_accounts;
     let contract_signer = create_user_test_signer(contract_account);
 
     // Deploy rs_contract.
     let nonce = 1;
-    let block_hash = rpc_node.head(env.test_loop_data()).last_block_hash;
+    let block_hash = env.rpc_node().head().last_block_hash;
     let tx = SignedTransaction::deploy_contract(
         nonce,
         contract_account,
@@ -164,13 +162,13 @@ fn test_instant_delete_account() {
         &contract_signer,
         block_hash,
     );
-    rpc_node.run_tx(&mut env.test_loop, tx, Duration::seconds(5));
+    env.rpc_runner().run_tx(tx, Duration::seconds(5));
 
     // Call `call_promise` on the contract to create a batch promise on itself
     // with a single DeleteAccount action. The contract deletes its own account.
     // This produces a child receipt with only DeleteAccount, which should be instant.
     let nonce = 2;
-    let block_hash = rpc_node.head(env.test_loop_data()).last_block_hash;
+    let block_hash = env.rpc_node().head().last_block_hash;
     let call_promise_args = serde_json::json!([
         {
             "batch_create": { "account_id": contract_account.as_str() },
@@ -196,7 +194,7 @@ fn test_instant_delete_account() {
         Gas::from_teragas(300),
         block_hash,
     );
-    let outcome = rpc_node.execute_tx(&mut env.test_loop, tx, Duration::seconds(10)).unwrap();
+    let outcome = env.rpc_runner().execute_tx(tx, Duration::seconds(10)).unwrap();
     assert!(
         matches!(outcome.status, FinalExecutionStatus::SuccessValue(_)),
         "transaction failed: {:?}",
@@ -219,9 +217,8 @@ fn test_instant_delete_account() {
     );
 
     // Verify the account no longer exists.
-    rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
     assert_matches!(
-        rpc_node.view_account_query(env.test_loop_data(), contract_account),
+        env.rpc_node().view_account_query(contract_account),
         Err(QueryError::UnknownAccount { .. })
     );
 
