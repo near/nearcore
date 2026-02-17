@@ -282,6 +282,9 @@ impl<'a> NodeRunner<'a> {
         ret.unwrap()
     }
 
+    /// With spice blocks are executed separately from production so this runs until block with passed in
+    /// header is executed.
+    /// Without spice returns immediately.
     pub fn run_until_block_executed(
         &mut self,
         block_header: &BlockHeader,
