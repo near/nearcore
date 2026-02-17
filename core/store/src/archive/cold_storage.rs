@@ -422,7 +422,7 @@ pub fn copy_all_data_to_cold(
     hot_store: &Store,
     batch_size: usize,
     keep_going: &Arc<std::sync::atomic::AtomicBool>,
-) -> io::Result<CopyAllDataToColdStatus> {
+) -> CopyAllDataToColdStatus {
     for col in DBCol::iter() {
         if col.is_cold() {
             tracing::info!(target: "cold_store", ?col, "started column migration");
@@ -430,7 +430,7 @@ pub fn copy_all_data_to_cold(
             for (key, value) in hot_store.iter(col) {
                 if !keep_going.load(std::sync::atomic::Ordering::Relaxed) {
                     tracing::debug!(target: "cold_store", "stopping copy_all_data_to_cold");
-                    return Ok(CopyAllDataToColdStatus::Interrupted);
+                    return CopyAllDataToColdStatus::Interrupted;
                 }
                 transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec());
             }
@@ -438,7 +438,7 @@ pub fn copy_all_data_to_cold(
             tracing::info!(target: "cold_store", ?col, "finished column migration");
         }
     }
-    Ok(CopyAllDataToColdStatus::EverythingCopied)
+    CopyAllDataToColdStatus::EverythingCopied
 }
 
 // The copy_state_from_store function depends on the state nodes to be present

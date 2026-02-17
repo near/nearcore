@@ -7,7 +7,7 @@ use near_primitives::types::{BlockHeight, NumShards};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
-use crate::utils::node_v2::TestLoopNodeV2;
+use crate::utils::node::TestLoopNode;
 
 /// This test demonstrates how to trigger missing chunk at a certain height.
 /// Requires "test_features" feature to be enabled.
@@ -136,6 +136,6 @@ fn missing_chunk_window_example_test() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
-fn get_chunk_mask(node: &TestLoopNodeV2<'_>, block_height: BlockHeight) -> Vec<bool> {
+fn get_chunk_mask(node: &TestLoopNode<'_>, block_height: BlockHeight) -> Vec<bool> {
     node.client().chain.get_block_by_height(block_height).unwrap().header().chunk_mask().to_vec()
 }

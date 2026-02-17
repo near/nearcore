@@ -7,7 +7,6 @@ use rand::{Rng, SeedableRng};
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
-use crate::utils::node::TestLoopNode;
 
 const TARGET_HEIGHT: u64 = 20;
 const DROP_RATIO_NUMERATOR: u32 = 1;
@@ -48,15 +47,10 @@ fn network_drop_random_messages() {
         }));
     }
 
-    let node = TestLoopNode::from(&env.node_datas[0]);
-
     // We need to allow more than the default timeout calculated by
     // run_until_head_height because dropped messages slow things down.
-    node.run_until_head_height_with_timeout(
-        &mut env.test_loop,
-        TARGET_HEIGHT,
-        Duration::seconds(TIMEOUT_SECONDS),
-    );
+    env.node_runner(0)
+        .run_until_head_height_with_timeout(TARGET_HEIGHT, Duration::seconds(TIMEOUT_SECONDS));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }

@@ -8,7 +8,6 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{
     create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
 };
-use crate::utils::node::TestLoopNode;
 use itertools::Itertools as _;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
@@ -383,15 +382,15 @@ fn test_rpc_forwards_retried_transaction() {
         .clients(clients)
         .build()
         .warmup();
-    let rpc_node = TestLoopNode::rpc(&env.node_datas);
+    let rpc_data_idx = env.rpc_data_idx();
 
     // First test the case where `validator_signer` is set.
-    assert!(rpc_node.client(env.test_loop_data()).validator_signer.get().is_some());
+    assert!(env.rpc_node().client().validator_signer.get().is_some());
 
     // Record ForwardTx messages sent by the RPC node
     let forward_tx_requests = Rc::new(RefCell::new(Vec::new()));
     let forward_tx_requests_clone = forward_tx_requests.clone();
-    rpc_node.data().register_override_handler(
+    env.node_datas[rpc_data_idx].register_override_handler(
         &mut env.test_loop.data,
         Box::new(move |nr| {
             match &nr {
@@ -411,21 +410,21 @@ fn test_rpc_forwards_retried_transaction() {
         user_accounts[0].clone(),
         &create_user_test_signer(&user_accounts[0]),
         Balance::from_near(1),
-        rpc_node.head(env.test_loop_data()).last_block_hash,
+        env.rpc_node().head().last_block_hash,
     );
-    rpc_node.data().rpc_handler_sender.send(ProcessTxRequest {
+    env.node_datas[rpc_data_idx].rpc_handler_sender.send(ProcessTxRequest {
         transaction: tx1.clone(),
         is_forwarded: false,
         check_only: false,
     });
-    rpc_node.data().rpc_handler_sender.send(ProcessTxRequest {
+    env.node_datas[rpc_data_idx].rpc_handler_sender.send(ProcessTxRequest {
         transaction: tx1.clone(),
         is_forwarded: false,
         check_only: false,
     });
 
     // Run TestLoop to process the transaction requests
-    rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
+    env.rpc_runner().run_for_number_of_blocks(1);
 
     // There should be two ForwardTx(validator0, tx1) messages recorded.
     let validator_acc: AccountId = "validator0".parse().unwrap();
@@ -436,7 +435,7 @@ fn test_rpc_forwards_retried_transaction() {
     forward_tx_requests.borrow_mut().clear();
 
     // Now set validator_signer to None.
-    rpc_node.client(env.test_loop_data()).validator_signer.update(None);
+    env.rpc_node().client().validator_signer.update(None);
 
     // Submit tx2 twice
     let tx2 = SignedTransaction::send_money(
@@ -445,21 +444,21 @@ fn test_rpc_forwards_retried_transaction() {
         user_accounts[0].clone(),
         &create_user_test_signer(&user_accounts[0]),
         Balance::from_near(1),
-        rpc_node.head(env.test_loop_data()).last_block_hash,
+        env.rpc_node().head().last_block_hash,
     );
-    rpc_node.data().rpc_handler_sender.send(ProcessTxRequest {
+    env.node_datas[rpc_data_idx].rpc_handler_sender.send(ProcessTxRequest {
         transaction: tx2.clone(),
         is_forwarded: false,
         check_only: false,
     });
-    rpc_node.data().rpc_handler_sender.send(ProcessTxRequest {
+    env.node_datas[rpc_data_idx].rpc_handler_sender.send(ProcessTxRequest {
         transaction: tx2.clone(),
         is_forwarded: false,
         check_only: false,
     });
 
     // Run TestLoop for a bit
-    rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
+    env.rpc_runner().run_for_number_of_blocks(1);
 
     // There should be two ForwardTx(validator0, tx2) messages recorded.
     assert_eq!(

@@ -76,7 +76,7 @@ fn slow_test_state_dump() {
         validator,
         future_spawner: Arc::new(TokioRuntimeFutureSpawner(tokio_runtime)),
     };
-    state_sync_dumper.start().unwrap();
+    state_sync_dumper.start();
 
     const MAX_HEIGHT: BlockHeight = 37;
     for i in 1..=MAX_HEIGHT {
@@ -186,7 +186,7 @@ fn run_state_sync_with_dumped_parts(
         validator,
         future_spawner: Arc::new(TokioRuntimeFutureSpawner(tokio_runtime)),
     };
-    state_sync_dumper.start().unwrap();
+    state_sync_dumper.start();
 
     let account_creation_at_height = (account_creation_at_epoch_height - 1) * epoch_length + 2;
 

@@ -13,7 +13,6 @@ use near_primitives_core::account::AccessKey;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::validators_spec_clients_with_rpc;
-use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::get_shared_block_hash;
 
 #[test]
@@ -38,7 +37,6 @@ fn test_access_key_changes_includes_gas_key_nonces() {
         .clients(clients)
         .build()
         .warmup();
-    let rpc_node = TestLoopNode::rpc(&env.node_datas);
 
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     // TODO(spice): Replace with get_next_nonce once it works with spice.
@@ -59,12 +57,12 @@ fn test_access_key_changes_includes_gas_key_nonces() {
         }))],
         block_hash,
     );
-    let outcome = rpc_node.execute_tx(&mut env.test_loop, tx, Duration::seconds(5)).unwrap();
+    let outcome = env.rpc_runner().execute_tx(tx, Duration::seconds(5)).unwrap();
     let tx_block_hash = outcome.transaction_outcome.block_hash;
-    let tx_block_header =
-        rpc_node.client(&env.test_loop.data).chain.get_block_header(&tx_block_hash).unwrap();
-    rpc_node.run_until_block_executed(&mut env.test_loop, &tx_block_header, Duration::seconds(10));
-    let view_client = rpc_node.view_client_actor(&mut env.test_loop.data);
+    let tx_block_header = env.rpc_node().client().chain.get_block_header(&tx_block_hash).unwrap();
+    env.rpc_runner().run_until_block_executed(&tx_block_header, Duration::seconds(10));
+    let mut rpc = env.rpc_node_mut();
+    let view_client = rpc.view_client_actor();
 
     // Test AllAccessKey changes request
     let state_changes = view_client
