@@ -11,6 +11,7 @@ use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::AccountRequirement;
 use crate::utils::{average_cost, percentiles};
 use near_crypto::{KeyType, PublicKey};
+use near_primitives::account::GasKeyInfo;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::{DeterministicStateInitAction, GlobalContractIdentifier};
 use near_primitives::deterministic_account_id::{
@@ -916,6 +917,112 @@ pub(crate) fn det_state_init_action(
     }));
 
     (receiver, action)
+}
+
+fn add_gas_key_full_access_action(num_nonces: u16) -> Action {
+    Action::AddKey(Box::new(near_primitives::transaction::AddKeyAction {
+        public_key: PublicKey::from_seed(KeyType::ED25519, "gas-key-seed"),
+        access_key: AccessKey {
+            nonce: 0,
+            permission: AccessKeyPermission::GasKeyFullAccess(GasKeyInfo {
+                balance: Balance::from_near(1),
+                num_nonces,
+            }),
+        },
+    }))
+}
+
+fn transfer_to_gas_key_action() -> Action {
+    Action::TransferToGasKey(Box::new(near_primitives::action::TransferToGasKeyAction {
+        public_key: PublicKey::from_seed(KeyType::ED25519, "gas-key-seed"),
+        deposit: Balance::from_yoctonear(1),
+    }))
+}
+
+fn withdraw_from_gas_key_action() -> Action {
+    Action::WithdrawFromGasKey(Box::new(near_primitives::action::WithdrawFromGasKeyAction {
+        public_key: PublicKey::from_seed(KeyType::ED25519, "gas-key-seed"),
+        amount: Balance::from_yoctonear(1),
+    }))
+}
+
+pub(crate) fn transfer_to_gas_key_send_sir(ctx: &mut EstimatorContext) -> GasCost {
+    ActionEstimation::new_sir(ctx)
+        .add_action(transfer_to_gas_key_action())
+        .verify_cost(&mut ctx.testbed())
+}
+
+pub(crate) fn transfer_to_gas_key_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
+    ActionEstimation::new(ctx)
+        .add_action(transfer_to_gas_key_action())
+        .verify_cost(&mut ctx.testbed())
+}
+
+pub(crate) fn transfer_to_gas_key_exec(ctx: &mut EstimatorContext) -> GasCost {
+    ActionEstimation::new_sir(ctx)
+        .add_action(add_gas_key_full_access_action(1))
+        .add_action(transfer_to_gas_key_action())
+        .inner_iters(1)
+        .apply_cost(&mut ctx.testbed())
+}
+
+pub(crate) fn withdraw_from_gas_key_send_sir(ctx: &mut EstimatorContext) -> GasCost {
+    ActionEstimation::new_sir(ctx)
+        .add_action(withdraw_from_gas_key_action())
+        .verify_cost(&mut ctx.testbed())
+}
+
+pub(crate) fn withdraw_from_gas_key_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
+    ActionEstimation::new(ctx)
+        .add_action(withdraw_from_gas_key_action())
+        .verify_cost(&mut ctx.testbed())
+}
+
+pub(crate) fn withdraw_from_gas_key_exec(ctx: &mut EstimatorContext) -> GasCost {
+    ActionEstimation::new_sir(ctx)
+        .add_action(add_gas_key_full_access_action(1))
+        .add_action(transfer_to_gas_key_action())
+        .add_action(withdraw_from_gas_key_action())
+        .inner_iters(1)
+        .apply_cost(&mut ctx.testbed())
+}
+
+pub(crate) fn add_gas_key_per_nonce_send_sir(ctx: &mut EstimatorContext) -> GasCost {
+    let n_high: u16 = 256;
+    let n_low: u16 = 1;
+    let high = ActionEstimation::new_sir(ctx)
+        .add_action(add_gas_key_full_access_action(n_high))
+        .verify_cost(&mut ctx.testbed());
+    let low = ActionEstimation::new_sir(ctx)
+        .add_action(add_gas_key_full_access_action(n_low))
+        .verify_cost(&mut ctx.testbed());
+    high.saturating_sub(&low, &NonNegativeTolerance::PER_MILLE) / (n_high - n_low) as u64
+}
+
+pub(crate) fn add_gas_key_per_nonce_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
+    let n_high: u16 = 256;
+    let n_low: u16 = 1;
+    let high = ActionEstimation::new(ctx)
+        .add_action(add_gas_key_full_access_action(n_high))
+        .verify_cost(&mut ctx.testbed());
+    let low = ActionEstimation::new(ctx)
+        .add_action(add_gas_key_full_access_action(n_low))
+        .verify_cost(&mut ctx.testbed());
+    high.saturating_sub(&low, &NonNegativeTolerance::PER_MILLE) / (n_high - n_low) as u64
+}
+
+pub(crate) fn add_gas_key_per_nonce_exec(ctx: &mut EstimatorContext) -> GasCost {
+    let n_high: u16 = 256;
+    let n_low: u16 = 1;
+    let high = ActionEstimation::new_sir(ctx)
+        .add_action(add_gas_key_full_access_action(n_high))
+        .inner_iters(1)
+        .apply_cost(&mut ctx.testbed());
+    let low = ActionEstimation::new_sir(ctx)
+        .add_action(add_gas_key_full_access_action(n_low))
+        .inner_iters(1)
+        .apply_cost(&mut ctx.testbed());
+    high.saturating_sub(&low, &NonNegativeTolerance::PER_MILLE) / (n_high - n_low) as u64
 }
 
 /// Helper enum to select how large an action should be generated.

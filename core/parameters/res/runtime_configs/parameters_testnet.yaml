@@ -308,3 +308,20 @@ action_use_global_contract_per_identifier_byte: {
   send_not_sir: 999_999_999_999_999,
   execution: 999_999_999_999_999,
 }
+
+# Gas keys
+action_transfer_to_gas_key: {
+  send_sir: 999_999_999_999_999,
+  send_not_sir: 999_999_999_999_999,
+  execution: 999_999_999_999_999,
+}
+action_withdraw_from_gas_key: {
+  send_sir: 999_999_999_999_999,
+  send_not_sir: 999_999_999_999_999,
+  execution: 999_999_999_999_999,
+}
+action_add_gas_key_per_nonce: {
+  send_sir: 999_999_999_999_999,
+  send_not_sir: 999_999_999_999_999,
+  execution: 999_999_999_999_999,
+}

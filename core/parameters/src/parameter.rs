@@ -243,6 +243,11 @@ pub enum Parameter {
 
     // Flag to enabled deterministic account ids
     DeterministicAccountIds,
+
+    // Gas keys
+    ActionTransferToGasKey,
+    ActionWithdrawFromGasKey,
+    ActionAddGasKeyPerNonce,
 }
 
 #[derive(
@@ -282,6 +287,9 @@ pub enum FeeParameter {
     ActionDeterministicStateInit,
     ActionDeterministicStateInitPerByte,
     ActionDeterministicStateInitPerEntry,
+    ActionTransferToGasKey,
+    ActionWithdrawFromGasKey,
+    ActionAddGasKeyPerNonce,
 }
 
 impl Parameter {
@@ -354,6 +362,9 @@ impl From<ActionCosts> for FeeParameter {
             ActionCosts::deterministic_state_init_entry => {
                 Self::ActionDeterministicStateInitPerEntry
             }
+            ActionCosts::transfer_to_gas_key => Self::ActionTransferToGasKey,
+            ActionCosts::withdraw_from_gas_key => Self::ActionWithdrawFromGasKey,
+            ActionCosts::add_gas_key_per_nonce => Self::ActionAddGasKeyPerNonce,
         }
     }
 }

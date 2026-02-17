@@ -85,6 +85,9 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             ActionCosts::deterministic_state_init_base => fee(Cost::ActionDeterministicStateInitBase)?,
             ActionCosts::deterministic_state_init_byte => fee(Cost::ActionDeterministicStateInitPerByte)?,
             ActionCosts::deterministic_state_init_entry => fee(Cost::ActionDeterministicStateInitPerEntry)?,
+            ActionCosts::transfer_to_gas_key => fee(Cost::ActionTransferToGasKey)?,
+            ActionCosts::withdraw_from_gas_key => fee(Cost::ActionWithdrawFromGasKey)?,
+            ActionCosts::add_gas_key_per_nonce => fee(Cost::ActionAddGasKeyPerNonce)?,
         },
         ..RuntimeFeesConfig::clone(&actual_fees_config)
     };

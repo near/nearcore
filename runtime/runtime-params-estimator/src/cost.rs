@@ -783,6 +783,20 @@ pub enum Cost {
     /// `promise_yield_resume` host function.
     YieldResumeByte,
 
+    // Gas key action costs
+    ActionTransferToGasKey,
+    ActionTransferToGasKeySendSir,
+    ActionTransferToGasKeySendNotSir,
+    ActionTransferToGasKeyExec,
+    ActionWithdrawFromGasKey,
+    ActionWithdrawFromGasKeySendSir,
+    ActionWithdrawFromGasKeySendNotSir,
+    ActionWithdrawFromGasKeyExec,
+    ActionAddGasKeyPerNonce,
+    ActionAddGasKeyPerNonceSendSir,
+    ActionAddGasKeyPerNonceSendNotSir,
+    ActionAddGasKeyPerNonceExec,
+
     __Count,
 }
 

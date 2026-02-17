@@ -327,6 +327,9 @@ pub enum ActionCosts {
     deterministic_state_init_base = 20,
     deterministic_state_init_byte = 21,
     deterministic_state_init_entry = 22,
+    transfer_to_gas_key = 23,
+    withdraw_from_gas_key = 24,
+    add_gas_key_per_nonce = 25,
 }
 
 impl ExtCosts {
@@ -514,6 +517,9 @@ impl RuntimeFeesConfig {
                 ActionCosts::deterministic_state_init_base => Fee::new(3_850_000_000_000, 3_850_000_000_000, 4_080_000_000_000),
                 ActionCosts::deterministic_state_init_byte => Fee::new(72_000_000, 72_000_000, 70_000_000),
                 ActionCosts::deterministic_state_init_entry => Fee::new(0, 0, 200_000_000_000),
+                ActionCosts::transfer_to_gas_key => Fee::test_value(115_123_062_500),
+                ActionCosts::withdraw_from_gas_key => Fee::test_value(115_123_062_500),
+                ActionCosts::add_gas_key_per_nonce => Fee::test_value(100_000_000_000),
             },
         }
     }

@@ -248,6 +248,30 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
         Cost::ActionDeterministicStateInitPerByteSendNotSir,
         action_costs::deterministic_state_init_byte_send,
     ),
+    #[cfg(feature = "nightly")]
+    (Cost::ActionTransferToGasKey, action_transfer_to_gas_key),
+    #[cfg(feature = "nightly")]
+    (Cost::ActionTransferToGasKeySendSir, action_costs::transfer_to_gas_key_send_sir),
+    #[cfg(feature = "nightly")]
+    (Cost::ActionTransferToGasKeySendNotSir, action_costs::transfer_to_gas_key_send_not_sir),
+    #[cfg(feature = "nightly")]
+    (Cost::ActionTransferToGasKeyExec, action_costs::transfer_to_gas_key_exec),
+    #[cfg(feature = "nightly")]
+    (Cost::ActionWithdrawFromGasKey, action_withdraw_from_gas_key),
+    #[cfg(feature = "nightly")]
+    (Cost::ActionWithdrawFromGasKeySendSir, action_costs::withdraw_from_gas_key_send_sir),
+    #[cfg(feature = "nightly")]
+    (Cost::ActionWithdrawFromGasKeySendNotSir, action_costs::withdraw_from_gas_key_send_not_sir),
+    #[cfg(feature = "nightly")]
+    (Cost::ActionWithdrawFromGasKeyExec, action_costs::withdraw_from_gas_key_exec),
+    #[cfg(feature = "nightly")]
+    (Cost::ActionAddGasKeyPerNonce, action_add_gas_key_per_nonce),
+    #[cfg(feature = "nightly")]
+    (Cost::ActionAddGasKeyPerNonceSendSir, action_costs::add_gas_key_per_nonce_send_sir),
+    #[cfg(feature = "nightly")]
+    (Cost::ActionAddGasKeyPerNonceSendNotSir, action_costs::add_gas_key_per_nonce_send_not_sir),
+    #[cfg(feature = "nightly")]
+    (Cost::ActionAddGasKeyPerNonceExec, action_costs::add_gas_key_per_nonce_exec),
     (Cost::HostFunctionCall, host_function_call),
     (Cost::WasmInstruction, wasm_instruction),
     (Cost::DataReceiptCreationBase, data_receipt_creation_base),
@@ -1001,6 +1025,107 @@ fn deterministic_state_init_cost(
     let (gas_cost, _ext_costs) =
         transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency);
     gas_cost
+}
+
+#[cfg(feature = "nightly")]
+fn action_transfer_to_gas_key(ctx: &mut EstimatorContext) -> GasCost {
+    let total_cost = {
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+            let sender = tb.random_unused_account();
+            let receiver = sender.clone();
+            let actions = vec![
+                Action::AddKey(Box::new(AddKeyAction {
+                    public_key: "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847"
+                        .parse()
+                        .unwrap(),
+                    access_key: AccessKey::gas_key_full_access(1),
+                })),
+                Action::TransferToGasKey(Box::new(
+                    near_primitives::action::TransferToGasKeyAction {
+                        public_key: "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847"
+                            .parse()
+                            .unwrap(),
+                        deposit: Balance::from_yoctonear(1),
+                    },
+                )),
+            ];
+            tb.transaction_from_actions(sender, receiver, actions)
+        };
+        transaction_cost(ctx, &mut make_transaction)
+    };
+    let base_cost = action_sir_receipt_creation(ctx);
+    total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
+}
+
+#[cfg(feature = "nightly")]
+fn action_withdraw_from_gas_key(ctx: &mut EstimatorContext) -> GasCost {
+    let total_cost = {
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+            let sender = tb.random_unused_account();
+            let receiver = sender.clone();
+            let actions = vec![
+                Action::AddKey(Box::new(AddKeyAction {
+                    public_key: "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847"
+                        .parse()
+                        .unwrap(),
+                    access_key: AccessKey::gas_key_full_access(1),
+                })),
+                Action::TransferToGasKey(Box::new(
+                    near_primitives::action::TransferToGasKeyAction {
+                        public_key: "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847"
+                            .parse()
+                            .unwrap(),
+                        deposit: Balance::from_near(1),
+                    },
+                )),
+                Action::WithdrawFromGasKey(Box::new(
+                    near_primitives::action::WithdrawFromGasKeyAction {
+                        public_key: "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847"
+                            .parse()
+                            .unwrap(),
+                        amount: Balance::from_yoctonear(1),
+                    },
+                )),
+            ];
+            tb.transaction_from_actions(sender, receiver, actions)
+        };
+        transaction_cost(ctx, &mut make_transaction)
+    };
+    let base_cost = action_sir_receipt_creation(ctx);
+    total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
+}
+
+#[cfg(feature = "nightly")]
+fn action_add_gas_key_per_nonce(ctx: &mut EstimatorContext) -> GasCost {
+    let n_high: u16 = 256;
+    let n_low: u16 = 1;
+    let cost_high = {
+        let n = n_high;
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+            let sender = tb.random_unused_account();
+            let receiver = sender.clone();
+            let actions = vec![Action::AddKey(Box::new(AddKeyAction {
+                public_key: "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847".parse().unwrap(),
+                access_key: AccessKey::gas_key_full_access(n),
+            }))];
+            tb.transaction_from_actions(sender, receiver, actions)
+        };
+        transaction_cost(ctx, &mut make_transaction)
+    };
+    let cost_low = {
+        let n = n_low;
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+            let sender = tb.random_unused_account();
+            let receiver = sender.clone();
+            let actions = vec![Action::AddKey(Box::new(AddKeyAction {
+                public_key: "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847".parse().unwrap(),
+                access_key: AccessKey::gas_key_full_access(n),
+            }))];
+            tb.transaction_from_actions(sender, receiver, actions)
+        };
+        transaction_cost(ctx, &mut make_transaction)
+    };
+    cost_high.saturating_sub(&cost_low, &NonNegativeTolerance::PER_MILLE) / (n_high - n_low) as u64
 }
 
 fn host_function_call(ctx: &mut EstimatorContext) -> GasCost {

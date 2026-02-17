@@ -1,0 +1,12 @@
+action_transfer_to_gas_key: {
+  old: { send_sir: 999_999_999_999_999, send_not_sir: 999_999_999_999_999, execution: 999_999_999_999_999 },
+  new: { send_sir: 115_123_062_500, send_not_sir: 115_123_062_500, execution: 115_123_062_500 },
+}
+action_withdraw_from_gas_key: {
+  old: { send_sir: 999_999_999_999_999, send_not_sir: 999_999_999_999_999, execution: 999_999_999_999_999 },
+  new: { send_sir: 115_123_062_500, send_not_sir: 115_123_062_500, execution: 115_123_062_500 },
+}
+action_add_gas_key_per_nonce: {
+  old: { send_sir: 999_999_999_999_999, send_not_sir: 999_999_999_999_999, execution: 999_999_999_999_999 },
+  new: { send_sir: 100_000_000_000, send_not_sir: 100_000_000_000, execution: 100_000_000_000 },
+}

@@ -147,9 +147,12 @@ pub fn total_send_fees(
 
                 base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
             }
-            // TODO(gas-keys): properly handle GasKey fees
-            TransferToGasKey(_) => Gas::ZERO,
-            WithdrawFromGasKey(_) => Gas::ZERO,
+            TransferToGasKey(_) => {
+                fees.fee(ActionCosts::transfer_to_gas_key).send_fee(sender_is_receiver)
+            }
+            WithdrawFromGasKey(_) => {
+                fees.fee(ActionCosts::withdraw_from_gas_key).send_fee(sender_is_receiver)
+            }
         };
         result = result.checked_add_result(delta)?;
     }
@@ -180,9 +183,28 @@ fn permission_send_fees(
         AccessKeyPermission::FullAccess => {
             fees.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
         }
-        // TODO(gas-keys): properly handle GasKey fees
-        AccessKeyPermission::GasKeyFullAccess(_) => Gas::ZERO,
-        AccessKeyPermission::GasKeyFunctionCall(_, _) => Gas::ZERO,
+        AccessKeyPermission::GasKeyFullAccess(info) => {
+            let base = fees.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver);
+            let per_nonce =
+                fees.fee(ActionCosts::add_gas_key_per_nonce).send_fee(sender_is_receiver);
+            let nonce_fee = per_nonce.checked_mul(info.num_nonces as u64).unwrap();
+            base.checked_add(nonce_fee).unwrap()
+        }
+        AccessKeyPermission::GasKeyFunctionCall(info, perm) => {
+            let num_bytes =
+                perm.method_names.iter().map(|name| name.as_bytes().len() as u64 + 1).sum::<u64>();
+            let base =
+                fees.fee(ActionCosts::add_function_call_key_base).send_fee(sender_is_receiver);
+            let byte_fee =
+                fees.fee(ActionCosts::add_function_call_key_byte).send_fee(sender_is_receiver);
+            let per_nonce =
+                fees.fee(ActionCosts::add_gas_key_per_nonce).send_fee(sender_is_receiver);
+            let nonce_fee = per_nonce.checked_mul(info.num_nonces as u64).unwrap();
+            base.checked_add(byte_fee.checked_mul(num_bytes).unwrap())
+                .unwrap()
+                .checked_add(nonce_fee)
+                .unwrap()
+        }
     }
 }
 
@@ -279,9 +301,8 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
 
             base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
         }
-        // TODO(gas-keys): properly handle GasKey fees
-        TransferToGasKey(_) => Gas::ZERO,
-        WithdrawFromGasKey(_) => Gas::ZERO,
+        TransferToGasKey(_) => fees.fee(ActionCosts::transfer_to_gas_key).exec_fee(),
+        WithdrawFromGasKey(_) => fees.fee(ActionCosts::withdraw_from_gas_key).exec_fee(),
     }
 }
 
@@ -302,9 +323,24 @@ fn permission_exec_fees(permission: &AccessKeyPermission, fees: &RuntimeFeesConf
             base_fee.checked_add(all_bytes_fee).unwrap()
         }
         AccessKeyPermission::FullAccess => fees.fee(ActionCosts::add_full_access_key).exec_fee(),
-        // TODO(gas-keys): properly handle GasKey fees
-        AccessKeyPermission::GasKeyFullAccess(_) => Gas::ZERO,
-        AccessKeyPermission::GasKeyFunctionCall(_, _) => Gas::ZERO,
+        AccessKeyPermission::GasKeyFullAccess(info) => {
+            let base = fees.fee(ActionCosts::add_full_access_key).exec_fee();
+            let per_nonce = fees.fee(ActionCosts::add_gas_key_per_nonce).exec_fee();
+            let nonce_fee = per_nonce.checked_mul(info.num_nonces as u64).unwrap();
+            base.checked_add(nonce_fee).unwrap()
+        }
+        AccessKeyPermission::GasKeyFunctionCall(info, perm) => {
+            let num_bytes =
+                perm.method_names.iter().map(|name| name.as_bytes().len() as u64 + 1).sum::<u64>();
+            let base = fees.fee(ActionCosts::add_function_call_key_base).exec_fee();
+            let byte_fee = fees.fee(ActionCosts::add_function_call_key_byte).exec_fee();
+            let per_nonce = fees.fee(ActionCosts::add_gas_key_per_nonce).exec_fee();
+            let nonce_fee = per_nonce.checked_mul(info.num_nonces as u64).unwrap();
+            base.checked_add(byte_fee.checked_mul(num_bytes).unwrap())
+                .unwrap()
+                .checked_add(nonce_fee)
+                .unwrap()
+        }
     }
 }
 
