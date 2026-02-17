@@ -550,8 +550,7 @@ fn test_restart_producer_node() {
     let stable_account = producers[1].clone();
 
     env.runner_for_account(&restart_account).run_until_head_height(5);
-    let restart_identifier =
-        env.get_node_data_by_account_id(&restart_account).identifier.clone();
+    let restart_identifier = env.get_node_data_by_account_id(&restart_account).identifier.clone();
     let killed_node_state = env.kill_node(&restart_identifier);
 
     let block_hash = env.node_for_account(&stable_account).head().last_block_hash;
@@ -643,15 +642,13 @@ fn test_restart_validator_node() {
         Balance::from_near(1),
         validator_block_hash,
     );
-    let tx_processor_sender =
-        env.get_node_data_by_account_id(&producer).rpc_handler_sender.clone();
+    let tx_processor_sender = env.get_node_data_by_account_id(&producer).rpc_handler_sender.clone();
     let retry_when_congested = false;
     let mut tx_runner = TransactionRunner::new(tx, retry_when_congested);
     let future_spawner = env.test_loop.future_spawner("TransactionRunner");
 
     let start_height = env.node_for_account(&producer).head().height;
-    let producer_identifier =
-        env.get_node_data_by_account_id(&producer).identifier.clone();
+    let producer_identifier = env.get_node_data_by_account_id(&producer).identifier.clone();
     env.runner_for_account(&producer).run_until(
         |node| {
             let client = node.client();

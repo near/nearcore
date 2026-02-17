@@ -167,10 +167,7 @@ impl TestLoopEnv {
         self.test_loop.shutdown_and_drain_remaining_events(timeout);
     }
 
-    pub fn get_node_data_by_account_id(
-        &self,
-        account_id: &AccountId,
-    ) -> &NodeExecutionData {
+    pub fn get_node_data_by_account_id(&self, account_id: &AccountId) -> &NodeExecutionData {
         let idx = self.account_data_idx(account_id);
         &self.node_datas[idx]
     }

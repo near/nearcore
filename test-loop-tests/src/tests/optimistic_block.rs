@@ -209,10 +209,8 @@ fn test_optimistic_block_after_missing_block() {
     tracing::info!(target: "test", ?height_to_skip, ?producer, "skipping block at height");
     env = env.drop(DropCondition::BlocksByHeight([height_to_skip].into_iter().collect()));
 
-    let client_handle = &env
-        .get_node_data_by_account_id(next_producer.account_id())
-        .client_sender
-        .actor_handle();
+    let client_handle =
+        &env.get_node_data_by_account_id(next_producer.account_id()).client_sender.actor_handle();
 
     let (hit_count_before_skip, height_before_skip) =
         get_hit_count_and_height(&env, &next_producer);
@@ -279,10 +277,8 @@ fn alter_optimistic_block_at_height(
 }
 
 fn get_hit_count_and_height(env: &TestLoopEnv, producer: &ValidatorStake) -> (usize, BlockHeight) {
-    let client_handler = &env
-        .get_node_data_by_account_id(producer.account_id())
-        .client_sender
-        .actor_handle();
+    let client_handler =
+        &env.get_node_data_by_account_id(producer.account_id()).client_sender.actor_handle();
     let chain = &env.test_loop.data.get(&client_handler).client.chain;
     (chain.apply_chunk_results_cache.hits(), chain.head().unwrap().height)
 }
@@ -305,14 +301,10 @@ fn test_optimistic_block_with_invalidated_outcome() {
 
     tracing::info!(target: "test", ?height_to_skip, ?producer, "alter optimistic block at height");
 
-    let producer_client_handle = &env
-        .get_node_data_by_account_id(producer.account_id())
-        .client_sender
-        .actor_handle();
-    let affected_client_handle = &env
-        .get_node_data_by_account_id(next_producer.account_id())
-        .client_sender
-        .actor_handle();
+    let producer_client_handle =
+        &env.get_node_data_by_account_id(producer.account_id()).client_sender.actor_handle();
+    let affected_client_handle =
+        &env.get_node_data_by_account_id(next_producer.account_id()).client_sender.actor_handle();
 
     let client = &env.test_loop.data.get(&producer_client_handle).client;
     let signer = client.validator_signer.get().unwrap();
