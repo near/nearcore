@@ -796,6 +796,7 @@ impl Chain {
                     epoch_manager,
                     &chunk_header,
                     epoch_id,
+                    Some(parent_hash),
                 )? {
                     byzantine_assert!(false);
                     return Err(Error::InvalidChunk(format!(

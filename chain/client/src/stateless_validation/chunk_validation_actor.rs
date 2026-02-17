@@ -191,11 +191,13 @@ impl ChunkValidationActor {
     }
 
     fn send_state_witness_ack(&self, witness: &ChunkStateWitness) -> Result<(), Error> {
-        let chunk_producer = self
-            .epoch_manager
-            .get_chunk_producer_info(&witness.chunk_production_key())?
-            .account_id()
-            .clone();
+        let chunk_producer = near_chain::signature_verification::resolve_chunk_producer(
+            self.epoch_manager.as_ref(),
+            &witness.chunk_production_key(),
+            Some(witness.chunk_header().prev_block_hash()),
+        )?
+        .account_id()
+        .clone();
 
         // Skip sending ack to self.
         if let Some(validator_signer) = self.validator_signer.get() {
@@ -378,8 +380,12 @@ impl ChunkValidationActor {
         let chunk_production_key = state_witness.chunk_production_key();
         let shard_id = state_witness.chunk_header().shard_id();
         let chunk_header = state_witness.chunk_header().clone();
-        let chunk_producer_name =
-            self.epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
+        let chunk_producer_name = near_chain::signature_verification::resolve_chunk_producer(
+            self.epoch_manager.as_ref(),
+            &chunk_production_key,
+            Some(&prev_block_hash),
+        )?
+        .take_account_id();
 
         let expected_epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;

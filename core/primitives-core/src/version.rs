@@ -472,7 +472,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::GasKeys => 149,
-            ProtocolFeature::BlockHashInPartialWitness => 150,
+            ProtocolFeature::BlockHashInPartialWitness => 84,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.

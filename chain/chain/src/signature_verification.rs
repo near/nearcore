@@ -25,6 +25,24 @@ pub fn verify_block_vrf(
     Ok(())
 }
 
+/// Resolve the chunk producer, preferring the authoritative `prev_block_hash`-based
+/// lookup when available, falling back to the height-based lookup via `ChunkProductionKey`.
+pub fn resolve_chunk_producer(
+    epoch_manager: &dyn EpochManagerAdapter,
+    key: &ChunkProductionKey,
+    prev_block_hash: Option<&CryptoHash>,
+) -> Result<ValidatorStake, Error> {
+    match prev_block_hash {
+        Some(hash) => {
+            match epoch_manager.get_chunk_producer_by_prev_block_hash(hash, key.shard_id) {
+                Ok(p) => Ok(p),
+                Err(_) => Ok(epoch_manager.get_chunk_producer_info(key)?),
+            }
+        }
+        None => Ok(epoch_manager.get_chunk_producer_info(key)?),
+    }
+}
+
 /// Verify chunk header signature.
 /// return false if the header signature does not match the key for the assigned chunk producer
 /// for this chunk, or if the chunk producer has been slashed
@@ -32,10 +50,12 @@ pub fn verify_block_vrf(
 /// `header`: chunk header
 /// `epoch_id`: epoch_id that the chunk header belongs to
 /// `last_known_hash`: used to determine the list of chunk producers that are slashed
+/// `prev_block_hash`: when available, used for authoritative chunk producer lookup
 pub fn verify_chunk_header_signature_with_epoch_manager(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk_header: &ShardChunkHeader,
     epoch_id: EpochId,
+    prev_block_hash: Option<&CryptoHash>,
 ) -> Result<bool, Error> {
     verify_chunk_header_signature_with_epoch_manager_and_parts(
         epoch_manager,
@@ -44,6 +64,7 @@ pub fn verify_chunk_header_signature_with_epoch_manager(
         epoch_id,
         chunk_header.height_created(),
         chunk_header.shard_id(),
+        prev_block_hash,
     )
 }
 
@@ -54,9 +75,10 @@ pub fn verify_chunk_header_signature_with_epoch_manager_and_parts(
     epoch_id: EpochId,
     height_created: BlockHeight,
     shard_id: ShardId,
+    prev_block_hash: Option<&CryptoHash>,
 ) -> Result<bool, Error> {
     let key = ChunkProductionKey { epoch_id, height_created, shard_id };
-    let chunk_producer = epoch_manager.get_chunk_producer_info(&key)?;
+    let chunk_producer = resolve_chunk_producer(epoch_manager, &key, prev_block_hash)?;
     Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
 }
 
