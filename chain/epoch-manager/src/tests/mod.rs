@@ -3213,8 +3213,9 @@ fn test_verify_partial_witness_signature() {
         signer.as_ref(),
     );
     let cpk = partial_witness.chunk_production_key();
-    let chunk_producer =
-        epoch_manager.get_chunk_producer_for_height(&cpk.epoch_id, cpk.height_created, cpk.shard_id).unwrap();
+    let chunk_producer = epoch_manager
+        .get_chunk_producer_for_height(&cpk.epoch_id, cpk.height_created, cpk.shard_id)
+        .unwrap();
     assert!(partial_witness.verify(chunk_producer.public_key()));
 
     // Check invalid chunk state witness signature.
@@ -3717,7 +3718,7 @@ fn test_get_shard_uids_pending_resharding_double_same() {
     assert_eq!(shard_uids, vec![s1].into_iter().collect::<HashSet<_>>());
 }
 
-/// Tests that `get_chunk_producer_by_prev_block_hash` resolves the correct
+/// Tests that `get_chunk_producer_info` resolves the correct
 /// chunk producer on two forks that are in different epochs at the same height.
 ///
 /// Setup: epoch_length=5, 10 initial validators, "newcomer" stakes in epoch 1.
@@ -3731,7 +3732,7 @@ fn test_get_shard_uids_pending_resharding_double_same() {
 ///   Never leaves epoch 1 because 2+3 = 5 < 6.
 ///
 /// At the same height (14), fork A is in epoch 3 (with newcomer) and fork B
-/// is in epoch 1 (without). `get_chunk_producer_by_prev_block_hash` returns
+/// is in epoch 1 (without). `get_chunk_producer_info` returns
 /// different chunk producers — proving height alone is ambiguous and the
 /// block-hash-based lookup is required.
 #[test]
@@ -3824,28 +3825,28 @@ fn test_chunk_producer_by_prev_block_hash_fork_scenario() {
     assert_ne!(epoch_a, epoch_b, "Forks should be in different epochs at the same height");
 
     // "newcomer" is in fork A's epoch but not fork B's.
-    let validators_a: Vec<_> = epoch_manager
-        .get_epoch_info(&epoch_a)
-        .unwrap()
-        .validators_iter()
-        .map(|v| v.account_id().to_string())
-        .collect();
-    let validators_b: Vec<_> = epoch_manager
-        .get_epoch_info(&epoch_b)
-        .unwrap()
-        .validators_iter()
-        .map(|v| v.account_id().to_string())
-        .collect();
-    assert!(validators_a.contains(&"newcomer".to_string()));
-    assert!(!validators_b.contains(&"newcomer".to_string()));
+    assert!(
+        epoch_manager
+            .get_epoch_info(&epoch_a)
+            .unwrap()
+            .validators_iter()
+            .any(|v| v.account_id().as_str() == "newcomer")
+    );
+    assert!(
+        !epoch_manager
+            .get_epoch_info(&epoch_b)
+            .unwrap()
+            .validators_iter()
+            .any(|v| v.account_id().as_str() == "newcomer")
+    );
 
     // The key assertion: at the same height, the two fork tips produce
     // different chunk producers for at least one shard.
     let shard_layout = epoch_manager.get_shard_layout(&epoch_a).unwrap();
     let mut found_difference = false;
     for shard_id in shard_layout.shard_ids() {
-        let cp_a = epoch_manager.get_chunk_producer_by_prev_block_hash(&ha[14], shard_id).unwrap();
-        let cp_b = epoch_manager.get_chunk_producer_by_prev_block_hash(&hb[14], shard_id).unwrap();
+        let cp_a = epoch_manager.get_chunk_producer_info(&ha[14], shard_id).unwrap();
+        let cp_b = epoch_manager.get_chunk_producer_info(&hb[14], shard_id).unwrap();
         if cp_a != cp_b {
             found_difference = true;
             break;
@@ -3855,4 +3856,126 @@ fn test_chunk_producer_by_prev_block_hash_fork_scenario() {
         found_difference,
         "Expected different chunk producers on different forks at the same height"
     );
+}
+
+/// Tests that `get_chunk_producer_info` falls back to computation when the
+/// `ChunkProducers` DB column is not populated.
+#[test]
+fn test_chunk_producer_info_fallback() {
+    let amount_staked = Balance::from_yoctonear(1_000_000);
+    let validators: Vec<(AccountId, Balance)> =
+        (0..4).map(|i| (format!("test{}", i).parse().unwrap(), amount_staked)).collect();
+    let epoch_manager = setup_default_epoch_manager(validators, 10, 4, 4, 90, 90).into_handle();
+
+    let h = hash_range(5);
+    record_block(&mut epoch_manager.write(), CryptoHash::default(), h[0], 0, vec![]);
+    for i in 1..5 {
+        record_block(&mut epoch_manager.write(), h[i - 1], h[i], i as u64, vec![]);
+    }
+
+    // DB column is empty (record_block doesn't populate it).
+    // get_chunk_producer_info should fall back to computation.
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&h[3]).unwrap();
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    for shard_id in shard_layout.shard_ids() {
+        let result = epoch_manager.get_chunk_producer_info(&h[3], shard_id);
+        assert!(result.is_ok(), "Fallback computation should succeed: {:?}", result.err());
+    }
+}
+
+/// Tests that `get_chunk_producer_info` reads from the `ChunkProducers` DB
+/// column when it is populated, and that the value matches the computed one.
+#[test]
+fn test_chunk_producer_info_db_first() {
+    use near_primitives::utils::get_block_shard_id;
+    use near_store::DBCol;
+    use near_store::adapter::StoreAdapter;
+
+    let amount_staked = Balance::from_yoctonear(1_000_000);
+    let validators: Vec<(AccountId, Balance)> =
+        (0..4).map(|i| (format!("test{}", i).parse().unwrap(), amount_staked)).collect();
+    let epoch_manager = setup_default_epoch_manager(validators, 10, 4, 4, 90, 90).into_handle();
+
+    let h = hash_range(5);
+    record_block(&mut epoch_manager.write(), CryptoHash::default(), h[0], 0, vec![]);
+    for i in 1..5 {
+        record_block(&mut epoch_manager.write(), h[i - 1], h[i], i as u64, vec![]);
+    }
+
+    let prev_block_hash = &h[3];
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash).unwrap();
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+
+    // Compute the expected value.
+    let expected = epoch_manager.get_chunk_producer_for_height(&epoch_id, 4, shard_id).unwrap();
+
+    // Write it to the DB column.
+    {
+        let em = epoch_manager.read();
+        let mut store_update = em.store.store_ref().store_update();
+        let key = get_block_shard_id(prev_block_hash, shard_id);
+        store_update.insert_ser(DBCol::ChunkProducers, &key, &expected);
+        store_update.commit();
+    }
+
+    // Now get_chunk_producer_info should read from DB.
+    let actual = epoch_manager.get_chunk_producer_info(prev_block_hash, shard_id).unwrap();
+    assert_eq!(actual, expected);
+}
+
+/// Tests consistency: for a range of blocks and shards, the DB column value
+/// (when populated) matches the value from `get_chunk_producer_for_height`.
+#[test]
+fn test_chunk_producer_info_consistency() {
+    use near_primitives::utils::get_block_shard_id;
+    use near_store::DBCol;
+    use near_store::adapter::StoreAdapter;
+
+    let amount_staked = Balance::from_yoctonear(1_000_000);
+    let validators: Vec<(AccountId, Balance)> =
+        (0..6).map(|i| (format!("test{}", i).parse().unwrap(), amount_staked)).collect();
+    let epoch_manager = setup_default_epoch_manager(validators, 5, 4, 6, 90, 90).into_handle();
+
+    let h = hash_range(12);
+    record_block(&mut epoch_manager.write(), CryptoHash::default(), h[0], 0, vec![]);
+    for i in 1..12 {
+        record_block(&mut epoch_manager.write(), h[i - 1], h[i], i as u64, vec![]);
+    }
+
+    // For each block, populate the DB column and verify consistency.
+    for i in 0..11 {
+        let prev_block_hash = &h[i];
+        let epoch_id = match epoch_manager.get_epoch_id_from_prev_block(prev_block_hash) {
+            Ok(id) => id,
+            Err(_) => continue,
+        };
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
+        let height = (i as u64) + 1;
+
+        // Manually populate the column (simulating what save_chunk_producers_for_header does).
+        {
+            let em = epoch_manager.read();
+            let mut store_update = em.store.store_ref().store_update();
+            for shard_id in shard_layout.shard_ids() {
+                if let Some(validator_id) =
+                    epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+                {
+                    let validator_stake = epoch_info.get_validator(validator_id);
+                    let key = get_block_shard_id(prev_block_hash, shard_id);
+                    store_update.insert_ser(DBCol::ChunkProducers, &key, &validator_stake);
+                }
+            }
+            store_update.commit();
+        }
+
+        // Verify DB-first lookup matches computation.
+        for shard_id in shard_layout.shard_ids() {
+            let from_db = epoch_manager.get_chunk_producer_info(prev_block_hash, shard_id).unwrap();
+            let computed =
+                epoch_manager.get_chunk_producer_for_height(&epoch_id, height, shard_id).unwrap();
+            assert_eq!(from_db, computed, "Mismatch at height {} shard {}", height, shard_id);
+        }
+    }
 }

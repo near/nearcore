@@ -133,7 +133,6 @@ impl Handler<PartialEncodedStateWitnessForwardMessage> for PartialWitnessActor {
     }
 }
 
-
 impl Handler<ChunkContractAccessesMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: ChunkContractAccessesMessage) {
         if let Err(err) = self.handle_chunk_contract_accesses(msg.0) {
@@ -239,8 +238,7 @@ impl PartialWitnessActor {
             .ordered_chunk_validators();
 
         let prev_block_hash = *state_witness.chunk_header().prev_block_hash();
-        let protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?;
 
         if !contract_accesses.is_empty() {
             self.send_contract_accesses_to_chunk_validators(
@@ -279,7 +277,12 @@ impl PartialWitnessActor {
         });
 
         if !contract_deploys.is_empty() {
-            self.send_chunk_contract_deploys_parts(key, contract_deploys, prev_block_hash, protocol_version)?;
+            self.send_chunk_contract_deploys_parts(
+                key,
+                contract_deploys,
+                prev_block_hash,
+                protocol_version,
+            )?;
         }
         Ok(())
     }
@@ -748,7 +751,14 @@ impl PartialWitnessActor {
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkContractAccesses(
                 target_chunk_validators,
-                ChunkContractAccesses::new(key, contract_accesses, main_transition, prev_block_hash, my_signer, protocol_version),
+                ChunkContractAccesses::new(
+                    key,
+                    contract_accesses,
+                    main_transition,
+                    prev_block_hash,
+                    my_signer,
+                    protocol_version,
+                ),
             ),
         ));
     }
@@ -768,7 +778,12 @@ impl PartialWitnessActor {
     ) -> Result<(), Error> {
         let contracts = contract_codes.into_iter().map(|contract| contract.into()).collect();
         let compressed_deploys = ChunkContractDeploys::compress_contracts(&contracts)?;
-        let validator_parts = self.generate_contract_deploys_parts(&key, compressed_deploys, prev_block_hash, protocol_version)?;
+        let validator_parts = self.generate_contract_deploys_parts(
+            &key,
+            compressed_deploys,
+            prev_block_hash,
+            protocol_version,
+        )?;
         for (part_owner, deploys_part) in validator_parts {
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::PartialEncodedContractDeploys(vec![part_owner], deploys_part),
