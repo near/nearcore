@@ -9,7 +9,6 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardInfo, ShardLayout};
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -449,19 +448,45 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(epoch_info.get_validator(validator_id))
     }
 
-    /// Chunk producer info for given height for given shard. Return EpochError if outside of known boundaries.
+    /// Chunk producer info for the chunk built on top of `prev_block_hash` for the given shard.
+    /// Resolves epoch and height internally from the block hash.
+    /// Return EpochError if outside of known boundaries.
     fn get_chunk_producer_info(
         &self,
-        key: &ChunkProductionKey,
+        prev_block_hash: &CryptoHash,
+        shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
-        let epoch_info = self.get_epoch_info(&key.epoch_id)?;
-        let shard_layout = self.get_shard_layout(&key.epoch_id)?;
-        let Some(validator_id) =
-            epoch_info.sample_chunk_producer(&shard_layout, key.shard_id, key.height_created)
+        let block_info = self.get_block_info(prev_block_hash)?;
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let height = block_info.height() + 1;
+        let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let Some(validator_id) = epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
         else {
             return Err(EpochError::ChunkProducerSelectionError(format!(
                 "Invalid shard {} for height {}",
-                key.shard_id, key.height_created,
+                shard_id, height,
+            )));
+        };
+        Ok(epoch_info.get_validator(validator_id))
+    }
+
+    /// Chunk producer info for a given epoch, height and shard.
+    /// Use this for speculative lookups where no block exists yet (e.g. future heights for tx routing).
+    /// Return EpochError if outside of known boundaries.
+    fn get_chunk_producer_for_height(
+        &self,
+        epoch_id: &EpochId,
+        height: BlockHeight,
+        shard_id: ShardId,
+    ) -> Result<ValidatorStake, EpochError> {
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        let Some(validator_id) = epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+        else {
+            return Err(EpochError::ChunkProducerSelectionError(format!(
+                "Invalid shard {} for height {}",
+                shard_id, height,
             )));
         };
         Ok(epoch_info.get_validator(validator_id))
