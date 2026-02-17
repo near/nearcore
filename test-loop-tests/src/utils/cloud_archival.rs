@@ -193,6 +193,7 @@ pub fn snapshots_sanity_check(
     assert_eq!(epoch_heights_with_snapshot, HashSet::from_iter(1..final_epoch_height));
 }
 
+/// Saves block header, block body, and block info from cloud archival data into the local store.
 fn save_block_data(mut chain_store_update: ChainStoreUpdate, block_data: &BlockData) {
     let block = Arc::new(block_data.block().clone());
     let mut epoch_store_update = chain_store_update.store().epoch_store().store_update();
@@ -204,6 +205,10 @@ fn save_block_data(mut chain_store_update: ChainStoreUpdate, block_data: &BlockD
     epoch_store_update.commit().unwrap();
 }
 
+/// Bootstraps a reader node to match the state at `target_block_height` by:
+/// 1. Loading epoch data and required blocks from cloud storage.
+/// 2. Applying state sync parts to reconstruct the state at the epoch boundary.
+/// 3. Applying per-block state deltas to advance from the sync point to the target height.
 pub fn bootstrap_reader_at_height(
     env: &mut TestLoopEnv,
     reader_id: &AccountId,
@@ -307,7 +312,7 @@ fn has_state_root(tries: &ShardTries, shard_uid: ShardUId, state_root: CryptoHas
 async fn load_state_snapshot(
     chain: &Chain,
     external: &StateSyncConnection,
-    chain_id: &String,
+    chain_id: &str,
     epoch_id: &EpochId,
     epoch_height: EpochHeight,
     sync_hash: CryptoHash,
@@ -334,6 +339,8 @@ async fn load_state_snapshot(
     .unwrap();
 }
 
+/// Applies per-block state deltas from cloud storage to advance the trie from
+/// `start_block_height` to `target_block_height`.
 fn apply_state_changes(
     cloud_storage: &CloudStorage,
     store: &Store,
@@ -358,6 +365,7 @@ fn apply_state_changes(
             .update(
                 shard_data.state_changes().iter().map(|raw_state_changes_with_trie_key| {
                     let raw_key = raw_state_changes_with_trie_key.trie_key.to_vec();
+                    // Take the final value — each key may have multiple changes within a block.
                     let data = raw_state_changes_with_trie_key.changes.last().unwrap().data.clone();
                     (raw_key, data)
                 }),

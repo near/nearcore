@@ -154,7 +154,7 @@ impl ShardData {
         }
     }
 
-    pub fn state_changes(&self) -> &Vec<RawStateChangesWithTrieKey> {
+    pub fn state_changes(&self) -> &[RawStateChangesWithTrieKey] {
         match self {
             ShardData::V1(data) => &data.state_changes,
         }

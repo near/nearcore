@@ -24,7 +24,7 @@ pub struct EpochDataV1 {
     shard_layout: ShardLayout,
     /// Read from `DBCol::EpochStart` and `DBCol::BlockHeight`.
     epoch_start_height: BlockHeight,
-    // Read from `DBCol::BlockMerkleTree`.
+    /// Read from `DBCol::BlockMerkleTree`.
     epoch_start_prev_block_merkle_tree: PartialMerkleTree,
     /// Read from `DBCol::StateSyncHashes` and `DBCol::BlockHeight`.
     sync_block_height: BlockHeight,
@@ -45,7 +45,7 @@ pub fn build_epoch_data(
     let epoch_start_block = store.get_block(&epoch_start_block_hash)?;
     let sync_block_hash = store
         .chain_store()
-        .get_current_epoch_sync_hash(&epoch_id)?
+        .get_current_epoch_sync_hash(&epoch_id)
         .ok_or_else(|| Error::DBNotFoundErr(format!("StateSyncHashes, epoch ID: {epoch_id:?}")))?;
     let sync_block_height = store.get_block_height(&sync_block_hash)?;
     let epoch_start_prev_block_merkle_tree =

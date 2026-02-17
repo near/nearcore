@@ -191,6 +191,8 @@ fn test_cloud_archival_read_data_at_height() {
     );
 }
 
+/// Verifies that a reader node can bootstrap its state from cloud storage by
+/// downloading a state snapshot and then applying per-block state deltas.
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]

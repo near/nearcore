@@ -31,7 +31,7 @@ impl CloudStorage {
         &self.external
     }
 
-    pub fn chain_id(&self) -> &String {
+    pub fn chain_id(&self) -> &str {
         &self.chain_id
     }
 
