@@ -8,23 +8,22 @@ use near_chain::types::Tip;
 use near_chain::{Chain, ChainStoreAccess, ChainStoreUpdate};
 use near_client::Client;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
-use near_client::sync::external::{
-    StateFileType, StateSyncConnection, external_storage_location,
-    external_storage_location_directory, get_num_parts_from_filename,
-};
+use near_client::sync::external::StateSyncConnection;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
 };
+use near_state_viewer::state_parts::{download_and_apply_state_parts, list_state_parts};
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::{BlockData, CloudStorage};
 use near_store::db::CLOUD_HEAD_KEY;
 use near_store::flat::FlatStorageManager;
 use near_store::trie::AccessOptions;
-use near_store::{DBCol, ShardTries, ShardUId, StateSnapshotConfig, Store, TrieConfig, COLD_HEAD_KEY};
+use near_store::{
+    COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, StateSnapshotConfig, Store, TrieConfig,
+};
 use near_vm_runner::logic::ProtocolVersion;
 
 use crate::setup::builder::NodeStateBuilder;
@@ -225,8 +224,9 @@ pub fn bootstrap_reader_at_height(
     let epoch_height = epoch_data.epoch_info().epoch_height();
     let protocol_version = epoch_data.epoch_info().protocol_version();
     for shard_id in epoch_data.shard_layout().shard_ids() {
-        let shard_uid =  ShardUId::from_shard_id_and_layout(shard_id, epoch_data.shard_layout());
-        let target_block_shard_data = cloud_storage.get_shard_data(target_block_height, shard_id).unwrap();
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, epoch_data.shard_layout());
+        let target_block_shard_data =
+            cloud_storage.get_shard_data(target_block_height, shard_id).unwrap();
         let target_state_root = *target_block_shard_data.chunk_extra().state_root();
         let epoch_start_block =
             cloud_storage.get_block_data(*epoch_data.epoch_start_height()).unwrap();
@@ -296,11 +296,7 @@ pub fn bootstrap_reader_at_height(
     }
 }
 
-fn has_state_root(
-    tries: &ShardTries,
-    shard_uid: ShardUId,
-    state_root: CryptoHash,
-) -> bool {
+fn has_state_root(tries: &ShardTries, shard_uid: ShardUId, state_root: CryptoHash) -> bool {
     let trie = tries.get_trie_for_shard(shard_uid, state_root);
     trie.retrieve_root_node().is_ok()
 }
@@ -316,52 +312,23 @@ async fn load_state_snapshot(
     shard_id: ShardId,
     state_root: CryptoHash,
 ) {
-    let directory_path = external_storage_location_directory(
+    let num_parts =
+        list_state_parts(external, chain_id, epoch_id, epoch_height, shard_id).await.unwrap();
+    download_and_apply_state_parts(
+        chain,
+        external,
         chain_id,
         epoch_id,
         epoch_height,
+        sync_hash,
+        *protocol_version,
         shard_id,
-        &StateFileType::StatePart { part_id: 0, num_parts: 0 },
-    );
-    let part_file_names = external.list_objects(shard_id, &directory_path).await.unwrap();
-    assert!(!part_file_names.is_empty());
-    let num_parts = part_file_names.len() as u64;
-    assert_eq!(Some(num_parts), get_num_parts_from_filename(&part_file_names[0]));
-    let part_ids = 0..num_parts;
-    tracing::info!(
-        target: "state-parts",
-        epoch_height,
-        %shard_id,
+        state_root,
+        0..num_parts,
         num_parts,
-        ?sync_hash,
-        ?part_ids,
-        "loading state as seen at the beginning of the specified epoch",
-    );
-    for part_id in part_ids {
-        assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
-        let file_type = StateFileType::StatePart { part_id, num_parts };
-        let location =
-            external_storage_location(chain_id, &epoch_id, epoch_height, shard_id, &file_type);
-        let bytes = external.get_file(shard_id, &location, &file_type).await.unwrap();
-        let part_length = bytes.len();
-        let part = StatePart::from_bytes(bytes, *protocol_version).unwrap();
-        chain
-            .state_sync_adapter
-            .set_state_part(shard_id, sync_hash, PartId::new(part_id, num_parts), &part)
-            .unwrap();
-        chain
-            .runtime_adapter
-            .apply_state_part(
-                shard_id,
-                &state_root,
-                PartId::new(part_id, num_parts),
-                &part,
-                &epoch_id,
-            )
-            .unwrap();
-        tracing::info!(target: "state-parts", part_id, part_length, "loaded a state part");
-    }
-    tracing::info!(target: "state-parts", "loaded all requested state parts");
+    )
+    .await
+    .unwrap();
 }
 
 fn apply_state_changes(
@@ -374,26 +341,33 @@ fn apply_state_changes(
     shard_uid: ShardUId,
 ) {
     let shard_id = shard_uid.shard_id();
-    let start_block_shard_data = cloud_storage.get_shard_data(start_block_height, shard_id).unwrap();
-    assert_eq!(state_root, start_block_shard_data.chunk().prev_state_root(),
-        "initial state_root must match prev_state_root of the start block");
+    let start_block_shard_data =
+        cloud_storage.get_shard_data(start_block_height, shard_id).unwrap();
+    assert_eq!(
+        state_root,
+        start_block_shard_data.chunk().prev_state_root(),
+        "initial state_root must match prev_state_root of the start block"
+    );
     for block_height in start_block_height..=target_block_height {
         let shard_data = cloud_storage.get_shard_data(block_height, shard_id).unwrap();
         let trie = tries.get_trie_for_shard(shard_uid, state_root);
-        let trie_changes = trie.update(
-            shard_data.state_changes().iter().map(|raw_state_changes_with_trie_key| {
-                let raw_key = raw_state_changes_with_trie_key.trie_key.to_vec();
-                let data = raw_state_changes_with_trie_key.changes.last().unwrap().data.clone();
-                (raw_key, data)
-            }),
-            AccessOptions::NO_SIDE_EFFECTS,
-        ).unwrap();
+        let trie_changes = trie
+            .update(
+                shard_data.state_changes().iter().map(|raw_state_changes_with_trie_key| {
+                    let raw_key = raw_state_changes_with_trie_key.trie_key.to_vec();
+                    let data = raw_state_changes_with_trie_key.changes.last().unwrap().data.clone();
+                    (raw_key, data)
+                }),
+                AccessOptions::NO_SIDE_EFFECTS,
+            )
+            .unwrap();
         let mut store_update = store.trie_store().store_update();
         state_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
         assert!(has_state_root(&tries, shard_uid, state_root));
     }
-    let target_block_shard_data = cloud_storage.get_shard_data(target_block_height, shard_id).unwrap();
+    let target_block_shard_data =
+        cloud_storage.get_shard_data(target_block_height, shard_id).unwrap();
     let expected_final_state_root = target_block_shard_data.chunk_extra().state_root();
     assert_eq!(state_root, *expected_final_state_root);
 }
