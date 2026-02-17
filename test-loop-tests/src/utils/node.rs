@@ -40,7 +40,7 @@ pub struct TestLoopNode<'a> {
 
 #[cfg_attr(not(feature = "test_features"), allow(dead_code))]
 impl<'a> TestLoopNode<'a> {
-    pub fn client(&self) -> &Client {
+    pub fn client(&self) -> &'a Client {
         let handle = self.node_data.client_sender.actor_handle();
         &self.data.get(&handle).client
     }

@@ -69,24 +69,15 @@ fn test_global_receipt_distribution_at_resharding_boundary() {
     // Verify that global contract distribution receipt has target shard from the old shard layout,
     // while its block has the new layout.
     {
-        let block = env
-            .chunk_producer_node()
-            .client()
-            .chain
-            .get_block_by_height(expected_new_shard_layout_height)
-            .unwrap();
-        let block_shard_layout = env
-            .chunk_producer_node()
-            .client()
-            .epoch_manager
-            .get_shard_layout(block.header().epoch_id())
-            .unwrap();
+        let client = env.chunk_producer_node().client();
+        let block = client.chain.get_block_by_height(expected_new_shard_layout_height).unwrap();
+        let block_shard_layout =
+            client.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
         assert_eq!(block_shard_layout, env.new_shard_layout);
         let chunks = block.chunks();
         // Expect new chunk
         assert!(chunks[0].is_new_chunk(block.header().height()));
-        let chunk =
-            env.chunk_producer_node().client().chain.get_chunk(&chunks[0].compute_hash()).unwrap();
+        let chunk = client.chain.get_chunk(&chunks[0].compute_hash()).unwrap();
         let [distribution_receipt] = chunk
             .prev_outgoing_receipts()
             .iter()
@@ -281,8 +272,7 @@ impl GlobalContractsReshardingTestEnv {
     }
 
     fn current_shard_layout(&self) -> ShardLayout {
-        let node = self.chunk_producer_node();
-        let client = node.client();
+        let client = self.chunk_producer_node().client();
         let epoch_id = client.chain.chain_store().head().unwrap().epoch_id;
         client.epoch_manager.get_shard_layout(&epoch_id).unwrap()
     }
