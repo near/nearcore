@@ -162,7 +162,7 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
     test_loop.run_for(Duration::seconds(2));
 
     // Phase 4: Old account still works after upgrade (rlp_execute transfer).
-    let before = node.view_account_query(&test_loop.data, &receiver).amount;
+    let before = node.view_account_query(&test_loop.data, &receiver).unwrap().amount;
     relayer_nonce += 1;
     let block_hash = transactions::get_shared_block_hash(&node_datas, &test_loop.data);
     node.run_tx(
@@ -181,7 +181,7 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
         Duration::seconds(5),
     );
     test_loop.run_for(Duration::seconds(2));
-    let after = node.view_account_query(&test_loop.data, &receiver).amount;
+    let after = node.view_account_query(&test_loop.data, &receiver).unwrap().amount;
     assert_eq!(after.checked_sub(before).unwrap(), transfer_amount, "old account transfer failed");
 
     // Phase 5: Create new ETH implicit account at PV 83 (global contract path).
@@ -207,7 +207,7 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
     assert_eq!(view_global_contract_hash(&node, &test_loop.data, &eth_new), Some(expected_hash),);
 
     // Phase 6: New account works via rlp_execute transfer.
-    let before = node.view_account_query(&test_loop.data, &receiver).amount;
+    let before = node.view_account_query(&test_loop.data, &receiver).unwrap().amount;
     relayer_nonce += 1;
     let block_hash = transactions::get_shared_block_hash(&node_datas, &test_loop.data);
     node.run_tx(
@@ -226,7 +226,7 @@ fn test_eth_implicit_global_contract_mainnet_upgrade() {
         Duration::seconds(5),
     );
     test_loop.run_for(Duration::seconds(2));
-    let after = node.view_account_query(&test_loop.data, &receiver).amount;
+    let after = node.view_account_query(&test_loop.data, &receiver).unwrap().amount;
     assert_eq!(after.checked_sub(before).unwrap(), transfer_amount, "new account transfer failed");
 
     drop(shared_state);
@@ -239,7 +239,8 @@ fn view_global_contract_hash(
     account: &AccountId,
 ) -> Option<CryptoHash> {
     match node
-        .runtime_query(data, account, QueryRequest::ViewAccount { account_id: account.clone() })
+        .runtime_query(data, QueryRequest::ViewAccount { account_id: account.clone() })
+        .unwrap()
         .kind
     {
         QueryResponseKind::ViewAccount(v) => v.global_contract_hash,
