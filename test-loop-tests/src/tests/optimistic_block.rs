@@ -211,7 +211,6 @@ fn test_optimistic_block_after_missing_block() {
 
     let client_handle = &env
         .get_node_data_by_account_id(next_producer.account_id())
-        .unwrap()
         .client_sender
         .actor_handle();
 
@@ -282,7 +281,6 @@ fn alter_optimistic_block_at_height(
 fn get_hit_count_and_height(env: &TestLoopEnv, producer: &ValidatorStake) -> (usize, BlockHeight) {
     let client_handler = &env
         .get_node_data_by_account_id(producer.account_id())
-        .unwrap()
         .client_sender
         .actor_handle();
     let chain = &env.test_loop.data.get(&client_handler).client.chain;
@@ -309,12 +307,10 @@ fn test_optimistic_block_with_invalidated_outcome() {
 
     let producer_client_handle = &env
         .get_node_data_by_account_id(producer.account_id())
-        .unwrap()
         .client_sender
         .actor_handle();
     let affected_client_handle = &env
         .get_node_data_by_account_id(next_producer.account_id())
-        .unwrap()
         .client_sender
         .actor_handle();
 

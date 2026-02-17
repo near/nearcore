@@ -255,7 +255,7 @@ fn test_spice_rpc_get_block_by_finality() {
         node.client().chain.final_head().unwrap()
     };
 
-    let node_data = env.get_node_data_by_account_id(&producer_account).unwrap();
+    let node_data = env.get_node_data_by_account_id(&producer_account);
     let view_client = env.test_loop.data.get_mut(&node_data.view_client_sender.actor_handle());
     let block_none =
         view_client.handle(GetBlock(BlockReference::Finality(Finality::None))).unwrap();
@@ -281,7 +281,7 @@ fn test_spice_rpc_unknown_block_past_execution_head() {
     let consensus_head = env.node_for_account(&producer_account).head();
     assert!(consensus_head.height > execution_head.height + 1);
 
-    let node_data = env.get_node_data_by_account_id(&producer_account).unwrap();
+    let node_data = env.get_node_data_by_account_id(&producer_account);
     let view_client = env.test_loop.data.get_mut(&node_data.view_client_sender.actor_handle());
 
     // Query by height within execution head: should succeed
@@ -473,7 +473,7 @@ fn test_restart_rpc_node() {
     assert_ne!(rpc_id, node_account);
 
     env.rpc_runner().run_until_head_height(5);
-    let rpc_identifier = env.get_node_data_by_account_id(&rpc_id).unwrap().identifier.clone();
+    let rpc_identifier = env.get_node_data_by_account_id(&rpc_id).identifier.clone();
     let killed_rpc_state = env.kill_node(&rpc_identifier);
 
     let block_hash = env.node(0).head().last_block_hash;
@@ -551,7 +551,7 @@ fn test_restart_producer_node() {
 
     env.runner_for_account(&restart_account).run_until_head_height(5);
     let restart_identifier =
-        env.get_node_data_by_account_id(&restart_account).unwrap().identifier.clone();
+        env.get_node_data_by_account_id(&restart_account).identifier.clone();
     let killed_node_state = env.kill_node(&restart_identifier);
 
     let block_hash = env.node_for_account(&stable_account).head().last_block_hash;
@@ -630,7 +630,7 @@ fn test_restart_validator_node() {
 
     env.runner_for_account(&producer).run_until_head_height(5);
     let validator_identifier =
-        env.get_node_data_by_account_id(&validator_account).unwrap().identifier.clone();
+        env.get_node_data_by_account_id(&validator_account).identifier.clone();
     // Save block hash from validator before killing it.
     let validator_block_hash = env.node_for_account(&validator_account).head().last_block_hash;
     let killed_node_state = env.kill_node(&validator_identifier);
@@ -644,14 +644,14 @@ fn test_restart_validator_node() {
         validator_block_hash,
     );
     let tx_processor_sender =
-        env.get_node_data_by_account_id(&producer).unwrap().rpc_handler_sender.clone();
+        env.get_node_data_by_account_id(&producer).rpc_handler_sender.clone();
     let retry_when_congested = false;
     let mut tx_runner = TransactionRunner::new(tx, retry_when_congested);
     let future_spawner = env.test_loop.future_spawner("TransactionRunner");
 
     let start_height = env.node_for_account(&producer).head().height;
     let producer_identifier =
-        env.get_node_data_by_account_id(&producer).unwrap().identifier.clone();
+        env.get_node_data_by_account_id(&producer).identifier.clone();
     env.runner_for_account(&producer).run_until(
         |node| {
             let client = node.client();

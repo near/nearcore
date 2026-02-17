@@ -73,7 +73,7 @@ pub fn pause_and_resume_writer_with_sanity_checks(
 
     // Stop the writer and let the node reach `resume_height` while the writer is paused.
     get_writer_handle(&env, &writer_id).0.stop();
-    let node_data = env.get_node_data_by_account_id(&writer_id).unwrap();
+    let node_data = env.get_node_data_by_account_id(&writer_id);
     let node_identifier = node_data.identifier.clone();
     env.runner_for_account(&writer_id).run_until_head_height(resume_height);
 
@@ -97,19 +97,19 @@ fn get_writer_handle<'a>(
     env: &'a TestLoopEnv,
     writer_id: &AccountId,
 ) -> &'a CloudArchivalWriterHandle {
-    let node_data = env.get_node_data_by_account_id(writer_id).unwrap();
+    let node_data = env.get_node_data_by_account_id(writer_id);
     let writer_handle = &node_data.cloud_archival_writer_handle;
     env.test_loop.data.get(writer_handle).as_ref().unwrap()
 }
 
 fn get_hot_store(env: &TestLoopEnv, account_id: &AccountId) -> Store {
-    let node_data = env.get_node_data_by_account_id(account_id).unwrap();
+    let node_data = env.get_node_data_by_account_id(account_id);
     let client = &env.test_loop.data.get(&node_data.client_sender.actor_handle()).client;
     client.chain.chain_store().store()
 }
 
 fn get_cloud_storage(env: &TestLoopEnv, archival_id: &AccountId) -> Arc<CloudStorage> {
-    let node_data = env.get_node_data_by_account_id(archival_id).unwrap();
+    let node_data = env.get_node_data_by_account_id(archival_id);
     let cloud_storage = env.test_loop.data.get(&node_data.cloud_storage_sender);
     cloud_storage.clone().unwrap()
 }
