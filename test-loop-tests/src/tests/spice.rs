@@ -91,7 +91,7 @@ fn test_spice_chain() {
     let client = &test_loop.data.get(&client_handles[0]).client;
     let epoch_manager = client.epoch_manager.clone();
 
-    let get_balance = |test_loop_data: &mut TestLoopData, account: &AccountId, epoch_id| {
+    let get_balance = |test_loop_data: &TestLoopData, account: &AccountId, epoch_id| {
         let shard_id = shard_layout.account_id_to_shard_id(account);
         let cp =
             &epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id).unwrap()[0];
@@ -102,7 +102,7 @@ fn test_spice_chain() {
 
     let epoch_id = client.chain.head().unwrap().epoch_id;
     for account in &accounts {
-        let got_balance = get_balance(&mut test_loop.data, account, epoch_id);
+        let got_balance = get_balance(&test_loop.data, account, epoch_id);
         assert_eq!(got_balance, INITIAL_BALANCE);
     }
 
@@ -147,7 +147,7 @@ fn test_spice_chain() {
 
     assert!(!balance_changes.is_empty());
     for (account, balance_change) in &balance_changes {
-        let got_balance = get_balance(&mut test_loop.data, account, epoch_id);
+        let got_balance = get_balance(&test_loop.data, account, epoch_id);
         let want_balance = Balance::from_yoctonear(
             (INITIAL_BALANCE.as_yoctonear() as i128 + balance_change).try_into().unwrap(),
         );

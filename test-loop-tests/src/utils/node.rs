@@ -7,7 +7,6 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::types::Tip;
 use near_chain::{Block, BlockHeader};
-use near_client::client_actor::ClientActor;
 use near_client::{Client, ProcessTxRequest, Query, QueryError, ViewClientActor};
 use near_crypto::{PublicKey, Signer};
 use near_primitives::errors::InvalidTxError;
@@ -35,7 +34,7 @@ use crate::utils::transactions::TransactionRunner;
 /// store, and runtime queries. Obtained via [`TestLoopEnv::node`],
 /// [`TestLoopEnv::validator`], etc.
 pub struct TestLoopNode<'a> {
-    pub(crate) data: &'a mut TestLoopData,
+    pub(crate) data: &'a TestLoopData,
     pub(crate) node_data: &'a NodeExecutionData,
 }
 
@@ -52,16 +51,6 @@ impl<'a> TestLoopNode<'a> {
 
     pub fn store(&self) -> Store {
         self.client().chain.chain_store.store().store()
-    }
-
-    pub fn client_actor(&mut self) -> &mut ClientActor {
-        let handle = self.node_data.client_sender.actor_handle();
-        self.data.get_mut(&handle)
-    }
-
-    pub fn view_client_actor(&mut self) -> &mut ViewClientActor {
-        let handle = self.node_data.view_client_sender.actor_handle();
-        self.data.get_mut(&handle)
     }
 
     pub fn tail(&self) -> BlockHeight {
@@ -170,22 +159,6 @@ impl<'a> TestLoopNode<'a> {
             ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
         self.node_data.rpc_handler_sender.send(process_tx_request);
     }
-
-    #[cfg(feature = "test_features")]
-    pub fn validate_store(&mut self) {
-        if cfg!(feature = "protocol_feature_spice") {
-            return;
-        }
-        use near_async::messaging::Handler;
-        use near_client::NetworkAdversarialMessage;
-        let handle = self.node_data.client_sender.actor_handle();
-        let client_actor = self.data.get_mut(&handle);
-        let result = Handler::<NetworkAdversarialMessage, Option<u64>>::handle(
-            client_actor,
-            NetworkAdversarialMessage::AdvCheckStorageConsistency,
-        );
-        assert_ne!(result, Some(0), "store validation failed");
-    }
 }
 
 /// Drives the test loop forward while observing a specific node.
@@ -203,14 +176,14 @@ pub struct NodeRunner<'a> {
 impl<'a> NodeRunner<'a> {
     pub fn run_until(
         &mut self,
-        mut condition: impl FnMut(&mut TestLoopNode<'_>) -> bool,
+        mut condition: impl FnMut(&TestLoopNode<'_>) -> bool,
         maximum_duration: Duration,
     ) {
         let node_data = self.node_data;
         self.test_loop.run_until(
             |test_loop_data| {
-                let mut node = TestLoopNode { data: test_loop_data, node_data };
-                condition(&mut node)
+                let node = TestLoopNode { data: test_loop_data, node_data };
+                condition(&node)
             },
             maximum_duration,
         );

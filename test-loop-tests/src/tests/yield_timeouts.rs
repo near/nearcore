@@ -588,7 +588,7 @@ fn test_skip_timeout_height() {
     // We still expect the timeout to be processed and produce a YieldResume receipt.
     assert_eq!(env.validator().head().height, YIELD_TIMEOUT_HEIGHT - 1);
     // Produce block at YIELD_TIMEOUT_HEIGHT+1 using the one at YIELD_TIMEOUT_HEIGHT-1 as the previous block.
-    env.validator().client_actor().adv_produce_blocks_on(
+    env.client_actor(0).adv_produce_blocks_on(
         1,
         true,
         near_client::client_actor::AdvProduceBlockHeightSelection::SelectedHeightOnLatestKnown {

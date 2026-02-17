@@ -97,7 +97,7 @@ fn test_epoch_sync_proof_update_with_forks() {
     let height_selection = AdvProduceBlockHeightSelection::NextHeightOnSelectedBlock {
         base_block_height: head.height - 1,
     };
-    env.validator().client_actor().adv_produce_blocks_on(3, true, height_selection);
+    env.client_actor(0).adv_produce_blocks_on(3, true, height_selection);
 
     // verify proof after processing fork
     {

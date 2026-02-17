@@ -174,7 +174,7 @@ impl TestLoopEnv {
         self.node_datas.iter().find(|data| &data.account_id == account_id)
     }
 
-    pub fn validator(&mut self) -> TestLoopNode<'_> {
+    pub fn validator(&self) -> TestLoopNode<'_> {
         self.node(0)
     }
 
@@ -182,18 +182,44 @@ impl TestLoopEnv {
         self.node_runner(0)
     }
 
-    pub fn rpc_node(&mut self) -> TestLoopNode<'_> {
+    pub fn rpc_node(&self) -> TestLoopNode<'_> {
         let idx = self.rpc_data_idx();
         self.node(idx)
     }
 
-    pub fn node(&mut self, idx: usize) -> TestLoopNode<'_> {
-        TestLoopNode { data: &mut self.test_loop.data, node_data: &self.node_datas[idx] }
+    pub fn node(&self, idx: usize) -> TestLoopNode<'_> {
+        TestLoopNode { data: &self.test_loop.data, node_data: &self.node_datas[idx] }
     }
 
-    pub fn node_for_account(&mut self, account_id: &AccountId) -> TestLoopNode<'_> {
+    pub fn node_for_account(&self, account_id: &AccountId) -> TestLoopNode<'_> {
         let idx = self.account_data_idx(account_id);
         self.node(idx)
+    }
+
+    pub fn client_actor(&mut self, idx: usize) -> &mut near_client::client_actor::ClientActor {
+        let handle = self.node_datas[idx].client_sender.actor_handle();
+        self.test_loop.data.get_mut(&handle)
+    }
+
+    pub fn view_client_actor(&mut self, idx: usize) -> &mut near_client::ViewClientActor {
+        let handle = self.node_datas[idx].view_client_sender.actor_handle();
+        self.test_loop.data.get_mut(&handle)
+    }
+
+    #[cfg(feature = "test_features")]
+    pub fn validate_store(&mut self, idx: usize) {
+        if cfg!(feature = "protocol_feature_spice") {
+            return;
+        }
+        use near_async::messaging::Handler;
+        use near_client::NetworkAdversarialMessage;
+        let handle = self.node_datas[idx].client_sender.actor_handle();
+        let client_actor = self.test_loop.data.get_mut(&handle);
+        let result = Handler::<NetworkAdversarialMessage, Option<u64>>::handle(
+            client_actor,
+            NetworkAdversarialMessage::AdvCheckStorageConsistency,
+        );
+        assert_ne!(result, Some(0), "store validation failed");
     }
 
     pub fn rpc_runner(&mut self) -> NodeRunner<'_> {
