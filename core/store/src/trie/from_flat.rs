@@ -1,5 +1,5 @@
 use crate::adapter::StoreAdapter;
-use crate::flat::{FlatStorageError, FlatStorageManager};
+use crate::flat::FlatStorageManager;
 use crate::trie::AccessOptions;
 use crate::{ShardTries, StateSnapshotConfig, Store, Trie, TrieConfig, TrieDBStorage, TrieStorage};
 use near_primitives::{shard_layout::ShardUId, state::FlatStateValue};
@@ -14,17 +14,15 @@ use std::time::Instant;
 // flat state can contain deltas after flat_head and can be different from tip of the blockchain.
 pub fn construct_trie_from_flat(store: Store, write_store: Store, shard_uid: ShardUId) {
     let trie_storage = TrieDBStorage::new(store.trie_store(), shard_uid);
-    let flat_state_to_trie_kv =
-        |entry: Result<(Vec<u8>, FlatStateValue), FlatStorageError>| -> (Vec<u8>, Vec<u8>) {
-            let (key, value) = entry.unwrap();
-            let value = match value {
-                FlatStateValue::Ref(ref_value) => {
-                    trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
-                }
-                FlatStateValue::Inlined(inline_value) => inline_value,
-            };
-            (key, value)
+    let flat_state_to_trie_kv = |(key, value): (Vec<u8>, FlatStateValue)| -> (Vec<u8>, Vec<u8>) {
+        let value = match value {
+            FlatStateValue::Ref(ref_value) => {
+                trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
+            }
+            FlatStateValue::Inlined(inline_value) => inline_value,
         };
+        (key, value)
+    };
 
     let store = store.flat_store();
     let mut iter = store.iter(shard_uid).map(flat_state_to_trie_kv);

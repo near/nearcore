@@ -102,7 +102,7 @@ impl FlatStorageManager {
     fn mark_flat_storage_ready(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
         // Don't use Self::get_flat_storage_status() because there's no need to panic if this fails, since this is used
         // during state snapshotting where an error isn't critical to node operation.
-        let status = self.0.store.get_flat_storage_status(shard_uid)?;
+        let status = self.0.store.get_flat_storage_status(shard_uid);
         let flat_head = match status {
             FlatStorageStatus::Ready(_) => return Ok(()),
             FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(flat_head)) => {
@@ -191,10 +191,7 @@ impl FlatStorageManager {
             // The current block has no flat state changes.
             // Find the last block with flat state changes by looking it up in
             // the prev block.
-            self.0
-                .store
-                .get_prev_block_with_changes(shard_uid, block_hash, prev_hash)
-                .map_err(|e| StorageError::from(e))?
+            self.0.store.get_prev_block_with_changes(shard_uid, block_hash, prev_hash)
         } else {
             // The current block has flat state changes.
             None
@@ -223,7 +220,7 @@ impl FlatStorageManager {
     }
 
     pub fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus {
-        self.0.store.get_flat_storage_status(shard_uid).expect("failed to read flat storage status")
+        self.0.store.get_flat_storage_status(shard_uid)
     }
 
     /// Creates `FlatStorageChunkView` to access state for `shard_uid` and block `block_hash`.
@@ -281,10 +278,10 @@ impl FlatStorageManager {
     pub fn resharding_catchup_height_reached(
         &self,
         shard_uids: impl Iterator<Item = ShardUId>,
-    ) -> Result<Option<Option<BlockHeight>>, StorageError> {
+    ) -> Option<Option<BlockHeight>> {
         let mut ret = None;
         for shard_uid in shard_uids {
-            match self.0.store.get_flat_storage_status(shard_uid)? {
+            match self.0.store.get_flat_storage_status(shard_uid) {
                 FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(
                     flat_head,
                 )) => {
@@ -294,11 +291,11 @@ impl FlatStorageManager {
                         ret = Some(Some(flat_head.height));
                     }
                 }
-                FlatStorageStatus::Resharding(_) => return Ok(Some(None)),
+                FlatStorageStatus::Resharding(_) => return Some(None),
                 _ => {}
             };
         }
-        Ok(ret)
+        ret
     }
 
     /// Should be called when we want to take a state snapshot. Disallows flat head updates, and signals to any resharding

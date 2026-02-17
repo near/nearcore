@@ -167,7 +167,6 @@ impl TrieViewer {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Vec<Nonce>, errors::ViewAccessKeyError> {
-        // TODO(gas-keys): Optimize this by iterating with a prefix instead of querying individually.
         let access_key =
             get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
                 errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }

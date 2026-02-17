@@ -720,7 +720,7 @@ impl ForkNetworkCommand {
 
         // 2. Initialize chain and state storage so we can add benchmark
         // accounts there.
-        let prev_state_roots = get_genesis_state_roots(&store)?.unwrap();
+        let prev_state_roots = get_genesis_state_roots(&store).unwrap();
         let shard_uids: Vec<_> = target_shard_layout.shard_uids().collect();
 
         let base_epoch_config_store = EpochConfigStore::test(BTreeMap::from([(
@@ -966,14 +966,13 @@ impl ForkNetworkCommand {
         let mut records_not_parsed = 0;
         let mut records_parsed = 0;
 
-        for item in store.flat_store().iter(shard_uid) {
-            let (key, value) = match item {
-                Ok((key, FlatStateValue::Ref(ref_value))) => {
+        for (key, flat_value) in store.flat_store().iter(shard_uid) {
+            let (key, value) = match flat_value {
+                FlatStateValue::Ref(ref_value) => {
                     ref_keys_retrieved += 1;
                     (key, trie_storage.retrieve_raw_bytes(&ref_value.hash)?.to_vec())
                 }
-                Ok((key, FlatStateValue::Inlined(value))) => (key, value),
-                otherwise => panic!("Unexpected flat state value: {otherwise:?}"),
+                FlatStateValue::Inlined(value) => (key, value),
             };
             if let Some(sr) = StateRecord::from_raw_key_value(&key, value.clone()) {
                 match sr {
@@ -1094,47 +1093,45 @@ impl ForkNetworkCommand {
         // TODO: Just remember what accounts we saw in the above iteration
         let mut num_added = 0;
         let mut num_accounts = 0;
-        for item in store.flat_store().iter(shard_uid) {
-            if let Ok((key, _)) = item {
-                if key[0] == col::ACCOUNT {
-                    num_accounts += 1;
-                    let account_id = match parse_account_id_from_account_key(&key) {
-                        Ok(account_id) => account_id,
-                        Err(err) => {
-                            tracing::error!(
-                                ?err,
-                                key = %hex::encode(&key),
-                                "failed to parse account id"
-                            );
-                            continue;
-                        }
-                    };
-                    if account_id.get_account_type() == AccountType::NearImplicitAccount
-                        || has_full_key.contains(&account_id)
-                    {
+        for (key, _) in store.flat_store().iter(shard_uid) {
+            if key[0] == col::ACCOUNT {
+                num_accounts += 1;
+                let account_id = match parse_account_id_from_account_key(&key) {
+                    Ok(account_id) => account_id,
+                    Err(err) => {
+                        tracing::error!(
+                            ?err,
+                            key = %hex::encode(&key),
+                            "failed to parse account id"
+                        );
                         continue;
                     }
-                    let shard_id = source_shard_layout.account_id_to_shard_id(&account_id);
-                    if shard_id != shard_uid.shard_id() {
-                        tracing::warn!(
-                            %account_id,
-                            %shard_id,
-                            found_in_shard = %shard_uid.shard_id(),
-                            "account belongs to shard but was found in flat storage for different shard"
-                        );
-                    }
-                    let shard_idx = source_shard_layout.get_shard_index(shard_id).unwrap();
-                    storage_mutator.set_access_key(
-                        shard_idx,
-                        account_id,
-                        default_key.clone(),
-                        AccessKey::full_access(),
-                    )?;
-                    num_added += 1;
-                    if storage_mutator.should_commit(batch_size) {
-                        storage_mutator.commit()?;
-                        storage_mutator = make_storage_mutator(update_state.clone())?;
-                    }
+                };
+                if account_id.get_account_type() == AccountType::NearImplicitAccount
+                    || has_full_key.contains(&account_id)
+                {
+                    continue;
+                }
+                let shard_id = source_shard_layout.account_id_to_shard_id(&account_id);
+                if shard_id != shard_uid.shard_id() {
+                    tracing::warn!(
+                        %account_id,
+                        %shard_id,
+                        found_in_shard = %shard_uid.shard_id(),
+                        "account belongs to shard but was found in flat storage for different shard"
+                    );
+                }
+                let shard_idx = source_shard_layout.get_shard_index(shard_id).unwrap();
+                storage_mutator.set_access_key(
+                    shard_idx,
+                    account_id,
+                    default_key.clone(),
+                    AccessKey::full_access(),
+                )?;
+                num_added += 1;
+                if storage_mutator.should_commit(batch_size) {
+                    storage_mutator.commit()?;
+                    storage_mutator = make_storage_mutator(update_state.clone())?;
                 }
             }
         }

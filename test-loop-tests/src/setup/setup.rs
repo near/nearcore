@@ -488,7 +488,7 @@ pub fn setup_client(
         validator: validator_signer,
         future_spawner: Arc::new(test_loop.future_spawner(identifier)),
     };
-    let state_sync_dumper_handle = state_sync_dumper.start().unwrap();
+    let state_sync_dumper_handle = state_sync_dumper.start();
     let state_sync_dumper_handle = test_loop.data.register_data(state_sync_dumper_handle);
 
     let client_sender =

@@ -530,7 +530,7 @@ impl Handler<EpochSyncRequestMessage> for ClientActor {
             // When ContinuousEpochSync is enabled, we simply return the stored compressed proof.
             // The proof is automatically updated at the beginning of each epoch via the epoch manager.
             let epoch_store = self.client.chain.chain_store.epoch_store();
-            let Some(proof) = epoch_store.get_compressed_epoch_sync_proof().unwrap() else {
+            let Some(proof) = epoch_store.get_compressed_epoch_sync_proof() else {
                 // This would likely only happen when the blockchain is an epoch or two around genesis.
                 let chain_store = epoch_store.chain_store();
                 let head = chain_store.head();

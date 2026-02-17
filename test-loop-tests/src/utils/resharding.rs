@@ -825,19 +825,13 @@ pub(crate) fn check_resharding_skipped_when_no_children_tracked(
                     let status = flat_store.get_flat_storage_status(parent_shard_uid);
 
                     match status {
-                        Ok(FlatStorageStatus::Ready(_)) => {
+                        FlatStorageStatus::Ready(_) => {
                             // Flat storage should be Ready.
                         }
-                        Ok(status) => {
+                        status => {
                             panic!(
                                 "Unexpected parent shard status {:?} for shard {:?}",
                                 status, parent_shard_uid
-                            );
-                        }
-                        Err(e) => {
-                            panic!(
-                                "Error checking parent shard {:?} flat storage status: {:?}",
-                                parent_shard_uid, e
                             );
                         }
                     }

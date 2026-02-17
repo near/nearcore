@@ -148,7 +148,7 @@ impl GenesisBuilder {
 
     pub fn build(mut self) -> Result<Self> {
         // First, apply whatever is defined by the genesis config.
-        let roots = get_genesis_state_roots(self.runtime.store())?
+        let roots = get_genesis_state_roots(self.runtime.store())
             .expect("genesis state roots not initialized.");
         let shard_layout = &self.genesis.config.shard_layout;
         let genesis_shard_version = shard_layout.version();

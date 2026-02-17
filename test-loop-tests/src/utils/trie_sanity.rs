@@ -3,7 +3,6 @@ use crate::utils::sharding::{
     get_memtrie_for_shard, get_tracked_shards, get_tracked_shards_from_prev_block,
 };
 use borsh::BorshDeserialize;
-use itertools::Itertools;
 use near_chain::ChainStoreAccess;
 use near_chain::types::Tip;
 use near_client::Client;
@@ -282,7 +281,7 @@ fn assert_state_sanity(
         };
         let flat_store_state = flat_store_chunk_view
             .iter_range(None, None)
-            .map_ok(|(key, value)| {
+            .map(|(key, value)| {
                 let value = match value {
                     FlatStateValue::Ref(value) => client
                         .chain
@@ -296,8 +295,7 @@ fn assert_state_sanity(
                 };
                 (key, value)
             })
-            .collect::<Result<HashSet<_>, _>>()
-            .unwrap();
+            .collect::<HashSet<_>>();
 
         assert_state_equal(&memtrie_state, &flat_store_state, shard_uid, "memtrie and flat store");
         checked_shards.push(shard_uid);

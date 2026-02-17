@@ -1,13 +1,26 @@
+use std::str::FromStr;
+
 use near_chain::{Error, LatestKnown};
+use near_chain_configs::GenesisConfig;
 use near_epoch_manager::epoch_sync::{
     derive_epoch_sync_proof_from_last_block, find_target_epoch_to_produce_proof_for,
 };
+use near_primitives::chains::MAINNET;
 use near_primitives::epoch_sync::EpochSyncProof;
-use near_primitives::types::BlockHeightDelta;
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::DelayedReceiptIndices;
+use near_primitives::trie_key::TrieKey;
+use near_primitives::types::{BlockHeightDelta, ShardId, StateChangeCause};
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::trie_store::TrieStoreUpdateAdapter;
+use near_store::archive::cold_storage::{join_two_keys, rc_aware_set};
 use near_store::db::metadata::{DB_VERSION, DbVersion, MIN_SUPPORTED_DB_VERSION};
 use near_store::db::{ColdDB, DBTransaction, Database};
-use near_store::{DBCol, LATEST_KNOWN_KEY, Store, get_genesis_height};
+use near_store::flat::FlatStorageManager;
+use near_store::{
+    DBCol, LATEST_KNOWN_KEY, ShardTries, ShardUId, StateSnapshotConfig, Store, StoreConfig,
+    TrieChanges, TrieConfig, TrieUpdate, get_genesis_height, set,
+};
 
 use crate::NearConfig;
 
@@ -47,9 +60,96 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 &self.config.genesis.config,
                 &self.config.config.store,
             ),
+            47 => migrate_47_to_48(cold_db, &self.config.genesis.config, &self.config.config.store),
             DB_VERSION.. => unreachable!(),
         }
     }
+}
+
+/// Migrates the database from version 47 to 48.
+///
+/// This migration addresses the data loss that occurred during Resharding V2
+/// on March 21, 2024. The backfill process was incomplete, and some data
+/// was still missing at block height 115185108.
+///
+/// Note: This migration applies only to the cold store and is specific
+/// to the mainnet resharding event.
+fn migrate_47_to_48(
+    cold_db: Option<&ColdDB>,
+    genesis_config: &GenesisConfig,
+    store_config: &StoreConfig,
+) -> anyhow::Result<()> {
+    tracing::info!(target: "migrations", "starting migration from DB version 47 to 48");
+
+    let Some(cold_db) = cold_db else {
+        tracing::info!(target: "migrations", "skipping migration 47->48 for hot store only");
+        return Ok(());
+    };
+
+    // Current migration is targeted only for mainnet
+    if genesis_config.chain_id != MAINNET {
+        tracing::info!(target: "migrations", chain_id = ?genesis_config.chain_id, "skipping migration 47->48");
+        return Ok(());
+    }
+
+    tracing::info!(target: "migrations", "starting migration 47->48 for cold store");
+
+    let cold_store = cold_db.as_store();
+    let tries = ShardTries::new(
+        cold_store.trie_store(),
+        TrieConfig::from_store_config(store_config),
+        FlatStorageManager::new(cold_store.flat_store()),
+        StateSnapshotConfig::Disabled,
+    );
+
+    // We ignore the store update, as we need to construct a transaction manually from trie changes.
+    let trie_changes = recover_shard_1_at_block_height_115185108(
+        &tries,
+        &mut cold_store.trie_store().store_update(),
+    )?;
+    let mut transaction = DBTransaction::new();
+    let child_shard_uid = ShardUId::new(3, ShardId::new(1));
+    for op in trie_changes.insertions() {
+        let key = join_two_keys(&child_shard_uid.to_bytes(), op.hash().as_bytes());
+        let value = op.payload().to_vec();
+        rc_aware_set(&mut transaction, DBCol::State, key, value);
+    }
+    tracing::info!(target: "migrations", "Writing changes to the database");
+    cold_db.write(transaction);
+    Ok(())
+}
+
+fn recover_shard_1_at_block_height_115185108(
+    tries: &ShardTries,
+    store_update: &mut TrieStoreUpdateAdapter,
+) -> anyhow::Result<TrieChanges> {
+    let parent_shard_uid = ShardUId::new(2, ShardId::new(1));
+    let child_shard_uid = ShardUId::new(3, ShardId::new(1));
+
+    // cspell:disable-next-line
+    let prev_state_root = CryptoHash::from_str("FHagbcDYMBHFe9xc1fpMXBgt54hgnehE4ZLntBevGPRs")
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let new_delayed_receipt_indices =
+        DelayedReceiptIndices { first_index: 23, next_available_index: 23 };
+    let expected_new_state_root =
+    // cspell:disable-next-line
+        CryptoHash::from_str("8pupvmM9yj2dhSUBHA59epspyxvGzpyQmiwub6BbMwKZ")
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+    let prev_trie = tries.get_trie_for_shard(parent_shard_uid, prev_state_root);
+    let mut trie_update = TrieUpdate::new(prev_trie);
+    set(&mut trie_update, TrieKey::DelayedReceiptIndices, &new_delayed_receipt_indices);
+    trie_update.commit(StateChangeCause::_UnusedReshardingV2);
+    let trie_changes = trie_update.finalize()?.trie_changes;
+    let new_state_root = tries.apply_all(&trie_changes, child_shard_uid, store_update);
+    if new_state_root != expected_new_state_root {
+        return Err(anyhow::anyhow!(
+            "New state root {} does not match expected state root: {}",
+            new_state_root,
+            expected_new_state_root
+        ));
+    }
+    Ok(trie_changes)
 }
 
 /// This migration does three things:
@@ -57,12 +157,12 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
 /// 2. Generate and save the compressed epoch sync proof
 /// 3. Clear the block headers from genesis to tail in hot_store
 #[allow(dead_code)]
-fn migrate_47_to_48(
+fn migrate_48_to_49(
     hot_store: &Store,
     cold_db: Option<&ColdDB>,
     transaction_validity_period: BlockHeightDelta,
 ) -> anyhow::Result<()> {
-    tracing::info!(target: "migrations", "starting migration from DB version 47 to 48");
+    tracing::info!(target: "migrations", "starting migration from DB version 48 to 49");
 
     if let Some(cold_db) = cold_db {
         copy_block_headers_to_cold_db(hot_store, cold_db)?;
@@ -79,7 +179,7 @@ fn migrate_47_to_48(
 // Typically this is NOT recommended as ColdDB has specific ways for storing data, example RC columns.
 // But in our case this is fine as the block headers are stored as-is in both hot and cold DBs.
 fn copy_block_headers_to_cold_db(hot_store: &Store, cold_db: &ColdDB) -> anyhow::Result<()> {
-    let genesis_height = get_genesis_height(hot_store)?.unwrap();
+    let genesis_height = get_genesis_height(hot_store).unwrap();
     let head_height = hot_store.chain_store().head().unwrap().height;
     let approx_num_blocks = head_height - genesis_height;
 
@@ -141,14 +241,14 @@ fn update_epoch_sync_proof(
 // as the headers that are stored in DBCol::BlockHeader
 fn verify_block_headers(store: &Store) -> anyhow::Result<()> {
     let chain_store = store.chain_store();
-    let tail_height = chain_store.tail().unwrap();
+    let tail_height = chain_store.tail();
     let latest_known_height =
         store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY).unwrap().height;
 
     tracing::info!(target: "migrations", ?tail_height, ?latest_known_height, "verifying block headers before deletion");
 
     for height in tail_height..(latest_known_height + 1) {
-        for block_hash in chain_store.get_all_header_hashes_by_height(height)? {
+        for block_hash in chain_store.get_all_header_hashes_by_height(height) {
             let block = match chain_store.get_block(&block_hash) {
                 Ok(block) => block,
                 // It's possible that some blocks are missing in the DB when we have forks etc.
@@ -172,7 +272,7 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
     store_update.delete_all(DBCol::BlockHeader);
     store_update.commit();
     let chain_store = store.chain_store();
-    let tail_height = chain_store.tail().unwrap();
+    let tail_height = chain_store.tail();
     let latest_known_height =
         store.get_ser::<LatestKnown>(DBCol::BlockMisc, LATEST_KNOWN_KEY).unwrap().height;
 
@@ -180,7 +280,7 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
 
     let mut store_update = chain_store.store_update();
     for height in tail_height..(latest_known_height + 1) {
-        for block_hash in chain_store.get_all_header_hashes_by_height(height)? {
+        for block_hash in chain_store.get_all_header_hashes_by_height(height) {
             // We've already checked for errors and missing blocks in the verify_block_headers function
             if let Ok(block) = chain_store.get_block(&block_hash) {
                 store_update.set_block_header_only(block.header());

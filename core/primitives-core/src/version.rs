@@ -485,6 +485,7 @@ impl ProtocolFeature {
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::GasKeys => 149,
+            ProtocolFeature::DynamicResharding => 150,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
@@ -492,9 +493,6 @@ impl ProtocolFeature {
 
             // Place features that are not yet in Nightly below this line.
             ProtocolFeature::ContinuousEpochSync => 201,
-            // TODO(dynamic_resharding): This should be 152, but some resharding tests bump
-            //     protocol version to trigger resharding and accidentally turn on this feature
-            ProtocolFeature::DynamicResharding => 252,
         }
     }
 
@@ -513,7 +511,7 @@ pub const MIN_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = 80;
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 84;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 150;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.

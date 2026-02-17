@@ -94,8 +94,6 @@ pub(crate) enum Error {
     DataIsIrrelevant(SpiceDataIdentifier),
     #[error("error decoding the data: {0}")]
     DecodeError(std::io::Error),
-    #[error("store io error")]
-    StoreIoError(std::io::Error),
     #[error("other error: {0}")]
     Other(&'static str),
 }
@@ -915,7 +913,7 @@ impl SpiceDataDistributorActor {
         &mut self,
         data_id: &SpiceDataIdentifier,
         producers_count: usize,
-    ) -> Result<Option<DistributionData>, Error> {
+    ) -> Option<DistributionData> {
         let data = match data_id {
             SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } => {
                 get_receipt_proof(
@@ -924,18 +922,16 @@ impl SpiceDataDistributorActor {
                     *to_shard_id,
                     *from_shard_id,
                 )
-                .map_err(Error::StoreIoError)?
                 .map(SpiceData::ReceiptProof)
             }
             SpiceDataIdentifier::Witness { block_hash, shard_id } => {
                 get_witness(self.chain_store.store_ref(), block_hash, *shard_id)
-                    .map_err(Error::StoreIoError)?
                     .map(Box::new)
                     .map(SpiceData::StateWitness)
             }
         };
 
-        Ok(data.map(|data| self.encode_distribution_data(&data, producers_count)))
+        data.map(|data| self.encode_distribution_data(&data, producers_count))
     }
 
     fn handle_partial_data_request(
@@ -954,7 +950,7 @@ impl SpiceDataDistributorActor {
             return Err(Error::Other("we do not produce requested data"));
         }
 
-        let Some(data) = self.get_distribution_data(&data_id, producers.len())? else {
+        let Some(data) = self.get_distribution_data(&data_id, producers.len()) else {
             // TODO(spice): Make sure we send requests for data only after we know it may be
             // available and make this into error.
             tracing::debug!(target:"spice_data_distribution", ?data_id, ?requester, "received request for unknown data");
@@ -990,10 +986,10 @@ impl SpiceDataDistributorActor {
         };
 
         let mut next_block_hashes: VecDeque<_> =
-            self.chain_store.get_all_next_block_hashes(&start_block)?.into();
+            self.chain_store.get_all_next_block_hashes(&start_block).into();
         while let Some(block_hash) = next_block_hashes.pop_front() {
             self.start_waiting_on_data(&block_hash)?;
-            next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash)?);
+            next_block_hashes.extend(&self.chain_store.get_all_next_block_hashes(&block_hash));
         }
         Ok(())
     }

@@ -145,7 +145,7 @@ impl TestEnv {
             DEFAULT_STATE_PARTS_COMPRESSION_LEVEL,
             false,
         );
-        let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
+        let state_roots = get_genesis_state_roots(&store).unwrap();
         let genesis_hash = hash(&[0]);
 
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
@@ -1507,7 +1507,7 @@ fn test_genesis_hash() {
     );
 
     let state_roots =
-        get_genesis_state_roots(runtime.store()).unwrap().expect("genesis should be initialized.");
+        get_genesis_state_roots(runtime.store()).expect("genesis should be initialized.");
     let (block, _chunks) = Chain::make_genesis_block(
         epoch_manager.as_ref(),
         runtime.as_ref(),

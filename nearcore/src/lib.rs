@@ -192,7 +192,7 @@ pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result
 
     assert_eq!(
         near_config.config.archive,
-        storage.is_local_archive()? || storage.is_cloud_archive()
+        storage.is_local_archive() || storage.is_cloud_archive()
     );
     Ok(storage)
 }
@@ -307,7 +307,7 @@ fn spawn_spice_actors(
         network_adapter.clone(),
         validator_signer.clone(),
         {
-            let thread_limit = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize * 3;
+            let thread_limit = runtime.get_shard_limit(PROTOCOL_VERSION) as usize * 3;
             ApplyChunksSpawner::default().into_spawner(thread_limit)
         },
         Default::default(),
@@ -493,7 +493,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let telemetry =
         TelemetryActor::spawn_tokio_actor(actor_system.clone(), config.telemetry_config.clone());
     let chain_genesis = ChainGenesis::new(&config.genesis.config);
-    let state_roots = near_store::get_genesis_state_roots(runtime.store())?
+    let state_roots = near_store::get_genesis_state_roots(runtime.store())
         .expect("genesis should be initialized.");
     let (genesis_block, _genesis_chunks) = Chain::make_genesis_block(
         epoch_manager.as_ref(),
@@ -581,7 +581,7 @@ pub async fn start_with_config_and_synchronization_impl(
         epoch_manager.clone(),
         shard_tracker.clone(),
         config.client_config.gc.clone(),
-        storage.is_local_archive()?,
+        storage.is_local_archive(),
     ));
 
     let resharding_handle = ReshardingHandle::new();
@@ -709,7 +709,7 @@ pub async fn start_with_config_and_synchronization_impl(
         validator: config.validator_signer.clone(),
         future_spawner: state_sync_spawner,
     };
-    state_sync_dumper.start()?;
+    state_sync_dumper.start();
 
     let hot_store = storage.get_hot_store();
     let cold_store = storage.get_cold_store();
