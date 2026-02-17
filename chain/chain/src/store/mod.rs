@@ -802,14 +802,14 @@ impl ChainStore {
         chain_store: &ChainStoreAdapter,
         prev_prev_hash: &CryptoHash,
         prev_hash: &CryptoHash,
-    ) -> Result<bool, Error> {
+    ) -> bool {
         // Needs to be used with care: for the first block of each epoch the semantic is slightly
         // different, since the prev_block is in a different epoch. So for all the blocks but the
         // first one in each epoch this method returns true if the block is ready to have state
         // applied for the next epoch, while for the first block in a particular epoch this method
         // returns true if the block is ready to have state applied for the current epoch (and
         // otherwise should be orphaned)
-        Ok(!chain_store.get_blocks_to_catchup(prev_prev_hash).contains(prev_hash))
+        !chain_store.get_blocks_to_catchup(prev_prev_hash).contains(prev_hash)
     }
 }
 

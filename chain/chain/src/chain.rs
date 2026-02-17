@@ -2465,9 +2465,9 @@ impl Chain {
         prev_prev_hash: &CryptoHash,
     ) -> Result<(bool, Option<StateSyncInfo>), Error> {
         if !self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
-            return Ok((self.prev_block_is_caught_up(prev_prev_hash, prev_hash)?, None));
+            return Ok((self.prev_block_is_caught_up(prev_prev_hash, prev_hash), None));
         }
-        if !self.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
+        if !self.prev_block_is_caught_up(prev_prev_hash, prev_hash) {
             // The previous block is not caught up for the next epoch relative to the previous
             // block, which is the current epoch for this block, so this block cannot be applied
             // at all yet, needs to be orphaned
@@ -2492,8 +2492,8 @@ impl Chain {
         &self,
         prev_prev_hash: &CryptoHash,
         prev_hash: &CryptoHash,
-    ) -> Result<bool, Error> {
-        Ok(ChainStore::prev_block_is_caught_up(&self.chain_store, prev_prev_hash, prev_hash)?)
+    ) -> bool {
+        ChainStore::prev_block_is_caught_up(&self.chain_store, prev_prev_hash, prev_hash)
     }
 
     /// Check if any block with missing chunk is ready to be processed and start processing these blocks
