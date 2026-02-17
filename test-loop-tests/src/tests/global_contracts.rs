@@ -487,10 +487,7 @@ impl GlobalContractsTestEnv {
         contract_code_view
     }
 
-    fn view_global_contract_code(
-        &self,
-        identifier: GlobalContractIdentifier,
-    ) -> ContractCodeView {
+    fn view_global_contract_code(&self, identifier: GlobalContractIdentifier) -> ContractCodeView {
         let query = match identifier {
             GlobalContractIdentifier::CodeHash(code_hash) => {
                 QueryRequest::ViewGlobalContractCode { code_hash }
