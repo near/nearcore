@@ -223,51 +223,56 @@ pub fn bootstrap_reader_at_height(
     let epoch_data = cloud_storage.get_epoch_data(*epoch_id).unwrap();
     let epoch_height = epoch_data.epoch_info().epoch_height();
     let protocol_version = epoch_data.epoch_info().protocol_version();
+
+    // Load blocks needed for state sync (shard-independent).
+    let epoch_start_block = cloud_storage.get_block_data(*epoch_data.epoch_start_height()).unwrap();
+    let sync_block = cloud_storage.get_block_data(*epoch_data.sync_block_height()).unwrap();
+    let sync_hash = sync_block.block().hash();
+    let sync_prev_block_height = sync_block.block().header().prev_height().unwrap();
+    let sync_prev_block = cloud_storage.get_block_data(sync_prev_block_height).unwrap();
+    let sync_prev_prev_block_height = sync_prev_block.block().header().prev_height().unwrap();
+    let sync_prev_prev_block = cloud_storage.get_block_data(sync_prev_prev_block_height).unwrap();
+
+    // Save blocks and merkle tree to the reader's store.
+    {
+        let archival_node = TestLoopNode::for_account(&env.node_datas, &reader_id);
+        let client_actor = archival_node.client_actor(&mut env.test_loop.data);
+        let chain = &mut client_actor.client.chain;
+        let mut store_update = chain.mut_chain_store().store_update();
+        store_update.save_block_merkle_tree(
+            *epoch_start_block.block().header().prev_hash(),
+            epoch_data.epoch_start_prev_block_merkle_tree().clone(),
+        );
+        store_update.commit().unwrap();
+        for block_data in [&epoch_start_block, &sync_prev_prev_block, &sync_prev_block, &sync_block]
+        {
+            save_block_data(chain.mut_chain_store().store_update(), block_data);
+        }
+    }
+
+    let chain = &get_client(env, reader_id).chain;
+    let store = chain.chain_store.store();
+    let tries = ShardTries::new(
+        store.trie_store(),
+        TrieConfig::default(),
+        FlatStorageManager::new(store.flat_store()),
+        StateSnapshotConfig::Disabled,
+    );
+    let state_sync_connection = StateSyncConnection::from_cloud_storage(&cloud_storage);
+
     for shard_id in epoch_data.shard_layout().shard_ids() {
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, epoch_data.shard_layout());
         let target_block_shard_data =
             cloud_storage.get_shard_data(target_block_height, shard_id).unwrap();
         let target_state_root = *target_block_shard_data.chunk_extra().state_root();
-        let epoch_start_block =
-            cloud_storage.get_block_data(*epoch_data.epoch_start_height()).unwrap();
-        let sync_block_height = epoch_data.sync_block_height();
-        let sync_block = cloud_storage.get_block_data(*sync_block_height).unwrap();
-        let sync_hash = sync_block.block().hash();
-        let sync_prev_block_height = sync_block.block().header().prev_height().unwrap();
-        let sync_prev_block = cloud_storage.get_block_data(sync_prev_block_height).unwrap();
-        let sync_prev_prev_block_height = sync_prev_block.block().header().prev_height().unwrap();
-        let sync_prev_prev_block =
-            cloud_storage.get_block_data(sync_prev_prev_block_height).unwrap();
         let state_header =
             cloud_storage.get_state_header(epoch_height, *epoch_id, shard_id).unwrap();
         let state_sync_state_root = state_header.chunk_prev_state_root();
-        {
-            let archival_node = TestLoopNode::for_account(&env.node_datas, &reader_id);
-            let client_actor = archival_node.client_actor(&mut env.test_loop.data);
-            let chain = &mut client_actor.client.chain;
-            let mut store_update = chain.mut_chain_store().store_update();
-            store_update.save_block_merkle_tree(
-                *epoch_start_block.block().header().prev_hash(),
-                epoch_data.epoch_start_prev_block_merkle_tree().clone(),
-            );
-            store_update.commit().unwrap();
-            save_block_data(chain.mut_chain_store().store_update(), &epoch_start_block);
-            save_block_data(chain.mut_chain_store().store_update(), &sync_prev_prev_block);
-            save_block_data(chain.mut_chain_store().store_update(), &sync_prev_block);
-            save_block_data(chain.mut_chain_store().store_update(), &sync_block);
-        }
-        let chain = &get_client(env, reader_id).chain;
-        chain.state_sync_adapter.set_state_header(shard_id, *sync_hash, state_header).unwrap();
-        let store = chain.chain_store.store();
-        let tries = ShardTries::new(
-            store.trie_store(),
-            TrieConfig::default(),
-            FlatStorageManager::new(store.flat_store()),
-            StateSnapshotConfig::Disabled,
-        );
 
-        let state_sync_connection = StateSyncConnection::from_cloud_storage(&cloud_storage);
-        let load_state_snapshot_fut = load_state_snapshot(
+        chain.state_sync_adapter.set_state_header(shard_id, *sync_hash, state_header).unwrap();
+
+        assert!(!has_state_root(&tries, shard_uid, state_sync_state_root));
+        execute_future(load_state_snapshot(
             chain,
             &state_sync_connection,
             cloud_storage.chain_id(),
@@ -277,10 +282,9 @@ pub fn bootstrap_reader_at_height(
             &protocol_version,
             shard_id,
             state_sync_state_root,
-        );
-        assert!(!has_state_root(&tries, shard_uid, state_sync_state_root));
-        execute_future(load_state_snapshot_fut);
+        ));
         assert!(has_state_root(&tries, shard_uid, state_sync_state_root));
+
         assert!(!has_state_root(&tries, shard_uid, target_state_root));
         apply_state_changes(
             &cloud_storage,
@@ -291,7 +295,6 @@ pub fn bootstrap_reader_at_height(
             target_block_height,
             shard_uid,
         );
-        assert!(has_state_root(&tries, shard_uid, state_sync_state_root));
         assert!(has_state_root(&tries, shard_uid, target_state_root));
     }
 }
