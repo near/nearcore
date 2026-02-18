@@ -52,7 +52,7 @@ pub struct SpiceChunkValidatorActor {
     validation_spawner: Arc<dyn AsyncComputationSpawner>,
 
     /// Per-chunk state for witnesses waiting on contract bytes.
-    pending_chunks: HashMap<SpiceChunkId, PendingChunkContracts>,
+    pending_chunks: HashMap<SpiceChunkId, PendingChunkParts>,
 
     /// Cache of contracts requested from producers.
     /// Used to avoid re-requesting the same contract across consecutive heights.
@@ -72,7 +72,7 @@ enum RequestedContract {
 }
 
 /// Tracks the state of a chunk that is waiting on contract bytes and/or its witness.
-struct PendingChunkContracts {
+struct PendingChunkParts {
     /// None = haven't received contract accesses message yet.
     /// Some(empty) = all contracts available (either cached or received).
     /// Some(non-empty) = still waiting for these contracts.
@@ -83,7 +83,7 @@ struct PendingChunkContracts {
     witness: Option<SpiceChunkStateWitness>,
 }
 
-impl PendingChunkContracts {
+impl PendingChunkParts {
     fn new() -> Self {
         Self { missing: None, contracts: Vec::new(), witness: None }
     }
@@ -240,7 +240,7 @@ impl SpiceChunkValidatorActor {
                 let entry = self
                     .pending_chunks
                     .entry(chunk_id.clone())
-                    .or_insert_with(PendingChunkContracts::new);
+                    .or_insert_with(PendingChunkParts::new);
                 entry.witness = Some(witness);
                 self.try_finalize_chunk(&chunk_id, signer)
             }
@@ -313,7 +313,7 @@ impl SpiceChunkValidatorActor {
             let entry = self
                 .pending_chunks
                 .entry(chunk_id.clone())
-                .or_insert_with(PendingChunkContracts::new);
+                .or_insert_with(PendingChunkParts::new);
             entry.witness = Some(witness);
             self.try_finalize_chunk(&chunk_id, signer.clone())?;
         }
@@ -402,7 +402,7 @@ impl SpiceChunkValidatorActor {
         let cache = self.runtime_adapter.compiled_contract_cache();
 
         let entry =
-            self.pending_chunks.entry(chunk_id.clone()).or_insert_with(PendingChunkContracts::new);
+            self.pending_chunks.entry(chunk_id.clone()).or_insert_with(PendingChunkParts::new);
 
         let mut missing = HashSet::new();
         let mut to_request = HashSet::new();
@@ -540,7 +540,7 @@ impl SpiceChunkValidatorActor {
         }
 
         // Remove entry so we own the data and avoid borrow conflicts.
-        let PendingChunkContracts { missing: _, contracts, witness } =
+        let PendingChunkParts { missing: _, contracts, witness } =
             self.pending_chunks.remove(chunk_id).unwrap();
         let mut witness = witness.unwrap();
 
@@ -550,7 +550,7 @@ impl SpiceChunkValidatorActor {
                 // Put it back — block isn't ready yet.
                 self.pending_chunks.insert(
                     chunk_id.clone(),
-                    PendingChunkContracts {
+                    PendingChunkParts {
                         missing: Some(HashSet::new()),
                         contracts,
                         witness: Some(witness),
