@@ -43,7 +43,10 @@ def build_images(config):
     # Phase 1: start 1 source node (single validator, 4 shards, archive)
     logger.info('Phase 1: starting source node')
     nodes = start_cluster(
-        num_nodes=1, num_observers=0, num_shards=4, config=config,
+        num_nodes=1,
+        num_observers=0,
+        num_shards=4,
+        config=config,
         genesis_config_changes=[["epoch_length", 100]],
         client_config_changes={
             0: {
@@ -100,8 +103,11 @@ def build_images(config):
     start_source_height = tip.height
 
     subaccount_key = mirror_utils.AddedKey(
-        mirror_utils.create_subaccount(source_node, 'foo',
-                                       source_node.signer_key, nonce, bhash,
+        mirror_utils.create_subaccount(source_node,
+                                       'foo',
+                                       source_node.signer_key,
+                                       nonce,
+                                       bhash,
                                        extra_key=True))
     nonce += 1
 
@@ -113,12 +119,15 @@ def build_images(config):
 
     contract_key = key.Key.from_random('test0')
     contract_extra_key = key.Key.from_random('test0')
-    mirror_utils.call_addkey(
-        source_node, source_node.signer_key, contract_key, nonce, bhash,
-        extra_actions=[
-            transaction.create_full_access_key_action(
-                contract_extra_key.decoded_pk())
-        ])
+    mirror_utils.call_addkey(source_node,
+                             source_node.signer_key,
+                             contract_key,
+                             nonce,
+                             bhash,
+                             extra_actions=[
+                                 transaction.create_full_access_key_action(
+                                     contract_extra_key.decoded_pk())
+                             ])
     nonce += 1
     contract_key = mirror_utils.AddedKey(contract_key)
     contract_extra_key = mirror_utils.AddedKey(contract_extra_key)
@@ -131,8 +140,7 @@ def build_images(config):
 
     # Send 1 yocto (fails to create), then enough to actually create
     implicit2 = mirror_utils.ImplicitAccount()
-    implicit2.transfer_to(source_node, source_node.signer_key, 1, bhash,
-                          nonce)
+    implicit2.transfer_to(source_node, source_node.signer_key, 1, bhash, nonce)
     nonce += 1
     time.sleep(2)
     implicit2.transfer_to(source_node, source_node.signer_key, 10**24, bhash,
@@ -150,8 +158,8 @@ def build_images(config):
         bhash = base58.b58decode(block_hash.encode('utf8'))
 
         tx = transaction.sign_payment_tx(source_node.signer_key,
-                                         source_node.signer_key.account_id,
-                                         300, nonce, bhash)
+                                         source_node.signer_key.account_id, 300,
+                                         nonce, bhash)
         source_node.send_tx(tx)
         nonce += 1
 
@@ -165,15 +173,16 @@ def build_images(config):
         if subaccount_key.inited():
             if not contract_deployed:
                 subaccount_key.nonce += 1
-                mirror_utils.deploy_addkey_contract(
-                    source_node, subaccount_key.key,
-                    mirror_utils.CONTRACT_PATH, subaccount_key.nonce, bhash)
+                mirror_utils.deploy_addkey_contract(source_node,
+                                                    subaccount_key.key,
+                                                    mirror_utils.CONTRACT_PATH,
+                                                    subaccount_key.nonce, bhash)
                 contract_deployed = True
             elif not staked and mirror_utils.contract_deployed(
                     source_node, subaccount_key.account_id()):
                 subaccount_key.nonce += 1
-                mirror_utils.call_stake(source_node, subaccount_key.key,
-                                        10**28, subaccount_key.key.pk,
+                mirror_utils.call_stake(source_node, subaccount_key.key, 10**28,
+                                        subaccount_key.key.pk,
                                         subaccount_key.nonce, bhash)
                 staked = True
 
@@ -195,7 +204,9 @@ def build_images(config):
             {
                 'validator_keys': [k.to_json() for k in validator_keys],
                 'end_source_height': end_source_height,
-            }, f, indent=2)
+            },
+            f,
+            indent=2)
 
 
 def run_mirror(config, validator_keys, end_source_height):
@@ -233,7 +244,9 @@ def run_mirror(config, validator_keys, end_source_height):
     logger.info('Starting 4 target validators')
     target_nodes = []
     for i in range(len(TARGET_VALIDATORS)):
-        node = spin_up_node(config, near_root, target_node_dirs[i],
+        node = spin_up_node(config,
+                            near_root,
+                            target_node_dirs[i],
                             base_ordinal + i,
                             boot_node=target_nodes or None)
         target_nodes.append(node)
@@ -242,8 +255,8 @@ def run_mirror(config, validator_keys, end_source_height):
     target_home = MIRROR_DIR / 'target'
     with open(target_home / 'config.json') as f:
         target_cfg = json.load(f)
-    target_cfg['network']['boot_nodes'] = ','.join(n.addr_with_pk()
-                                                   for n in target_nodes)
+    target_cfg['network']['boot_nodes'] = ','.join(
+        n.addr_with_pk() for n in target_nodes)
     with open(target_home / 'config.json', 'w') as f:
         json.dump(target_cfg, f, indent=2)
 
@@ -271,8 +284,11 @@ def run_mirror(config, validator_keys, end_source_height):
     # forked state and some mapped txs fail (nonce conflicts, etc.).
     logger.info('Phase 6: validating results')
     source_ordinal = base_ordinal + len(TARGET_VALIDATORS) + 1
-    source_node = spin_up_node(config, near_root, str(source_dir),
-                               source_ordinal, single_node=True)
+    source_node = spin_up_node(config,
+                               near_root,
+                               str(source_dir),
+                               source_ordinal,
+                               single_node=True)
     time.sleep(5)
 
     with open(os.path.join(target_node_dirs[0], 'genesis.json')) as f:
@@ -288,15 +304,16 @@ def run_mirror(config, validator_keys, end_source_height):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--reuse-images', action='store_true',
+    parser.add_argument('--reuse-images',
+                        action='store_true',
                         help='Reuse saved images from a previous run instead '
-                             'of rebuilding them')
+                        'of rebuilding them')
     args = parser.parse_args()
 
     config = load_config()
 
-    have_images = (SAVED_IMG_A.exists() and SAVED_IMG_B.exists()
-                   and METADATA_FILE.exists())
+    have_images = (SAVED_IMG_A.exists() and SAVED_IMG_B.exists() and
+                   METADATA_FILE.exists())
     if args.reuse_images and have_images:
         logger.info('Reusing saved images from previous run')
     else:
