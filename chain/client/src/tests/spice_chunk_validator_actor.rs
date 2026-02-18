@@ -586,26 +586,16 @@ fn make_code_hash(data: &[u8]) -> CodeHash {
     CodeHash(near_primitives::hash::hash(data))
 }
 
-fn make_contract_accesses(
-    block: &Block,
-    hashes: HashSet<CodeHash>,
-) -> SpiceChunkContractAccesses {
+fn make_contract_accesses(block: &Block, hashes: HashSet<CodeHash>) -> SpiceChunkContractAccesses {
     let signer = create_test_signer("test-producer");
-    let chunk_id = SpiceChunkId {
-        block_hash: *block.hash(),
-        shard_id: block.chunks()[0].shard_id(),
-    };
+    let chunk_id =
+        SpiceChunkId { block_hash: *block.hash(), shard_id: block.chunks()[0].shard_id() };
     SpiceChunkContractAccesses::new(chunk_id, hashes, &signer)
 }
 
-fn make_contract_response(
-    block: &Block,
-    contracts: &[&[u8]],
-) -> SpiceContractCodeResponse {
-    let chunk_id = SpiceChunkId {
-        block_hash: *block.hash(),
-        shard_id: block.chunks()[0].shard_id(),
-    };
+fn make_contract_response(block: &Block, contracts: &[&[u8]]) -> SpiceContractCodeResponse {
+    let chunk_id =
+        SpiceChunkId { block_hash: *block.hash(), shard_id: block.chunks()[0].shard_id() };
     let code_bytes: Vec<CodeBytes> = contracts.iter().map(|c| make_code_bytes(c)).collect();
     SpiceContractCodeResponse::encode(chunk_id, &code_bytes).unwrap()
 }
@@ -714,8 +704,7 @@ fn test_contract_accesses_sends_request_for_missing() {
 
     let hash_a = make_code_hash(b"contract_a");
     let hash_b = make_code_hash(b"contract_b");
-    let accesses =
-        make_contract_accesses(&block, HashSet::from([hash_a.clone(), hash_b.clone()]));
+    let accesses = make_contract_accesses(&block, HashSet::from([hash_a.clone(), hash_b.clone()]));
     actor.handle(SpiceChunkContractAccessesMessage(accesses));
 
     let requests = drain_contract_requests(&mut actor.network_rc);

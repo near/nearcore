@@ -310,10 +310,8 @@ impl SpiceChunkValidatorActor {
                 ?prev_hash,
                 ?chunk_id,
                 "processing ready pending state witness");
-            let entry = self
-                .pending_chunks
-                .entry(chunk_id.clone())
-                .or_insert_with(PendingChunkParts::new);
+            let entry =
+                self.pending_chunks.entry(chunk_id.clone()).or_insert_with(PendingChunkParts::new);
             entry.witness = Some(witness);
             self.try_finalize_chunk(&chunk_id, signer.clone())?;
         }
@@ -487,7 +485,8 @@ impl SpiceChunkValidatorActor {
         let mut received: HashMap<CodeHash, CodeBytes> = HashMap::new();
         for contract in contracts {
             let hash = CodeHash(near_primitives::hash::hash(&contract.0));
-            self.requested_contracts.push(hash.clone(), RequestedContract::Available(contract.clone()));
+            self.requested_contracts
+                .push(hash.clone(), RequestedContract::Available(contract.clone()));
             received.insert(hash, contract);
         }
 
