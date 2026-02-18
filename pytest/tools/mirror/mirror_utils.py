@@ -243,13 +243,13 @@ def create_subaccount(node,
                       block_hash,
                       extra_key=False):
     k = key.Key.from_random(subaccount_name + '.' + signer_key.account_id)
-    actions = []
-    actions.append(transaction.create_create_account_action())
-    actions.append(transaction.create_full_access_key_action(k.decoded_pk()))
-    actions.append(transaction.create_payment_action(10**29))
-    actions.append(
+    actions = [
+        transaction.create_create_account_action(),
+        transaction.create_full_access_key_action(k.decoded_pk()),
+        transaction.create_payment_action(10**29),
         transaction.create_full_access_key_action(
-            key.Key.from_random(k.account_id).decoded_pk()))
+            key.Key.from_random(k.account_id).decoded_pk()),
+    ]
 
     tx = transaction.sign_and_serialize_transaction(k.account_id, nonce,
                                                     actions, block_hash,
@@ -434,19 +434,6 @@ def allowed_run_time(target_node_dir, start_time, end_source_height):
 
     # Give 20 seconds to sync, then 1.5x min_block_production_delay per block
     return 20 + (end_source_height - genesis_height) * block_delay * 1.5
-
-
-def check_num_txs(source_node, target_node):
-    with open(os.path.join(target_node.node_dir, 'genesis.json'), 'r') as f:
-        genesis_height = json.load(f)['genesis_height']
-
-    total_source_txs = count_total_txs(source_node, min_height=genesis_height)
-    total_target_txs = count_total_txs(target_node)
-    assert total_source_txs <= total_target_txs, (total_source_txs,
-                                                  total_target_txs)
-    logger.info(
-        f'passed. num source txs: {total_source_txs} num target txs: {total_target_txs}'
-    )
 
 
 def added_keys_send_transfers(nodes, added_keys, receivers, amount,
