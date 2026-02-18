@@ -1041,7 +1041,7 @@ mod tests {
         let mut result = ActionResult::default();
         let action = DeleteKeyAction { public_key: gas_key_public_key.clone() };
         action_delete_key(
-            &RuntimeFeesConfig::test(),
+            &RuntimeConfig::test(),
             &mut state_update,
             &mut account,
             &mut result,
@@ -1081,7 +1081,7 @@ mod tests {
         let mut result = ActionResult::default();
         let action = DeleteKeyAction { public_key: gas_key_public_key.clone() };
         action_delete_key(
-            &RuntimeFeesConfig::test(),
+            &RuntimeConfig::test(),
             &mut state_update,
             &mut account,
             &mut result,
