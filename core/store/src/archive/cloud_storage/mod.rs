@@ -1,9 +1,10 @@
 use std::io::{Error, Result};
 
 use near_external_storage::ExternalConnection;
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::state_sync::ShardStateSyncResponseHeader;
+use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
 
-use crate::archive::cloud_storage::block_data::BlockData;
+pub use crate::archive::cloud_storage::block_data::BlockData;
 use crate::archive::cloud_storage::epoch_data::EpochData;
 use crate::archive::cloud_storage::shard_data::ShardData;
 
@@ -26,6 +27,25 @@ pub struct CloudStorage {
 }
 
 impl CloudStorage {
+    pub fn connection(&self) -> &ExternalConnection {
+        &self.external
+    }
+
+    pub fn chain_id(&self) -> &str {
+        &self.chain_id
+    }
+
+    pub fn get_state_header(
+        &self,
+        epoch_height: EpochHeight,
+        epoch_id: EpochId,
+        shard_id: ShardId,
+    ) -> Result<ShardStateSyncResponseHeader> {
+        let fut = self.retrieve_state_header(epoch_height, epoch_id, shard_id);
+        let state_header = block_on_future(fut).map_err(Error::other)?;
+        Ok(state_header)
+    }
+
     pub fn get_epoch_data(&self, epoch_id: EpochId) -> Result<EpochData> {
         let epoch_data =
             block_on_future(self.retrieve_epoch_data(epoch_id)).map_err(Error::other)?;

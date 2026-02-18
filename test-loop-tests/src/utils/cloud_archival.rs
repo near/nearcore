@@ -130,7 +130,8 @@ pub fn check_data_at_height(env: &TestLoopEnv, archival_id: &AccountId, height: 
 }
 
 /// Checks that each epoch (except the final one) has a state header uploaded for each
-/// shards. Panics if headers are missing for some shards within an epoch.
+/// shard and has epoch data uploaded. Panics if headers are missing for some shards
+/// within an epoch or if epoch data is missing.
 pub fn snapshots_sanity_check(
     env: &TestLoopEnv,
     archival_id: &AccountId,
@@ -141,6 +142,7 @@ pub fn snapshots_sanity_check(
     let node = env.node_for_account(archival_id);
     let client = node.client();
     let mut epoch_heights_with_snapshot = HashSet::<EpochHeight>::new();
+    let mut epoch_heights_with_epoch_data = HashSet::<EpochHeight>::new();
     for (epoch_id, epoch_info) in store.iter(DBCol::EpochInfo) {
         if epoch_id.as_ref() == AGGREGATOR_KEY {
             continue;
@@ -168,7 +170,22 @@ pub fn snapshots_sanity_check(
                 shards.len(),
             )
         }
+        if cloud_storage.get_epoch_data(epoch_id).is_ok() {
+            epoch_heights_with_epoch_data.insert(epoch_height);
+        }
     }
     // Snapshots for the most recent epoch have not been uploaded yet.
-    assert_eq!(epoch_heights_with_snapshot, HashSet::from_iter(1..final_epoch_height));
+    let expected_snapshots = HashSet::from_iter(1..final_epoch_height);
+    assert_eq!(epoch_heights_with_snapshot, expected_snapshots);
+
+    // Epoch data is uploaded by the cloud archival writer at the last block of each
+    // epoch, so it covers all epochs fully passed by the cloud head.
+    let cloud_head_tip: Tip =
+        store.get_ser(DBCol::BlockMisc, CLOUD_HEAD_KEY).expect("cloud head should exist");
+    let cloud_head_epoch_info = EpochInfo::try_from_slice(
+        &store.get(DBCol::EpochInfo, cloud_head_tip.epoch_id.as_ref()).unwrap(),
+    )
+    .unwrap();
+    let expected_epoch_data = HashSet::from_iter(1..cloud_head_epoch_info.epoch_height());
+    assert_eq!(epoch_heights_with_epoch_data, expected_epoch_data);
 }
