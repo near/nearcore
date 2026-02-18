@@ -4662,6 +4662,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.6",
  "strum",
+ "tempfile",
  "thiserror 2.0.16",
  "tokio",
  "tracing",
