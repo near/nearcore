@@ -486,6 +486,11 @@ pub trait EpochManagerAdapter: Send + Sync {
         self.get_chunk_producer_info(prev_block_hash, shard_id)
     }
 
+    /// Write baseline (non-blacklisted) chunk producer entries to DBCol::ChunkProducers.
+    /// Used by test infrastructure that records blocks without going through the full
+    /// Chain processing path (which calls save_chunk_producers_for_header).
+    fn save_default_chunk_producers(&self, block_hash: &CryptoHash) -> Result<(), EpochError>;
+
     /// Chunk producer info for a given epoch, height and shard.
     /// Use this for speculative lookups where no block exists yet (e.g. future heights for tx routing).
     /// Return EpochError if outside of known boundaries.
@@ -1180,5 +1185,10 @@ impl EpochManagerAdapter for EpochManagerHandle {
             )));
         };
         Ok(epoch_info.get_validator(validator_id))
+    }
+
+    fn save_default_chunk_producers(&self, block_hash: &CryptoHash) -> Result<(), EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.save_default_chunk_producers(block_hash)
     }
 }

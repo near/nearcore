@@ -197,6 +197,9 @@ impl TestEnv {
             )
             .unwrap()
             .commit();
+        epoch_manager
+            .save_default_chunk_producers(&genesis_hash)
+            .expect("chunk producer save failed");
         Self {
             epoch_manager,
             runtime,
@@ -368,6 +371,9 @@ impl TestEnv {
             )
             .unwrap()
             .commit();
+        self.epoch_manager
+            .save_default_chunk_producers(&new_hash)
+            .expect("chunk producer save failed");
         let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&new_hash).unwrap();
         let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
         for receipt in all_receipts {
@@ -886,6 +892,10 @@ fn test_state_sync() {
             )
             .unwrap()
             .commit();
+        new_env
+            .epoch_manager
+            .save_default_chunk_producers(&cur_hash)
+            .expect("chunk producer save failed");
         new_env.head.height = i;
         new_env.head.last_block_hash = cur_hash;
         new_env.head.prev_block_hash = prev_hash;

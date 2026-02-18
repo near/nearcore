@@ -948,6 +948,40 @@ impl EpochManager {
         Ok(store_update)
     }
 
+    /// Write baseline (non-blacklisted) chunk producer entries to
+    /// `DBCol::ChunkProducers` in a separate store transaction.
+    ///
+    /// In production, `save_chunk_producers_for_header` writes these entries
+    /// (with blacklist applied) in the chain store update batch. This method
+    /// is for test utilities that call `record_block_info` /
+    /// `add_validator_proposals` without going through the full Chain path.
+    pub fn save_default_chunk_producers(&self, block_hash: &CryptoHash) -> Result<(), EpochError> {
+        // Replicate get_epoch_id_from_prev_block logic (that method lives on
+        // the EpochManagerAdapter trait, not on EpochManager directly).
+        let epoch_id = if self.is_next_block_epoch_start(block_hash)? {
+            self.get_next_epoch_id(block_hash)?
+        } else {
+            self.get_epoch_id(block_hash)?
+        };
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let block_info = self.get_block_info(block_hash)?;
+        let height = block_info.height() + 1;
+
+        let mut store_update = self.store.store_ref().store_update();
+        for shard_id in shard_layout.shard_ids() {
+            if let Some(validator_id) =
+                epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+            {
+                let validator_stake = epoch_info.get_validator(validator_id);
+                let key = get_block_shard_id(block_hash, shard_id);
+                store_update.insert_ser(DBCol::ChunkProducers, &key, &validator_stake);
+            }
+        }
+        store_update.commit();
+        Ok(())
+    }
+
     /// Returns settlement of all block producers in current epoch
     pub fn get_all_block_producers_settlement(
         &self,

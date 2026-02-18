@@ -518,19 +518,25 @@ fn test_validator_reward_one_validator() {
             ),
             rng_seed,
         )
-        .unwrap();
+        .unwrap()
+        .commit();
+    epoch_manager.save_default_chunk_producers(&h[0]).expect("chunk producer save failed");
     epoch_manager
         .record_block_info(
             block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply),
             rng_seed,
         )
-        .unwrap();
+        .unwrap()
+        .commit();
+    epoch_manager.save_default_chunk_producers(&h[1]).expect("chunk producer save failed");
     epoch_manager
         .record_block_info(
             block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply),
             rng_seed,
         )
-        .unwrap();
+        .unwrap()
+        .commit();
+    epoch_manager.save_default_chunk_producers(&h[2]).expect("chunk producer save failed");
     let mut validator_online_ratio = HashMap::new();
     validator_online_ratio.insert(
         "test2".parse().unwrap(),
@@ -912,6 +918,7 @@ fn test_expected_chunks() {
             )
             .unwrap()
             .commit();
+        epoch_manager.save_default_chunk_producers(curr_block).expect("chunk producer save failed");
         prev_block = *curr_block;
 
         if epoch_id != initial_epoch_id {
@@ -993,6 +1000,9 @@ fn test_expected_chunks_prev_block_not_produced() {
                 )
                 .unwrap()
                 .commit();
+            epoch_manager
+                .save_default_chunk_producers(curr_block)
+                .expect("chunk producer save failed");
             prev_block = *curr_block;
         }
         if epoch_id != initial_epoch_id {
@@ -1536,7 +1546,9 @@ fn test_chunk_producer_kickout() {
                 ),
                 rng_seed,
             )
-            .unwrap();
+            .unwrap()
+            .commit();
+        em.save_default_chunk_producers(curr_block).expect("chunk producer save failed");
     }
 
     let last_epoch_info =
@@ -1609,7 +1621,9 @@ fn test_chunk_validator_kickout_using_production_stats() {
                 ),
                 rng_seed,
             )
-            .unwrap();
+            .unwrap()
+            .commit();
+        em.save_default_chunk_producers(curr_block).expect("chunk producer save failed");
     }
 
     let last_epoch_info =
@@ -1719,7 +1733,9 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
                 }),
                 rng_seed,
             )
-            .unwrap();
+            .unwrap()
+            .commit();
+        em.save_default_chunk_producers(curr_block).expect("chunk producer save failed");
     }
 
     let last_epoch_info =
@@ -2319,6 +2335,7 @@ fn test_final_block_consistency() {
         )
         .unwrap()
         .commit();
+    epoch_manager.save_default_chunk_producers(&h[5]).expect("chunk producer save failed");
     let new_epoch_aggregator_final_hash = epoch_manager.epoch_info_aggregator.last_block_hash;
     assert_eq!(epoch_aggregator_final_hash, new_epoch_aggregator_final_hash);
 }
@@ -3408,6 +3425,7 @@ fn test_possible_epochs_of_height_around_tip() {
             DEFAULT_TOTAL_SUPPLY,
         );
         epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
+        epoch_manager.save_default_chunk_producers(&h[i]).expect("chunk producer save failed");
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3471,6 +3489,7 @@ fn test_possible_epochs_of_height_around_tip() {
             DEFAULT_TOTAL_SUPPLY,
         );
         epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit();
+        epoch_manager.save_default_chunk_producers(&h[i]).expect("chunk producer save failed");
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3791,6 +3810,7 @@ fn test_chunk_producer_by_prev_block_hash_fork_scenario() {
                 )
                 .unwrap()
                 .commit();
+            epoch_manager.save_default_chunk_producers(&cur_h).expect("chunk producer save failed");
         };
 
     // Common prefix: heights 0–4. Newcomer stakes at height 1 (epoch 1).
@@ -4307,7 +4327,13 @@ fn test_aggregator_uses_db_chunk_producer_overrides() {
     let override_cp = if original_cp == 0 { 1 } else { 0 };
     let override_stake = epoch_info.get_validator(override_cp);
 
-    // Write the override to DBCol::ChunkProducers for (h[0], shard_0).
+    // Delete baseline entry written by save_default_chunk_producers, then write override.
+    {
+        let mut store_update = em.store.store_ref().store_update();
+        let key = get_block_shard_id(&h[0], shard_0);
+        store_update.delete(DBCol::ChunkProducers, &key);
+        store_update.commit();
+    }
     {
         let mut store_update = em.store.store_ref().store_update();
         let key = get_block_shard_id(&h[0], shard_0);
@@ -4418,8 +4444,9 @@ fn setup_kickout_epoch_manager(
     (em, h, epoch_id, shard_layout)
 }
 
-/// Records a block at height 1 at the kickout protocol version WITHOUT writing
-/// any `DBCol::ChunkProducers` entries.
+/// Records a block at height 1 at the kickout protocol version, then DELETES
+/// the `DBCol::ChunkProducers` entries that `record_block_info` now writes by
+/// default. This simulates the "missing DB entry" scenario.
 fn record_block_without_chunk_producers(
     em: &mut EpochManager,
     h: &[CryptoHash],
@@ -4428,6 +4455,9 @@ fn record_block_without_chunk_producers(
     num_shards: u64,
 ) {
     use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
+    use near_primitives::utils::get_block_shard_id;
+    use near_store::DBCol;
+    use near_store::adapter::StoreAdapter;
 
     let kickout_version = ProtocolFeature::EarlyChunkProducerKickout.protocol_version();
     let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
@@ -4458,6 +4488,17 @@ fn record_block_without_chunk_producers(
             None,
         ),
     );
+
+    // Delete the DBCol::ChunkProducers entries that record_block_info wrote.
+    // We delete entries for BOTH h[0] and h[1] so tests can verify missing-entry asserts.
+    let mut store_update = em.store.store_ref().store_update();
+    for block_hash in &[h[0], h[1]] {
+        for shard_id in shard_layout.shard_ids() {
+            let key = get_block_shard_id(block_hash, shard_id);
+            store_update.delete(DBCol::ChunkProducers, &key);
+        }
+    }
+    store_update.commit();
 }
 
 /// When `EarlyChunkProducerKickout` is enabled, every shard must have a
