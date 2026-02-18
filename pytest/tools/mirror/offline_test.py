@@ -35,6 +35,10 @@ def build_images(config):
     neard = os.path.join(config['near_root'],
                          config.get('binary_name', 'neard'))
 
+    # Clean up any stale state from previous runs
+    if MIRROR_DIR.exists():
+        shutil.rmtree(MIRROR_DIR)
+
     # Phase 1: start 1 source node (single validator, 4 shards, archive)
     logger.info('Phase 1: starting source node')
     nodes = start_cluster(
