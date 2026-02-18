@@ -55,7 +55,10 @@ def build_images(config):
             }
         },
     )
-    source_node = spin_up_node(config, near_root, node_dirs[0], ordinal=0,
+    source_node = spin_up_node(config,
+                               near_root,
+                               node_dirs[0],
+                               ordinal=0,
                                single_node=True)
 
     # Phase 2: deploy contract, create implicit account, wait for height > 12
@@ -263,8 +266,8 @@ def run_mirror(config, validator_keys, end_source_height):
 
     # Start mirror (--no-secret: fork-network uses identity key mapping)
     logger.info('Starting mirror process')
-    mirror = mirror_utils.MirrorProcess(
-        near_root, str(source_dir), config.get('binary_name', 'neard'))
+    mirror = mirror_utils.MirrorProcess(near_root, str(source_dir),
+                                        config.get('binary_name', 'neard'))
     time_limit = mirror_utils.allowed_run_time(target_node_dirs[0],
                                                mirror.start_time,
                                                end_source_height)
