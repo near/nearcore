@@ -4,6 +4,7 @@
 # validators from imgA, runs mirror to replay imgB's txs, then validates.
 # Saves images to disk so subsequent runs skip the slow build phases.
 
+import argparse
 import base58
 import json
 import os
@@ -281,12 +282,22 @@ def run_mirror(config, validator_keys, end_source_height):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--reuse-images', action='store_true',
+                        help='Reuse saved images from a previous run instead '
+                             'of rebuilding them')
+    args = parser.parse_args()
+
     config = load_config()
-    if not (SAVED_IMG_A.exists() and SAVED_IMG_B.exists()
-            and METADATA_FILE.exists()):
-        build_images(config)
-    else:
+
+    have_images = (SAVED_IMG_A.exists() and SAVED_IMG_B.exists()
+                   and METADATA_FILE.exists())
+    if args.reuse_images and have_images:
         logger.info('Reusing saved images from previous run')
+    else:
+        if args.reuse_images:
+            logger.info('No saved images found, building from scratch')
+        build_images(config)
 
     with open(METADATA_FILE) as f:
         metadata = json.load(f)
