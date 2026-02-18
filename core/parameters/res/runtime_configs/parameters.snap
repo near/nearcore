@@ -192,7 +192,7 @@ max_register_size                                104_857_600
 max_number_registers                                     100
 max_number_logs                                          100
 max_total_log_length                                  16_384
-max_total_prepaid_gas                    300_000_000_000_000
+max_total_prepaid_gas                   1_000_000_000_000_000
 max_actions_per_receipt                                  100
 max_number_bytes_method_names                          2_000
 max_length_method_name                                   256

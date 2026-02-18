@@ -218,7 +218,7 @@ expression: "&view"
       "max_number_registers": 100,
       "max_number_logs": 100,
       "max_total_log_length": 16384,
-      "max_total_prepaid_gas": 300000000000000,
+      "max_total_prepaid_gas": 1000000000000000,
       "max_actions_per_receipt": 100,
       "max_number_bytes_method_names": 2000,
       "max_length_method_name": 256,
