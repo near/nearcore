@@ -1063,7 +1063,7 @@ fn slow_test_state_sync_no_parts_provided() {
             let tip = client.chain.head().unwrap();
             if tip.epoch_id != current_epoch_id {
                 epochs_passed += 1;
-                current_epoch_id = tip.epoch_id.clone();
+                current_epoch_id = tip.epoch_id;
             }
             epochs_passed >= epochs_to_run
         },
