@@ -65,6 +65,32 @@ pub static RPC_WAIT_UNTIL_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     .unwrap()
 });
 
+pub static RPC_POOL_FORWARD_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    near_o11y::metrics::try_create_int_counter_vec(
+        "near_rpc_pool_forward_total",
+        "Total count of queries forwarded to pool peers",
+        &["method", "shard_id"],
+    )
+    .unwrap()
+});
+pub static RPC_POOL_FORWARD_ERRORS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    near_o11y::metrics::try_create_int_counter_vec(
+        "near_rpc_pool_forward_errors_total",
+        "Total count of pool forward errors",
+        &["method", "shard_id"],
+    )
+    .unwrap()
+});
+pub static RPC_POOL_FORWARD_DURATION_SECONDS: LazyLock<HistogramVec> = LazyLock::new(|| {
+    near_o11y::metrics::try_create_histogram_vec(
+        "near_rpc_pool_forward_duration_seconds",
+        "Duration of pool forward requests",
+        &["method"],
+        Some(exponential_buckets(0.001, 2.0, 16).unwrap()),
+    )
+    .unwrap()
+});
+
 pub(crate) fn report_wait_until_metric(method: &str, wait_until: &TxExecutionStatus) {
     // Serialize wait until as a json value (json string), then remove the quotation marks around it
     // to get the string itself.
