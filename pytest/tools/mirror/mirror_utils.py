@@ -31,9 +31,8 @@ def run_cmd(cmd):
     try:
         subprocess.check_output(cmd, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
-        sys.exit(
-            f'running `{" ".join([str(a) for a in cmd])}` returned '
-            f'{e.returncode}. output:\n{e.output.decode("utf-8")}')
+        sys.exit(f'running `{" ".join([str(a) for a in cmd])}` returned '
+                 f'{e.returncode}. output:\n{e.output.decode("utf-8")}')
 
 
 def copy_near_home(src, dst):
@@ -59,8 +58,8 @@ def copy_near_home(src, dst):
 
     shutil.copyfile(src / 'genesis.json', dst / 'genesis.json')
     shutil.copytree(src / 'data',
-                     dst / 'data',
-                     ignore=shutil.ignore_patterns('*snapshot*'))
+                    dst / 'data',
+                    ignore=shutil.ignore_patterns('*snapshot*'))
 
     # Copy epoch_configs if present (created by fork-network set-validators)
     epoch_configs = src / 'epoch_configs'
@@ -151,11 +150,10 @@ class MirrorProcess:
         with open(dot_near() / f'{MIRROR_DIR}/stdout', 'ab') as stdout, \
             open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr, \
             open(config_path, 'w') as mirror_config:
-            json.dump(
-                {'tx_batch_interval': {
-                    'secs': 0,
-                    'nanos': 600000000
-                }}, mirror_config)
+            json.dump({'tx_batch_interval': {
+                'secs': 0,
+                'nanos': 600000000
+            }}, mirror_config)
             args = [
                 self.neard,
                 'mirror',
@@ -414,8 +412,7 @@ def allowed_run_time(target_node_dir, start_time, end_source_height):
     return 20 + (end_source_height - genesis_height) * block_delay * 1.5
 
 
-def added_keys_send_transfers(nodes, added_keys, receivers, amount,
-                              block_hash):
+def added_keys_send_transfers(nodes, added_keys, receivers, amount, block_hash):
     node_idx = 0
     for key in added_keys:
         key.send_if_inited(nodes[node_idx],
