@@ -1,7 +1,6 @@
 ---
 source: core/parameters/src/view.rs
 expression: "&view"
-snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -210,7 +209,7 @@ snapshot_kind: text
     "eth_implicit_accounts": true,
     "eth_implicit_global_contract": true,
     "limit_config": {
-      "max_gas_burnt": 300000000000000,
+      "max_gas_burnt": 1000000000000000,
       "max_stack_height": 262144,
       "initial_memory_pages": 1024,
       "max_memory_pages": 2048,

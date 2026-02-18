@@ -2,3 +2,5 @@
 # Use AccountIdValidityRulesVersion::V2 instead of a separate forbid_unvalidated_account_id flag.
 account_id_validity_rules_version: { old: 1, new: 2 }
 eth_implicit_global_contract: { old: false, new: true }
+max_gas_burnt: { old: 300_000_000_000_000, new: 1_000_000_000_000_000 }
+max_gas_burnt_view: { old: 300_000_000_000_000, new: 1_000_000_000_000_000 }
