@@ -1,7 +1,9 @@
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
+use std::pin::pin;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::task::Poll;
 
 use parking_lot::Mutex;
 use time::ext::InstantExt;
@@ -80,6 +82,30 @@ impl Clock {
             ClockInner::Real => tokio::time::sleep(d.try_into().unwrap()).await,
             ClockInner::Fake(fake) => fake.sleep(d).await,
         }
+    }
+
+    /// Runs `future` with a timeout. Returns `Err(())` if the timeout
+    /// expires before the future completes.
+    ///
+    /// Unlike `tokio::time::timeout`, this works with both real and fake
+    /// clocks, making it suitable for use in testloop tests.
+    pub async fn timeout<F: std::future::Future>(
+        &self,
+        duration: Duration,
+        future: F,
+    ) -> Result<F::Output, ()> {
+        let mut future = pin!(future);
+        let mut sleep = pin!(self.sleep(duration));
+        std::future::poll_fn(|cx| {
+            if let Poll::Ready(v) = future.as_mut().poll(cx) {
+                return Poll::Ready(Ok(v));
+            }
+            if let Poll::Ready(()) = sleep.as_mut().poll(cx) {
+                return Poll::Ready(Err(()));
+            }
+            Poll::Pending
+        })
+        .await
     }
 }
 

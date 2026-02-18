@@ -203,6 +203,7 @@ pub fn create_test_setup_with_accounts_and_validity(
     };
 
     let app = create_jsonrpc_app(
+        Clock::real(),
         rpc_config,
         genesis.config,
         client_result.client_actor.into_multi_sender(),
