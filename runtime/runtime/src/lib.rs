@@ -604,7 +604,7 @@ impl Runtime {
             Action::DeleteKey(delete_key) => {
                 metrics::ACTION_CALLED_COUNT.delete_key.inc();
                 action_delete_key(
-                    &apply_state.config.fees,
+                    &apply_state.config,
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
@@ -622,6 +622,7 @@ impl Runtime {
                     &mut result,
                     account_id,
                     delete_account,
+                    &apply_state.config,
                     apply_state.current_protocol_version,
                 )?;
             }
