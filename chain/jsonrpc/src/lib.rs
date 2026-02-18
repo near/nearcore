@@ -71,6 +71,7 @@ use near_network::tcp::{self, ListenerAddr};
 use near_o11y::metrics::{Encoder, TextEncoder, prometheus};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
@@ -80,6 +81,7 @@ use near_primitives::views::{
     StateChangesKindsView, StateChangesView, TxExecutionStatus, TxStatusView,
 };
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -91,6 +93,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 
 mod api;
 mod metrics;
+pub mod pool;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -125,6 +128,10 @@ fn default_enable_debug_rpc() -> bool {
     false
 }
 
+fn default_pool_forward_timeout_secs() -> u64 {
+    10
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: tcp::ListenerAddr,
@@ -142,6 +149,13 @@ pub struct RpcConfig {
     // be read from this directory, instead of the contents compiled into the binary. This allows
     // for quick iterative development.
     pub experimental_debug_pages_src_path: Option<String>,
+    /// Pool of peer RPC nodes for forwarding queries to shards this node doesn't track.
+    /// Maps shard_uid (e.g. "s6.v3") to peer address (e.g. "http://10.0.0.2:3030").
+    #[serde(default)]
+    pub pool: Option<HashMap<ShardUId, String>>,
+    /// Timeout in seconds for forwarding queries to pool peers.
+    #[serde(default = "default_pool_forward_timeout_secs")]
+    pub pool_forward_timeout_secs: u64,
 }
 
 impl Default for RpcConfig {
@@ -154,6 +168,8 @@ impl Default for RpcConfig {
             limits_config: Default::default(),
             enable_debug_rpc: false,
             experimental_debug_pages_src_path: None,
+            pool: None,
+            pool_forward_timeout_secs: default_pool_forward_timeout_secs(),
         }
     }
 }
@@ -161,6 +177,11 @@ impl Default for RpcConfig {
 impl RpcConfig {
     pub fn new(addr: tcp::ListenerAddr) -> Self {
         RpcConfig { addr, ..Default::default() }
+    }
+
+    pub fn with_pool(mut self, pool: HashMap<ShardUId, String>) -> Self {
+        self.pool = Some(pool);
+        self
     }
 }
 
@@ -208,7 +229,7 @@ impl near_jsonrpc_primitives::types::transactions::RpcTransactionError {
 /// This function processes response from query method to introduce
 /// backward compatible response in case of specific errors
 #[allow(clippy::result_large_err)]
-fn process_query_response(
+pub(crate) fn process_query_response(
     query_response: Result<
         near_jsonrpc_primitives::types::query::RpcQueryResponse,
         near_jsonrpc_primitives::types::query::RpcQueryError,
@@ -335,13 +356,16 @@ struct JsonRpcHandler {
     debug_pages_src_path: Option<PathBuf>,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
+    pool: Option<pool::RpcPool>,
 }
 
 impl JsonRpcHandler {
-    async fn process(&self, message: Message) -> Message {
+    async fn process(&self, message: Message, is_forwarded: bool) -> Message {
         let id = message.id();
         match message {
-            Message::Request(request) => Message::response(id, self.process_request(request).await),
+            Message::Request(request) => {
+                Message::response(id, self.process_request(request, is_forwarded).await)
+            }
             _ => Message::error(RpcError::parse_error(
                 "JSON RPC Request format was expected".to_owned(),
             )),
@@ -350,9 +374,13 @@ impl JsonRpcHandler {
 
     // `process_request` increments affected metrics but the request processing is done by
     // `process_request_internal`.
-    async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
+    async fn process_request(
+        &self,
+        request: Request,
+        is_forwarded: bool,
+    ) -> Result<Value, RpcError> {
         let timer = Instant::now();
-        let (metrics_name, response) = self.process_request_internal(request).await;
+        let (metrics_name, response) = self.process_request_internal(request, is_forwarded).await;
 
         metrics::HTTP_RPC_REQUEST_COUNT.with_label_values(&[&metrics_name]).inc();
         metrics::RPC_PROCESSING_TIME
@@ -374,6 +402,7 @@ impl JsonRpcHandler {
     async fn process_request_internal(
         &self,
         request: Request,
+        is_forwarded: bool,
     ) -> (String, Result<Value, RpcError>) {
         let method_name = request.method.to_string();
         let request = match self.process_adversarial_request_internal(request).await {
@@ -413,7 +442,17 @@ impl JsonRpcHandler {
                         "query_view_global_contract_code_by_account_id"
                     }
                 };
-                (metrics_name.to_string(), process_query_response(self.query(params).await))
+                // Route through pool when present and request is not already forwarded.
+                let result = if !is_forwarded {
+                    if let Some(pool) = &self.pool {
+                        pool.query(params).await
+                    } else {
+                        process_query_response(self.query(params).await)
+                    }
+                } else {
+                    process_query_response(self.query(params).await)
+                };
+                (metrics_name.to_string(), result)
             }
             _ => {
                 ("UNSUPPORTED_METHOD".to_string(), Err(RpcError::method_not_found(request.method)))
@@ -1752,9 +1791,11 @@ async fn handle_unknown_block(request: Message, handler: State<Arc<JsonRpcHandle
 
 async fn rpc_handler(
     State(handler): State<Arc<JsonRpcHandler>>,
+    headers: axum::http::HeaderMap,
     Json(request): Json<Message>,
 ) -> Response {
-    let message = handler.process(request.clone()).await;
+    let is_forwarded = headers.contains_key("X-Near-Pool-Forwarded");
+    let message = handler.process(request.clone(), is_forwarded).await;
     let Message::Response(response) = &message else {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
@@ -2001,6 +2042,8 @@ pub fn create_jsonrpc_app(
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
+    epoch_manager: Option<Arc<dyn near_epoch_manager::EpochManagerAdapter>>,
+    tracked_shards_config: Option<near_chain_configs::TrackedShardsConfig>,
 ) -> Router {
     let RpcConfig {
         cors_allowed_origins,
@@ -2008,8 +2051,24 @@ pub fn create_jsonrpc_app(
         limits_config,
         enable_debug_rpc,
         experimental_debug_pages_src_path: debug_pages_src_path,
+        pool: pool_config,
+        pool_forward_timeout_secs,
         ..
     } = config;
+
+    // Build the RPC pool if pool config is present.
+    let pool = pool_config.and_then(|peers_config| {
+        let epoch_manager = epoch_manager?;
+        let tracked_shards_config =
+            tracked_shards_config.unwrap_or(near_chain_configs::TrackedShardsConfig::AllShards);
+        Some(pool::build_pool(
+            epoch_manager,
+            tracked_shards_config,
+            view_client_sender.clone(),
+            peers_config,
+            Duration::from_secs(pool_forward_timeout_secs),
+        ))
+    });
 
     // Create shared state
     let handler = Arc::new(JsonRpcHandler {
@@ -2026,6 +2085,7 @@ pub fn create_jsonrpc_app(
         #[cfg(feature = "test_features")]
         gc_sender,
         block_notification_watcher,
+        pool,
     });
 
     // Build router
@@ -2079,6 +2139,8 @@ pub async fn start_http(
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
     future_spawner: &dyn FutureSpawner,
+    epoch_manager: Option<Arc<dyn near_epoch_manager::EpochManagerAdapter>>,
+    tracked_shards_config: Option<near_chain_configs::TrackedShardsConfig>,
 ) {
     let addr = config.addr;
     let prometheus_addr = config.prometheus_addr.clone().filter(|it| it != &addr.to_string());
@@ -2098,6 +2160,8 @@ pub async fn start_http(
         #[cfg(feature = "test_features")]
         gc_sender,
         entity_debug_handler,
+        epoch_manager,
+        tracked_shards_config,
     );
 
     // Bind to socket here, so callers can be sure they can connect once this function returns.
