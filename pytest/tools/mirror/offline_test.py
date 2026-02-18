@@ -3,6 +3,7 @@
 # Builds two images (imgA=forked state, imgB=source chain), starts 4 target
 # validators from imgA, runs mirror to replay imgB's txs, then validates.
 # Saves images to disk so subsequent runs skip the slow build phases.
+# cspell:ignore bhash
 
 import argparse
 import base58
