@@ -16,10 +16,12 @@ use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
     ValidatorInfoIdentifier,
 };
+use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::EpochValidatorInfo;
-use near_store::ShardUId;
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
+use near_store::{DBCol, ShardUId};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -482,29 +484,6 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
         let shard_layout = self.get_shard_layout(epoch_id)?;
-        let Some(validator_id) = epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
-        else {
-            return Err(EpochError::ChunkProducerSelectionError(format!(
-                "Invalid shard {} for height {}",
-                shard_id, height,
-            )));
-        };
-        Ok(epoch_info.get_validator(validator_id))
-    }
-
-    /// Chunk producer info resolved from `prev_block_hash` for the given shard.
-    /// Looks up the epoch and height internally from the block hash.
-    /// This is the authoritative lookup method when the prev block is known.
-    fn get_chunk_producer_by_prev_block_hash(
-        &self,
-        prev_block_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<ValidatorStake, EpochError> {
-        let block_info = self.get_block_info(prev_block_hash)?;
-        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
-        let height = block_info.height() + 1;
-        let epoch_info = self.get_epoch_info(&epoch_id)?;
-        let shard_layout = self.get_shard_layout(&epoch_id)?;
         let Some(validator_id) = epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
         else {
             return Err(EpochError::ChunkProducerSelectionError(format!(
@@ -1058,5 +1037,47 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<Option<(ShardId, AccountId)>, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.get_upcoming_shard_split(protocol_version, parent_hash, proposed_splits)
+    }
+
+    fn get_chunk_producer_info(
+        &self,
+        prev_block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ValidatorStake, EpochError> {
+        // Try pre-computed DB column first (authoritative for historical lookups).
+        {
+            let epoch_manager = self.read();
+            let key = get_block_shard_id(prev_block_hash, shard_id);
+            if let Some(validator_stake) = epoch_manager
+                .store
+                .store_ref()
+                .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
+            {
+                return Ok(validator_stake);
+            }
+        }
+        // Fall back to computation for recent blocks not yet persisted.
+        // Once dynamic chunk producer sampling ships, this fallback may produce
+        // incorrect results for blocks processed under dynamic sampling. Monitor
+        // this log to track the transition.
+        tracing::warn!(
+            target: "epoch_manager",
+            %prev_block_hash,
+            %shard_id,
+            "ChunkProducers DB column miss, falling back to computation"
+        );
+        let block_info = self.get_block_info(prev_block_hash)?;
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let height = block_info.height() + 1;
+        let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let Some(validator_id) = epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+        else {
+            return Err(EpochError::ChunkProducerSelectionError(format!(
+                "Invalid shard {} for height {}",
+                shard_id, height,
+            )));
+        };
+        Ok(epoch_info.get_validator(validator_id))
     }
 }

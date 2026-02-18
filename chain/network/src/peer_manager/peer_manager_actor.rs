@@ -1198,11 +1198,7 @@ impl PeerManagerActor {
                             T1MessageBody::PartialEncodedStateWitnessV2(w)
                         }
                     };
-                    self.state.send_message_to_account(
-                        &self.clock,
-                        &chunk_validator,
-                        body.into(),
-                    );
+                    self.state.send_message_to_account(&self.clock, &chunk_validator, body.into());
                 }
                 NetworkResponses::NoResponse
             }
@@ -1228,11 +1224,7 @@ impl PeerManagerActor {
                             T1MessageBody::PartialEncodedStateWitnessForwardV2(w)
                         }
                     };
-                    self.state.send_message_to_account(
-                        &self.clock,
-                        &chunk_validator,
-                        body.into(),
-                    );
+                    self.state.send_message_to_account(&self.clock, &chunk_validator, body.into());
                 }
                 NetworkResponses::NoResponse
             }

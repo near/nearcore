@@ -54,12 +54,7 @@ impl ChunkContractAccesses {
                 signer,
             ))
         } else {
-            Self::V1(ChunkContractAccessesV1::new(
-                next_chunk,
-                contracts,
-                main_transition,
-                signer,
-            ))
+            Self::V1(ChunkContractAccessesV1::new(next_chunk, contracts, main_transition, signer))
         }
     }
 
