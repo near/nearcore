@@ -18,6 +18,10 @@
 
 ## Clippy
 - Only run clippy prior to making a commit. It is somewhat expensive.
+- Run with `RUSTFLAGS="-D warnings"` env variable and `--all-features --all-targets` args.
+  ```
+  RUSTFLAGS="-D warnings" cargo clippy --all-features --all-targets
+  ```
 
 ## OpenAPI Spec
 - Do NOT update the OpenAPI spec unless explicitly asked.
