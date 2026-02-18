@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.2"
+    "version": "1.2.3"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -20043,6 +20043,10 @@
           },
           "eth_implicit_accounts": {
             "description": "See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).",
+            "type": "boolean"
+          },
+          "eth_implicit_global_contract": {
+            "description": "See [VMConfig::eth_implicit_global_contract](crate::vm::Config::eth_implicit_global_contract).",
             "type": "boolean"
           },
           "ext_costs": {

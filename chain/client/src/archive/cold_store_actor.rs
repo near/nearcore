@@ -201,7 +201,7 @@ impl ColdStoreActor {
             &self.hot_store,
             batch_size,
             &self.keep_going,
-        )? {
+        ) {
             CopyAllDataToColdStatus::EverythingCopied => {
                 tracing::info!(target: "cold_store", new_cold_height, "cold storage population was successful, writing cold head");
                 update_cold_head(self.cold_db.as_ref(), &self.hot_store, &new_cold_height)?;

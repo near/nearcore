@@ -1,5 +1,8 @@
 use crate::tests::features::wallet_contract::{NearSigner, create_rlp_execute_tx, view_balance};
 
+use near_primitives::action::GlobalContractDeployMode;
+use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
+
 use near_chain::Error;
 use near_chain::Provenance;
 use near_chain::chain::ChunkStateWitnessMessage;
@@ -398,7 +401,33 @@ fn test_eth_implicit_accounts() {
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let chain_id = &genesis.config.chain_id;
     let signer = create_user_test_signer(AccountIdRef::new("test2").unwrap());
+
+    // Deploy global contract if the feature is enabled.
+    let uses_global_contract =
+        ProtocolFeature::EthImplicitGlobalContract.enabled(genesis.config.protocol_version);
+    let mut next_nonce = 1;
+    if uses_global_contract {
+        let magic_bytes = wallet_contract_magic_bytes(chain_id);
+        let wallet_code = wallet_contract(*magic_bytes.hash()).unwrap();
+        let deploy_tx = SignedTransaction::deploy_global_contract(
+            next_nonce,
+            signer.get_account_id(),
+            wallet_code.code().to_vec(),
+            &signer.clone().into(),
+            *genesis_block.hash(),
+            GlobalContractDeployMode::CodeHash,
+        );
+        next_nonce += 1;
+        assert_eq!(
+            env.rpc_handlers[0].process_tx(deploy_tx, false, false),
+            ProcessTxResponse::ValidTx
+        );
+        for _ in 0..5 {
+            produce_block(&mut env);
+        }
+    }
 
     // 1. Create two eth-implicit accounts
     let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
@@ -408,17 +437,18 @@ fn test_eth_implicit_accounts() {
 
     let alice_init_balance = Balance::from_near(3);
     let create_alice_tx = SignedTransaction::send_money(
-        1,
+        next_nonce,
         signer.get_account_id(),
         alice_eth_account.clone(),
         &signer.clone().into(),
         alice_init_balance,
         *genesis_block.hash(),
     );
+    next_nonce += 1;
 
     let bob_init_balance = Balance::ZERO;
     let create_bob_tx = SignedTransaction::send_money(
-        2,
+        next_nonce,
         signer.get_account_id(),
         bob_eth_account.clone(),
         &signer.clone().into(),

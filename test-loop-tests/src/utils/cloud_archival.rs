@@ -5,7 +5,6 @@ use borsh::BorshDeserialize;
 
 use itertools::Itertools;
 use near_chain::types::Tip;
-use near_client::Client;
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
@@ -16,11 +15,9 @@ use near_store::db::CLOUD_HEAD_KEY;
 use near_store::{COLD_HEAD_KEY, DBCol, Store};
 
 use crate::setup::env::TestLoopEnv;
-use crate::utils::node::TestLoopNode;
 
 pub fn run_node_until(env: &mut TestLoopEnv, account_id: &AccountId, target_height: BlockHeight) {
-    let node = TestLoopNode::for_account(&env.node_datas, account_id);
-    node.run_until_head_height(&mut env.test_loop, target_height);
+    env.runner_for_account(account_id).run_until_head_height(target_height);
 }
 
 fn execute_future<F: Future>(fut: F) -> F::Output {
@@ -36,8 +33,9 @@ pub fn gc_and_heads_sanity_checks(
     split_store_enabled: bool,
     num_gced_blocks: Option<BlockHeightDelta>,
 ) {
-    let cloud_head = get_cloud_head(&env, &writer_id);
-    let client = get_client(env, writer_id);
+    let cloud_head = get_cloud_head(env, writer_id);
+    let node = env.node_for_account(writer_id);
+    let client = node.client();
     let chain_store = client.chain.chain_store();
     let epoch_store = chain_store.epoch_store();
 
@@ -75,14 +73,12 @@ pub fn pause_and_resume_writer_with_sanity_checks(
 
     // Stop the writer and let the node reach `resume_height` while the writer is paused.
     get_writer_handle(&env, &writer_id).0.stop();
-    let node_identifier = {
-        let archival_node = TestLoopNode::for_account(&env.node_datas, &writer_id);
-        archival_node.run_until_head_height(&mut env.test_loop, resume_height);
-        archival_node.data().identifier.clone()
-    };
+    let node_data = env.get_node_data_by_account_id(&writer_id);
+    let node_identifier = node_data.identifier.clone();
+    env.runner_for_account(&writer_id).run_until_head_height(resume_height);
 
     // Run sanity checks.
-    gc_and_heads_sanity_checks(&env, &writer_id, split_store_enabled, None);
+    gc_and_heads_sanity_checks(env, writer_id, split_store_enabled, None);
 
     // Resume the writer and restart the node.
     get_writer_handle(&env, &writer_id).0.resume();
@@ -96,30 +92,25 @@ fn stop_and_restart_node(env: &mut TestLoopEnv, node_identifier: &str) {
     env.restart_node(&new_identifier, node_state);
 }
 
-fn get_client<'a>(env: &'a TestLoopEnv, account_id: &'a AccountId) -> &'a Client {
-    let archival_node = TestLoopNode::for_account(&env.node_datas, &account_id);
-    archival_node.client(env.test_loop_data())
-}
-
 /// Returns the cloud archival writer handle for `archival_id`.
 fn get_writer_handle<'a>(
     env: &'a TestLoopEnv,
     writer_id: &AccountId,
 ) -> &'a CloudArchivalWriterHandle {
-    let archival_node = TestLoopNode::for_account(&env.node_datas, writer_id);
-    let writer_handle = &archival_node.data().cloud_archival_writer_handle;
+    let node_data = env.get_node_data_by_account_id(writer_id);
+    let writer_handle = &node_data.cloud_archival_writer_handle;
     env.test_loop.data.get(writer_handle).as_ref().unwrap()
 }
 
 fn get_hot_store(env: &TestLoopEnv, account_id: &AccountId) -> Store {
-    let node = TestLoopNode::for_account(&env.node_datas, account_id);
-    node.client(env.test_loop_data()).chain.chain_store().store()
+    let node_data = env.get_node_data_by_account_id(account_id);
+    let client = &env.test_loop.data.get(&node_data.client_sender.actor_handle()).client;
+    client.chain.chain_store().store()
 }
 
 fn get_cloud_storage(env: &TestLoopEnv, archival_id: &AccountId) -> Arc<CloudStorage> {
-    let archival_node = TestLoopNode::for_account(&env.node_datas, archival_id);
-    let cloud_storage_handle = &archival_node.data().cloud_storage_sender;
-    let cloud_storage = env.test_loop.data.get(&cloud_storage_handle);
+    let node_data = env.get_node_data_by_account_id(archival_id);
+    let cloud_storage = env.test_loop.data.get(&node_data.cloud_storage_sender);
     cloud_storage.clone().unwrap()
 }
 
@@ -148,7 +139,8 @@ pub fn snapshots_sanity_check(
 ) {
     let store = get_hot_store(env, archival_id);
     let cloud_storage = get_cloud_storage(env, archival_id);
-    let client = get_client(env, archival_id);
+    let node = env.node_for_account(archival_id);
+    let client = node.client();
     let mut epoch_heights_with_snapshot = HashSet::<EpochHeight>::new();
     let mut epoch_heights_with_epoch_data = HashSet::<EpochHeight>::new();
     for (epoch_id, epoch_info) in store.iter(DBCol::EpochInfo) {

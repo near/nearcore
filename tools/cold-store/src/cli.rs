@@ -279,8 +279,7 @@ fn copy_all_blocks(storage: &NodeStorage, batch_size: usize, check: bool) {
         &storage.get_hot_store(),
         batch_size,
         &keep_going,
-    )
-    .expect("Failed to do migration to cold db");
+    );
 
     // Setting cold head to hot_final_head captured BEFORE the start of initial migration.
     // Doesn't really matter here, but very important in case of migration during `neard run`.

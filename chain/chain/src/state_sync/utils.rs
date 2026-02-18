@@ -26,17 +26,17 @@ fn save_epoch_new_chunks<T: ChainStoreAccess>(
     chain_store: &T,
     store_update: &mut StoreUpdate,
     header: &BlockHeader,
-) -> Result<bool, Error> {
+) -> bool {
     let Some(mut num_new_chunks) =
         get_state_sync_new_chunks(&chain_store.store(), header.prev_hash())
     else {
         // This might happen in the case of epoch sync where we save individual headers without having all
         // headers that belong to the epoch.
-        return Ok(false);
+        return false;
     };
 
     // This shouldn't happen because block headers in the same epoch should have chunks masks
-    // of the same length, but we log it here in case it happens for some reason. We return Ok because if this
+    // of the same length, but we log it here in case it happens for some reason. We return false because if this
     // happens, it's some bug in this state sync logic, because the chunk mask length of headers are checked when
     // they're verified. So in this case we shouldn't fail to commit this store update and store this block header
     if num_new_chunks.len() != header.chunk_mask().len() {
@@ -44,7 +44,7 @@ fn save_epoch_new_chunks<T: ChainStoreAccess>(
             block_hash=%header.hash(), chunk_mask_len=%header.chunk_mask().len(), stored_len=%num_new_chunks.len(),
             "block header's chunk mask not of the same length as stored value in DBCol::StateSyncNewChunks",
         );
-        return Ok(false);
+        return false;
     }
 
     let done = num_new_chunks.iter().all(|num_chunks| *num_chunks >= 2);
@@ -57,7 +57,7 @@ fn save_epoch_new_chunks<T: ChainStoreAccess>(
     }
 
     store_update.set_ser(DBCol::StateSyncNewChunks, header.hash().as_ref(), &num_new_chunks);
-    Ok(done)
+    done
 }
 
 fn on_new_epoch(store_update: &mut StoreUpdate, header: &BlockHeader) {
@@ -122,13 +122,13 @@ fn maybe_get_block_header<T: ChainStoreAccess>(
     }
 }
 
-fn has_enough_new_chunks(store: &Store, block_hash: &CryptoHash) -> Result<Option<bool>, Error> {
+fn has_enough_new_chunks(store: &Store, block_hash: &CryptoHash) -> Option<bool> {
     let Some(num_new_chunks) = get_state_sync_new_chunks(store, block_hash) else {
         // This might happen in the case of epoch sync where we save individual headers without having all
         // headers that belong to the epoch.
-        return Ok(None);
+        return None;
     };
-    Ok(Some(num_new_chunks.iter().all(|num_chunks| *num_chunks >= 2)))
+    Some(num_new_chunks.iter().all(|num_chunks| *num_chunks >= 2))
 }
 
 /// Save num new chunks info and store the state sync hash if it has been found. We store it only
@@ -141,7 +141,7 @@ fn on_new_header<T: ChainStoreAccess>(
     store_update: &mut StoreUpdate,
     header: &BlockHeader,
 ) -> Result<(), Error> {
-    let done = save_epoch_new_chunks(chain_store, store_update, header)?;
+    let done = save_epoch_new_chunks(chain_store, store_update, header);
     if !done {
         return Ok(());
     }
@@ -167,7 +167,7 @@ fn on_new_header<T: ChainStoreAccess>(
         {
             return Ok(());
         }
-        if has_enough_new_chunks(&chain_store.store(), sync_prev.hash())? != Some(true) {
+        if has_enough_new_chunks(&chain_store.store(), sync_prev.hash()) != Some(true) {
             return Ok(());
         }
 
@@ -176,7 +176,7 @@ fn on_new_header<T: ChainStoreAccess>(
             return Ok(());
         };
         let Some(prev_prev_done) =
-            has_enough_new_chunks(&chain_store.store(), sync_prev_prev.hash())?
+            has_enough_new_chunks(&chain_store.store(), sync_prev_prev.hash())
         else {
             return Ok(());
         };

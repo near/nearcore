@@ -254,6 +254,7 @@ flat_storage_reads: false
 fix_contract_loading_cost: false
 vm_kind: Wasmer0
 eth_implicit_accounts: false
+eth_implicit_global_contract: false
 discard_custom_sections: false
 global_contract_host_fns: false
 reftypes_bulk_memory: false
