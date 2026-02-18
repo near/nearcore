@@ -7,7 +7,7 @@ use crate::metrics::spawn_trie_metrics_loop;
 use crate::state_sync::StateSyncDumper;
 use anyhow::Context;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
-use near_async::time::{self, Clock};
+use near_async::time::Clock;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
@@ -715,7 +715,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let cold_store = storage.get_cold_store();
 
     let network_actor = PeerManagerActor::spawn(
-        time::Clock::real(),
+        Clock::real(),
         actor_system.clone(),
         storage.into_inner(near_store::Temperature::Hot),
         config.network_config,
@@ -752,6 +752,7 @@ pub async fn start_with_config_and_synchronization_impl(
             cold_store,
         };
         near_jsonrpc::start_http(
+            Clock::real(),
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone().into_multi_sender(),
