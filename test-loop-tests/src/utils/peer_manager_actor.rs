@@ -551,6 +551,7 @@ fn network_message_to_client_handler(
             shared_state.disallow_requests(peer_id, my_peer_id);
             None
         }
+        NetworkRequests::StateRequestHeader { .. } => None,
         NetworkRequests::StateRequestPart { .. } => None,
         _ => Some(request),
     })
