@@ -1,6 +1,7 @@
 use anyhow::{Context, anyhow, bail};
 use near_async::ActorSystem;
 use near_async::messaging::{CanSendAsync, IntoMultiSender, IntoSender, LateBoundSender, noop};
+use near_async::shutdown_signal::ShutdownSignal;
 use near_async::time::{self, Clock};
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -124,7 +125,7 @@ fn setup_network_node(
         validator_signer.clone(),
         telemetry_actor.into_sender(),
         None,
-        None,
+        ShutdownSignal::noop(),
         adv.clone(),
         None,
         noop().into_multi_sender(),

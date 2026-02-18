@@ -4,6 +4,7 @@ use axum::Router;
 use axum_test::TestServer;
 use near_async::ActorSystem;
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
+use near_async::shutdown_signal::ShutdownSignal;
 use near_chain::ChainGenesis;
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
@@ -155,7 +156,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         signer.clone(),
         noop().into_sender(),
         None,
-        None,
+        ShutdownSignal::noop(),
         adv,
         None,
         noop().into_multi_sender(),

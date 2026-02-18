@@ -226,7 +226,7 @@ impl TestLoopBuilder {
     fn setup_shared_state(mut self) -> (TestLoopV2, SharedState) {
         let unreachable_actor_sender =
             self.test_loop.data.register_actor("UnreachableActor", UnreachableActor {}, None);
-        self.test_loop.remove_events_with_identifier("UnreachableActor");
+        self.test_loop.event_denylist().lock().push("UnreachableActor".to_string());
 
         let upgrade_schedule = self.upgrade_schedule.unwrap_or_else(|| {
             get_protocol_upgrade_schedule(&self.genesis.as_ref().unwrap().config.chain_id)
