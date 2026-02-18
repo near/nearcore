@@ -1057,6 +1057,15 @@ impl EpochManagerAdapter for EpochManagerHandle {
             }
         }
         // Fall back to computation for recent blocks not yet persisted.
+        // Once dynamic chunk producer sampling ships, this fallback may produce
+        // incorrect results for blocks processed under dynamic sampling. Monitor
+        // this log to track the transition.
+        tracing::warn!(
+            target: "epoch_manager",
+            %prev_block_hash,
+            %shard_id,
+            "ChunkProducers DB column miss, falling back to computation"
+        );
         let block_info = self.get_block_info(prev_block_hash)?;
         let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let height = block_info.height() + 1;
