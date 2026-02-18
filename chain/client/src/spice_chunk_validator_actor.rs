@@ -8,6 +8,7 @@ use rand::Rng as _;
 
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt as _};
 use near_async::messaging::{CanSend as _, Handler, IntoSender as _, Sender};
+use near_async::time::Instant;
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::spice_core::SpiceCoreReader;
 use near_chain::spice_core_writer_actor::{ExecutionResultEndorsed, ProcessedBlock};
@@ -53,10 +54,21 @@ pub struct SpiceChunkValidatorActor {
     /// Per-chunk state for witnesses waiting on contract bytes.
     pending_chunks: HashMap<SpiceChunkId, PendingChunkContracts>,
 
-    /// Cache of contract bytes received from producers, not yet in compiled contract cache.
+    /// Cache of contracts requested from producers.
     /// Used to avoid re-requesting the same contract across consecutive heights.
     /// Evicted automatically via LRU when capacity is exceeded.
-    received_contracts: LruCache<CodeHash, CodeBytes>,
+    requested_contracts: LruCache<CodeHash, RequestedContract>,
+}
+
+/// How long to wait for a contract code response before re-requesting.
+const CONTRACT_REQUEST_TIMEOUT: time::Duration = time::Duration::seconds(2);
+
+/// State of a contract in the requested_contracts cache.
+enum RequestedContract {
+    /// Request sent at the given time, response not yet received.
+    Inflight(Instant),
+    /// Contract bytes available.
+    Available(CodeBytes),
 }
 
 /// Tracks the state of a chunk that is waiting on contract bytes and/or its witness.
@@ -102,9 +114,9 @@ impl SpiceChunkValidatorActor {
         // See ChunkValidator::new in c/c/s/s/chunk_validator/mod.rs for rationale used currently.
         let validation_thread_limit =
             runtime_adapter.get_shard_limit(PROTOCOL_VERSION) as usize * 3;
-        /// Maximum number of contract bytes to cache across heights.
+        /// Maximum number of contract entries to cache across heights.
         /// Each entry is one contract (up to 4MB), so 256 entries = up to 1GB worst case.
-        const RECEIVED_CONTRACTS_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(256).unwrap();
+        const REQUESTED_CONTRACTS_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(256).unwrap();
 
         Self {
             pending_witnesses: HashMap::new(),
@@ -117,7 +129,7 @@ impl SpiceChunkValidatorActor {
             core_writer_sender,
             validation_spawner: validation_spawner.into_spawner(validation_thread_limit),
             pending_chunks: HashMap::new(),
-            received_contracts: LruCache::new(RECEIVED_CONTRACTS_CACHE_SIZE),
+            requested_contracts: LruCache::new(REQUESTED_CONTRACTS_CACHE_SIZE),
         }
     }
 }
@@ -393,6 +405,7 @@ impl SpiceChunkValidatorActor {
             self.pending_chunks.entry(chunk_id.clone()).or_insert_with(PendingChunkContracts::new);
 
         let mut missing = HashSet::new();
+        let mut to_request = HashSet::new();
         for code_hash in accesses.contracts() {
             if crate::stateless_validation::contracts_cache_contains_contract(
                 cache,
@@ -401,14 +414,37 @@ impl SpiceChunkValidatorActor {
             ) {
                 continue;
             }
-            if let Some(bytes) = self.received_contracts.get(code_hash) {
-                entry.contracts.push(bytes.clone());
-                continue;
+            match self.requested_contracts.get(code_hash) {
+                Some(RequestedContract::Available(bytes)) => {
+                    entry.contracts.push(bytes.clone());
+                    continue;
+                }
+                Some(RequestedContract::Inflight(requested_at))
+                    if requested_at.elapsed() < CONTRACT_REQUEST_TIMEOUT =>
+                {
+                    // Request already in-flight from another chunk; wait for it.
+                    missing.insert(code_hash.clone());
+                    continue;
+                }
+                Some(RequestedContract::Inflight(_)) => {
+                    // Request timed out; re-request.
+                    missing.insert(code_hash.clone());
+                    to_request.insert(code_hash.clone());
+                }
+                None => {
+                    missing.insert(code_hash.clone());
+                    to_request.insert(code_hash.clone());
+                }
             }
-            missing.insert(code_hash.clone());
         }
 
-        if !missing.is_empty() {
+        // Mark newly requested contracts as in-flight.
+        let now = Instant::now();
+        for hash in &to_request {
+            self.requested_contracts.push(hash.clone(), RequestedContract::Inflight(now));
+        }
+
+        if !to_request.is_empty() {
             let epoch_id = self.epoch_manager.get_epoch_id(&chunk_id.block_hash)?;
             let mut producers = self
                 .epoch_manager
@@ -420,7 +456,7 @@ impl SpiceChunkValidatorActor {
                 .ok_or_else(|| Error::NotAValidator("no signer".to_owned()))?;
             let request = near_primitives::stateless_validation::contract_distribution::SpiceContractCodeRequest::new(
                 chunk_id.clone(),
-                missing.clone(),
+                to_request,
                 &signer,
             );
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
@@ -438,28 +474,37 @@ impl SpiceChunkValidatorActor {
     }
 
     /// Handles a contract code response from a chunk producer.
-    /// Stores received contracts in the cross-height cache and updates pending state.
+    /// Stores received contracts in the cross-height cache and resolves them across
+    /// all pending chunks (not just the chunk_id in the response), since multiple
+    /// chunks may be waiting on the same contract.
     fn handle_spice_contract_code_response(
         &mut self,
         response: near_primitives::stateless_validation::contract_distribution::SpiceContractCodeResponse,
     ) -> Result<(), Error> {
-        let chunk_id = response.chunk_id().clone();
         let contracts = response.decompress_contracts()?;
 
-        if let Some(entry) = self.pending_chunks.get_mut(&chunk_id) {
-            for contract in &contracts {
-                let hash = CodeHash(near_primitives::hash::hash(&contract.0));
-                self.received_contracts.push(hash.clone(), contract.clone());
-                if let Some(missing) = &mut entry.missing {
-                    missing.remove(&hash);
+        // Map code_hash -> bytes for the received contracts.
+        let mut received: HashMap<CodeHash, CodeBytes> = HashMap::new();
+        for contract in contracts {
+            let hash = CodeHash(near_primitives::hash::hash(&contract.0));
+            self.requested_contracts.push(hash.clone(), RequestedContract::Available(contract.clone()));
+            received.insert(hash, contract);
+        }
+
+        // Resolve across all pending chunks that are waiting on any of these contracts.
+        let mut maybe_ready: Vec<SpiceChunkId> = Vec::new();
+        for (chunk_id, entry) in self.pending_chunks.iter_mut() {
+            if let Some(missing) = &mut entry.missing {
+                let mut resolved_any = false;
+                for (hash, bytes) in &received {
+                    if missing.remove(hash) {
+                        entry.contracts.push(bytes.clone());
+                        resolved_any = true;
+                    }
                 }
-            }
-            entry.contracts.extend(contracts);
-        } else {
-            // No pending entry; just cache the contracts for future use.
-            for contract in &contracts {
-                let hash = CodeHash(near_primitives::hash::hash(&contract.0));
-                self.received_contracts.push(hash, contract.clone());
+                if resolved_any && missing.is_empty() {
+                    maybe_ready.push(chunk_id.clone());
+                }
             }
         }
 
@@ -467,7 +512,10 @@ impl SpiceChunkValidatorActor {
             .validator_signer
             .get()
             .ok_or_else(|| Error::NotAValidator("no signer".to_owned()))?;
-        self.try_finalize_chunk(&chunk_id, signer)
+        for chunk_id in maybe_ready {
+            self.try_finalize_chunk(&chunk_id, signer.clone())?;
+        }
+        Ok(())
     }
 
     /// Attempts to finalize a chunk that is pending on contracts and/or witness.

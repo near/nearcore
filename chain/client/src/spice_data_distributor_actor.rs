@@ -353,7 +353,7 @@ impl SpiceDataDistributorActor {
         /// Used to validate incoming contract code requests from validators.
         /// Validators who fall behind by more than this many chunks will have their
         /// contract code requests rejected.
-        const CONTRACT_ACCESSES_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(64).unwrap();
+        const CONTRACT_ACCESSES_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(256).unwrap();
         const DATA_PARTS_RATIO: f64 = 0.6;
         const PENDING_PARTIAL_DATA_CAP: NonZeroUsize = NonZeroUsize::new(10).unwrap();
         Self {
