@@ -69,7 +69,7 @@ pub struct HeaderSync {
 enum HeaderSyncAction {
     /// Skip header sync entirely (e.g. during EpochSync).
     Skip,
-    /// Run header sync and update sync_status to HeaderSync.
+    /// Run header sync as the primary sync activity and update sync_status to HeaderSync.
     SyncAndUpdateStatus,
     /// Run header sync in the background without changing sync_status.
     /// Used during StateSync and BlockSync to keep the header chain
@@ -155,10 +155,6 @@ impl HeaderSync {
             SyncStatus::EpochSync { .. } => HeaderSyncAction::Skip,
         };
 
-        if matches!(action, HeaderSyncAction::Skip) {
-            return Ok(());
-        }
-
         // When header sync is the primary sync mode, update sync_status to
         // HeaderSync so the rest of the system (UI, metrics) sees progress.
         // When header sync runs in the background during state sync or block
@@ -182,7 +178,7 @@ impl HeaderSync {
                     "requesting headers in background"
                 );
             }
-            HeaderSyncAction::Skip => unreachable!(),
+            HeaderSyncAction::Skip => return Ok(()),
         }
 
         self.syncing_peer = None;
@@ -299,10 +295,15 @@ impl HeaderSync {
                                     return false;
                                 }
                             }
-                            _ => {
-                                // Background header sync (StateSync, BlockSync):
-                                // intentionally skip peer banning.
+                            SyncStatus::StateSync { .. } | SyncStatus::BlockSync { .. } => {
+                                tracing::trace!(
+                                    target: "sync",
+                                    ?sync_status,
+                                    peer_info = %peer.peer_info,
+                                    "background header sync"
+                                );
                             }
+                            _ => {}
                         }
                     }
                 }
