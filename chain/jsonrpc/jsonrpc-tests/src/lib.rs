@@ -200,6 +200,8 @@ pub fn create_test_setup_with_accounts_and_validity(
         limits_config: Default::default(),
         enable_debug_rpc: false,
         experimental_debug_pages_src_path: None,
+        pool: None,
+        pool_forward_timeout_secs: 10,
     };
 
     let app = create_jsonrpc_app(
@@ -214,6 +216,8 @@ pub fn create_test_setup_with_accounts_and_validity(
         #[cfg(feature = "test_features")]
         noop().into_multi_sender(),
         Arc::new(DummyEntityDebugHandler {}),
+        None,
+        None,
     );
 
     // 10. Create TestServer with real HTTP transport to get an address
