@@ -12,6 +12,8 @@
 
 ## Testing
 - When running tests, use `--features test_features`.
+- When working with test-loop tests, follow the instructions in `test-loop-tests/README.md`.
+- Create new test-loop tests based on the examples in `test-loop-tests/src/examples/`, as those reflect the latest API and best practices.
 
 ## Formatting
 - Run `cargo fmt` after making changes. It's cheap.
