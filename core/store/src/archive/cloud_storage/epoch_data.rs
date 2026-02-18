@@ -44,7 +44,6 @@ pub fn build_epoch_data(
     let epoch_start_block_hash = store.get_block_hash_by_height(epoch_start_height)?;
     let epoch_start_block = store.get_block(&epoch_start_block_hash)?;
     let sync_block_hash = store
-        .chain_store()
         .get_current_epoch_sync_hash(&epoch_id)
         .ok_or_else(|| Error::DBNotFoundErr(format!("StateSyncHashes, epoch ID: {epoch_id:?}")))?;
     let sync_block_height = store.get_block_height(&sync_block_hash)?;
@@ -67,9 +66,9 @@ impl EpochData {
         }
     }
 
-    pub fn epoch_start_height(&self) -> &BlockHeight {
+    pub fn epoch_start_height(&self) -> BlockHeight {
         match self {
-            EpochData::V1(data) => &data.epoch_start_height,
+            EpochData::V1(data) => data.epoch_start_height,
         }
     }
 
@@ -79,9 +78,9 @@ impl EpochData {
         }
     }
 
-    pub fn sync_block_height(&self) -> &BlockHeight {
+    pub fn sync_block_height(&self) -> BlockHeight {
         match self {
-            EpochData::V1(data) => &data.sync_block_height,
+            EpochData::V1(data) => data.sync_block_height,
         }
     }
 

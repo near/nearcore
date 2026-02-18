@@ -50,7 +50,7 @@ impl CloudStorage {
     ) -> Result<(), CloudArchivingError> {
         let epoch_data = build_epoch_data(hot_store, shard_layout.clone(), epoch_id)?;
         let file_id = CloudStorageFileID::Epoch(epoch_id);
-        let blob = borsh::to_vec(&epoch_data)?;
+        let blob = borsh::to_vec(&epoch_data).unwrap();
         self.upload(file_id, blob).await
     }
 

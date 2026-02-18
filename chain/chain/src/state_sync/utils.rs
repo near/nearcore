@@ -4,9 +4,10 @@ use borsh::BorshDeserialize;
 use near_chain_primitives::error::Error;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::EpochId;
+use near_primitives::types::{EpochHeight, EpochId};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::db::CLOUD_HEAD_KEY;
 use near_store::{DBCol, Store, StoreUpdate};
 use std::sync::Arc;
 
@@ -70,13 +71,40 @@ fn remove_old_epochs(
     header: &BlockHeader,
     prev_header: &BlockHeader,
 ) -> Result<(), Error> {
+    let min_epoch_height_to_keep = cloud_head_epoch_height(store);
     for epoch_id in iter_state_sync_hashes_keys(store) {
         let epoch_id = epoch_id?;
         if &epoch_id != header.epoch_id() && &epoch_id != prev_header.epoch_id() {
+            if should_keep_sync_hash(store, &epoch_id, min_epoch_height_to_keep) {
+                continue;
+            }
             store_update.delete(DBCol::StateSyncHashes, epoch_id.as_ref());
         }
     }
     Ok(())
+}
+
+/// Returns true if the sync hash for this epoch should be kept because the
+/// cloud archival writer hasn't consumed it yet.
+fn should_keep_sync_hash(
+    store: &Store,
+    epoch_id: &EpochId,
+    min_epoch_height_to_keep: Option<EpochHeight>,
+) -> bool {
+    let Some(min_height) = min_epoch_height_to_keep else {
+        return false;
+    };
+    let Ok(epoch_info) = store.epoch_store().get_epoch_info(epoch_id) else {
+        return false;
+    };
+    epoch_info.epoch_height() >= min_height
+}
+
+/// Returns the epoch height of the cloud head, if cloud archival is active.
+fn cloud_head_epoch_height(store: &Store) -> Option<EpochHeight> {
+    let cloud_head_tip: Option<Tip> = store.get_ser(DBCol::BlockMisc, CLOUD_HEAD_KEY);
+    let epoch_info = store.epoch_store().get_epoch_info(&cloud_head_tip?.epoch_id).ok()?;
+    Some(epoch_info.epoch_height())
 }
 
 /// Helper to turn DBNotFoundErr() into None. We might get DBNotFoundErr() in the case of epoch sync
