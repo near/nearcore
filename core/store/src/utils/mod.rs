@@ -342,6 +342,48 @@ pub fn get_gas_key_nonce(
     )
 }
 
+/// Computes the total balance across all gas keys for a given account.
+pub fn compute_gas_key_balance_sum(
+    state_update: &TrieUpdate,
+    account_id: &AccountId,
+) -> Result<Balance, StorageError> {
+    let mut total = Balance::ZERO;
+    let lock = state_update.trie().lock_for_iter();
+    for raw_key in state_update
+        .locked_iter(&trie_key_parsers::get_raw_prefix_for_access_keys(account_id), &lock)?
+    {
+        let raw_key = raw_key?;
+        let public_key = trie_key_parsers::parse_public_key_from_access_key_key(
+            &raw_key, account_id,
+        )
+        .map_err(|_e| {
+            StorageError::StorageInconsistentState(
+                "Can't parse public key from raw key for AccessKey".to_string(),
+            )
+        })?;
+        let nonce_index =
+            trie_key_parsers::parse_nonce_index_from_gas_key_key(&raw_key, account_id, &public_key)
+                .map_err(|_e| {
+                    StorageError::StorageInconsistentState(
+                        "Can't parse nonce index from raw key for AccessKey".to_string(),
+                    )
+                })?;
+        if nonce_index.is_some() {
+            continue;
+        }
+        if let Some(balance) = get_access_key(state_update, account_id, &public_key)?
+            .as_ref()
+            .and_then(|access_key| access_key.gas_key_info())
+            .map(|gas_key_info| gas_key_info.balance)
+        {
+            total = total.checked_add(balance).ok_or_else(|| {
+                StorageError::StorageInconsistentState("gas key balance overflow".to_string())
+            })?;
+        }
+    }
+    Ok(total)
+}
+
 pub struct RemoveAccountResult {
     pub gas_key_nonce_count: usize,
     pub gas_key_nonce_total_key_bytes: usize, // used to calculate compute cost
@@ -420,10 +462,7 @@ pub fn remove_account(
     for key in data_keys {
         state_update.remove(TrieKey::ContractData { account_id: account_id.clone(), key });
     }
-    Ok(RemoveAccountResult {
-        gas_key_nonce_count,
-        gas_key_nonce_total_key_bytes,
-    })
+    Ok(RemoveAccountResult { gas_key_nonce_count, gas_key_nonce_total_key_bytes })
 }
 
 pub fn get_genesis_state_roots(store: &Store) -> Option<Vec<StateRoot>> {
