@@ -10,6 +10,9 @@ import subprocess
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
+import base58
+from nacl.signing import SigningKey
+
 from configured_logger import logger
 import transaction
 import utils
@@ -382,6 +385,29 @@ class ImplicitAccount:
         return self.key.key
 
 
+# ── Key mapping (--no-secret) ────────────────────────────────────────────────
+#
+# With --no-secret, the mirror maps each ed25519 public key to a new keypair
+# by using the original public key bytes as the signing key seed. Named
+# accounts are not mapped; implicit account IDs (hex-encoded public keys) are.
+
+
+def map_key_no_secret(pk_str):
+    """Map a public key through the --no-secret mirror key mapping."""
+    pk_bytes = base58.b58decode(pk_str.split(':')[1].encode('ascii'))
+    mapped_pk = bytes(SigningKey(pk_bytes).verify_key)
+    return 'ed25519:' + base58.b58encode(mapped_pk).decode('ascii')
+
+
+def map_account_no_secret(account_id):
+    """Map an implicit account ID through the --no-secret mirror key mapping."""
+    if len(account_id) == 64:
+        pk_bytes = bytes.fromhex(account_id)
+        mapped_pk = bytes(SigningKey(pk_bytes).verify_key)
+        return mapped_pk.hex()
+    return account_id
+
+
 # ── Validation helpers ───────────────────────────────────────────────────────
 
 
@@ -424,3 +450,36 @@ def added_keys_send_transfers(nodes, added_keys, receivers, amount, block_hash):
                            block_hash)
         node_idx += 1
         node_idx %= len(nodes)
+
+
+def verify_expectations(node, expectations):
+    """Verify expected state conditions on the target chain."""
+    failures = []
+    for exp in expectations:
+        try:
+            _check_expectation(node, exp)
+        except AssertionError as e:
+            failures.append(f'{exp}: {e}')
+    if failures:
+        msg = f'{len(failures)} of {len(expectations)} expectations failed:\n'
+        msg += '\n'.join(f'  - {f}' for f in failures)
+        assert False, msg
+    logger.info(f'all {len(expectations)} expectations verified on target')
+
+
+def _check_expectation(node, exp):
+    t = exp['type']
+    if t == 'account_exists':
+        res = node.get_account(exp['account_id'], do_assert=False)
+        assert 'error' not in res, f'account {exp["account_id"]} not found'
+    elif t == 'has_key':
+        nonce = node.get_nonce_for_pk(exp['account_id'],
+                                      exp['public_key'],
+                                      finality='final')
+        assert nonce is not None, \
+            f'key {exp["public_key"]} not found on {exp["account_id"]}'
+    elif t == 'contract_deployed':
+        assert contract_deployed(node, exp['account_id']), \
+            f'no contract on {exp["account_id"]}'
+    else:
+        assert False, f'unknown expectation type: {t}'

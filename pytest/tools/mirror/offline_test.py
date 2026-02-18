@@ -105,6 +105,7 @@ def build_images(config):
     tip = source_node.get_latest_block()
     bhash = base58.b58decode(tip.hash.encode('utf8'))
     start_source_height = tip.height
+    expectations = []
 
     subaccount_key = mirror_utils.AddedKey(
         mirror_utils.create_subaccount(source_node,
@@ -114,12 +115,19 @@ def build_images(config):
                                        bhash,
                                        extra_key=True))
     nonce += 1
+    expectations.append({'type': 'account_exists', 'account_id': 'foo.test0'})
 
     k = key.Key.from_random('test0')
     new_key = mirror_utils.AddedKey(k)
     mirror_utils.send_add_access_key(source_node, source_node.signer_key, k,
                                      nonce, bhash)
     nonce += 1
+    # Direct AddKey action: mirror maps the public key
+    expectations.append({
+        'type': 'has_key',
+        'account_id': 'test0',
+        'public_key': mirror_utils.map_key_no_secret(k.pk)
+    })
 
     contract_key = key.Key.from_random('test0')
     contract_extra_key = key.Key.from_random('test0')
@@ -133,6 +141,18 @@ def build_images(config):
                                      contract_extra_key.decoded_pk())
                              ])
     nonce += 1
+    # contract_key is added by contract execution (unmapped args)
+    expectations.append({
+        'type': 'has_key',
+        'account_id': 'test0',
+        'public_key': contract_key.pk
+    })
+    # contract_extra_key is a direct AddKey action: mirror maps it
+    expectations.append({
+        'type': 'has_key',
+        'account_id': 'test0',
+        'public_key': mirror_utils.map_key_no_secret(contract_extra_key.pk)
+    })
     contract_key = mirror_utils.AddedKey(contract_key)
     contract_extra_key = mirror_utils.AddedKey(contract_extra_key)
 
@@ -141,6 +161,12 @@ def build_images(config):
                                      sub_key.key.account_id, sub_key.key.pk,
                                      nonce, bhash)
     nonce += 1
+    expectations.append({'type': 'account_exists', 'account_id': 'test0.test0'})
+    expectations.append({
+        'type': 'has_key',
+        'account_id': 'test0.test0',
+        'public_key': sub_key.key.pk
+    })
 
     # Send 1 yocto (fails to create), then enough to actually create
     implicit2 = mirror_utils.ImplicitAccount()
@@ -150,6 +176,11 @@ def build_images(config):
     implicit2.transfer_to(source_node, source_node.signer_key, 10**24, bhash,
                           nonce)
     nonce += 1
+    # Implicit account ID is derived from public key, which gets mapped
+    expectations.append({
+        'type': 'account_exists',
+        'account_id': mirror_utils.map_account_no_secret(implicit2.account_id())
+    })
 
     contract_deployed = False
     staked = False
@@ -182,6 +213,10 @@ def build_images(config):
                                                     mirror_utils.CONTRACT_PATH,
                                                     subaccount_key.nonce, bhash)
                 contract_deployed = True
+                expectations.append({
+                    'type': 'contract_deployed',
+                    'account_id': subaccount_key.account_id()
+                })
             elif not staked and mirror_utils.contract_deployed(
                     source_node, subaccount_key.account_id()):
                 subaccount_key.nonce += 1
@@ -208,12 +243,13 @@ def build_images(config):
             {
                 'validator_keys': [k.to_json() for k in validator_keys],
                 'end_source_height': end_source_height,
+                'expectations': expectations,
             },
             f,
             indent=2)
 
 
-def run_mirror(config, validator_keys, end_source_height):
+def run_mirror(config, validator_keys, end_source_height, expectations=None):
     """Phases 5-6: start target network, run mirror, validate."""
     near_root = config['near_root']
 
@@ -305,6 +341,10 @@ def run_mirror(config, validator_keys, end_source_height):
     logger.info(f'source txs: {total_source}, target txs: {total_target}')
     assert total_target >= total_source * 0.5, \
         f'target has too few txs: {total_target} vs source {total_source}'
+
+    if expectations:
+        mirror_utils.verify_expectations(target_nodes[0], expectations)
+
     logger.info('offline_test PASSED')
 
 
@@ -330,7 +370,9 @@ def main():
     with open(METADATA_FILE) as f:
         metadata = json.load(f)
     validator_keys = [key.Key.from_json(k) for k in metadata['validator_keys']]
-    run_mirror(config, validator_keys, metadata['end_source_height'])
+    expectations = metadata.get('expectations', [])
+    run_mirror(config, validator_keys, metadata['end_source_height'],
+               expectations)
 
 
 if __name__ == '__main__':
