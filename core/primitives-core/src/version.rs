@@ -370,6 +370,11 @@ pub enum ProtocolFeature {
     /// prevents race conditions in the case of multiple distribution attempts
     /// for the same contract.
     GlobalContractDistributionNonce,
+    /// Early chunk producer kickouts: dynamically blacklist underperforming
+    /// chunk producers mid-epoch based on their production ratio from the
+    /// finalized EpochInfoAggregator stats. Recovers shard liveness in minutes
+    /// instead of waiting for the next epoch boundary (~12 hours).
+    EarlyChunkProducerKickout,
 }
 
 impl ProtocolFeature {
@@ -485,7 +490,7 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::GasKeys => 149,
             ProtocolFeature::BlockHashInPartialWitness => 84,
-            ProtocolFeature::DynamicResharding => 150,
+            ProtocolFeature::DynamicResharding | ProtocolFeature::EarlyChunkProducerKickout => 150,
 
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.

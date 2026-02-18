@@ -3979,3 +3979,227 @@ fn test_chunk_producer_info_consistency() {
         }
     }
 }
+
+// ---- Early chunk producer kickout tests ----
+
+/// Build an `EpochInfo` suitable for blacklist tests: 4 validators, 2 shards,
+/// each shard has all 4 as chunk producers.
+fn blacklist_test_epoch_info() -> (EpochInfo, ShardLayout) {
+    let shard_layout = ShardLayout::multi_shard(2, 0);
+    let validators: Vec<(AccountId, Balance)> = (0..4)
+        .map(|i| (format!("val{}", i).parse().unwrap(), Balance::from_yoctonear(1_000_000)))
+        .collect();
+    let bp_settlement = vec![0, 1, 2, 3];
+    let cp_settlement = vec![vec![0, 1, 2, 3], vec![0, 1, 2, 3]];
+    let ei = epoch_info(
+        1,
+        validators,
+        bp_settlement,
+        cp_settlement,
+        PROTOCOL_VERSION,
+        shard_layout.clone(),
+    );
+    (ei, shard_layout)
+}
+
+#[test]
+fn test_compute_chunk_producer_blacklist_basic() {
+    let (epoch_info, shard_layout) = blacklist_test_epoch_info();
+    let shard_ids: Vec<_> = shard_layout.shard_ids().collect();
+
+    // Validator 0 on shard 0: expected=25, produced=3 → missed=22, ratio=12% → blacklisted
+    // Validator 1 on shard 0: expected=25, produced=24 → missed=1, ratio=96% → NOT blacklisted
+    let mut shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ChunkStats>> = HashMap::new();
+    let shard0_stats: HashMap<ValidatorId, ChunkStats> = [
+        (0, ChunkStats::new_with_production(3, 25)), // 12% production, 22 missed
+        (1, ChunkStats::new_with_production(24, 25)), // 96% production, 1 missed
+        (2, ChunkStats::new_with_production(20, 25)), // 80% production, 5 missed → below threshold but missed < 20
+        (3, ChunkStats::new_with_production(0, 25)),  // 0% production, 25 missed → blacklisted
+    ]
+    .into_iter()
+    .collect();
+    shard_tracker.insert(shard_ids[0], shard0_stats);
+
+    let blacklist = compute_chunk_producer_blacklist(&shard_tracker, &epoch_info, &shard_layout);
+
+    // Only shard 0 should have entries; validators 0 and 3 should be blacklisted.
+    assert!(blacklist.contains_key(&shard_ids[0]));
+    let bl0 = &blacklist[&shard_ids[0]];
+    assert!(bl0.contains(&0), "validator 0 should be blacklisted");
+    assert!(!bl0.contains(&1), "validator 1 should NOT be blacklisted");
+    assert!(!bl0.contains(&2), "validator 2 should NOT be blacklisted (missed < 20)");
+    assert!(bl0.contains(&3), "validator 3 should be blacklisted");
+
+    // Shard 1 has no stats, so should not appear in blacklist.
+    assert!(!blacklist.contains_key(&shard_ids[1]));
+}
+
+#[test]
+fn test_compute_chunk_producer_blacklist_threshold_edges() {
+    let (epoch_info, shard_layout) = blacklist_test_epoch_info();
+    let shard_ids: Vec<_> = shard_layout.shard_ids().collect();
+
+    let mut shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ChunkStats>> = HashMap::new();
+
+    // Exactly 20 missed, production ratio exactly 95% → NOT blacklisted (produced * 100 == expected * 95)
+    // expected=400, produced=380, missed=20 → 380*100=38000, 400*95=38000, not strictly less
+    let shard0_stats: HashMap<ValidatorId, ChunkStats> = [
+        (0, ChunkStats::new_with_production(380, 400)),
+        (1, ChunkStats::new_with_production(25, 25)),
+    ]
+    .into_iter()
+    .collect();
+    shard_tracker.insert(shard_ids[0], shard0_stats);
+
+    let blacklist = compute_chunk_producer_blacklist(&shard_tracker, &epoch_info, &shard_layout);
+    // Validator 0: 380*100 = 38000, 400*95 = 38000, NOT strictly less → not blacklisted.
+    assert!(
+        !blacklist.contains_key(&shard_ids[0]) || !blacklist[&shard_ids[0]].contains(&0),
+        "validator 0 should NOT be blacklisted at exact 95% threshold"
+    );
+
+    // Now try 379/400: 379*100=37900 < 400*95=38000, missed=21 → blacklisted
+    let mut shard_tracker2: HashMap<ShardId, HashMap<ValidatorId, ChunkStats>> = HashMap::new();
+    let shard0_stats2: HashMap<ValidatorId, ChunkStats> = [
+        (0, ChunkStats::new_with_production(379, 400)),
+        (1, ChunkStats::new_with_production(25, 25)),
+    ]
+    .into_iter()
+    .collect();
+    shard_tracker2.insert(shard_ids[0], shard0_stats2);
+
+    let blacklist2 = compute_chunk_producer_blacklist(&shard_tracker2, &epoch_info, &shard_layout);
+    assert!(
+        blacklist2.get(&shard_ids[0]).map_or(false, |bl| bl.contains(&0)),
+        "validator 0 should be blacklisted at 379/400"
+    );
+}
+
+#[test]
+fn test_compute_chunk_producer_blacklist_safety_valve() {
+    let (epoch_info, shard_layout) = blacklist_test_epoch_info();
+    let shard_ids: Vec<_> = shard_layout.shard_ids().collect();
+
+    // All 4 validators on shard 0 miss enough to be blacklisted.
+    let mut shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ChunkStats>> = HashMap::new();
+    let shard0_stats: HashMap<ValidatorId, ChunkStats> =
+        (0..4).map(|id| (id, ChunkStats::new_with_production(0, 30))).collect();
+    shard_tracker.insert(shard_ids[0], shard0_stats);
+
+    let blacklist = compute_chunk_producer_blacklist(&shard_tracker, &epoch_info, &shard_layout);
+    // Safety valve: shard 0 should NOT appear because all producers would be blacklisted.
+    assert!(
+        !blacklist.contains_key(&shard_ids[0]),
+        "shard 0 should be omitted when all producers blacklisted (safety valve)"
+    );
+}
+
+#[test]
+fn test_sample_chunk_producer_excluding_empty_set() {
+    let (epoch_info, shard_layout) = blacklist_test_epoch_info();
+    let shard_ids: Vec<_> = shard_layout.shard_ids().collect();
+
+    // With empty exclusion set, result should match sample_chunk_producer.
+    let empty: HashSet<ValidatorId> = HashSet::new();
+    for height in 1..20 {
+        for &shard_id in &shard_ids {
+            let original = epoch_info.sample_chunk_producer(&shard_layout, shard_id, height);
+            let with_empty =
+                epoch_info.sample_chunk_producer_excluding(&shard_layout, shard_id, height, &empty);
+            assert_eq!(
+                original, with_empty,
+                "empty exclusion set should produce same result at height {} shard {}",
+                height, shard_id
+            );
+        }
+    }
+}
+
+#[test]
+fn test_sample_chunk_producer_excluding_skips_excluded() {
+    let (epoch_info, shard_layout) = blacklist_test_epoch_info();
+    let shard_ids: Vec<_> = shard_layout.shard_ids().collect();
+
+    // Exclude validators 0 and 1.
+    let exclude: HashSet<ValidatorId> = [0, 1].into_iter().collect();
+    for height in 1..50 {
+        for &shard_id in &shard_ids {
+            let result = epoch_info
+                .sample_chunk_producer_excluding(&shard_layout, shard_id, height, &exclude)
+                .expect("should find a producer when not all excluded");
+            assert!(
+                !exclude.contains(&result),
+                "excluded validator {} was selected at height {} shard {}",
+                result,
+                height,
+                shard_id
+            );
+        }
+    }
+}
+
+#[test]
+fn test_sample_chunk_producer_excluding_all_returns_none() {
+    let (epoch_info, shard_layout) = blacklist_test_epoch_info();
+    let shard_ids: Vec<_> = shard_layout.shard_ids().collect();
+
+    // Exclude all 4 validators.
+    let exclude: HashSet<ValidatorId> = (0..4).collect();
+    for height in 1..10 {
+        for &shard_id in &shard_ids {
+            let result = epoch_info.sample_chunk_producer_excluding(
+                &shard_layout,
+                shard_id,
+                height,
+                &exclude,
+            );
+            assert_eq!(
+                result, None,
+                "excluding all producers should return None at height {} shard {}",
+                height, shard_id
+            );
+        }
+    }
+}
+
+#[test]
+fn test_sample_chunk_producer_excluding_respects_stake_weighting() {
+    // Create an epoch info where validator 0 has 10x the stake of validators 1 and 2.
+    let shard_layout = ShardLayout::multi_shard(1, 0);
+    let validators: Vec<(AccountId, Balance)> = vec![
+        ("val0".parse().unwrap(), Balance::from_yoctonear(10_000_000)),
+        ("val1".parse().unwrap(), Balance::from_yoctonear(1_000_000)),
+        ("val2".parse().unwrap(), Balance::from_yoctonear(1_000_000)),
+    ];
+    let bp_settlement = vec![0, 1, 2];
+    let cp_settlement = vec![vec![0, 1, 2]];
+    let ei = epoch_info(
+        1,
+        validators,
+        bp_settlement,
+        cp_settlement,
+        PROTOCOL_VERSION,
+        shard_layout.clone(),
+    );
+
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+
+    // Exclude validator 0 (the heavy one). Now sampling should only return 1 or 2.
+    let exclude: HashSet<ValidatorId> = [0].into_iter().collect();
+    let mut counts = [0u32; 3];
+    for height in 1..10_000 {
+        let result =
+            ei.sample_chunk_producer_excluding(&shard_layout, shard_id, height, &exclude).unwrap();
+        counts[result as usize] += 1;
+    }
+    assert_eq!(counts[0], 0, "excluded validator 0 should never be selected");
+    assert!(counts[1] > 0, "validator 1 should be selected at least once");
+    assert!(counts[2] > 0, "validator 2 should be selected at least once");
+    // Since validators 1 and 2 have equal stake, they should be selected roughly equally.
+    let ratio = counts[1] as f64 / counts[2] as f64;
+    assert!(
+        (0.8..1.2).contains(&ratio),
+        "equal-stake validators should be selected roughly equally, got ratio {}",
+        ratio
+    );
+}

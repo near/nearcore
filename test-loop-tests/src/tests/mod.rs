@@ -15,6 +15,8 @@ mod contract_distribution_simple;
 mod create_delete_account;
 mod cross_shard_tx;
 mod deterministic_account_id;
+#[cfg(all(feature = "test_features", feature = "nightly"))]
+mod early_chunk_producer_kickout;
 mod early_prepare_transactions;
 mod epoch_sync;
 mod fix_chunk_producer_stake_threshold;

@@ -1487,6 +1487,68 @@ impl EpochManager {
     }
 }
 
+// --- Early chunk producer kickout constants ---
+
+/// Minimum number of missed chunks before a validator can be blacklisted on a shard.
+const EARLY_KICKOUT_MIN_MISSES: u64 = 20;
+
+/// Production ratio threshold: a validator is blacklisted when
+/// `produced * DENOMINATOR < expected * NUMERATOR`.
+const EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR: u64 = 95;
+const EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR: u64 = 100;
+
+/// Compute per-shard chunk producer blacklists based on the aggregator's shard tracker stats.
+///
+/// A validator is blacklisted on a shard when:
+///   - `missed >= EARLY_KICKOUT_MIN_MISSES`  (where `missed = expected - produced`)
+///   - AND `produced * 100 < expected * 95`   (i.e. production ratio < 95%)
+///
+/// If *all* producers for a shard would be blacklisted, that shard's entry is
+/// omitted from the result (safety valve — caller falls through to the original
+/// deterministic `sample_chunk_producer`).
+pub fn compute_chunk_producer_blacklist(
+    shard_tracker: &HashMap<ShardId, HashMap<ValidatorId, ChunkStats>>,
+    epoch_info: &EpochInfo,
+    shard_layout: &ShardLayout,
+) -> HashMap<ShardId, HashSet<ValidatorId>> {
+    let mut result = HashMap::new();
+
+    for (shard_id, validators) in shard_tracker {
+        let shard_index = match shard_layout.get_shard_index(*shard_id) {
+            Ok(idx) => idx,
+            Err(_) => continue,
+        };
+        let settlement = match epoch_info.chunk_producers_settlement().get(shard_index) {
+            Some(s) => s,
+            None => continue,
+        };
+
+        let mut blacklisted = HashSet::new();
+        for (&validator_id, stats) in validators {
+            let produced = stats.produced();
+            let expected = stats.expected();
+            if expected == 0 {
+                continue;
+            }
+            let missed = expected.saturating_sub(produced);
+            if missed >= EARLY_KICKOUT_MIN_MISSES
+                && produced * EARLY_KICKOUT_PRODUCTION_THRESHOLD_DENOMINATOR
+                    < expected * EARLY_KICKOUT_PRODUCTION_THRESHOLD_NUMERATOR
+            {
+                blacklisted.insert(validator_id);
+            }
+        }
+
+        // Safety valve: if all chunk producers for this shard are blacklisted,
+        // don't blacklist anyone — fall through to original sampling.
+        if !blacklisted.is_empty() && blacklisted.len() < settlement.len() {
+            result.insert(*shard_id, blacklisted);
+        }
+    }
+
+    result
+}
+
 /// Private utilities for EpochManager.
 impl EpochManager {
     /// Returns true if the next block after the given block will be in the next epoch.

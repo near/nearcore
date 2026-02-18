@@ -383,6 +383,11 @@ fn validate_block_proposals(block: &Block) -> Result<(), Error> {
 /// Compute and persist chunk producers for all shards at height `header.height()+1`.
 /// Pre-populates the `ChunkProducers` DB column so that future lookups via
 /// `get_chunk_producer_info` can read directly from DB.
+///
+/// When `EarlyChunkProducerKickout` is enabled, applies the mid-epoch blacklist
+/// from `EpochInfoAggregator` stats: blacklisted producers are skipped and a
+/// replacement is sampled from the remaining settlement. If all producers for a
+/// shard are blacklisted, falls through to the original `sample_chunk_producer`.
 pub(crate) fn save_chunk_producers_for_header(
     epoch_manager: &dyn EpochManagerAdapter,
     header: &BlockHeader,
@@ -399,11 +404,25 @@ pub(crate) fn save_chunk_producers_for_header(
     let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
     let height = header.height() + 1;
 
+    // Compute blacklist when the feature is enabled.
+    let blacklist =
+        if ProtocolFeature::EarlyChunkProducerKickout.enabled(epoch_info.protocol_version()) {
+            epoch_manager.get_chunk_producer_blacklist(&epoch_id)?
+        } else {
+            Default::default()
+        };
+
     let mut store_update = chain_store_update.store().store_update();
     for shard_id in shard_layout.shard_ids() {
-        if let Some(validator_id) =
+        let validator_id = if let Some(excluded) = blacklist.get(&shard_id) {
+            // Try sampling with exclusions; None means all producers blacklisted (safety valve).
+            epoch_info
+                .sample_chunk_producer_excluding(&shard_layout, shard_id, height, excluded)
+                .or_else(|| epoch_info.sample_chunk_producer(&shard_layout, shard_id, height))
+        } else {
             epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
-        {
+        };
+        if let Some(validator_id) = validator_id {
             let validator_stake = epoch_info.get_validator(validator_id);
             let key = get_block_shard_id(prev_block_hash, shard_id);
             store_update.insert_ser(DBCol::ChunkProducers, &key, &validator_stake);

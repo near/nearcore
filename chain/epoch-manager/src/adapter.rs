@@ -13,7 +13,7 @@ use near_primitives::stateless_validation::validator_assignment::ChunkValidatorA
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
+    AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex, ValidatorId,
     ValidatorInfoIdentifier,
 };
 use near_primitives::utils::get_block_shard_id;
@@ -825,6 +825,18 @@ pub trait EpochManagerAdapter: Send + Sync {
         earliest_protocol_version: Option<ProtocolVersion>,
     ) -> Vec<ShardLayout>;
 
+    /// Compute the per-shard chunk producer blacklist for early kickouts.
+    ///
+    /// Uses the finalized `EpochInfoAggregator` stats for the given epoch.
+    /// Returns an empty map if:
+    ///   - the feature is not enabled for the epoch's protocol version,
+    ///   - the aggregator's epoch doesn't match (new epoch = clean slate), or
+    ///   - no validators meet the blacklist threshold.
+    fn get_chunk_producer_blacklist(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<HashMap<ShardId, HashSet<ValidatorId>>, EpochError>;
+
     /// Get the shard split to include in the block header, if any.
     ///
     /// This method is expected to be called during the production of the last block of an epoch.
@@ -1037,6 +1049,24 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<Option<(ShardId, AccountId)>, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.get_upcoming_shard_split(protocol_version, parent_hash, proposed_splits)
+    }
+
+    fn get_chunk_producer_blacklist(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<HashMap<ShardId, HashSet<ValidatorId>>, EpochError> {
+        let epoch_manager = self.read();
+        // If the aggregator is for a different epoch, return empty (new epoch = clean slate).
+        if epoch_manager.epoch_info_aggregator.epoch_id != *epoch_id {
+            return Ok(HashMap::new());
+        }
+        let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
+        Ok(crate::compute_chunk_producer_blacklist(
+            &epoch_manager.epoch_info_aggregator.shard_tracker,
+            &epoch_info,
+            &shard_layout,
+        ))
     }
 
     fn get_chunk_producer_info(
