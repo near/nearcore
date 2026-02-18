@@ -999,10 +999,6 @@ impl ForkNetworkCommand {
                         )?;
                     }
                     StateRecord::GasKeyNonce { account_id, public_key, index, nonce } => {
-                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                        if account_id.get_account_type() != AccountType::NearImplicitAccount {
-                            has_full_key.insert(account_id.clone());
-                        }
                         let new_account_id = map_account(&account_id, None);
                         let replacement = map_key(&public_key, None);
                         let new_shard_id =
