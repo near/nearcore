@@ -50,4 +50,10 @@ impl BlockData {
             BlockData::V1(data) => &data.block,
         }
     }
+
+    pub fn block_info(&self) -> &BlockInfo {
+        match self {
+            BlockData::V1(data) => &data.block_info,
+        }
+    }
 }

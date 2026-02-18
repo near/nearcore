@@ -12,7 +12,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
-use crate::utils::node::TestLoopNode;
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 
 use super::spice_utils::delay_endorsements_propagation;
@@ -62,25 +61,25 @@ fn test_spice_certified_results_across_resharding() {
     delay_endorsements_propagation(&mut env, execution_delay);
     env = env.warmup();
 
-    let node = TestLoopNode::from(&env.node_datas[0]);
-    let epoch_manager = node.client(env.test_loop_data()).epoch_manager.clone();
+    let epoch_manager = env.validator().client().epoch_manager.clone();
 
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let epoch_id = node.head(test_loop_data).epoch_id;
+    env.validator_runner().run_until(
+        |node| {
+            let epoch_id = node.head().epoch_id;
             epoch_manager.get_shard_layout(&epoch_id).unwrap() == new_shard_layout
         },
         Duration::seconds((3 * epoch_length) as i64),
     );
-    let new_epoch_start = node.head(env.test_loop_data()).height;
+    let new_epoch_start = env.validator().head().height;
 
     // Run a few more blocks in the resharded epoch to exercise the code path
     // where last_certified_block is in the old epoch but current block is in the new epoch.
-    node.run_for_number_of_blocks(&mut env.test_loop, 5);
+    env.validator_runner().run_for_number_of_blocks(5);
 
     // Assert that the first block of the resharded epoch has its last certified
     // block in the previous epoch with a different number of shards.
-    let chain_store = &node.client(env.test_loop_data()).chain.chain_store;
+    let node = env.validator();
+    let chain_store = &node.client().chain.chain_store;
     let header = chain_store.get_block_header_by_height(new_epoch_start).unwrap();
     let last_certified = get_last_certified_block_header(chain_store, header.hash()).unwrap();
     let certified_shard_layout = epoch_manager.get_shard_layout(last_certified.epoch_id()).unwrap();
