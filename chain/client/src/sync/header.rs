@@ -163,7 +163,12 @@ impl HeaderSync {
             HeaderSyncAction::SyncAndUpdateStatus => {
                 // start_height is used to report the progress of header sync,
                 // e.g. to say that it's 50% complete.
-                let start_height = sync_status.start_height().unwrap_or(head.height);
+                let start_height = match sync_status {
+                    // After epoch sync head is at genesis; use header_head
+                    // which reflects where header sync actually starts.
+                    SyncStatus::EpochSyncDone => header_head.height,
+                    _ => sync_status.start_height().unwrap_or(head.height),
+                };
                 sync_status.update(SyncStatus::HeaderSync {
                     start_height,
                     current_height: header_head.height,
