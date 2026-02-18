@@ -114,28 +114,6 @@ def fork_network(neard, fork_dir, target_validators):
     ])
     run_cmd([neard, '--home', str(fork_dir), 'fork-network', 'finalize'])
 
-    # Fix epoch configs: set-validators generates epoch configs from the
-    # built-in base configs which may have a different shard count than the
-    # genesis. Patch num_block_producer_seats_per_shard to match the actual
-    # shard layout.
-    epoch_configs_dir = fork_dir / 'epoch_configs'
-    if epoch_configs_dir.exists():
-        with open(fork_dir / 'genesis.json') as f:
-            genesis = json.load(f)
-        shard_layout = genesis['shard_layout']
-        # V2 shard layout: number of shards = number of boundary accounts + 1
-        num_shards = len(shard_layout['V2']['boundary_accounts']) + 1
-
-        for cfg_file in epoch_configs_dir.iterdir():
-            with open(cfg_file) as f:
-                cfg = json.load(f)
-            num_seats = cfg['num_block_producer_seats']
-            cfg['num_block_producer_seats_per_shard'] = [
-                num_seats
-            ] * num_shards
-            with open(cfg_file, 'w') as f:
-                json.dump(cfg, f, indent=2)
-
     return validator_keys
 
 
