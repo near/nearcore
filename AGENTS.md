@@ -1,5 +1,9 @@
 # nearcore
 
+## Rust
+- Prefer `use` declarations over fully qualified paths.
+- Don't capitalize string literal messages in logs, errors, `Option::expect`, `panic!`, etc.
+
 ## Pull Requests
 - Always follow the Pull Requests instructions from `CONTRIBUTING.md`.
 - Use bullet-point description for PRs that highlight key changes, motivations, testing, and important context.
