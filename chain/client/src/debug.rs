@@ -630,7 +630,7 @@ impl ClientActor {
                                 chunk_producer: self
                                     .client
                                     .epoch_manager
-                                    .get_chunk_producer_info(
+                                    .get_chunk_producer_info_best_effort(
                                         block_header.prev_hash(),
                                         chunk.shard_id(),
                                     )

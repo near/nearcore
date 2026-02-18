@@ -473,6 +473,19 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(epoch_info.get_validator(validator_id))
     }
 
+    /// Best-effort chunk producer info: tries DB first, falls back to computation.
+    /// Use this for non-critical callers (metrics, debug, RPC views) where a stale
+    /// or recomputed answer is acceptable.
+    fn get_chunk_producer_info_best_effort(
+        &self,
+        prev_block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ValidatorStake, EpochError> {
+        // Default impl is pure computation (same as get_chunk_producer_info).
+        // EpochManagerHandle overrides this with a DB-first-then-fallback path.
+        self.get_chunk_producer_info(prev_block_hash, shard_id)
+    }
+
     /// Chunk producer info for a given epoch, height and shard.
     /// Use this for speculative lookups where no block exists yet (e.g. future heights for tx routing).
     /// Return EpochError if outside of known boundaries.
@@ -1074,7 +1087,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         prev_block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
-        // Try pre-computed DB column first (authoritative for historical lookups).
+        // Try pre-computed DB column first (authoritative when EarlyChunkProducerKickout is on).
         {
             let epoch_manager = self.read();
             let key = get_block_shard_id(prev_block_hash, shard_id);
@@ -1086,15 +1099,73 @@ impl EpochManagerAdapter for EpochManagerHandle {
                 return Ok(validator_stake);
             }
         }
-        // Fall back to computation for recent blocks not yet persisted.
-        // Once dynamic chunk producer sampling ships, this fallback may produce
-        // incorrect results for blocks processed under dynamic sampling. Monitor
-        // this log to track the transition.
+
+        // DB miss. When EarlyChunkProducerKickout is enabled, the DB entry is
+        // authoritative — a miss means something went wrong and falling back to
+        // computation would give incorrect attribution. Return an error instead.
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
+        if ProtocolFeature::EarlyChunkProducerKickout.enabled(protocol_version) {
+            tracing::error!(
+                target: "epoch_manager",
+                %prev_block_hash,
+                %shard_id,
+                "ChunkProducers DB column miss with EarlyChunkProducerKickout enabled"
+            );
+            debug_assert!(
+                false,
+                "ChunkProducers DB miss for prev_block_hash={prev_block_hash}, shard_id={shard_id}"
+            );
+            return Err(EpochError::ChunkProducerSelectionError(format!(
+                "ChunkProducers DB miss for prev_block_hash={}, shard_id={}",
+                prev_block_hash, shard_id,
+            )));
+        }
+
+        // Feature not enabled — fall back to computation.
         tracing::warn!(
             target: "epoch_manager",
             %prev_block_hash,
             %shard_id,
             "ChunkProducers DB column miss, falling back to computation"
+        );
+        let block_info = self.get_block_info(prev_block_hash)?;
+        let height = block_info.height() + 1;
+        let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let Some(validator_id) = epoch_info.sample_chunk_producer(&shard_layout, shard_id, height)
+        else {
+            return Err(EpochError::ChunkProducerSelectionError(format!(
+                "Invalid shard {} for height {}",
+                shard_id, height,
+            )));
+        };
+        Ok(epoch_info.get_validator(validator_id))
+    }
+
+    fn get_chunk_producer_info_best_effort(
+        &self,
+        prev_block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ValidatorStake, EpochError> {
+        // Try pre-computed DB column first.
+        {
+            let epoch_manager = self.read();
+            let key = get_block_shard_id(prev_block_hash, shard_id);
+            if let Some(validator_stake) = epoch_manager
+                .store
+                .store_ref()
+                .get_ser::<ValidatorStake>(DBCol::ChunkProducers, &key)
+            {
+                return Ok(validator_stake);
+            }
+        }
+        // DB miss — always fall back to computation regardless of feature flags.
+        tracing::warn!(
+            target: "epoch_manager",
+            %prev_block_hash,
+            %shard_id,
+            "ChunkProducers DB column miss, falling back to computation (best-effort)"
         );
         let block_info = self.get_block_info(prev_block_hash)?;
         let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;

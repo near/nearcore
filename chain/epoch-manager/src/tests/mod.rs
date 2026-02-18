@@ -4203,3 +4203,313 @@ fn test_sample_chunk_producer_excluding_respects_stake_weighting() {
         ratio
     );
 }
+
+// ---- Aggregator chunk producer override tests ----
+
+/// Unit test: `update_tail` uses chunk_producer_overrides when present,
+/// crediting the override validator instead of the original.
+#[test]
+fn test_update_tail_with_chunk_producer_overrides() {
+    let num_shards = 4;
+    let amount_staked = Balance::from_yoctonear(1_000_000);
+    let validators: Vec<(AccountId, Balance)> =
+        (0..4).map(|i| (format!("test{}", i).parse().unwrap(), amount_staked)).collect();
+    let mut em = setup_default_epoch_manager(validators, 10, num_shards, 4, 90, 90);
+
+    let h = hash_range(3);
+    record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
+
+    let epoch_id = em.get_epoch_id(&h[0]).unwrap();
+    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
+    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+
+    // Determine the original chunk producer for shard 0 at height 1 (prev_height=0).
+    let shard_ids: Vec<_> = shard_layout.shard_ids().collect();
+    let shard_0 = shard_ids[0];
+    let original_cp = epoch_info.sample_chunk_producer(&shard_layout, shard_0, 1).unwrap();
+
+    // Pick a different validator as the override.
+    let override_cp = if original_cp == 0 { 1 } else { 0 };
+
+    let mut overrides = HashMap::new();
+    overrides.insert(shard_0, override_cp);
+
+    // Create a BlockInfo with all chunks produced (chunk_mask all true).
+    let block_info_val = block_info(
+        h[1],
+        1,
+        0,
+        h[0],
+        h[0],
+        CryptoHash::default(),
+        vec![true; num_shards as usize],
+        DEFAULT_TOTAL_SUPPLY,
+    );
+
+    // Call update_tail with the override on a fresh aggregator.
+    let mut aggregator = EpochInfoAggregator::new(epoch_id, h[1]);
+    aggregator.update_tail(&block_info_val, &epoch_info, &shard_layout, 0, &overrides);
+
+    // The override validator should have credit for shard_0.
+    let shard_0_tracker = aggregator.shard_tracker.get(&shard_0).unwrap();
+    let override_stats = shard_0_tracker.get(&override_cp).unwrap();
+    assert_eq!(override_stats.produced(), 1, "override validator should have produced=1");
+    assert_eq!(override_stats.expected(), 1, "override validator should have expected=1");
+
+    // The original validator should NOT have any production stats for shard_0.
+    // (It may have endorsement stats if it's a chunk validator, but no production stats.)
+    if let Some(original_stats) = shard_0_tracker.get(&original_cp) {
+        assert_eq!(
+            original_stats.produced(),
+            0,
+            "original validator should have produced=0 for shard_0"
+        );
+    }
+
+    // For shards without an override, the original assignment should be used.
+    if shard_ids.len() > 1 {
+        let shard_1 = shard_ids[1];
+        let expected_cp = epoch_info.sample_chunk_producer(&shard_layout, shard_1, 1).unwrap();
+        let shard_1_tracker = aggregator.shard_tracker.get(&shard_1).unwrap();
+        let stats = shard_1_tracker.get(&expected_cp).unwrap();
+        assert_eq!(stats.expected(), 1, "non-overridden shard should use original assignment");
+    }
+}
+
+/// Integration test: `get_epoch_info_aggregator_upto_last` reads
+/// `DBCol::ChunkProducers` overrides and credits the correct validator.
+#[test]
+fn test_aggregator_uses_db_chunk_producer_overrides() {
+    use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
+    use near_primitives::utils::get_block_shard_id;
+    use near_store::DBCol;
+    use near_store::adapter::StoreAdapter;
+
+    let num_shards: u64 = 4;
+    let amount_staked = Balance::from_yoctonear(1_000_000);
+    let validators: Vec<(AccountId, Balance)> =
+        (0..4).map(|i| (format!("test{}", i).parse().unwrap(), amount_staked)).collect();
+    let mut em = setup_default_epoch_manager(validators, 10, num_shards, 4, 90, 90);
+
+    let h = hash_range(3);
+    record_block(&mut em, CryptoHash::default(), h[0], 0, vec![]);
+
+    let epoch_id = em.get_epoch_id(&h[0]).unwrap();
+    let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
+    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+
+    // Determine original chunk producer for shard 0 at height 1 (prev_block = h[0]).
+    let shard_ids: Vec<_> = shard_layout.shard_ids().collect();
+    let shard_0 = shard_ids[0];
+    let original_cp = epoch_info.sample_chunk_producer(&shard_layout, shard_0, 1).unwrap();
+
+    // Pick a different validator as the override.
+    let override_cp = if original_cp == 0 { 1 } else { 0 };
+    let override_stake = epoch_info.get_validator(override_cp);
+
+    // Write the override to DBCol::ChunkProducers for (h[0], shard_0).
+    {
+        let mut store_update = em.store.store_ref().store_update();
+        let key = get_block_shard_id(&h[0], shard_0);
+        store_update.insert_ser(DBCol::ChunkProducers, &key, &override_stake);
+        store_update.commit();
+    }
+
+    // Record block at height 1 with all chunks produced (chunk_mask all true).
+    let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
+        shard_layout
+            .shard_ids()
+            .map(|shard_id| {
+                let assignments =
+                    em.get_chunk_validator_assignments(&epoch_id, shard_id, 1).unwrap();
+                vec![true; assignments.assignments().iter().len()]
+            })
+            .collect(),
+    );
+    record_with_block_info(
+        &mut em,
+        BlockInfo::new(
+            h[1],
+            1,
+            0,
+            h[0],
+            h[0],
+            vec![],
+            vec![true; num_shards as usize],
+            DEFAULT_TOTAL_SUPPLY,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+            NUM_NS_IN_SECOND,
+            chunk_endorsements,
+            None,
+        ),
+    );
+
+    // Reset the aggregator so get_epoch_info_aggregator_upto_last rebuilds from scratch.
+    em.epoch_info_aggregator = EpochInfoAggregator::default();
+
+    let aggregator = em.get_epoch_info_aggregator_upto_last(&h[1]).unwrap();
+
+    // Check shard_tracker for shard_0: the DB-specified validator gets credit.
+    let shard_0_tracker = aggregator.shard_tracker.get(&shard_0).unwrap();
+    let override_stats = shard_0_tracker.get(&override_cp).unwrap();
+    assert_eq!(
+        override_stats.produced(),
+        1,
+        "DB override validator should have produced=1 for shard_0"
+    );
+    assert_eq!(
+        override_stats.expected(),
+        1,
+        "DB override validator should have expected=1 for shard_0"
+    );
+
+    // The original validator should NOT have production stats for shard_0.
+    if let Some(original_stats) = shard_0_tracker.get(&original_cp) {
+        assert_eq!(
+            original_stats.produced(),
+            0,
+            "original validator should have produced=0 for shard_0 when overridden"
+        );
+    }
+}
+
+/// Sets up an EpochManager at the `EarlyChunkProducerKickout` protocol version
+/// with `num_shards` shards and records a genesis block. Returns the manager,
+/// hash range, epoch_id, and shard_layout.
+fn setup_kickout_epoch_manager(
+    num_shards: u64,
+) -> (EpochManager, Vec<CryptoHash>, EpochId, ShardLayout) {
+    use near_primitives::epoch_manager::{AllEpochConfig, EpochConfigStore};
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    let kickout_version = ProtocolFeature::EarlyChunkProducerKickout.protocol_version();
+    let epoch_length = 10;
+    let amount_staked = Balance::from_yoctonear(1_000_000);
+    let validators: Vec<(AccountId, Balance)> =
+        (0..4).map(|i| (format!("test{}", i).parse().unwrap(), amount_staked)).collect();
+
+    let epoch_cfg = epoch_config(epoch_length, num_shards, 4, 100, 90, 90, 0, Ratio::new(0, 1));
+    let inner_config = epoch_cfg.for_protocol_version(PROTOCOL_VERSION);
+    let config_store =
+        EpochConfigStore::test(BTreeMap::from([(kickout_version, Arc::new(inner_config))]));
+    let all_config = AllEpochConfig::from_epoch_config_store(
+        "test-chain",
+        epoch_length,
+        config_store,
+        kickout_version,
+    );
+    let store = create_test_store();
+    let mut em = EpochManager::new(
+        store.epoch_store(),
+        all_config,
+        default_reward_calculator(),
+        validators.iter().map(|(a, b)| stake(a.clone(), *b)).collect(),
+    )
+    .unwrap();
+
+    let h = hash_range(3);
+    record_block_with_version(&mut em, CryptoHash::default(), h[0], 0, vec![], kickout_version);
+
+    let epoch_id = em.get_epoch_id(&h[0]).unwrap();
+    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+
+    (em, h, epoch_id, shard_layout)
+}
+
+/// Records a block at height 1 at the kickout protocol version WITHOUT writing
+/// any `DBCol::ChunkProducers` entries.
+fn record_block_without_chunk_producers(
+    em: &mut EpochManager,
+    h: &[CryptoHash],
+    epoch_id: &EpochId,
+    shard_layout: &ShardLayout,
+    num_shards: u64,
+) {
+    use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
+
+    let kickout_version = ProtocolFeature::EarlyChunkProducerKickout.protocol_version();
+    let chunk_endorsements = ChunkEndorsementsBitmap::from_endorsements(
+        shard_layout
+            .shard_ids()
+            .map(|shard_id| {
+                let assignments =
+                    em.get_chunk_validator_assignments(epoch_id, shard_id, 1).unwrap();
+                vec![true; assignments.assignments().iter().len()]
+            })
+            .collect(),
+    );
+    record_with_block_info(
+        em,
+        BlockInfo::new(
+            h[1],
+            1,
+            0,
+            h[0],
+            h[0],
+            vec![],
+            vec![true; num_shards as usize],
+            DEFAULT_TOTAL_SUPPLY,
+            kickout_version,
+            kickout_version,
+            NUM_NS_IN_SECOND,
+            chunk_endorsements,
+            None,
+        ),
+    );
+}
+
+/// When `EarlyChunkProducerKickout` is enabled, every shard must have a
+/// `DBCol::ChunkProducers` entry. Missing entries trigger a `debug_assert`.
+/// This test records a block at the kickout protocol version without writing
+/// DB entries and verifies the assertion fires.
+#[test]
+#[should_panic(expected = "Missing DBCol::ChunkProducers for shard")]
+#[cfg(debug_assertions)]
+fn test_aggregator_panics_on_missing_db_entry() {
+    let num_shards: u64 = 4;
+    let (mut em, h, epoch_id, shard_layout) = setup_kickout_epoch_manager(num_shards);
+
+    record_block_without_chunk_producers(&mut em, &h, &epoch_id, &shard_layout, num_shards);
+
+    // Reset aggregator so get_epoch_info_aggregator_upto_last rebuilds.
+    em.epoch_info_aggregator = EpochInfoAggregator::default();
+
+    // This should panic due to the debug_assert for missing DB entries.
+    let _ = em.get_epoch_info_aggregator_upto_last(&h[1]);
+}
+
+/// When `EarlyChunkProducerKickout` is enabled, the strict
+/// `get_chunk_producer_info` must return `Err` on a DB miss (and fire
+/// `debug_assert`).
+#[test]
+#[should_panic(expected = "ChunkProducers DB miss")]
+#[cfg(debug_assertions)]
+fn test_chunk_producer_info_returns_err_on_missing_db_entry() {
+    let num_shards: u64 = 4;
+    let (mut em, h, epoch_id, shard_layout) = setup_kickout_epoch_manager(num_shards);
+
+    record_block_without_chunk_producers(&mut em, &h, &epoch_id, &shard_layout, num_shards);
+
+    let handle = em.into_handle();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+    // The debug_assert fires before the Err return.
+    let _ = handle.get_chunk_producer_info(&h[0], shard_id);
+}
+
+/// The best-effort path always falls back to computation on DB miss,
+/// regardless of the `EarlyChunkProducerKickout` feature flag.
+#[test]
+fn test_chunk_producer_info_best_effort_fallback() {
+    let num_shards: u64 = 4;
+    let (mut em, h, epoch_id, shard_layout) = setup_kickout_epoch_manager(num_shards);
+
+    record_block_without_chunk_producers(&mut em, &h, &epoch_id, &shard_layout, num_shards);
+
+    let handle = em.into_handle();
+    for shard_id in shard_layout.shard_ids() {
+        let result = handle.get_chunk_producer_info_best_effort(&h[0], shard_id);
+        assert!(result.is_ok(), "Best-effort fallback should succeed: {:?}", result.err());
+    }
+}

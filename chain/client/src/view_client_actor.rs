@@ -842,7 +842,10 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
         let chunk_inner = chunk.cloned_header().take_inner();
         let author = self
             .epoch_manager
-            .get_chunk_producer_info(chunk_inner.prev_block_hash(), chunk_inner.shard_id())
+            .get_chunk_producer_info_best_effort(
+                chunk_inner.prev_block_hash(),
+                chunk_inner.shard_id(),
+            )
             .map(|info| info.take_account_id())
             .into_chain_error()?;
 

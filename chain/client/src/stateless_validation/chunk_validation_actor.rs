@@ -193,10 +193,10 @@ impl ChunkValidationActor {
 
     fn send_state_witness_ack(&self, witness: &ChunkStateWitness) -> Result<(), Error> {
         let chunk_header = witness.chunk_header();
-        let chunk_producer = match self
-            .epoch_manager
-            .get_chunk_producer_info(chunk_header.prev_block_hash(), chunk_header.shard_id())
-        {
+        let chunk_producer = match self.epoch_manager.get_chunk_producer_info_best_effort(
+            chunk_header.prev_block_hash(),
+            chunk_header.shard_id(),
+        ) {
             Ok(info) => info.account_id().clone(),
             Err(EpochError::MissingBlock(_)) => {
                 // prev_block_hash not in epoch manager store, likely an orphan witness.

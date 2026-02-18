@@ -143,7 +143,7 @@ impl ChunkTrackingStats {
             ChunkProcessingStatus::NeedToRequest
         };
         let created_by = epoch_manager
-            .get_chunk_producer_info(&self.prev_block_hash, self.shard_id)
+            .get_chunk_producer_info_best_effort(&self.prev_block_hash, self.shard_id)
             .map(|info| info.take_account_id())
             .ok();
         let request_duration = if let Some(requested_timestamp) = self.requested_timestamp {

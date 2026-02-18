@@ -25,10 +25,12 @@ use near_primitives::types::{
     EpochInfoProvider, ProtocolVersion, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
+use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
+use near_store::DBCol;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::{EpochStoreAdapter, EpochStoreUpdateAdapter};
@@ -1846,8 +1848,55 @@ impl EpochManager {
                 Err(e) => return Err(e),
             };
 
+            // Build chunk producer overrides from DBCol::ChunkProducers.
+            // When early kickout replaces a blacklisted producer, the DB entry
+            // will differ from sample_chunk_producer. When no DB entry exists
+            // and the feature is OFF (protocol < 150), the map is empty and
+            // update_tail falls back to sample_chunk_producer.
+            // When EarlyChunkProducerKickout is enabled, every shard MUST have
+            // a DB entry — a missing entry indicates a bug in the write path.
+            let chunk_producer_overrides: HashMap<ShardId, ValidatorId> = shard_layout
+                .shard_ids()
+                .filter_map(|shard_id| {
+                    let key = get_block_shard_id(&prev_hash, shard_id);
+                    let validator_stake: ValidatorStake =
+                        self.store.store_ref().get_ser(DBCol::ChunkProducers, &key)?;
+                    let validator_id = epoch_info.get_validator_id(validator_stake.account_id())?;
+                    Some((shard_id, *validator_id))
+                })
+                .collect();
+
+            // Invariant: when EarlyChunkProducerKickout is enabled,
+            // save_chunk_producers_for_header should have written DB entries for
+            // all shards. A missing entry means attribution may be wrong.
+            if ProtocolFeature::EarlyChunkProducerKickout.enabled(epoch_info.protocol_version()) {
+                for shard_id in shard_layout.shard_ids() {
+                    if !chunk_producer_overrides.contains_key(&shard_id) {
+                        tracing::error!(
+                            target: "epoch_manager",
+                            ?prev_hash,
+                            %shard_id,
+                            "Missing DBCol::ChunkProducers entry when EarlyChunkProducerKickout \
+                             is enabled; falling back to sample_chunk_producer which may give \
+                             wrong attribution"
+                        );
+                        debug_assert!(
+                            false,
+                            "Missing DBCol::ChunkProducers for shard {shard_id} at \
+                             prev_hash {prev_hash}"
+                        );
+                    }
+                }
+            }
+
             let block_info = self.get_block_info(&cur_hash)?;
-            aggregator.update_tail(&block_info, &epoch_info, &shard_layout, prev_height);
+            aggregator.update_tail(
+                &block_info,
+                &epoch_info,
+                &shard_layout,
+                prev_height,
+                &chunk_producer_overrides,
+            );
 
             if prev_hash == self.epoch_info_aggregator.last_block_hash {
                 // We’ve reached sync point of the old aggregator.  If old
