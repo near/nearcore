@@ -16,7 +16,7 @@ import time
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
-from cluster import spin_up_node, start_cluster, load_config
+from cluster import spin_up_node, init_cluster, load_config
 from configured_logger import logger
 import key
 import transaction
@@ -42,7 +42,7 @@ def build_images(config):
 
     # Phase 1: start 1 source node (single validator, 4 shards, archive)
     logger.info('Phase 1: starting source node')
-    nodes = start_cluster(
+    near_root, node_dirs = init_cluster(
         num_nodes=1,
         num_observers=0,
         num_shards=4,
@@ -55,7 +55,8 @@ def build_images(config):
             }
         },
     )
-    source_node = nodes[0]
+    source_node = spin_up_node(config, near_root, node_dirs[0], ordinal=0,
+                               single_node=True)
 
     # Phase 2: deploy contract, create implicit account, wait for height > 12
     logger.info('Phase 2: issuing initial transactions')
@@ -262,7 +263,8 @@ def run_mirror(config, validator_keys, end_source_height):
 
     # Start mirror (--no-secret: fork-network uses identity key mapping)
     logger.info('Starting mirror process')
-    mirror = mirror_utils.MirrorProcess(near_root, str(source_dir))
+    mirror = mirror_utils.MirrorProcess(
+        near_root, str(source_dir), config.get('binary_name', 'neard'))
     time_limit = mirror_utils.allowed_run_time(target_node_dirs[0],
                                                mirror.start_time,
                                                end_source_height)
@@ -273,8 +275,9 @@ def run_mirror(config, validator_keys, end_source_height):
             break
         elapsed = time.time() - mirror.start_time
         if elapsed > time_limit:
-            logger.warn(f'mirror process timed out after {int(elapsed)}s')
-            break
+            mirror.process.terminate()
+            mirror.process.wait()
+            assert False, f'mirror process timed out after {int(elapsed)}s'
 
     logger.info('Waiting for target chain to settle')
     time.sleep(15)

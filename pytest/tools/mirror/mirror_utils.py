@@ -45,7 +45,7 @@ def copy_near_home(src, dst):
     dst = pathlib.Path(dst)
     if dst.exists():
         shutil.rmtree(dst)
-    os.mkdir(dst)
+    dst.mkdir(parents=True, exist_ok=False)
 
     with open(src / 'config.json') as f:
         config = json.load(f)
@@ -135,9 +135,9 @@ class MirrorProcess:
     Automatically restarts once after 30 seconds to test resume capability.
     """
 
-    def __init__(self, near_root, source_home):
+    def __init__(self, near_root, source_home, binary_name='neard'):
         self.source_home = source_home
-        self.neard = os.path.join(near_root, 'neard')
+        self.neard = os.path.join(near_root, binary_name)
         self.start()
         self.start_time = time.time()
         self.restarted = False
@@ -172,7 +172,9 @@ class MirrorProcess:
                                             stderr=stderr,
                                             env=env)
         logger.info("Started mirror process")
-        atexit.register(_mirror_cleanup, self.process)
+        if not hasattr(self, '_atexit_registered'):
+            atexit.register(_mirror_cleanup, self.process)
+            self._atexit_registered = True
 
     def restart(self):
         logger.info('stopping mirror process')
@@ -223,9 +225,11 @@ def create_subaccount(node,
         transaction.create_create_account_action(),
         transaction.create_full_access_key_action(k.decoded_pk()),
         transaction.create_payment_action(10**29),
-        transaction.create_full_access_key_action(
-            key.Key.from_random(k.account_id).decoded_pk()),
     ]
+    if extra_key:
+        actions.append(
+            transaction.create_full_access_key_action(
+                key.Key.from_random(k.account_id).decoded_pk()))
 
     tx = transaction.sign_and_serialize_transaction(k.account_id, nonce,
                                                     actions, block_hash,
