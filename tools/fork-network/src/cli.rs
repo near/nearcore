@@ -14,7 +14,7 @@ use near_parameters::RuntimeConfig;
 use near_primitives::account::id::AccountType;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
 use near_primitives::borsh;
-use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
+use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore, ShardLayoutConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
@@ -586,6 +586,8 @@ impl ForkNetworkCommand {
 
         // 2. Update the epoch configs.
         // We only fork mainnet for now, so we use mainnet epoch configs as base ones.
+        // Override the shard layout to match the actual state (the source chain may
+        // have a different shard layout than mainnet).
         let base_epoch_config_store =
             EpochConfigStore::for_chain_id(near_primitives::chains::MAINNET, None)
                 .expect("Could not load the EpochConfigStore for mainnet.");
@@ -593,6 +595,7 @@ impl ForkNetworkCommand {
             base_epoch_config_store,
             protocol_version,
             num_seats,
+            Some(&target_shard_layout),
             home_dir,
         )?;
 
@@ -731,6 +734,7 @@ impl ForkNetworkCommand {
             base_epoch_config_store,
             genesis_protocol_version,
             &Some(num_seats),
+            None,
             home_dir,
         )?;
         let epoch_manager =
@@ -905,6 +909,7 @@ impl ForkNetworkCommand {
         base_epoch_config_store: EpochConfigStore,
         first_version: ProtocolVersion,
         num_seats: &Option<NumSeats>,
+        shard_layout_override: Option<&ShardLayout>,
         home_dir: &Path,
     ) -> anyhow::Result<EpochConfig> {
         let epoch_config_dir = home_dir.join("epoch_configs");
@@ -922,6 +927,14 @@ impl ForkNetworkCommand {
                 config.num_block_producer_seats = *num_seats;
                 config.num_chunk_producer_seats = *num_seats;
                 config.num_chunk_validator_seats = *num_seats;
+            }
+            if let Some(shard_layout) = shard_layout_override {
+                let num_shards = shard_layout.num_shards() as usize;
+                config.shard_layout_config =
+                    ShardLayoutConfig::Static { shard_layout: shard_layout.clone() };
+                config.num_block_producer_seats_per_shard =
+                    vec![config.num_block_producer_seats; num_shards];
+                config.avg_hidden_validator_seats_per_shard = vec![0; num_shards];
             }
             new_epoch_configs.insert(version, Arc::new(config));
         }
