@@ -43,7 +43,7 @@ use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
 
 use crate::utils::peer_manager_actor::TestLoopPeerManagerActor;
-use crate::utils::rpc::{create_testloop_jsonrpc_router, TestLoopRpcTransport};
+use crate::utils::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 
 use super::drop_condition::ClientToShardsManagerSender;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
