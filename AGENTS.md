@@ -21,7 +21,8 @@
 - Create new test-loop tests based on the examples in `test-loop-tests/src/examples/`, as those reflect the latest API and best practices.
 
 ## Formatting
-- Run `cargo fmt` after making changes. It's cheap.
+- For Rust run `cargo fmt` after making changes. It's cheap.
+- For Python run `scripts/formatting --fix`.
 
 ## Clippy
 - Only run clippy prior to making a commit. It is somewhat expensive.

@@ -285,8 +285,13 @@ impl Byte for u8 {
 pub type SmallKeyVec = smallvec::SmallVec<[u8; 64]>;
 
 /// Returns the length of the trie key for an access key.
-fn access_key_key_len(account_id: &AccountId, public_key: &PublicKey) -> usize {
+pub fn access_key_key_len(account_id: &AccountId, public_key: &PublicKey) -> usize {
     col::ACCESS_KEY.len() * 2 + account_id.len() + public_key.len()
+}
+
+/// Returns the length of the trie key for a gas key nonce.
+pub fn gas_key_nonce_key_len(account_id: &AccountId, public_key: &PublicKey) -> usize {
+    access_key_key_len(account_id, public_key) + size_of::<NonceIndex>()
 }
 
 impl TrieKey {
