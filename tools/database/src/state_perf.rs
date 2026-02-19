@@ -1,13 +1,13 @@
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressIterator};
-use near_store::DBCol;
+use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain_configs::GenesisValidationMode;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::flat_store::FlatStoreAdapter;
-use near_store::flat::FlatStorageStatus;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Write};
 use std::path::Path;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use near_primitives::shard_layout::ShardUId;
@@ -17,8 +17,6 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 
 use near_store::TrieStorage;
-
-use crate::utils::open_rocksdb;
 
 #[derive(Parser)]
 pub(crate) struct StatePerfCommand {
@@ -34,14 +32,31 @@ pub(crate) struct StatePerfCommand {
 }
 
 impl StatePerfCommand {
-    pub(crate) fn run(&self, home: &Path) -> anyhow::Result<()> {
-        let rocksdb = Arc::new(open_rocksdb(home, near_store::Mode::ReadOnly)?);
-        let store = near_store::NodeStorage::new(rocksdb).get_hot_store();
+    pub(crate) fn run(
+        &self,
+        home: &Path,
+        genesis_validation: GenesisValidationMode,
+    ) -> anyhow::Result<()> {
+        let near_config = nearcore::load_config(home, genesis_validation)?;
+        let node_storage = nearcore::open_storage(home, &near_config)?;
+        let store = node_storage.get_hot_store();
+
+        let chain_store = ChainStore::new(
+            store.clone(),
+            false,
+            near_config.genesis.config.transaction_validity_period,
+        );
+        let head = chain_store.head()?;
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, None);
+        let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
+        let shard_uids: Vec<ShardUId> = shard_layout.shard_uids().collect();
+
         eprintln!("Start State perf test");
         let mut perf_context = PerfContext::new();
         let total_samples = self.warmup_samples + self.samples;
         for (sample_i, (shard_uid, value_ref)) in
-            generate_state_requests(store.flat_store(), total_samples)
+            generate_state_requests(store.flat_store(), &shard_uids, total_samples)
                 .into_iter()
                 .enumerate()
                 .progress()
@@ -165,25 +180,16 @@ impl PerfContext {
     }
 }
 
-fn generate_state_requests(store: FlatStoreAdapter, samples: usize) -> Vec<(ShardUId, ValueRef)> {
+fn generate_state_requests(
+    store: FlatStoreAdapter,
+    shard_uids: &[ShardUId],
+    samples: usize,
+) -> Vec<(ShardUId, ValueRef)> {
     eprintln!("Generate {samples} requests to State");
-    // Retrieve shard UIDs from the database by reading which shards have flat storage ready.
-    // Reading them from epoch config store would not work with dynamic resharding.
-    let shard_uids: Vec<ShardUId> = store
-        .store_ref()
-        .iter(DBCol::FlatStorageStatus)
-        .filter_map(|(key, _)| {
-            let shard_uid = ShardUId::try_from(key.as_ref()).ok()?;
-            match store.get_flat_storage_status(shard_uid) {
-                FlatStorageStatus::Ready(_) => Some(shard_uid),
-                _ => None,
-            }
-        })
-        .collect();
     let num_shards = shard_uids.len();
     let mut ret = Vec::new();
     let progress = ProgressBar::new(samples as u64);
-    for shard_uid in shard_uids {
+    for &shard_uid in shard_uids {
         let shard_samples = samples / num_shards;
         let mut keys_read = std::collections::HashSet::new();
         for value_ref in store.iter(shard_uid).map(|(_, value)| value.to_value_ref()) {
