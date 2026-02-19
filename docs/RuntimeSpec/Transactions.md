@@ -268,7 +268,7 @@ For gas key transactions, the transaction cost is split into two independent che
 
 #### DepositFailed verdict
 
-If the gas key has sufficient balance for gas costs but the account lacks balance for deposits, the transaction enters the `DepositFailed` state: gas is charged from the gas key (and the nonce is incremented), but the transaction actions are not executed. This prevents free transaction attempts using gas keys.
+If the gas key has sufficient balance for gas costs but the account lacks balance for deposits, the transaction enters the `DepositFailed` state: gas is charged from the gas key (and the nonce is incremented), but the transaction actions are not executed. This prevents malicious contract behavior intending to add transactions to chunks without paying gas.
 
 #### Function call permission constraints
 
