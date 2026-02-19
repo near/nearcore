@@ -203,11 +203,11 @@ pub enum Error {
     #[error("Invalid bandwidth requests - chunk extra doesn't match chunk header: {0}")]
     InvalidBandwidthRequests(String),
     /// Invalid proposed_split in chunk header
-    #[error("Invalid proposed split in chunk header")]
-    InvalidProposedSplit,
+    #[error("Invalid proposed_split in chunk header: {0}")]
+    InvalidChunkHeaderShardSplit(String),
     /// Invalid shard_split in block header
-    #[error("Invalid shard split in block header: {0}")]
-    InvalidShardSplit(String),
+    #[error("Invalid shard_split in block header: {0}")]
+    InvalidBlockHeaderShardSplit(String),
     /// Invalid shard id
     #[error("Shard id {0} does not exist")]
     InvalidShardId(ShardId),
@@ -349,8 +349,8 @@ impl Error {
             | Error::InvalidTotalSupply
             | Error::InvalidCongestionInfo(_)
             | Error::InvalidBandwidthRequests(_)
-            | Error::InvalidProposedSplit
-            | Error::InvalidShardSplit(_)
+            | Error::InvalidChunkHeaderShardSplit(_)
+            | Error::InvalidBlockHeaderShardSplit(_)
             | Error::InvalidShardId(_)
             | Error::InvalidShardIndex(_)
             | Error::NoParentShardId(_)
@@ -435,8 +435,8 @@ impl Error {
             Error::InvalidTotalSupply => "invalid_total_supply",
             Error::InvalidCongestionInfo(_) => "invalid_congestion_info",
             Error::InvalidBandwidthRequests(_) => "invalid_bandwidth_requests",
-            Error::InvalidProposedSplit => "invalid_proposed_split",
-            Error::InvalidShardSplit(_) => "invalid_shard_split",
+            Error::InvalidChunkHeaderShardSplit(_) => "invalid_chunk_header_shard_split",
+            Error::InvalidBlockHeaderShardSplit(_) => "invalid_clock_header_shard_split",
             Error::InvalidShardId(_) => "invalid_shard_id",
             Error::InvalidShardIndex(_) => "invalid_shard_index",
             Error::NoParentShardId(_) => "no_parent_shard_id",

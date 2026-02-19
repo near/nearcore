@@ -145,7 +145,7 @@ fn chunk_header_proposed_split_validation() {
         rs,
     );
 
-    assert!(matches!(result, Err(near_chain::Error::InvalidProposedSplit)));
+    assert!(matches!(result, Err(near_chain::Error::InvalidChunkHeaderShardSplit(_))));
 }
 
 #[test]
@@ -227,5 +227,5 @@ fn block_header_shard_split_validation() {
         &block.chunks(),
     );
 
-    assert!(matches!(result, Err(near_chain::Error::InvalidShardSplit(_))));
+    assert!(matches!(result, Err(near_chain::Error::InvalidBlockHeaderShardSplit(_))));
 }

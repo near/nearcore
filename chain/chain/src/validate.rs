@@ -184,7 +184,13 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
     )?;
 
     if prev_chunk_extra.proposed_split() != chunk_header.proposed_split() {
-        return Err(Error::InvalidProposedSplit);
+        return Err(Error::InvalidChunkHeaderShardSplit(format!(
+            "header has {:?}, expected {:?} (prev block hash: {:?} height created: {:?})",
+            chunk_header.proposed_split(),
+            prev_chunk_extra.proposed_split(),
+            chunk_header.prev_block_hash(),
+            chunk_header.height_created(),
+        )));
     }
 
     Ok(())
@@ -217,7 +223,7 @@ pub fn validate_block_shard_split(
 
     let header_shard_split = header.shard_split();
     if header_shard_split != expected_shard_split.as_ref() {
-        return Err(Error::InvalidShardSplit(format!(
+        return Err(Error::InvalidBlockHeaderShardSplit(format!(
             "header has {:?}, expected {:?} (block hash: {:?} height: {:?})",
             header_shard_split,
             expected_shard_split,
