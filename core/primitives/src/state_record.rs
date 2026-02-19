@@ -95,7 +95,6 @@ impl StateRecord {
                 code: value,
             }),
             col::ACCESS_KEY => {
-                let access_key = AccessKey::try_from_slice(&value)?;
                 let account_id = parse_account_id_from_access_key_key(key)?;
                 let public_key = parse_public_key_from_access_key_key(key, &account_id)?;
                 let index = parse_nonce_index_from_gas_key_key(key, &account_id, &public_key)?;
@@ -103,6 +102,7 @@ impl StateRecord {
                     let nonce = u64::try_from_slice(&value)?;
                     Some(StateRecord::GasKeyNonce { account_id, public_key, index, nonce })
                 } else {
+                    let access_key = AccessKey::try_from_slice(&value)?;
                     Some(StateRecord::AccessKey { account_id, public_key, access_key })
                 }
             }
@@ -234,4 +234,31 @@ pub fn state_record_to_account_id(state_record: &StateRecord) -> &AccountId {
 pub fn is_contract_code_key(key: &[u8]) -> bool {
     debug_assert!(!key.is_empty());
     key[0] == col::CONTRACT_CODE
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_gas_key_nonce_from_raw_key_value() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let public_key = PublicKey::from_seed(near_crypto::KeyType::ED25519, "test");
+        let nonce_index: NonceIndex = 42;
+        let nonce: Nonce = 123;
+
+        let trie_key = TrieKey::GasKeyNonce {
+            account_id: account_id.clone(),
+            public_key: public_key.clone(),
+            index: nonce_index,
+        };
+        let raw_key = trie_key.to_vec();
+        let raw_value = borsh::to_vec(&nonce).unwrap();
+
+        let record = StateRecord::from_raw_key_value(&raw_key, raw_value);
+        assert_eq!(
+            record,
+            Some(StateRecord::GasKeyNonce { account_id, public_key, index: nonce_index, nonce })
+        );
+    }
 }
