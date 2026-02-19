@@ -8,6 +8,10 @@ use opener::StoreOpener;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 
+/// Name of the marker file written to the hot store directory when epoch sync
+/// determines that the node's data needs to be wiped and re-synced from scratch.
+pub const EPOCH_SYNC_RESET_MARKER: &str = ".needs_epoch_sync_reset";
+
 /// Specifies temperature of a storage.
 ///
 /// Since currently only hot storage is implemented, this has only one variant.

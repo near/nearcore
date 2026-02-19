@@ -12,7 +12,7 @@ pub use crate::node_storage::opener::{
     StoreMigrator, StoreOpener, StoreOpenerError, checkpoint_hot_storage_and_cleanup_columns,
     clear_columns,
 };
-pub use crate::node_storage::{NodeStorage, Temperature};
+pub use crate::node_storage::{EPOCH_SYNC_RESET_MARKER, NodeStorage, Temperature};
 pub use crate::store::{Store, StoreUpdate};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{

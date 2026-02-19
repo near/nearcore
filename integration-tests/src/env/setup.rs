@@ -57,6 +57,7 @@ use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use nearcore::NightshadeRuntime;
 use num_rational::Ratio;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub const TEST_SEED: RngSeed = [3; 32];
@@ -236,6 +237,7 @@ fn setup(
             spice_data_distributor_sender: noop().into_sender(),
             spice_core_writer_sender: noop().into_sender(),
         },
+        tempdir.path().join("data"),
     );
 
     let rpc_handler_config = RpcHandlerConfig {
@@ -508,6 +510,7 @@ pub fn setup_client_with_runtime(
         chunk_validation_sender,
         block_notification_watch_sender,
         protocol_upgrade_schedule,
+        PathBuf::from("data"),
     )
     .unwrap();
     client.sync_handler.sync_status = SyncStatus::NoSync;

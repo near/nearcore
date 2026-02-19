@@ -170,6 +170,7 @@ pub fn create_test_setup_with_accounts_and_validity(
             spice_data_distributor_sender: noop().into_sender(),
             spice_core_writer_sender: noop().into_sender(),
         },
+        tempdir.path().to_path_buf(),
     );
 
     // 8. Create RpcHandlerActor

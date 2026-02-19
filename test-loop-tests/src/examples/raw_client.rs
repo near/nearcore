@@ -26,7 +26,7 @@ use crate::utils::account::{create_account_ids, create_validators_spec, validato
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// min block production time in milliseconds
@@ -115,6 +115,7 @@ fn test_raw_client_test_loop_setup() {
         noop().into_multi_sender(),
         block_notification_watch_sender,
         protocol_upgrade_schedule,
+        PathBuf::from("data"),
     )
     .unwrap();
 

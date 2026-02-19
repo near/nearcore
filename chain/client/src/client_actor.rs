@@ -86,6 +86,7 @@ use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::debug_span;
 
@@ -161,6 +162,7 @@ pub fn start_client(
     resharding_sender: ReshardingSender,
     block_notification_watch_sender: tokio::sync::watch::Sender<Option<BlockNotificationMessage>>,
     spice_client_config: SpiceClientConfig,
+    hot_store_path: PathBuf,
 ) -> StartClientResult {
     wait_until_genesis(&chain_genesis.time);
 
@@ -195,6 +197,7 @@ pub fn start_client(
         chunk_validation_adapter.as_multi_sender(),
         block_notification_watch_sender,
         protocol_upgrade_schedule,
+        hot_store_path,
     )
     .unwrap();
 
