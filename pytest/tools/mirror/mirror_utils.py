@@ -308,6 +308,63 @@ def call_stake(node, signer_key, amount, public_key, nonce, block_hash):
     )
 
 
+def send_add_gas_key(node, signer_key, gas_key, num_nonces, nonce, block_hash):
+    action = transaction.create_gas_key_full_access_key_action(
+        gas_key.decoded_pk(), num_nonces)
+    tx = transaction.sign_and_serialize_transaction(signer_key.account_id,
+                                                    nonce, [action],
+                                                    block_hash,
+                                                    signer_key.account_id,
+                                                    signer_key.decoded_pk(),
+                                                    signer_key.decoded_sk())
+    res = node.send_tx(tx)
+    logger.info(
+        f'sent add gas key tx for {signer_key.account_id} {gas_key.pk} num_nonces={num_nonces}: {res}'
+    )
+
+
+def fund_gas_key(node, signer_key, gas_key_pk, amount, nonce, block_hash):
+    action = transaction.create_transfer_to_gas_key_action(gas_key_pk, amount)
+    tx = transaction.sign_and_serialize_transaction(signer_key.account_id,
+                                                    nonce, [action],
+                                                    block_hash,
+                                                    signer_key.account_id,
+                                                    signer_key.decoded_pk(),
+                                                    signer_key.decoded_sk())
+    res = node.send_tx(tx)
+    logger.info(
+        f'sent fund gas key tx for {signer_key.account_id}: {res}')
+
+
+def send_gas_key_transfer(node, gas_key, receiver_id, amount, nonce,
+                          nonce_index, block_hash):
+    action = transaction.create_payment_action(amount)
+    tx = transaction.sign_and_serialize_transaction_v1(
+        receiver_id, nonce, nonce_index, [action], block_hash,
+        gas_key.account_id, gas_key.decoded_pk(), gas_key.decoded_sk())
+    res = node.send_tx(tx)
+    logger.info(
+        f'sent gas key V1 transfer from {gas_key.account_id} ni={nonce_index} to {receiver_id}: {res}'
+    )
+
+
+def get_gas_key_nonces(node, account_id, public_key):
+    """Query gas key nonces via RPC. Returns list of nonces or None on error."""
+    try:
+        res = node.json_rpc('query', {
+            'request_type': 'view_gas_key_nonces',
+            'account_id': account_id,
+            'public_key': public_key,
+            'finality': 'final',
+        })
+    except Exception as e:
+        logger.warning(f'get_gas_key_nonces failed for {account_id} {public_key}: {e}')
+        return None
+    if 'error' in res or 'error' in res.get('result', {}):
+        return None
+    return res['result'].get('nonces')
+
+
 def contract_deployed(node, account_id):
     return 'error' not in node.json_rpc('query', {
         "request_type": "view_code",
@@ -478,6 +535,13 @@ def _check_expectation(node, exp):
                                       finality='final')
         assert nonce is not None, \
             f'key {exp["public_key"]} not found on {exp["account_id"]}'
+    elif t == 'gas_key_nonces':
+        nonces = get_gas_key_nonces(node, exp['account_id'],
+                                    exp['public_key'])
+        assert nonces is not None, \
+            f'gas key nonces not found for {exp["public_key"]} on {exp["account_id"]}'
+        assert len(nonces) == exp['num_nonces'], \
+            f'expected {exp["num_nonces"]} nonce indexes, got {len(nonces)}'
     elif t == 'contract_deployed':
         assert contract_deployed(node, exp['account_id']), \
             f'no contract on {exp["account_id"]}'

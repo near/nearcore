@@ -79,6 +79,17 @@ def build_images(config):
                                                 mirror_utils.CONTRACT_PATH,
                                                 nonce, bhash)
             nonce += 1
+            # Gas key 1: added pre-fork, baked into forked state (imgA)
+            gas_key_1 = key.Key.from_random('test0')
+            num_nonces_1 = 3
+            mirror_utils.send_add_gas_key(source_node, source_node.signer_key,
+                                           gas_key_1, num_nonces_1, nonce,
+                                           bhash)
+            nonce += 1
+            mirror_utils.fund_gas_key(source_node, source_node.signer_key,
+                                       gas_key_1.decoded_pk(), 10**24, nonce,
+                                       bhash)
+            nonce += 1
             initial_txs_sent = True
         implicit.send_if_inited(source_node, [('test0', height)], bhash)
         if height > 12:
@@ -106,6 +117,16 @@ def build_images(config):
     bhash = base58.b58decode(tip.hash.encode('utf8'))
     start_source_height = tip.height
     expectations = []
+
+    # Gas key 2: added post-fork, mirror must replay AddKey + TransferToGasKey
+    gas_key_2 = key.Key.from_random('test0')
+    num_nonces_2 = 2
+    mirror_utils.send_add_gas_key(source_node, source_node.signer_key,
+                                   gas_key_2, num_nonces_2, nonce, bhash)
+    nonce += 1
+    mirror_utils.fund_gas_key(source_node, source_node.signer_key,
+                               gas_key_2.decoded_pk(), 10**24, nonce, bhash)
+    nonce += 1
 
     subaccount_key = mirror_utils.AddedKey(
         mirror_utils.create_subaccount(source_node,
@@ -188,6 +209,11 @@ def build_images(config):
         new_key, subaccount_key, contract_key, contract_extra_key, sub_key
     ]
 
+    # Gas key V1 transfer targets
+    gk1_recipient = mirror_utils.ImplicitAccount()
+    gk2_recipient = mirror_utils.ImplicitAccount()
+    gas_key_transfers_sent = False
+
     for height, block_hash in utils.poll_blocks(source_node,
                                                 timeout=mirror_utils.TIMEOUT):
         bhash = base58.b58decode(block_hash.encode('utf8'))
@@ -225,8 +251,61 @@ def build_images(config):
                                         subaccount_key.nonce, bhash)
                 staked = True
 
+        # Send V1 gas key transfers once gas keys are likely funded
+        if not gas_key_transfers_sent and height - start_source_height > 10:
+            # Gas key nonces start at block_height * multiplier; use nonce 1
+            # which is always valid for a freshly created gas key
+            for gk, ni_max, recipient in [
+                (gas_key_1, num_nonces_1, gk1_recipient),
+                (gas_key_2, num_nonces_2, gk2_recipient),
+            ]:
+                for ni in range(ni_max):
+                    mirror_utils.send_gas_key_transfer(
+                        source_node, gk, recipient.account_id(), 10**24,
+                        height * 1000000 + 1, ni, bhash)
+            gas_key_transfers_sent = True
+
         if height - start_source_height >= 100:
             break
+
+    # Gas key expectations
+    # Gas key 1 (pre-fork): key baked into forked state, V1 txs replayed
+    expectations.append({
+        'type': 'has_key',
+        'account_id': 'test0',
+        'public_key': mirror_utils.map_key_no_secret(gas_key_1.pk)
+    })
+    expectations.append({
+        'type': 'gas_key_nonces',
+        'account_id': 'test0',
+        'public_key': mirror_utils.map_key_no_secret(gas_key_1.pk),
+        'num_nonces': num_nonces_1
+    })
+    # Gas key 2 (post-fork): mirror must replay AddKey + TransferToGasKey
+    expectations.append({
+        'type': 'has_key',
+        'account_id': 'test0',
+        'public_key': mirror_utils.map_key_no_secret(gas_key_2.pk)
+    })
+    expectations.append({
+        'type': 'gas_key_nonces',
+        'account_id': 'test0',
+        'public_key': mirror_utils.map_key_no_secret(gas_key_2.pk),
+        'num_nonces': num_nonces_2
+    })
+    # V1 tx success: implicit account creation proves gas key transfers landed
+    expectations.append({
+        'type':
+            'account_exists',
+        'account_id':
+            mirror_utils.map_account_no_secret(gk1_recipient.account_id())
+    })
+    expectations.append({
+        'type':
+            'account_exists',
+        'account_id':
+            mirror_utils.map_account_no_secret(gk2_recipient.account_id())
+    })
 
     end_source_height = source_node.get_latest_block().height
     source_node.kill()
@@ -244,6 +323,12 @@ def build_images(config):
                 'validator_keys': [k.to_json() for k in validator_keys],
                 'end_source_height': end_source_height,
                 'expectations': expectations,
+                'gas_keys': {
+                    'gas_key_1_pk': gas_key_1.pk,
+                    'num_nonces_1': num_nonces_1,
+                    'gas_key_2_pk': gas_key_2.pk,
+                    'num_nonces_2': num_nonces_2,
+                },
             },
             f,
             indent=2)
