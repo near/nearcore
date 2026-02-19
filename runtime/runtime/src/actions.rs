@@ -156,7 +156,7 @@ pub(crate) fn action_create_account(
     predecessor_id: &AccountId,
     result: &mut ActionResult,
 ) {
-    if account_id.is_top_level() {
+    if account_id.is_top_level() && !account_id.get_account_type().is_implicit() {
         if account_id.len() < account_creation_config.min_allowed_top_level_account_length as usize
             && predecessor_id != &account_creation_config.registrar_account_id
         {
