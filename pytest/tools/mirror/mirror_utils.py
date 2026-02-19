@@ -336,6 +336,20 @@ def fund_gas_key(node, signer_key, gas_key_pk, amount, nonce, block_hash):
         f'sent fund gas key tx for {signer_key.account_id}: {res}')
 
 
+def withdraw_from_gas_key(node, signer_key, gas_key_pk, amount, nonce,
+                          block_hash):
+    action = transaction.create_withdraw_from_gas_key_action(gas_key_pk, amount)
+    tx = transaction.sign_and_serialize_transaction(signer_key.account_id,
+                                                    nonce, [action],
+                                                    block_hash,
+                                                    signer_key.account_id,
+                                                    signer_key.decoded_pk(),
+                                                    signer_key.decoded_sk())
+    res = node.send_tx(tx)
+    logger.info(
+        f'sent withdraw from gas key tx for {signer_key.account_id}: {res}')
+
+
 def send_gas_key_transfer(node, gas_key, receiver_id, amount, nonce,
                           nonce_index, block_hash):
     action = transaction.create_payment_action(amount)
@@ -363,6 +377,27 @@ def get_gas_key_nonces(node, account_id, public_key):
     if 'error' in res or 'error' in res.get('result', {}):
         return None
     return res['result'].get('nonces')
+
+
+def get_gas_key_balance(node, account_id, public_key):
+    """Query gas key balance via view_access_key RPC."""
+    try:
+        res = node.json_rpc('query', {
+            'request_type': 'view_access_key',
+            'account_id': account_id,
+            'public_key': public_key,
+            'finality': 'final',
+        })
+    except Exception as e:
+        logger.warning(
+            f'get_gas_key_balance failed for {account_id} {public_key}: {e}')
+        return None
+    if 'error' in res or 'error' in res.get('result', {}):
+        return None
+    permission = res['result'].get('permission')
+    if isinstance(permission, dict) and 'GasKeyFullAccess' in permission:
+        return int(permission['GasKeyFullAccess']['balance'])
+    return None
 
 
 def contract_deployed(node, account_id):
@@ -545,5 +580,12 @@ def _check_expectation(node, exp):
     elif t == 'contract_deployed':
         assert contract_deployed(node, exp['account_id']), \
             f'no contract on {exp["account_id"]}'
+    elif t == 'gas_key_balance_below':
+        balance = get_gas_key_balance(node, exp['account_id'],
+                                      exp['public_key'])
+        assert balance is not None, \
+            f'gas key balance not found for {exp["public_key"]} on {exp["account_id"]}'
+        assert balance < exp['upper_bound'], \
+            f'gas key balance {balance} not below {exp["upper_bound"]}'
     else:
         assert False, f'unknown expectation type: {t}'

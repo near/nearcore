@@ -127,6 +127,10 @@ def build_images(config):
     mirror_utils.fund_gas_key(source_node, source_node.signer_key,
                                gas_key_2.decoded_pk(), 10**24, nonce, bhash)
     nonce += 1
+    mirror_utils.withdraw_from_gas_key(source_node, source_node.signer_key,
+                                       gas_key_2.decoded_pk(), 10**22, nonce,
+                                       bhash)
+    nonce += 1
 
     subaccount_key = mirror_utils.AddedKey(
         mirror_utils.create_subaccount(source_node,
@@ -281,7 +285,7 @@ def build_images(config):
         'public_key': mirror_utils.map_key_no_secret(gas_key_1.pk),
         'num_nonces': num_nonces_1
     })
-    # Gas key 2 (post-fork): mirror must replay AddKey + TransferToGasKey
+    # Gas key 2 (post-fork): mirror must replay AddKey + TransferToGasKey + WithdrawFromGasKey
     expectations.append({
         'type': 'has_key',
         'account_id': 'test0',
@@ -292,6 +296,12 @@ def build_images(config):
         'account_id': 'test0',
         'public_key': mirror_utils.map_key_no_secret(gas_key_2.pk),
         'num_nonces': num_nonces_2
+    })
+    expectations.append({
+        'type': 'gas_key_balance_below',
+        'account_id': 'test0',
+        'public_key': mirror_utils.map_key_no_secret(gas_key_2.pk),
+        'upper_bound': 10**24 - 10**22,
     })
     # V1 tx success: implicit account creation proves gas key transfers landed
     expectations.append({

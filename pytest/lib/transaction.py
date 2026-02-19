@@ -240,6 +240,18 @@ def create_transfer_to_gas_key_action(pk, deposit):
     return action
 
 
+def create_withdraw_from_gas_key_action(pk, amount):
+    withdrawFromGasKey = WithdrawFromGasKey()
+    withdrawFromGasKey.publicKey = PublicKey()
+    withdrawFromGasKey.publicKey.keyType = 0
+    withdrawFromGasKey.publicKey.data = pk
+    withdrawFromGasKey.amount = amount
+    action = Action()
+    action.enum = 'withdrawFromGasKey'
+    action.withdrawFromGasKey = withdrawFromGasKey
+    return action
+
+
 def sign_and_serialize_transaction_v1(receiverId, nonce, nonce_index, actions,
                                       blockHash, accountId, pk, sk):
     tx = TransactionV1()

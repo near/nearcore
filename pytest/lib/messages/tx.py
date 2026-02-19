@@ -81,6 +81,10 @@ class TransferToGasKey:
     pass
 
 
+class WithdrawFromGasKey:
+    pass
+
+
 class SignedDelegate:
     pass
 
@@ -145,6 +149,7 @@ tx_schema = [
                 ['useGlobalContract', UseGlobalContract],
                 ['deterministicStateInit', DeterministicStateInit],
                 ['transferToGasKey', TransferToGasKey],
+                ['withdrawFromGasKey', WithdrawFromGasKey],
             ]
         }
     ],
@@ -249,6 +254,12 @@ tx_schema = [
         TransferToGasKey, {
             'kind': 'struct',
             'fields': [['publicKey', PublicKey], ['deposit', 'u128']]
+        }
+    ],
+    [
+        WithdrawFromGasKey, {
+            'kind': 'struct',
+            'fields': [['publicKey', PublicKey], ['amount', 'u128']]
         }
     ],
     [
