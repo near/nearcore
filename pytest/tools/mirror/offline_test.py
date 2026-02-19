@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 # Tests `neard mirror` using the fork-network workflow.
-# Builds two images (imgA=forked state, imgB=source chain), starts 4 target
-# validators from imgA, runs mirror to replay imgB's txs, then validates.
-# Saves images to disk so subsequent runs skip the slow build phases.
+# Builds two images (target=forked state, source=source chain), starts 4
+# target validators, runs mirror to replay source txs, then validates.
 # cspell:ignore bhash
 
-import argparse
 import base58
 import json
 import os
@@ -25,14 +23,14 @@ import utils
 import mirror_utils
 
 MIRROR_DIR = pathlib.Path.home() / '.near' / 'test-mirror'
-SAVED_IMG_A = MIRROR_DIR / 'saved-imgA'
-SAVED_IMG_B = MIRROR_DIR / 'saved-imgB'
-METADATA_FILE = MIRROR_DIR / 'metadata.json'
 TARGET_VALIDATORS = mirror_utils.TARGET_VALIDATORS
 
 
 def build_images(config):
-    """Phases 1-4: build imgA (forked state) and imgB (source chain with traffic)."""
+    """Phases 1-4: build target image (forked state) and source image (chain with traffic).
+
+    Returns (target_img, source_img, validator_keys, end_source_height).
+    """
     neard = os.path.join(config['near_root'],
                          config.get('binary_name', 'neard'))
 
@@ -84,8 +82,8 @@ def build_images(config):
         if height > 12:
             break
 
-    # Phase 3: stop source, copy its DB, run fork-network on the copy -> imgA
-    logger.info('Phase 3: creating imgA via fork-network')
+    # Phase 3: stop source, copy its DB, run fork-network on the copy -> target image
+    logger.info('Phase 3: creating target image via fork-network')
     source_node.kill()
     source_home = pathlib.Path(source_node.node_dir)
     fork_base = MIRROR_DIR / 'fork-base'
@@ -97,9 +95,10 @@ def build_images(config):
     validator_keys = mirror_utils.fork_network(neard, fork_base,
                                                TARGET_VALIDATORS)
 
-    # Phase 4: restart source, send ~100 blocks of traffic -> imgB
-    logger.info('Phase 4: sending traffic to create imgB')
+    # Phase 4: restart source, send ~100 blocks of traffic -> source image
+    logger.info('Phase 4: sending traffic to create source image')
     source_node.start()
+    # Wait for the source node to be ready to accept RPCs after restart.
     time.sleep(5)
 
     tip = source_node.get_latest_block()
@@ -146,6 +145,7 @@ def build_images(config):
     implicit2 = mirror_utils.ImplicitAccount()
     implicit2.transfer_to(source_node, source_node.signer_key, 1, bhash, nonce)
     nonce += 1
+    # Wait for the 1-yocto transfer to be processed before sending the real one.
     time.sleep(2)
     implicit2.transfer_to(source_node, source_node.signer_key, 10**24, bhash,
                           nonce)
@@ -195,48 +195,38 @@ def build_images(config):
 
     end_source_height = source_node.get_latest_block().height
     source_node.kill()
-    logger.info('Phase 4: source stopped, imgB ready')
+    logger.info('Phase 4: source stopped, source image ready')
 
-    # Save images for reuse on subsequent runs
-    logger.info('Saving images for reuse')
-    mirror_utils.copy_near_home(fork_base, SAVED_IMG_A)
-    mirror_utils.copy_near_home(source_home, SAVED_IMG_B)
-    shutil.copyfile(source_home / 'validator_key.json',
-                    SAVED_IMG_B / 'validator_key.json')
-    with open(METADATA_FILE, 'w') as f:
-        json.dump(
-            {
-                'validator_keys': [k.to_json() for k in validator_keys],
-                'end_source_height': end_source_height,
-            },
-            f,
-            indent=2)
+    return fork_base, source_home, validator_keys, end_source_height
 
 
-def run_mirror(config, validator_keys, end_source_height):
+def run_mirror(config, target_img, source_img, validator_keys,
+               end_source_height):
     """Phases 5-6: start target network, run mirror, validate."""
     near_root = config['near_root']
 
-    logger.info('Phase 5: restoring images and starting target network')
+    logger.info('Phase 5: setting up target network')
     for name in ['stdout', 'stderr', 'config.json']:
         p = MIRROR_DIR / name
         if p.exists():
             p.unlink()
 
-    # Restore working copies from saved images
+    # Set up working copies for the source and target mirror dirs.
     source_dir = MIRROR_DIR / 'source'
-    mirror_utils.copy_near_home(SAVED_IMG_B, source_dir)
-    shutil.copyfile(SAVED_IMG_B / 'validator_key.json',
+    mirror_utils.copy_near_home(source_img, source_dir)
+    shutil.copyfile(source_img / 'validator_key.json',
                     source_dir / 'validator_key.json')
-    mirror_utils.copy_near_home(SAVED_IMG_A, MIRROR_DIR / 'target')
+    mirror_utils.copy_near_home(target_img, MIRROR_DIR / 'target')
 
-    # Prepare 4 target validator dirs: copy imgA + validator key + AllShards
+    # Prepare 4 target validator dirs: copy target image + validator key + AllShards.
+    # Ordinals determine TCP port offsets in spin_up_node; start at 2 to avoid
+    # conflicts with ordinals 0-1 used by init_cluster during build_images.
     base_ordinal = 2
     target_node_dirs = []
     for i, name in enumerate(TARGET_VALIDATORS):
         d = MIRROR_DIR / f'test_target_{name}'
         target_node_dirs.append(str(d))
-        mirror_utils.copy_near_home(SAVED_IMG_A, d)
+        mirror_utils.copy_near_home(target_img, d)
         with open(d / 'validator_key.json', 'w') as f:
             json.dump(validator_keys[i].to_json(), f, indent=2)
         with open(d / 'config.json') as f:
@@ -282,6 +272,7 @@ def run_mirror(config, validator_keys, end_source_height):
             mirror.process.wait()
             assert False, f'mirror process timed out after {int(elapsed)}s'
 
+    # Let target validators finalize the remaining mirrored blocks.
     logger.info('Waiting for target chain to settle')
     time.sleep(15)
 
@@ -289,12 +280,15 @@ def run_mirror(config, validator_keys, end_source_height):
     # Can't require exact match: blocks before the fork point are baked into
     # forked state and some mapped txs fail (nonce conflicts, etc.).
     logger.info('Phase 6: validating results')
+    # Next free ordinal: skip base_ordinal..base_ordinal+3 (4 target validators)
+    # and +1 for the mirror target node that also binds ports.
     source_ordinal = base_ordinal + len(TARGET_VALIDATORS) + 1
     source_node = spin_up_node(config,
                                near_root,
                                str(source_dir),
                                source_ordinal,
                                single_node=True)
+    # Wait for the source node to be ready to accept RPC queries.
     time.sleep(5)
 
     with open(os.path.join(target_node_dirs[0], 'genesis.json')) as f:
@@ -309,28 +303,11 @@ def run_mirror(config, validator_keys, end_source_height):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--reuse-images',
-                        action='store_true',
-                        help='Reuse saved images from a previous run instead '
-                        'of rebuilding them')
-    args = parser.parse_args()
-
     config = load_config()
-
-    have_images = (SAVED_IMG_A.exists() and SAVED_IMG_B.exists() and
-                   METADATA_FILE.exists())
-    if args.reuse_images and have_images:
-        logger.info('Reusing saved images from previous run')
-    else:
-        if args.reuse_images:
-            logger.info('No saved images found, building from scratch')
-        build_images(config)
-
-    with open(METADATA_FILE) as f:
-        metadata = json.load(f)
-    validator_keys = [key.Key.from_json(k) for k in metadata['validator_keys']]
-    run_mirror(config, validator_keys, metadata['end_source_height'])
+    target_img, source_img, validator_keys, end_source_height = build_images(
+        config)
+    run_mirror(config, target_img, source_img, validator_keys,
+               end_source_height)
 
 
 if __name__ == '__main__':

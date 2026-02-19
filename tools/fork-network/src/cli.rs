@@ -585,9 +585,9 @@ impl ForkNetworkCommand {
         );
 
         // 2. Update the epoch configs.
-        // We only fork mainnet for now, so we use mainnet epoch configs as base ones.
-        // Override the shard layout to match the actual state (the source chain may
-        // have a different shard layout than mainnet).
+        // We always use mainnet epoch configs as the base, then override the shard
+        // layout to match the actual state (the source chain may have a different
+        // shard layout than mainnet).
         let base_epoch_config_store =
             EpochConfigStore::for_chain_id(near_primitives::chains::MAINNET, None)
                 .expect("Could not load the EpochConfigStore for mainnet.");
