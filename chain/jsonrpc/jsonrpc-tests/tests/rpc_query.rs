@@ -595,19 +595,18 @@ async fn test_invalid_methods() {
             "method": &method_name,
             "params": serde_json::json!([]),
         });
-        let response = client
-            .client
-            .post(&client.server_addr)
-            .header("Content-Type", "application/json")
-            .json(&json)
-            .send()
+        let (status, response_bytes) = client
+            .transport
+            .send_http_request("/", json.to_string().as_bytes().to_vec())
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(status, StatusCode::BAD_REQUEST);
 
-        let response =
-            serde_json::from_value::<serde_json::Value>(response.json().await.unwrap()).unwrap();
+        let response = serde_json::from_value::<serde_json::Value>(
+            serde_json::from_slice(&response_bytes).unwrap(),
+        )
+        .unwrap();
 
         assert!(
             response["error"] != serde_json::json!(null),
@@ -633,16 +632,13 @@ async fn test_parse_error_status_code() {
         }),
     });
 
-    let response = &mut client
-        .client
-        .post(&client.server_addr)
-        .header("Content-Type", "application/json")
-        .json(&json)
-        .send()
+    let (status, _response_bytes) = client
+        .transport
+        .send_http_request("/", json.to_string().as_bytes().to_vec())
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -660,16 +656,13 @@ async fn slow_test_bad_handler_error_status_code() {
         }),
     });
 
-    let response = &mut client
-        .client
-        .post(&client.server_addr)
-        .header("Content-Type", "application/json")
-        .json(&json)
-        .send()
+    let (status, _response_bytes) = client
+        .transport
+        .send_http_request("/", json.to_string().as_bytes().to_vec())
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
+    assert_eq!(status, StatusCode::REQUEST_TIMEOUT);
 }
 
 #[tokio::test]
@@ -684,16 +677,13 @@ async fn test_good_handler_error_status_code() {
         "params": serde_json::json!({"receipt_id": CryptoHash::new().to_string()})
     });
 
-    let response = &mut client
-        .client
-        .post(&client.server_addr)
-        .header("Content-Type", "application/json")
-        .json(&json)
-        .send()
+    let (status, _response_bytes) = client
+        .transport
+        .send_http_request("/", json.to_string().as_bytes().to_vec())
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(status, StatusCode::OK);
 }
 
 #[tokio::test]
