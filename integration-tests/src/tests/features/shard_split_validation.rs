@@ -128,7 +128,7 @@ fn chunk_header_proposed_split_validation() {
         "Tampered header must carry the forged proposed_split"
     );
 
-    // --- Phase 5: Full validation passes despite the tampered proposed_split ---
+    // --- Phase 5: Full validation must reject the tampered proposed_split ---
 
     let runtime_adapter = client.runtime_adapter.as_ref();
     let cache: MainStateTransitionCache = Default::default();
