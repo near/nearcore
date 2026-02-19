@@ -1,5 +1,5 @@
 use super::block::BlockSync;
-use super::epoch::EpochSync;
+use super::epoch::{EpochSync, EpochSyncRunResult};
 use super::header::HeaderSync;
 use super::state::StateSync;
 use crate::sync::state::StateSyncResult;
@@ -52,6 +52,8 @@ pub enum SyncHandlerRequest {
     NeedRequestBlocks(Vec<(CryptoHash, PeerId)>),
     /// Need to process block artifact unlocked by state sync.
     NeedProcessBlockArtifact(BlockProcessingArtifact),
+    /// Epoch sync determined node data needs reset; caller should fire shutdown.
+    NeedsDataReset,
 }
 
 impl SyncHandler {
@@ -96,7 +98,14 @@ impl SyncHandler {
             highest_height,
             &highest_height_peers,
         );
-        unwrap_and_report_state_sync_result!(epoch_sync_result);
+        let epoch_sync_result = unwrap_and_report_state_sync_result!(epoch_sync_result);
+
+        match epoch_sync_result {
+            EpochSyncRunResult::Ok => {}
+            EpochSyncRunResult::NeedsDataReset => {
+                return Some(SyncHandlerRequest::NeedsDataReset);
+            }
+        }
 
         // Run header sync as long as there are headers to catch up.
         let header_sync_result = self.header_sync.run(
