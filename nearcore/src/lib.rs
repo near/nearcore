@@ -45,12 +45,12 @@ use near_network::PeerManagerActor;
 use near_network::types::PeerManagerAdapter;
 use near_primitives::genesis::GenesisId;
 use near_primitives::types::EpochId;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter as _;
 use near_store::db::metadata::DbKind;
 use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metrics::spawn_db_metrics_loop;
-use near_store::{NodeStorage, Store, StoreOpenerError};
+use near_store::{EPOCH_SYNC_RESET_MARKER, NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -195,6 +195,34 @@ pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result
         storage.is_local_archive() || storage.is_cloud_archive()
     );
     Ok(storage)
+}
+
+/// Checks for an epoch sync reset marker and deletes the hot store directory if found.
+///
+/// When a stale node enters epoch sync, it writes a marker file to the hot store directory
+/// and shuts down. On next startup, this function detects that marker, deletes the entire
+/// hot store directory (which removes both RocksDB data and the marker), and returns.
+/// The caller then opens a fresh database, re-initializes genesis state, and epoch sync
+/// proceeds on a pristine store.
+pub fn maybe_reset_data_for_epoch_sync(home_dir: &Path, config: &NearConfig) -> anyhow::Result<()> {
+    let hot_store_path =
+        home_dir.join(config.config.store.path.as_deref().unwrap_or_else(|| Path::new("data")));
+    let marker_path = hot_store_path.join(EPOCH_SYNC_RESET_MARKER);
+
+    if !marker_path.exists() {
+        return Ok(());
+    }
+
+    if config.config.archive {
+        tracing::warn!(target: "nearcore", "epoch sync reset marker found but node is archival; skipping data reset");
+        return Ok(());
+    }
+
+    tracing::info!(target: "nearcore", ?hot_store_path, "epoch sync reset marker found; deleting hot store for re-sync");
+    std::fs::remove_dir_all(&hot_store_path)
+        .with_context(|| format!("failed to delete hot store at {}", hot_store_path.display()))?;
+
+    Ok(())
 }
 
 // Safely get the split store while checking that all conditions to use it are met.
@@ -394,6 +422,9 @@ pub async fn start_with_config_and_synchronization_impl(
     shutdown_signal: ShutdownSignal,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
+    if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+        maybe_reset_data_for_epoch_sync(home_dir, &config)?;
+    }
     let storage = open_storage(home_dir, &config)?;
     if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;
@@ -820,4 +851,60 @@ pub async fn start_with_config_and_synchronization_impl(
         resharding_handle,
         shard_tracker,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_store::EPOCH_SYNC_RESET_MARKER;
+    use tempfile::tempdir;
+
+    fn test_near_config() -> NearConfig {
+        let genesis = near_chain_configs::Genesis::test(vec!["test.near".parse().unwrap()], 1);
+        load_test_config("test.near", near_network::tcp::ListenerAddr::reserve_for_test(), genesis)
+    }
+
+    #[test]
+    fn test_maybe_reset_no_marker() {
+        let home = tempdir().unwrap();
+        let config = test_near_config();
+        let hot_store_path = home.path().join("data");
+        std::fs::create_dir_all(&hot_store_path).unwrap();
+        // Write a dummy file to prove the directory survives.
+        std::fs::write(hot_store_path.join("dummy"), b"keep").unwrap();
+
+        maybe_reset_data_for_epoch_sync(home.path(), &config).unwrap();
+
+        assert!(hot_store_path.exists(), "hot store should still exist when no marker is present");
+        assert!(hot_store_path.join("dummy").exists());
+    }
+
+    #[test]
+    fn test_maybe_reset_with_marker() {
+        let home = tempdir().unwrap();
+        let config = test_near_config();
+        let hot_store_path = home.path().join("data");
+        std::fs::create_dir_all(&hot_store_path).unwrap();
+        std::fs::write(hot_store_path.join(EPOCH_SYNC_RESET_MARKER), b"reset").unwrap();
+        std::fs::write(hot_store_path.join("dummy"), b"gone").unwrap();
+
+        maybe_reset_data_for_epoch_sync(home.path(), &config).unwrap();
+
+        assert!(!hot_store_path.exists(), "hot store should be deleted when marker is present");
+    }
+
+    #[test]
+    fn test_maybe_reset_archive_node() {
+        let home = tempdir().unwrap();
+        let mut config = test_near_config();
+        config.config.archive = true;
+        let hot_store_path = home.path().join("data");
+        std::fs::create_dir_all(&hot_store_path).unwrap();
+        std::fs::write(hot_store_path.join(EPOCH_SYNC_RESET_MARKER), b"reset").unwrap();
+
+        maybe_reset_data_for_epoch_sync(home.path(), &config).unwrap();
+
+        assert!(hot_store_path.exists(), "hot store should NOT be deleted for archival nodes");
+        assert!(hot_store_path.join(EPOCH_SYNC_RESET_MARKER).exists());
+    }
 }
