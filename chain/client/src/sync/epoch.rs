@@ -90,14 +90,17 @@ impl EpochSync {
 
     /// Writes a marker file to the hot store directory indicating that the node's data
     /// needs to be wiped before it can restart with epoch sync.
+    /// Panics if the marker cannot be written, as this is a critical operation that must
+    /// not silently fail.
     #[allow(dead_code)] // Used in a follow-up PR when `run()` triggers data reset.
-    fn write_reset_marker(&self) -> Result<(), std::io::Error> {
+    fn write_reset_marker(&self) {
         let marker_path = self.hot_store_path.join(EPOCH_SYNC_RESET_MARKER);
         tracing::info!(target: "client", ?marker_path, "writing epoch sync reset marker");
-        std::fs::write(&marker_path, b"epoch sync reset requested")?;
-        let dir = std::fs::File::open(&self.hot_store_path)?;
-        dir.sync_all()?;
-        Ok(())
+        std::fs::write(&marker_path, b"epoch sync reset requested")
+            .expect("failed to write epoch sync reset marker");
+        let dir = std::fs::File::open(&self.hot_store_path)
+            .expect("failed to open hot store directory for sync");
+        dir.sync_all().expect("failed to sync hot store directory");
     }
 
     /// Derives an epoch sync proof for a recent epoch, that can be directly used to bootstrap
