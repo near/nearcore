@@ -2393,9 +2393,15 @@ impl Chain {
             None
         };
 
-        if !block.verify_total_supply(prev.total_supply(), minted_amount) {
-            byzantine_assert!(false);
-            return Err(Error::InvalidTotalSupply);
+        match block.verify_total_supply_checked(prev.total_supply(), minted_amount) {
+            Some(true) => {}
+            Some(false) => {
+                byzantine_assert!(false);
+                return Err(Error::InvalidTotalSupply);
+            }
+            None => {
+                return Err(Error::Other("arithmetic overflow when checking total supply".to_owned()));
+            }
         }
 
         let prev_block = self.get_block(&prev_hash)?;

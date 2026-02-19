@@ -295,23 +295,30 @@ impl Block {
         Self::new_block(header, body)
     }
 
+    #[deprecated(note = "use `verify_total_supply_checked` to avoid overflow panic")]
     pub fn verify_total_supply(
         &self,
         prev_total_supply: Balance,
         minted_amount: Option<Balance>,
     ) -> bool {
+        self.verify_total_supply_checked(prev_total_supply, minted_amount).unwrap()
+    }
+
+    pub fn verify_total_supply_checked(
+        &self,
+        prev_total_supply: Balance,
+        minted_amount: Option<Balance>,
+    ) -> Option<bool> {
         let mut balance_burnt = Balance::ZERO;
 
         for chunk in self.chunks().iter_new() {
-            balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
+            balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt())?;
         }
 
         let new_total_supply = prev_total_supply
-            .checked_add(minted_amount.unwrap_or(Balance::ZERO))
-            .unwrap()
-            .checked_sub(balance_burnt)
-            .unwrap();
-        self.header().total_supply() == new_total_supply
+            .checked_add(minted_amount.unwrap_or(Balance::ZERO))?
+            .checked_sub(balance_burnt)?;
+        Some(self.header().total_supply() == new_total_supply)
     }
 
     pub fn verify_gas_price(
