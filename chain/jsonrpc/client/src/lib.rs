@@ -55,8 +55,8 @@ pub trait RpcTransport: Send + Sync {
         &self,
         request: Message,
     ) -> BoxFuture<'static, Result<Message, RpcError>> {
-        let body_bytes: Vec<u8> = match serde_json::to_string(&request) {
-            Ok(serialized) => serialized.as_bytes().to_vec(),
+        let body_bytes: Vec<u8> = match serde_json::to_vec(&request) {
+            Ok(serialized) => serialized,
             Err(e) => {
                 return Box::pin(async move {
                     Err(RpcError::serialization_error(format!(
@@ -192,8 +192,7 @@ pub struct JsonRpcClient {
 impl JsonRpcClient {
     /// Creates a new RPC client backed by reqwest HTTP client.
     pub fn new(server_addr: &str, client: Client) -> Self {
-        let transport =
-            Arc::new(ReqwestTransport { client: client, server_addr: server_addr.to_string() });
+        let transport = Arc::new(ReqwestTransport { client, server_addr: server_addr.to_string() });
         JsonRpcClient { transport, server_addr: server_addr.to_string() }
     }
 

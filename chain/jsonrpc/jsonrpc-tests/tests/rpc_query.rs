@@ -603,11 +603,7 @@ async fn test_invalid_methods() {
 
         assert_eq!(status, StatusCode::BAD_REQUEST);
 
-        let response = serde_json::from_value::<serde_json::Value>(
-            serde_json::from_slice(&response_bytes).unwrap(),
-        )
-        .unwrap();
-
+        let response: serde_json::Value = serde_json::from_slice(&response_bytes).unwrap();
         assert!(
             response["error"] != serde_json::json!(null),
             "Invalid method {:?} must return error",
