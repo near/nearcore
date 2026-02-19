@@ -1819,6 +1819,10 @@ impl ClientActor {
             SyncHandlerRequest::NeedProcessBlockArtifact(block_processing_artifacts) => {
                 self.client.process_block_processing_artifact(block_processing_artifacts);
             }
+            SyncHandlerRequest::NeedsDataReset => {
+                tracing::info!(target: "client", "epoch sync data reset marker written, shutting down for restart");
+                self.shutdown_signal.fire();
+            }
         }
     }
 
