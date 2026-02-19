@@ -125,7 +125,7 @@ pub enum SyncStatus {
     EpochSyncDone,
     /// Downloading block headers for fast sync.
     HeaderSync {
-        /// Head height at the beginning. Not the header head height!
+        /// Height at the beginning of header sync.
         /// Used only for reporting the progress of the sync.
         start_height: BlockHeight,
         /// Current header head height.

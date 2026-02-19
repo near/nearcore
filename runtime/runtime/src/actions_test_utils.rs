@@ -1,4 +1,5 @@
 use near_crypto::PublicKey;
+use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::action::DeleteAccountAction;
 use near_primitives::hash::CryptoHash;
@@ -46,6 +47,7 @@ pub(crate) fn test_delete_large_account(
     let mut actor_id = account_id.clone();
     let mut action_result = ActionResult::default();
     let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), Balance::ZERO);
+    let config = RuntimeConfig::test();
     let res = action_delete_account(
         state_update,
         &mut account,
@@ -54,6 +56,7 @@ pub(crate) fn test_delete_large_account(
         &mut action_result,
         account_id,
         &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
+        &config,
         PROTOCOL_VERSION,
     );
     assert!(res.is_ok());
