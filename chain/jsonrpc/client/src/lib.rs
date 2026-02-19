@@ -109,18 +109,17 @@ impl RpcTransport for ReqwestTransport {
         endpoint: &str,
         body: Vec<u8>,
     ) -> BoxFuture<'static, Result<(StatusCode, Vec<u8>), String>> {
+        let url = url::Url::parse(&self.server_addr)
+            .map_err(|e| format!("parsing server_addr '{}' failed: {}", self.server_addr, e))
+            .and_then(|u| {
+                u.join(endpoint).map_err(|e| {
+                    format!("joining url '{}' and '{}' failed: {}", self.server_addr, endpoint, e)
+                })
+            });
         let client = self.client.clone();
-        let mut url = format!("{}{}", self.server_addr, endpoint);
-
-        // Concatenating "http://127.0.0.1/" and "/" can cause an invalid url.
-        // If there are two slashes at the end, remove one.
-        if url.ends_with("//") {
-            url.pop();
-        }
-
         async move {
             let response = client
-                .post(&url)
+                .post(url?)
                 .header("Content-Type", "application/json")
                 .body(body)
                 .send()
