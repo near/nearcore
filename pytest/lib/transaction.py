@@ -204,6 +204,88 @@ def create_delete_account_action(beneficiary):
     return action
 
 
+def create_gas_key_full_access_key_action(pk, num_nonces):
+    gasKeyInfo = GasKeyInfo()
+    gasKeyInfo.balance = 0
+    gasKeyInfo.numNonces = num_nonces
+    gasKeyFullAccess = GasKeyFullAccessPermission()
+    gasKeyFullAccess.gasKeyInfo = gasKeyInfo
+    permission = AccessKeyPermission()
+    permission.enum = 'gasKeyFullAccess'
+    permission.gasKeyFullAccess = gasKeyFullAccess
+    accessKey = AccessKey()
+    accessKey.nonce = 0
+    accessKey.permission = permission
+    publicKey = PublicKey()
+    publicKey.keyType = 0
+    publicKey.data = pk
+    addKey = AddKey()
+    addKey.accessKey = accessKey
+    addKey.publicKey = publicKey
+    action = Action()
+    action.enum = 'addKey'
+    action.addKey = addKey
+    return action
+
+
+def create_transfer_to_gas_key_action(pk, deposit):
+    transferToGasKey = TransferToGasKey()
+    transferToGasKey.publicKey = PublicKey()
+    transferToGasKey.publicKey.keyType = 0
+    transferToGasKey.publicKey.data = pk
+    transferToGasKey.deposit = deposit
+    action = Action()
+    action.enum = 'transferToGasKey'
+    action.transferToGasKey = transferToGasKey
+    return action
+
+
+def create_withdraw_from_gas_key_action(pk, amount):
+    withdrawFromGasKey = WithdrawFromGasKey()
+    withdrawFromGasKey.publicKey = PublicKey()
+    withdrawFromGasKey.publicKey.keyType = 0
+    withdrawFromGasKey.publicKey.data = pk
+    withdrawFromGasKey.amount = amount
+    action = Action()
+    action.enum = 'withdrawFromGasKey'
+    action.withdrawFromGasKey = withdrawFromGasKey
+    return action
+
+
+def sign_and_serialize_transaction_v1(receiverId, nonce, nonce_index, actions,
+                                      blockHash, accountId, pk, sk):
+    tx = TransactionV1()
+    tx.signerId = accountId
+    tx.publicKey = PublicKey()
+    tx.publicKey.keyType = 0
+    tx.publicKey.data = pk
+    txNonce = TransactionNonce()
+    txNonce.enum = 'gasKeyNonce'
+    nonceData = GasKeyNonceData()
+    nonceData.nonce = nonce
+    nonceData.nonceIndex = nonce_index
+    txNonce.gasKeyNonce = nonceData
+    tx.nonce = txNonce
+    tx.receiverId = receiverId
+    tx.actions = actions
+    tx.blockHash = blockHash
+
+    serializer = BinarySerializer(schema)
+    serializer.serialize_num(1, 1)  # V1 discriminant
+    serializer.serialize_struct(tx)
+    tx_bytes = bytes(serializer.array)
+
+    hash_bytes = hashlib.sha256(tx_bytes).digest()
+    seed = sk[:32]
+    sig_data = SigningKey(seed).sign(hash_bytes).signature
+
+    sig = Signature()
+    sig.keyType = 0
+    sig.data = sig_data
+    serializer.serialize_struct(sig)
+    return bytes(serializer.array)
+
+
 def create_delegate_action(signedDelegate):
     action = Action()
     action.enum = 'delegate'

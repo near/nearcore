@@ -314,6 +314,13 @@ impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     }
 }
 
+/// Gas key nonces view returned by the `view_gas_key_nonces` RPC query.
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct GasKeyNoncesView {
+    pub nonces: Vec<Nonce>,
+}
+
 // cspell:words deepsize
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -356,7 +363,7 @@ pub enum QueryResponseKind {
     CallResult(CallResult),
     AccessKey(AccessKeyView),
     AccessKeyList(AccessKeyList),
-    GasKeyNonces(Vec<Nonce>),
+    GasKeyNonces(GasKeyNoncesView),
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]

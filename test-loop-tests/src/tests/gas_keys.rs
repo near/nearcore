@@ -72,10 +72,10 @@ fn get_gas_key_nonce(
             public_key: public_key.clone(),
         })
         .unwrap();
-    let QueryResponseKind::GasKeyNonces(nonces) = response.kind else {
+    let QueryResponseKind::GasKeyNonces(view) = response.kind else {
         panic!("unexpected response type");
     };
-    nonces[nonce_index as usize]
+    view.nonces[nonce_index as usize]
 }
 
 #[test]

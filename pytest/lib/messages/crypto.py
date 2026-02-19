@@ -36,6 +36,18 @@ class FullAccessPermission:
     pass
 
 
+class GasKeyInfo:
+    pass
+
+
+class GasKeyFunctionCallPermission:
+    pass
+
+
+class GasKeyFullAccessPermission:
+    pass
+
+
 class Direction:
     pass
 
@@ -79,6 +91,8 @@ crypto_schema = [
             'values': [
                 ['functionCall', FunctionCallPermission],
                 ['fullAccess', FullAccessPermission],
+                ['gasKeyFunctionCall', GasKeyFunctionCallPermission],
+                ['gasKeyFullAccess', GasKeyFullAccessPermission],
             ]
         }
     ],
@@ -99,6 +113,23 @@ crypto_schema = [
     [FullAccessPermission, {
         'kind': 'struct',
         'fields': []
+    }],
+    [GasKeyInfo, {
+        'kind': 'struct',
+        'fields': [['balance', 'u128'], ['numNonces', 'u16']]
+    }],
+    [
+        GasKeyFunctionCallPermission, {
+            'kind': 'struct',
+            'fields': [
+                ['gasKeyInfo', GasKeyInfo],
+                ['functionCallPermission', FunctionCallPermission],
+            ]
+        }
+    ],
+    [GasKeyFullAccessPermission, {
+        'kind': 'struct',
+        'fields': [['gasKeyInfo', GasKeyInfo]]
     }],
     [
         Direction, {

@@ -95,7 +95,6 @@ impl StateRecord {
                 code: value,
             }),
             col::ACCESS_KEY => {
-                let access_key = AccessKey::try_from_slice(&value)?;
                 let account_id = parse_account_id_from_access_key_key(key)?;
                 let public_key = parse_public_key_from_access_key_key(key, &account_id)?;
                 let index = parse_nonce_index_from_gas_key_key(key, &account_id, &public_key)?;
@@ -103,6 +102,7 @@ impl StateRecord {
                     let nonce = u64::try_from_slice(&value)?;
                     Some(StateRecord::GasKeyNonce { account_id, public_key, index, nonce })
                 } else {
+                    let access_key = AccessKey::try_from_slice(&value)?;
                     Some(StateRecord::AccessKey { account_id, public_key, access_key })
                 }
             }
