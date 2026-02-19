@@ -15,7 +15,7 @@ use crate::utils::account::{
     create_account_id, create_validators_spec, validators_spec_clients_with_rpc,
 };
 
-/// Test that verifies gas limit behavior: burning 999 TGas succeeds while
+/// Test that verifies gas limit behavior: burning 998 TGas succeeds while
 /// burning 1001 TGas results in a failed receipt.
 #[test]
 fn test_gas_limit() {
