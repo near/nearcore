@@ -60,6 +60,9 @@ use near_jsonrpc_primitives::types::view_account::{
 use near_jsonrpc_primitives::types::view_code::{
     RpcViewCodeError, RpcViewCodeRequest, RpcViewCodeResponse,
 };
+use near_jsonrpc_primitives::types::view_gas_key_nonces::{
+    RpcViewGasKeyNoncesError, RpcViewGasKeyNoncesRequest, RpcViewGasKeyNoncesResponse,
+};
 use near_jsonrpc_primitives::types::view_state::{
     RpcViewStateError, RpcViewStateRequest, RpcViewStateResponse,
 };
@@ -487,6 +490,9 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_view_access_key_list" => {
                 process_method_call(request, |params| self.view_access_key_list(params)).await
+            }
+            "EXPERIMENTAL_view_gas_key_nonces" => {
+                process_method_call(request, |params| self.view_gas_key_nonces(params)).await
             }
             "EXPERIMENTAL_call_function" => {
                 process_method_call(request, |params| self.call_function(params)).await
@@ -1158,6 +1164,39 @@ impl JsonRpcHandler {
             }
             _ => Err(RpcQueryError::InternalError {
                 error_message: format!("Unexpected response kind from near client. Expected: AccessKeyList, found: {:?}", query_response.kind),
+            }
+            .into()),
+        }
+    }
+
+    async fn view_gas_key_nonces(
+        &self,
+        request_data: RpcViewGasKeyNoncesRequest,
+    ) -> Result<RpcViewGasKeyNoncesResponse, RpcViewGasKeyNoncesError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewGasKeyNonces {
+                    account_id: request_data.account_id,
+                    public_key: request_data.public_key,
+                },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewGasKeyNoncesError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::GasKeyNonces(nonces) => {
+                Ok(RpcViewGasKeyNoncesResponse {
+                    nonces,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: GasKeyNonces, found: {:?}",
+                    query_response.kind
+                ),
             }
             .into()),
         }
