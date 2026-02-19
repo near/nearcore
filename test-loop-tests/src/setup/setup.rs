@@ -81,7 +81,8 @@ pub fn setup_client(
     let spice_chunk_validator_adapter = LateBoundSender::new();
 
     let homedir = NodeExecutionData::homedir(tempdir, identifier);
-    std::fs::create_dir_all(&homedir).expect("Unable to create homedir");
+    let datadir = homedir.join("data");
+    std::fs::create_dir_all(datadir.clone()).expect("Unable to create data dir");
 
     let store_config = StoreConfig {
         path: Some(homedir.clone()),
@@ -178,7 +179,7 @@ pub fn setup_client(
         chunk_validation_client_sender.as_multi_sender(),
         block_notification_watch_sender,
         upgrade_schedule.clone(),
-        homedir.join("data"),
+        datadir,
     )
     .unwrap();
 
