@@ -178,6 +178,7 @@ pub fn setup_client(
         chunk_validation_client_sender.as_multi_sender(),
         block_notification_watch_sender,
         upgrade_schedule.clone(),
+        homedir.join("data"),
     )
     .unwrap();
 

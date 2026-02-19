@@ -77,6 +77,7 @@ use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
+use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use tracing::instrument;
 
@@ -284,6 +285,7 @@ impl Client {
             Option<BlockNotificationMessage>,
         >,
         upgrade_schedule: ProtocolUpgradeVotingSchedule,
+        hot_store_path: PathBuf,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -321,6 +323,7 @@ impl Client {
             multi_spawner.epoch_sync,
             config.epoch_sync.clone(),
             &chain.chain_store.store(),
+            hot_store_path,
         );
         let header_sync = HeaderSync::new(
             clock.clone(),

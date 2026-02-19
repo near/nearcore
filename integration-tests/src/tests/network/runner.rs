@@ -139,6 +139,7 @@ fn setup_network_node(
             spice_data_distributor_sender: noop().into_sender(),
             spice_core_writer_sender: noop().into_sender(),
         },
+        tempdir.path().join("data"),
     );
     let view_client_addr = ViewClientActor::spawn_multithread_actor(
         Clock::real(),

@@ -614,6 +614,9 @@ pub async fn start_with_config_and_synchronization_impl(
         &spice_core_writer_adapter,
     );
 
+    let hot_store_path = config.config.store.path.as_deref().unwrap_or_else(|| Path::new("data"));
+    let hot_store_path = home_dir.join(hot_store_path);
+
     let StartClientResult {
         client_actor,
         tx_pool,
@@ -643,6 +646,7 @@ pub async fn start_with_config_and_synchronization_impl(
         resharding_sender.into_multi_sender(),
         block_notification_watch_sender,
         spice_client_config,
+        hot_store_path,
     );
     client_adapter_for_shards_manager.bind(client_actor.clone());
     client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {

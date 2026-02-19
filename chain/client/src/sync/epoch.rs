@@ -28,10 +28,12 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{Balance, BlockHeight, BlockHeightDelta, EpochId};
 use near_primitives::utils::compression::CompressedData;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_store::EPOCH_SYNC_RESET_MARKER;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{Store, metrics};
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -46,6 +48,9 @@ pub struct EpochSync {
     last_epoch_sync_response_cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
     // See `my_own_epoch_sync_boundary_block_header()`.
     my_own_epoch_sync_boundary_block_header: Option<Arc<BlockHeader>>,
+    /// Path to the hot store directory, used for writing the epoch sync reset marker.
+    #[allow(dead_code)] // Used in a follow-up PR to write reset marker during epoch sync.
+    hot_store_path: PathBuf,
 }
 
 impl EpochSync {
@@ -56,6 +61,7 @@ impl EpochSync {
         async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
         config: EpochSyncConfig,
         store: &Store,
+        hot_store_path: PathBuf,
     ) -> Self {
         let my_own_epoch_sync_boundary_block_header = store
             .epoch_store()
@@ -71,6 +77,7 @@ impl EpochSync {
             config,
             last_epoch_sync_response_cache: Arc::new(Mutex::new(None)),
             my_own_epoch_sync_boundary_block_header,
+            hot_store_path,
         }
     }
 
@@ -79,6 +86,18 @@ impl EpochSync {
     /// epoch sync.
     pub fn my_own_epoch_sync_boundary_block_header(&self) -> Option<&BlockHeader> {
         self.my_own_epoch_sync_boundary_block_header.as_deref()
+    }
+
+    /// Writes a marker file to the hot store directory indicating that the node's data
+    /// needs to be wiped before it can restart with epoch sync.
+    #[allow(dead_code)] // Used in a follow-up PR when `run()` triggers data reset.
+    fn write_reset_marker(&self) -> Result<(), std::io::Error> {
+        let marker_path = self.hot_store_path.join(EPOCH_SYNC_RESET_MARKER);
+        tracing::info!(target: "client", ?marker_path, "writing epoch sync reset marker");
+        std::fs::write(&marker_path, b"epoch sync reset requested")?;
+        let dir = std::fs::File::open(&self.hot_store_path)?;
+        dir.sync_all()?;
+        Ok(())
     }
 
     /// Derives an epoch sync proof for a recent epoch, that can be directly used to bootstrap
