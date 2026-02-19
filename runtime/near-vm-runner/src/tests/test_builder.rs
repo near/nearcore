@@ -45,6 +45,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         opaque_error: false,
         opaque_outcome: false,
         method: "main".into(),
+        max_gas_burnt: None,
     }
 }
 
@@ -56,6 +57,7 @@ pub(crate) struct TestBuilder {
     opaque_error: bool,
     opaque_outcome: bool,
     method: String,
+    max_gas_burnt: Option<Gas>,
 }
 
 impl TestBuilder {
@@ -83,6 +85,11 @@ impl TestBuilder {
 
     pub(crate) fn gas(mut self, gas: Gas) -> Self {
         self.context.prepaid_gas = gas;
+        self
+    }
+
+    pub(crate) fn max_gas_burnt(mut self, max_gas_burnt: Gas) -> Self {
+        self.max_gas_burnt = Some(max_gas_burnt);
         self
     }
 
@@ -197,8 +204,9 @@ impl TestBuilder {
                 let config =
                     Arc::get_mut(&mut Arc::get_mut(runtime_config).unwrap().wasm_config).unwrap();
                 config.vm_kind = vm_kind;
-                // Need to overwrite `max_gas_burnt` since many tests are built assuming 300TGas
-                config.limit_config.max_gas_burnt = Gas::from_teragas(300);
+                if let Some(max_gas_burnt) = self.max_gas_burnt {
+                    config.limit_config.max_gas_burnt = max_gas_burnt;
+                }
                 let mut fake_external = MockedExternal::with_code(self.code.clone_for_tests());
                 let config = runtime_config.wasm_config.clone();
                 let fees = Arc::new(RuntimeFeesConfig::test());
