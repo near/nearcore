@@ -410,6 +410,29 @@ impl JsonRpcHandler {
             Err(request) => request,
         };
 
+        // Pool routing: forward or fan-out before local dispatch.
+        if !is_forwarded {
+            if let Some(pool) = &self.pool {
+                let routing = pool.route(&request.method, &request.params);
+                match routing {
+                    pool::RoutingDecision::Forward(shard_uid) => {
+                        let message = Message::Request(request.clone());
+                        if let Some(result) =
+                            pool.forward_to_shard(shard_uid, &message, &request.method).await
+                        {
+                            return (method_name, result);
+                        }
+                        // No peer or local shard — fall through to local execution.
+                    }
+                    pool::RoutingDecision::FanOut => {
+                        let result = self.execute_fan_out(request.clone(), pool).await;
+                        return (method_name, result);
+                    }
+                    pool::RoutingDecision::Local => {}
+                }
+            }
+        }
+
         let request = match self.process_basic_requests_internal(request).await {
             Ok(response) => return (method_name, response),
             Err(request) => request,
@@ -442,22 +465,95 @@ impl JsonRpcHandler {
                         "query_view_global_contract_code_by_account_id"
                     }
                 };
-                // Route through pool when present and request is not already forwarded.
-                let result = if !is_forwarded {
-                    if let Some(pool) = &self.pool {
-                        pool.query(params).await
-                    } else {
-                        process_query_response(self.query(params).await)
-                    }
-                } else {
-                    process_query_response(self.query(params).await)
-                };
+                let result = process_query_response(self.query(params).await);
                 (metrics_name.to_string(), result)
             }
             _ => {
                 ("UNSUPPORTED_METHOD".to_string(), Err(RpcError::method_not_found(request.method)))
             }
         }
+    }
+
+    /// Execute a fan-out request: run locally and on all pool peers, then merge results.
+    async fn execute_fan_out(
+        &self,
+        request: Request,
+        pool: &pool::RpcPool,
+    ) -> Result<Value, RpcError> {
+        let method = request.method.clone();
+        metrics::RPC_POOL_FANOUT_TOTAL.with_label_values(&[&method]).inc();
+
+        let message = Message::Request(request.clone());
+
+        // Run local execution and remote fan-out concurrently.
+        let (local_result, remote_results) = tokio::join!(
+            self.process_basic_requests_internal_or_error(request),
+            pool.forward_to_all(&message, &method),
+        );
+
+        // Count partial errors from remote peers.
+        for result in &remote_results {
+            if result.is_err() {
+                metrics::RPC_POOL_FANOUT_PARTIAL_ERRORS.with_label_values(&[&method]).inc();
+            }
+        }
+
+        Self::merge_fan_out_results(&method, local_result, remote_results)
+    }
+
+    /// Helper: run a request through process_basic_requests_internal, returning
+    /// an error if the method is not handled (shouldn't happen for fan-out methods).
+    async fn process_basic_requests_internal_or_error(
+        &self,
+        request: Request,
+    ) -> Result<Value, RpcError> {
+        match self.process_basic_requests_internal(request).await {
+            Ok(result) => result,
+            Err(_request) => {
+                Err(RpcError::method_not_found("unhandled fan-out method".to_string()))
+            }
+        }
+    }
+
+    /// Merge fan-out results from local and remote peers.
+    ///
+    /// For `block_effects`/`EXPERIMENTAL_changes_in_block` and `changes`/`EXPERIMENTAL_changes`,
+    /// responses have the shape `{"block_hash": ..., "changes": [...]}`.
+    /// We take `block_hash` from the local result and concatenate all `changes` arrays.
+    fn merge_fan_out_results(
+        method: &str,
+        local_result: Result<Value, RpcError>,
+        remote_results: Vec<Result<Value, RpcError>>,
+    ) -> Result<Value, RpcError> {
+        let mut local_value = local_result?;
+
+        // Collect changes from all successful remote results.
+        let local_changes = local_value.get_mut("changes").and_then(|v| v.as_array_mut());
+
+        if let Some(local_changes) = local_changes {
+            for (i, result) in remote_results.into_iter().enumerate() {
+                match result {
+                    Ok(remote_value) => {
+                        if let Some(remote_changes) =
+                            remote_value.get("changes").and_then(|v| v.as_array())
+                        {
+                            local_changes.extend(remote_changes.iter().cloned());
+                        }
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            target: "jsonrpc",
+                            method = method,
+                            peer_index = i,
+                            error = %err,
+                            "Fan-out: peer returned error, skipping"
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(local_value)
     }
 
     async fn process_basic_requests_internal(
@@ -2064,7 +2160,6 @@ pub fn create_jsonrpc_app(
         Some(pool::build_pool(
             epoch_manager,
             tracked_shards_config,
-            view_client_sender.clone(),
             peers_config,
             Duration::from_secs(pool_forward_timeout_secs),
         ))
