@@ -194,9 +194,11 @@ impl TestBuilder {
                 }
 
                 let runtime_config = runtime_config_store.get_config_mut(protocol_version);
-                Arc::get_mut(&mut Arc::get_mut(runtime_config).unwrap().wasm_config)
-                    .unwrap()
-                    .vm_kind = vm_kind;
+                let config =
+                    Arc::get_mut(&mut Arc::get_mut(runtime_config).unwrap().wasm_config).unwrap();
+                config.vm_kind = vm_kind;
+                // Need to overwrite `max_gas_burnt` since many tests are built assuming 300TGas
+                config.limit_config.max_gas_burnt = Gas::from_teragas(300);
                 let mut fake_external = MockedExternal::with_code(self.code.clone_for_tests());
                 let config = runtime_config.wasm_config.clone();
                 let fees = Arc::new(RuntimeFeesConfig::test());
