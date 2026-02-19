@@ -596,10 +596,7 @@ impl ChainStore {
     ///
     /// We store different types of data, so we prefer to only expose minimal information about the
     /// changes (i.e. a kind of the change and an account id).
-    pub fn get_state_changes_in_block(
-        &self,
-        block_hash: &CryptoHash,
-    ) -> Result<StateChangesKinds, Error> {
+    pub fn get_state_changes_in_block(&self, block_hash: &CryptoHash) -> StateChangesKinds {
         // We store the trie changes under a compound key: `block_hash + trie_key`, so when we
         // query the changes, we reverse the process by splitting the key using simple slicing of an
         // array of bytes, essentially, extracting `trie_key`.
@@ -618,19 +615,16 @@ impl ChainStore {
         let store = self.store.store();
         let mut block_changes = storage_key.find_iter(&store);
 
-        Ok(StateChangesKinds::from_changes(&mut block_changes))
+        StateChangesKinds::from_changes(&mut block_changes)
     }
 
-    pub fn get_state_changes_with_cause_in_block(
-        &self,
-        block_hash: &CryptoHash,
-    ) -> Result<StateChanges, Error> {
+    pub fn get_state_changes_with_cause_in_block(&self, block_hash: &CryptoHash) -> StateChanges {
         let storage_key = KeyForStateChanges::for_block(block_hash);
 
         let store = self.store.store();
         let mut block_changes = storage_key.find_iter(&store);
 
-        Ok(StateChanges::from_changes(&mut block_changes))
+        StateChanges::from_changes(&mut block_changes)
     }
 
     /// Retrieve the key-value changes from the store and decode them appropriately.
@@ -643,7 +637,7 @@ impl ChainStore {
         &self,
         block_hash: &CryptoHash,
         state_changes_request: &StateChangesRequest,
-    ) -> Result<StateChanges, Error> {
+    ) -> StateChanges {
         // We store the trie changes under a compound key: `block_hash + trie_key`, so when we
         // query the changes, we reverse the process by splitting the key using simple slicing of an
         // array of bytes, essentially, extracting `trie_key`.
@@ -666,7 +660,7 @@ impl ChainStore {
         //    2.2. Parse the trie key with a relevant KeyFor* implementation to ensure consistency
 
         let store = self.store.store();
-        Ok(match state_changes_request {
+        match state_changes_request {
             StateChangesRequest::AccountChanges { account_ids } => {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
@@ -723,7 +717,7 @@ impl ChainStore {
                 }
                 changes
             }
-        })
+        }
     }
 
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
@@ -1456,7 +1450,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
     /// Update block body head and latest known height.
     pub fn save_body_head(&mut self, t: &Tip) -> Result<(), Error> {
-        self.try_save_latest_known(t.height)?;
+        self.try_save_latest_known(t.height);
         self.head = Some(t.clone().into());
         Ok(())
     }
@@ -1517,7 +1511,7 @@ impl<'a> ChainStoreUpdate<'a> {
         if t.height > self.chain_store.get_genesis_height() {
             self.update_height(t.height, t.prev_block_hash)?;
         }
-        self.try_save_latest_known(t.height)?;
+        self.try_save_latest_known(t.height);
 
         match self.header_head() {
             Ok(prev_tip) => {
@@ -1551,13 +1545,12 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     /// Save new height if it's above currently latest known.
-    pub fn try_save_latest_known(&mut self, height: BlockHeight) -> Result<(), Error> {
+    pub fn try_save_latest_known(&mut self, height: BlockHeight) {
         let latest_known = self.chain_store.get_latest_known().ok();
         if latest_known.is_none() || height > latest_known.unwrap().height {
             self.chain_store
                 .save_latest_known(LatestKnown { height, seen: to_timestamp(Utc::now()) });
         }
-        Ok(())
     }
 
     #[cfg(feature = "test_features")]

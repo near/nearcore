@@ -941,7 +941,7 @@ impl Handler<GetStateChangesInBlock, Result<StateChangesKindsView, GetStateChang
         Ok(self
             .chain
             .chain_store()
-            .get_state_changes_in_block(&msg.block_hash)?
+            .get_state_changes_in_block(&msg.block_hash)
             .into_iter()
             .map(Into::into)
             .collect())
@@ -957,7 +957,7 @@ impl Handler<GetStateChanges, Result<StateChangesView, GetStateChangesError>> fo
         Ok(self
             .chain
             .chain_store()
-            .get_state_changes(&msg.block_hash, &msg.state_changes_request.into())?
+            .get_state_changes(&msg.block_hash, &msg.state_changes_request.into())
             .into_iter()
             .map(Into::into)
             .collect())
@@ -979,7 +979,7 @@ impl Handler<GetStateChangesWithCauseInBlock, Result<StateChangesView, GetStateC
         Ok(self
             .chain
             .chain_store()
-            .get_state_changes_with_cause_in_block(&msg.block_hash)?
+            .get_state_changes_with_cause_in_block(&msg.block_hash)
             .into_iter()
             .map(Into::into)
             .collect())
@@ -1003,7 +1003,7 @@ impl
             .with_label_values(&["GetStateChangesWithCauseInBlockForTrackedShards"])
             .start_timer();
         let state_changes_with_cause_in_block =
-            self.chain.chain_store().get_state_changes_with_cause_in_block(&msg.block_hash)?;
+            self.chain.chain_store().get_state_changes_with_cause_in_block(&msg.block_hash);
 
         let mut state_changes_with_cause_split_by_shard_id: HashMap<ShardId, StateChangesView> =
             HashMap::new();

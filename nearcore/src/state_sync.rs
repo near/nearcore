@@ -55,13 +55,13 @@ pub struct StateSyncDumper {
 impl StateSyncDumper {
     /// Starts a thread that periodically checks whether any new parts need to be uploaded, and then spawns
     /// futures to generate and upload them
-    pub fn start(self) -> anyhow::Result<Arc<StateSyncDumpHandle>> {
+    pub fn start(self) -> Arc<StateSyncDumpHandle> {
         let dump_config = if let Some(dump_config) = self.client_config.state_sync.dump.clone() {
             dump_config
         } else {
             // Dump is not configured, and therefore not enabled.
             tracing::debug!(target: "state_sync_dump", "not spawning the state sync dump loop");
-            return Ok(Arc::new(StateSyncDumpHandle::new()));
+            return Arc::new(StateSyncDumpHandle::new());
         };
         tracing::info!(target: "state_sync_dump", "spawning the state sync dump loop");
         let s3_access_config =
@@ -108,7 +108,7 @@ impl StateSyncDumper {
             .boxed(),
         );
 
-        Ok(handle)
+        handle
     }
 }
 
@@ -796,7 +796,7 @@ impl StateDumper {
 
     /// Sets the in-memory and on-disk state to reflect that we're currently dumping state for a new epoch,
     /// with the info and progress represented in `dump`.
-    fn new_dump(&mut self, dump: DumpState, sync_hash: CryptoHash) -> anyhow::Result<()> {
+    fn new_dump(&mut self, dump: DumpState, sync_hash: CryptoHash) {
         for (shard_id, _) in &dump.dump_state {
             self.chain.chain_store().set_state_sync_dump_progress(
                 *shard_id,
@@ -808,7 +808,6 @@ impl StateDumper {
             );
         }
         self.current_dump = CurrentDump::InProgress(dump);
-        Ok(())
     }
 
     // Checks the current epoch and initializes the types associated with dumping its state
@@ -832,7 +831,7 @@ impl StateDumper {
 
                     dump.set_missing_parts(&self.external, &self.chain_id).await;
                     self.start_upload_parts(senders, &dump);
-                    self.new_dump(dump, *sync_header.hash())?;
+                    self.new_dump(dump, *sync_header.hash());
                 }
                 NewDump::NoTrackedShards => {
                     self.current_dump = CurrentDump::Done(*sync_header.epoch_id());
@@ -843,7 +842,7 @@ impl StateDumper {
     }
 
     // Returns when the part upload tasks are finished
-    async fn check_parts_upload(&mut self) -> anyhow::Result<()> {
+    async fn check_parts_upload(&mut self) {
         let CurrentDump::InProgress(dump) = &mut self.current_dump else {
             return std::future::pending().await;
         };
@@ -869,7 +868,6 @@ impl StateDumper {
         if dump.dump_state.is_empty() {
             self.current_dump = CurrentDump::Done(dump.epoch_id);
         }
-        Ok(())
     }
 
     // Checks which parts have already been uploaded possibly by other nodes
@@ -915,7 +913,7 @@ impl StateDumper {
             NewDump::Dump(mut dump, sender) => {
                 self.header_uploader(&dump).upload_headers(&mut dump).await;
                 self.start_upload_parts(sender, &dump);
-                self.new_dump(dump, *sync_header.hash())?;
+                self.new_dump(dump, *sync_header.hash());
             }
             NewDump::NoTrackedShards => {
                 self.current_dump = CurrentDump::Done(*sync_header.epoch_id());
@@ -973,9 +971,7 @@ async fn state_sync_dump(
             _ = check_stored_parts.tick(&clock) => {
                 dumper.check_stored_parts().await;
             }
-            result = dumper.check_parts_upload() => {
-                result?;
-            }
+            _ = dumper.check_parts_upload() => {}
         }
     }
 

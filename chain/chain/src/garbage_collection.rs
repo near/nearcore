@@ -458,7 +458,7 @@ impl ChainStore {
         }
 
         let mut chain_store_update = self.store_update();
-        chain_store_update.clear_redundant_chunk_data(gc_stop_height, gc_height_limit)?;
+        chain_store_update.clear_redundant_chunk_data(gc_stop_height, gc_height_limit);
         metrics::CHUNK_TAIL_HEIGHT.set(chain_store_update.chunk_tail() as i64);
         metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
         chain_store_update.commit()
@@ -687,7 +687,7 @@ impl<'a> ChainStoreUpdate<'a> {
         &mut self,
         gc_stop_height: BlockHeight,
         gc_height_limit: BlockHeightDelta,
-    ) -> Result<(), Error> {
+    ) {
         let mut height = self.chunk_tail();
         let mut remaining = gc_height_limit;
         while height < gc_stop_height && remaining > 0 {
@@ -706,7 +706,6 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
         self.update_chunk_tail(height);
-        Ok(())
     }
 
     fn get_shard_uids_to_gc(

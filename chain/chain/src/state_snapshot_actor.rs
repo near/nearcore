@@ -80,13 +80,13 @@ impl StateSnapshotActor {
         &self,
         min_chunk_prev_height: BlockHeight,
         shard_indexes_and_uids: &[(ShardIndex, ShardUId)],
-    ) -> anyhow::Result<bool> {
+    ) -> bool {
         let shard_uids = shard_indexes_and_uids.iter().map(|(_idx, uid)| *uid);
         let Some(min_height) =
             self.flat_storage_manager.resharding_catchup_height_reached(shard_uids)
         else {
             // No flat storage split + catchup is in progress, ok to proceed
-            return Ok(false);
+            return false;
         };
         let Some(min_height) = min_height else {
             // storage split + catchup is in progress and not all shards have reached the catchup phase yet. Can't proceed
@@ -103,10 +103,10 @@ impl StateSnapshotActor {
                 })
                 .collect();
             tracing::debug!(target: "state_snapshot", ?not_ready_shards, "waiting for resharding: shards not in catchup phase");
-            return Ok(true);
+            return true;
         };
         // Proceed if the catchup code is already reasonably close to being finished. This is not a correctness issue,
-        // as this line of code could just be replaced with Ok(false), and things would work. But in that case, if there are for
+        // as this line of code could just be replaced with false, and things would work. But in that case, if there are for
         // some reason lots of deltas to apply (e.g. the sync hash is 1000s of blocks past the start of the epoch because of missed
         // chunks), then we'll duplicate a lot of work that's being done by the resharding catchup code. So we might as well just
         // come back later after most of that work has already been done.
@@ -114,7 +114,7 @@ impl StateSnapshotActor {
         if should_wait {
             tracing::debug!(target: "state_snapshot", min_height, min_chunk_prev_height, "waiting for resharding catchup");
         }
-        Ok(should_wait)
+        should_wait
     }
 
     pub fn handle_create_snapshot_request(
@@ -138,16 +138,10 @@ impl StateSnapshotActor {
                 return;
             }
         }
-        let should_wait = match self.should_wait_for_resharding_split(
+        let should_wait = self.should_wait_for_resharding_split(
             msg.min_chunk_prev_height,
             &msg.shard_indexes_and_uids,
-        ) {
-            Ok(s) => s,
-            Err(err) => {
-                tracing::error!(target: "state_snapshot", ?err, "state snapshot actor failed to check resharding status, not making snapshot");
-                return;
-            }
-        };
+        );
         // TODO: instead of resending the same message over and over, wait on a Condvar.
         // This would require making testloop work with Condvars that normally are meant to be woken up by another thread
         if should_wait {

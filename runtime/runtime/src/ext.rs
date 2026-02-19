@@ -22,7 +22,7 @@ use near_vm_runner::logic::types::{
 };
 use near_vm_runner::logic::{External, StorageAccessTracker, ValuePtr};
 use near_vm_runner::{Contract, ContractCode};
-use near_wallet_contract::wallet_contract;
+use near_wallet_contract::{eth_wallet_global_contract_hash, wallet_contract};
 use parking_lot::Mutex;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
@@ -556,6 +556,8 @@ pub(crate) struct RuntimeContractExt<'a> {
     pub(crate) storage: ContractStorage,
     pub(crate) account_id: &'a AccountId,
     pub(crate) code_hash: CryptoHash,
+    pub(crate) config: Arc<near_parameters::vm::Config>,
+    pub(crate) chain_id: String,
 }
 
 impl<'a> Contract for RuntimeContractExt<'a> {
@@ -565,8 +567,12 @@ impl<'a> Contract for RuntimeContractExt<'a> {
         if self.account_id.get_account_type() == AccountType::EthImplicitAccount {
             // There are old eth implicit accounts without magic bytes in the code hash.
             // Result can be None and it's a valid option. See https://github.com/near/nearcore/pull/11606
-            if let Some(wallet_contract) = wallet_contract(self.code_hash) {
-                return *wallet_contract.hash();
+            if let Some(wc) = wallet_contract(self.code_hash) {
+                if self.config.eth_implicit_global_contract {
+                    return eth_wallet_global_contract_hash(&self.chain_id);
+                } else {
+                    return *wc.hash();
+                }
             }
         }
 
@@ -582,7 +588,12 @@ impl<'a> Contract for RuntimeContractExt<'a> {
             // something here if the accounts have a wallet contract hash. Otherwise use the
             // regular path to grab the deployed contract.
             if let Some(wc) = wallet_contract(self.code_hash) {
-                return Some(wc);
+                if self.config.eth_implicit_global_contract {
+                    let global_hash = eth_wallet_global_contract_hash(&self.chain_id);
+                    return self.storage.get(global_hash).map(Arc::new);
+                } else {
+                    return Some(wc);
+                }
             }
         }
         self.storage.get(self.code_hash).map(Arc::new)

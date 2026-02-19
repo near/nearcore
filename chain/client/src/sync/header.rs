@@ -65,6 +65,19 @@ pub struct HeaderSync {
     shutdown_height: near_chain_configs::MutableConfigValue<Option<BlockHeight>>,
 }
 
+/// What header sync should do given the current SyncStatus.
+enum HeaderSyncAction {
+    /// Skip header sync entirely (e.g. during EpochSync).
+    Skip,
+    /// Run header sync as the primary sync activity and update sync_status to HeaderSync.
+    SyncAndUpdateStatus,
+    /// Run header sync in the background without changing sync_status.
+    /// Used during StateSync and BlockSync to keep the header chain
+    /// advancing while the primary sync activity retains ownership of
+    /// the SyncStatus.
+    SyncInBackground,
+}
+
 impl HeaderSync {
     pub fn new(
         clock: Clock,
@@ -94,9 +107,19 @@ impl HeaderSync {
         }
     }
 
-    /// Can update `sync_status` to `HeaderSync`.
-    /// Can request a new batch of headers from a peer.
-    /// This function won't tell you that header sync is complete.
+    /// Runs one iteration of header sync.
+    ///
+    /// This may update `sync_status` to `HeaderSync` and request a new batch
+    /// of headers from a peer. Does not signal when header sync is complete.
+    ///
+    /// Header sync operates in two modes depending on `sync_status`:
+    /// - **Primary mode** (NoSync, AwaitingPeers, EpochSyncDone, StateSyncDone,
+    ///   or already HeaderSync): transitions `sync_status` to `HeaderSync`.
+    /// - **Background mode** (StateSync, BlockSync): requests headers without
+    ///   changing `sync_status`. The primary sync activity retains ownership
+    ///   of the status.
+    ///
+    /// Header sync is skipped entirely during `EpochSync`.
     pub fn run(
         &mut self,
         sync_status: &mut SyncStatus,
@@ -118,35 +141,50 @@ impl HeaderSync {
         }
 
         // TODO: Why call `header_sync_due()` if that decision can be overridden here?
-        let enable_header_sync = match sync_status {
+        let action = match sync_status {
             SyncStatus::HeaderSync { .. }
-            | SyncStatus::BlockSync { .. }
             | SyncStatus::EpochSyncDone
-            | SyncStatus::StateSyncDone => {
-                // TODO: Transitioning from BlockSync to HeaderSync is fine if the highest height of peers gets too far from our header_head_height. However it's currently unconditional.
-                true
-            }
+            | SyncStatus::StateSyncDone => HeaderSyncAction::SyncAndUpdateStatus,
             SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
                 tracing::debug!(target: "sync", header_head_hash = ?header_head.last_block_hash, header_head_height = header_head.height, "initial transition to header sync");
-                true
+                HeaderSyncAction::SyncAndUpdateStatus
             }
-            SyncStatus::EpochSync { .. } | SyncStatus::StateSync { .. } => false,
+            SyncStatus::StateSync { .. } | SyncStatus::BlockSync { .. } => {
+                HeaderSyncAction::SyncInBackground
+            }
+            SyncStatus::EpochSync { .. } => HeaderSyncAction::Skip,
         };
 
-        if !enable_header_sync {
-            // Header sync is blocked for whatever reason.
-            return Ok(());
+        // When header sync is the primary sync mode, update sync_status to
+        // HeaderSync so the rest of the system (UI, metrics) sees progress.
+        // When header sync runs in the background during state sync or block
+        // sync, leave sync_status unchanged — the primary sync activity owns it.
+        match action {
+            HeaderSyncAction::SyncAndUpdateStatus => {
+                // start_height is used to report the progress of header sync,
+                // e.g. to say that it's 50% complete.
+                let start_height = match sync_status {
+                    // After epoch sync head is at genesis; use header_head
+                    // which reflects where header sync actually starts.
+                    SyncStatus::EpochSyncDone => header_head.height,
+                    _ => sync_status.start_height().unwrap_or(head.height),
+                };
+                sync_status.update(SyncStatus::HeaderSync {
+                    start_height,
+                    current_height: header_head.height,
+                    highest_height,
+                });
+            }
+            HeaderSyncAction::SyncInBackground => {
+                tracing::trace!(
+                    target: "sync",
+                    header_head_height = header_head.height,
+                    highest_height,
+                    "requesting headers in background"
+                );
+            }
+            HeaderSyncAction::Skip => return Ok(()),
         }
-
-        // start_height is used to report the progress of header sync, e.g. to say that it's 50% complete.
-        // This number has no other functional value.
-        let start_height = sync_status.start_height().unwrap_or(head.height);
-
-        sync_status.update(SyncStatus::HeaderSync {
-            start_height,
-            current_height: header_head.height,
-            highest_height,
-        });
 
         self.syncing_peer = None;
         // Pick a new random peer to request the next batch of headers.
@@ -234,6 +272,11 @@ impl HeaderSync {
                 if let Some(ref stalling_ts) = self.stalling_ts {
                     // syncing_peer is expected to be present.
                     if let Some(ref peer) = self.syncing_peer {
+                        // Peer banning only applies when header sync is the
+                        // primary sync mode. During background header sync
+                        // (StateSync, BlockSync), stalling peers are not banned
+                        // — they may be serving state parts or blocks, and
+                        // banning them would hurt the primary sync activity.
                         match sync_status {
                             SyncStatus::HeaderSync { highest_height, .. } => {
                                 if now > *stalling_ts + self.stall_ban_timeout
@@ -257,9 +300,15 @@ impl HeaderSync {
                                     return false;
                                 }
                             }
-                            _ => {
-                                // Unexpected
+                            SyncStatus::StateSync { .. } | SyncStatus::BlockSync { .. } => {
+                                tracing::trace!(
+                                    target: "sync",
+                                    ?sync_status,
+                                    peer_info = %peer.peer_info,
+                                    "background header sync"
+                                );
                             }
+                            _ => {}
                         }
                     }
                 }
@@ -392,7 +441,7 @@ mod test {
     use near_chain::types::Tip;
     use near_chain::{BlockProcessingArtifact, Provenance, retrieve_headers};
     use near_chain_configs::MutableConfigValue;
-    use near_client_primitives::types::SyncStatus;
+    use near_client_primitives::types::{StateSyncStatus, SyncStatus};
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::{
@@ -874,5 +923,75 @@ mod test {
         }
         let new_tip = chain.header_head().unwrap();
         assert_eq!(new_tip.last_block_hash, chain2.head().unwrap().last_block_hash);
+    }
+
+    #[test]
+    fn header_sync_runs_during_state_sync() {
+        let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
+        let mut header_sync = HeaderSync::new(
+            Clock::real(),
+            mock_adapter.as_multi_sender(),
+            Duration::seconds(10),
+            Duration::seconds(2),
+            Duration::seconds(120),
+            1_000_000_000,
+            MutableConfigValue::new(None, "expected_shutdown"),
+        );
+
+        let (mut chain, _, _, signer) = setup(Clock::real());
+        for _ in 0..3 {
+            let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
+            let block =
+                TestBlockBuilder::from_prev_block(Clock::real(), &prev, signer.clone()).build();
+            process_block_sync(
+                &mut chain,
+                block.into(),
+                Provenance::PRODUCED,
+                &mut BlockProcessingArtifact::default(),
+            )
+            .unwrap();
+        }
+
+        let head = chain.head().unwrap();
+        let mut sync_status = SyncStatus::StateSync(StateSyncStatus::new(head.last_block_hash));
+
+        let peer1 = FullPeerInfo {
+            peer_info: PeerInfo::random(),
+            chain_info: near_network::types::PeerChainInfo {
+                genesis_id: GenesisId {
+                    chain_id: "unittest".to_string(),
+                    hash: *chain.genesis().hash(),
+                },
+                tracked_shards: vec![],
+                archival: false,
+                last_block: Some(BlockInfo {
+                    height: head.height + 10,
+                    hash: head.last_block_hash,
+                }),
+            },
+        };
+
+        assert!(
+            header_sync
+                .run(
+                    &mut sync_status,
+                    &mut chain,
+                    head.height + 10,
+                    &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
+                )
+                .is_ok()
+        );
+
+        // State sync should continue to be reflected in SyncStatus.
+        assert!(matches!(sync_status, SyncStatus::StateSync(_)));
+
+        let request =
+            mock_adapter.pop().expect("missing header sync request").as_network_requests();
+        match request {
+            NetworkRequests::BlockHeadersRequest { peer_id, .. } => {
+                assert_eq!(peer_id, peer1.peer_info.id);
+            }
+            other => panic!("unexpected network request: {other:?}"),
+        }
     }
 }

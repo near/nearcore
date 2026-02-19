@@ -2,7 +2,7 @@ use super::drop_condition::DropCondition;
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::rpc_account_id;
-use crate::utils::node_v2::{NodeRunner, TestLoopNodeV2};
+use crate::utils::node::{NodeRunner, TestLoopNode, TestLoopNodeMut};
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
@@ -167,41 +167,55 @@ impl TestLoopEnv {
         self.test_loop.shutdown_and_drain_remaining_events(timeout);
     }
 
-    pub fn get_node_data_by_account_id(
-        &self,
-        account_id: &AccountId,
-    ) -> Option<&NodeExecutionData> {
-        self.node_datas.iter().find(|data| &data.account_id == account_id)
+    pub fn get_node_data_by_account_id(&self, account_id: &AccountId) -> &NodeExecutionData {
+        let idx = self.account_data_idx(account_id);
+        &self.node_datas[idx]
     }
 
-    pub fn test_loop_data(&self) -> &TestLoopData {
-        &self.test_loop.data
-    }
-
-    pub fn validator(&mut self) -> TestLoopNodeV2<'_> {
+    pub fn validator(&self) -> TestLoopNode<'_> {
         self.node(0)
+    }
+
+    #[cfg_attr(not(feature = "test_features"), allow(dead_code))]
+    pub fn validator_mut(&mut self) -> TestLoopNodeMut<'_> {
+        self.node_mut(0)
     }
 
     pub fn validator_runner(&mut self) -> NodeRunner<'_> {
         self.node_runner(0)
     }
 
-    pub fn rpc_node(&mut self) -> TestLoopNodeV2<'_> {
-        let idx = self.rpc_idx();
+    pub fn rpc_node(&self) -> TestLoopNode<'_> {
+        let idx = self.rpc_data_idx();
         self.node(idx)
     }
 
-    pub fn node(&mut self, idx: usize) -> TestLoopNodeV2<'_> {
-        TestLoopNodeV2 { data: &mut self.test_loop.data, node_data: &self.node_datas[idx] }
+    pub fn rpc_node_mut(&mut self) -> TestLoopNodeMut<'_> {
+        let idx = self.rpc_data_idx();
+        self.node_mut(idx)
     }
 
-    pub fn node_for_account(&mut self, account_id: &AccountId) -> TestLoopNodeV2<'_> {
-        let idx = self.account_idx(account_id);
+    pub fn node(&self, idx: usize) -> TestLoopNode<'_> {
+        TestLoopNode { data: &self.test_loop.data, node_data: &self.node_datas[idx] }
+    }
+
+    pub fn node_mut(&mut self, idx: usize) -> TestLoopNodeMut<'_> {
+        TestLoopNodeMut { data: &mut self.test_loop.data, node_data: &self.node_datas[idx] }
+    }
+
+    pub fn node_for_account(&self, account_id: &AccountId) -> TestLoopNode<'_> {
+        let idx = self.account_data_idx(account_id);
         self.node(idx)
+    }
+
+    #[allow(dead_code)]
+    pub fn node_for_account_mut(&mut self, account_id: &AccountId) -> TestLoopNodeMut<'_> {
+        let idx = self.account_data_idx(account_id);
+        self.node_mut(idx)
     }
 
     pub fn rpc_runner(&mut self) -> NodeRunner<'_> {
-        let idx = self.rpc_idx();
+        let idx = self.rpc_data_idx();
         self.node_runner(idx)
     }
 
@@ -210,18 +224,18 @@ impl TestLoopEnv {
     }
 
     pub fn runner_for_account(&mut self, account_id: &AccountId) -> NodeRunner<'_> {
-        let idx = self.account_idx(account_id);
+        let idx = self.account_data_idx(account_id);
         self.node_runner(idx)
     }
 
-    fn account_idx(&self, account_id: &AccountId) -> usize {
+    pub fn account_data_idx(&self, account_id: &AccountId) -> usize {
         self.node_datas
             .iter()
             .rposition(|d| &d.account_id == account_id)
             .unwrap_or_else(|| panic!("node with account id {account_id} not found"))
     }
 
-    fn rpc_idx(&self) -> usize {
-        self.account_idx(&rpc_account_id())
+    pub fn rpc_data_idx(&self) -> usize {
+        self.account_data_idx(&rpc_account_id())
     }
 }

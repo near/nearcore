@@ -913,7 +913,7 @@ impl SpiceDataDistributorActor {
         &mut self,
         data_id: &SpiceDataIdentifier,
         producers_count: usize,
-    ) -> Result<Option<DistributionData>, Error> {
+    ) -> Option<DistributionData> {
         let data = match data_id {
             SpiceDataIdentifier::ReceiptProof { block_hash, from_shard_id, to_shard_id } => {
                 get_receipt_proof(
@@ -931,7 +931,7 @@ impl SpiceDataDistributorActor {
             }
         };
 
-        Ok(data.map(|data| self.encode_distribution_data(&data, producers_count)))
+        data.map(|data| self.encode_distribution_data(&data, producers_count))
     }
 
     fn handle_partial_data_request(
@@ -950,7 +950,7 @@ impl SpiceDataDistributorActor {
             return Err(Error::Other("we do not produce requested data"));
         }
 
-        let Some(data) = self.get_distribution_data(&data_id, producers.len())? else {
+        let Some(data) = self.get_distribution_data(&data_id, producers.len()) else {
             // TODO(spice): Make sure we send requests for data only after we know it may be
             // available and make this into error.
             tracing::debug!(target:"spice_data_distribution", ?data_id, ?requester, "received request for unknown data");

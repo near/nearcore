@@ -375,6 +375,12 @@ pub enum ProtocolFeature {
     /// finalized EpochInfoAggregator stats. Recovers shard liveness in minutes
     /// instead of waiting for the next epoch boundary (~12 hours).
     EarlyChunkProducerKickout,
+    /// Use global contract for ETH implicit accounts instead of embedded WASM.
+    EthImplicitGlobalContract,
+    /// Process action receipts containing a single DeleteAccount action as
+    /// instant receipts, executing them immediately after the receipt that
+    /// produced them rather than sending them as outgoing receipts.
+    InstantDeleteAccount,
 }
 
 impl ProtocolFeature {
@@ -480,7 +486,9 @@ impl ProtocolFeature {
             | ProtocolFeature::FixDeterministicAccountIdCreation
             | ProtocolFeature::GlobalContractDistributionNonce
             | ProtocolFeature::InstantPromiseYield
-            | ProtocolFeature::YieldResumeImprovements => 83,
+            | ProtocolFeature::YieldResumeImprovements
+            | ProtocolFeature::EthImplicitGlobalContract
+            | ProtocolFeature::InstantDeleteAccount => 83,
             ProtocolFeature::Wasmtime => 84,
 
             // Nightly features:

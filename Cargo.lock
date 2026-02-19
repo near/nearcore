@@ -3491,9 +3491,12 @@ checksum = "41ee439ee368ba4a77ac70d04f14015415af8600d6c894dc1f11bd79758c57d5"
 
 [[package]]
 name = "keccak"
-version = "0.1.0"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67c21572b4949434e4fc1e1978b99c5f77064153c59d998bf13ecd96fb5ecba7"
+checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
+dependencies = [
+ "cpufeatures",
+]
 
 [[package]]
 name = "keypair-generator"
@@ -8048,10 +8051,14 @@ name = "test-loop-tests"
 version = "0.0.0"
 dependencies = [
  "assert_matches",
+ "aurora-engine-transactions",
+ "aurora-engine-types",
  "borsh",
  "bytesize 1.1.0",
  "derive_builder",
+ "ethabi",
  "futures",
+ "hex",
  "itertools 0.14.0",
  "near-async",
  "near-chain",
@@ -8072,12 +8079,15 @@ dependencies = [
  "near-store",
  "near-test-contracts",
  "near-vm-runner",
+ "near-wallet-contract",
  "nearcore",
  "parking_lot 0.12.1",
  "primitive-types 0.10.1",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
+ "rlp",
  "serde_json",
+ "sha3",
  "tempfile",
  "testlib",
  "tokio",

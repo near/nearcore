@@ -1,3 +1,4 @@
 # Enable strict AccountID validation
 # Use AccountIdValidityRulesVersion::V2 instead of a separate forbid_unvalidated_account_id flag.
 account_id_validity_rules_version: { old: 1, new: 2 }
+eth_implicit_global_contract: { old: false, new: true }

@@ -604,7 +604,7 @@ impl Runtime {
             Action::DeleteKey(delete_key) => {
                 metrics::ACTION_CALLED_COUNT.delete_key.inc();
                 action_delete_key(
-                    &apply_state.config.fees,
+                    &apply_state.config,
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
@@ -622,6 +622,7 @@ impl Runtime {
                     &mut result,
                     account_id,
                     delete_account,
+                    &apply_state.config,
                     apply_state.current_protocol_version,
                 )?;
             }
@@ -2976,6 +2977,7 @@ impl<'a> ApplyProcessingState<'a> {
             Arc::clone(&self.apply_state.config),
             self.apply_state.cache.as_ref().map(|v| v.handle()),
             self.state_update.contract_storage(),
+            self.epoch_info_provider.chain_id(),
         );
         ApplyProcessingReceiptState {
             pipeline_manager,
@@ -3191,6 +3193,7 @@ pub mod estimator {
             std::sync::Arc::clone(&apply_state.config),
             apply_state.cache.as_ref().map(|c| c.handle()),
             state_update.contract_storage(),
+            epoch_info_provider.chain_id(),
         );
         let apply_result = Runtime {}.apply_action_receipt(
             state_update,
