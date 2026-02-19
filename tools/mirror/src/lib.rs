@@ -11,6 +11,7 @@ use near_client_primitives::types::{
 };
 use near_crypto::{PublicKey, SecretKey};
 use near_indexer::{Indexer, StreamerMessage};
+use near_primitives::action::{TransferToGasKeyAction, WithdrawFromGasKeyAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::{
@@ -839,7 +840,7 @@ async fn fetch_gas_key_nonces(
         .unwrap()
     {
         Ok(res) => match res.kind {
-            QueryResponseKind::GasKeyNonces(nonces) => Ok(Some(nonces)),
+            QueryResponseKind::GasKeyNonces(view) => Ok(Some(view.nonces)),
             other => {
                 panic!(
                     "received unexpected QueryResponse after Querying Gas Key Nonces: {:?}",
@@ -1051,6 +1052,24 @@ impl<T: ChainAccess> TxMirror<T> {
                             self.secret.as_ref(),
                         ),
                     }));
+                }
+                Action::TransferToGasKey(a) => {
+                    let public_key =
+                        crate::key_mapping::map_key(&a.public_key, self.secret.as_ref())
+                            .public_key();
+                    actions.push(Action::TransferToGasKey(Box::new(TransferToGasKeyAction {
+                        public_key,
+                        deposit: a.deposit,
+                    })));
+                }
+                Action::WithdrawFromGasKey(a) => {
+                    let public_key =
+                        crate::key_mapping::map_key(&a.public_key, self.secret.as_ref())
+                            .public_key();
+                    actions.push(Action::WithdrawFromGasKey(Box::new(WithdrawFromGasKeyAction {
+                        public_key,
+                        amount: a.amount,
+                    })));
                 }
                 // TODO: handle delegate actions
                 _ => actions.push(action.clone()),
@@ -1875,15 +1894,13 @@ impl<T: ChainAccess> TxMirror<T> {
                         )
                         .await?
                     }
-                    NonceKind::GasKey(nonce_index) => {
-                        crate::fetch_gas_key_nonces(
-                            &view_client,
-                            &access_key_update.nonce_key.account_id,
-                            &access_key_update.nonce_key.public_key,
-                        )
-                        .await?
-                        .and_then(|nonces| nonces.get(*nonce_index as usize).copied())
-                    }
+                    NonceKind::GasKey(nonce_index) => crate::fetch_gas_key_nonces(
+                        &view_client,
+                        &access_key_update.nonce_key.account_id,
+                        &access_key_update.nonce_key.public_key,
+                    )
+                    .await?
+                    .and_then(|nonces| nonces.get(*nonce_index as usize).copied()),
                 };
                 let mut tracker = tracker.lock();
                 tracker.try_set_nonces(&tx_block_queue, db.as_ref(), access_key_update, nonce)?;
