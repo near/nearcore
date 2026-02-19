@@ -102,7 +102,7 @@ pub enum QueryResponseKind {
     CallResult(near_primitives::views::CallResult),
     AccessKey(near_primitives::views::AccessKeyView),
     AccessKeyList(near_primitives::views::AccessKeyList),
-    GasKeyNonces(Vec<near_primitives::types::Nonce>),
+    GasKeyNonces(near_primitives::views::GasKeyNoncesView),
 }
 
 impl From<RpcQueryError> for crate::errors::RpcError {
