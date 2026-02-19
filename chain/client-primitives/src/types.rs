@@ -393,7 +393,7 @@ pub enum QueryError {
         block_hash: near_primitives::hash::CryptoHash,
     },
     #[error(
-        "Access key for public key {public_key} does not exist while viewing at block #{block_height}"
+        "Access key for public key {public_key} has never been observed on the node at block #{block_height}"
     )]
     UnknownAccessKey {
         public_key: near_crypto::PublicKey,
