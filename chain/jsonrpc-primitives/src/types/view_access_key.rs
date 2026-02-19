@@ -36,7 +36,7 @@ pub enum RpcViewAccessKeyError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Access key for public key {public_key} does not exist while viewing")]
+    #[error("access key for public key {public_key} does not exist while viewing")]
     UnknownAccessKey {
         public_key: near_crypto::PublicKey,
         block_height: near_primitives::types::BlockHeight,
