@@ -1862,25 +1862,26 @@ impl EpochManager {
             }
 
             let prev_hash = *block_info.prev_hash();
-            let (prev_height, prev_epoch) = match self.get_block_info(&prev_hash) {
-                Ok(info) => (info.height(), *info.epoch_id()),
-                Err(EpochError::MissingBlock(_)) => {
-                    // In the case of epoch sync, we may not have the BlockInfo for the last final block
-                    // of the epoch. In this case, check for this special case.
-                    // TODO(11931): think of a better way to do this.
-                    let chain_store = self.store.chain_store();
-                    let tip = chain_store.header_head().expect("Tip not found");
-                    let block_header = chain_store
-                        .get_block_header(&tip.prev_block_hash)
-                        .expect("BlockHeader for prev block of tip not found in store");
-                    if block_header.prev_hash() == block_info.hash() {
-                        (block_info.height() - 1, *block_info.epoch_id())
-                    } else {
-                        return Err(EpochError::MissingBlock(prev_hash));
+            let (prev_height, prev_epoch, prev_block_info_missing) =
+                match self.get_block_info(&prev_hash) {
+                    Ok(info) => (info.height(), *info.epoch_id(), false),
+                    Err(EpochError::MissingBlock(_)) => {
+                        // In the case of epoch sync, we may not have the BlockInfo for the last final block
+                        // of the epoch. In this case, check for this special case.
+                        // TODO(11931): think of a better way to do this.
+                        let chain_store = self.store.chain_store();
+                        let tip = chain_store.header_head().expect("Tip not found");
+                        let block_header = chain_store
+                            .get_block_header(&tip.prev_block_hash)
+                            .expect("BlockHeader for prev block of tip not found in store");
+                        if block_header.prev_hash() == block_info.hash() {
+                            (block_info.height() - 1, *block_info.epoch_id(), true)
+                        } else {
+                            return Err(EpochError::MissingBlock(prev_hash));
+                        }
                     }
-                }
-                Err(e) => return Err(e),
-            };
+                    Err(e) => return Err(e),
+                };
 
             // Build chunk producer overrides from DBCol::ChunkProducers.
             // When early kickout replaces a blacklisted producer, the DB entry
@@ -1906,6 +1907,19 @@ impl EpochManager {
             if ProtocolFeature::EarlyChunkProducerKickout.enabled(epoch_info.protocol_version()) {
                 for shard_id in shard_layout.shard_ids() {
                     if !chunk_producer_overrides.contains_key(&shard_id) {
+                        if prev_block_info_missing {
+                            // Epoch sync bootstrap stores a bounded set of BlockInfo entries and
+                            // may not have full historical coverage at the boundary. In that case
+                            // we allow fallback to sampling for this step.
+                            tracing::warn!(
+                                target: "epoch_manager",
+                                ?prev_hash,
+                                %shard_id,
+                                "Missing DBCol::ChunkProducers at epoch-sync boundary; \
+                                 falling back to sample_chunk_producer"
+                            );
+                            continue;
+                        }
                         tracing::error!(
                             target: "epoch_manager",
                             ?prev_hash,

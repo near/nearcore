@@ -256,6 +256,13 @@ impl EpochSync {
 
         chain_store_update.commit()?;
 
+        let last_epoch_first_block_hash = *proof.last_epoch.first_block_in_epoch.hash();
+        let prev_epoch_second_last_block_hash =
+            *proof.current_epoch.second_last_block_header_in_prev_epoch.hash();
+        let prev_epoch_last_block_hash =
+            *proof.current_epoch.last_block_header_in_prev_epoch.hash();
+        let current_epoch_first_block_hash = *last_header.hash();
+
         // Initialize the epoch manager with the last epoch.
         epoch_manager.init_after_epoch_sync(
             &mut store_update.epoch_store_update(),
@@ -301,6 +308,19 @@ impl EpochSync {
         );
 
         store_update.commit();
+
+        // Epoch sync bootstraps a bounded set of boundary blocks outside the
+        // normal block-processing path. Seed baseline chunk producer entries so
+        // strict ChunkProducers invariants hold while header sync catches up.
+        for block_hash in [
+            last_epoch_first_block_hash,
+            prev_epoch_second_last_block_hash,
+            prev_epoch_last_block_hash,
+            current_epoch_first_block_hash,
+        ] {
+            // let _ = block_hash;
+            epoch_manager.save_default_chunk_producers(&block_hash)?;
+        }
 
         *status = SyncStatus::EpochSyncDone;
         tracing::info!(epoch_id=?last_header.epoch_id(), "bootstrapped from epoch sync");
