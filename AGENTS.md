@@ -20,9 +20,9 @@
 
 ## Testing
 
-- To run specific tests, use `cargo test --package {package} --lib --features test_features -- {path::to::test} --exact --show-output`. Use `--feature nightly` if needed.
+- To run specific tests, use `cargo test --package {package} --features test_features -- {path::to::test} --exact --show-output`. Always use `--features test_features`. Use `--feature nightly` if needed.
 - When working with test-loop tests, follow the instructions in `test-loop-tests/README.md`.
-- Create new testloop tests based on the examples in `test-loop-tests/src/examples/`, as those reflect the latest API and best practices.
+- Create new test-loop tests based on the examples in `test-loop-tests/src/examples/`, as those reflect the latest API and best practices.
 
 ## Formatting
 
