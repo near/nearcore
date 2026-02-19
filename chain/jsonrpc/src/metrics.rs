@@ -90,6 +90,22 @@ pub static RPC_POOL_FORWARD_DURATION_SECONDS: LazyLock<HistogramVec> = LazyLock:
     )
     .unwrap()
 });
+pub static RPC_POOL_FANOUT_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    near_o11y::metrics::try_create_int_counter_vec(
+        "near_rpc_pool_fanout_total",
+        "Total count of fan-out requests sent to all pool peers",
+        &["method"],
+    )
+    .unwrap()
+});
+pub static RPC_POOL_FANOUT_PARTIAL_ERRORS: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    near_o11y::metrics::try_create_int_counter_vec(
+        "near_rpc_pool_fanout_partial_errors",
+        "Total count of individual peer errors during fan-out requests",
+        &["method"],
+    )
+    .unwrap()
+});
 
 pub(crate) fn report_wait_until_metric(method: &str, wait_until: &TxExecutionStatus) {
     // Serialize wait until as a json value (json string), then remove the quotation marks around it
