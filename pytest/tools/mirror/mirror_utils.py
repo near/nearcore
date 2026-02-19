@@ -119,12 +119,14 @@ def fork_network(neard, fork_dir, target_validators):
 # ── MirrorProcess ────────────────────────────────────────────────────────────
 
 
-def _mirror_cleanup(process):
-    process.send_signal(signal.SIGINT)
+def _mirror_cleanup(mirror):
+    if mirror.process.poll() is not None:
+        return
+    mirror.process.send_signal(signal.SIGINT)
     try:
-        process.wait(5)
+        mirror.process.wait(5)
     except:
-        process.kill()
+        mirror.process.kill()
         logger.error('can\'t kill mirror process')
 
 
@@ -173,7 +175,7 @@ class MirrorProcess:
                                             env=env)
         logger.info("Started mirror process")
         if not hasattr(self, '_atexit_registered'):
-            atexit.register(_mirror_cleanup, self.process)
+            atexit.register(_mirror_cleanup, self)
             self._atexit_registered = True
 
     def restart(self):
