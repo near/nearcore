@@ -14,6 +14,9 @@ use serde_json::json;
 
 use near_chain_configs::GenesisConfig;
 use near_jsonrpc_primitives::types::blocks::{RpcBlockRequest, RpcBlockResponse};
+use near_jsonrpc_primitives::types::call_function::{
+    RpcCallFunctionRequest, RpcCallFunctionResponse,
+};
 use near_jsonrpc_primitives::types::changes::{
     RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
     RpcStateChangesInBlockRequest, RpcStateChangesInBlockResponse,
@@ -34,7 +37,6 @@ use near_jsonrpc_primitives::types::maintenance::{
     RpcMaintenanceWindowsRequest, RpcMaintenanceWindowsResponse,
 };
 use near_jsonrpc_primitives::types::network_info::RpcNetworkInfoResponse;
-use near_jsonrpc_primitives::types::query::{RpcQueryRequest, RpcQueryResponse};
 use near_jsonrpc_primitives::types::receipts::{RpcReceiptRequest, RpcReceiptResponse};
 use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
@@ -47,6 +49,15 @@ use near_jsonrpc_primitives::types::validator::{
     RpcValidatorRequest, RpcValidatorResponse, RpcValidatorsOrderedRequest,
     RpcValidatorsOrderedResponse,
 };
+use near_jsonrpc_primitives::types::view_access_key::{
+    RpcViewAccessKeyRequest, RpcViewAccessKeyResponse,
+};
+use near_jsonrpc_primitives::types::view_access_key_list::{
+    RpcViewAccessKeyListRequest, RpcViewAccessKeyListResponse,
+};
+use near_jsonrpc_primitives::types::view_account::{RpcViewAccountRequest, RpcViewAccountResponse};
+use near_jsonrpc_primitives::types::view_code::{RpcViewCodeRequest, RpcViewCodeResponse};
+use near_jsonrpc_primitives::types::view_state::{RpcViewStateRequest, RpcViewStateResponse};
 use near_primitives::hash::CryptoHash;
 
 // Request types that are just empty structs
@@ -555,7 +566,7 @@ impl schemars::transform::Transform for MergePropertiesIntoOneOf {
 
 /// Configuration for collapsing a cartesian product explosion back to composed types.
 struct CartesianCollapseConfig {
-    /// Name of the type with the explosion (e.g., "RpcQueryRequest")
+    /// Name of the type with the explosion (e.g., "RpcStateChangesInBlockByTypeRequest")
     type_name: &'static str,
     /// Component types that were flattened together
     components: &'static [ComponentConfig],
@@ -566,43 +577,26 @@ struct ComponentConfig {
     name: &'static str,
     /// Properties that discriminate this component's variants
     discriminator_props: &'static [&'static str],
-    /// If internally tagged, the tag property name (e.g., "request_type")
+    /// If internally tagged, the tag property name (e.g., "changes_type")
     tag_prop: Option<&'static str>,
 }
 
 /// Known cartesian product explosions to collapse
-const CARTESIAN_COLLAPSE_CONFIGS: &[CartesianCollapseConfig] = &[
-    CartesianCollapseConfig {
-        type_name: "RpcQueryRequest",
-        components: &[
-            ComponentConfig {
-                name: "BlockReference",
-                discriminator_props: &["block_id", "finality", "sync_checkpoint"],
-                tag_prop: None,
-            },
-            ComponentConfig {
-                name: "QueryRequest",
-                discriminator_props: &["request_type"],
-                tag_prop: Some("request_type"),
-            },
-        ],
-    },
-    CartesianCollapseConfig {
-        type_name: "RpcStateChangesInBlockByTypeRequest",
-        components: &[
-            ComponentConfig {
-                name: "BlockReference",
-                discriminator_props: &["block_id", "finality", "sync_checkpoint"],
-                tag_prop: None,
-            },
-            ComponentConfig {
-                name: "StateChangesRequestView",
-                discriminator_props: &["changes_type"],
-                tag_prop: Some("changes_type"),
-            },
-        ],
-    },
-];
+const CARTESIAN_COLLAPSE_CONFIGS: &[CartesianCollapseConfig] = &[CartesianCollapseConfig {
+    type_name: "RpcStateChangesInBlockByTypeRequest",
+    components: &[
+        ComponentConfig {
+            name: "BlockReference",
+            discriminator_props: &["block_id", "finality", "sync_checkpoint"],
+            tag_prop: None,
+        },
+        ComponentConfig {
+            name: "StateChangesRequestView",
+            discriminator_props: &["changes_type"],
+            tag_prop: Some("changes_type"),
+        },
+    ],
+}];
 
 /// Collapse cartesian product explosions in the schema.
 fn collapse_cartesian_products(schemas: &mut serde_json::Map<String, serde_json::Value>) {
@@ -926,14 +920,6 @@ pub fn generate_openrpc() -> serde_json::Value {
         false,
         &["gas"],
     );
-    add_method::<RpcQueryRequest, RpcQueryResponse>(
-        &mut methods,
-        &mut all_schemas,
-        "query",
-        "Query the blockchain state (view account, call function, etc.)",
-        false,
-        &["query"],
-    );
     add_method::<RpcSendTransactionRequest, RpcTransactionResponse>(
         &mut methods,
         &mut all_schemas,
@@ -1117,6 +1103,57 @@ pub fn generate_openrpc() -> serde_json::Value {
         &["light_client", "experimental"],
     );
 
+    // ==================== EXPERIMENTAL Dedicated Query Methods ====================
+
+    add_method::<RpcViewAccountRequest, RpcViewAccountResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_view_account",
+        "Returns information about an account for given account_id",
+        false,
+        &["query", "experimental"],
+    );
+    add_method::<RpcViewCodeRequest, RpcViewCodeResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_view_code",
+        "Returns the contract code (Wasm binary) deployed to the account",
+        false,
+        &["query", "experimental"],
+    );
+    add_method::<RpcViewStateRequest, RpcViewStateResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_view_state",
+        "Returns the state (key-value pairs) of a contract based on the key prefix",
+        false,
+        &["query", "experimental"],
+    );
+    add_method::<RpcViewAccessKeyRequest, RpcViewAccessKeyResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_view_access_key",
+        "Returns information about a single access key for given account",
+        false,
+        &["query", "experimental"],
+    );
+    add_method::<RpcViewAccessKeyListRequest, RpcViewAccessKeyListResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_view_access_key_list",
+        "Returns all access keys for a given account",
+        false,
+        &["query", "experimental"],
+    );
+    add_method::<RpcCallFunctionRequest, RpcCallFunctionResponse>(
+        &mut methods,
+        &mut all_schemas,
+        "EXPERIMENTAL_call_function",
+        "Calls a view function on a contract and returns the result",
+        false,
+        &["query", "experimental"],
+    );
+
     // ==================== Aliases ====================
 
     add_method::<RpcStateChangesInBlockRequest, RpcStateChangesInBlockByTypeResponse>(
@@ -1234,7 +1271,7 @@ pub fn generate_openrpc() -> serde_json::Value {
     // Collapse cartesian product explosions back into composed allOf references.
     // When Rust has `#[serde(flatten)]` on multiple enum fields, schemars generates
     // the cartesian product (e.g., 3 × 8 = 24 variants). We detect these patterns
-    // and collapse them back to `allOf[BlockReference, QueryRequest]`.
+    // and collapse them back to `allOf[BlockReference, StateChangesRequestView]`.
     collapse_cartesian_products(&mut all_schemas);
 
     // Build final OpenRPC document
