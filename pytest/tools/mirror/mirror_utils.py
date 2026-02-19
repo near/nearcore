@@ -205,6 +205,17 @@ class MirrorProcess:
 # ── Transaction helpers ──────────────────────────────────────────────────────
 
 
+def send_delete_access_key(node, signer_key, key_to_delete, nonce, block_hash):
+    tx = transaction.sign_delete_access_key_tx(signer_key,
+                                                signer_key.account_id,
+                                                key_to_delete, nonce,
+                                                block_hash)
+    res = node.send_tx(tx)
+    logger.info(
+        f'sent delete key tx for {signer_key.account_id} {key_to_delete.pk}: {res}'
+    )
+
+
 def send_add_access_key(node, key, target_key, nonce, block_hash):
     action = transaction.create_full_access_key_action(target_key.decoded_pk())
     tx = transaction.sign_and_serialize_transaction(target_key.account_id,
@@ -577,6 +588,12 @@ def _check_expectation(node, exp):
             f'gas key nonces not found for {exp["public_key"]} on {exp["account_id"]}'
         assert len(nonces) == exp['num_nonces'], \
             f'expected {exp["num_nonces"]} nonce indexes, got {len(nonces)}'
+    elif t == 'key_not_found':
+        nonce = node.get_nonce_for_pk(exp['account_id'],
+                                      exp['public_key'],
+                                      finality='final')
+        assert nonce is None, \
+            f'key {exp["public_key"]} should not exist on {exp["account_id"]}'
     elif t == 'contract_deployed':
         assert contract_deployed(node, exp['account_id']), \
             f'no contract on {exp["account_id"]}'

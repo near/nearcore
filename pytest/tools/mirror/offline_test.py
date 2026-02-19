@@ -272,6 +272,20 @@ def build_images(config):
         if height - start_source_height >= 100:
             break
 
+    # Add a key then delete it: tests that mirror maps the public key in DeleteKey
+    delete_me = key.Key.from_random('test0')
+    mirror_utils.send_add_access_key(source_node, source_node.signer_key,
+                                     delete_me, nonce, bhash)
+    nonce += 1
+    mirror_utils.send_delete_access_key(source_node, source_node.signer_key,
+                                        delete_me, nonce, bhash)
+    nonce += 1
+    expectations.append({
+        'type': 'key_not_found',
+        'account_id': 'test0',
+        'public_key': mirror_utils.map_key_no_secret(delete_me.pk)
+    })
+
     # Gas key expectations
     # Gas key 1 (pre-fork): key baked into forked state, V1 txs replayed
     expectations.append({
