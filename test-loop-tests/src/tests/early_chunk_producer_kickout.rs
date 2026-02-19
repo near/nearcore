@@ -8,7 +8,7 @@ use near_primitives::version::ProtocolFeature;
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
-use crate::utils::node_v2::TestLoopNodeV2;
+use crate::utils::node::TestLoopNode;
 
 /// End-to-end test for early chunk producer kickouts using the test-loop framework.
 ///
@@ -139,7 +139,7 @@ fn slow_test_early_chunk_producer_kickout() {
 
 /// Count the total number of chunks produced (chunk_mask = true) across all shards
 /// in the given height range.
-fn count_chunks_produced(node: &TestLoopNodeV2<'_>, start: BlockHeight, end: BlockHeight) -> usize {
+fn count_chunks_produced(node: &TestLoopNode<'_>, start: BlockHeight, end: BlockHeight) -> usize {
     (start..=end)
         .filter_map(|h| node.client().chain.get_block_by_height(h).ok())
         .map(|b| b.header().chunk_mask().iter().filter(|&&m| m).count())
