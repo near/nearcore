@@ -1,6 +1,8 @@
 use crate::epoch_block_info::BlockInfo;
 use crate::epoch_info::EpochInfo;
+use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
+use crate::types::ShardId;
 use crate::types::validator_stake::ValidatorStake;
 use crate::utils::compression::CompressedData;
 use crate::version::BLOCK_HEADER_V3_PROTOCOL_VERSION;
@@ -22,20 +24,39 @@ use std::sync::Arc;
 #[repr(u8)]
 pub enum EpochSyncProof {
     V1(EpochSyncProofV1) = 0,
+    V2(EpochSyncProofV2) = 1,
 }
 
 impl EpochSyncProof {
-    /// Right now this would never fail, but in the future this API can be changed.
+    /// Extracts the V1 payload, discarding any V2-only data.
     pub fn into_v1(self) -> EpochSyncProofV1 {
         match self {
             EpochSyncProof::V1(v1) => v1,
+            EpochSyncProof::V2(v2) => v2.v1,
         }
     }
 
-    /// Right now this would never fail, but in the future this API can be changed.
+    /// Borrows the V1 payload.
     pub fn as_v1(&self) -> &EpochSyncProofV1 {
         match self {
             EpochSyncProof::V1(v1) => v1,
+            EpochSyncProof::V2(v2) => &v2.v1,
+        }
+    }
+
+    /// Converts to V2, upgrading from V1 with empty boundary_chunk_producers if needed.
+    pub fn into_v2(self) -> EpochSyncProofV2 {
+        match self {
+            EpochSyncProof::V1(v1) => EpochSyncProofV2 { v1, boundary_chunk_producers: Vec::new() },
+            EpochSyncProof::V2(v2) => v2,
+        }
+    }
+
+    /// Returns boundary chunk producer entries (empty slice for V1 proofs).
+    pub fn boundary_chunk_producers(&self) -> &[BoundaryChunkProducer] {
+        match self {
+            EpochSyncProof::V1(_) => &[],
+            EpochSyncProof::V2(v2) => &v2.boundary_chunk_producers,
         }
     }
 }
@@ -62,6 +83,29 @@ pub struct EpochSyncProofV1 {
     pub last_epoch: EpochSyncProofLastEpochData,
     /// Extra information to initialize the current epoch we're syncing to.
     pub current_epoch: EpochSyncProofCurrentEpochData,
+}
+
+/// V2 extends V1 with the actual chunk producer assignments for boundary blocks.
+/// After epoch sync the syncing node needs correct `DBCol::ChunkProducers` entries
+/// so that the `EpochInfoAggregator` invariant holds. V1 proofs fall back to
+/// `save_default_chunk_producers` (baseline sampling with no blacklist); V2 proofs
+/// carry the real entries from the source node's DB.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct EpochSyncProofV2 {
+    pub v1: EpochSyncProofV1,
+    /// Actual chunk producer assignments for boundary blocks after epoch sync.
+    /// Each entry maps (block_hash, shard_id) → chunk_producer, sourced from
+    /// `DBCol::ChunkProducers` on the proof-creating node.
+    pub boundary_chunk_producers: Vec<BoundaryChunkProducer>,
+}
+
+/// A single chunk producer assignment for one (block_hash, shard_id) pair,
+/// read from `DBCol::ChunkProducers` on the source node.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct BoundaryChunkProducer {
+    pub block_hash: CryptoHash,
+    pub shard_id: ShardId,
+    pub chunk_producer: ValidatorStake,
 }
 
 const MAX_UNCOMPRESSED_EPOCH_SYNC_PROOF_SIZE: u64 = ByteSize::mib(500).0;

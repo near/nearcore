@@ -396,8 +396,6 @@ pub(crate) fn save_chunk_producers_for_header(
     let prev_block_hash = header.hash();
     let epoch_id = match epoch_manager.get_epoch_id_from_prev_block(prev_block_hash) {
         Ok(id) => id,
-        // Epoch not finalized yet (boundary), skip — will be populated when the
-        // next header arrives and the epoch info is available.
         Err(_) => return Ok(()),
     };
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
