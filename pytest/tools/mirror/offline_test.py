@@ -245,7 +245,7 @@ class CreateSubaccountTest(MirrorTestCase):
 def build_images(config, test_cases):
     """Phases 1-5: build target image (forked state) and source image (chain with traffic).
 
-    Returns (fork_base, source_home, validator_keys, end_source_height).
+    Returns (target_img, source_img, validator_keys, end_source_height).
     """
     neard = os.path.join(config['near_root'],
                          config.get('binary_name', 'neard'))
@@ -286,7 +286,6 @@ def build_images(config, test_cases):
     senders = []
     for tc in test_cases:
         senders.extend(tc.pre_fork(ctx))
-
     receivers = list(set(s.account_id() for s in senders)) + ['test0']
 
     for height, block_hash in utils.poll_blocks(source_node,
@@ -486,9 +485,9 @@ def main():
         ContractTest(),
         CreateSubaccountTest(),
     ]
-    fork_base, source_home, validator_keys, end_source_height = build_images(
+    target_img, source_img, validator_keys, end_source_height = build_images(
         config, test_cases)
-    run_mirror(config, test_cases, fork_base, source_home, validator_keys,
+    run_mirror(config, test_cases, target_img, source_img, validator_keys,
                end_source_height)
 
 
