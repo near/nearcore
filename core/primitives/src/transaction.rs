@@ -199,20 +199,19 @@ impl BorshDeserialize for Transaction {
             let prefix = [u1, u2];
             let mut reader = prefix.chain(reader);
             let tx = TransactionV0::deserialize_reader(&mut reader)?;
-            Ok(Transaction::V0(tx))
-        } else if u1 == 1 {
+            return Ok(Transaction::V0(tx));
+        }
+
+        if u1 == 1 {
             // V1: u1 is the version tag, u2 is the first byte of TransactionV1.
             // Put u2 back and deserialize TransactionV1.
             let prefix = [u2];
             let mut reader = prefix.chain(reader);
             let tx = TransactionV1::deserialize_reader(&mut reader)?;
-            Ok(Transaction::V1(tx))
-        } else {
-            Err(Error::new(
-                ErrorKind::InvalidData,
-                format!("invalid transaction version tag: {}", u1),
-            ))
+            return Ok(Transaction::V1(tx));
         }
+
+        Err(Error::new(ErrorKind::InvalidData, format!("invalid transaction version tag: {}", u1)))
     }
 }
 
@@ -811,6 +810,17 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
         assert!(err.to_string().contains("the Account ID is too long"));
+    }
+
+    #[test]
+    fn test_deserialize_invalid_version_tag() {
+        // First byte is 2 (invalid tag), second byte is nonzero (so not V0).
+        let serialized_tx = vec![2, 5, 0, 0, 0, 0, 0, 0];
+
+        let result = Transaction::try_from_slice(&serialized_tx);
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidData);
+        assert!(err.to_string().contains("invalid transaction version tag: 2"));
     }
 
     #[test]
