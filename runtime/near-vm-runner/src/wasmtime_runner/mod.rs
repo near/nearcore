@@ -470,6 +470,15 @@ impl WasmtimeVM {
             tracing::error!(?err, "wasmtime failed to compile the prepared code (this is defense-in-depth, the error was recovered from but should be reported to the developers)");
             CompilationError::WasmtimeCompileError { msg: err.to_string() }
         });
+
+        tracing::debug!(
+            target: "vm",
+            original_size = %code.code().len(),
+            prepared_size = %prepared_code.len(),
+            compiled_size = %serialized.as_ref().map(|s| s.len()).unwrap_or(0),
+            "wasmtime compiled contract",
+        );
+
         crate::metrics::compilation_duration(VMKind::Wasmtime, start.elapsed());
         serialized
     }
