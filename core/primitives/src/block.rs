@@ -321,6 +321,7 @@ impl Block {
         Some(self.header().total_supply() == new_total_supply)
     }
 
+    #[deprecated(note = "use `verify_gas_price_checked` to avoid overflow panic")]
     pub fn verify_gas_price(
         &self,
         gas_price: Balance,
@@ -330,13 +331,32 @@ impl Block {
         // TODO(spice): Once spice v1 is released remove Option.
         last_certified_block_execution_results: Option<&BlockExecutionResults>,
     ) -> bool {
-        let gas_used = self.chunks().compute_gas_used();
+        self.verify_gas_price_checked(
+            gas_price,
+            min_gas_price,
+            max_gas_price,
+            gas_price_adjustment_rate,
+            last_certified_block_execution_results,
+        )
+        .unwrap()
+    }
+
+    pub fn verify_gas_price_checked(
+        &self,
+        gas_price: Balance,
+        min_gas_price: Balance,
+        max_gas_price: Balance,
+        gas_price_adjustment_rate: Rational32,
+        // TODO(spice): Once spice v1 is released remove Option.
+        last_certified_block_execution_results: Option<&BlockExecutionResults>,
+    ) -> Option<bool> {
+        let gas_used = self.chunks().compute_gas_used_checked()?;
         let gas_limit = if let Some(last_certified_block_execution_results) =
             last_certified_block_execution_results
         {
-            last_certified_block_execution_results.compute_gas_limit()
+            last_certified_block_execution_results.compute_gas_limit_checked()?
         } else {
-            self.chunks().compute_gas_limit()
+            self.chunks().compute_gas_limit_checked()?
         };
         let expected_price = Self::compute_next_gas_price(
             gas_price,
@@ -346,7 +366,7 @@ impl Block {
             min_gas_price,
             max_gas_price,
         );
-        self.header().next_gas_price() == expected_price
+        Some(self.header().next_gas_price() == expected_price)
     }
 
     /// Computes gas price for applying chunks in the next block according to the formula:
@@ -709,13 +729,22 @@ impl<'a> Chunks<'a> {
         merklize(&self.iter().map(|chunk| *chunk.prev_outcome_root()).collect_vec()).0
     }
 
+    #[deprecated(note = "use `compute_gas_used_checked` to avoid overflow panic")]
     pub fn compute_gas_used(&self) -> Gas {
-        self.iter_new()
-            .fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.prev_gas_used()).unwrap())
+        self.compute_gas_used_checked().unwrap()
     }
 
+    pub fn compute_gas_used_checked(&self) -> Option<Gas> {
+        self.iter_new().try_fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.prev_gas_used()))
+    }
+
+    #[deprecated(note = "use `compute_gas_limit_checked` to avoid overflow panic")]
     pub fn compute_gas_limit(&self) -> Gas {
-        self.iter_new().fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.gas_limit()).unwrap())
+        self.compute_gas_limit_checked().unwrap()
+    }
+
+    pub fn compute_gas_limit_checked(&self) -> Option<Gas> {
+        self.iter_new().try_fold(Gas::ZERO, |acc, chunk| acc.checked_add(chunk.gas_limit()))
     }
 }
 
