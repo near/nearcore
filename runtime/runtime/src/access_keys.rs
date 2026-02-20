@@ -1,15 +1,16 @@
 use std::mem::size_of;
 
 use near_crypto::PublicKey;
-use near_parameters::RuntimeFeesConfig;
+use near_parameters::{RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, Account, GasKeyInfo};
 use near_primitives::action::{TransferToGasKeyAction, WithdrawFromGasKeyAction};
 use near_primitives::errors::{ActionErrorKind, IntegerOverflowError, RuntimeError};
 use near_primitives::transaction::{AddKeyAction, DeleteKeyAction};
-use near_primitives::types::{AccountId, BlockHeight, Compute, Nonce, NonceIndex, StorageUsage};
+use near_primitives::types::{AccountId, BlockHeight, Nonce, NonceIndex, StorageUsage};
 
-use crate::config::safe_add_compute;
+use crate::config::{safe_add_compute, storage_removes_compute};
 use crate::{ActionResult, ApplyState};
+use near_primitives::trie_key::gas_key_nonce_key_len;
 use near_store::{
     StorageError, TrieUpdate, get_access_key, remove_access_key, remove_gas_key_nonce,
     set_access_key, set_gas_key_nonce,
@@ -42,12 +43,6 @@ fn gas_key_storage_cost(
         + access_key_storage_usage(fee_config, public_key, access_key)
 }
 
-/// Returns the compute cost for deleting a single gas key nonce.
-fn gas_key_nonce_delete_compute_cost() -> Compute {
-    // TODO(gas-keys): properly handle GasKey fees
-    near_primitives::gas::Gas::ZERO.as_gas()
-}
-
 pub(crate) fn initial_nonce_value(block_height: BlockHeight) -> Nonce {
     // Set default nonce for newly created access key to avoid transaction hash collision.
     // See <https://github.com/near/nearcore/issues/3779>.
@@ -55,7 +50,7 @@ pub(crate) fn initial_nonce_value(block_height: BlockHeight) -> Nonce {
 }
 
 pub(crate) fn action_delete_key(
-    fee_config: &RuntimeFeesConfig,
+    config: &RuntimeConfig,
     state_update: &mut TrieUpdate,
     account: &mut Account,
     result: &mut ActionResult,
@@ -66,7 +61,7 @@ pub(crate) fn action_delete_key(
     if let Some(access_key) = access_key {
         if let Some(gas_key_info) = access_key.gas_key_info() {
             delete_gas_key(
-                fee_config,
+                config,
                 state_update,
                 account,
                 result,
@@ -77,7 +72,7 @@ pub(crate) fn action_delete_key(
             )?;
         } else {
             delete_regular_key(
-                fee_config,
+                &config.fees,
                 state_update,
                 account,
                 account_id,
@@ -96,7 +91,7 @@ pub(crate) fn action_delete_key(
 }
 
 fn delete_gas_key(
-    fee_config: &RuntimeFeesConfig,
+    config: &RuntimeConfig,
     state_update: &mut TrieUpdate,
     account: &mut Account,
     result: &mut ActionResult,
@@ -105,17 +100,32 @@ fn delete_gas_key(
     access_key: &AccessKey,
     gas_key_info: &GasKeyInfo,
 ) -> Result<(), RuntimeError> {
+    if gas_key_info.balance > GasKeyInfo::MAX_BALANCE_TO_BURN {
+        result.result = Err(ActionErrorKind::GasKeyBalanceTooHigh {
+            account_id: account_id.clone(),
+            public_key: Some(Box::new(public_key.clone())),
+            balance: gas_key_info.balance,
+        }
+        .into());
+        return Ok(());
+    }
     result.tokens_burnt =
         result.tokens_burnt.checked_add(gas_key_info.balance).ok_or(IntegerOverflowError)?;
+    let num_nonces = gas_key_info.num_nonces as usize;
     for i in 0..gas_key_info.num_nonces {
         remove_gas_key_nonce(state_update, account_id.clone(), public_key.clone(), i);
     }
-    let nonce_delete_compute_cost =
-        gas_key_nonce_delete_compute_cost() * gas_key_info.num_nonces as u64;
-    result.compute_usage = safe_add_compute(result.compute_usage, nonce_delete_compute_cost)?;
+    let nonce_key_len = gas_key_nonce_key_len(account_id, public_key);
+    let nonce_remove_compute = storage_removes_compute(
+        &config.wasm_config.ext_costs,
+        num_nonces,
+        nonce_key_len * num_nonces,
+        AccessKey::NONCE_VALUE_LEN * num_nonces,
+    );
+    result.compute_usage = safe_add_compute(result.compute_usage, nonce_remove_compute)?;
     remove_access_key(state_update, account_id.clone(), public_key.clone());
     account.set_storage_usage(account.storage_usage().saturating_sub(gas_key_storage_cost(
-        fee_config,
+        &config.fees,
         public_key,
         access_key,
         gas_key_info.num_nonces,
@@ -332,10 +342,11 @@ mod tests {
     use crate::ActionResult;
     use crate::ApplyState;
     use crate::actions_test_utils::{setup_account, test_delete_large_account};
+    use crate::config::storage_removes_compute;
     use crate::state_viewer::TrieViewer;
 
     use super::*;
-    use near_crypto::{InMemorySigner, KeyType, SecretKey};
+    use near_crypto::{InMemorySigner, KeyType};
     use near_parameters::RuntimeConfig;
     use near_primitives::account::{AccessKey, AccessKeyPermission, Account, GasKeyInfo};
     use near_primitives::apply::ApplyChunkReason;
@@ -352,6 +363,21 @@ mod tests {
 
     const TEST_NUM_NONCES: NonceIndex = 2;
     const TEST_GAS_KEY_BLOCK_HEIGHT: BlockHeight = 10;
+
+    fn expected_nonce_remove_compute(
+        account_id: &AccountId,
+        public_key: &PublicKey,
+        num_nonces: usize,
+    ) -> u64 {
+        let config = RuntimeConfig::test();
+        let nonce_key_len = gas_key_nonce_key_len(account_id, public_key);
+        storage_removes_compute(
+            &config.wasm_config.ext_costs,
+            num_nonces,
+            nonce_key_len * num_nonces,
+            AccessKey::NONCE_VALUE_LEN * num_nonces,
+        )
+    }
 
     fn create_apply_state(block_height: BlockHeight) -> ApplyState {
         ApplyState {
@@ -535,7 +561,7 @@ mod tests {
         let mut result = ActionResult::default();
         let action = DeleteKeyAction { public_key: gas_key_public_key.clone() };
         action_delete_key(
-            &RuntimeFeesConfig::test(),
+            &RuntimeConfig::test(),
             &mut state_update,
             &mut account,
             &mut result,
@@ -561,6 +587,13 @@ mod tests {
                     .expect("failed to get gas key nonce");
             assert!(gas_key_nonce.is_none());
         }
+
+        let expected_compute = expected_nonce_remove_compute(
+            &account_id,
+            &gas_key_public_key,
+            TEST_NUM_NONCES as usize,
+        );
+        assert_eq!(result.compute_usage, expected_compute);
     }
 
     #[test]
@@ -582,7 +615,7 @@ mod tests {
         let mut result = ActionResult::default();
         let action = DeleteKeyAction { public_key: gas_key_public_key.clone() };
         action_delete_key(
-            &RuntimeFeesConfig::test(),
+            &RuntimeConfig::test(),
             &mut state_update,
             &mut account,
             &mut result,
@@ -594,6 +627,12 @@ mod tests {
 
         // Verify the balance was burned
         assert_eq!(result.tokens_burnt, deposit_amount);
+        let expected_compute = expected_nonce_remove_compute(
+            &account_id,
+            &gas_key_public_key,
+            TEST_NUM_NONCES as usize,
+        );
+        assert_eq!(result.compute_usage, expected_compute);
     }
 
     #[test]
@@ -610,7 +649,7 @@ mod tests {
         let mut result = ActionResult::default();
         let action = DeleteKeyAction { public_key: nonexistent_public_key.clone() };
         action_delete_key(
-            &RuntimeFeesConfig::test(),
+            &RuntimeConfig::test(),
             &mut state_update,
             &mut account,
             &mut result,
@@ -631,8 +670,9 @@ mod tests {
     #[test]
     fn test_delete_account_removes_gas_keys() {
         let (account_id, public_key, access_key) = test_account_keys();
-        let public_keys: Vec<PublicKey> =
-            (0..3).map(|_| SecretKey::from_random(KeyType::ED25519).public_key()).collect();
+        let public_keys: Vec<PublicKey> = (0..3)
+            .map(|i| PublicKey::from_seed(KeyType::ED25519, &format!("gas_key_{i}")))
+            .collect();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
         let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
         for public_key in &public_keys {
@@ -645,6 +685,12 @@ mod tests {
         assert!(action_result.result.is_ok());
         state_update.commit(StateChangeCause::InitialState);
 
+        let expected_compute: u64 = public_keys
+            .iter()
+            .map(|pk| expected_nonce_remove_compute(&account_id, pk, TEST_NUM_NONCES as usize))
+            .sum();
+        assert_eq!(action_result.compute_usage, expected_compute);
+
         let lock = state_update.trie().lock_for_iter();
         let trie_key_count = state_update
             .locked_iter(&trie_key_parsers::get_raw_prefix_for_access_keys(&account_id), &lock)
@@ -656,8 +702,9 @@ mod tests {
     #[test]
     fn test_delete_account_burns_gas_key_balances() {
         let (account_id, public_key, access_key) = test_account_keys();
-        let public_keys: Vec<PublicKey> =
-            (0..3).map(|_| SecretKey::from_random(KeyType::ED25519).public_key()).collect();
+        let public_keys: Vec<PublicKey> = (0..3)
+            .map(|i| PublicKey::from_seed(KeyType::ED25519, &format!("gas_key_{i}")))
+            .collect();
         let mut state_update = setup_account(&account_id, &public_key, &access_key);
         let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
         for public_key in &public_keys {
@@ -683,6 +730,11 @@ mod tests {
         let expected_burnt =
             deposit_amounts.iter().fold(Balance::ZERO, |acc, x| acc.checked_add(*x).unwrap());
         assert_eq!(action_result.tokens_burnt, expected_burnt);
+        let expected_compute: u64 = public_keys
+            .iter()
+            .map(|pk| expected_nonce_remove_compute(&account_id, pk, TEST_NUM_NONCES as usize))
+            .sum();
+        assert_eq!(action_result.compute_usage, expected_compute);
     }
 
     #[test]
@@ -971,5 +1023,147 @@ mod tests {
             }
             .into())
         );
+    }
+
+    #[test]
+    fn test_delete_gas_key_balance_too_high() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+
+        let gas_key_public_key =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "gas_key").public_key();
+        add_gas_key_to_account(&mut state_update, &mut account, &account_id, &gas_key_public_key);
+
+        let deposit_amount = Balance::from_near(1).checked_add(Balance::from_yoctonear(1)).unwrap();
+        transfer_to_gas_key(&mut state_update, &account_id, &gas_key_public_key, deposit_amount);
+
+        let mut result = ActionResult::default();
+        let action = DeleteKeyAction { public_key: gas_key_public_key.clone() };
+        action_delete_key(
+            &RuntimeConfig::test(),
+            &mut state_update,
+            &mut account,
+            &mut result,
+            &account_id,
+            &action,
+        )
+        .unwrap();
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::GasKeyBalanceTooHigh {
+                account_id: account_id.clone(),
+                public_key: Some(Box::new(gas_key_public_key.clone())),
+                balance: deposit_amount,
+            }
+            .into())
+        );
+        assert_eq!(result.tokens_burnt, Balance::ZERO);
+
+        // Key should still exist
+        let stored_key = get_access_key(&state_update, &account_id, &gas_key_public_key).unwrap();
+        assert!(stored_key.is_some());
+    }
+
+    #[test]
+    fn test_delete_gas_key_balance_at_threshold() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+
+        let gas_key_public_key =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, "gas_key").public_key();
+        add_gas_key_to_account(&mut state_update, &mut account, &account_id, &gas_key_public_key);
+
+        let deposit_amount = Balance::from_near(1);
+        transfer_to_gas_key(&mut state_update, &account_id, &gas_key_public_key, deposit_amount);
+
+        let mut result = ActionResult::default();
+        let action = DeleteKeyAction { public_key: gas_key_public_key.clone() };
+        action_delete_key(
+            &RuntimeConfig::test(),
+            &mut state_update,
+            &mut account,
+            &mut result,
+            &account_id,
+            &action,
+        )
+        .unwrap();
+        assert!(result.result.is_ok());
+        assert_eq!(result.tokens_burnt, deposit_amount);
+
+        // Key should be deleted
+        let stored_key = get_access_key(&state_update, &account_id, &gas_key_public_key).unwrap();
+        assert!(stored_key.is_none());
+    }
+
+    #[test]
+    fn test_delete_account_gas_key_balance_too_high() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let public_keys: Vec<PublicKey> = (0..3)
+            .map(|i| PublicKey::from_seed(KeyType::ED25519, &format!("gas_key_{i}")))
+            .collect();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        for public_key in &public_keys {
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, public_key);
+        }
+
+        // Fund gas keys so total exceeds 1 NEAR
+        let deposit_amounts = [
+            Balance::from_millinear(400),
+            Balance::from_millinear(400),
+            Balance::from_millinear(201),
+        ];
+        for (pk, amount) in public_keys.iter().zip(deposit_amounts.iter()) {
+            transfer_to_gas_key(&mut state_update, &account_id, pk, *amount);
+        }
+        state_update.commit(StateChangeCause::InitialState);
+
+        let action_result =
+            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
+        let expected_total =
+            deposit_amounts.iter().fold(Balance::ZERO, |acc, x| acc.checked_add(*x).unwrap());
+        assert_eq!(
+            action_result.result,
+            Err(ActionErrorKind::GasKeyBalanceTooHigh {
+                account_id: account_id.clone(),
+                public_key: None,
+                balance: expected_total,
+            }
+            .into())
+        );
+        assert_eq!(action_result.tokens_burnt, Balance::ZERO);
+    }
+
+    #[test]
+    fn test_delete_account_gas_key_balance_at_threshold() {
+        let (account_id, public_key, access_key) = test_account_keys();
+        let public_keys: Vec<PublicKey> = (0..3)
+            .map(|i| PublicKey::from_seed(KeyType::ED25519, &format!("gas_key_{i}")))
+            .collect();
+        let mut state_update = setup_account(&account_id, &public_key, &access_key);
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        for public_key in &public_keys {
+            add_gas_key_to_account(&mut state_update, &mut account, &account_id, public_key);
+        }
+
+        // Fund gas keys so total is exactly 1 NEAR
+        let deposit_amounts = [
+            Balance::from_millinear(400),
+            Balance::from_millinear(400),
+            Balance::from_millinear(200),
+        ];
+        for (pk, amount) in public_keys.iter().zip(deposit_amounts.iter()) {
+            transfer_to_gas_key(&mut state_update, &account_id, pk, *amount);
+        }
+        state_update.commit(StateChangeCause::InitialState);
+
+        let action_result =
+            test_delete_large_account(&account_id, &CryptoHash::default(), 100, &mut state_update);
+        assert!(action_result.result.is_ok());
+        let expected_burnt =
+            deposit_amounts.iter().fold(Balance::ZERO, |acc, x| acc.checked_add(*x).unwrap());
+        assert_eq!(action_result.tokens_burnt, expected_burnt);
     }
 }

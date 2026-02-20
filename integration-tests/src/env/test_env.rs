@@ -136,7 +136,7 @@ impl TestEnv {
             // *and* that the migration to split storage is finished we can check
             // the store kind. It's only set to hot after the migration is finished.
             let store = self.clients[0].chain.chain_store().store();
-            let kind = store.get_db_kind().unwrap();
+            let kind = store.get_db_kind();
             if kind == Some(DbKind::Hot) {
                 self.clients[id]
                     .chain

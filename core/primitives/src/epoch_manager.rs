@@ -75,7 +75,7 @@ impl Default for ShardLayoutConfig {
 }
 
 impl ShardLayoutConfig {
-    pub fn shard_layout(&self) -> Option<&ShardLayout> {
+    pub fn static_shard_layout(&self) -> Option<&ShardLayout> {
         match self {
             ShardLayoutConfig::Static { shard_layout } => Some(shard_layout),
             ShardLayoutConfig::Dynamic { .. } => None,
@@ -168,10 +168,12 @@ impl EpochConfig {
     /// regarding shard layout is `EpochInfo`, not `EpochConfig`.
     pub fn static_shard_layout(&self) -> ShardLayout {
         // TODO(dynamic_resharding): remove all uses of this method except EpochManager
-        self.shard_layout_config
-            .shard_layout()
+        self.try_static_shard_layout()
             .expect("static_shard_layout() called on dynamic resharding config")
-            .clone()
+    }
+
+    pub fn try_static_shard_layout(&self) -> Option<ShardLayout> {
+        self.shard_layout_config.static_shard_layout().cloned()
     }
 
     pub fn dynamic_resharding_config(&self) -> Option<&DynamicReshardingConfig> {

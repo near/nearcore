@@ -143,7 +143,9 @@ impl EpochSync {
             // scratch.
             return Ok(());
         }
-        if tip_height + self.config.epoch_sync_horizon >= highest_height {
+        if tip_height + self.config.epoch_sync_horizon_num_epochs * chain.epoch_length
+            >= highest_height
+        {
             return Ok(());
         }
         match status {
@@ -208,7 +210,7 @@ impl EpochSync {
                 .current_epoch
                 .first_block_header_in_epoch
                 .height()
-                .saturating_add(self.config.epoch_sync_horizon)
+                .saturating_add(self.config.epoch_sync_horizon_num_epochs * chain.epoch_length)
                 < status.source_peer_height
             {
                 tracing::error!(
@@ -298,7 +300,7 @@ impl EpochSync {
             &proof.current_epoch.partial_merkle_tree_for_first_block,
         );
 
-        store_update.commit()?;
+        store_update.commit();
 
         *status = SyncStatus::EpochSyncDone;
         tracing::info!(epoch_id=?last_header.epoch_id(), "bootstrapped from epoch sync");
@@ -528,7 +530,7 @@ impl Handler<EpochSyncRequestMessage> for ClientActor {
             // When ContinuousEpochSync is enabled, we simply return the stored compressed proof.
             // The proof is automatically updated at the beginning of each epoch via the epoch manager.
             let epoch_store = self.client.chain.chain_store.epoch_store();
-            let Some(proof) = epoch_store.get_compressed_epoch_sync_proof().unwrap() else {
+            let Some(proof) = epoch_store.get_compressed_epoch_sync_proof() else {
                 // This would likely only happen when the blockchain is an epoch or two around genesis.
                 let chain_store = epoch_store.chain_store();
                 let head = chain_store.head();

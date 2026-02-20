@@ -77,6 +77,9 @@ pub enum Parameter {
     ActionDeterministicStateInit,
     ActionDeterministicStateInitPerEntry,
     ActionDeterministicStateInitPerByte,
+    ActionGasKeyTransfer,
+    ActionGasKeyByte,
+    ActionGasKeyNonceWriteBase,
 
     // Smart contract dynamic gas costs
     WasmRegularOpCost,
@@ -207,6 +210,7 @@ pub enum Parameter {
     FixContractLoadingCost,
     VmKind,
     EthImplicitAccounts,
+    EthImplicitGlobalContract,
     DiscardCustomSections,
     ReftypesBulkMemory,
 
@@ -282,6 +286,9 @@ pub enum FeeParameter {
     ActionDeterministicStateInit,
     ActionDeterministicStateInitPerByte,
     ActionDeterministicStateInitPerEntry,
+    ActionGasKeyTransfer,
+    ActionGasKeyByte,
+    ActionGasKeyNonceWriteBase,
 }
 
 impl Parameter {
@@ -354,6 +361,9 @@ impl From<ActionCosts> for FeeParameter {
             ActionCosts::deterministic_state_init_entry => {
                 Self::ActionDeterministicStateInitPerEntry
             }
+            ActionCosts::gas_key_transfer_base => Self::ActionGasKeyTransfer,
+            ActionCosts::gas_key_byte => Self::ActionGasKeyByte,
+            ActionCosts::gas_key_nonce_write_base => Self::ActionGasKeyNonceWriteBase,
         }
     }
 }

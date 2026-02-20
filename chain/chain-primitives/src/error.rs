@@ -37,6 +37,12 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error("Gas key for public key {public_key} does not exist while viewing")]
+    UnknownGasKey {
+        public_key: near_crypto::PublicKey,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("Internal error occurred: {error_message}")]
     InternalError {
         error_message: String,
@@ -193,6 +199,9 @@ pub enum Error {
     /// Invalid Balance Burnt
     #[error("Invalid Balance Burnt")]
     InvalidBalanceBurnt,
+    /// Invalid Total Supply
+    #[error("Invalid Total Supply")]
+    InvalidTotalSupply,
     /// Invalid Congestion Info
     #[error("Invalid Congestion Info: {0}")]
     InvalidCongestionInfo(String),
@@ -337,6 +346,7 @@ impl Error {
             | Error::InvalidGasPrice
             | Error::InvalidGasUsed
             | Error::InvalidBalanceBurnt
+            | Error::InvalidTotalSupply
             | Error::InvalidCongestionInfo(_)
             | Error::InvalidBandwidthRequests(_)
             | Error::InvalidShardId(_)
@@ -420,6 +430,7 @@ impl Error {
             Error::InvalidGasPrice => "invalid_gas_price",
             Error::InvalidGasUsed => "invalid_gas_used",
             Error::InvalidBalanceBurnt => "invalid_balance_burnt",
+            Error::InvalidTotalSupply => "invalid_total_supply",
             Error::InvalidCongestionInfo(_) => "invalid_congestion_info",
             Error::InvalidBandwidthRequests(_) => "invalid_bandwidth_requests",
             Error::InvalidShardId(_) => "invalid_shard_id",

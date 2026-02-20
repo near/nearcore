@@ -27,7 +27,6 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{
     create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
 };
-use crate::utils::node::TestLoopNode;
 use crate::utils::transactions;
 use assert_matches::assert_matches;
 use near_async::time::Duration;
@@ -53,7 +52,7 @@ use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::derive_near_deterministic_account_id;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_primitives::views::{AccountView, QueryRequest, QueryResponse, QueryResponseKind};
+use near_primitives::views::AccountView;
 use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_vm_runner::ContractCode;
 use std::collections::BTreeMap;
@@ -139,8 +138,6 @@ fn check_deterministic_state_init(
 ///
 /// This test also checks that the signer is charged the balance correctly.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_repeated_deterministic_state_init() {
     if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
         return;
@@ -352,8 +349,6 @@ fn test_deterministic_state_init_named_receiver() {
 /// deterministic account first and later initialize it without adding balance,
 /// even if more storage than the ZBA limit is used.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_deterministic_state_init_prepay_for_storage() {
     if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
         return;
@@ -452,8 +447,6 @@ fn test_deterministic_state_init_multi_action_after_fix() {
 /// Deploy a sharded toy-contract and check it can do a "predecessor is owner"
 /// check as intended by NEP-616.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_sharded_contract_owner_check() {
     if !ProtocolFeature::DeterministicAccountIds.enabled(PROTOCOL_VERSION) {
         return;
@@ -984,11 +977,7 @@ impl TestEnv {
         &mut self,
         tx: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
-        TestLoopNode::rpc(&self.env.node_datas).execute_tx(
-            &mut self.env.test_loop,
-            tx,
-            Duration::seconds(5),
-        )
+        self.env.rpc_runner().execute_tx(tx, Duration::seconds(5))
     }
 
     fn balance_for_storage(&self, state_init: DeterministicAccountStateInit) -> Balance {
@@ -1016,18 +1005,12 @@ impl TestEnv {
 
     #[track_caller]
     fn run_tx(&mut self, tx: SignedTransaction) {
-        TestLoopNode::rpc(&self.env.node_datas).run_tx(
-            &mut self.env.test_loop,
-            tx,
-            Duration::seconds(5),
-        );
+        self.env.rpc_runner().run_tx(tx, Duration::seconds(5));
     }
 
     #[track_caller]
     fn execute_tx(&mut self, tx: SignedTransaction) -> FinalExecutionOutcomeView {
-        TestLoopNode::rpc(&self.env.node_datas)
-            .execute_tx(&mut self.env.test_loop, tx, Duration::seconds(5))
-            .unwrap()
+        self.env.rpc_runner().execute_tx(tx, Duration::seconds(5)).unwrap()
     }
 
     fn global_contract_identifier(
@@ -1044,14 +1027,6 @@ impl TestEnv {
         }
     }
 
-    fn runtime_query(&self, account_id: &AccountId, query: QueryRequest) -> QueryResponse {
-        TestLoopNode::rpc(&self.env.node_datas).runtime_query(
-            self.env.test_loop_data(),
-            account_id,
-            query,
-        )
-    }
-
     fn get_account_state(&mut self, account: AccountId) -> AccountView {
         // Need to wait a bit for RPC node to catch up with the results
         // of previously submitted txs
@@ -1060,10 +1035,7 @@ impl TestEnv {
     }
 
     fn view_account(&self, account: &AccountId) -> AccountView {
-        let response =
-            self.runtime_query(account, QueryRequest::ViewAccount { account_id: account.clone() });
-        let QueryResponseKind::ViewAccount(account_view) = response.kind else { unreachable!() };
-        account_view
+        self.env.rpc_node().view_account_query(account).unwrap()
     }
 }
 

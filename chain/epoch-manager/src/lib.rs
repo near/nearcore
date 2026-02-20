@@ -640,23 +640,39 @@ impl EpochManager {
     ///   a) derive a new layout based on the split defined in `block_info`, or
     ///   b) return `next_shard_layout` (if there is no split specified there).
     ///
-    /// Parameters `next_next_epoch_version`, `next_next_epoch_config` and `next_shard_layout`
-    /// are relative to the epoch of `block_info`.
-    fn next_next_shard_layout(
+    /// Parameters:
+    ///   - `current_epoch_config`: config for the current epoch (N)
+    ///   - `current_protocol_version`: protocol version for epoch N
+    ///   - `next_next_epoch_config`: config for epoch N+2
+    ///   - `next_shard_layout`: shard layout for epoch N+1
+    ///   - `block_info`: block info for the last block of epoch N
+    pub fn next_next_shard_layout(
         &self,
-        next_next_epoch_version: ProtocolVersion,
+        current_epoch_config: &EpochConfig,
+        current_protocol_version: ProtocolVersion,
         next_next_epoch_config: &EpochConfig,
         next_shard_layout: &ShardLayout,
         block_info: &BlockInfo,
     ) -> Result<ShardLayout, EpochError> {
-        // TODO(dynamic_resharding): use current epoch's config and fix failing tests
-        match &next_next_epoch_config.shard_layout_config {
-            ShardLayoutConfig::Static { shard_layout } => {
-                debug_assert!(!ProtocolFeature::DynamicResharding.enabled(next_next_epoch_version));
-                return Ok(shard_layout.clone());
-            }
-            ShardLayoutConfig::Dynamic { .. } => {}
-        };
+        // We are checking `next_next_epoch_config` for the sake of compatibility: static
+        // resharding operated under the assumption that shard layout for epoch X is stored
+        // in epoch config for epoch X. This is different from dynamic resharding approach,
+        // where resharding parameters stored in epoch config for epoch X determine the layout
+        // for epoch X+2.
+        // TODO(dynamic_resharding): remove `next_next_epoch_config` when tests are adjusted
+
+        // Dynamic resharding won't be enabled until epoch N+2, use the static layout.
+        if let Some(shard_layout) = next_next_epoch_config.try_static_shard_layout() {
+            return Ok(shard_layout);
+        }
+
+        // Dynamic resharding is not yet enabled, but will become enabled in epoch N+1 or N+2.
+        // Re-use the layout for N+1, as no resharding could happen in this transitory phase.
+        if current_epoch_config.dynamic_resharding_config().is_none() {
+            return Ok(next_shard_layout.clone());
+        }
+
+        debug_assert!(ProtocolFeature::DynamicResharding.enabled(current_protocol_version));
 
         let Some((shard_id, boundary_account)) = block_info.shard_split() else {
             return Ok(next_shard_layout.clone());
@@ -669,23 +685,28 @@ impl EpochManager {
             "dynamic resharding: shard selected for split, deriving new layout"
         );
         let new_layout = next_shard_layout.derive_v3(boundary_account.clone(), || {
-            self.get_shard_layout_history(next_next_epoch_version)
+            self.get_shard_layout_history(current_protocol_version, None)
         });
         Ok(new_layout)
     }
 
-    /// Get all shard layouts from the given protocol version (exclusive) back to genesis,
-    /// ordered from newest to oldest.
-    fn get_shard_layout_history(&self, protocol_version: ProtocolVersion) -> Vec<ShardLayout> {
+    /// Get all static shard layouts from the given `latest_protocol_version` (inclusive) back to
+    /// `earliest_protocol_version` (or genesis version if `None`), ordered from newest to oldest.
+    /// Protocol versions for which dynamic resharding is enabled are skipped.
+    fn get_shard_layout_history(
+        &self,
+        latest_protocol_version: ProtocolVersion,
+        earliest_protocol_version: Option<ProtocolVersion>,
+    ) -> Vec<ShardLayout> {
         let mut layouts = Vec::new();
-        let genesis_protocol_version = self.config.genesis_protocol_version();
+        let earliest_protocol_version =
+            earliest_protocol_version.unwrap_or_else(|| self.config.genesis_protocol_version());
 
-        // We don't include `protocol_version`, because this method will be called at the epoch
-        // when dynamic resharding is scheduled for the first time. This means that `EpochConfig`
-        // for `protocol_version` uses a dynamic layout, so `get_shard_layout_from_protocol_version`
-        // would panic if we call it.
-        for version in (genesis_protocol_version..protocol_version).rev() {
-            let layout = self.get_shard_layout_from_protocol_version(version);
+        for version in (earliest_protocol_version..=latest_protocol_version).rev() {
+            // Skip protocol versions with dynamic layout
+            let Some(layout) = self.static_shard_layout_for_protocol_version(version) else {
+                continue;
+            };
             // avoid duplicates if layout doesn't change
             if layouts.last() != Some(&layout) {
                 layouts.push(layout);
@@ -732,6 +753,7 @@ impl EpochManager {
         let epoch_summary = self.collect_blocks_info(block_info, last_block_hash)?;
         let epoch_info = self.get_epoch_info(block_info.epoch_id())?;
         let epoch_protocol_version = epoch_info.protocol_version();
+        let epoch_config = self.get_epoch_config(epoch_protocol_version);
         let validator_stake =
             epoch_info.validators_iter().map(|r| r.account_and_stake()).collect::<HashMap<_, _>>();
         let next_epoch_id = self.get_next_epoch_id_from_info(block_info)?;
@@ -763,7 +785,7 @@ impl EpochManager {
                     validator_block_chunk_stats.remove(account_id);
                 }
             }
-            let epoch_config = self.get_epoch_config(epoch_protocol_version);
+
             // We use the chunk validator kickout threshold as the cutoff threshold for the
             // endorsement ratio to remap the ratio to 0 or 1.
             let online_thresholds = ValidatorOnlineThresholds {
@@ -787,7 +809,8 @@ impl EpochManager {
         let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
 
         let next_next_shard_layout = self.next_next_shard_layout(
-            next_next_epoch_version,
+            &epoch_config,
+            epoch_protocol_version,
             &next_next_epoch_config,
             &next_shard_layout,
             block_info,
@@ -1546,12 +1569,11 @@ impl EpochManager {
         }
     }
 
-    // TODO(dynamic_resharding): remove this method
-    pub fn get_shard_layout_from_protocol_version(
+    pub fn static_shard_layout_for_protocol_version(
         &self,
         protocol_version: ProtocolVersion,
-    ) -> ShardLayout {
-        self.config.for_protocol_version(protocol_version).static_shard_layout()
+    ) -> Option<ShardLayout> {
+        self.config.for_protocol_version(protocol_version).try_static_shard_layout()
     }
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {

@@ -1,14 +1,17 @@
 //! Settings of the parameters of the runtime.
 
-use near_primitives::account::AccessKeyPermission;
+use near_crypto::PublicKey;
+use near_primitives::account::{AccessKey, AccessKeyPermission, GasKeyInfo};
 use near_primitives::action::DeployGlobalContractAction;
 use near_primitives::errors::IntegerOverflowError;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 use near_parameters::{
-    ActionCosts, RuntimeConfig, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee,
+    ActionCosts, ExtCosts, ExtCostsConfig, RuntimeConfig, RuntimeFeesConfig, transfer_exec_fee,
+    transfer_send_fee,
 };
 pub use near_primitives::num_rational::Rational32;
 use near_primitives::transaction::{Action, DeployContractAction, Transaction};
+use near_primitives::trie_key::{access_key_key_len, gas_key_nonce_key_len};
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
 
 /// Describes the cost of converting this transaction into a receipt.
@@ -42,6 +45,44 @@ pub fn safe_add_balance(a: Balance, b: Balance) -> Result<Balance, IntegerOverfl
 
 pub fn safe_add_compute(a: Compute, b: Compute) -> Result<Compute, IntegerOverflowError> {
     a.checked_add(b).ok_or(IntegerOverflowError {})
+}
+
+fn gas_key_transfer_send_fee(
+    fees: &RuntimeFeesConfig,
+    sender_is_receiver: bool,
+    public_key_len: usize,
+) -> Gas {
+    let base_fee = fees.fee(ActionCosts::gas_key_transfer_base).send_fee(sender_is_receiver);
+    let byte_fee = fees.fee(ActionCosts::gas_key_byte).send_fee(sender_is_receiver);
+    base_fee.checked_add(byte_fee.checked_mul(public_key_len as u64).unwrap()).unwrap()
+}
+
+fn gas_key_transfer_exec_fee(
+    fees: &RuntimeFeesConfig,
+    ak_key_len: usize,
+    estimated_value_len: usize,
+) -> Gas {
+    let base_fee = fees.fee(ActionCosts::gas_key_transfer_base).exec_fee();
+    let byte_fee = fees.fee(ActionCosts::gas_key_byte).exec_fee();
+    base_fee
+        .checked_add(byte_fee.checked_mul((ak_key_len + estimated_value_len) as u64).unwrap())
+        .unwrap()
+}
+
+/// Compute cost for `count` storage_remove operations with `total_key_bytes` total
+/// key bytes and `total_value_bytes` total value bytes across all removals.
+pub(crate) fn storage_removes_compute(
+    ext: &ExtCostsConfig,
+    count: usize,
+    total_key_bytes: usize,
+    total_value_bytes: usize,
+) -> Compute {
+    let count = count as u64;
+    let total_key_bytes = total_key_bytes as u64;
+    let total_value_bytes = total_value_bytes as u64;
+    ext.compute_cost(ExtCosts::storage_remove_base) * count
+        + ext.compute_cost(ExtCosts::storage_remove_key_byte) * total_key_bytes
+        + ext.compute_cost(ExtCosts::storage_remove_ret_value_byte) * total_value_bytes
 }
 
 /// Total sum of gas that needs to be burnt to send these actions.
@@ -87,6 +128,9 @@ pub fn total_send_fees(
                     config.wasm_config.eth_implicit_accounts,
                     receiver_id.get_account_type(),
                 )
+            }
+            TransferToGasKey(action) => {
+                gas_key_transfer_send_fee(fees, sender_is_receiver, action.public_key.len())
             }
             Stake(_) => fees.fee(ActionCosts::stake).send_fee(sender_is_receiver),
             AddKey(add_key_action) => permission_send_fees(
@@ -147,9 +191,9 @@ pub fn total_send_fees(
 
                 base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
             }
-            // TODO(gas-keys): properly handle GasKey fees
-            TransferToGasKey(_) => Gas::ZERO,
-            WithdrawFromGasKey(_) => Gas::ZERO,
+            WithdrawFromGasKey(action) => {
+                gas_key_transfer_send_fee(fees, sender_is_receiver, action.public_key.len())
+            }
         };
         result = result.checked_add_result(delta)?;
     }
@@ -161,9 +205,10 @@ fn permission_send_fees(
     fees: &RuntimeFeesConfig,
     sender_is_receiver: bool,
 ) -> Gas {
-    match permission {
-        AccessKeyPermission::FunctionCall(call_perm) => {
-            let num_bytes = call_perm
+    let key_fee = match permission {
+        AccessKeyPermission::FunctionCall(perm)
+        | AccessKeyPermission::GasKeyFunctionCall(_, perm) => {
+            let num_bytes = perm
                 .method_names
                 .iter()
                 // Account for null-terminating characters.
@@ -174,16 +219,20 @@ fn permission_send_fees(
             let byte_fee =
                 fees.fee(ActionCosts::add_function_call_key_byte).send_fee(sender_is_receiver);
             let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
-
             base_fee.checked_add(all_bytes_fee).unwrap()
         }
-        AccessKeyPermission::FullAccess => {
+        AccessKeyPermission::FullAccess | AccessKeyPermission::GasKeyFullAccess(_) => {
             fees.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
         }
-        // TODO(gas-keys): properly handle GasKey fees
-        AccessKeyPermission::GasKeyFullAccess(_) => Gas::ZERO,
-        AccessKeyPermission::GasKeyFunctionCall(_, _) => Gas::ZERO,
-    }
+    };
+    let gas_key_info_fee = match permission {
+        AccessKeyPermission::GasKeyFunctionCall(..) | AccessKeyPermission::GasKeyFullAccess(_) => {
+            let byte_fee = fees.fee(ActionCosts::gas_key_byte).send_fee(sender_is_receiver);
+            byte_fee.checked_mul(GasKeyInfo::borsh_len() as u64).unwrap()
+        }
+        _ => Gas::ZERO,
+    };
+    key_fee.checked_add(gas_key_info_fee).unwrap()
 }
 
 /// Total sum of gas that needs to be burnt to send the inner actions of DelegateAction
@@ -248,7 +297,12 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             )
         }
         Stake(_) => fees.fee(ActionCosts::stake).exec_fee(),
-        AddKey(add_key_action) => permission_exec_fees(&add_key_action.access_key.permission, fees),
+        AddKey(add_key_action) => permission_exec_fees(
+            &add_key_action.access_key.permission,
+            config,
+            receiver_id,
+            &add_key_action.public_key,
+        ),
         DeleteKey(_) => fees.fee(ActionCosts::delete_key).exec_fee(),
         DeleteAccount(_) => fees.fee(ActionCosts::delete_account).exec_fee(),
         Delegate(_) => fees.fee(ActionCosts::delegate).exec_fee(),
@@ -279,33 +333,58 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
 
             base_fee.checked_add(all_bytes_fee).unwrap().checked_add(all_entries_fee).unwrap()
         }
-        // TODO(gas-keys): properly handle GasKey fees
-        TransferToGasKey(_) => Gas::ZERO,
-        WithdrawFromGasKey(_) => Gas::ZERO,
+        TransferToGasKey(action) => {
+            let ak_key_len = access_key_key_len(receiver_id, &action.public_key);
+            let estimated_value_len = AccessKey::min_gas_key_borsh_len();
+            gas_key_transfer_exec_fee(fees, ak_key_len, estimated_value_len)
+        }
+        WithdrawFromGasKey(action) => {
+            let ak_key_len = access_key_key_len(receiver_id, &action.public_key);
+            let estimated_value_len = AccessKey::min_gas_key_borsh_len();
+            gas_key_transfer_exec_fee(fees, ak_key_len, estimated_value_len)
+        }
     }
 }
 
-fn permission_exec_fees(permission: &AccessKeyPermission, fees: &RuntimeFeesConfig) -> Gas {
-    match permission {
-        AccessKeyPermission::FunctionCall(call_perm) => {
-            let num_bytes = call_perm
+fn permission_exec_fees(
+    permission: &AccessKeyPermission,
+    config: &RuntimeConfig,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+) -> Gas {
+    let fees = &config.fees;
+    let key_fee = match permission {
+        AccessKeyPermission::FunctionCall(perm)
+        | AccessKeyPermission::GasKeyFunctionCall(_, perm) => {
+            let num_bytes = perm
                 .method_names
                 .iter()
                 // Account for null-terminating characters.
                 .map(|name| name.as_bytes().len() as u64 + 1)
                 .sum::<u64>();
-
             let base_fee = fees.fee(ActionCosts::add_function_call_key_base).exec_fee();
             let byte_fee = fees.fee(ActionCosts::add_function_call_key_byte).exec_fee();
             let all_bytes_fee = byte_fee.checked_mul(num_bytes).unwrap();
-
             base_fee.checked_add(all_bytes_fee).unwrap()
         }
-        AccessKeyPermission::FullAccess => fees.fee(ActionCosts::add_full_access_key).exec_fee(),
-        // TODO(gas-keys): properly handle GasKey fees
-        AccessKeyPermission::GasKeyFullAccess(_) => Gas::ZERO,
-        AccessKeyPermission::GasKeyFunctionCall(_, _) => Gas::ZERO,
-    }
+        AccessKeyPermission::FullAccess | AccessKeyPermission::GasKeyFullAccess(_) => {
+            fees.fee(ActionCosts::add_full_access_key).exec_fee()
+        }
+    };
+    // Add per-nonce write cost for gas key variants.
+    let gas_key_info = match permission {
+        AccessKeyPermission::GasKeyFullAccess(info)
+        | AccessKeyPermission::GasKeyFunctionCall(info, _) => info,
+        _ => return key_fee,
+    };
+    let nonce_key_len = gas_key_nonce_key_len(account_id, public_key) as u64;
+    let nonce_value_len = AccessKey::NONCE_VALUE_LEN as u64;
+    let nonce_base = fees.fee(ActionCosts::gas_key_nonce_write_base).exec_fee();
+    let nonce_byte = fees.fee(ActionCosts::gas_key_byte).exec_fee();
+    let per_nonce = nonce_base
+        .checked_add(nonce_byte.checked_mul(nonce_key_len + nonce_value_len).unwrap())
+        .unwrap();
+    key_fee.checked_add(per_nonce.checked_mul(gas_key_info.num_nonces as u64).unwrap()).unwrap()
 }
 
 /// Returns transaction costs for a given transaction.

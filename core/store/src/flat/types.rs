@@ -58,8 +58,6 @@ impl From<FlatStorageError> for StorageError {
     }
 }
 
-pub type FlatStorageResult<T> = Result<T, FlatStorageError>;
-
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema, Clone,
 )]
@@ -213,5 +211,4 @@ pub struct ParentSplitParameters {
     pub flat_head: BlockInfo,
 }
 
-pub type FlatStateIterator<'a> =
-    Box<dyn Iterator<Item = FlatStorageResult<(Vec<u8>, FlatStateValue)>> + 'a>;
+pub type FlatStateIterator<'a> = Box<dyn Iterator<Item = (Vec<u8>, FlatStateValue)> + 'a>;

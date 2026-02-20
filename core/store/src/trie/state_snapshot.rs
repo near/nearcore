@@ -254,17 +254,9 @@ impl ShardTries {
             Some(block),
         ));
 
-        // this will set the new hash for state snapshot in rocksdb. will retry until success.
-        for _ in 0..3 {
-            let mut store_update = self.store_update();
-            store_update.set_state_snapshot_hash(Some(prev_block_hash));
-            match store_update.commit() {
-                Ok(_) => {}
-                Err(err) => {
-                    tracing::error!(target: "state_snapshot", ?err, "failed to set the new state snapshot for BlockMisc::STATE_SNAPSHOT_KEY in rocksdb");
-                }
-            }
-        }
+        let mut store_update = self.store_update();
+        store_update.set_state_snapshot_hash(Some(prev_block_hash));
+        store_update.commit();
 
         metrics::HAS_STATE_SNAPSHOT.set(1);
         tracing::info!(target: "state_snapshot", ?prev_block_hash, "made a checkpoint");
@@ -300,17 +292,9 @@ impl ShardTries {
             }
         }
 
-        // this will delete the STATE_SNAPSHOT_KEY-value pair from db. Will retry 3 times
-        for _ in 0..3 {
-            let mut store_update = self.store_update();
-            store_update.set_state_snapshot_hash(None);
-            match store_update.commit() {
-                Ok(_) => break,
-                Err(err) => {
-                    tracing::error!(target: "state_snapshot", ?err, "failed to delete the old state snapshot for block_misc::state_snapshot_key in rocksdb")
-                }
-            }
-        }
+        let mut store_update = self.store_update();
+        store_update.set_state_snapshot_hash(None);
+        store_update.commit();
 
         metrics::HAS_STATE_SNAPSHOT.set(0);
     }

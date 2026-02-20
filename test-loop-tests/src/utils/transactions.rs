@@ -275,7 +275,7 @@ pub fn delete_account(
     beneficiary_id: &AccountId,
 ) -> CryptoHash {
     let signer: Signer = create_user_test_signer(&account_id).into();
-    let nonce = get_next_nonce(&test_loop_data, node_datas, account_id);
+    let nonce = get_next_nonce(test_loop_data, node_datas, account_id);
     let block_hash = get_shared_block_hash(node_datas, test_loop_data);
 
     let tx = SignedTransaction::delete_account(

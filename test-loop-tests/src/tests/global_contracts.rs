@@ -26,21 +26,16 @@ use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{
     create_account_ids, create_validators_spec, validators_spec_clients_with_rpc,
 };
-use crate::utils::node::TestLoopNode;
 use crate::utils::transactions;
 
 const GAS_PRICE: Balance = Balance::from_yoctonear(1);
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_contract_by_hash() {
     test_deploy_and_call_global_contract(GlobalContractDeployMode::CodeHash);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_contract_by_account_id() {
     test_deploy_and_call_global_contract(GlobalContractDeployMode::AccountId);
 }
@@ -120,15 +115,11 @@ fn test_global_contract_update() {
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_contract_by_account_id_rpc_calls() {
     test_global_contract_rpc_calls(GlobalContractDeployMode::AccountId);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_global_contract_by_hash_rpc_calls() {
     test_global_contract_rpc_calls(GlobalContractDeployMode::CodeHash);
 }
@@ -143,11 +134,8 @@ fn test_deploy_and_call_global_contract(deploy_mode: GlobalContractDeployMode) {
         .unwrap();
     assert_eq!(deploy_cost, env.deploy_global_contract_total_cost());
 
-    let rpc = TestLoopNode::rpc(&env.env.node_datas);
-    let receipt_execution_outcome = rpc.execution_outcome(
-        env.env.test_loop_data(),
-        rpc.tx_receipt_id(env.env.test_loop_data(), deploy_tx_hash),
-    );
+    let receipt_id = env.env.rpc_node().tx_receipt_id(deploy_tx_hash);
+    let receipt_execution_outcome = env.env.rpc_node().execution_outcome(receipt_id);
     let expected_tokens_burnt = env
         .deploy_global_exec_cost()
         .checked_add(env.deploy_global_contract_storage_cost())
@@ -416,7 +404,7 @@ impl GlobalContractsTestEnv {
             method_name: "log_something".to_owned(),
             args: Vec::new().into(),
         };
-        let response = self.runtime_query(account, query);
+        let response = self.runtime_query(query);
         let QueryResponseKind::CallResult(call_result) = response.kind else { unreachable!() };
         call_result
     }
@@ -490,15 +478,11 @@ impl GlobalContractsTestEnv {
     }
 
     fn view_account(&self, account: &AccountId) -> AccountView {
-        let response =
-            self.runtime_query(account, QueryRequest::ViewAccount { account_id: account.clone() });
-        let QueryResponseKind::ViewAccount(account_view) = response.kind else { unreachable!() };
-        account_view
+        self.env.rpc_node().view_account_query(account).unwrap()
     }
 
     fn view_code(&self, account: &AccountId) -> ContractCodeView {
-        let response =
-            self.runtime_query(account, QueryRequest::ViewCode { account_id: account.clone() });
+        let response = self.runtime_query(QueryRequest::ViewCode { account_id: account.clone() });
         let QueryResponseKind::ViewCode(contract_code_view) = response.kind else { unreachable!() };
         contract_code_view
     }
@@ -512,9 +496,7 @@ impl GlobalContractsTestEnv {
                 QueryRequest::ViewGlobalContractCodeByAccountId { account_id }
             }
         };
-        // account is required by `runtime_query` to resolve shard_id
-        let account = self.account_shard_0.clone();
-        let response = self.runtime_query(&account, query);
+        let response = self.runtime_query(query);
         let QueryResponseKind::ViewCode(contract_code_view) = response.kind else { unreachable!() };
         contract_code_view
     }
@@ -530,17 +512,11 @@ impl GlobalContractsTestEnv {
     }
 
     fn execute_tx(&mut self, tx: SignedTransaction) -> FinalExecutionOutcomeView {
-        TestLoopNode::rpc(&self.env.node_datas)
-            .execute_tx(&mut self.env.test_loop, tx, Duration::seconds(5))
-            .unwrap()
+        self.env.rpc_runner().execute_tx(tx, Duration::seconds(5)).unwrap()
     }
 
     fn run_tx(&mut self, tx: SignedTransaction) {
-        TestLoopNode::rpc(&self.env.node_datas).run_tx(
-            &mut self.env.test_loop,
-            tx,
-            Duration::seconds(5),
-        );
+        self.env.rpc_runner().run_tx(tx, Duration::seconds(5));
     }
 
     fn global_contract_identifier(
@@ -557,12 +533,8 @@ impl GlobalContractsTestEnv {
         }
     }
 
-    fn runtime_query(&self, account_id: &AccountId, query: QueryRequest) -> QueryResponse {
-        TestLoopNode::rpc(&self.env.node_datas).runtime_query(
-            self.env.test_loop_data(),
-            account_id,
-            query,
-        )
+    fn runtime_query(&self, query: QueryRequest) -> QueryResponse {
+        self.env.rpc_node().runtime_query(query).unwrap()
     }
 
     fn shutdown(self) {

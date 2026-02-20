@@ -125,7 +125,7 @@ pub enum SyncStatus {
     EpochSyncDone,
     /// Downloading block headers for fast sync.
     HeaderSync {
-        /// Head height at the beginning. Not the header head height!
+        /// Height at the beginning of header sync.
         /// Used only for reporting the progress of the sync.
         start_height: BlockHeight,
         /// Current header head height.
@@ -396,6 +396,14 @@ pub enum QueryError {
         "Access key for public key {public_key} has never been observed on the node at block #{block_height}"
     )]
     UnknownAccessKey {
+        public_key: near_crypto::PublicKey,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error(
+        "Gas key for public key {public_key} does not exist while viewing at block #{block_height}"
+    )]
+    UnknownGasKey {
         public_key: near_crypto::PublicKey,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,

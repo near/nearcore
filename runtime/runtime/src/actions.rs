@@ -1,12 +1,15 @@
 use crate::access_keys::initial_nonce_value;
 use crate::config::{
-    safe_add_compute, total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
+    safe_add_compute, storage_removes_compute, total_prepaid_exec_fees, total_prepaid_gas,
+    total_prepaid_send_fees,
 };
 use crate::deterministic_account_id::create_deterministic_account;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
-use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
+use near_primitives::account::{
+    AccessKey, AccessKeyPermission, Account, AccountContract, GasKeyInfo,
+};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
@@ -26,11 +29,14 @@ use near_primitives_core::account::id::AccountType;
 use near_primitives_core::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{
-    StorageError, TrieAccess, TrieUpdate, get_access_key, remove_account, set_access_key,
+    StorageError, TrieAccess, TrieUpdate, compute_gas_key_balance_sum, get_access_key,
+    remove_account, set_access_key,
 };
 use near_vm_runner::precompile_contract;
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
-use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
+use near_wallet_contract::{
+    eth_wallet_global_contract_hash, wallet_contract, wallet_contract_magic_bytes,
+};
 use std::sync::Arc;
 
 pub(crate) fn action_stake(
@@ -224,33 +230,49 @@ pub(crate) fn action_implicit_account_creation_transfer(
         AccountType::EthImplicitAccount => {
             let chain_id = epoch_info_provider.chain_id();
 
-            // We deploy "near[wallet contract hash]" magic bytes as the contract code,
-            // to mark that this is a neard-defined contract. It will not be used on a function call.
-            // Instead, neard-defined Wallet Contract implementation will be used.
-            let magic_bytes = wallet_contract_magic_bytes(&chain_id);
+            if ProtocolFeature::EthImplicitGlobalContract
+                .enabled(apply_state.current_protocol_version)
+            {
+                // Use a deployed global contract for ETH implicit accounts.
+                let global_contract_hash = eth_wallet_global_contract_hash(&chain_id);
+                let storage_usage = fee_config.storage_usage_config.num_bytes_account
+                    + global_contract_hash.as_bytes().len() as u64;
 
-            let storage_usage = fee_config.storage_usage_config.num_bytes_account
-                + magic_bytes.code().len() as u64
-                + fee_config.storage_usage_config.num_extra_bytes_record;
+                *account = Some(Account::new(
+                    deposit,
+                    Balance::ZERO,
+                    AccountContract::Global(global_contract_hash),
+                    storage_usage,
+                ));
+            } else {
+                // We deploy "near[wallet contract hash]" magic bytes as the contract code,
+                // to mark that this is a neard-defined contract. It will not be used on a function call.
+                // Instead, neard-defined Wallet Contract implementation will be used.
+                let magic_bytes = wallet_contract_magic_bytes(&chain_id);
 
-            let contract_hash = *magic_bytes.hash();
-            *account = Some(Account::new(
-                deposit,
-                Balance::ZERO,
-                AccountContract::from_local_code_hash(contract_hash),
-                storage_usage,
-            ));
-            state_update.set_code(account_id.clone(), &magic_bytes);
+                let storage_usage = fee_config.storage_usage_config.num_bytes_account
+                    + magic_bytes.code().len() as u64
+                    + fee_config.storage_usage_config.num_extra_bytes_record;
 
-            // Precompile Wallet Contract and store result (compiled code or error) in the database.
-            // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
-            // is a no-op if the contract was already compiled.
-            precompile_contract(
-                &wallet_contract(contract_hash).expect("should definitely exist"),
-                Arc::clone(&apply_state.config.wasm_config),
-                apply_state.cache.as_deref(),
-            )
-            .ok();
+                let contract_hash = *magic_bytes.hash();
+                *account = Some(Account::new(
+                    deposit,
+                    Balance::ZERO,
+                    AccountContract::from_local_code_hash(contract_hash),
+                    storage_usage,
+                ));
+                state_update.set_code(account_id.clone(), &magic_bytes);
+
+                // Precompile Wallet Contract and store result (compiled code or error) in the database.
+                // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
+                // is a no-op if the contract was already compiled.
+                precompile_contract(
+                    &wallet_contract(contract_hash).expect("should definitely exist"),
+                    Arc::clone(&apply_state.config.wasm_config),
+                    apply_state.cache.as_deref(),
+                )
+                .ok();
+            }
         }
         AccountType::NearDeterministicAccount => {
             *account = Some(create_deterministic_account(
@@ -316,6 +338,7 @@ pub(crate) fn action_delete_account(
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
+    config: &RuntimeConfig,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let account_ref = account.as_ref().unwrap();
@@ -339,6 +362,16 @@ pub(crate) fn action_delete_account(
                 .into());
         return Ok(());
     }
+    let gas_key_balance_to_burn = compute_gas_key_balance_sum(state_update, account_id)?;
+    if gas_key_balance_to_burn > GasKeyInfo::MAX_BALANCE_TO_BURN {
+        result.result = Err(ActionErrorKind::GasKeyBalanceTooHigh {
+            account_id: account_id.clone(),
+            public_key: None,
+            balance: gas_key_balance_to_burn,
+        }
+        .into());
+        return Ok(());
+    }
     // We use current amount as a pay out to beneficiary.
     let account_balance = account_ref.amount();
     if account_balance > Balance::ZERO {
@@ -346,11 +379,22 @@ pub(crate) fn action_delete_account(
             .new_receipts
             .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
     }
-    let gas_key_balance_to_burn = remove_account(state_update, account_id)?;
+    let remove_result = remove_account(state_update, account_id)?;
     result.tokens_burnt =
         result.tokens_burnt.checked_add(gas_key_balance_to_burn).ok_or_else(|| {
             StorageError::StorageInconsistentState("tokens_burnt overflow".to_string())
         })?;
+    if remove_result.gas_key_nonce_count > 0 {
+        let compute = storage_removes_compute(
+            &config.wasm_config.ext_costs,
+            remove_result.gas_key_nonce_count,
+            remove_result.gas_key_nonce_total_key_bytes,
+            AccessKey::NONCE_VALUE_LEN * remove_result.gas_key_nonce_count,
+        );
+        result.compute_usage = safe_add_compute(result.compute_usage, compute).map_err(|_| {
+            StorageError::StorageInconsistentState("compute_usage overflow".to_string())
+        })?;
+    }
     *actor_id = receipt.predecessor_id().clone();
     *account = None;
     Ok(())

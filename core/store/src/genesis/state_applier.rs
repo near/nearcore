@@ -157,7 +157,7 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
         *state_root = self.tries.apply_all(&trie_changes, self.shard_uid, &mut store_update);
         FlatStateChanges::from_state_changes(&state_changes)
             .apply_to_flat_state(&mut store_update.flat_store_update(), self.shard_uid);
-        store_update.commit().expect("Store update failed on genesis initialization");
+        store_update.commit();
         *state_update = Some(self.tries.new_trie_update(self.shard_uid, *state_root));
         *changes = 0;
         *state_root

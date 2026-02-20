@@ -115,8 +115,6 @@ pub(crate) enum ContractAccountError {
     MissingOutgoingReceipt(CryptoHash),
     #[error("failed loading contract code for account {1}")]
     NoCode(#[source] StorageError, AccountId),
-    #[error("failed parsing a value in col {1}")]
-    UnparsableValue(#[source] std::io::Error, DBCol),
 }
 
 /// List of supported actions to filter for.
@@ -313,21 +311,17 @@ fn try_find_actions_spawned_by_receipt(
             *entry.receipts_in.get_or_insert(0) += 1;
         }
         // next, check the execution results (one for each block in case of forks)
-        for pair in store.iter_prefix_ser::<ExecutionOutcomeWithProof>(
+        for (_key, outcome) in store.iter_prefix_ser::<ExecutionOutcomeWithProof>(
             DBCol::TransactionResultForBlock,
             &raw_key,
         ) {
-            let (_key, outcome) = pair.map_err(|e| {
-                ContractAccountError::UnparsableValue(e, DBCol::TransactionResultForBlock)
-            })?;
             if filter.receipts_out {
                 *entry.receipts_out.get_or_insert(0) += outcome.outcome.receipt_ids.len();
             }
             if filter.actions {
                 for outgoing_receipt_id in &outcome.outcome.receipt_ids {
-                    let maybe_outgoing_receipt: Option<Receipt> = store
-                        .get_ser(near_store::DBCol::Receipts, outgoing_receipt_id.as_bytes())
-                        .map_err(|e| ContractAccountError::UnparsableValue(e, DBCol::Receipts))?;
+                    let maybe_outgoing_receipt: Option<Receipt> =
+                        store.get_ser(near_store::DBCol::Receipts, outgoing_receipt_id.as_bytes());
                     let outgoing_receipt = maybe_outgoing_receipt.ok_or({
                         ContractAccountError::MissingOutgoingReceipt(*outgoing_receipt_id)
                     })?;

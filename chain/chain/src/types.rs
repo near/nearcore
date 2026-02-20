@@ -25,7 +25,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
 use near_primitives::optimistic_block::OptimisticBlockKeySource;
-use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
+use near_primitives::receipt::{ProcessedReceipt, PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
@@ -37,8 +37,8 @@ use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, ShardId,
-    StateRoot, StateRootNode,
+    Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, NumShards,
+    ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::utils::to_timestamp;
 use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
@@ -117,7 +117,7 @@ pub struct ApplyChunkResult {
     pub total_gas_burnt: Gas,
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
-    pub processed_delayed_receipts: Vec<Receipt>,
+    pub processed_receipts: Vec<ProcessedReceipt>,
     pub processed_yield_timeouts: Vec<PromiseYieldTimeout>,
     /// Hash of Vec<Receipt> which were applied in a chunk, later used for
     /// chunk validation with state witness.
@@ -495,7 +495,10 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_flat_storage_manager(&self) -> FlatStorageManager;
 
-    fn get_shard_layout(&self, protocol_version: ProtocolVersion) -> ShardLayout;
+    /// Get maximum number of shards for the given `protocol_version`. If a static layout is
+    /// defined for this protocol version, returns the number of shards in that layout. If dynamic
+    /// resharding is enabled, returns the maximum number of shards allowed.
+    fn get_shard_limit(&self, protocol_version: ProtocolVersion) -> NumShards;
 
     #[allow(clippy::result_large_err)]
     fn validate_tx(

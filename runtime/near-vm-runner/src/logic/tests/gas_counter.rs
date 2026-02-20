@@ -1077,6 +1077,7 @@ fn test_memory_copy_full_memory_out_of_gas() {
             )"#,
         )
         .gas(Gas::from_teragas(300))
+        .max_gas_burnt(Gas::from_teragas(300))
         .skip_near_vm()
         .protocol_features(&[ProtocolFeature::Wasmtime])
         .expects(&[expect![[r#"

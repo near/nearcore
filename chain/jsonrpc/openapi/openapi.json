@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.2.2"
+    "version": "1.2.3"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -2192,6 +2192,45 @@
               "InsufficientGasKeyBalance"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key balance is too high to burn during deletion",
+            "properties": {
+              "GasKeyBalanceTooHigh": {
+                "properties": {
+                  "account_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  },
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "public_key": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKey"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ],
+                    "description": "Set for DeleteKey (specific key), None for DeleteAccount (aggregate)"
+                  }
+                },
+                "required": [
+                  "account_id",
+                  "balance"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "GasKeyBalanceTooHigh"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -3632,6 +3671,20 @@
           "prev_state_root": {
             "$ref": "#/components/schemas/CryptoHash"
           },
+          "proposed_split": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrieSplit"
+              },
+              {
+                "enum": [
+                  null
+                ],
+                "nullable": true
+              }
+            ],
+            "description": "Proposed trie split for dynamic resharding\n`None`: field missing (`ShardChunkHeaderInnerV4` or earlier)\n`Some(None)`: field present, but not set (`ChunkHeaderInnerV5` or later)\n`Some(Some(split))`: field present and set"
+          },
           "rent_paid": {
             "allOf": [
               {
@@ -4195,6 +4248,14 @@
         ],
         "type": "object"
       },
+      "DepositCostFailureReason": {
+        "description": "Reason why a gas key transaction failed at the deposit/account level.\nIn these cases, gas is still charged from the gas key.",
+        "enum": [
+          "NotEnoughBalance",
+          "LackBalanceForState"
+        ],
+        "type": "string"
+      },
       "DetailedDebugStatus": {
         "properties": {
           "block_production_delay_millis": {
@@ -4355,8 +4416,9 @@
       },
       "EpochSyncConfig": {
         "properties": {
-          "epoch_sync_horizon": {
-            "description": "This serves as two purposes: (1) the node will not epoch sync and instead resort to\nheader sync, if the genesis block is within this many blocks from the current block;\n(2) the node will reject an epoch sync proof if the provided proof is for an epoch\nthat is more than this many blocks behind the current block.",
+          "epoch_sync_horizon_num_epochs": {
+            "default": 4,
+            "description": "Number of epochs behind the network head beyond which the node will use\nepoch sync instead of header sync. Also the maximum age (in epochs) of\naccepted epoch sync proofs. At the consumption site, this is multiplied\nby epoch_length to get the horizon in blocks.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -8562,6 +8624,39 @@
               "NotEnoughGasKeyBalance"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Gas key transaction failed because the account could not cover the deposit cost.\nGas is still charged from the gas key in this case.",
+            "properties": {
+              "NotEnoughBalanceForDeposit": {
+                "properties": {
+                  "balance": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "cost": {
+                    "$ref": "#/components/schemas/NearToken"
+                  },
+                  "reason": {
+                    "$ref": "#/components/schemas/DepositCostFailureReason"
+                  },
+                  "signer_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "signer_id",
+                  "balance",
+                  "cost",
+                  "reason"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "NotEnoughBalanceForDeposit"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -11647,6 +11742,12 @@
                   },
                   "id": {
                     "$ref": "#/components/schemas/GlobalContractIdentifier"
+                  },
+                  "nonce": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "target_shard": {
                     "$ref": "#/components/schemas/ShardId"
@@ -19810,6 +19911,37 @@
         ],
         "type": "object"
       },
+      "TrieSplit": {
+        "description": "The result of splitting a memtrie into two possibly even parts, according to `memory_usage`\nstored in the trie nodes.\n\n**NOTE: This is an artificial value calculated according to `TRIE_COST`. Hence, it does not\nrepresent actual memory allocation, but the split ratio should be roughly consistent with that.**",
+        "properties": {
+          "boundary_account": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccountId"
+              }
+            ],
+            "description": "Account ID representing the split path"
+          },
+          "left_memory": {
+            "description": "Total `memory_usage` of the left part (excluding the split path)",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "right_memory": {
+            "description": "Total `memory_usage` of the right part (including the split path)",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "boundary_account",
+          "left_memory",
+          "right_memory"
+        ],
+        "type": "object"
+      },
       "TxExecutionError": {
         "description": "Error returned in the ExecutionOutcome in case of failure",
         "oneOf": [
@@ -19911,6 +20043,10 @@
           },
           "eth_implicit_accounts": {
             "description": "See [VMConfig::eth_implicit_accounts](crate::vm::Config::eth_implicit_accounts).",
+            "type": "boolean"
+          },
+          "eth_implicit_global_contract": {
+            "description": "See [VMConfig::eth_implicit_global_contract](crate::vm::Config::eth_implicit_global_contract).",
             "type": "boolean"
           },
           "ext_costs": {
@@ -20369,7 +20505,7 @@
         ]
       },
       "WithdrawFromGasKeyAction": {
-        "description": "Withdraw NEAR from a gas key's balance to the account",
+        "description": "Withdraw NEAR from a gas key's balance to the account.\n\nThis action must only be available via transactions, not via contract execution\n(there is no corresponding promise batch action host function).",
         "properties": {
           "amount": {
             "allOf": [

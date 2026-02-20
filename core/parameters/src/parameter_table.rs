@@ -384,6 +384,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     false => StorageGetMode::Trie,
                 },
                 eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
+                eth_implicit_global_contract: params.get(Parameter::EthImplicitGlobalContract)?,
                 global_contract_host_fns: params.get(Parameter::GlobalContractHostFns)?,
                 deterministic_account_ids: params.get(Parameter::DeterministicAccountIds)?,
             }),

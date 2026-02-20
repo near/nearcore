@@ -432,7 +432,7 @@ impl ReplayController {
             BlockInfo::from_header(block.header(), last_finalized_height, current_protocol_version),
             *block.header().random_value(),
         )?;
-        let _ = store_update.commit()?;
+        store_update.commit();
         Ok(())
     }
 
@@ -479,7 +479,7 @@ impl ReplayController {
     /// Note that there are no chunks in the genesis block, so we directly generate the ChunkExtras
     /// from the information in the genesis block without applying any transactions or receipts.
     fn save_genesis_chunk_extras(&mut self, genesis_block: &Block) -> Result<()> {
-        let state_roots = get_genesis_state_roots(&self.chain_store.store())?
+        let state_roots = get_genesis_state_roots(&self.chain_store.store())
             .ok_or_else(|| anyhow!("genesis state roots do not exist in the db".to_owned()))?;
         let mut store_update = self.chain_store.store_update();
         Chain::save_genesis_chunk_extras(

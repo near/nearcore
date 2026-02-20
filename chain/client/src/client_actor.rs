@@ -222,9 +222,9 @@ pub fn start_client(
         {
             // The number of shards for the binary's latest `PROTOCOL_VERSION` is used to compute the thread limit.
             // This assumes that:
-            // a) The number of shards will not grow above this limit without the binary being updated (no dynamic resharding),
+            // a) The number of shards will not grow above this limit without the binary being updated,
             // b) Under normal conditions, the node will not process more chunks at the same time as there are shards.
-            let thread_limit = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize * 3;
+            let thread_limit = runtime.get_shard_limit(PROTOCOL_VERSION) as usize * 3;
             ApplyChunksSpawner::Default.into_spawner(thread_limit)
         },
         client.config.orphan_state_witness_pool_size,
@@ -603,10 +603,7 @@ impl Handler<SpanWrapped<BlockResponse>> for ClientActor {
         tracing::debug!(target: "client", block_height = block.header().height(), block_hash = ?block.header().hash(), "received block response");
         let blocks_at_height =
             self.client.chain.chain_store().get_all_block_hashes_by_height(block.header().height());
-        if was_requested
-            || blocks_at_height.is_err()
-            || blocks_at_height.as_ref().unwrap().is_empty()
-        {
+        if was_requested || blocks_at_height.is_empty() {
             // This is a very sneaky piece of logic.
             if self.maybe_receive_state_sync_blocks(Arc::clone(&block)) {
                 // A node is syncing its state. Don't consider receiving
@@ -623,7 +620,7 @@ impl Handler<SpanWrapped<BlockResponse>> for ClientActor {
             match self.client.epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())
             {
                 Ok(epoch_id) => {
-                    if let Some(hashes) = blocks_at_height.unwrap().get(&epoch_id) {
+                    if let Some(hashes) = blocks_at_height.get(&epoch_id) {
                         if !hashes.contains(block.header().hash()) {
                             tracing::warn!(target: "client", block_hash = ?block.header().hash(), block_height = block.header().height(), "rejecting un-requested block");
                         }
@@ -1107,7 +1104,7 @@ impl ClientActor {
             if let Some(new_latest_known) =
                 self.sandbox_process_fast_forward(latest_known.height)?
             {
-                self.client.chain.mut_chain_store().save_latest_known(new_latest_known)?;
+                self.client.chain.mut_chain_store().save_latest_known(new_latest_known);
                 self.client.sandbox_update_tip(new_latest_known.height)?;
             }
         }

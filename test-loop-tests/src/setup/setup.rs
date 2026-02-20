@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
@@ -487,7 +488,7 @@ pub fn setup_client(
         validator: validator_signer,
         future_spawner: Arc::new(test_loop.future_spawner(identifier)),
     };
-    let state_sync_dumper_handle = state_sync_dumper.start().unwrap();
+    let state_sync_dumper_handle = state_sync_dumper.start();
     let state_sync_dumper_handle = test_loop.data.register_data(state_sync_dumper_handle);
 
     let client_sender =
@@ -549,6 +550,7 @@ pub fn setup_client(
         cold_store_sender,
         cloud_storage_sender,
         cloud_archival_writer_handle,
+        expected_execution_delay: Arc::new(AtomicU64::new(0)),
     };
 
     // Add the client to the network shared state before returning data

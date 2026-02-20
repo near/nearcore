@@ -65,6 +65,8 @@ pub(crate) struct ReceiptPreparationPipeline {
 
     /// Storage for WASM code.
     storage: ContractStorage,
+
+    chain_id: String,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -90,6 +92,7 @@ impl ReceiptPreparationPipeline {
         config: Arc<RuntimeConfig>,
         contract_cache: Option<Box<dyn ContractRuntimeCache>>,
         storage: ContractStorage,
+        chain_id: String,
     ) -> Self {
         Self {
             map: Default::default(),
@@ -98,6 +101,7 @@ impl ReceiptPreparationPipeline {
             config,
             contract_cache,
             storage,
+            chain_id,
         }
     }
 
@@ -206,6 +210,7 @@ impl ReceiptPreparationPipeline {
                     let storage = self.storage.clone();
                     let created = Instant::now();
                     let method_name = function_call.method_name.clone();
+                    let chain_id = self.chain_id.clone();
                     let status = Mutex::new(PrepareTaskStatus::Pending);
                     let task = Arc::new(PrepareTask { status, condvar: Condvar::new() });
                     entry.insert(Arc::clone(&task));
@@ -228,6 +233,7 @@ impl ReceiptPreparationPipeline {
                             code_hash,
                             &account_id,
                             &method_name,
+                            chain_id,
                         );
 
                         let mut status = task.status.lock();
@@ -308,6 +314,7 @@ impl ReceiptPreparationPipeline {
                 code_hash,
                 &account_id,
                 &function_call.method_name,
+                self.chain_id.clone(),
             );
             PIPELINING_ACTIONS_NOT_SUBMITTED.inc_by(1);
             PIPELINING_ACTIONS_MAIN_THREAD_WORKING_TIME.inc_by(start.elapsed().as_secs_f64());
@@ -338,6 +345,7 @@ impl ReceiptPreparationPipeline {
                         code_hash,
                         &account_id,
                         &method_name,
+                        self.chain_id.clone(),
                     );
                     PIPELINING_ACTIONS_PREPARED_IN_MAIN_THREAD.inc_by(1);
                     PIPELINING_ACTIONS_MAIN_THREAD_WORKING_TIME
@@ -386,8 +394,15 @@ fn prepare_function_call(
     code_hash: CryptoHash,
     account_id: &AccountId,
     method_name: &str,
+    chain_id: String,
 ) -> Box<dyn PreparedContract> {
-    let code_ext = RuntimeContractExt { storage: contract_storage.clone(), account_id, code_hash };
+    let code_ext = RuntimeContractExt {
+        storage: contract_storage.clone(),
+        account_id,
+        code_hash,
+        config: Arc::clone(&config),
+        chain_id,
+    };
     let contract = near_vm_runner::prepare(&code_ext, config, cache, gas_counter, method_name);
     contract
 }
