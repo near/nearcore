@@ -977,14 +977,16 @@ impl Client {
             let core_statements = SpiceCoreStatements::new(
                 self.chain.spice_core_reader.core_statements_for_next_block(&prev_header)?,
             );
-            let last_certified_block_execution_results =
-                self.chain.spice_core_reader.get_last_certified_execution_results_for_next_block(
+            let newly_certified_block_execution_results = self
+                .chain
+                .spice_core_reader
+                .get_newly_certified_block_execution_results_for_next_block(
                     prev_header,
                     &core_statements,
                 )?;
             Some(SpiceNewBlockProductionInfo {
                 core_statements,
-                last_certified_block_execution_results,
+                newly_certified_block_execution_results,
             })
         } else {
             None

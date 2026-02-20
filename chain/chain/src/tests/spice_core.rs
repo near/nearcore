@@ -1069,27 +1069,28 @@ fn test_validate_core_statements_in_block_valid_execution_result_with_ancestral_
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_get_last_certified_execution_results_for_next_block_with_no_certifications() {
+fn test_get_newly_certified_block_execution_results_for_next_block_with_no_certifications() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
     process_block(&mut chain, block.clone());
 
     let execution_results = core_reader
-        .get_last_certified_execution_results_for_next_block(
+        .get_newly_certified_block_execution_results_for_next_block(
             block.header(),
             SpiceCoreStatements::empty(),
         )
         .unwrap();
+    // Genesis certifies itself, so genesis execution results are returned.
     let genesis_execution_results =
-        core_reader.get_block_execution_results(genesis.header()).unwrap();
-    assert!(!execution_results.0.is_empty());
-    assert_eq!(execution_results, genesis_execution_results.unwrap());
+        core_reader.get_block_execution_results(genesis.header()).unwrap().unwrap();
+    assert_eq!(execution_results.len(), 1);
+    assert_eq!(genesis_execution_results, execution_results[0]);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_get_last_certified_execution_results_for_next_block_with_execution_result_in_core() {
+fn test_get_newly_certified_block_execution_results_for_next_block_with_execution_result_in_core() {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
     let genesis = chain.genesis_block();
@@ -1101,19 +1102,19 @@ fn test_get_last_certified_execution_results_for_next_block_with_execution_resul
     process_block(&mut chain, next_block.clone());
     core_writer_actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
 
+    // B1 was already certified in next_block's ancestry, so no newly certified blocks.
     let execution_results = core_reader
-        .get_last_certified_execution_results_for_next_block(
+        .get_newly_certified_block_execution_results_for_next_block(
             next_block.header(),
             SpiceCoreStatements::empty(),
         )
         .unwrap();
-    let block_execution_results = block_execution_results(&block);
-    assert_eq!(block_execution_results, execution_results);
+    assert!(execution_results.is_empty());
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_get_last_certified_execution_results_for_next_block_with_last_block_certified() {
+fn test_get_newly_certified_block_execution_results_for_next_block_with_last_block_certified() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
@@ -1121,15 +1122,18 @@ fn test_get_last_certified_execution_results_for_next_block_with_last_block_cert
 
     let core_statements = SpiceCoreStatements::new(block_certification_core_statements(&block));
     let execution_results = core_reader
-        .get_last_certified_execution_results_for_next_block(block.header(), &core_statements)
+        .get_newly_certified_block_execution_results_for_next_block(
+            block.header(),
+            &core_statements,
+        )
         .unwrap();
-    let block_execution_results = block_execution_results(&block);
-    assert_eq!(block_execution_results, execution_results);
+    assert_eq!(execution_results.len(), 1);
+    assert_eq!(block_execution_results(&block), execution_results[0]);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_get_last_certified_execution_results_for_next_block_with_old_block_certified() {
+fn test_get_newly_certified_block_execution_results_for_next_block_with_old_block_certified() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
@@ -1147,19 +1151,19 @@ fn test_get_last_certified_execution_results_for_next_block_with_old_block_certi
         last_block = new_block;
     }
 
+    // B1 was already certified in the ancestry, so no newly certified blocks.
     let execution_results = core_reader
-        .get_last_certified_execution_results_for_next_block(
+        .get_newly_certified_block_execution_results_for_next_block(
             last_block.header(),
             SpiceCoreStatements::empty(),
         )
         .unwrap();
-    let block_execution_results = block_execution_results(&block);
-    assert_eq!(block_execution_results, execution_results);
+    assert!(execution_results.is_empty());
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_get_last_certified_execution_results_for_next_block_with_certification_split_between_core_and_core_statements()
+fn test_get_newly_certified_block_execution_results_for_next_block_with_certification_split_between_core_and_core_statements()
  {
     let (mut chain, core_reader) = setup();
     let mut core_writer_actor = core_writer_actor(&chain);
@@ -1180,22 +1184,22 @@ fn test_get_last_certified_execution_results_for_next_block_with_certification_s
 
     let last_shard_core_statements = SpiceCoreStatements::new(last_shard_core_statements);
     let execution_results = core_reader
-        .get_last_certified_execution_results_for_next_block(
+        .get_newly_certified_block_execution_results_for_next_block(
             next_block.header(),
             &last_shard_core_statements,
         )
         .unwrap();
-    let block_execution_results = block_execution_results(&block);
-    assert_eq!(block_execution_results, execution_results);
+    assert_eq!(execution_results.len(), 1);
+    assert_eq!(block_execution_results(&block), execution_results[0]);
 }
 
-// This test verifies `get_last_certified_execution_results_for_next_block` works without
+// This test verifies `get_newly_certified_block_execution_results_for_next_block` works without
 // `SpiceCoreWriterActor` having processed the blocks. This matters during orphan processing,
 // when multiple blocks can be processed in quick succession and the core writer (which
 // runs asynchronously) may not have caught up yet.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_get_last_certified_execution_results_without_core_writer_execution_result_in_core() {
+fn test_get_newly_certified_block_execution_results_without_core_writer_execution_result_in_core() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
@@ -1205,20 +1209,20 @@ fn test_get_last_certified_execution_results_without_core_writer_execution_resul
     let next_block = build_block(&mut chain, &block, core_statements);
     process_block(&mut chain, next_block.clone());
 
+    // B1 was already certified in next_block's ancestry, so no newly certified blocks.
     assert!(core_reader.get_execution_results_by_shard_id(block.header()).unwrap().is_empty());
     let execution_results = core_reader
-        .get_last_certified_execution_results_for_next_block(
+        .get_newly_certified_block_execution_results_for_next_block(
             next_block.header(),
             SpiceCoreStatements::empty(),
         )
         .unwrap();
-    let block_execution_results = block_execution_results(&block);
-    assert_eq!(block_execution_results, execution_results);
+    assert!(execution_results.is_empty());
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_get_last_certified_execution_results_without_core_writer_old_block_certified() {
+fn test_get_newly_certified_block_execution_results_without_core_writer_old_block_certified() {
     let (mut chain, core_reader) = setup();
     let genesis = chain.genesis_block();
     let block = build_block(&mut chain, &genesis, vec![]);
@@ -1234,15 +1238,67 @@ fn test_get_last_certified_execution_results_without_core_writer_old_block_certi
         last_block = new_block;
     }
 
+    // B1 was already certified in the ancestry, so no newly certified blocks.
     assert!(core_reader.get_execution_results_by_shard_id(block.header()).unwrap().is_empty());
     let execution_results = core_reader
-        .get_last_certified_execution_results_for_next_block(
+        .get_newly_certified_block_execution_results_for_next_block(
             last_block.header(),
             SpiceCoreStatements::empty(),
         )
         .unwrap();
-    let block_execution_results = block_execution_results(&block);
-    assert_eq!(block_execution_results, execution_results);
+    assert!(execution_results.is_empty());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_get_newly_certified_block_execution_results_multi_block_single_step() {
+    let (mut chain, core_reader) = setup();
+    let genesis = chain.genesis_block();
+
+    // genesis -> B1 -> B2
+    let b1 = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+    let b2 = build_block(&mut chain, &b1, vec![]);
+    process_block(&mut chain, b2.clone());
+
+    // Certify both B1 and B2 at once via core_statements for B3.
+    let mut core_statements = block_certification_core_statements(&b1);
+    core_statements.extend(block_certification_core_statements(&b2));
+    let core_statements = SpiceCoreStatements::new(core_statements);
+    let execution_results = core_reader
+        .get_newly_certified_block_execution_results_for_next_block(b2.header(), &core_statements)
+        .unwrap();
+    assert_eq!(execution_results.len(), 2);
+    assert_eq!(block_execution_results(&b1), execution_results[0]);
+    assert_eq!(block_execution_results(&b2), execution_results[1]);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_get_newly_certified_block_execution_results_multi_block_incremental() {
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
+    let genesis = chain.genesis_block();
+
+    // genesis -> B1 -> B2 -> B3
+    let b1 = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, b1.clone());
+    let b2 = build_block(&mut chain, &b1, vec![]);
+    process_block(&mut chain, b2.clone());
+
+    // B3 certifies B1.
+    let b1_cert = block_certification_core_statements(&b1);
+    let b3 = build_block(&mut chain, &b2, b1_cert);
+    process_block(&mut chain, b3.clone());
+    core_writer_actor.handle(ProcessedBlock { block_hash: *b3.hash() });
+
+    // For B4: certify B2. Should return vec![B2_results] only, since B1 was already certified.
+    let b2_cert = SpiceCoreStatements::new(block_certification_core_statements(&b2));
+    let execution_results = core_reader
+        .get_newly_certified_block_execution_results_for_next_block(b3.header(), &b2_cert)
+        .unwrap();
+    assert_eq!(execution_results.len(), 1);
+    assert_eq!(block_execution_results(&b2), execution_results[0]);
 }
 
 fn block_execution_results(block: &Block) -> BlockExecutionResults {

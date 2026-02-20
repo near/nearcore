@@ -143,12 +143,12 @@ impl Block {
         let mut gas_limit = Gas::ZERO;
         for chunk in &chunks {
             if chunk.height_included() == height {
-                gas_used = gas_used.checked_add(chunk.prev_gas_used()).unwrap();
                 if spice_info.is_none() {
+                    gas_used = gas_used.checked_add(chunk.prev_gas_used()).unwrap();
                     prev_validator_proposals.extend(chunk.prev_validator_proposals());
                     gas_limit = gas_limit.checked_add(chunk.gas_limit()).unwrap();
+                    balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
                 }
-                balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
                 chunk_mask.push(true);
             } else {
                 chunk_mask.push(false);
@@ -162,27 +162,29 @@ impl Block {
                     },
                 ),
             );
+            balance_burnt = Self::compute_balance_burnt_from_certified_results(
+                &spice_info.newly_certified_block_execution_results,
+            );
         }
 
-        // TODO(spice): Use gas_used and other relevant fields from spice_info last
-        // certified block execution results.
-        if let Some(ref spice_info) = spice_info {
-            for (_shard_id, execution_result) in
-                &spice_info.last_certified_block_execution_results.0
-            {
-                gas_limit =
-                    gas_limit.checked_add(execution_result.chunk_extra.gas_limit()).unwrap();
-            }
-        }
-
-        let next_gas_price = Self::compute_next_gas_price(
-            prev.next_gas_price(),
-            gas_used,
-            gas_limit,
-            gas_price_adjustment_rate,
-            min_gas_price,
-            max_gas_price,
-        );
+        let next_gas_price = if let Some(ref spice_info) = spice_info {
+            Self::compute_gas_price_from_certified_results(
+                &spice_info.newly_certified_block_execution_results,
+                prev.next_gas_price(),
+                gas_price_adjustment_rate,
+                min_gas_price,
+                max_gas_price,
+            )
+        } else {
+            Self::compute_next_gas_price(
+                prev.next_gas_price(),
+                gas_used,
+                gas_limit,
+                gas_price_adjustment_rate,
+                min_gas_price,
+                max_gas_price,
+            )
+        };
 
         let new_total_supply = prev
             .total_supply()
@@ -299,12 +301,18 @@ impl Block {
         &self,
         prev_total_supply: Balance,
         minted_amount: Option<Balance>,
+        // TODO(spice): Once spice v1 is released remove Option.
+        newly_certified_block_execution_results: Option<&[BlockExecutionResults]>,
     ) -> bool {
-        let mut balance_burnt = Balance::ZERO;
-
-        for chunk in self.chunks().iter_new() {
-            balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
-        }
+        let balance_burnt = if let Some(results) = newly_certified_block_execution_results {
+            Self::compute_balance_burnt_from_certified_results(results)
+        } else {
+            let mut balance_burnt = Balance::ZERO;
+            for chunk in self.chunks().iter_new() {
+                balance_burnt = balance_burnt.checked_add(chunk.prev_balance_burnt()).unwrap();
+            }
+            balance_burnt
+        };
 
         let new_total_supply = prev_total_supply
             .checked_add(minted_amount.unwrap_or(Balance::ZERO))
@@ -321,24 +329,26 @@ impl Block {
         max_gas_price: Balance,
         gas_price_adjustment_rate: Rational32,
         // TODO(spice): Once spice v1 is released remove Option.
-        last_certified_block_execution_results: Option<&BlockExecutionResults>,
+        newly_certified_block_execution_results: Option<&[BlockExecutionResults]>,
     ) -> bool {
-        let gas_used = self.chunks().compute_gas_used();
-        let gas_limit = if let Some(last_certified_block_execution_results) =
-            last_certified_block_execution_results
-        {
-            last_certified_block_execution_results.compute_gas_limit()
+        let expected_price = if let Some(results) = newly_certified_block_execution_results {
+            Self::compute_gas_price_from_certified_results(
+                results,
+                gas_price,
+                gas_price_adjustment_rate,
+                min_gas_price,
+                max_gas_price,
+            )
         } else {
-            self.chunks().compute_gas_limit()
+            Self::compute_next_gas_price(
+                gas_price,
+                self.chunks().compute_gas_used(),
+                self.chunks().compute_gas_limit(),
+                gas_price_adjustment_rate,
+                min_gas_price,
+                max_gas_price,
+            )
         };
-        let expected_price = Self::compute_next_gas_price(
-            gas_price,
-            gas_used,
-            gas_limit,
-            gas_price_adjustment_rate,
-            min_gas_price,
-            max_gas_price,
-        );
         self.header().next_gas_price() == expected_price
     }
 
@@ -380,6 +390,33 @@ impl Block {
                 )
                 .as_u128(),
         )
+    }
+
+    fn compute_gas_price_from_certified_results(
+        results: &[BlockExecutionResults],
+        initial_gas_price: Balance,
+        gas_price_adjustment_rate: Rational32,
+        min_gas_price: Balance,
+        max_gas_price: Balance,
+    ) -> Balance {
+        let mut gas_price = initial_gas_price;
+        for block_results in results {
+            gas_price = Self::compute_next_gas_price(
+                gas_price,
+                block_results.compute_gas_used(),
+                block_results.compute_gas_limit(),
+                gas_price_adjustment_rate,
+                min_gas_price,
+                max_gas_price,
+            );
+        }
+        gas_price
+    }
+
+    fn compute_balance_burnt_from_certified_results(results: &[BlockExecutionResults]) -> Balance {
+        results.iter().fold(Balance::ZERO, |acc, block_results| {
+            acc.checked_add(block_results.compute_balance_burnt()).unwrap()
+        })
     }
 
     pub fn validate_chunk_header_proof(
@@ -524,7 +561,7 @@ impl Block {
 
 pub struct SpiceNewBlockProductionInfo {
     pub core_statements: SpiceCoreStatements,
-    pub last_certified_block_execution_results: BlockExecutionResults,
+    pub newly_certified_block_execution_results: Vec<BlockExecutionResults>,
 }
 
 /// Distinguishes between new and old chunks.

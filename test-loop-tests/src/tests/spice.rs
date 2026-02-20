@@ -862,3 +862,55 @@ fn schedule_send_money_txs(
     }
     (sent_txs, balance_changes)
 }
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_total_supply_decreases_with_gas_burn() {
+    init_test_logger();
+
+    let sender = create_account_id("sender");
+    let receiver = create_account_id("receiver");
+
+    let num_producers = 2;
+    let num_validators = 0;
+    let validators_spec = create_validators_spec(num_producers, num_validators);
+    let clients = validators_spec_clients(&validators_spec);
+
+    let gas_price = Balance::from_yoctonear(100_000_000);
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .validators_spec(validators_spec)
+        .gas_prices(gas_price, gas_price)
+        .add_user_account_simple(sender.clone(), Balance::from_near(10))
+        .add_user_account_simple(receiver.clone(), Balance::from_near(0))
+        .build();
+    let initial_total_supply = genesis.config.total_supply;
+
+    let producer_account = clients[0].clone();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .build()
+        .warmup();
+
+    let node = TestLoopNode::for_account(&env.node_datas, &producer_account);
+    let tx = SignedTransaction::send_money(
+        1,
+        sender.clone(),
+        receiver,
+        &create_user_test_signer(&sender),
+        Balance::from_near(1),
+        node.head(env.test_loop_data()).last_block_hash,
+    );
+    node.run_tx(&mut env.test_loop, tx, Duration::seconds(10));
+
+    let block = node.last_executed_block(env.test_loop_data());
+    assert!(
+        block.header().total_supply() < initial_total_supply,
+        "total_supply should decrease after gas is burned: {} >= {}",
+        block.header().total_supply(),
+        initial_total_supply,
+    );
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
