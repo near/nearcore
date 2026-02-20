@@ -287,12 +287,15 @@ def build_images(config, test_cases):
     for tc in test_cases:
         senders.extend(tc.pre_fork(ctx))
 
+    receivers = list(set(s.account_id() for s in senders)) + ['test0']
+
     for height, block_hash in utils.poll_blocks(source_node,
                                                 timeout=mirror_utils.TIMEOUT):
         ctx.bhash = base58.b58decode(block_hash.encode('utf8'))
 
         for s in senders:
-            s.send_if_inited(ctx.node, [('test0', height)], ctx.bhash)
+            s.send_if_inited(ctx.node, [(r, height) for r in receivers],
+                             ctx.bhash)
         if height > 12:
             break
 
@@ -352,8 +355,10 @@ def build_images(config, test_cases):
                                          ctx.next_nonce(), ctx.bhash)
         source_node.send_tx(tx)
 
+        receivers = list(set(s.account_id() for s in senders)) + ['test0']
         for s in senders:
-            s.send_if_inited(ctx.node, [('test0', height)], ctx.bhash)
+            s.send_if_inited(ctx.node, [(r, height) for r in receivers],
+                             ctx.bhash)
         for tc in test_cases:
             tc.on_post_fork_block(ctx)
 
