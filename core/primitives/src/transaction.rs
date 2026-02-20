@@ -22,7 +22,7 @@ use serde::ser::Error as EncodeError;
 use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::io::{Error, ErrorKind, Read, Write};
+use std::io::{Error, Read, Write};
 
 pub type LogEntry = String;
 
@@ -176,73 +176,37 @@ impl BorshSerialize for Transaction {
 }
 
 impl BorshDeserialize for Transaction {
-    /// Deserialize based on the first and second bytes of the stream. For V0, we do backward compatible deserialization by deserializing
-    /// the entire stream into V0. For V1, we consume the first byte and then deserialize the rest.
+    /// Deserialize based on the first and second bytes of the stream. For V0, we do backward
+    /// compatible deserialization by deserializing the entire stream into V0. For V1, we consume
+    /// the first byte and then deserialize the rest.
     fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
+        // Read the first two bytes in order to discriminate between V0 and V1.
+        //
+        // The first field in `TransactionV0` is an `AccountId` whose borsh encoding starts with
+        // a 4-byte little-endian length. Since an AccountId is at most 64 bytes, the second byte
+        // of the length is always 0.
+        //
+        // `TransactionV1` is prefixed with a 1_u8 tag byte followed by the borsh-encoded
+        // `TransactionV1` struct, whose first field is also an `AccountId` with nonzero length,
+        // making the second byte nonzero.
+        //
+        // Therefore u2 == 0 implies V0 and u2 != 0 implies V1.
         let u1 = u8::deserialize_reader(reader)?;
         let u2 = u8::deserialize_reader(reader)?;
-        let u3 = u8::deserialize_reader(reader)?;
-        let u4 = u8::deserialize_reader(reader)?;
-        // This is a ridiculous hackery: because the first field in `TransactionV0` is an `AccountId`
-        // and an account id is at most 64 bytes, for all valid `TransactionV0` the second byte must be 0
-        // because of the little endian encoding of the length of the account id.
-        // On the other hand, for `TransactionV1`, since the first byte is 1 and an account id must have nonzero
-        // length, so the second byte must not be zero. Therefore, we can distinguish between the two versions
-        // by looking at the second byte.
-
-        let read_signer_id = |buf: [u8; 4], reader: &mut R| -> std::io::Result<AccountId> {
-            let str_len = u32::from_le_bytes(buf);
-            if str_len > AccountId::MAX_LEN as u32 {
-                return Err(Error::new(
-                    ErrorKind::InvalidData,
-                    format!(
-                        "AccountId length {} exceeds maximum length {}",
-                        str_len,
-                        AccountId::MAX_LEN
-                    ),
-                ));
-            }
-            let mut str_vec = Vec::with_capacity(str_len as usize);
-            for _ in 0..str_len {
-                str_vec.push(u8::deserialize_reader(reader)?);
-            }
-            AccountId::try_from(String::from_utf8(str_vec).map_err(|_| {
-                Error::new(ErrorKind::InvalidData, "Failed to parse AccountId from bytes")
-            })?)
-            .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))
-        };
 
         if u2 == 0 {
-            let signer_id = read_signer_id([u1, u2, u3, u4], reader)?;
-            let public_key = PublicKey::deserialize_reader(reader)?;
-            let nonce = Nonce::deserialize_reader(reader)?;
-            let receiver_id = AccountId::deserialize_reader(reader)?;
-            let block_hash = CryptoHash::deserialize_reader(reader)?;
-            let actions = Vec::<Action>::deserialize_reader(reader)?;
-            Ok(Transaction::V0(TransactionV0 {
-                signer_id,
-                public_key,
-                nonce,
-                receiver_id,
-                block_hash,
-                actions,
-            }))
+            // V0: put both bytes back and deserialize TransactionV0.
+            let prefix = [u1, u2];
+            let mut reader = prefix.chain(reader);
+            let tx = TransactionV0::deserialize_reader(&mut reader)?;
+            Ok(Transaction::V0(tx))
         } else {
-            let u5 = u8::deserialize_reader(reader)?;
-            let signer_id = read_signer_id([u2, u3, u4, u5], reader)?;
-            let public_key = PublicKey::deserialize_reader(reader)?;
-            let nonce = TransactionNonce::deserialize_reader(reader)?;
-            let receiver_id = AccountId::deserialize_reader(reader)?;
-            let block_hash = CryptoHash::deserialize_reader(reader)?;
-            let actions = Vec::<Action>::deserialize_reader(reader)?;
-            Ok(Transaction::V1(TransactionV1 {
-                signer_id,
-                public_key,
-                nonce,
-                receiver_id,
-                block_hash,
-                actions,
-            }))
+            // V1: u1 is the version tag, u2 is the first byte of TransactionV1.
+            // Put u2 back and deserialize TransactionV1.
+            let prefix = [u2];
+            let mut reader = prefix.chain(reader);
+            let tx = TransactionV1::deserialize_reader(&mut reader)?;
+            Ok(Transaction::V1(tx))
         }
     }
 }
@@ -817,21 +781,16 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_invalid_account_id_length() {
-        // Create a serialized transaction with an invalid account ID length
+    fn test_deserialize_invalid_account_id() {
+        // Create a serialized V0 transaction with an invalid account ID (all null bytes).
+        // The first 4 bytes are the little-endian length of the account ID string.
         let mut serialized_tx = vec![];
-        // Version byte for V0
-        serialized_tx.push(0u8);
-        // Invalid length (e.g., 100 which exceeds MAX_LEN of 64)
-        serialized_tx.extend_from_slice(&100u32.to_le_bytes());
-        // The rest of the fields can be empty or default for this test
-        serialized_tx.extend_from_slice(&[0u8; 100]); // Placeholder bytes
+        serialized_tx.extend_from_slice(&10u32.to_le_bytes());
+        serialized_tx.extend_from_slice(&[0u8; 200]); // Placeholder bytes
 
         let result = Transaction::try_from_slice(&serialized_tx);
-        assert!(result.is_err());
-        let err = result.err().unwrap();
-        assert_eq!(err.kind(), ErrorKind::InvalidData);
-        assert!(err.to_string().contains("exceeds maximum length"));
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     }
 
     #[test]
