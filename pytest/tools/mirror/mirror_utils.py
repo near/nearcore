@@ -10,6 +10,9 @@ import subprocess
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
+import base58
+from nacl.signing import SigningKey
+
 from configured_logger import logger
 import transaction
 import utils
@@ -384,6 +387,27 @@ class ImplicitAccount:
         return self.key.key
 
 
+# With --no-secret, the mirror maps each ed25519 public key to a new keypair
+# by using the original public key bytes as the signing key seed. Named
+# accounts are not mapped; implicit account IDs (hex-encoded public keys) are.
+
+
+def map_key_no_secret(pk_str):
+    """Map a public key through the --no-secret mirror key mapping."""
+    pk_bytes = base58.b58decode(pk_str.split(':')[1].encode('ascii'))
+    mapped_pk = bytes(SigningKey(pk_bytes).verify_key)
+    return 'ed25519:' + base58.b58encode(mapped_pk).decode('ascii')
+
+
+def map_account_no_secret(account_id):
+    """Map an implicit account ID through the --no-secret mirror key mapping."""
+    if len(account_id) == 64:
+        pk_bytes = bytes.fromhex(account_id)
+        mapped_pk = bytes(SigningKey(pk_bytes).verify_key)
+        return mapped_pk.hex()
+    return account_id
+
+
 # ── Validation helpers ───────────────────────────────────────────────────────
 
 
@@ -416,13 +440,3 @@ def allowed_run_time(target_node_dir, start_time, end_source_height):
 
     # Give 20 seconds to sync, then 1.5x min_block_production_delay per block
     return 20 + (end_source_height - genesis_height) * block_delay * 1.5
-
-
-def added_keys_send_transfers(nodes, added_keys, receivers, amount, block_hash):
-    node_idx = 0
-    for key in added_keys:
-        key.send_if_inited(nodes[node_idx],
-                           [(receiver, amount) for receiver in receivers],
-                           block_hash)
-        node_idx += 1
-        node_idx %= len(nodes)
