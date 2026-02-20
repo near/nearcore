@@ -791,6 +791,21 @@ mod tests {
         let result = Transaction::try_from_slice(&serialized_tx);
         let err = result.unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("the Account ID contains an invalid character"));
+    }
+
+    #[test]
+    fn test_deserialize_invalid_account_id_length() {
+        // Create a serialized V0 transaction with an account ID length exceeding the maximum.
+        // The first 4 bytes are the little-endian length of the account ID string.
+        let mut serialized_tx = vec![];
+        serialized_tx.extend_from_slice(&100u32.to_le_bytes()); // 100 > AccountId::MAX_LEN (64)
+        serialized_tx.extend_from_slice(&[b'a'; 200]); // Placeholder bytes
+
+        let result = Transaction::try_from_slice(&serialized_tx);
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("the Account ID is too long"));
     }
 
     #[test]
