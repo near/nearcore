@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use near_chain_configs::TrackedShardsConfig;
 use near_epoch_manager::EpochManagerAdapter;
+use near_jsonrpc_client_internal::JsonRpcClient;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, from_slice};
 use near_primitives::shard_layout::ShardLayout;
@@ -21,35 +22,19 @@ type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Handle to a remote RPC node that can forward JSON-RPC requests.
 ///
-/// `RemoteRpcNode` implements this for production.
+/// `JsonRpcClient` implements this for production.
 /// TestLoop can provide its own implementation.
 pub trait RpcNodeHandle: Send + Sync {
     fn forward(&self, request: &Message) -> BoxFut<'_, Result<Value, RpcError>>;
 }
 
-/// Remote node handle that forwards requests via HTTP.
-pub struct RemoteRpcNode {
-    client: Client,
-    addr: String,
-}
-
-impl RemoteRpcNode {
-    pub fn new(client: Client, addr: String) -> Self {
-        Self { client, addr }
-    }
-
-    pub fn addr(&self) -> &str {
-        &self.addr
-    }
-}
-
-impl RpcNodeHandle for RemoteRpcNode {
+impl RpcNodeHandle for JsonRpcClient {
     fn forward(&self, request: &Message) -> BoxFut<'_, Result<Value, RpcError>> {
         let request = request.clone();
         Box::pin(async move {
             let response = self
                 .client
-                .post(&self.addr)
+                .post(&self.server_addr)
                 .header("Content-Type", "application/json")
                 .header("X-Near-Pool-Forwarded", "true")
                 .json(&request)
@@ -386,7 +371,7 @@ pub fn build_pool(
     for (shard_uid, addr) in peers_config {
         let node = nodes_by_addr
             .entry(addr.clone())
-            .or_insert_with(|| Arc::new(RemoteRpcNode::new(http_client.clone(), addr)));
+            .or_insert_with(|| Arc::new(JsonRpcClient::new(&addr, http_client.clone())));
         peers.insert(shard_uid, Arc::clone(node));
     }
 

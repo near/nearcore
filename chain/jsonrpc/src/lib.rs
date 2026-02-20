@@ -487,7 +487,7 @@ impl JsonRpcHandler {
 
         // Run local execution and remote fan-out concurrently.
         let (local_result, remote_results) = tokio::join!(
-            self.process_basic_requests_internal_or_error(request),
+            self.process_local_request(request),
             pool.forward_to_all(&message, &method),
         );
 
@@ -501,17 +501,18 @@ impl JsonRpcHandler {
         Self::merge_fan_out_results(&method, local_result, remote_results)
     }
 
-    /// Helper: run a request through process_basic_requests_internal, returning
-    /// an error if the method is not handled (shouldn't happen for fan-out methods).
-    async fn process_basic_requests_internal_or_error(
-        &self,
-        request: Request,
-    ) -> Result<Value, RpcError> {
+    /// Execute a request locally, handling both basic methods and `query`.
+    /// Used as the local leg of fan-out execution.
+    async fn process_local_request(&self, request: Request) -> Result<Value, RpcError> {
         match self.process_basic_requests_internal(request).await {
             Ok(result) => result,
-            Err(_request) => {
-                Err(RpcError::method_not_found("unhandled fan-out method".to_string()))
-            }
+            Err(request) => match request.method.as_ref() {
+                "query" => {
+                    let params: RpcQueryRequest = RpcRequest::parse(request.params)?;
+                    process_query_response(self.query(params).await)
+                }
+                _ => Err(RpcError::method_not_found(request.method)),
+            },
         }
     }
 
