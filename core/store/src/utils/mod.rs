@@ -384,13 +384,21 @@ pub fn compute_gas_key_balance_sum(
     Ok(total)
 }
 
+pub struct RemoveAccountResult {
+    pub gas_key_nonce_count: usize,
+    pub gas_key_nonce_total_key_bytes: usize, // used to calculate compute cost
+}
+
 /// Removes account, code and all access keys and gas keys associated to it.
 pub fn remove_account(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
-) -> Result<(), StorageError> {
+) -> Result<RemoveAccountResult, StorageError> {
     state_update.remove(TrieKey::Account { account_id: account_id.clone() });
     state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
+
+    let mut gas_key_nonce_count: usize = 0;
+    let mut gas_key_nonce_total_key_bytes: usize = 0;
 
     // Removing access keys and gas key nonces
     let lock = state_update.trie().lock_for_iter();
@@ -415,6 +423,8 @@ pub fn remove_account(
                     )
                 })?;
         if let Some(index) = nonce_index {
+            gas_key_nonce_count += 1;
+            gas_key_nonce_total_key_bytes += raw_key.len();
             keys_to_remove.push(TrieKey::GasKeyNonce {
                 account_id: account_id.clone(),
                 public_key: public_key.clone(),
@@ -452,7 +462,7 @@ pub fn remove_account(
     for key in data_keys {
         state_update.remove(TrieKey::ContractData { account_id: account_id.clone(), key });
     }
-    Ok(())
+    Ok(RemoveAccountResult { gas_key_nonce_count, gas_key_nonce_total_key_bytes })
 }
 
 pub fn get_genesis_state_roots(store: &Store) -> Option<Vec<StateRoot>> {

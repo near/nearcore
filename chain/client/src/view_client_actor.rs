@@ -436,6 +436,11 @@ impl ViewClientActor {
                     block_height,
                     block_hash,
                 } => QueryError::UnknownAccessKey { public_key, block_height, block_hash },
+                near_chain_primitives::error::QueryError::UnknownGasKey {
+                    public_key,
+                    block_height,
+                    block_hash,
+                } => QueryError::UnknownGasKey { public_key, block_height, block_hash },
                 near_chain::near_chain_primitives::error::QueryError::ContractExecutionError {
                     error_message,
                     error,
