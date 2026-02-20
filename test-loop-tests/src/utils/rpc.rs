@@ -76,7 +76,7 @@ pub(crate) fn create_testloop_jsonrpc_router(
         peer_manager_sender,
         block_notification_watcher,
         #[cfg(feature = "test_features")]
-        gc_actor_sender,
+        gc_actor_sender.clone().into_multi_sender(),
         entity_debug_handler,
     )
 }
