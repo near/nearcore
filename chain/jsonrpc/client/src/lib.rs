@@ -194,20 +194,20 @@ where
 pub struct JsonRpcClient {
     pub transport: Arc<dyn RpcTransport>,
     /// Server address, available when using the default reqwest transport.
-    pub server_addr: String,
+    pub server_addr: Option<String>,
 }
 
 impl JsonRpcClient {
     /// Creates a new RPC client backed by reqwest HTTP client.
     pub fn new(server_addr: &str, client: Client) -> Self {
         let transport = Arc::new(ReqwestTransport { client, server_addr: server_addr.to_string() });
-        JsonRpcClient { transport, server_addr: server_addr.to_string() }
+        JsonRpcClient { transport, server_addr: Some(server_addr.to_string()) }
     }
 
     /// Creates a new RPC client backed by the given transport implementation.
     /// Useful for testing, e.g. in TestLoop with TestLoopRpcTransport.
     pub fn new_with_transport(transport: Arc<dyn RpcTransport>) -> Self {
-        JsonRpcClient { transport, server_addr: String::new() }
+        JsonRpcClient { transport, server_addr: None }
     }
 
     pub fn broadcast_tx_async(&self, tx: String) -> RpcRequest<String> {
