@@ -73,14 +73,33 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
 #[as_ref(forward)]
 pub struct Secp256K1PublicKey([u8; 64]);
 
+impl Secp256K1PublicKey {
+    /// Validates that the point lies on the secp256k1 curve.
+    pub fn verify(&self) -> Result<(), crate::errors::ParseKeyError> {
+        let mut uncompressed = [0x04; 65];
+        uncompressed[1..].copy_from_slice(&self.0);
+
+        // This checks if PublicKey lies on the curve
+        secp256k1::PublicKey::from_slice(&uncompressed).map_err(|e| {
+            crate::errors::ParseKeyError::InvalidData { error_message: e.to_string() }
+        })?;
+
+        Ok(())
+    }
+}
+
 impl TryFrom<&[u8]> for Secp256K1PublicKey {
     type Error = crate::errors::ParseKeyError;
 
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        data.try_into().map(Self).map_err(|_| Self::Error::InvalidLength {
+        let pk: Self = data.try_into().map_err(|_| Self::Error::InvalidLength {
             expected_length: 64,
             received_length: data.len(),
-        })
+        })?;
+
+        pk.verify()?;
+
+        Ok(pk)
     }
 }
 
@@ -231,9 +250,11 @@ impl BorshDeserialize for PublicKey {
             KeyType::ED25519 => {
                 Ok(PublicKey::ED25519(ED25519PublicKey(BorshDeserialize::deserialize_reader(rd)?)))
             }
-            KeyType::SECP256K1 => Ok(PublicKey::SECP256K1(Secp256K1PublicKey(
-                BorshDeserialize::deserialize_reader(rd)?,
-            ))),
+            KeyType::SECP256K1 => {
+                let pk = Secp256K1PublicKey(BorshDeserialize::deserialize_reader(rd)?);
+                pk.verify().map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
+                Ok(PublicKey::SECP256K1(pk))
+            }
         }
     }
 }
@@ -268,7 +289,11 @@ impl FromStr for PublicKey {
         let (key_type, key_data) = split_key_type_data(value)?;
         Ok(match key_type {
             KeyType::ED25519 => Self::ED25519(ED25519PublicKey(decode_bs58(key_data)?)),
-            KeyType::SECP256K1 => Self::SECP256K1(Secp256K1PublicKey(decode_bs58(key_data)?)),
+            KeyType::SECP256K1 => {
+                let pk = Secp256K1PublicKey(decode_bs58(key_data)?);
+                pk.verify()?;
+                Self::SECP256K1(pk)
+            }
         })
     }
 }
