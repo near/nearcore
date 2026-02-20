@@ -17,6 +17,7 @@ pub(crate) mod peer_manager_actor;
 pub(crate) mod receipts;
 pub(crate) mod resharding;
 pub(crate) mod rotating_validators_runner;
+pub(crate) mod rpc;
 pub(crate) mod setups;
 pub(crate) mod sharding;
 pub(crate) mod transactions;

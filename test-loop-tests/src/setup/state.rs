@@ -19,6 +19,7 @@ use near_client::{
     ViewClientActor,
 };
 use near_jsonrpc::ViewClientSenderForRpc;
+use near_jsonrpc::client::{JsonRpcClient, RpcTransport};
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
@@ -97,6 +98,7 @@ pub struct NodeExecutionData {
     pub cold_store_sender: Option<TestLoopSender<ColdStoreActor>>,
     pub cloud_storage_sender: TestLoopDataHandle<Option<Arc<CloudStorage>>>,
     pub cloud_archival_writer_handle: TestLoopDataHandle<Option<CloudArchivalWriterHandle>>,
+    pub jsonrpc_transport: Arc<dyn RpcTransport>,
     /// Extra blocks of delay between consensus head and execution head.
     /// Set by delay_endorsements_propagation to account for certification delay in timeouts.
     /// It is Arc<_> so updates are visible through clones.
@@ -110,6 +112,10 @@ impl NodeExecutionData {
 
     pub fn set_expected_execution_delay(&self, delay: u64) {
         self.expected_execution_delay.store(delay, Ordering::Relaxed);
+    }
+
+    pub fn jsonrpc_client(&self) -> JsonRpcClient {
+        JsonRpcClient::new_with_transport(self.jsonrpc_transport.clone())
     }
 }
 

@@ -380,6 +380,7 @@ tokio = { version = "1.28", default-features = false }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec", "io"] }
 toml = "0.5.8"
+tower-service = "0.3.3"
 tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
 tqdm = "0.4.4"
 tracing = { version = "0.1.40", features = ["std"] }

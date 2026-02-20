@@ -32,6 +32,7 @@ use near_client::{
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_jsonrpc::client::RpcTransport;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
@@ -42,6 +43,7 @@ use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
 
 use crate::utils::peer_manager_actor::TestLoopPeerManagerActor;
+use crate::utils::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 
 use super::drop_condition::ClientToShardsManagerSender;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
@@ -141,7 +143,7 @@ pub fn setup_client(
         chunks_storage: chunks_storage.clone(),
     });
 
-    let (block_notification_watch_sender, _block_notification_watch_receiver) =
+    let (block_notification_watch_sender, block_notification_watch_receiver) =
         tokio::sync::watch::channel(None);
 
     // Generate a PeerId. This is used to identify the client in the network.
@@ -355,7 +357,7 @@ pub fn setup_client(
         storage.cold_db.is_some(),
     );
     // We don't send messages to `GCActor` so adapter is not needed.
-    test_loop.data.register_actor(identifier, gc_actor, None);
+    let gc_actor_sender = test_loop.data.register_actor(identifier, gc_actor, None);
 
     let cold_store_sender = if storage.cold_db.is_some() {
         let (cold_store_actor, _) = create_cold_store_actor(
@@ -531,6 +533,18 @@ pub fn setup_client(
     let peer_manager_sender =
         test_loop.data.register_actor(identifier, peer_manager_actor, Some(network_adapter));
 
+    let jsonrpc_router = create_testloop_jsonrpc_router(
+        test_loop.clock(),
+        &client_sender,
+        &view_client_sender,
+        &rpc_handler_sender,
+        &gc_actor_sender,
+        &genesis.config,
+        block_notification_watch_receiver,
+    );
+    let jsonrpc_transport: Arc<dyn RpcTransport> =
+        Arc::new(TestLoopRpcTransport::new(jsonrpc_router));
+
     let node_data = NodeExecutionData {
         identifier: identifier.to_string(),
         account_id,
@@ -550,6 +564,7 @@ pub fn setup_client(
         cold_store_sender,
         cloud_storage_sender,
         cloud_archival_writer_handle,
+        jsonrpc_transport,
         expected_execution_delay: Arc::new(AtomicU64::new(0)),
     };
 
