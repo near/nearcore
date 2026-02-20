@@ -347,12 +347,14 @@ impl ForkNetworkCommand {
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids: Vec<_> = shard_layout.shard_uids().collect();
-        // get_epoch_config_from_protocol_version
+
         let target_shard_layout = match shard_layout_override {
             ShardLayoutOverride::UseShardLayoutFromProtocolVersion(protocol_version) => {
+                // TODO(dynamic_resharding): decide how to support dynamic resharding in fork network
                 epoch_manager
                     .get_epoch_config_from_protocol_version(*protocol_version)
                     .static_shard_layout()
+                    .context("dynamic resharding not supported")?
             }
             ShardLayoutOverride::UseShardLayoutFromFile(shard_layout_file) => {
                 let layout = std::fs::read_to_string(&shard_layout_file).with_context(|| {
@@ -702,7 +704,9 @@ impl ForkNetworkCommand {
         // 1. Create default genesis and override its fields with given parameters.
         let (epoch_config, num_accounts_per_shard, chunk_producers) =
             Self::read_patches(patches_path)?;
-        let target_shard_layout = &epoch_config.static_shard_layout();
+        // TODO(dynamic_resharding): decide how to support dynamic resharding in fork network
+        let target_shard_layout =
+            &epoch_config.static_shard_layout().context("dynamic resharding not supported")?;
         let validators = Self::read_validators(validators, home_dir)?;
         let num_seats = num_seats.unwrap_or(validators.len() as NumSeats);
         let mut genesis = Genesis::from_account_infos(
@@ -1463,7 +1467,9 @@ impl ForkNetworkCommand {
         new_state_roots: Vec<StateRoot>,
         new_validator_accounts: Vec<AccountInfo>,
     ) -> anyhow::Result<()> {
-        let shard_layout = epoch_config.static_shard_layout();
+        let shard_layout = epoch_config
+            .static_shard_layout()
+            .context("dynamic resharding epoch config is not supported")?;
         // TODO: deprecate these fields as unused.
         let num_block_producer_seats_per_shard = vec![
             original_config
