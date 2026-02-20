@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::rand::StakeWeightedIndex;
 use crate::shard_layout::ShardLayout;
@@ -592,6 +592,95 @@ impl EpochInfo {
                 v5.chunk_producers_settlement.get(shard_index)?.get(sample).copied()
             }
         }
+    }
+
+    /// Like `sample_chunk_producer`, but excludes the given set of validator IDs.
+    /// Builds a temporary `StakeWeightedIndex` from the remaining producers'
+    /// stakes and samples with the same deterministic seed.
+    ///
+    /// Returns `None` if:
+    ///   - the shard doesn't exist in the settlement, or
+    ///   - all producers for the shard are excluded (safety valve — caller
+    ///     should fall through to the original `sample_chunk_producer`).
+    pub fn sample_chunk_producer_excluding(
+        &self,
+        shard_layout: &ShardLayout,
+        shard_id: ShardId,
+        height: BlockHeight,
+        exclude: &HashSet<ValidatorId>,
+    ) -> Option<ValidatorId> {
+        if exclude.is_empty() {
+            return self.sample_chunk_producer(shard_layout, shard_id, height);
+        }
+
+        let shard_index = shard_layout.get_shard_index(shard_id).ok()?;
+
+        match &self {
+            Self::V1(v1) => {
+                let shard_cps = v1.chunk_producers_settlement.get(shard_index)?;
+                let filtered: Vec<ValidatorId> =
+                    shard_cps.iter().copied().filter(|id| !exclude.contains(id)).collect();
+                if filtered.is_empty() {
+                    return None;
+                }
+                Some(filtered[(height % (filtered.len() as u64)) as usize])
+            }
+            Self::V2(v2) => {
+                let shard_cps = v2.chunk_producers_settlement.get(shard_index)?;
+                let filtered: Vec<ValidatorId> =
+                    shard_cps.iter().copied().filter(|id| !exclude.contains(id)).collect();
+                if filtered.is_empty() {
+                    return None;
+                }
+                Some(filtered[(height % (filtered.len() as u64)) as usize])
+            }
+            Self::V3(v3) => {
+                let shard_cps = v3.chunk_producers_settlement.get(shard_index)?;
+                Self::sample_excluding_weighted(
+                    shard_cps,
+                    exclude,
+                    &v3.validators,
+                    Self::chunk_produce_seed(&v3.rng_seed, height, shard_id),
+                )
+            }
+            Self::V4(v4) => {
+                let shard_cps = v4.chunk_producers_settlement.get(shard_index)?;
+                Self::sample_excluding_weighted(
+                    shard_cps,
+                    exclude,
+                    &v4.validators,
+                    Self::chunk_produce_seed(&v4.rng_seed, height, shard_id),
+                )
+            }
+            Self::V5(v5) => {
+                let shard_cps = v5.chunk_producers_settlement.get(shard_index)?;
+                Self::sample_excluding_weighted(
+                    shard_cps,
+                    exclude,
+                    &v5.validators,
+                    Self::chunk_produce_seed(&v5.rng_seed, height, shard_id),
+                )
+            }
+        }
+    }
+
+    /// Helper: filter settlement by exclusion set, build a temporary
+    /// `StakeWeightedIndex` from remaining producers' stakes, and sample.
+    fn sample_excluding_weighted(
+        settlement: &[ValidatorId],
+        exclude: &HashSet<ValidatorId>,
+        validators: &[ValidatorStake],
+        seed: [u8; 32],
+    ) -> Option<ValidatorId> {
+        let filtered: Vec<ValidatorId> =
+            settlement.iter().copied().filter(|id| !exclude.contains(id)).collect();
+        if filtered.is_empty() {
+            return None;
+        }
+        let stakes: Vec<Balance> =
+            filtered.iter().map(|&id| validators[id as usize].stake()).collect();
+        let sampler = StakeWeightedIndex::new(stakes);
+        Some(filtered[sampler.sample(seed)])
     }
 
     #[cfg(feature = "rand")]

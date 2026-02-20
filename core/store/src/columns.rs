@@ -377,6 +377,11 @@ pub enum DBCol {
     /// - *Content type*: Vec<[near_primitives::types::SpiceUncertifiedChunkInfo]>
     #[cfg(feature = "protocol_feature_spice")]
     UncertifiedChunks,
+    /// Pre-computed chunk producer for the chunk at height prev_block.height+1 on the given shard.
+    /// Populated during header sync and block processing. Authoritative source for historical lookups.
+    /// - *Rows*: BlockHash || ShardId (prev_block_hash, shard_id) — 40 bytes
+    /// - *Content type*: [near_primitives::types::validator_stake::ValidatorStake]
+    ChunkProducers,
 }
 
 /// Defines different logical parts of a db key.
@@ -441,7 +446,8 @@ impl DBCol {
             | DBCol::Chunks
             | DBCol::InvalidChunks
             | DBCol::PartialChunks
-            | DBCol::TransactionResultForBlock => true,
+            | DBCol::TransactionResultForBlock
+            | DBCol::ChunkProducers => true,
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks
             | DBCol::ExecutionResults
@@ -608,7 +614,8 @@ impl DBCol {
             | DBCol::FlatStorageStatus
             | DBCol::EpochSyncProof
             | DBCol::StateSyncHashes
-            | DBCol::StateSyncNewChunks => false,
+            | DBCol::StateSyncNewChunks
+            | DBCol::ChunkProducers => false,
         }
     }
 
@@ -704,6 +711,7 @@ impl DBCol {
             DBCol::UncertifiedExecutionResults => &[DBKeyType::ChunkExecutionResultHash],
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks => &[DBKeyType::BlockHash],
+            DBCol::ChunkProducers => &[DBKeyType::BlockHash, DBKeyType::ShardId],
         }
     }
 

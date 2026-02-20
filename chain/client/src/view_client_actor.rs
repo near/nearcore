@@ -44,7 +44,6 @@ use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochHeight, EpochId, EpochReference,
     Finality, MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId,
@@ -697,11 +696,11 @@ impl ViewClientActor {
                 .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
                 let validator = self
                     .epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
-                        epoch_id: head.epoch_id,
-                        height_created: head.height + self.config.tx_routing_height_horizon - 1,
-                        shard_id: target_shard_id,
-                    })
+                    .get_chunk_producer_for_height(
+                        &head.epoch_id,
+                        head.height + self.config.tx_routing_height_horizon - 1,
+                        target_shard_id,
+                    )
                     .map(|info| info.take_account_id())
                     .map_err(|err| TxStatusError::ChainError(err.into()))?;
 
@@ -846,17 +845,12 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
         };
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        let epoch_id = self
-            .epoch_manager
-            .get_epoch_id_from_prev_block(chunk_inner.prev_block_hash())
-            .into_chain_error()?;
         let author = self
             .epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                epoch_id,
-                height_created: chunk_inner.height_created(),
-                shard_id: chunk_inner.shard_id(),
-            })
+            .get_chunk_producer_info_best_effort(
+                chunk_inner.prev_block_hash(),
+                chunk_inner.shard_id(),
+            )
             .map(|info| info.take_account_id())
             .into_chain_error()?;
 
