@@ -357,7 +357,7 @@ pub fn setup_client(
         storage.cold_db.is_some(),
     );
     // We don't send messages to `GCActor` so adapter is not needed.
-    test_loop.data.register_actor(identifier, gc_actor, None);
+    let gc_actor_sender = test_loop.data.register_actor(identifier, gc_actor, None);
 
     let cold_store_sender = if storage.cold_db.is_some() {
         let (cold_store_actor, _) = create_cold_store_actor(
@@ -538,6 +538,7 @@ pub fn setup_client(
         &client_sender,
         &view_client_sender,
         &rpc_handler_sender,
+        &gc_actor_sender,
         &genesis.config,
         block_notification_watch_receiver,
     );

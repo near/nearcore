@@ -7,6 +7,7 @@ use futures::future::BoxFuture;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::test_loop::sender::TestLoopSender;
 use near_chain_configs::GenesisConfig;
+use near_client::gc_actor::GCActor;
 use near_client_primitives::types::BlockNotificationMessage;
 use near_jsonrpc::client::RpcTransport;
 use near_jsonrpc::{PeerManagerSenderForRpc, RpcConfig, create_jsonrpc_app};
@@ -56,6 +57,7 @@ pub(crate) fn create_testloop_jsonrpc_router(
     client_sender: &TestLoopSender<near_client::client_actor::ClientActor>,
     view_client_sender: &TestLoopSender<near_client::ViewClientActor>,
     rpc_handler_sender: &TestLoopSender<near_client::RpcHandlerActor>,
+    #[allow(unused)] gc_actor_sender: &TestLoopSender<GCActor>, // used only when test_features is enabled.
     genesis_config: &GenesisConfig,
     block_notification_watcher: tokio::sync::watch::Receiver<Option<BlockNotificationMessage>>,
 ) -> Router {
@@ -63,8 +65,6 @@ pub(crate) fn create_testloop_jsonrpc_router(
     // They are not needed for normal jsonrpc functionality, it's debugging/testing stuff.
     let peer_manager_sender: PeerManagerSenderForRpc = noop().into_multi_sender();
     let entity_debug_handler = Arc::new(DummyEntityDebugHandler {});
-    #[cfg(feature = "test_features")]
-    let gc_sender = noop().into_multi_sender();
 
     create_jsonrpc_app(
         clock,
@@ -76,7 +76,7 @@ pub(crate) fn create_testloop_jsonrpc_router(
         peer_manager_sender,
         block_notification_watcher,
         #[cfg(feature = "test_features")]
-        gc_sender,
+        gc_actor_sender,
         entity_debug_handler,
     )
 }
