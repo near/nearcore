@@ -7,6 +7,7 @@ use crate::metrics::spawn_trie_metrics_loop;
 use crate::state_sync::StateSyncDumper;
 use anyhow::Context;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
+use near_async::shutdown_signal::ShutdownSignal;
 use near_async::time::Clock;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
@@ -54,7 +55,6 @@ use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use tokio::sync::broadcast;
 
 pub mod append_only_map;
 pub mod config;
@@ -360,16 +360,21 @@ pub fn start_with_config(
     config: NearConfig,
     actor_system: ActorSystem,
 ) -> impl Future<Output = anyhow::Result<NearNode>> {
-    start_with_config_and_synchronization(home_dir, config, actor_system, None, None)
+    start_with_config_and_synchronization(
+        home_dir,
+        config,
+        actor_system,
+        ShutdownSignal::noop(),
+        None,
+    )
 }
 
 pub fn start_with_config_and_synchronization(
     home_dir: &Path,
     config: NearConfig,
     actor_system: ActorSystem,
-    // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
-    // `ClientActor` gets dropped.
-    shutdown_signal: Option<broadcast::Sender<()>>,
+    // 'shutdown_signal' will notify the system when a ClientActor triggers shutdown.
+    shutdown_signal: ShutdownSignal,
     config_updater: Option<ConfigUpdater>,
 ) -> impl Future<Output = anyhow::Result<NearNode>> {
     // Pins the future to avoid large stack frame.
@@ -386,7 +391,7 @@ pub async fn start_with_config_and_synchronization_impl(
     home_dir: &Path,
     config: NearConfig,
     actor_system: ActorSystem,
-    shutdown_signal: Option<broadcast::Sender<()>>,
+    shutdown_signal: ShutdownSignal,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
     let storage = open_storage(home_dir, &config)?;

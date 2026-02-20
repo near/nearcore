@@ -29,6 +29,7 @@ use near_async::messaging::{
     self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender,
 };
 use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::shutdown_signal::ShutdownSignal;
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
 use near_async::tokio::TokioRuntimeHandle;
@@ -86,7 +87,6 @@ use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
 use std::fmt;
 use std::sync::Arc;
-use tokio::sync::broadcast;
 use tracing::debug_span;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
@@ -152,7 +152,7 @@ pub fn start_client(
     validator_signer: MutableValidatorSigner,
     telemetry_sender: Sender<TelemetryEvent>,
     snapshot_callbacks: Option<SnapshotCallbacks>,
-    sender: Option<broadcast::Sender<()>>,
+    shutdown_signal: ShutdownSignal,
     adv: crate::adversarial::Controls,
     config_updater: Option<ConfigUpdater>,
     partial_witness_adapter: PartialWitnessSenderForClient,
@@ -238,7 +238,7 @@ pub fn start_client(
         node_id,
         network_adapter,
         telemetry_sender,
-        sender,
+        shutdown_signal,
         adv,
         config_updater,
         sync_jobs_actor_addr.into_multi_sender(),
@@ -312,7 +312,7 @@ pub struct ClientActor {
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
-    shutdown_signal: Option<broadcast::Sender<()>>,
+    shutdown_signal: ShutdownSignal,
 
     /// Manages updating the config.
     config_updater: Option<ConfigUpdater>,
@@ -405,7 +405,7 @@ impl ClientActor {
         node_id: PeerId,
         network_adapter: PeerManagerAdapter,
         telemetry_sender: Sender<TelemetryEvent>,
-        shutdown_signal: Option<broadcast::Sender<()>>,
+        shutdown_signal: ShutdownSignal,
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
         sync_jobs_sender: SyncJobsSenderForClient,
@@ -1291,9 +1291,7 @@ impl ClientActor {
             if let Some(block_height_to_shutdown) = self.client.config.expected_shutdown.get() {
                 if head.height >= block_height_to_shutdown {
                     tracing::info!(target: "client", head_height = head.height, ?block_height_to_shutdown, "expected shutdown triggered");
-                    if let Some(tx) = self.shutdown_signal.take() {
-                        let _ = tx.send(()); // Ignore send signal fail, it will send again in next trigger
-                    }
+                    self.shutdown_signal.fire();
                 }
             }
         }

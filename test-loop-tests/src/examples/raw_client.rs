@@ -1,4 +1,5 @@
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
+use near_async::shutdown_signal::ShutdownSignal;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::ChainGenesis;
@@ -140,7 +141,7 @@ fn test_raw_client_test_loop_setup() {
         PeerId::random(),
         noop().into_multi_sender(),
         noop().into_sender(),
-        None,
+        ShutdownSignal::noop(),
         Default::default(),
         None,
         sync_jobs_adapter.as_multi_sender(),

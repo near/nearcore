@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
+use near_async::shutdown_signal::ShutdownSignal;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::resharding::resharding_actor::ReshardingActor;
@@ -282,13 +283,19 @@ pub fn setup_client(
     } else {
         noop().into_sender()
     };
+    let pending_denylist = test_loop.event_denylist();
+    let id = identifier.to_string();
+    let shutdown_signal = ShutdownSignal::new(move || {
+        pending_denylist.lock().push(id);
+    });
+
     let client_actor = ClientActor::new(
         test_loop.clock(),
         client,
         peer_id.clone(),
         network_adapter.as_multi_sender(),
         noop().into_sender(),
-        None,
+        shutdown_signal,
         Default::default(),
         None,
         sync_jobs_adapter.as_multi_sender(),

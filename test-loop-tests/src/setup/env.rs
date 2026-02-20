@@ -85,9 +85,9 @@ impl TestLoopEnv {
     ///
     /// Note that other nodes may still continue to queue network events into the peer
     /// manager actor of the stopped node but this would not be processed.
-    pub fn kill_node(&mut self, identifier: &str) -> NodeSetupState {
+    pub fn kill_node(&self, identifier: &str) -> NodeSetupState {
         // Make test_loop ignore all events from this node.
-        self.test_loop.remove_events_with_identifier(identifier);
+        self.test_loop.event_denylist().lock().push(identifier.to_string());
 
         // Build node_state
         let node_data = self

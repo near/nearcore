@@ -14,6 +14,7 @@ use near_chain::{ApplyChunksIterationMode, Chain, ChainGenesis, DoomslugThreshol
 
 use near_async::ActorSystem;
 use near_async::multithread::MultithreadRuntimeHandle;
+use near_async::shutdown_signal::ShutdownSignal;
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain_configs::test_utils::TestClientConfigParams;
 use near_chain_configs::{
@@ -221,7 +222,7 @@ fn setup(
         signer.clone(),
         telemetry.into_sender(),
         None,
-        None,
+        ShutdownSignal::noop(),
         adv,
         None,
         partial_witness_sender_for_client,

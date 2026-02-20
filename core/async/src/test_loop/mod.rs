@@ -107,6 +107,9 @@ pub struct TestLoopV2 {
     every_event_callback: Option<Box<dyn FnMut(&TestLoopData)>>,
     /// All events with this identifier are ignored in testloop execution environment.
     denylisted_identifiers: HashSet<String>,
+    /// Buffer for identifiers that should be added to the denylist. Written to by
+    /// `ShutdownSignal` callbacks and drained at the start of each `process_event()`.
+    pending_denylist: Arc<Mutex<Vec<String>>>,
 }
 
 /// An event waiting to be executed, ordered by the due time and then by ID.
@@ -215,6 +218,7 @@ impl TestLoopV2 {
             shutting_down,
             every_event_callback: None,
             denylisted_identifiers: HashSet::new(),
+            pending_denylist: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -260,10 +264,13 @@ impl TestLoopV2 {
         );
     }
 
-    /// This function is used to filter out all events that belong to a certain identifier.
-    /// The use case is while shutting down a node, we would like to not execute any more events from that node.
-    pub fn remove_events_with_identifier(&mut self, identifier: &str) {
-        self.denylisted_identifiers.insert(identifier.to_string());
+    /// Returns a clone of the event denylist buffer. Identifiers pushed into
+    /// this buffer are drained into the internal denylist at the start of each
+    /// `process_event()`, causing all events with those identifiers to be
+    /// ignored. This is the unified way to suppress events for a node, used
+    /// both by `ShutdownSignal` callbacks and by `kill_node`.
+    pub fn event_denylist(&self) -> Arc<Mutex<Vec<String>>> {
+        self.pending_denylist.clone()
     }
 
     /// Returns a clock that will always return the current virtual time.
@@ -352,6 +359,13 @@ impl TestLoopV2 {
             return;
         }
 
+        // Drain any identifiers that were pushed by ShutdownSignal callbacks.
+        {
+            let mut pending = self.pending_denylist.lock();
+            for id in pending.drain(..) {
+                self.denylisted_identifiers.insert(id);
+            }
+        }
         let event_ignored = self.denylisted_identifiers.contains(&event.event.identifier);
         let start_json = serde_json::to_string(&EventStartLogOutput {
             current_index: event.id,

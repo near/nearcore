@@ -2,6 +2,7 @@
 use anyhow::Context;
 use near_amend_genesis::AmendGenesisCommand;
 use near_async::ActorSystem;
+use near_async::shutdown_signal::ShutdownSignal;
 use near_chain_configs::{GenesisValidationMode, TrackedShardsConfig};
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
@@ -580,7 +581,9 @@ impl RunCmd {
                     home_dir,
                     near_config,
                     ActorSystem::new(),
-                    Some(tx_crash),
+                    ShutdownSignal::new(move || {
+                        let _ = tx_crash.send(());
+                    }),
                     Some(config_updater),
                 )
                 .await
