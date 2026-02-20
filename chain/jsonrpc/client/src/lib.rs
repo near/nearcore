@@ -32,7 +32,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Max size of the payload JsonRpcClient can receive. Be careful adjusting this value since
 /// smaller values can raise overflow messages.
-const PAYLOAD_LIMIT: usize = 100 * 1024 * 1024;
+pub const JSONRPC_RESPONSE_LIMIT: usize = 100 * 1024 * 1024;
 
 type HttpRequest<T> = BoxFuture<'static, Result<T, String>>;
 type RpcRequest<T> = BoxFuture<'static, Result<T, RpcError>>;
@@ -48,6 +48,7 @@ pub trait RpcTransport: Send + Sync {
         &self,
         endpoint: &str,
         body: Vec<u8>,
+        response_size_limit: usize,
     ) -> BoxFuture<'static, Result<(StatusCode, Vec<u8>), String>>;
 
     /// Sends a jsonrpc request and returns the parsed response message.
@@ -67,7 +68,7 @@ pub trait RpcTransport: Send + Sync {
             }
         };
 
-        let request_future = self.send_http_request("/", body_bytes);
+        let request_future = self.send_http_request("/", body_bytes, JSONRPC_RESPONSE_LIMIT);
         Box::pin(async move {
             let (_status, bytes) = request_future.await.map_err(|err| {
                 RpcError::new_internal_error(
@@ -75,15 +76,6 @@ pub trait RpcTransport: Send + Sync {
                     format!("sending jsonrpc request failed: {}", err),
                 )
             })?;
-
-            // TODO(rpc): do we really need a payload limit?
-            if bytes.len() > PAYLOAD_LIMIT {
-                return Err(RpcError::parse_error(format!(
-                    "response payload too large: {} bytes, limit: {} bytes",
-                    bytes.len(),
-                    PAYLOAD_LIMIT
-                )));
-            }
 
             let msg: Message =
                 near_jsonrpc_primitives::message::from_slice(&bytes).map_err(|err| {
@@ -108,6 +100,7 @@ impl RpcTransport for ReqwestTransport {
         &self,
         endpoint: &str,
         body: Vec<u8>,
+        response_size_limit: usize,
     ) -> BoxFuture<'static, Result<(StatusCode, Vec<u8>), String>> {
         let url = url::Url::parse(&self.server_addr)
             .map_err(|e| format!("parsing server_addr '{}' failed: {}", self.server_addr, e))
@@ -118,7 +111,7 @@ impl RpcTransport for ReqwestTransport {
             });
         let client = self.client.clone();
         async move {
-            let response = client
+            let mut response = client
                 .post(url?)
                 .header("Content-Type", "application/json")
                 .body(body)
@@ -126,11 +119,26 @@ impl RpcTransport for ReqwestTransport {
                 .await
                 .map_err(|err| format!("http request failed: {}", err))?;
             let status = response.status();
-            let response_body = response
-                .bytes()
+
+            // Stream the body in chunks, enforcing the limit incrementally to
+            // avoid allocating memory for an oversized response.
+            let mut response_body = Vec::new();
+            while let Some(body_chunk) = response
+                .chunk()
                 .await
-                .map_err(|err| format!("failed to retrieve http response body: {}", err))?;
-            Ok((status, response_body.to_vec()))
+                .map_err(|err| format!("failed to read response chunk: {}", err))?
+            {
+                response_body.extend_from_slice(&body_chunk);
+
+                if response_body.len() > response_size_limit {
+                    return Err(format!(
+                        "response payload too large: received >{} bytes, limit: {} bytes",
+                        response_body.len(),
+                        response_size_limit,
+                    ));
+                }
+            }
+            Ok((status, response_body))
         }
         .boxed()
     }

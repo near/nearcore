@@ -7,7 +7,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use reqwest::StatusCode;
 
 use near_crypto::{InMemorySigner, Signature};
-use near_jsonrpc::client::{ChunkId, JsonRpcClient, new_client};
+use near_jsonrpc::client::{ChunkId, JSONRPC_RESPONSE_LIMIT, JsonRpcClient, new_client};
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::errors::RpcErrorKind;
 use near_jsonrpc_primitives::types::call_function::RpcCallFunctionRequest;
@@ -597,7 +597,7 @@ async fn test_invalid_methods() {
         });
         let (status, response_bytes) = client
             .transport
-            .send_http_request("/", json.to_string().as_bytes().to_vec())
+            .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT)
             .await
             .unwrap();
 
@@ -630,7 +630,7 @@ async fn test_parse_error_status_code() {
 
     let (status, _response_bytes) = client
         .transport
-        .send_http_request("/", json.to_string().as_bytes().to_vec())
+        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT)
         .await
         .unwrap();
 
@@ -654,7 +654,7 @@ async fn slow_test_bad_handler_error_status_code() {
 
     let (status, _response_bytes) = client
         .transport
-        .send_http_request("/", json.to_string().as_bytes().to_vec())
+        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT)
         .await
         .unwrap();
 
@@ -675,7 +675,7 @@ async fn test_good_handler_error_status_code() {
 
     let (status, _response_bytes) = client
         .transport
-        .send_http_request("/", json.to_string().as_bytes().to_vec())
+        .send_http_request("/", json.to_string().as_bytes().to_vec(), JSONRPC_RESPONSE_LIMIT)
         .await
         .unwrap();
 
