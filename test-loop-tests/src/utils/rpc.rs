@@ -30,7 +30,7 @@ impl RpcTransport for TestLoopRpcTransport {
         &self,
         endpoint: &str,
         body: Vec<u8>,
-        response_size_imit: usize,
+        response_size_limit: usize,
     ) -> BoxFuture<'static, Result<(StatusCode, Vec<u8>), String>> {
         let mut router = self.router.clone();
         let request = Request::builder()
@@ -42,7 +42,7 @@ impl RpcTransport for TestLoopRpcTransport {
         Box::pin(async move {
             let response = router.call(request).await.map_err(|e| format!("{e}"))?;
             let status = response.status();
-            let bytes = axum::body::to_bytes(response.into_body(), response_size_imit)
+            let bytes = axum::body::to_bytes(response.into_body(), response_size_limit)
                 .await
                 .map_err(|e| format!("failed to read response body: {e}"))?;
             Ok((status, bytes.to_vec()))
