@@ -327,6 +327,7 @@ impl ReplayController {
                 receipts,
                 block: block_context,
                 storage_context,
+                proposed_split: None,
             })
         } else {
             ShardUpdateReason::OldChunk(OldChunkData {

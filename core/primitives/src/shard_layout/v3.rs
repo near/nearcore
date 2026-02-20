@@ -227,7 +227,12 @@ impl ShardLayoutV3 {
     }
 
     /// Derive a V3 shard layout from an existing V3 `base_shard_layout`.
-    pub fn derive(base_shard_layout: &Self, new_boundary_account: AccountId) -> Self {
+    ///
+    /// Returns an error if `new_boundary_account` already exists in `base_shard_layout`.
+    pub fn derive(
+        base_shard_layout: &Self,
+        new_boundary_account: AccountId,
+    ) -> Result<Self, ShardLayoutError> {
         let shard_ids = base_shard_layout.shard_ids.clone();
         let boundary_accounts = base_shard_layout.boundary_accounts.clone();
         let shards_split_map = base_shard_layout.shards_split_map.clone();
@@ -238,12 +243,12 @@ impl ShardLayoutV3 {
     /// of previous shard layouts. The `layout_history` should be ordered from most
     /// recent to oldest.
     ///
-    /// Panics if `base_shard_layout` is `ShardLayoutV0`.
+    /// Returns an error if `new_boundary_account` already exists in `base_shard_layout`.
     pub fn derive_with_layout_history(
         base_shard_layout: &ShardLayout,
         new_boundary_account: AccountId,
         layout_history: &[ShardLayout],
-    ) -> Self {
+    ) -> Result<Self, ShardLayoutError> {
         let shard_ids = base_shard_layout.shard_ids().collect();
         let boundary_accounts = base_shard_layout.boundary_accounts().clone();
         let shards_split_map = build_shard_split_map(layout_history);
@@ -255,10 +260,11 @@ impl ShardLayoutV3 {
         mut boundary_accounts: Vec<AccountId>,
         new_boundary_account: AccountId,
         mut shards_split_map: ShardsSplitMapV3,
-    ) -> Self {
-        let new_boundary_idx = match boundary_accounts.binary_search(&new_boundary_account) {
-            Ok(_) => panic!("duplicated boundary account"),
-            Err(idx) => idx,
+    ) -> Result<Self, ShardLayoutError> {
+        let Err(new_boundary_idx) = boundary_accounts.binary_search(&new_boundary_account) else {
+            return Err(ShardLayoutError::DuplicateBoundaryAccount {
+                account_id: new_boundary_account,
+            });
         };
         boundary_accounts.insert(new_boundary_idx, new_boundary_account);
 
@@ -272,7 +278,7 @@ impl ShardLayoutV3 {
             .expect("should only splice one shard");
         shards_split_map.insert(last_split, new_shards);
 
-        Self::new(boundary_accounts, shard_ids, shards_split_map, last_split)
+        Ok(Self::new(boundary_accounts, shard_ids, shards_split_map, last_split))
     }
 
     pub fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {

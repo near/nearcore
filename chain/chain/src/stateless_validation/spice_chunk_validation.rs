@@ -156,6 +156,7 @@ pub fn spice_pre_validate_chunk_state_witness(
             receipts: receipts_to_apply,
             block: block_context,
             storage_context,
+            proposed_split: None,
         }
     };
 
@@ -1155,6 +1156,7 @@ mod tests {
                 )
                 .unwrap(),
                 storage_context,
+                proposed_split: None,
             };
             let NewChunkResult { shard_uid: _, gas_limit, apply_result } = apply_new_chunk(
                 ApplyChunkReason::UpdateTrackedShard,

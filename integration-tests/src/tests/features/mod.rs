@@ -12,6 +12,7 @@ mod in_memory_tries;
 mod orphan_chunk_state_witness;
 mod reduced_gas_refunds;
 mod restrict_tla;
+mod shard_split_validation;
 mod stateless_validation;
 mod storage_proof_size_limit;
 mod wallet_contract;

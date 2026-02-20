@@ -19,7 +19,7 @@ use crate::transaction::{
 #[cfg(feature = "clock")]
 use crate::types::chunk_extra::ChunkExtra;
 use crate::types::validator_stake::ValidatorStake;
-use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
+use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce, ShardId};
 #[cfg(feature = "clock")]
 use crate::types::{BlockExecutionResults, ChunkExecutionResult, StateRoot};
 use crate::validator_signer::ValidatorSigner;
@@ -655,6 +655,19 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV5(header) => header.inner_rest.chunk_endorsements = value,
             BlockHeader::BlockHeaderV6(header) => header.inner_rest.chunk_endorsements = value,
+        }
+    }
+
+    pub fn set_shard_split(&mut self, value: Option<(ShardId, AccountId)>) {
+        match self {
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_)
+            | BlockHeader::BlockHeaderV4(_)
+            | BlockHeader::BlockHeaderV5(_) => {
+                unreachable!("shard_split is only available in BlockHeaderV6")
+            }
+            BlockHeader::BlockHeaderV6(header) => header.inner_rest.shard_split = value,
         }
     }
 
