@@ -22,7 +22,7 @@ use serde::ser::Error as EncodeError;
 use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::io::{Error, Read, Write};
+use std::io::{Error, ErrorKind, Read, Write};
 
 pub type LogEntry = String;
 
@@ -190,7 +190,7 @@ impl BorshDeserialize for Transaction {
         // `TransactionV1` struct, whose first field is also an `AccountId` with nonzero length,
         // making the second byte nonzero.
         //
-        // Therefore u2 == 0 implies V0 and u2 != 0 implies V1.
+        // Therefore u2 == 0 implies V0 and u1 == 1 with u2 != 0 implies V1.
         let u1 = u8::deserialize_reader(reader)?;
         let u2 = u8::deserialize_reader(reader)?;
 
@@ -200,13 +200,18 @@ impl BorshDeserialize for Transaction {
             let mut reader = prefix.chain(reader);
             let tx = TransactionV0::deserialize_reader(&mut reader)?;
             Ok(Transaction::V0(tx))
-        } else {
+        } else if u1 == 1 {
             // V1: u1 is the version tag, u2 is the first byte of TransactionV1.
             // Put u2 back and deserialize TransactionV1.
             let prefix = [u2];
             let mut reader = prefix.chain(reader);
             let tx = TransactionV1::deserialize_reader(&mut reader)?;
             Ok(Transaction::V1(tx))
+        } else {
+            Err(Error::new(
+                ErrorKind::InvalidData,
+                format!("invalid transaction version tag: {}", u1),
+            ))
         }
     }
 }
@@ -786,7 +791,7 @@ mod tests {
         // The first 4 bytes are the little-endian length of the account ID string.
         let mut serialized_tx = vec![];
         serialized_tx.extend_from_slice(&10u32.to_le_bytes());
-        serialized_tx.extend_from_slice(&[0u8; 200]); // Placeholder bytes
+        serialized_tx.extend_from_slice(&[0u8; 10]); // Placeholder bytes
 
         let result = Transaction::try_from_slice(&serialized_tx);
         let err = result.unwrap_err();
@@ -800,7 +805,7 @@ mod tests {
         // The first 4 bytes are the little-endian length of the account ID string.
         let mut serialized_tx = vec![];
         serialized_tx.extend_from_slice(&100u32.to_le_bytes()); // 100 > AccountId::MAX_LEN (64)
-        serialized_tx.extend_from_slice(&[b'a'; 200]); // Placeholder bytes
+        serialized_tx.extend_from_slice(&[b'a'; 100]); // Placeholder bytes
 
         let result = Transaction::try_from_slice(&serialized_tx);
         let err = result.unwrap_err();
