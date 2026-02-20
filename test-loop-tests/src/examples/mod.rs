@@ -1,5 +1,6 @@
 #[cfg(feature = "test_features")]
 mod delayed_receipts;
+mod jsonrpc;
 #[cfg(feature = "test_features")]
 mod missing_chunk;
 mod multinode;
