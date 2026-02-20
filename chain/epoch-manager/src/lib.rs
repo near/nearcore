@@ -1567,13 +1567,18 @@ impl EpochManager {
             let protocol_version = epoch_info.protocol_version();
             self.get_static_shard_layout_for_protocol_version(protocol_version).ok_or_else(|| {
                 EpochError::ShardingError(format!(
-                    "static shard layout expected. epoch_id={:?} protocol_version={}",
+                    "shard layout missing. epoch_id={:?} protocol_version={}",
                     epoch_id, protocol_version
                 ))
             })
         }
     }
 
+    /// Get *static* shard layout for the given protocol version. If the protocol version uses
+    /// dynamic resharding, there is no specific layout assigned to that version, so this method
+    /// returns `None`.
+    ///
+    /// **Tip:** Consider using `get_shard_layout` instead.
     pub fn get_static_shard_layout_for_protocol_version(
         &self,
         protocol_version: ProtocolVersion,

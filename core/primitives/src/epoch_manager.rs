@@ -163,6 +163,9 @@ impl EpochConfig {
             .max(self.num_chunk_validator_seats)
     }
 
+    /// Get *static* shard layout. When dynamic resharding is enabled, there is no specific layout
+    /// assigned to `EpochConfig` and this method returns `None`. In such case the source of truth
+    /// regarding shard layout is `EpochInfo`.
     pub fn static_shard_layout(&self) -> Option<ShardLayout> {
         self.shard_layout_config.static_shard_layout().cloned()
     }

@@ -1,6 +1,5 @@
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressIterator};
-use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_store::adapter::StoreAdapter;
@@ -41,12 +40,7 @@ impl StatePerfCommand {
         let node_storage = nearcore::open_storage(home, &near_config)?;
         let store = node_storage.get_hot_store();
 
-        let chain_store = ChainStore::new(
-            store.clone(),
-            false,
-            near_config.genesis.config.transaction_validity_period,
-        );
-        let head = chain_store.head()?;
+        let head = store.chain_store().head()?;
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, None);
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;

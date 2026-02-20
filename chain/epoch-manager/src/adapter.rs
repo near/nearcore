@@ -291,8 +291,11 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(shard_layout != prev_shard_layout)
     }
 
-    /// Get *static* shard layout for the given protocol version.
-    /// Returns `None` if the epoch config for this protocol version has dynamic layout.
+    /// Get *static* shard layout for the given protocol version. If the protocol version uses
+    /// dynamic resharding, there is no specific layout assigned to that version, so this method
+    /// returns `None`.
+    ///
+    /// **Tip:** Consider using `get_shard_layout` instead.
     fn get_static_shard_layout_for_protocol_version(
         &self,
         protocol_version: ProtocolVersion,
