@@ -436,7 +436,7 @@ impl Error {
             Error::InvalidCongestionInfo(_) => "invalid_congestion_info",
             Error::InvalidBandwidthRequests(_) => "invalid_bandwidth_requests",
             Error::InvalidChunkHeaderShardSplit(_) => "invalid_chunk_header_shard_split",
-            Error::InvalidBlockHeaderShardSplit(_) => "invalid_clock_header_shard_split",
+            Error::InvalidBlockHeaderShardSplit(_) => "invalid_block_header_shard_split",
             Error::InvalidShardId(_) => "invalid_shard_id",
             Error::InvalidShardIndex(_) => "invalid_shard_index",
             Error::NoParentShardId(_) => "no_parent_shard_id",

@@ -813,6 +813,7 @@ impl ChunkExecutorActor {
             receipts,
             block: block_context,
             storage_context,
+            proposed_split: None,
         });
 
         let runtime = self.runtime_adapter.clone();

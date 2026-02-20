@@ -409,6 +409,7 @@ pub fn pre_validate_chunk_state_witness(
                     }),
                     state_patch: Default::default(),
                 },
+                proposed_split: chunk_header.proposed_split().cloned(),
             },
             shard_id: chunk_header.shard_id(),
             block_hash: *last_chunk_block.hash(),
@@ -577,6 +578,7 @@ pub fn validate_chunk_state_witness_impl(
             (MainTransition::Genesis { chunk_extra, .. }, _) => (chunk_extra, vec![]),
             (MainTransition::NewChunk { new_chunk_data, .. }, None) => {
                 let chunk_gas_limit = new_chunk_data.gas_limit;
+                let header_proposed_split = new_chunk_data.proposed_split.clone();
                 let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
                     ApplyChunkReason::ValidateChunkStateWitness,
                     &span,
@@ -587,6 +589,18 @@ pub fn validate_chunk_state_witness_impl(
                 )?;
                 let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
                 let chunk_extra = main_apply_result.to_chunk_extra(chunk_gas_limit);
+
+                // Validate proposed_split: the value computed during chunk application must
+                // match the value in the chunk header of the applied chunk.
+                if chunk_extra.proposed_split() != header_proposed_split.as_ref() {
+                    return Err(Error::InvalidChunkHeaderShardSplit(format!(
+                        "computed {:?}, header has {:?} (block_hash: {:?} shard_uid: {})",
+                        chunk_extra.proposed_split(),
+                        header_proposed_split,
+                        block_hash,
+                        shard_uid
+                    )));
+                }
 
                 (chunk_extra, outgoing_receipts)
             }

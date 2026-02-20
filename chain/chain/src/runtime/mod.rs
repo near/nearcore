@@ -246,7 +246,7 @@ impl NightshadeRuntime {
 
         let config = self.runtime_config_store.get_config(current_protocol_version);
         let epoch_config = self.epoch_manager.get_epoch_config(&epoch_id)?;
-        let proposed_split = self.check_dynamic_resharding(
+        let proposed_split = self.compute_proposed_split(
             &trie,
             shard_id,
             &epoch_id,
@@ -520,10 +520,10 @@ impl NightshadeRuntime {
         })
     }
 
-    /// Check if dynamic resharding should be scheduled for the given shard.
-    /// The `epoch_id` and `protocol_version` are at `prev_block_hash`.
-    /// Will only trigger if the current block is the last block of the epoch.
-    fn check_dynamic_resharding(
+    /// Check if dynamic resharding should be scheduled for the given shard and compute the trie
+    /// split. The `epoch_id` and `protocol_version` are at `prev_block_hash`. Will only trigger
+    /// if the current block is the last block of the epoch.
+    fn compute_proposed_split(
         &self,
         shard_trie: &Trie,
         shard_id: ShardId,
@@ -1105,6 +1105,30 @@ impl RuntimeAdapter for NightshadeRuntime {
                 self.genesis_config.genesis_height
             }
         }
+    }
+
+    fn compute_proposed_split(
+        &self,
+        shard_id: ShardId,
+        state_root: StateRoot,
+        prev_block_hash: &CryptoHash,
+        height: BlockHeight,
+        last_final_block_hash: &CryptoHash,
+    ) -> Result<Option<TrieSplit>, Error> {
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let epoch_config = self.epoch_manager.get_epoch_config(&epoch_id)?;
+        let trie = self.get_trie_for_shard(shard_id, prev_block_hash, state_root, true)?;
+        self.compute_proposed_split(
+            &trie,
+            shard_id,
+            &epoch_id,
+            protocol_version,
+            &epoch_config,
+            height,
+            prev_block_hash,
+            last_final_block_hash,
+        )
     }
 
     #[instrument(target = "runtime", level = "info", skip_all, fields(height = block.height, shard_id = %chunk.shard_id))]

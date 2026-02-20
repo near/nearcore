@@ -10,6 +10,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
+use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{Gas, StateRoot};
@@ -52,6 +53,9 @@ pub struct NewChunkData {
     pub receipts: Vec<Receipt>,
     pub block: ApplyChunkBlockContext,
     pub storage_context: StorageContext,
+    /// Proposed shard plit from the chunk header, used to validate the recomputed value after
+    /// chunk application. Only set in stateless validation, `None` otherwise.
+    pub proposed_split: Option<TrieSplit>,
 }
 
 pub struct OldChunkData {
@@ -134,6 +138,7 @@ pub fn apply_new_chunk(
         block,
         receipts,
         storage_context,
+        proposed_split: _,
     } = data;
     let shard_id = shard_context.shard_uid.shard_id();
     let _span = tracing::debug_span!(

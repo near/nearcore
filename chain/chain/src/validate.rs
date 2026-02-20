@@ -183,16 +183,6 @@ pub fn validate_chunk_with_chunk_extra_and_receipts_root(
         chunk_header.bandwidth_requests(),
     )?;
 
-    if prev_chunk_extra.proposed_split() != chunk_header.proposed_split() {
-        return Err(Error::InvalidChunkHeaderShardSplit(format!(
-            "header has {:?}, expected {:?} (prev block hash: {:?} height created: {:?})",
-            chunk_header.proposed_split(),
-            prev_chunk_extra.proposed_split(),
-            chunk_header.prev_block_hash(),
-            chunk_header.height_created(),
-        )));
-    }
-
     Ok(())
 }
 
@@ -210,15 +200,15 @@ pub fn validate_block_shard_split(
         header.last_final_block(),
     )?;
 
-    let expected_shard_split = if !is_last_block {
-        None
-    } else {
+    let expected_shard_split = if is_last_block {
         let protocol_version = epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         epoch_manager.get_upcoming_shard_split(
             protocol_version,
             header.prev_hash(),
             chunk_headers,
         )?
+    } else {
+        None
     };
 
     let header_shard_split = header.shard_split();

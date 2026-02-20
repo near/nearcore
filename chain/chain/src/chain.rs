@@ -3359,6 +3359,7 @@ impl Chain {
                 receipts,
                 block,
                 storage_context,
+                proposed_split: None,
             })
         } else {
             ShardUpdateReason::OldChunk(OldChunkData {
