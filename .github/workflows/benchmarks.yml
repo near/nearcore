@@ -8,17 +8,33 @@ on:
 jobs:
   tx-injection-single-node:
     name: "tx injections single-node benchmark"
-    runs-on: [self-hosted, ubuntu24.04]
+    runs-on: warp-ubuntu-2404-x64-16x
     timeout-minutes: 60
     if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: "read"
+      id-token: "write"
 
     steps:
-      - name: Install jq json processor
-        run: sudo apt-get update && sudo apt-get install jq
-
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      - id: gcp-auth
+        name: Authenticate with Google Cloud
+        continue-on-error: true
+        uses: "google-github-actions/auth@v2"
+        with:
+          workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
+      - if: steps.gcp-auth.outcome == 'success'
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+      - if: steps.gcp-auth.outcome == 'success'
+        run: |
+          echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
+          echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
+          echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
 
       # Install all the required tools
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
