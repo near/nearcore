@@ -898,17 +898,17 @@ impl TxTracker {
                 assert!(
                     &tx.nonce_updates == &self.updater_to_keys.remove(&updater).unwrap_or_default()
                 );
-                for nk in &tx.nonce_updates {
-                    let mut t = crate::read_target_nonce(db, nk)?.unwrap();
+                for nonce_key in &tx.nonce_updates {
+                    let mut t = crate::read_target_nonce(db, nonce_key)?.unwrap();
                     t.pending_outcomes.insert(hash);
-                    crate::put_target_nonce(db, nk, &t)?;
+                    crate::put_target_nonce(db, nonce_key, &t)?;
 
-                    let info = self.nonces.get_mut(nk).unwrap();
+                    let info = self.nonces.get_mut(nonce_key).unwrap();
                     assert!(info.target_nonce.pending_outcomes.remove(&updater));
                     info.target_nonce.pending_outcomes.insert(new_updater.clone());
                     let txs_awaiting_nonce = info.txs_awaiting_nonce.clone();
                     if info.last_height <= source_height {
-                        keys_to_remove.insert(nk.clone());
+                        keys_to_remove.insert(nonce_key.clone());
                     }
 
                     if !txs_awaiting_nonce.is_empty() {
