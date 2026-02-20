@@ -64,7 +64,7 @@ pub trait ViewRuntimeAdapter {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Vec<Nonce>, crate::state_viewer::errors::ViewAccessKeyError>;
+    ) -> Result<Vec<Nonce>, crate::state_viewer::errors::ViewGasKeyNoncesError>;
 
     fn view_state(
         &self,

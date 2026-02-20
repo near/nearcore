@@ -317,6 +317,7 @@ impl From<QueryError> for ChainError {
             | QueryError::UnknownAccount { .. }
             | QueryError::NoContractCode { .. }
             | QueryError::UnknownAccessKey { .. }
+            | QueryError::UnknownGasKey { .. }
             | QueryError::GarbageCollectedBlock { .. }
             | QueryError::UnknownBlock { .. } => Self::Unknown,
             _ => Self::other(err),
@@ -329,7 +330,8 @@ impl From<RuntimeQueryError> for ChainError {
         match err {
             RuntimeQueryError::UnknownAccount { .. }
             | RuntimeQueryError::NoContractCode { .. }
-            | RuntimeQueryError::UnknownAccessKey { .. } => Self::Unknown,
+            | RuntimeQueryError::UnknownAccessKey { .. }
+            | RuntimeQueryError::UnknownGasKey { .. } => Self::Unknown,
             _ => Self::other(err),
         }
     }

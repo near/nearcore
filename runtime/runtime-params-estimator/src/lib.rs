@@ -1023,7 +1023,11 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let code = ContractCode::new(code.to_vec(), None);
     let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
     let config_store = RuntimeConfigStore::new(None);
-    let config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
+    let mut config = config_store.get_config(PROTOCOL_VERSION).wasm_config.as_ref().clone();
+    // The soak test contract is a finite loop that must exhaust gas to abort.
+    // Cap max_gas_burnt so it reliably runs out of gas.
+    config.limit_config.max_gas_burnt = Gas::from_teragas(300);
+    let config = Arc::new(config);
     let fees = Arc::new(RuntimeFeesConfig::test());
     let cache = MockContractRuntimeCache::default();
 

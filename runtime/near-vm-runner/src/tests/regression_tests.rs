@@ -1,5 +1,6 @@
 use crate::tests::test_builder::test_builder;
 use expect_test::expect;
+use near_primitives_core::types::Gas;
 
 #[test]
 fn memory_size_alignment_issue() {
@@ -67,6 +68,7 @@ fn gas_intrinsic_did_not_multiply_by_opcode_cost() {
             "#,
         )
         .method("foo")
+        .max_gas_burnt(Gas::from_teragas(300))
         .expects(&[
             expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000

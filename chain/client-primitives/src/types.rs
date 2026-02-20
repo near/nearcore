@@ -400,6 +400,14 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error(
+        "Gas key for public key {public_key} does not exist while viewing at block #{block_height}"
+    )]
+    UnknownGasKey {
+        public_key: near_crypto::PublicKey,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("Function call returned an error: {vm_error}")]
     ContractExecutionError {
         vm_error: String,

@@ -84,6 +84,7 @@ wasm-smith.workspace = true
 wat.workspace = true
 
 [features]
+default = ["wasmtime_vm"]
 wasmtime_vm = ["wasmtime", "anyhow", "prepare"]
 near_vm = [
     "near-vm-compiler",
