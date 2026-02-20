@@ -53,7 +53,7 @@ pub struct NewChunkData {
     pub receipts: Vec<Receipt>,
     pub block: ApplyChunkBlockContext,
     pub storage_context: StorageContext,
-    /// Proposed shard plit from the chunk header, used to validate the recomputed value after
+    /// Proposed shard split from the chunk header, used to validate the recomputed value after
     /// chunk application. Only set in stateless validation, `None` otherwise.
     pub proposed_split: Option<TrieSplit>,
 }
