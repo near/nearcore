@@ -6,12 +6,15 @@ use near_primitives::block_body::{SpiceCoreStatement, SpiceCoreStatements};
 use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::stateless_validation::spice_chunk_endorsement::{
     SpiceEndorsementCoreStatement, SpiceStoredVerifiedEndorsement,
 };
+use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, BlockExecutionResults, ChunkExecutionResult, ChunkExecutionResultHash, ShardId,
-    SpiceChunkId, SpiceUncertifiedChunkInfo,
+    AccountId, BlockExecutionResults, BlockHeight, ChunkExecutionResult, ChunkExecutionResultHash,
+    ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
 use near_primitives::utils::{get_endorsements_key, get_execution_results_key};
 use near_store::adapter::StoreAdapter as _;
@@ -106,6 +109,75 @@ impl SpiceCoreReader {
         block_hash: &CryptoHash,
     ) -> Result<Vec<SpiceUncertifiedChunkInfo>, Error> {
         get_uncertified_chunks(&self.chain_store, block_hash)
+    }
+
+    /// Returns ChunkExtra for a given chunk, trying the ChunkExtra column first
+    /// (available on tracking nodes), then falling back to execution results
+    /// written by the core writer to `DBCol::execution_results`.
+    fn get_trusted_chunk_extra(&self, chunk_id: &SpiceChunkId) -> Result<Arc<ChunkExtra>, Error> {
+        let epoch_id = self.epoch_manager.get_epoch_id(&chunk_id.block_hash)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        let shard_uid = ShardUId::from_shard_id_and_layout(chunk_id.shard_id, &shard_layout);
+        if let Ok(chunk_extra) =
+            self.chain_store.chunk_store().get_chunk_extra(&chunk_id.block_hash, &shard_uid)
+        {
+            return Ok(chunk_extra);
+        }
+        let header = self.chain_store.get_block_header(&chunk_id.block_hash)?;
+        if let Some(result) = self.get_execution_result(&header, chunk_id.shard_id)? {
+            return Ok(Arc::new(result.chunk_extra.clone()));
+        }
+        Err(Error::Other(format!("no trusted chunk extra for {:?}", chunk_id)))
+    }
+
+    /// Returns the most recent validator proposals from uncertified chunks for
+    /// a given shard. These are proposals that are not yet certified on-chain
+    /// at the given block hash, and need to be accounted for in
+    /// `last_proposals` at epoch boundaries.
+    ///
+    /// Proposals are sorted ascending by block height. If multiple uncertified
+    /// chunks contain proposals for the same account, the most recent one (last
+    /// in iteration order) should be kept by the caller's fold/insert logic.
+    pub fn get_uncertified_validator_proposals(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Vec<ValidatorStake>, Error> {
+        let uncertified_chunks = self.get_uncertified_chunks(block_hash)?;
+        let shard_uncertified_chunks: Vec<_> = uncertified_chunks
+            .into_iter()
+            .filter(|info| info.chunk_id.shard_id == shard_id)
+            .collect();
+        let mut height_proposals: Vec<(BlockHeight, Vec<ValidatorStake>)> = Vec::new();
+        for info in &shard_uncertified_chunks {
+            let chunk_extra = self.get_trusted_chunk_extra(&info.chunk_id)?;
+            let proposals: Vec<ValidatorStake> = chunk_extra.validator_proposals().collect();
+            if !proposals.is_empty() {
+                let height = self.chain_store.get_block_height(&info.chunk_id.block_hash)?;
+                height_proposals.push((height, proposals));
+            }
+        }
+        height_proposals.sort_by_key(|(h, _)| *h);
+        debug_assert!(
+            height_proposals.windows(2).all(|w| w[0].0 != w[1].0),
+            "multiple uncertified chunks at the same height for shard {shard_id}"
+        );
+        Ok(height_proposals.into_iter().flat_map(|(_, proposals)| proposals).collect())
+    }
+
+    /// Returns validator proposals to use as `prev_validator_proposals` when
+    /// constructing `NewChunkData`. At epoch boundaries, returns proposals from
+    /// uncertified chunks; otherwise returns an empty vec.
+    pub fn prev_validator_proposals(
+        &self,
+        prev_block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<Vec<ValidatorStake>, Error> {
+        if self.epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
+            self.get_uncertified_validator_proposals(prev_block_hash, shard_id)
+        } else {
+            Ok(vec![])
+        }
     }
 
     pub fn get_execution_results_by_shard_id(
