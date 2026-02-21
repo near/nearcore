@@ -104,8 +104,9 @@ pub fn validate_partial_encoded_state_witness(
         store,
     )?);
 
+    let key = partial_witness.chunk_production_key();
     let chunk_producer =
-        epoch_manager.get_chunk_producer_info(&partial_witness.chunk_production_key())?;
+        epoch_manager.get_chunk_producer_for_height(&key.epoch_id, key.height_created, key.shard_id)?;
     if !partial_witness.verify(chunk_producer.public_key()) {
         return Err(Error::InvalidPartialChunkStateWitness("Invalid signature".to_string()));
     }
@@ -120,7 +121,7 @@ pub fn validate_partial_encoded_contract_deploys(
 ) -> Result<ChunkRelevance, Error> {
     let key = partial_deploys.chunk_production_key();
     require_relevant!(validate_chunk_relevant(epoch_manager, key, store)?);
-    let chunk_producer = epoch_manager.get_chunk_producer_info(key)?;
+    let chunk_producer = epoch_manager.get_chunk_producer_for_height(&key.epoch_id, key.height_created, key.shard_id)?;
     if !partial_deploys.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid contract deploys signature".to_owned()));
     }
@@ -330,7 +331,8 @@ fn validate_witness_contract_accesses_signature(
     epoch_manager: &dyn EpochManagerAdapter,
     accesses: &ChunkContractAccesses,
 ) -> Result<(), Error> {
-    let chunk_producer = epoch_manager.get_chunk_producer_info(accesses.chunk_production_key())?;
+    let key = accesses.chunk_production_key();
+    let chunk_producer = epoch_manager.get_chunk_producer_for_height(&key.epoch_id, key.height_created, key.shard_id)?;
     if !accesses.verify_signature(chunk_producer.public_key()) {
         return Err(Error::Other("Invalid witness contract accesses signature".to_owned()));
     }

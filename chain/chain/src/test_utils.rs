@@ -20,7 +20,6 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, NumBlocks, NumShards, ShardId};
 use near_primitives::utils::MaybeValidated;
@@ -238,11 +237,10 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
             if let Some(block) = maybe_block {
                 for chunk_header in block.chunks().iter() {
                     let chunk_producer = epoch_manager
-                        .get_chunk_producer_info(&ChunkProductionKey {
-                            epoch_id,
-                            height_created: chunk_header.height_created(),
-                            shard_id: chunk_header.shard_id(),
-                        })
+                        .get_chunk_producer_info(
+                            chunk_header.prev_block_hash(),
+                            chunk_header.shard_id(),
+                        )
                         .unwrap()
                         .take_account_id();
                     if let Ok(chunk) = chain_store.get_chunk(&chunk_header.chunk_hash()) {
@@ -328,11 +326,7 @@ pub fn get_fake_next_block_chunk_headers(
         let shard_id = chunk.shard_id();
         let height = block.header().height() + 1;
         let chunk_producer = epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                shard_id,
-                epoch_id: *block.header().epoch_id(),
-                height_created: height,
-            })
+            .get_chunk_producer_for_height(block.header().next_epoch_id(), height, shard_id)
             .unwrap();
         let signer = create_test_signer(chunk_producer.account_id().as_str());
         let mut chunk_header =
