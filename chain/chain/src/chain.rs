@@ -2156,14 +2156,37 @@ impl Chain {
 
         // Update flat storage.
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        let tries = self.runtime_adapter.get_tries();
         if flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_some() {
             if let Some(new_flat_head) = self.get_new_flat_storage_head(block, shard_uid)? {
-                flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head)?;
+                // If memtries are loaded, offload flat head update to a background thread.
+                if tries.get_memtries(shard_uid).is_some() {
+                    std::thread::spawn(move || {
+                        let _span = tracing::debug_span!(
+                            target: "chain",
+                            "async_flat_head_update",
+                            shard_id = %shard_uid.shard_id()
+                        )
+                        .entered();
+                        if let Err(err) = flat_storage_manager
+                            .update_flat_storage_for_shard(shard_uid, new_flat_head)
+                        {
+                            tracing::error!(
+                                target: "chain",
+                                ?shard_uid,
+                                ?new_flat_head,
+                                ?err,
+                                "Async flat head update failed"
+                            );
+                        }
+                    });
+                } else {
+                    flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head)?;
+                }
             }
         }
 
         // Garbage collect memtrie roots.
-        let tries = self.runtime_adapter.get_tries();
         let last_final_block = block.header().last_final_block();
         if last_final_block != &CryptoHash::default() {
             let header = self.chain_store.get_block_header(last_final_block).unwrap();
