@@ -138,6 +138,7 @@ impl TestEnv {
             epoch_manager.clone(),
             None,
             None,
+            None,
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
