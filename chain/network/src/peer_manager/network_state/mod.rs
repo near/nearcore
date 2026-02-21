@@ -784,12 +784,28 @@ impl NetworkState {
                     None
                 }
                 T1MessageBody::PartialEncodedStateWitness(witness) => {
-                    self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
+                    self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(
+                        near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness::V1(witness),
+                    ));
                     None
                 }
                 T1MessageBody::PartialEncodedStateWitnessForward(witness) => {
                     self.partial_witness_adapter
-                        .send(PartialEncodedStateWitnessForwardMessage(witness));
+                        .send(PartialEncodedStateWitnessForwardMessage(
+                            near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness::V1(witness),
+                        ));
+                    None
+                }
+                T1MessageBody::PartialEncodedStateWitnessV2(witness) => {
+                    self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(
+                        near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness::V2(witness),
+                    ));
+                    None
+                }
+                T1MessageBody::PartialEncodedStateWitnessForwardV2(witness) => {
+                    self.partial_witness_adapter.send(PartialEncodedStateWitnessForwardMessage(
+                        near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness::V2(witness),
+                    ));
                     None
                 }
                 T1MessageBody::VersionedChunkEndorsement(endorsement) => {

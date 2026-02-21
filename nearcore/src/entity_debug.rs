@@ -128,14 +128,22 @@ impl EntityDebugHandlerImpl {
                     .ok_or_else(|| anyhow!("Chunk not found"))?;
                 let epoch_id =
                     self.epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block())?;
-                let author = self
-                    .epoch_manager
-                    .get_chunk_producer_info(&ChunkProductionKey {
+                let author = {
+                    let key = ChunkProductionKey {
                         epoch_id,
                         height_created: chunk.height_created(),
                         shard_id: chunk.shard_id(),
-                    })?
-                    .take_account_id();
+                    };
+                    match self
+                        .epoch_manager
+                        .get_chunk_producer_by_prev_block_hash(chunk.prev_block(), chunk.shard_id())
+                    {
+                        Ok(p) => p.take_account_id(),
+                        Err(_) => {
+                            self.epoch_manager.get_chunk_producer_info(&key)?.take_account_id()
+                        }
+                    }
+                };
                 Ok(serialize_entity(&ChunkView::from_author_chunk(author, chunk)))
             }
             EntityQuery::ChunkExtraByBlockHashShardUId { block_hash, shard_uid } => {
