@@ -1043,6 +1043,7 @@ fn test_witness_is_valid() {
             &prev_block_execution_results,
             actor.actor.epoch_manager.as_ref(),
             &actor.actor.chain_store,
+            &actor.actor.core_reader,
         )
         .unwrap();
 

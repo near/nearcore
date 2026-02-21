@@ -22,6 +22,7 @@ use tracing::Span;
 use crate::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext, apply_new_chunk};
 use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::spice_chunk_application::build_spice_apply_chunk_block_context;
+use crate::spice_core::SpiceCoreReader;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::types::{RuntimeAdapter, StorageDataSource};
 use crate::{Chain, ChainStore};
@@ -37,6 +38,7 @@ pub fn spice_pre_validate_chunk_state_witness(
     prev_execution_results: &BlockExecutionResults,
     epoch_manager: &dyn EpochManagerAdapter,
     store: &ChainStore,
+    core_reader: &SpiceCoreReader,
 ) -> Result<SpicePreValidationOutput, Error> {
     assert_eq!(block.hash(), &state_witness.chunk_id().block_hash);
     let epoch_id = epoch_manager.get_epoch_id(block.header().hash())?;
@@ -140,10 +142,12 @@ pub fn spice_pre_validate_chunk_state_witness(
             prev_execution_results,
             epoch_manager,
         )?;
+        let prev_validator_proposals =
+            core_reader.prev_validator_proposals(prev_block.hash(), shard_id)?;
         NewChunkData {
             gas_limit: prev_chunk_chunk_extra.gas_limit(),
             prev_state_root: *prev_chunk_chunk_extra.state_root(),
-            prev_validator_proposals: prev_chunk_chunk_extra.validator_proposals().collect(),
+            prev_validator_proposals,
             chunk_hash: if chunk_header.is_new_chunk(block.header().height()) {
                 Some(chunk_header.chunk_hash().clone())
             } else {
@@ -585,6 +589,7 @@ mod tests {
             &BlockExecutionResults(HashMap::new()),
             test_chain.chain.epoch_manager.as_ref(),
             test_chain.chain.chain_store(),
+            &test_chain.chain.spice_core_reader,
         );
 
         let error_message = unwrap_error_message(result);
@@ -628,6 +633,7 @@ mod tests {
             &BlockExecutionResults(HashMap::new()),
             test_chain.chain.epoch_manager.as_ref(),
             test_chain.chain.chain_store(),
+            &test_chain.chain.spice_core_reader,
         );
 
         let error_message = unwrap_error_message(result);
@@ -1080,6 +1086,7 @@ mod tests {
                 &prev_execution_results,
                 self.chain.epoch_manager.as_ref(),
                 self.chain.chain_store(),
+                &self.chain.spice_core_reader,
             )
             .unwrap();
 
@@ -1105,6 +1112,7 @@ mod tests {
                 &prev_execution_results,
                 self.chain.epoch_manager.as_ref(),
                 self.chain.chain_store(),
+                &self.chain.spice_core_reader,
             )
         }
 
@@ -1140,11 +1148,17 @@ mod tests {
 
             let prev_execution_result = prev_execution_results.0.get(&self.shard_id()).unwrap();
             let prev_chunk_chunk_extra = &prev_execution_result.chunk_extra;
+            let prev_block_hash = block.header().prev_hash();
+            let prev_validator_proposals = self
+                .chain
+                .spice_core_reader
+                .prev_validator_proposals(prev_block_hash, self.shard_id())
+                .unwrap();
             let txs_validity = std::iter::repeat_n(true, transactions.len()).collect_vec();
             let new_chunk_data = NewChunkData {
                 gas_limit: prev_chunk_chunk_extra.gas_limit(),
                 prev_state_root: *prev_chunk_chunk_extra.state_root(),
-                prev_validator_proposals: prev_chunk_chunk_extra.validator_proposals().collect(),
+                prev_validator_proposals,
                 chunk_hash: None,
                 transactions: SignedValidPeriodTransactions::new(transactions, txs_validity),
                 receipts,
