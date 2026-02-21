@@ -516,3 +516,134 @@ impl PartialEncodedContractDeploysInner {
         }
     }
 }
+
+// SPICE-specific contract distribution types.
+// These mirror the non-SPICE types above but are keyed by SpiceChunkId instead of ChunkProductionKey.
+
+use crate::types::SpiceChunkId;
+
+/// Contains contracts (as code-hashes) accessed during the application of a SPICE chunk.
+/// Sent by the chunk producer to chunk validators so they can request missing code.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct SpiceChunkContractAccesses {
+    inner: SpiceChunkContractAccessesInner,
+    signature: Signature,
+}
+
+impl SpiceChunkContractAccesses {
+    pub fn new(
+        chunk_id: SpiceChunkId,
+        contracts: HashSet<CodeHash>,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        let inner = SpiceChunkContractAccessesInner::new(chunk_id, contracts);
+        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
+        Self { inner, signature }
+    }
+
+    pub fn chunk_id(&self) -> &SpiceChunkId {
+        &self.inner.chunk_id
+    }
+
+    pub fn contracts(&self) -> &[CodeHash] {
+        &self.inner.contracts
+    }
+
+    pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
+        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+struct SpiceChunkContractAccessesInner {
+    chunk_id: SpiceChunkId,
+    contracts: Vec<CodeHash>,
+    signature_differentiator: SignatureDifferentiator,
+}
+
+impl SpiceChunkContractAccessesInner {
+    fn new(chunk_id: SpiceChunkId, contracts: HashSet<CodeHash>) -> Self {
+        Self {
+            chunk_id,
+            contracts: contracts.into_iter().collect(),
+            signature_differentiator: "SpiceChunkContractAccessesInner".to_owned(),
+        }
+    }
+}
+
+/// Message from a SPICE chunk validator to a chunk producer requesting missing contract code.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct SpiceContractCodeRequest {
+    inner: SpiceContractCodeRequestInner,
+    signature: Signature,
+}
+
+impl SpiceContractCodeRequest {
+    pub fn new(
+        chunk_id: SpiceChunkId,
+        contracts: HashSet<CodeHash>,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        let inner =
+            SpiceContractCodeRequestInner::new(signer.validator_id().clone(), chunk_id, contracts);
+        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
+        Self { inner, signature }
+    }
+
+    pub fn requester(&self) -> &AccountId {
+        &self.inner.requester
+    }
+
+    pub fn chunk_id(&self) -> &SpiceChunkId {
+        &self.inner.chunk_id
+    }
+
+    pub fn contracts(&self) -> &[CodeHash] {
+        &self.inner.contracts
+    }
+
+    pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
+        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+struct SpiceContractCodeRequestInner {
+    requester: AccountId,
+    chunk_id: SpiceChunkId,
+    contracts: Vec<CodeHash>,
+    signature_differentiator: SignatureDifferentiator,
+}
+
+impl SpiceContractCodeRequestInner {
+    fn new(requester: AccountId, chunk_id: SpiceChunkId, contracts: HashSet<CodeHash>) -> Self {
+        Self {
+            requester,
+            chunk_id,
+            contracts: contracts.into_iter().collect(),
+            signature_differentiator: "SpiceContractCodeRequestInner".to_owned(),
+        }
+    }
+}
+
+/// Response from a chunk producer to a SPICE chunk validator with the requested contract code.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct SpiceContractCodeResponse {
+    chunk_id: SpiceChunkId,
+    compressed_contracts: CompressedContractCode,
+}
+
+impl SpiceContractCodeResponse {
+    pub fn encode(chunk_id: SpiceChunkId, contracts: &Vec<CodeBytes>) -> std::io::Result<Self> {
+        let (compressed_contracts, _size) = CompressedContractCode::encode(contracts)?;
+        Ok(Self { chunk_id, compressed_contracts })
+    }
+
+    pub fn chunk_id(&self) -> &SpiceChunkId {
+        &self.chunk_id
+    }
+
+    pub fn decompress_contracts(&self) -> std::io::Result<Vec<CodeBytes>> {
+        self.compressed_contracts.decode().map(|(data, _size)| data)
+    }
+}
