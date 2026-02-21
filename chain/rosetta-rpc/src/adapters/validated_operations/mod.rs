@@ -12,9 +12,13 @@ pub(crate) use self::initiate_delete_key::InitiateDeleteKeyOperation;
 pub(crate) use self::initiate_deploy_contract::InitiateDeployContractOperation;
 pub(crate) use self::initiate_function_call::InitiateFunctionCallOperation;
 pub(crate) use self::initiate_signed_delegate_action::InitiateSignedDelegateActionOperation;
+pub(crate) use self::initiate_transfer_to_gas_key::InitiateTransferToGasKeyOperation;
+pub(crate) use self::initiate_withdraw_from_gas_key::InitiateWithdrawFromGasKeyOperation;
 pub(crate) use self::refund_delete_account::RefundDeleteAccountOperation;
 pub(crate) use self::stake::StakeOperation;
 pub(crate) use self::transfer::TransferOperation;
+pub(crate) use self::transfer_to_gas_key::TransferToGasKeyOperation;
+pub(crate) use self::withdraw_from_gas_key::WithdrawFromGasKeyOperation;
 
 mod add_key;
 mod create_account;
@@ -31,10 +35,14 @@ mod initiate_delete_key;
 mod initiate_deploy_contract;
 mod initiate_function_call;
 pub mod initiate_signed_delegate_action;
+mod initiate_transfer_to_gas_key;
+mod initiate_withdraw_from_gas_key;
 mod refund_delete_account;
 pub mod signed_delegate_action;
 mod stake;
 mod transfer;
+mod transfer_to_gas_key;
+mod withdraw_from_gas_key;
 
 pub(crate) trait ValidatedOperation:
     TryFrom<crate::models::Operation, Error = crate::errors::ErrorKind>

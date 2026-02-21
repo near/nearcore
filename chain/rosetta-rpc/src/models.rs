@@ -757,6 +757,10 @@ pub(crate) enum OperationType {
     InitiateSignedDelegateAction,
     InitiateDelegateAction,
     FunctionCall,
+    InitiateTransferToGasKey,
+    TransferToGasKey,
+    InitiateWithdrawFromGasKey,
+    WithdrawFromGasKey,
 }
 
 #[derive(
