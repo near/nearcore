@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::rand::StakeWeightedIndex;
 use crate::shard_layout::ShardLayout;
@@ -559,6 +559,71 @@ impl EpochInfo {
     }
 
     pub fn sample_chunk_producer(
+        &self,
+        shard_layout: &ShardLayout,
+        shard_id: ShardId,
+        height: BlockHeight,
+    ) -> Option<ValidatorId> {
+        self.sample_chunk_producer_with_exclusions(
+            shard_layout,
+            shard_id,
+            height,
+            &std::collections::HashSet::new(),
+        )
+    }
+
+    /// Samples a chunk producer for the given shard and height, excluding validators in the exclusion set.
+    pub fn sample_chunk_producer_with_exclusions(
+        &self,
+        shard_layout: &ShardLayout,
+        shard_id: ShardId,
+        height: BlockHeight,
+        excluded_validators: &HashSet<ValidatorId>,
+    ) -> Option<ValidatorId> {
+        if excluded_validators.is_empty() {
+            return self.sample_chunk_producer_impl(shard_layout, shard_id, height);
+        }
+
+        let shard_index = shard_layout.get_shard_index(shard_id).ok()?;
+        // Get the list of validators for this shard
+        let shard_validators = match &self {
+            Self::V1(v1) => v1.chunk_producers_settlement.get(shard_index)?,
+            Self::V2(v2) => v2.chunk_producers_settlement.get(shard_index)?,
+            Self::V3(v3) => v3.chunk_producers_settlement.get(shard_index)?,
+            Self::V4(v4) => v4.chunk_producers_settlement.get(shard_index)?,
+            Self::V5(v5) => v5.chunk_producers_settlement.get(shard_index)?,
+        };
+
+        // Filter out excluded validators
+        let filtered_validators: Vec<ValidatorId> = shard_validators
+            .iter()
+            .filter(|&&vid| !excluded_validators.contains(&vid))
+            .copied()
+            .collect();
+
+        if filtered_validators.is_empty() {
+            // All validators are excluded, fall back to original sampling
+            return self.sample_chunk_producer_impl(shard_layout, shard_id, height);
+        }
+
+        match &self {
+            Self::V1(_) | Self::V2(_) => {
+                let index = (height as u64 % (filtered_validators.len() as u64)) as usize;
+                filtered_validators.get(index).copied()
+            }
+            Self::V3(_) | Self::V4(_) | Self::V5(_) => {
+                let rng_seed = self.rng_seed();
+                let seed = Self::chunk_produce_seed(&rng_seed, height, shard_id);
+                let stakes: Vec<Balance> =
+                    filtered_validators.iter().map(|&vid| self.validator_stake(vid)).collect();
+                let sampler = StakeWeightedIndex::new(stakes);
+                let index = sampler.sample(seed);
+                filtered_validators.get(index).copied()
+            }
+        }
+    }
+
+    fn sample_chunk_producer_impl(
         &self,
         shard_layout: &ShardLayout,
         shard_id: ShardId,
