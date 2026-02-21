@@ -14,7 +14,7 @@ mod rocksdb_stats;
 mod scan_db;
 mod state_changes;
 mod state_dump;
-mod state_parts;
+pub mod state_parts;
 mod trie_iteration_benchmark;
 mod tx_dump;
 pub mod util;
