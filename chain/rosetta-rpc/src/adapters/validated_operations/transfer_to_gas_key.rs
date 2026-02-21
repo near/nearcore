@@ -1,0 +1,62 @@
+use super::ValidatedOperation;
+use near_primitives::types::Balance;
+
+pub(crate) struct TransferToGasKeyOperation {
+    pub(crate) account: crate::models::AccountIdentifier,
+    pub(crate) amount: Balance,
+    pub(crate) public_key: crate::models::PublicKey,
+}
+
+impl ValidatedOperation for TransferToGasKeyOperation {
+    const OPERATION_TYPE: crate::models::OperationType =
+        crate::models::OperationType::TransferToGasKey;
+
+    fn into_operation(
+        self,
+        operation_identifier: crate::models::OperationIdentifier,
+    ) -> crate::models::Operation {
+        crate::models::Operation {
+            operation_identifier,
+
+            account: self.account,
+            amount: Some(crate::models::Amount::from_balance(self.amount)),
+            metadata: Some(crate::models::OperationMetadata {
+                public_key: Some(self.public_key),
+                ..Default::default()
+            }),
+
+            related_operations: None,
+            type_: Self::OPERATION_TYPE,
+            status: None,
+        }
+    }
+}
+
+fn required_fields_error() -> crate::errors::ErrorKind {
+    crate::errors::ErrorKind::InvalidInput(
+        "TRANSFER_TO_GAS_KEY operation requires `public_key` (passed in the metadata) and non-negative `amount`"
+            .into(),
+    )
+}
+
+impl TryFrom<crate::models::Operation> for TransferToGasKeyOperation {
+    type Error = crate::errors::ErrorKind;
+
+    fn try_from(operation: crate::models::Operation) -> Result<Self, Self::Error> {
+        Self::validate_operation_type(operation.type_)?;
+        let amount = operation.amount.ok_or_else(required_fields_error)?;
+        if !amount.currency.is_near() {
+            return Err(crate::errors::ErrorKind::InvalidInput(
+                "TRANSFER_TO_GAS_KEY operations must have NEAR currency".to_string(),
+            ));
+        }
+        let amount = if amount.value.is_positive() {
+            Balance::from_yoctonear(amount.value.absolute_difference())
+        } else {
+            return Err(required_fields_error());
+        };
+        let metadata = operation.metadata.ok_or_else(required_fields_error)?;
+        let public_key = metadata.public_key.ok_or_else(required_fields_error)?;
+        Ok(Self { account: operation.account, amount, public_key })
+    }
+}
