@@ -27,8 +27,7 @@ Follow these steps in order:
      - If user instructions contain "fork", determine the user's fork remote:
        1. List remotes: `git remote -v`
        2. Look for a remote whose URL contains the GitHub username (e.g., `github.com/{username}/`). This is the fork remote.
-       3. If no matching remote is found, add one: `gh repo fork --remote-only` — this creates a fork (if needed) and adds a remote named after the username. Re-run `git remote -v` to confirm.
-       4. Record the fork remote name for later use.
+       3. Record the fork remote name for later use.
      - If "fork" is not specified, the push remote is `origin`.
 
 2. **Analyze staged changes:**
