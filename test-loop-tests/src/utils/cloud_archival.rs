@@ -7,14 +7,15 @@ use itertools::Itertools;
 use near_chain::types::Tip;
 use near_chain::{Chain, ChainStoreAccess, ChainStoreUpdate};
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
-use near_client::sync::external::StateSyncConnection;
+use near_client::sync::external::{
+    StateSyncConnection, download_and_apply_state_parts_sequentially, list_state_parts,
+};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
 };
-use near_state_viewer::state_parts::{download_and_apply_state_parts, list_state_parts};
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::{BlockData, CloudStorage};
 use near_store::db::CLOUD_HEAD_KEY;
@@ -335,7 +336,7 @@ async fn load_state_snapshot(
 ) {
     let num_parts =
         list_state_parts(external, chain_id, epoch_id, epoch_height, shard_id).await.unwrap();
-    download_and_apply_state_parts(
+    download_and_apply_state_parts_sequentially(
         chain,
         external,
         chain_id,

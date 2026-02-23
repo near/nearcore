@@ -1,8 +1,13 @@
 use crate::metrics;
+use near_chain::Chain;
 use near_chain_configs::ExternalStorageLocation;
 use near_external_storage::{ExternalConnection, S3AccessConfig};
-use near_primitives::types::{EpochId, ShardId};
+use near_primitives::hash::CryptoHash;
+use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::types::{EpochHeight, EpochId, ShardId};
+use near_primitives::version::ProtocolVersion;
 use near_store::archive::cloud_storage::CloudStorage;
+use std::ops::Range;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -236,6 +241,89 @@ pub fn get_part_id_from_filename(s: &str) -> Option<u64> {
         }
     }
     None
+}
+
+/// Lists state parts from external storage and returns num_parts.
+pub async fn list_state_parts(
+    external: &StateSyncConnection,
+    chain_id: &str,
+    epoch_id: &EpochId,
+    epoch_height: EpochHeight,
+    shard_id: ShardId,
+) -> Result<u64, anyhow::Error> {
+    let directory_path = external_storage_location_directory(
+        chain_id,
+        epoch_id,
+        epoch_height,
+        shard_id,
+        &StateFileType::StatePart { part_id: 0, num_parts: 0 },
+    );
+    let part_file_names = external.list_objects(shard_id, &directory_path).await?;
+    anyhow::ensure!(!part_file_names.is_empty(), "no state parts found in {}", directory_path);
+    let num_parts = part_file_names.len() as u64;
+    anyhow::ensure!(
+        Some(num_parts) == get_num_parts_from_filename(&part_file_names[0]),
+        "num_parts mismatch: {} files but filename says {:?}",
+        num_parts,
+        get_num_parts_from_filename(&part_file_names[0]),
+    );
+    Ok(num_parts)
+}
+
+/// Downloads state parts sequentially from external storage and applies them to the chain.
+/// This is a simple helper for tests and CLI tools. Production state sync downloads parts
+/// in parallel, uses retries, etc.
+pub async fn download_and_apply_state_parts_sequentially(
+    chain: &Chain,
+    external: &StateSyncConnection,
+    chain_id: &str,
+    epoch_id: &EpochId,
+    epoch_height: EpochHeight,
+    sync_hash: CryptoHash,
+    protocol_version: ProtocolVersion,
+    shard_id: ShardId,
+    state_root: CryptoHash,
+    part_ids: Range<u64>,
+    num_parts: u64,
+) -> Result<(), anyhow::Error> {
+    tracing::info!(
+        target: "state-parts",
+        epoch_height,
+        %shard_id,
+        num_parts,
+        ?sync_hash,
+        ?part_ids,
+        "loading state as seen at the beginning of the specified epoch",
+    );
+
+    let timer = Instant::now();
+    for part_id in part_ids {
+        let timer = Instant::now();
+        assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
+        let file_type = StateFileType::StatePart { part_id, num_parts };
+        let location =
+            external_storage_location(chain_id, epoch_id, epoch_height, shard_id, &file_type);
+        let bytes = external.get_file(shard_id, &location, &file_type).await?;
+        let part_length = bytes.len();
+        let part = StatePart::from_bytes(bytes, protocol_version)?;
+
+        chain.state_sync_adapter.set_state_part(
+            shard_id,
+            sync_hash,
+            PartId::new(part_id, num_parts),
+            &part,
+        )?;
+        chain.runtime_adapter.apply_state_part(
+            shard_id,
+            &state_root,
+            PartId::new(part_id, num_parts),
+            &part,
+            epoch_id,
+        )?;
+        tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "loaded a state part");
+    }
+    tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "loaded all requested state parts");
+    Ok(())
 }
 
 #[cfg(test)]

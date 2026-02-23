@@ -49,7 +49,6 @@ near-o11y.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
 near-primitives-core.workspace = true
-near-state-viewer.workspace = true
 near-store.workspace = true
 near-test-contracts.workspace = true
 near-vm-runner.workspace = true
