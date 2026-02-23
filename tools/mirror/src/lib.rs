@@ -186,9 +186,8 @@ struct LatestTargetNonce {
 // TODO: move DB related stuff to its own file and add a way to
 // keep track of updates in memory and write them all in one transaction
 fn read_target_nonce(db: &DB, key: &NonceLookupKey) -> anyhow::Result<Option<LatestTargetNonce>> {
-    let db_key = key.db_key();
     Ok(db
-        .get_cf(db.cf_handle(DBCol::Nonces.name()).unwrap(), &db_key)?
+        .get_cf(db.cf_handle(DBCol::Nonces.name()).unwrap(), &key.db_key())?
         .map(|v| LatestTargetNonce::try_from_slice(&v).unwrap()))
 }
 
@@ -198,10 +197,9 @@ fn put_target_nonce(
     nonce: &LatestTargetNonce,
 ) -> anyhow::Result<()> {
     tracing::trace!(target: "mirror", ?nonce, ?key, "storing nonce in DB");
-    let db_key = key.db_key();
     db.put_cf(
         db.cf_handle(DBCol::Nonces.name()).unwrap(),
-        &db_key,
+        &key.db_key(),
         &borsh::to_vec(&nonce).unwrap(),
     )?;
     Ok(())
