@@ -8088,6 +8088,7 @@ dependencies = [
  "rlp",
  "serde_json",
  "sha3",
+ "state-viewer",
  "tempfile",
  "testlib",
  "tokio",

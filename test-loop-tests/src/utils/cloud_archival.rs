@@ -5,15 +5,25 @@ use borsh::BorshDeserialize;
 
 use itertools::Itertools;
 use near_chain::types::Tip;
-use near_chain::{ChainStoreAccess, ChainStoreUpdate};
+use near_chain::{Chain, ChainStoreAccess, ChainStoreUpdate};
 use near_client::archive::cloud_archival_writer::CloudArchivalWriterHandle;
+use near_client::sync::external::StateSyncConnection;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, EpochHeight, EpochId};
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
+};
+use near_state_viewer::state_parts::{download_and_apply_state_parts, list_state_parts};
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::{BlockData, CloudStorage};
 use near_store::db::CLOUD_HEAD_KEY;
-use near_store::{COLD_HEAD_KEY, DBCol, Store};
+use near_store::flat::FlatStorageManager;
+use near_store::trie::AccessOptions;
+use near_store::{
+    COLD_HEAD_KEY, DBCol, ShardTries, ShardUId, StateSnapshotConfig, Store, TrieConfig,
+};
+use near_vm_runner::logic::ProtocolVersion;
 
 use crate::setup::builder::NodeStateBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -225,10 +235,13 @@ pub fn bootstrap_reader_at_height(
     let target_block_data = cloud_storage.get_block_data(target_block_height).unwrap();
     let epoch_id = target_block_data.block().header().epoch_id();
     let epoch_data = cloud_storage.get_epoch_data(*epoch_id).unwrap();
+    let epoch_height = epoch_data.epoch_info().epoch_height();
+    let protocol_version = epoch_data.epoch_info().protocol_version();
 
     // Load blocks needed for state sync (shard-independent).
     let epoch_start_block = cloud_storage.get_block_data(epoch_data.epoch_start_height()).unwrap();
     let sync_block = cloud_storage.get_block_data(epoch_data.sync_block_height()).unwrap();
+    let sync_hash = sync_block.block().hash();
     let sync_prev_block_height = sync_block.block().header().prev_height().unwrap();
     let sync_prev_block = cloud_storage.get_block_data(sync_prev_block_height).unwrap();
     let sync_prev_prev_block_height = sync_prev_block.block().header().prev_height().unwrap();
@@ -250,8 +263,135 @@ pub fn bootstrap_reader_at_height(
         }
     }
 
-    for _shard_id in epoch_data.shard_layout().shard_ids() {
-        // TODO(cloud_archival): Load state snapshot from cloud storage for this shard.
-        // TODO(cloud_archival): Apply per-block state deltas to advance to target_block_height.
+    let chain = &env.node_for_account(reader_id).client().chain;
+    let store = chain.chain_store.store();
+    let tries = ShardTries::new(
+        store.trie_store(),
+        TrieConfig::default(),
+        FlatStorageManager::new(store.flat_store()),
+        StateSnapshotConfig::Disabled,
+    );
+    let state_sync_connection = StateSyncConnection::from_cloud_storage(&cloud_storage);
+
+    for shard_id in epoch_data.shard_layout().shard_ids() {
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, epoch_data.shard_layout());
+        let target_block_shard_data =
+            cloud_storage.get_shard_data(target_block_height, shard_id).unwrap();
+        let target_state_root = *target_block_shard_data.chunk_extra().state_root();
+        let state_header =
+            cloud_storage.get_state_header(epoch_height, *epoch_id, shard_id).unwrap();
+        let state_sync_state_root = state_header.chunk_prev_state_root();
+
+        chain.state_sync_adapter.set_state_header(shard_id, *sync_hash, state_header).unwrap();
+
+        assert!(!has_state_root(&tries, shard_uid, state_sync_state_root));
+        execute_future(load_state_snapshot(
+            chain,
+            &state_sync_connection,
+            cloud_storage.chain_id(),
+            epoch_id,
+            epoch_height,
+            *sync_hash,
+            &protocol_version,
+            shard_id,
+            state_sync_state_root,
+        ));
+        assert!(has_state_root(&tries, shard_uid, state_sync_state_root));
+
+        assert!(!has_state_root(&tries, shard_uid, target_state_root));
+        apply_state_changes(
+            &cloud_storage,
+            &store,
+            &tries,
+            state_sync_state_root,
+            sync_prev_block_height,
+            target_block_height,
+            shard_uid,
+        );
+        assert!(has_state_root(&tries, shard_uid, target_state_root));
+
+        // Validate the restored state by reading from the trie.
+        let trie = tries.get_trie_for_shard(shard_uid, target_state_root);
+        let item_count = trie.disk_iter().unwrap().count();
+        assert!(item_count > 0, "trie for shard {shard_id} should not be empty after bootstrap");
     }
+}
+
+fn has_state_root(tries: &ShardTries, shard_uid: ShardUId, state_root: CryptoHash) -> bool {
+    let trie = tries.get_trie_for_shard(shard_uid, state_root);
+    trie.retrieve_root_node().is_ok()
+}
+
+async fn load_state_snapshot(
+    chain: &Chain,
+    external: &StateSyncConnection,
+    chain_id: &str,
+    epoch_id: &EpochId,
+    epoch_height: EpochHeight,
+    sync_hash: CryptoHash,
+    protocol_version: &ProtocolVersion,
+    shard_id: ShardId,
+    state_root: CryptoHash,
+) {
+    let num_parts =
+        list_state_parts(external, chain_id, epoch_id, epoch_height, shard_id).await.unwrap();
+    download_and_apply_state_parts(
+        chain,
+        external,
+        chain_id,
+        epoch_id,
+        epoch_height,
+        sync_hash,
+        *protocol_version,
+        shard_id,
+        state_root,
+        0..num_parts,
+        num_parts,
+    )
+    .await
+    .unwrap();
+}
+
+/// Applies per-block state deltas from cloud storage to advance the trie from
+/// `start_block_height` to `target_block_height`.
+fn apply_state_changes(
+    cloud_storage: &CloudStorage,
+    store: &Store,
+    tries: &ShardTries,
+    mut state_root: CryptoHash,
+    start_block_height: BlockHeight,
+    target_block_height: BlockHeight,
+    shard_uid: ShardUId,
+) {
+    let shard_id = shard_uid.shard_id();
+    let start_block_shard_data =
+        cloud_storage.get_shard_data(start_block_height, shard_id).unwrap();
+    assert_eq!(
+        state_root,
+        start_block_shard_data.chunk().prev_state_root(),
+        "initial state_root must match prev_state_root of the start block"
+    );
+    for block_height in start_block_height..=target_block_height {
+        let shard_data = cloud_storage.get_shard_data(block_height, shard_id).unwrap();
+        let trie = tries.get_trie_for_shard(shard_uid, state_root);
+        let trie_changes = trie
+            .update(
+                shard_data.state_changes().iter().map(|raw_state_changes_with_trie_key| {
+                    let raw_key = raw_state_changes_with_trie_key.trie_key.to_vec();
+                    // Take the final value — each key may have multiple changes within a block.
+                    let data = raw_state_changes_with_trie_key.changes.last().unwrap().data.clone();
+                    (raw_key, data)
+                }),
+                AccessOptions::NO_SIDE_EFFECTS,
+            )
+            .unwrap();
+        let mut store_update = store.trie_store().store_update();
+        state_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        store_update.commit();
+        assert!(has_state_root(&tries, shard_uid, state_root));
+    }
+    let target_block_shard_data =
+        cloud_storage.get_shard_data(target_block_height, shard_id).unwrap();
+    let expected_final_state_root = target_block_shard_data.chunk_extra().state_root();
+    assert_eq!(state_root, *expected_final_state_root);
 }

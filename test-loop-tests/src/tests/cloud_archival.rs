@@ -130,6 +130,11 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
     let reader_id: AccountId = "reader".parse().unwrap();
     if let Some(target_block_height) = params.bootstrap_reader_at_height {
         bootstrap_reader_at_height(&mut env, &reader_id, target_block_height);
+        // Kill the reader node immediately after bootstrapping. We only want to
+        // verify that state sync + delta application produces the correct state.
+        // If left running, the reader tries to sync to the latest chain head and
+        // requests blocks from cp0 that have already been garbage collected.
+        env.kill_node(reader_id.as_ref());
     }
     env.test_loop.run_for(Duration::seconds(5));
 
