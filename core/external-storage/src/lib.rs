@@ -39,6 +39,15 @@ pub struct S3AccessConfig {
 }
 
 impl ExternalConnection {
+    /// Human-readable backend name for logging.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::S3 { .. } => "S3",
+            Self::Filesystem { .. } => "Filesystem",
+            Self::GCS { .. } => "GCS",
+        }
+    }
+
     /// Create a connection for the given storage location.
     /// For S3, `s3_access_config` is required; `credentials_file` is used only for RW.
     /// For GCS, `credentials_file` (if provided) overrides SERVICE_ACCOUNT.

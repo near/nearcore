@@ -44,7 +44,6 @@ impl StateFileType {
 #[derive(Clone)]
 pub struct StateSyncConnection {
     connection: ExternalConnection,
-    storage_name: String,
 }
 
 impl StateSyncConnection {
@@ -55,12 +54,11 @@ impl StateSyncConnection {
     ) -> Self {
         let connection =
             ExternalConnection::new(location, credentials_file, Some(s3_access_config));
-        let storage_name = location.name().to_string();
-        Self { connection, storage_name }
+        Self { connection }
     }
 
     pub fn from_cloud_storage(cloud_storage: &CloudStorage) -> Self {
-        Self { connection: cloud_storage.connection().clone(), storage_name: "Filesystem".into() }
+        Self { connection: cloud_storage.connection().clone() }
     }
 
     pub async fn get_file(
@@ -75,13 +73,13 @@ impl StateSyncConnection {
         let result = self.connection.get(location).await;
         match &result {
             Ok(bytes) => {
-                tracing::debug!(target: "sync", %shard_id, location, num_bytes = bytes.len(), storage = self.storage_name, "request finished");
+                tracing::debug!(target: "sync", %shard_id, location, num_bytes = bytes.len(), storage = self.connection.name(), "request finished");
                 metrics::STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED
                     .with_label_values(&[&shard_id.to_string(), &file_type.to_string()])
                     .inc_by(bytes.len() as u64);
             }
             Err(error) => {
-                tracing::debug!(target: "sync", %shard_id, location, ?error, storage = self.storage_name, "request failed");
+                tracing::debug!(target: "sync", %shard_id, location, ?error, storage = self.connection.name(), "request failed");
             }
         }
         result
@@ -100,11 +98,11 @@ impl StateSyncConnection {
         let res = self.connection.put(location, data).await;
         let is_ok = match &res {
             Ok(()) => {
-                tracing::debug!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.storage_name, "wrote a state part");
+                tracing::debug!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.connection.name(), "wrote a state part");
                 "ok"
             }
             Err(error) => {
-                tracing::error!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.storage_name, ?error, "failed to write a state part");
+                tracing::error!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.connection.name(), ?error, "failed to write a state part");
                 "error"
             }
         };
@@ -283,7 +281,7 @@ mod test {
         // Define bucket.
         let location = ExternalStorageLocation::GCS { bucket: "state-parts".into() };
         let connection = ExternalConnection::new(&location, None, None);
-        let connection = StateSyncConnection { connection, storage_name: "GCS".into() };
+        let connection = StateSyncConnection { connection };
 
         // Generate random data.
         let data = random_string(1000);

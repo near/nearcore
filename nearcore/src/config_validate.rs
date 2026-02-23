@@ -242,8 +242,8 @@ impl<'a> ConfigValidator<'a> {
         }
         if !CloudStorageOpener::is_storage_location_supported(&cloud_archival_config.location) {
             let error_message = format!(
-                "{} is not supported cloud storage location.",
-                cloud_archival_config.location.name()
+                "{:?} is not a supported cloud storage location",
+                cloud_archival_config.location
             );
             self.validation_errors.push_config_semantics_error(error_message);
         }
@@ -460,7 +460,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: S3 is not supported cloud storage location."
+        expected = "is not a supported cloud storage location"
     )]
     fn test_cloud_archival_storage_s3_not_supported() {
         let mut config = Config::default();

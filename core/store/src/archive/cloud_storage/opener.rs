@@ -43,7 +43,7 @@ impl CloudStorageOpener {
     fn create_external_connection(&self) -> ExternalConnection {
         let location = &self.context.cloud_archive.location;
         if !Self::is_storage_location_supported(location) {
-            panic!("{} is not supported cloud storage location", location.name())
+            panic!("{:?} is not a supported cloud storage location", location)
         }
         ExternalConnection::new(location, self.context.cloud_archive.credentials_file.clone(), None)
     }
