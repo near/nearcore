@@ -114,7 +114,7 @@ impl NonceLookupKey {
     }
 
     /// Returns bytes that serve as the key for this NonceLookupKey in the Nonces column.
-    fn nonce_col_key(&self) -> Vec<u8> {
+    fn db_key(&self) -> Vec<u8> {
         borsh::to_vec(self).unwrap()
     }
 }
@@ -186,7 +186,7 @@ struct LatestTargetNonce {
 // TODO: move DB related stuff to its own file and add a way to
 // keep track of updates in memory and write them all in one transaction
 fn read_target_nonce(db: &DB, key: &NonceLookupKey) -> anyhow::Result<Option<LatestTargetNonce>> {
-    let db_key = key.nonce_col_key();
+    let db_key = key.db_key();
     Ok(db
         .get_cf(db.cf_handle(DBCol::Nonces.name()).unwrap(), &db_key)?
         .map(|v| LatestTargetNonce::try_from_slice(&v).unwrap()))
@@ -198,7 +198,7 @@ fn put_target_nonce(
     nonce: &LatestTargetNonce,
 ) -> anyhow::Result<()> {
     tracing::trace!(target: "mirror", ?nonce, ?key, "storing nonce in DB");
-    let db_key = key.nonce_col_key();
+    let db_key = key.db_key();
     db.put_cf(
         db.cf_handle(DBCol::Nonces.name()).unwrap(),
         &db_key,
@@ -851,7 +851,7 @@ async fn fetch_nonce(
             let nonces =
                 fetch_gas_key_nonces(view_client, &nonce_key.account_id, &nonce_key.public_key)
                     .await?;
-            Ok(nonces.map(|n| n[*index as usize]))
+            Ok(nonces.and_then(|n| n.get(*index as usize).copied()))
         }
     }
 }

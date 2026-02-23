@@ -230,7 +230,7 @@ impl TxTracker {
     // But since we can't hold the lock across awaits, we need to do this separately first if we want to
     // keep the lock on Self for the entirety of sections of code that make updates to it.
     //
-    // So this function must be called before calling initialize_target_nonce() for a given access key
+    // So this function must be called before calling initialize_target_nonce() for a given `NonceLookupKey`
     async fn store_target_nonce(
         target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
         db: &DB,
