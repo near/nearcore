@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
+use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
@@ -19,6 +20,7 @@ use near_client::archive::cloud_archival_writer::create_cloud_archival_writer;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
 use near_client::client_actor::ClientActor;
+use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
@@ -41,6 +43,7 @@ use near_store::config::SplitStorageConfig;
 use near_store::{StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
+use tokio::sync::broadcast;
 
 use crate::utils::peer_manager_actor::TestLoopPeerManagerActor;
 use crate::utils::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
@@ -284,13 +287,21 @@ pub fn setup_client(
     } else {
         noop().into_sender()
     };
+    let (shutdown_tx, mut shutdown_rx) = broadcast::channel::<ShutdownReason>(1);
+    let pending_denylist = test_loop.event_denylist();
+    let id = identifier.to_string();
+    test_loop.future_spawner(identifier).spawn("ShutdownWatcher", async move {
+        let _ = shutdown_rx.recv().await;
+        pending_denylist.lock().push(id);
+    });
+
     let client_actor = ClientActor::new(
         test_loop.clock(),
         client,
         peer_id.clone(),
         network_adapter.as_multi_sender(),
         noop().into_sender(),
-        None,
+        Some(shutdown_tx),
         Default::default(),
         None,
         sync_jobs_adapter.as_multi_sender(),
