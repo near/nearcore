@@ -8052,6 +8052,7 @@ dependencies = [
  "assert_matches",
  "aurora-engine-transactions",
  "aurora-engine-types",
+ "axum",
  "borsh",
  "bytesize 1.1.0",
  "derive_builder",
@@ -8070,6 +8071,7 @@ dependencies = [
  "near-external-storage",
  "near-indexer",
  "near-jsonrpc",
+ "near-jsonrpc-primitives",
  "near-network",
  "near-o11y",
  "near-parameters",
@@ -8090,6 +8092,7 @@ dependencies = [
  "tempfile",
  "testlib",
  "tokio",
+ "tower-service",
  "tracing",
 ]
 

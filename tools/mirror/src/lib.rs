@@ -503,6 +503,21 @@ impl std::fmt::Display for MappedTxProvenance {
     }
 }
 
+// Bundle of parameters for constructing a mirrored transaction.
+// Groups source/target identity, signing key, actions, and metadata
+// that flow together through prepare_tx → TargetChainTx → MappedTx/TxAwaitingNonce.
+struct TxMapping {
+    source_signer_id: AccountId,
+    source_receiver_id: AccountId,
+    target_signer_id: AccountId,
+    target_receiver_id: AccountId,
+    target_secret_key: SecretKey,
+    actions: Vec<Action>,
+    ref_hash: CryptoHash,
+    provenance: MappedTxProvenance,
+    nonce_updates: HashSet<(AccountId, PublicKey)>,
+}
+
 // a transaction that's almost prepared, except that we don't yet know
 // what nonce to use because the public key was added in an AddKey
 // action that we haven't seen on chain yet. The target_tx field is complete
@@ -519,34 +534,23 @@ struct TxAwaitingNonce {
 }
 
 impl TxAwaitingNonce {
-    fn new(
-        source_signer_id: AccountId,
-        source_receiver_id: AccountId,
-        target_signer_id: AccountId,
-        target_receiver_id: AccountId,
-        target_secret_key: SecretKey,
-        target_public_key: PublicKey,
-        actions: Vec<Action>,
-        target_nonce: TargetNonce,
-        ref_hash: &CryptoHash,
-        provenance: MappedTxProvenance,
-        nonce_updates: HashSet<(AccountId, PublicKey)>,
-    ) -> Self {
+    fn new(mapping: TxMapping, target_nonce: TargetNonce) -> Self {
+        let target_public_key = mapping.target_secret_key.public_key();
         let mut target_tx = Transaction::new_v0(
-            target_signer_id,
+            mapping.target_signer_id,
             target_public_key,
-            target_receiver_id,
+            mapping.target_receiver_id,
             0,
-            *ref_hash,
+            mapping.ref_hash,
         );
-        *target_tx.actions_mut() = actions;
+        *target_tx.actions_mut() = mapping.actions;
         Self {
-            source_signer_id,
-            source_receiver_id,
-            provenance,
-            target_secret_key,
+            source_signer_id: mapping.source_signer_id,
+            source_receiver_id: mapping.source_receiver_id,
+            provenance: mapping.provenance,
+            target_secret_key: mapping.target_secret_key,
             target_tx,
-            nonce_updates,
+            nonce_updates: mapping.nonce_updates,
             target_nonce,
         }
     }
@@ -566,37 +570,26 @@ struct MappedTx {
 }
 
 impl MappedTx {
-    fn new(
-        source_signer_id: AccountId,
-        source_receiver_id: AccountId,
-        target_signer_id: AccountId,
-        target_receiver_id: AccountId,
-        target_secret_key: &SecretKey,
-        target_public_key: PublicKey,
-        actions: Vec<Action>,
-        nonce: Nonce,
-        ref_hash: &CryptoHash,
-        provenance: MappedTxProvenance,
-        nonce_updates: HashSet<(AccountId, PublicKey)>,
-    ) -> Self {
+    fn new(mapping: TxMapping, nonce: Nonce) -> Self {
+        let target_public_key = mapping.target_secret_key.public_key();
         let mut target_tx = Transaction::new_v0(
-            target_signer_id,
+            mapping.target_signer_id,
             target_public_key,
-            target_receiver_id,
+            mapping.target_receiver_id,
             nonce,
-            *ref_hash,
+            mapping.ref_hash,
         );
-        *target_tx.actions_mut() = actions;
+        *target_tx.actions_mut() = mapping.actions;
         let target_tx = SignedTransaction::new(
-            target_secret_key.sign(&target_tx.get_hash_and_size().0.as_ref()),
+            mapping.target_secret_key.sign(&target_tx.get_hash_and_size().0.as_ref()),
             target_tx,
         );
         Self {
-            source_signer_id,
-            source_receiver_id,
-            provenance,
+            source_signer_id: mapping.source_signer_id,
+            source_receiver_id: mapping.source_receiver_id,
+            provenance: mapping.provenance,
             target_tx,
-            nonce_updates,
+            nonce_updates: mapping.nonce_updates,
             sent_successfully: false,
         }
     }
@@ -650,60 +643,12 @@ impl TargetChainTx {
         self.set_nonce(nonce);
     }
 
-    fn new_ready(
-        source_signer_id: AccountId,
-        source_receiver_id: AccountId,
-        target_signer_id: AccountId,
-        target_receiver_id: AccountId,
-        target_secret_key: &SecretKey,
-        target_public_key: PublicKey,
-        actions: Vec<Action>,
-        nonce: Nonce,
-        ref_hash: &CryptoHash,
-        provenance: MappedTxProvenance,
-        nonce_updates: HashSet<(AccountId, PublicKey)>,
-    ) -> Self {
-        Self::Ready(MappedTx::new(
-            source_signer_id,
-            source_receiver_id,
-            target_signer_id,
-            target_receiver_id,
-            target_secret_key,
-            target_public_key,
-            actions,
-            nonce,
-            ref_hash,
-            provenance,
-            nonce_updates,
-        ))
+    fn new_ready(mapping: TxMapping, nonce: Nonce) -> Self {
+        Self::Ready(MappedTx::new(mapping, nonce))
     }
 
-    fn new_awaiting_nonce(
-        source_signer_id: AccountId,
-        source_receiver_id: AccountId,
-        target_signer_id: AccountId,
-        target_receiver_id: AccountId,
-        target_secret_key: &SecretKey,
-        target_public_key: PublicKey,
-        actions: Vec<Action>,
-        target_nonce: TargetNonce,
-        ref_hash: &CryptoHash,
-        provenance: MappedTxProvenance,
-        nonce_updates: HashSet<(AccountId, PublicKey)>,
-    ) -> Self {
-        Self::AwaitingNonce(TxAwaitingNonce::new(
-            source_signer_id,
-            source_receiver_id,
-            target_signer_id,
-            target_receiver_id,
-            target_secret_key.clone(),
-            target_public_key,
-            actions,
-            target_nonce,
-            &ref_hash,
-            provenance,
-            nonce_updates,
-        ))
+    fn new_awaiting_nonce(mapping: TxMapping, target_nonce: TargetNonce) -> Self {
+        Self::AwaitingNonce(TxAwaitingNonce::new(mapping, target_nonce))
     }
 
     fn target_nonce(&self) -> TargetNonce {
@@ -1026,77 +971,37 @@ impl<T: ChainAccess> TxMirror<T> {
         tracker: &Mutex<crate::chain_tracker::TxTracker>,
         tx_block_queue: &Mutex<VecDeque<MappedBlock>>,
         target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
-        source_signer_id: AccountId,
-        source_receiver_id: AccountId,
-        target_signer_id: AccountId,
-        target_receiver_id: AccountId,
-        target_secret_key: &SecretKey,
-        actions: Vec<Action>,
-        ref_hash: &CryptoHash,
+        mapping: TxMapping,
         source_height: Option<BlockHeight>,
-        provenance: MappedTxProvenance,
-        nonce_updates: HashSet<(AccountId, PublicKey)>,
     ) -> anyhow::Result<TargetChainTx> {
-        let target_public_key = target_secret_key.public_key();
-        // TODO: clean up this function. The logic is hard to follow
-        let target_nonce = match source_height.as_ref() {
-            Some(_) => None,
-            None => Some(
-                crate::chain_tracker::TxTracker::insert_nonce(
-                    tracker,
-                    tx_block_queue,
-                    target_view_client,
-                    &self.db,
-                    &target_signer_id,
-                    &target_public_key,
-                    target_secret_key,
-                )
-                .await?,
-            ),
-        };
-        let target_nonce = match source_height {
-            Some(source_height) => {
-                crate::chain_tracker::TxTracker::next_nonce(
-                    tracker,
-                    target_view_client,
-                    &self.db,
-                    &target_signer_id,
-                    &target_public_key,
-                    source_height,
-                )
-                .await?
-            }
-            None => target_nonce.unwrap(),
+        let target_public_key = mapping.target_secret_key.public_key();
+        let target_nonce = if let Some(source_height) = source_height {
+            crate::chain_tracker::TxTracker::next_nonce(
+                tracker,
+                target_view_client,
+                &self.db,
+                &mapping.target_signer_id,
+                &target_public_key,
+                source_height,
+            )
+            .await?
+        } else {
+            crate::chain_tracker::TxTracker::insert_nonce(
+                tracker,
+                tx_block_queue,
+                target_view_client,
+                &self.db,
+                &mapping.target_signer_id,
+                &target_public_key,
+                &mapping.target_secret_key,
+            )
+            .await?
         };
 
         if target_nonce.pending_outcomes.is_empty() && target_nonce.nonce.is_some() {
-            Ok(TargetChainTx::new_ready(
-                source_signer_id,
-                source_receiver_id,
-                target_signer_id,
-                target_receiver_id,
-                &target_secret_key,
-                target_public_key,
-                actions,
-                target_nonce.nonce.unwrap(),
-                &ref_hash,
-                provenance,
-                nonce_updates,
-            ))
+            Ok(TargetChainTx::new_ready(mapping, target_nonce.nonce.unwrap()))
         } else {
-            Ok(TargetChainTx::new_awaiting_nonce(
-                source_signer_id,
-                source_receiver_id,
-                target_signer_id,
-                target_receiver_id,
-                target_secret_key,
-                target_public_key,
-                actions,
-                target_nonce,
-                &ref_hash,
-                provenance,
-                nonce_updates,
-            ))
+            Ok(TargetChainTx::new_awaiting_nonce(mapping, target_nonce))
         }
     }
 
@@ -1235,22 +1140,19 @@ impl<T: ChainAccess> TxMirror<T> {
             ?target_actions,
             "prepare tx",
         );
+        let mapping = TxMapping {
+            source_signer_id: predecessor_id,
+            source_receiver_id: receiver_id,
+            target_signer_id,
+            target_receiver_id,
+            target_secret_key,
+            actions: target_actions,
+            ref_hash: *ref_hash,
+            provenance,
+            nonce_updates,
+        };
         let target_tx = self
-            .prepare_tx(
-                tracker,
-                tx_block_queue,
-                target_view_client,
-                predecessor_id,
-                receiver_id,
-                target_signer_id,
-                target_receiver_id,
-                &target_secret_key,
-                target_actions,
-                ref_hash,
-                source_height,
-                provenance,
-                nonce_updates,
-            )
+            .prepare_tx(tracker, tx_block_queue, target_view_client, mapping, source_height)
             .await?;
         txs.push(target_tx);
         Ok(())
@@ -1529,30 +1431,30 @@ impl<T: ChainAccess> TxMirror<T> {
                     self.secret.as_ref(),
                 );
 
-                let target_signer_id = crate::key_mapping::map_account(
-                    &source_tx.transaction.signer_id(),
-                    self.secret.as_ref(),
-                );
-                let target_receiver_id = crate::key_mapping::map_account(
-                    &source_tx.transaction.receiver_id(),
-                    self.secret.as_ref(),
-                );
-
+                let mapping = TxMapping {
+                    source_signer_id: source_tx.transaction.signer_id().clone(),
+                    source_receiver_id: source_tx.transaction.receiver_id().clone(),
+                    target_signer_id: crate::key_mapping::map_account(
+                        &source_tx.transaction.signer_id(),
+                        self.secret.as_ref(),
+                    ),
+                    target_receiver_id: crate::key_mapping::map_account(
+                        &source_tx.transaction.receiver_id(),
+                        self.secret.as_ref(),
+                    ),
+                    target_secret_key: target_private_key,
+                    actions,
+                    ref_hash,
+                    provenance: MappedTxProvenance::MappedSourceTx(source_height, ch.shard_id, idx),
+                    nonce_updates,
+                };
                 let target_tx = self
                     .prepare_tx(
                         tracker,
                         tx_block_queue,
                         target_view_client,
-                        source_tx.transaction.signer_id().clone(),
-                        source_tx.transaction.receiver_id().clone(),
-                        target_signer_id,
-                        target_receiver_id,
-                        &target_private_key,
-                        actions,
-                        &ref_hash,
+                        mapping,
                         Some(source_height),
-                        MappedTxProvenance::MappedSourceTx(source_height, ch.shard_id, idx),
-                        nonce_updates,
                     )
                     .await?;
                 txs.push(target_tx);

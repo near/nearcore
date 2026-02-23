@@ -1,7 +1,5 @@
-use crate::epoch_manager::EpochConfigStore;
 use crate::shard_layout::{ShardLayout, ShardUId};
 use itertools::Itertools;
-use near_primitives_core::types::ProtocolVersion;
 use near_primitives_core::types::{AccountId, ShardId};
 use rand::distributions::Alphanumeric;
 use rand::rngs::StdRng;
@@ -20,14 +18,6 @@ fn new_shards_split_map_v1(shards_split_map: Vec<Vec<u64>>) -> ShardsSplitMapV1 
 
 fn new_shards_split_map_v2(shards_split_map: BTreeMap<u64, Vec<u64>>) -> ShardsSplitMapV2 {
     shards_split_map.into_iter().map(|(k, v)| (k.into(), new_shard_ids_vec(v))).collect()
-}
-
-impl ShardLayout {
-    /// Constructor for tests that need a shard layout for a specific protocol version.
-    pub fn for_protocol_version(protocol_version: ProtocolVersion) -> Self {
-        let config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-        config_store.get_config(protocol_version).static_shard_layout()
-    }
 }
 
 #[test]
