@@ -66,8 +66,10 @@ def fetch_forknet_details(forknet_name, bm_params):
         f"--filter=name~'-{forknet_name}-' AND -name~'-rpc' AND -name~'traffic' AND -name~'tracing' AND -name~'prometheus'",
         "--format=table(name,networkInterfaces[0].networkIP,zone)"
     ]
-    cp_result = subprocess.run(
-        find_cp_cmd, capture_output=True, text=True, check=True)
+    cp_result = subprocess.run(find_cp_cmd,
+                               capture_output=True,
+                               text=True,
+                               check=True)
 
     # drop the table header line in the output
     cp_data = cp_result.stdout.splitlines()[1:]
@@ -90,8 +92,10 @@ def fetch_forknet_details(forknet_name, bm_params):
             f"--filter=name~'-{forknet_name}-' AND name~'-rpc'",
             "--format=table(name,networkInterfaces[0].networkIP,zone)"
         ]
-        rpc_result = subprocess.run(
-            find_rpc_cmd, capture_output=True, text=True, check=True)
+        rpc_result = subprocess.run(find_rpc_cmd,
+                                    capture_output=True,
+                                    text=True,
+                                    check=True)
         rpc_data = rpc_result.stdout.splitlines()[1:]
 
         if len(rpc_data) != num_rpcs:
