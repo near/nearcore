@@ -163,16 +163,10 @@ impl EpochConfig {
             .max(self.num_chunk_validator_seats)
     }
 
-    /// **Warning:** This method exists for backwards compatibility.
-    /// When `DynamicResharding` protocol feature is enabled, the source of truth
-    /// regarding shard layout is `EpochInfo`, not `EpochConfig`.
-    pub fn static_shard_layout(&self) -> ShardLayout {
-        // TODO(dynamic_resharding): remove all uses of this method except EpochManager
-        self.try_static_shard_layout()
-            .expect("static_shard_layout() called on dynamic resharding config")
-    }
-
-    pub fn try_static_shard_layout(&self) -> Option<ShardLayout> {
+    /// Get *static* shard layout. When dynamic resharding is enabled, there is no specific layout
+    /// assigned to `EpochConfig` and this method returns `None`. In such case the source of truth
+    /// regarding shard layout is `EpochInfo`.
+    pub fn static_shard_layout(&self) -> Option<ShardLayout> {
         self.shard_layout_config.static_shard_layout().cloned()
     }
 
@@ -320,15 +314,11 @@ pub struct ShardConfig {
 }
 
 impl ShardConfig {
-    pub fn new(epoch_config: EpochConfig) -> Self {
+    pub fn new(epoch_config: EpochConfig, shard_layout: ShardLayout) -> Self {
         Self {
-            num_block_producer_seats_per_shard: epoch_config
-                .num_block_producer_seats_per_shard
-                .clone(),
-            avg_hidden_validator_seats_per_shard: epoch_config
-                .avg_hidden_validator_seats_per_shard
-                .clone(),
-            shard_layout: epoch_config.static_shard_layout(),
+            num_block_producer_seats_per_shard: epoch_config.num_block_producer_seats_per_shard,
+            avg_hidden_validator_seats_per_shard: epoch_config.avg_hidden_validator_seats_per_shard,
+            shard_layout,
         }
     }
 }
