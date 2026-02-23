@@ -366,15 +366,6 @@ impl ChunkProducer {
                 &mut self.reed_solomon_encoder,
             )
         } else {
-            // Do **not** use proposed split from `chunk_extra`, because that relates to the
-            // previous chunk, not the one being produced.
-            let proposed_split = self.runtime_adapter.compute_proposed_split(
-                shard_id,
-                *chunk_extra.state_root(),
-                &prev_block_hash,
-                next_height,
-                prev_block.header().last_final_block(),
-            )?;
             ShardChunkWithEncoding::new(
                 prev_block_hash,
                 *chunk_extra.state_root(),
@@ -391,7 +382,7 @@ impl ChunkProducer {
                 tx_root,
                 congestion_info,
                 bandwidth_requests.cloned().unwrap_or_else(BandwidthRequests::empty),
-                proposed_split,
+                chunk_extra.proposed_split().cloned(),
                 &*validator_signer,
                 &mut self.reed_solomon_encoder,
                 protocol_version,

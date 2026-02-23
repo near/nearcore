@@ -565,18 +565,6 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get the block height for which garbage collection should not go over
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight;
 
-    /// Check if dynamic resharding should be scheduled for the given shard and compute the trie
-    /// split. The `state_root` represents state after applying the previous chunk. Trie split
-    /// computation will only trigger if the current block is the last block of the epoch.
-    fn compute_proposed_split(
-        &self,
-        shard_id: ShardId,
-        state_root: StateRoot,
-        prev_block_hash: &CryptoHash,
-        height: BlockHeight,
-        last_final_block_hash: &CryptoHash,
-    ) -> Result<Option<TrieSplit>, Error>;
-
     /// Apply transactions and receipts to given state root and return store update
     /// and new state root.
     /// Also returns transaction result for each transaction and new receipts.

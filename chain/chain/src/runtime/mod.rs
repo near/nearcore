@@ -521,8 +521,7 @@ impl NightshadeRuntime {
     }
 
     /// Check if dynamic resharding should be scheduled for the given shard and compute the trie
-    /// split. The `epoch_id` and `protocol_version` are at `prev_block_hash`. Will only trigger
-    /// if the current block is the last block of the epoch.
+    /// split. The `epoch_id` and `protocol_version` are at `prev_block_hash`.
     fn compute_proposed_split(
         &self,
         shard_trie: &Trie,
@@ -530,24 +529,18 @@ impl NightshadeRuntime {
         epoch_id: &EpochId,
         protocol_version: ProtocolVersion,
         epoch_config: &EpochConfig,
-        height: BlockHeight,
-        prev_block_hash: &CryptoHash,
-        last_final_block_hash: &CryptoHash,
+        _height: BlockHeight,
+        _prev_block_hash: &CryptoHash,
+        _last_final_block_hash: &CryptoHash,
     ) -> Result<Option<TrieSplit>, Error> {
         if !ProtocolFeature::DynamicResharding.enabled(protocol_version) {
             return Ok(None);
         }
-        if !self.epoch_manager.is_produced_block_last_in_epoch(
-            height,
-            prev_block_hash,
-            last_final_block_hash,
-        )? {
-            return Ok(None);
-        }
-        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
 
+        // TODO(dynamic-resharding): Check if the *next* block is the last block of the epoch
         // TODO(dynamic_resharding): Check how many epochs since last resharding
 
+        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
         let Some(config) = epoch_config.dynamic_resharding_config() else {
             tracing::error!(target: "runtime", "dynamic resharding config missing");
             return Ok(None);
@@ -1105,30 +1098,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 self.genesis_config.genesis_height
             }
         }
-    }
-
-    fn compute_proposed_split(
-        &self,
-        shard_id: ShardId,
-        state_root: StateRoot,
-        prev_block_hash: &CryptoHash,
-        height: BlockHeight,
-        last_final_block_hash: &CryptoHash,
-    ) -> Result<Option<TrieSplit>, Error> {
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let epoch_config = self.epoch_manager.get_epoch_config(&epoch_id)?;
-        let trie = self.get_trie_for_shard(shard_id, prev_block_hash, state_root, true)?;
-        self.compute_proposed_split(
-            &trie,
-            shard_id,
-            &epoch_id,
-            protocol_version,
-            &epoch_config,
-            height,
-            prev_block_hash,
-            last_final_block_hash,
-        )
     }
 
     #[instrument(target = "runtime", level = "info", skip_all, fields(height = block.height, shard_id = %chunk.shard_id))]
