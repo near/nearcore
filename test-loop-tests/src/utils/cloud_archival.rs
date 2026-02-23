@@ -14,7 +14,7 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, ShardId,
 };
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::{BlockData, CloudStorage};
@@ -140,6 +140,21 @@ pub fn check_data_at_height(env: &TestLoopEnv, archival_id: &AccountId, height: 
         let shard_id = chunk_header.shard_id();
         let _shard_data = cloud_storage.get_shard_data(height, shard_id).unwrap();
     }
+}
+
+/// Queries the given node for an account and asserts the balance matches.
+pub fn check_account_balance(
+    env: &TestLoopEnv,
+    node_id: &AccountId,
+    account_id: &AccountId,
+    expected_balance: Balance,
+) {
+    let node = env.node_for_account(node_id);
+    let account_view = node.view_account_query(account_id).unwrap();
+    assert_eq!(
+        account_view.amount, expected_balance,
+        "account {account_id} balance mismatch on node {node_id}"
+    );
 }
 
 /// Checks that each epoch (except the final one) has a state header uploaded for each
