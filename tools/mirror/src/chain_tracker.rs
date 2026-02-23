@@ -12,7 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::Transaction;
 use near_primitives::types::{AccountId, Balance, BlockHeight};
 use near_primitives::views::{ActionView, ExecutionStatusView, ReceiptEnumView};
-use near_primitives_core::types::Nonce;
+use near_primitives_core::types::{Nonce, NonceIndex};
 use parking_lot::Mutex;
 use rocksdb::DB;
 use std::cmp::Ordering;
@@ -239,14 +239,47 @@ impl TxTracker {
         if crate::read_target_nonce(db, nonce_key)?.is_some() {
             return Ok(());
         }
-        let nonce = crate::fetch_access_key_nonce(
-            target_view_client,
-            &nonce_key.account_id,
-            &nonce_key.public_key,
-        )
-        .await?;
-        let t = LatestTargetNonce { nonce, pending_outcomes: HashSet::new() };
-        crate::put_target_nonce(db, nonce_key, &t)?;
+        match &nonce_key.kind {
+            crate::NonceKind::AccessKey => {
+                let nonce = crate::fetch_access_key_nonce(
+                    target_view_client,
+                    &nonce_key.account_id,
+                    &nonce_key.public_key,
+                )
+                .await?;
+                let t = LatestTargetNonce { nonce, pending_outcomes: HashSet::new() };
+                crate::put_target_nonce(db, nonce_key, &t)?;
+            }
+            crate::NonceKind::GasKey(_) => {
+                // Bulk fetch all gas key nonces at once and write them all to DB.
+                // Subsequent calls for other indices of the same key will find
+                // their entry in DB and skip the RPC.
+                let nonces = crate::fetch_gas_key_nonces(
+                    target_view_client,
+                    &nonce_key.account_id,
+                    &nonce_key.public_key,
+                )
+                .await?;
+                if let Some(nonces) = nonces {
+                    for (i, nonce) in nonces.iter().enumerate() {
+                        let key = NonceLookupKey {
+                            account_id: nonce_key.account_id.clone(),
+                            public_key: nonce_key.public_key.clone(),
+                            kind: crate::NonceKind::GasKey(i as NonceIndex),
+                        };
+                        let t = LatestTargetNonce {
+                            nonce: Some(*nonce),
+                            pending_outcomes: HashSet::new(),
+                        };
+                        crate::put_target_nonce(db, &key, &t)?;
+                    }
+                } else {
+                    // Gas key doesn't exist on target chain yet
+                    let t = LatestTargetNonce { nonce: None, pending_outcomes: HashSet::new() };
+                    crate::put_target_nonce(db, nonce_key, &t)?;
+                }
+            }
+        }
         Ok(())
     }
 

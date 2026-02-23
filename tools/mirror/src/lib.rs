@@ -803,6 +803,59 @@ async fn fetch_access_key_nonce(
     }
 }
 
+/// Fetches all gas key nonces for a given account/public_key pair, returning
+/// `None` if the gas key doesn't exist on the target chain.
+async fn fetch_gas_key_nonces(
+    view_client: &MultithreadRuntimeHandle<ViewClientActor>,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+) -> anyhow::Result<Option<Vec<Nonce>>> {
+    match view_client
+        .send_async(Query::new(
+            BlockReference::Finality(Finality::None),
+            QueryRequest::ViewGasKeyNonces {
+                account_id: account_id.clone(),
+                public_key: public_key.clone(),
+            },
+        ))
+        .await
+        .unwrap()
+    {
+        Ok(res) => match res.kind {
+            QueryResponseKind::GasKeyNonces(view) => Ok(Some(view.nonces)),
+            other => {
+                panic!(
+                    "received unexpected QueryResponse after querying gas key nonces: {:?}",
+                    other
+                );
+            }
+        },
+        Err(e) => match &e {
+            QueryError::UnknownGasKey { .. } => Ok(None),
+            _ => Err(e.into()),
+        },
+    }
+}
+
+/// Fetches the current nonce for a `NonceLookupKey`, dispatching to the appropriate
+/// query based on the nonce kind (access key vs gas key).
+async fn fetch_nonce(
+    view_client: &MultithreadRuntimeHandle<ViewClientActor>,
+    nonce_key: &NonceLookupKey,
+) -> anyhow::Result<Option<Nonce>> {
+    match &nonce_key.kind {
+        NonceKind::AccessKey => {
+            fetch_access_key_nonce(view_client, &nonce_key.account_id, &nonce_key.public_key).await
+        }
+        NonceKind::GasKey(index) => {
+            let nonces =
+                fetch_gas_key_nonces(view_client, &nonce_key.account_id, &nonce_key.public_key)
+                    .await?;
+            Ok(nonces.map(|n| n[*index as usize]))
+        }
+    }
+}
+
 impl<T: ChainAccess> TxMirror<T> {
     fn new(
         source_chain_access: T,
@@ -1808,12 +1861,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 accounts_to_unstake.send(target_block_info.staked_accounts).await?;
             }
             for access_key_update in target_block_info.access_key_updates {
-                let nonce = crate::fetch_access_key_nonce(
-                    &view_client,
-                    &access_key_update.nonce_key.account_id,
-                    &access_key_update.nonce_key.public_key,
-                )
-                .await?;
+                let nonce = crate::fetch_nonce(&view_client, &access_key_update.nonce_key).await?;
                 let mut tracker = tracker.lock();
                 tracker.try_set_nonces(&tx_block_queue, db.as_ref(), access_key_update, nonce)?;
             }
