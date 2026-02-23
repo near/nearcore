@@ -1185,9 +1185,9 @@ impl JsonRpcHandler {
         let query_response: QueryResponse =
             result.map_err(<RpcQueryError as Into<RpcViewGasKeyNoncesError>>::into)?;
         match query_response.kind {
-            near_primitives::views::QueryResponseKind::GasKeyNonces(nonces) => {
+            near_primitives::views::QueryResponseKind::GasKeyNonces(gas_key_nonces) => {
                 Ok(RpcViewGasKeyNoncesResponse {
-                    nonces,
+                    nonces: gas_key_nonces.nonces,
                     block_height: query_response.block_height,
                     block_hash: query_response.block_hash,
                 })
