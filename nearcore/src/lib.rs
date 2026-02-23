@@ -7,7 +7,6 @@ use crate::metrics::spawn_trie_metrics_loop;
 use crate::state_sync::StateSyncDumper;
 use anyhow::Context;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
-use near_async::shutdown_signal::ShutdownSignal;
 use near_async::time::Clock;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
@@ -30,6 +29,7 @@ use near_client::archive::cloud_archival_writer::{
 };
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
+use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
@@ -55,6 +55,7 @@ use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use tokio::sync::broadcast;
 
 pub mod append_only_map;
 pub mod config;
@@ -360,21 +361,16 @@ pub fn start_with_config(
     config: NearConfig,
     actor_system: ActorSystem,
 ) -> impl Future<Output = anyhow::Result<NearNode>> {
-    start_with_config_and_synchronization(
-        home_dir,
-        config,
-        actor_system,
-        ShutdownSignal::noop(),
-        None,
-    )
+    start_with_config_and_synchronization(home_dir, config, actor_system, None, None)
 }
 
 pub fn start_with_config_and_synchronization(
     home_dir: &Path,
     config: NearConfig,
     actor_system: ActorSystem,
-    // 'shutdown_signal' will notify the system when a ClientActor triggers shutdown.
-    shutdown_signal: ShutdownSignal,
+    // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
+    // `ClientActor` gets dropped.
+    shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
     config_updater: Option<ConfigUpdater>,
 ) -> impl Future<Output = anyhow::Result<NearNode>> {
     // Pins the future to avoid large stack frame.
@@ -391,7 +387,7 @@ pub async fn start_with_config_and_synchronization_impl(
     home_dir: &Path,
     config: NearConfig,
     actor_system: ActorSystem,
-    shutdown_signal: ShutdownSignal,
+    shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
     let storage = open_storage(home_dir, &config)?;

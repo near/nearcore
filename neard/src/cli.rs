@@ -2,9 +2,9 @@
 use anyhow::Context;
 use near_amend_genesis::AmendGenesisCommand;
 use near_async::ActorSystem;
-use near_async::shutdown_signal::ShutdownSignal;
 use near_chain_configs::{GenesisValidationMode, TrackedShardsConfig};
 use near_client::ConfigUpdater;
+use near_client::client_actor::ShutdownReason;
 use near_cold_store_tool::ColdStoreCommand;
 use near_config_utils::DownloadConfigType;
 use near_database_tool::commands::DatabaseCommand;
@@ -549,7 +549,7 @@ impl RunCmd {
             }
         }
 
-        let (tx_crash, mut rx_crash) = broadcast::channel::<()>(16);
+        let (tx_crash, mut rx_crash) = broadcast::channel::<ShutdownReason>(16);
         let (tx_config_update, rx_config_update) =
             broadcast::channel::<Result<UpdatableConfigs, Arc<UpdatableConfigLoaderError>>>(16);
         let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
@@ -581,9 +581,7 @@ impl RunCmd {
                     home_dir,
                     near_config,
                     ActorSystem::new(),
-                    ShutdownSignal::new(move || {
-                        let _ = tx_crash.send(());
-                    }),
+                    Some(tx_crash),
                     Some(config_updater),
                 )
                 .await
@@ -599,7 +597,7 @@ impl RunCmd {
                     break sig;
                 }
             };
-            tracing::warn!(target: "neard", %sig, "stopping, this may take a few minutes");
+            tracing::warn!(target: "neard", sig, "stopping, this may take a few minutes");
             if let Some(handle) = cold_store_loop_handle {
                 handle.store(false, std::sync::atomic::Ordering::Relaxed);
             }
@@ -614,24 +612,30 @@ impl RunCmd {
 }
 
 #[cfg(not(unix))]
-async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: &Receiver<()>) -> &str {
+async fn wait_for_interrupt_signal(
+    _home_dir: &Path,
+    mut _rx_crash: &Receiver<ShutdownReason>,
+) -> String {
     // TODO(#6372): Support graceful shutdown on windows.
     tokio::signal::ctrl_c().await.unwrap();
-    "Ctrl+C"
+    "Ctrl+C".to_string()
 }
 
 #[cfg(unix)]
-async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>) -> &'static str {
+async fn wait_for_interrupt_signal(
+    _home_dir: &Path,
+    rx_crash: &mut Receiver<ShutdownReason>,
+) -> String {
     use tokio::signal::unix::{SignalKind, signal};
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
     let mut sighup = signal(SignalKind::hangup()).unwrap();
 
     tokio::select! {
-         _ = sigint.recv()  => "SIGINT",
-         _ = sigterm.recv() => "SIGTERM",
-         _ = sighup.recv() => "SIGHUP",
-         _ = rx_crash.recv() => "ClientActor died",
+         _ = sigint.recv()  => "SIGINT".to_string(),
+         _ = sigterm.recv() => "SIGTERM".to_string(),
+         _ = sighup.recv() => "SIGHUP".to_string(),
+         Ok(reason) = rx_crash.recv() => format!("shutdown: {reason}"),
     }
 }
 

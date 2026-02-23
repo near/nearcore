@@ -5,7 +5,6 @@ pub mod futures;
 pub mod instrumentation;
 pub mod messaging;
 pub mod multithread;
-pub mod shutdown_signal;
 pub mod test_loop;
 pub mod test_utils;
 pub mod tokio;

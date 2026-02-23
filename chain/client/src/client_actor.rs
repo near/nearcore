@@ -29,7 +29,6 @@ use near_async::messaging::{
     self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender,
 };
 use near_async::multithread::MultithreadRuntimeHandle;
-use near_async::shutdown_signal::ShutdownSignal;
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
 use near_async::tokio::TokioRuntimeHandle;
@@ -87,7 +86,23 @@ use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
 use std::fmt;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tracing::debug_span;
+
+/// Reason for a graceful shutdown initiated by the node itself.
+#[derive(Debug, Clone)]
+pub enum ShutdownReason {
+    /// The node reached the configured `expected_shutdown` block height.
+    ExpectedShutdown,
+}
+
+impl fmt::Display for ShutdownReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ExpectedShutdown => write!(f, "expected shutdown"),
+        }
+    }
+}
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: i32 = 10;
@@ -152,7 +167,7 @@ pub fn start_client(
     validator_signer: MutableValidatorSigner,
     telemetry_sender: Sender<TelemetryEvent>,
     snapshot_callbacks: Option<SnapshotCallbacks>,
-    shutdown_signal: ShutdownSignal,
+    sender: Option<broadcast::Sender<ShutdownReason>>,
     adv: crate::adversarial::Controls,
     config_updater: Option<ConfigUpdater>,
     partial_witness_adapter: PartialWitnessSenderForClient,
@@ -238,7 +253,7 @@ pub fn start_client(
         node_id,
         network_adapter,
         telemetry_sender,
-        shutdown_signal,
+        sender,
         adv,
         config_updater,
         sync_jobs_actor_addr.into_multi_sender(),
@@ -312,7 +327,7 @@ pub struct ClientActor {
 
     /// Synchronization measure to allow graceful shutdown.
     /// Informs the system when a ClientActor gets dropped.
-    shutdown_signal: ShutdownSignal,
+    shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
 
     /// Manages updating the config.
     config_updater: Option<ConfigUpdater>,
@@ -405,7 +420,7 @@ impl ClientActor {
         node_id: PeerId,
         network_adapter: PeerManagerAdapter,
         telemetry_sender: Sender<TelemetryEvent>,
-        shutdown_signal: ShutdownSignal,
+        shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
         sync_jobs_sender: SyncJobsSenderForClient,
@@ -1291,7 +1306,9 @@ impl ClientActor {
             if let Some(block_height_to_shutdown) = self.client.config.expected_shutdown.get() {
                 if head.height >= block_height_to_shutdown {
                     tracing::info!(target: "client", head_height = head.height, ?block_height_to_shutdown, "expected shutdown triggered");
-                    self.shutdown_signal.fire();
+                    if let Some(tx) = self.shutdown_signal.take() {
+                        let _ = tx.send(ShutdownReason::ExpectedShutdown);
+                    }
                 }
             }
         }
