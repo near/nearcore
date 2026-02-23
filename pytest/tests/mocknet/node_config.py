@@ -27,6 +27,11 @@ CONFIG_BY_ROLE = {
         'want_state_dump': True,
         'want_neard_runner': True,
     },
+    'rpc': {
+        'can_validate': False,
+        'want_state_dump': False,
+        'want_neard_runner': True,
+    },
     'traffic': {
         'can_validate': False,
         'want_state_dump': False,

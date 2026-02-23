@@ -44,32 +44,65 @@ CONFIG_PATH = f"{NEAR_HOME}/config.json"
 FUNGIBLE_TOKEN_WASM_LOCAL_PATH = f"{BENCHNET_DIR}/contracts/fungible_token.wasm"
 
 
+def all_node_names(args):
+    """Return a list of all node instance names (CPs + RPCs)."""
+    return (args.forknet_details['cp_instance_names'] +
+            args.forknet_details['rpc_instance_names'])
+
+
+def get_num_shards(args):
+    """Read the number of shards from the genesis patch."""
+    genesis_patch_path = f"{SOURCE_BENCHNET_DIR}/{args.case}/{args.bm_params['base_genesis_patch']}"
+    with open(genesis_patch_path) as f:
+        genesis_patch = json.load(f)
+    return len(genesis_patch['shard_layout']['V2']['shard_ids'])
+
+
 def fetch_forknet_details(forknet_name, bm_params):
     """Fetch the forknet details from GCP."""
-    find_instances_cmd = [
+    # Discover chunk producer instances (exclude rpc, traffic, tracing, prometheus)
+    find_cp_cmd = [
         "gcloud", "compute", "instances", "list", f"--project={PROJECT}",
-        f"--filter=name~'-{forknet_name}-' AND -name~'traffic' AND -name~'tracing' AND -name~'prometheus'",
+        f"--filter=name~'-{forknet_name}-' AND -name~'-rpc' AND -name~'traffic' AND -name~'tracing' AND -name~'prometheus'",
         "--format=table(name,networkInterfaces[0].networkIP,zone)"
     ]
-    find_instances_cmd_result = subprocess.run(
-        find_instances_cmd,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    cp_result = subprocess.run(
+        find_cp_cmd, capture_output=True, text=True, check=True)
 
     # drop the table header line in the output
-    nodes_data = find_instances_cmd_result.stdout.splitlines()[1:]
+    cp_data = cp_result.stdout.splitlines()[1:]
 
     num_cp_instances = bm_params['chunk_producers']
-    if len(nodes_data) != num_cp_instances:
+    if len(cp_data) != num_cp_instances:
         logger.error(
-            f"Expected {num_cp_instances} instances, got {len(nodes_data)}")
+            f"Expected {num_cp_instances} CP instances, got {len(cp_data)}")
         sys.exit(1)
 
-    cp_instances = list(map(lambda x: x.split(), nodes_data[:num_cp_instances]))
+    cp_instances = list(map(lambda x: x.split(), cp_data))
     cp_instance_names = [instance[0] for instance in cp_instances]
 
+    # Discover RPC node instances
+    num_rpcs = bm_params.get('rpcs', 0)
+    rpc_instance_names = []
+    if num_rpcs > 0:
+        find_rpc_cmd = [
+            "gcloud", "compute", "instances", "list", f"--project={PROJECT}",
+            f"--filter=name~'-{forknet_name}-' AND name~'-rpc'",
+            "--format=table(name,networkInterfaces[0].networkIP,zone)"
+        ]
+        rpc_result = subprocess.run(
+            find_rpc_cmd, capture_output=True, text=True, check=True)
+        rpc_data = rpc_result.stdout.splitlines()[1:]
+
+        if len(rpc_data) != num_rpcs:
+            logger.error(
+                f"Expected {num_rpcs} RPC instances, got {len(rpc_data)}")
+            sys.exit(1)
+
+        rpc_instances = list(map(lambda x: x.split(), rpc_data))
+        rpc_instance_names = [instance[0] for instance in rpc_instances]
+
+    # Discover tracing server
     find_tracing_server_cmd = [
         "gcloud", "compute", "instances", "list", f"--project={PROJECT}",
         f"--filter=name~'-{forknet_name}-' AND name~'tracing'",
@@ -85,8 +118,9 @@ def fetch_forknet_details(forknet_name, bm_params):
     internal_ip, external_ip = output.split() if output else (None, None)
     return {
         "cp_instance_names": cp_instance_names,
+        "rpc_instance_names": rpc_instance_names,
         "tracing_server_internal_ip": internal_ip,
-        "tracing_server_external_ip": external_ip
+        "tracing_server_external_ip": external_ip,
     }
 
 
@@ -235,9 +269,11 @@ def handle_init(args):
     # This ensures that chunks produced during init are persisted to disk and
     # survive the node restart that happens when the benchmark actually starts.
     run_cmd_args = copy.deepcopy(args)
-    run_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
+    run_cmd_args.host_filter = f"({'|'.join(all_node_names(args))})"
     run_cmd_args.cmd = f"jq '.save_untracked_partial_chunks_parts = true' {CONFIG_PATH} > tmp.json && mv tmp.json {CONFIG_PATH}"
     run_remote_cmd(CommandContext(run_cmd_args))
+
+    configure_rpc_nodes(args)
 
     start_nodes(args)
 
@@ -300,6 +336,45 @@ def handle_init(args):
     # so the benchmark runs with the intended settings.
     apply_json_patches(args)
 
+    # Re-apply RPC config since apply_json_patches overwrites settings like
+    # save_tx_outcomes and disable_tx_routing back to their CP-oriented values.
+    configure_rpc_nodes(args)
+
+
+def configure_rpc_nodes(args):
+    """Configure RPC nodes with shard tracking and RPC-specific config overrides.
+
+    Applies base_rpc_config_patch.json and sets tracked_shards_config to divide shards across the
+    RPC nodes evenly.
+    """
+    rpc_names = args.forknet_details['rpc_instance_names']
+    if not rpc_names:
+        return
+
+    num_rpcs = len(rpc_names)
+    num_shards = get_num_shards(args)
+    rpc_config_patch = f"{BENCHNET_DIR}/cases/base_rpc_config_patch.json"
+
+    for i, rpc_name in enumerate(sorted(rpc_names)):
+        start_shard = i * num_shards // num_rpcs
+        end_shard = (i + 1) * num_shards // num_rpcs
+
+        if end_shard - start_shard == num_shards:
+            tracked_shards_jq = '.tracked_shards_config = "AllShards"'
+        else:
+            shard_ids = list(range(start_shard, end_shard))
+            tracked_shards_jq = f'.tracked_shards_config = {{"Schedule": [{json.dumps(shard_ids)}]}}'
+
+        run_cmd_args = copy.deepcopy(args)
+        run_cmd_args.host_filter = rpc_name
+        run_cmd_args.cmd = (
+            f"python3 {BENCHNET_DIR}/helpers/json_updater.py {CONFIG_PATH} {rpc_config_patch}"
+            f" && jq '{tracked_shards_jq}' {CONFIG_PATH} > tmp.json && mv tmp.json {CONFIG_PATH}"
+        )
+        run_remote_cmd(CommandContext(run_cmd_args))
+
+    logger.info(f"Configured {num_rpcs} RPC node(s) across {num_shards} shards")
+
 
 def apply_json_patches(args):
     """Apply the json patches to the genesis, config and log_config."""
@@ -332,7 +407,7 @@ def stop_nodes(args, disable_tx_generator=False):
     """Stop the benchmark nodes."""
     logger.info("Stopping nodes")
     stop_nodes_cmd_args = copy.deepcopy(args)
-    stop_nodes_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
+    stop_nodes_cmd_args.host_filter = f"({'|'.join(all_node_names(args))})"
     stop_nodes_cmd(CommandContext(stop_nodes_cmd_args))
 
     if disable_tx_generator:
@@ -350,11 +425,12 @@ def handle_tweak_config(args):
 
     Used when you want to tweak non-critical parameters of the benchmark, such
     as block production time, load schedule, log levels.
-    Note that for critical parameters like number of accounts per shard you 
+    Note that for critical parameters like number of accounts per shard you
     must reinitialize the benchmark!
     """
     upload_json_patches(args)
     apply_json_patches(args)
+    configure_rpc_nodes(args)
 
 
 def handle_stop(args):
@@ -420,7 +496,7 @@ def start_nodes(args):
     """Start the benchmark nodes with the given parameters."""
     logger.info("Starting nodes")
     start_nodes_cmd_args = copy.deepcopy(args)
-    start_nodes_cmd_args.host_filter = f"({'|'.join(args.forknet_details['cp_instance_names'])})"
+    start_nodes_cmd_args.host_filter = f"({'|'.join(all_node_names(args))})"
     start_nodes_cmd(CommandContext(start_nodes_cmd_args))
 
 
