@@ -662,7 +662,7 @@ impl EpochManager {
         // TODO(dynamic_resharding): remove `next_next_epoch_config` when tests are adjusted
 
         // Dynamic resharding won't be enabled until epoch N+2, use the static layout.
-        if let Some(shard_layout) = next_next_epoch_config.try_static_shard_layout() {
+        if let Some(shard_layout) = next_next_epoch_config.static_shard_layout() {
             return Ok(shard_layout);
         }
 
@@ -704,7 +704,7 @@ impl EpochManager {
 
         for version in (earliest_protocol_version..=latest_protocol_version).rev() {
             // Skip protocol versions with dynamic layout
-            let Some(layout) = self.static_shard_layout_for_protocol_version(version) else {
+            let Some(layout) = self.get_static_shard_layout_for_protocol_version(version) else {
                 continue;
             };
             // avoid duplicates if layout doesn't change
@@ -1565,15 +1565,25 @@ impl EpochManager {
             Ok(shard_layout.clone())
         } else {
             let protocol_version = epoch_info.protocol_version();
-            Ok(self.config.for_protocol_version(protocol_version).static_shard_layout())
+            self.get_static_shard_layout_for_protocol_version(protocol_version).ok_or_else(|| {
+                EpochError::ShardingError(format!(
+                    "shard layout missing. epoch_id={:?} protocol_version={}",
+                    epoch_id, protocol_version
+                ))
+            })
         }
     }
 
-    pub fn static_shard_layout_for_protocol_version(
+    /// Get *static* shard layout for the given protocol version. If the protocol version uses
+    /// dynamic resharding, there is no specific layout assigned to that version, so this method
+    /// returns `None`.
+    ///
+    /// **Tip:** Consider using `get_shard_layout` instead.
+    pub fn get_static_shard_layout_for_protocol_version(
         &self,
         protocol_version: ProtocolVersion,
     ) -> Option<ShardLayout> {
-        self.config.for_protocol_version(protocol_version).try_static_shard_layout()
+        self.config.for_protocol_version(protocol_version).static_shard_layout()
     }
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {

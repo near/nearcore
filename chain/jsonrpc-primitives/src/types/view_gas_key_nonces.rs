@@ -1,6 +1,6 @@
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct RpcViewAccessKeyRequest {
+pub struct RpcViewGasKeyNoncesRequest {
     #[serde(flatten)]
     pub block_reference: near_primitives::types::BlockReference,
     pub account_id: near_primitives::types::AccountId,
@@ -9,9 +9,8 @@ pub struct RpcViewAccessKeyRequest {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct RpcViewAccessKeyResponse {
-    #[serde(flatten)]
-    pub access_key: near_primitives::views::AccessKeyView,
+pub struct RpcViewGasKeyNoncesResponse {
+    pub nonces: Vec<near_primitives::types::Nonce>,
     pub block_height: near_primitives::types::BlockHeight,
     pub block_hash: near_primitives::hash::CryptoHash,
 }
@@ -19,7 +18,7 @@ pub struct RpcViewAccessKeyResponse {
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum RpcViewAccessKeyError {
+pub enum RpcViewGasKeyNoncesError {
     #[error(
         "Block either has never been observed on the node or has been garbage collected: {block_reference:?}"
     )]
@@ -36,8 +35,8 @@ pub enum RpcViewAccessKeyError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Access key for public key {public_key} does not exist while viewing")]
-    UnknownAccessKey {
+    #[error("Gas key for public key {public_key} does not exist while viewing")]
+    UnknownGasKey {
         public_key: near_crypto::PublicKey,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
@@ -46,15 +45,15 @@ pub enum RpcViewAccessKeyError {
     InternalError { error_message: String },
 }
 
-impl From<RpcViewAccessKeyError> for crate::errors::RpcError {
-    fn from(error: RpcViewAccessKeyError) -> Self {
+impl From<RpcViewGasKeyNoncesError> for crate::errors::RpcError {
+    fn from(error: RpcViewGasKeyNoncesError) -> Self {
         let error_data = Some(serde_json::Value::String(error.to_string()));
         let error_data_value = match serde_json::to_value(&error) {
             Ok(value) => value,
             Err(err) => {
                 return Self::new_internal_error(
                     None,
-                    format!("Failed to serialize RpcViewAccessKeyError: {:?}", err),
+                    format!("Failed to serialize RpcViewGasKeyNoncesError: {:?}", err),
                 );
             }
         };
@@ -62,7 +61,7 @@ impl From<RpcViewAccessKeyError> for crate::errors::RpcError {
     }
 }
 
-impl From<crate::types::query::RpcQueryError> for RpcViewAccessKeyError {
+impl From<crate::types::query::RpcQueryError> for RpcViewGasKeyNoncesError {
     fn from(error: crate::types::query::RpcQueryError) -> Self {
         match error {
             crate::types::query::RpcQueryError::NoSyncedBlocks => Self::InternalError {
@@ -95,11 +94,11 @@ impl From<crate::types::query::RpcQueryError> for RpcViewAccessKeyError {
                     ),
                 }
             }
-            crate::types::query::RpcQueryError::UnknownAccessKey {
+            crate::types::query::RpcQueryError::UnknownGasKey {
                 public_key,
                 block_height,
                 block_hash,
-            } => Self::UnknownAccessKey { public_key, block_height, block_hash },
+            } => Self::UnknownGasKey { public_key, block_height, block_hash },
             crate::types::query::RpcQueryError::InternalError { error_message } => {
                 Self::InternalError { error_message }
             }

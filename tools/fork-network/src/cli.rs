@@ -14,7 +14,7 @@ use near_parameters::RuntimeConfig;
 use near_primitives::account::id::AccountType;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
 use near_primitives::borsh;
-use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
+use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore, ShardLayoutConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
@@ -347,12 +347,14 @@ impl ForkNetworkCommand {
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids: Vec<_> = shard_layout.shard_uids().collect();
-        // get_epoch_config_from_protocol_version
+
         let target_shard_layout = match shard_layout_override {
             ShardLayoutOverride::UseShardLayoutFromProtocolVersion(protocol_version) => {
+                // TODO(dynamic_resharding): decide how to support dynamic resharding in fork network
                 epoch_manager
                     .get_epoch_config_from_protocol_version(*protocol_version)
                     .static_shard_layout()
+                    .context("dynamic resharding not supported")?
             }
             ShardLayoutOverride::UseShardLayoutFromFile(shard_layout_file) => {
                 let layout = std::fs::read_to_string(&shard_layout_file).with_context(|| {
@@ -585,7 +587,9 @@ impl ForkNetworkCommand {
         );
 
         // 2. Update the epoch configs.
-        // We only fork mainnet for now, so we use mainnet epoch configs as base ones.
+        // We always use mainnet epoch configs as the base, then override the shard
+        // layout to match the actual state (the source chain may have a different
+        // shard layout than mainnet).
         let base_epoch_config_store =
             EpochConfigStore::for_chain_id(near_primitives::chains::MAINNET, None)
                 .expect("Could not load the EpochConfigStore for mainnet.");
@@ -593,6 +597,7 @@ impl ForkNetworkCommand {
             base_epoch_config_store,
             protocol_version,
             num_seats,
+            Some(&target_shard_layout),
             home_dir,
         )?;
 
@@ -699,7 +704,9 @@ impl ForkNetworkCommand {
         // 1. Create default genesis and override its fields with given parameters.
         let (epoch_config, num_accounts_per_shard, chunk_producers) =
             Self::read_patches(patches_path)?;
-        let target_shard_layout = &epoch_config.static_shard_layout();
+        // TODO(dynamic_resharding): decide how to support dynamic resharding in fork network
+        let target_shard_layout =
+            &epoch_config.static_shard_layout().context("dynamic resharding not supported")?;
         let validators = Self::read_validators(validators, home_dir)?;
         let num_seats = num_seats.unwrap_or(validators.len() as NumSeats);
         let mut genesis = Genesis::from_account_infos(
@@ -731,6 +738,7 @@ impl ForkNetworkCommand {
             base_epoch_config_store,
             genesis_protocol_version,
             &Some(num_seats),
+            None,
             home_dir,
         )?;
         let epoch_manager =
@@ -905,6 +913,7 @@ impl ForkNetworkCommand {
         base_epoch_config_store: EpochConfigStore,
         first_version: ProtocolVersion,
         num_seats: &Option<NumSeats>,
+        shard_layout_override: Option<&ShardLayout>,
         home_dir: &Path,
     ) -> anyhow::Result<EpochConfig> {
         let epoch_config_dir = home_dir.join("epoch_configs");
@@ -922,6 +931,14 @@ impl ForkNetworkCommand {
                 config.num_block_producer_seats = *num_seats;
                 config.num_chunk_producer_seats = *num_seats;
                 config.num_chunk_validator_seats = *num_seats;
+            }
+            if let Some(shard_layout) = shard_layout_override {
+                let num_shards = shard_layout.num_shards() as usize;
+                config.shard_layout_config =
+                    ShardLayoutConfig::Static { shard_layout: shard_layout.clone() };
+                config.num_block_producer_seats_per_shard =
+                    vec![config.num_block_producer_seats; num_shards];
+                config.avg_hidden_validator_seats_per_shard = vec![0; num_shards];
             }
             new_epoch_configs.insert(version, Arc::new(config));
         }
@@ -1450,7 +1467,9 @@ impl ForkNetworkCommand {
         new_state_roots: Vec<StateRoot>,
         new_validator_accounts: Vec<AccountInfo>,
     ) -> anyhow::Result<()> {
-        let shard_layout = epoch_config.static_shard_layout();
+        let shard_layout = epoch_config
+            .static_shard_layout()
+            .context("dynamic resharding epoch config is not supported")?;
         // TODO: deprecate these fields as unused.
         let num_block_producer_seats_per_shard = vec![
             original_config

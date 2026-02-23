@@ -1330,7 +1330,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let gas_key_nonces = self
                     .view_gas_key_nonces(&shard_uid, *state_root, account_id, public_key)
                     .map_err(|err| {
-                        crate::near_chain_primitives::error::QueryError::from_view_access_key_error(
+                        crate::near_chain_primitives::error::QueryError::from_view_gas_key_nonces_error(
                             err,
                             block_height,
                             *block_hash,
@@ -1744,7 +1744,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Vec<Nonce>, node_runtime::state_viewer::errors::ViewAccessKeyError> {
+    ) -> Result<Vec<Nonce>, node_runtime::state_viewer::errors::ViewGasKeyNoncesError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_gas_key_nonces(&state_update, account_id, public_key)
     }
