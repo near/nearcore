@@ -63,7 +63,7 @@ def fetch_forknet_details(forknet_name, bm_params):
     # Discover chunk producer instances (exclude rpc, traffic, tracing, prometheus)
     find_cp_cmd = [
         "gcloud", "compute", "instances", "list", f"--project={PROJECT}",
-        f"--filter=name~'-{forknet_name}-' AND -name~'-rpc-' AND -name~'traffic' AND -name~'tracing' AND -name~'prometheus'",
+        f"--filter=name~'-{forknet_name}-' AND -labels.role=rpc AND -name~'traffic' AND -name~'tracing' AND -name~'prometheus'",
         "--format=table(name,networkInterfaces[0].networkIP,zone)"
     ]
     cp_result = subprocess.run(find_cp_cmd,
@@ -89,7 +89,7 @@ def fetch_forknet_details(forknet_name, bm_params):
     if num_rpcs > 0:
         find_rpc_cmd = [
             "gcloud", "compute", "instances", "list", f"--project={PROJECT}",
-            f"--filter=name~'-{forknet_name}-' AND name~'-rpc-'",
+            f"--filter=name~'-{forknet_name}-' AND labels.role=rpc",
             "--format=table(name,networkInterfaces[0].networkIP,zone)"
         ]
         rpc_result = subprocess.run(find_rpc_cmd,
