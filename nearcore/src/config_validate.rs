@@ -459,9 +459,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "is not a supported cloud storage location"
-    )]
+    #[should_panic(expected = "is not a supported cloud storage location")]
     fn test_cloud_archival_storage_s3_not_supported() {
         let mut config = Config::default();
         let mut cloud_archival_config = test_cloud_archival_config("");
