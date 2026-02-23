@@ -1,19 +1,16 @@
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::types::{AccountId, BlockId};
+use near_primitives::types::BlockId;
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::utils::account::validators_spec_clients_with_rpc;
+use crate::utils::account::{create_validators_spec, validators_spec_clients_with_rpc};
 
 /// This example shows how to run jsonrpc queries in TestLoop.
 #[test]
 fn test_jsonrpc_block_by_height() {
     init_test_logger();
 
-    let accounts: Vec<AccountId> = (0..2).map(|i| format!("account{i}").parse().unwrap()).collect();
-    let validators: Vec<&str> = accounts.iter().map(|a| a.as_str()).collect();
-    let validators_spec = ValidatorsSpec::desired_roles(&validators, &[]);
+    let validators_spec = create_validators_spec(1, 0);
     let clients = validators_spec_clients_with_rpc(&validators_spec);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(10)
