@@ -376,8 +376,7 @@ def configure_rpc_nodes(args):
             f" && jq '{tracked_shards_jq}' {CONFIG_PATH} > tmp.json && mv tmp.json {CONFIG_PATH}"
         )
         run_remote_cmd(CommandContext(run_cmd_args))
-
-    logger.info(f"Configured {num_rpcs} RPC node(s) across {num_shards} shards")
+        logger.info(f"Configured RPC {rpc_name}: shards {list(range(start_shard, end_shard))}")
 
 
 def apply_json_patches(args):
