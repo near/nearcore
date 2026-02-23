@@ -320,7 +320,7 @@ pub async fn download_and_apply_state_parts_sequentially(
             &part,
             epoch_id,
         )?;
-        tracing::info!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "loaded a state part");
+        tracing::debug!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "loaded a state part");
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "loaded all requested state parts");
     Ok(())

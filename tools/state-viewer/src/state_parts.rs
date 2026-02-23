@@ -14,7 +14,6 @@ use near_primitives::state::PartialState;
 use near_primitives::state_part::{PartId, StatePart};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{EpochId, StateRoot};
-use near_primitives::version::ProtocolVersion;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, EpochHeight, ShardId};
 use near_store::{PartialStorage, Store, Trie};
