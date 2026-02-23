@@ -5,6 +5,7 @@
 ### Protocol Changes
 * The contract runtime has been upgraded to use the new Wasmtime-based runtime;
 * The contract runtime now allows for bulk memory instructions in Wasm code.
+* Stabilize GasKeys: transactions can now specify a gas key to pay for gas costs separately from the signer's main access key.
 
 ### Non-protocol Changes
 
