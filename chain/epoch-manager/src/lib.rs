@@ -17,6 +17,7 @@ use near_primitives::epoch_manager::{
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -684,9 +685,11 @@ impl EpochManager {
             %boundary_account,
             "dynamic resharding: shard selected for split, deriving new layout"
         );
-        let new_layout = next_shard_layout.derive_v3(boundary_account.clone(), || {
-            self.get_shard_layout_history(current_protocol_version, None)
-        });
+        let new_layout = next_shard_layout
+            .derive_v3(boundary_account.clone(), || {
+                self.get_shard_layout_history(current_protocol_version, None)
+            })
+            .map_err(|err| EpochError::ShardingError(err.to_string()))?;
         Ok(new_layout)
     }
 
@@ -1817,14 +1820,14 @@ impl EpochManager {
     /// Parameters:
     ///  - `protocol_version`: protocol version of the current epoch
     ///  - `parent_hash`: hash of the parent of the block being produced
-    ///  - `proposed_splits`: mapping containing all proposed shard splits from chunk headers
+    ///  - `chunk_headers`: chunk headers from the block, used to collect proposed shard splits
     ///
     /// Returns `Some((shard_id, boundary_account))` if a shard split should be scheduled.
     pub fn get_upcoming_shard_split(
         &self,
         protocol_version: ProtocolVersion,
         parent_hash: &CryptoHash,
-        proposed_splits: &HashMap<ShardId, TrieSplit>,
+        chunk_headers: &[ShardChunkHeader],
     ) -> Result<Option<(ShardId, AccountId)>, EpochError> {
         // Check if dynamic resharding is enabled
         let epoch_config = self.get_epoch_config(protocol_version);
@@ -1843,9 +1846,17 @@ impl EpochManager {
             return Ok(None);
         }
 
+        // Collect proposed splits from chunk headers
+        let mut proposed_splits = HashMap::new();
+        for chunk_header in chunk_headers {
+            if let Some(split) = chunk_header.proposed_split() {
+                proposed_splits.insert(chunk_header.shard_id(), split.clone());
+            }
+        }
+
         // Pick the shard to split
         let Some((shard_id, split)) =
-            pick_shard_to_split(proposed_splits, dynamic_resharding_config)
+            pick_shard_to_split(&proposed_splits, dynamic_resharding_config)
         else {
             return Ok(None);
         };

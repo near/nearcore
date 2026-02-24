@@ -246,7 +246,7 @@ impl NightshadeRuntime {
 
         let config = self.runtime_config_store.get_config(current_protocol_version);
         let epoch_config = self.epoch_manager.get_epoch_config(&epoch_id)?;
-        let proposed_split = self.check_dynamic_resharding(
+        let proposed_split = self.compute_proposed_split(
             &trie,
             shard_id,
             &epoch_id,
@@ -520,34 +520,27 @@ impl NightshadeRuntime {
         })
     }
 
-    /// Check if dynamic resharding should be scheduled for the given shard.
-    /// The `epoch_id` and `protocol_version` are at `prev_block_hash`.
-    /// Will only trigger if the current block is the last block of the epoch.
-    fn check_dynamic_resharding(
+    /// Check if dynamic resharding should be scheduled for the given shard and compute the trie
+    /// split. The `epoch_id` and `protocol_version` are at `prev_block_hash`.
+    fn compute_proposed_split(
         &self,
         shard_trie: &Trie,
         shard_id: ShardId,
         epoch_id: &EpochId,
         protocol_version: ProtocolVersion,
         epoch_config: &EpochConfig,
-        height: BlockHeight,
-        prev_block_hash: &CryptoHash,
-        last_final_block_hash: &CryptoHash,
+        _height: BlockHeight,
+        _prev_block_hash: &CryptoHash,
+        _last_final_block_hash: &CryptoHash,
     ) -> Result<Option<TrieSplit>, Error> {
         if !ProtocolFeature::DynamicResharding.enabled(protocol_version) {
             return Ok(None);
         }
-        if !self.epoch_manager.is_produced_block_last_in_epoch(
-            height,
-            prev_block_hash,
-            last_final_block_hash,
-        )? {
-            return Ok(None);
-        }
-        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
 
+        // TODO(dynamic-resharding): Check if the *next* block is the last block of the epoch
         // TODO(dynamic_resharding): Check how many epochs since last resharding
 
+        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
         let Some(config) = epoch_config.dynamic_resharding_config() else {
             tracing::error!(target: "runtime", "dynamic resharding config missing");
             return Ok(None);

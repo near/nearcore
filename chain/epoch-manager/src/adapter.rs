@@ -11,7 +11,6 @@ use near_primitives::shard_layout::{ShardInfo, ShardLayout};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
-use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
@@ -22,7 +21,7 @@ use near_primitives::views::EpochValidatorInfo;
 use near_store::ShardUId;
 use near_store::adapter::epoch_store::EpochStoreUpdateAdapter;
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// A trait that abstracts the interface of the EpochManager. The two
@@ -808,14 +807,14 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Parameters:
     ///  - `protocol_version`: protocol version of the current epoch
     ///  - `parent_hash`: hash of the parent of the block being produced
-    ///  - `proposed_splits`: mapping containing all proposed shard splits from chunk headers
+    ///  - `chunk_headers`: chunk headers from the block, used to collect proposed shard splits
     ///
     /// Returns `Some((shard_id, boundary_account))` if a shard split should be scheduled.
     fn get_upcoming_shard_split(
         &self,
         protocol_version: ProtocolVersion,
         parent_hash: &CryptoHash,
-        proposed_splits: &HashMap<ShardId, TrieSplit>,
+        chunk_headers: &[ShardChunkHeader],
     ) -> Result<Option<(ShardId, AccountId)>, EpochError>;
 }
 
@@ -997,9 +996,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         protocol_version: ProtocolVersion,
         parent_hash: &CryptoHash,
-        proposed_splits: &HashMap<ShardId, TrieSplit>,
+        chunk_headers: &[ShardChunkHeader],
     ) -> Result<Option<(ShardId, AccountId)>, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_upcoming_shard_split(protocol_version, parent_hash, proposed_splits)
+        epoch_manager.get_upcoming_shard_split(protocol_version, parent_hash, chunk_headers)
     }
 }
