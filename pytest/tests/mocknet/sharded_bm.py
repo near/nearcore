@@ -58,53 +58,35 @@ def get_num_shards(args):
     return len(genesis_patch['shard_layout']['V2']['shard_ids'])
 
 
-def fetch_forknet_details(forknet_name, bm_params):
-    """Fetch the forknet details from GCP."""
-    # Discover chunk producer instances (exclude rpc, traffic, tracing, prometheus)
-    find_cp_cmd = [
+def find_instances(forknet_name, filter_expr, expected_count, label):
+    """Query GCP for instances matching a filter and validate the count."""
+    cmd = [
         "gcloud", "compute", "instances", "list", f"--project={PROJECT}",
-        f"--filter=name~'-{forknet_name}-' AND -labels.role=rpc AND -name~'traffic' AND -name~'tracing' AND -name~'prometheus'",
+        f"--filter=name~'-{forknet_name}-' AND {filter_expr}",
         "--format=table(name,networkInterfaces[0].networkIP,zone)"
     ]
-    cp_result = subprocess.run(find_cp_cmd,
-                               capture_output=True,
-                               text=True,
-                               check=True)
-
-    # drop the table header line in the output
-    cp_data = cp_result.stdout.splitlines()[1:]
-
-    num_cp_instances = bm_params['chunk_producers']
-    if len(cp_data) != num_cp_instances:
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    data = result.stdout.splitlines()[1:]
+    if len(data) != expected_count:
         logger.error(
-            f"Expected {num_cp_instances} CP instances, got {len(cp_data)}")
+            f"Expected {expected_count} {label} instances, got {len(data)}")
         sys.exit(1)
+    return [row.split()[0] for row in data]
 
-    cp_instances = list(map(lambda x: x.split(), cp_data))
-    cp_instance_names = [instance[0] for instance in cp_instances]
 
-    # Discover RPC node instances
+def fetch_forknet_details(forknet_name, bm_params):
+    """Fetch the forknet details from GCP."""
+    cp_instance_names = find_instances(
+        forknet_name,
+        "-labels.role=rpc AND -name~'traffic' AND -name~'tracing' AND -name~'prometheus'",
+        bm_params['chunk_producers'],
+        "CP",
+    )
+
     num_rpcs = bm_params.get('rpcs', 0)
-    rpc_instance_names = []
-    if num_rpcs > 0:
-        find_rpc_cmd = [
-            "gcloud", "compute", "instances", "list", f"--project={PROJECT}",
-            f"--filter=name~'-{forknet_name}-' AND labels.role=rpc",
-            "--format=table(name,networkInterfaces[0].networkIP,zone)"
-        ]
-        rpc_result = subprocess.run(find_rpc_cmd,
-                                    capture_output=True,
-                                    text=True,
-                                    check=True)
-        rpc_data = rpc_result.stdout.splitlines()[1:]
-
-        if len(rpc_data) != num_rpcs:
-            logger.error(
-                f"Expected {num_rpcs} RPC instances, got {len(rpc_data)}")
-            sys.exit(1)
-
-        rpc_instances = list(map(lambda x: x.split(), rpc_data))
-        rpc_instance_names = [instance[0] for instance in rpc_instances]
+    rpc_instance_names = (find_instances(forknet_name, "labels.role=rpc",
+                                         num_rpcs, "RPC")
+                          if num_rpcs > 0 else [])
 
     # Discover tracing server
     find_tracing_server_cmd = [
