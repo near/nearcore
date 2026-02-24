@@ -113,7 +113,7 @@ impl TestEnv {
             })
             .collect();
         let mut builder = TestGenesisBuilder::new()
-            .epoch_length(5)
+            .epoch_length(config.epoch_length)
             .chain_id(random_chain_id())
             .shard_layout(ShardLayout::multi_shard(num_shards, 1))
             .validators_spec(ValidatorsSpec::raw(
@@ -131,7 +131,6 @@ impl TestEnv {
         builder = builder.add_user_account_simple("near".parse().unwrap(), TESTING_INIT_BALANCE);
         let mut genesis = builder.build();
         // No fees mode.
-        genesis.config.epoch_length = config.epoch_length;
         genesis.config.transaction_validity_period = config.epoch_length * 2;
         genesis.config.chunk_producer_kickout_threshold =
             genesis.config.block_producer_kickout_threshold;

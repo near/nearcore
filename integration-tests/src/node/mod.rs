@@ -7,8 +7,6 @@ use crate::user::User;
 use near_chain_configs::Genesis;
 use near_chain_configs::MutableConfigValue;
 use near_chain_configs::TrackedShardsConfig;
-use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_crypto::Signer;
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::AccountContract;
@@ -22,7 +20,6 @@ use near_vm_runner::ContractCode;
 use nearcore::NearConfig;
 use nearcore::config::{Config, create_localnet_configs_from_seeds};
 use parking_lot::RwLock;
-use testlib::runtime_utils::{alice_account, bob_account};
 
 mod process_node;
 mod runtime_node;
@@ -30,35 +27,6 @@ mod thread_node;
 
 pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
 pub const TEST_BLOCK_MAX_SIZE: u32 = 1000;
-
-pub fn configure_chain_spec() -> Genesis {
-    use near_primitives::test_utils::create_test_signer;
-    use near_primitives::types::AccountInfo;
-    TestGenesisBuilder::new()
-        .epoch_length(5)
-        .validators_spec(ValidatorsSpec::raw(
-            [alice_account(), bob_account()]
-                .iter()
-                .map(|account_id| AccountInfo {
-                    account_id: account_id.clone(),
-                    public_key: create_test_signer(account_id.as_str()).public_key(),
-                    amount: TESTING_INIT_STAKE,
-                })
-                .collect(),
-            2,
-            2,
-            0,
-        ))
-        .add_user_account_simple(
-            alice_account(),
-            TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap(),
-        )
-        .add_user_account_simple(
-            bob_account(),
-            TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap(),
-        )
-        .build()
-}
 
 /// Config that can be used to start a node or connect to an existing node.
 #[allow(clippy::large_enum_variant)]

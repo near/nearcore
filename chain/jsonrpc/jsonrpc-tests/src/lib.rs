@@ -19,7 +19,7 @@ use near_network::tcp;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, NumSeats};
+use near_primitives::types::{AccountId, Balance, NumSeats};
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_time::Clock;
@@ -90,10 +90,8 @@ pub fn create_test_setup_with_accounts_and_validity(
         .epoch_length(10)
         .validators_spec(ValidatorsSpec::desired_roles(&validator_accounts, &[]));
     for account_id in &all_accounts {
-        builder = builder.add_user_account_simple(
-            account_id.clone(),
-            near_primitives::types::Balance::from_near(1_000_000_000),
-        );
+        builder =
+            builder.add_user_account_simple(account_id.clone(), Balance::from_near(1_000_000_000));
     }
     let genesis = builder.build();
 
