@@ -1,9 +1,9 @@
 use itertools::Itertools;
 use near_o11y::metrics::{
-    Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, exponential_buckets,
-    try_create_histogram, try_create_histogram_vec, try_create_histogram_with_buckets,
-    try_create_int_counter, try_create_int_counter_vec, try_create_int_gauge,
-    try_create_int_gauge_vec,
+    Gauge, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+    exponential_buckets, try_create_gauge, try_create_histogram, try_create_histogram_vec,
+    try_create_histogram_with_buckets, try_create_int_counter, try_create_int_counter_vec,
+    try_create_int_gauge, try_create_int_gauge_vec,
 };
 use std::sync::LazyLock;
 
@@ -53,6 +53,15 @@ pub static BLOCK_POSTPROCESSING_TIME: LazyLock<Histogram> = LazyLock::new(|| {
 pub static BLOCK_HEIGHT_HEAD: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge("near_block_height_head", "Height of the current head of the blockchain")
         .unwrap()
+});
+/// Wall clock now minus the block producer's timestamp of the latest processed block.
+/// Updated on every head change (after block and chunks are fully applied).
+pub static HEAD_LAG_SECONDS: LazyLock<Gauge> = LazyLock::new(|| {
+    try_create_gauge(
+        "near_head_lag_seconds",
+        "Seconds between wall clock and the latest block timestamp",
+    )
+    .unwrap()
 });
 pub static BLOCK_ORDINAL_HEAD: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge("near_block_ordinal_head", "Ordinal of the current head of the blockchain")
