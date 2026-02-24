@@ -134,7 +134,12 @@ pub async fn build_streamer_message(
         }
 
         let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
-        for outcome in outcome_order.iter().filter_map(|id| receipt_outcomes.remove(id)) {
+        for outcome_id in outcome_order {
+            let Some(outcome) = receipt_outcomes.remove(&outcome_id) else {
+                // outcome_id corresponds to a transaction, already handled above
+                continue;
+            };
+
             let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
             let receipt = if let Some(receipt) = receipt {
                 receipt
