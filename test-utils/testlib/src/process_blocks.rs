@@ -77,12 +77,12 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
                 header.inner_lite.prev_state_root = *prev_block.header().prev_state_root();
             } else {
                 header.inner_lite.prev_state_root = chunks.compute_state_root();
+                header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
+                header.inner_rest.total_supply =
+                    header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
             }
             header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
             header.inner_rest.chunk_mask = vec![false];
-            header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
-            header.inner_rest.total_supply =
-                header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
             header.inner_rest.block_body_hash = block_body_hash.unwrap();
             header.inner_rest.chunk_endorsements =
                 ChunkEndorsementsBitmap::new(chunk_headers.len());
@@ -97,12 +97,12 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
                 header.inner_lite.prev_state_root = *prev_block.header().prev_state_root();
             } else {
                 header.inner_lite.prev_state_root = chunks.compute_state_root();
+                header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
+                header.inner_rest.total_supply =
+                    header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
             }
             header.inner_lite.prev_outcome_root = chunks.compute_outcome_root();
             header.inner_rest.chunk_mask = vec![false];
-            header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
-            header.inner_rest.total_supply =
-                header.inner_rest.total_supply.checked_add(balance_burnt).unwrap();
             header.inner_rest.block_body_hash = block_body_hash.unwrap();
             header.inner_rest.chunk_endorsements =
                 ChunkEndorsementsBitmap::new(chunk_headers.len());
