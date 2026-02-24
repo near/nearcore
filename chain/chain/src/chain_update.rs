@@ -452,6 +452,8 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.save_body_head(&tip)?;
             metrics::BLOCK_HEIGHT_HEAD.set(tip.height as i64);
             metrics::BLOCK_ORDINAL_HEAD.set(header.block_ordinal() as i64);
+            let lag = time::OffsetDateTime::now_utc() - header.timestamp();
+            metrics::HEAD_LAG_SECONDS.set(lag.as_seconds_f64());
             tracing::debug!(target: "chain", last_block_hash = ?tip.last_block_hash, height = %tip.height, "head updated");
             Ok(Some(tip))
         } else {
