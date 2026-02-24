@@ -438,7 +438,6 @@ mod tests {
         let store = create_test_store();
         let genesis = TestGenesisBuilder::new()
             .epoch_length(5)
-            .genesis_height(0)
             .validators_spec(ValidatorsSpec::desired_roles(&["test"], &[]))
             .build();
         let tempdir = tempfile::tempdir().unwrap();

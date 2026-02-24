@@ -290,7 +290,7 @@ impl Default for TestGenesisBuilder {
                 chunk_validators_only: vec![],
             },
             genesis_time: chrono::Utc::now(),
-            genesis_height: 1,
+            genesis_height: 0,
             min_gas_price: Balance::ZERO,
             max_gas_price: Balance::ZERO,
             gas_limit: Gas::from_teragas(1000),
