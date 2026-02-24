@@ -1123,7 +1123,8 @@ impl EpochManager {
         self.is_next_block_in_next_epoch(&block_info)
     }
 
-    /// Returns true if the block after the one being produced will belong to a new epoch.
+    /// Like `is_next_block_epoch_start`, but works for blocks not yet in the store.
+    /// Used during block production to decide whether to include `shard_split` in the header.
     ///
     /// Parameters:
     ///  - `block_height`: the height of the block being produced
