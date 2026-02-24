@@ -47,11 +47,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
-use near_network::spice_data_distribution::{
-    SpiceChunkContractAccessesMessage, SpiceContractCodeResponseMessage,
-};
+use near_network::spice_data_distribution::SpiceChunkContractAccessesMessage;
 use near_primitives::stateless_validation::contract_distribution::{
-    CodeBytes, CodeHash, SpiceChunkContractAccesses, SpiceContractCodeResponse,
+    CodeHash, SpiceChunkContractAccesses,
 };
 
 use crate::spice_chunk_validator_actor::{SpiceChunkStateWitnessMessage, SpiceChunkValidatorActor};
@@ -577,10 +575,6 @@ fn valid_witness_message(
     )
 }
 
-fn make_code_bytes(data: &[u8]) -> CodeBytes {
-    CodeBytes(data.into())
-}
-
 fn make_code_hash(data: &[u8]) -> CodeHash {
     CodeHash(near_primitives::hash::hash(data))
 }
@@ -590,13 +584,6 @@ fn make_contract_accesses(block: &Block, hashes: HashSet<CodeHash>) -> SpiceChun
     let chunk_id =
         SpiceChunkId { block_hash: *block.hash(), shard_id: block.chunks()[0].shard_id() };
     SpiceChunkContractAccesses::new(chunk_id, hashes, &signer)
-}
-
-fn make_contract_response(block: &Block, contracts: &[&[u8]]) -> SpiceContractCodeResponse {
-    let chunk_id =
-        SpiceChunkId { block_hash: *block.hash(), shard_id: block.chunks()[0].shard_id() };
-    let code_bytes: Vec<CodeBytes> = contracts.iter().map(|c| make_code_bytes(c)).collect();
-    SpiceContractCodeResponse::encode(chunk_id, &code_bytes).unwrap()
 }
 
 /// Drain all SpiceContractCodeRequest messages from network_rc, returning the set of
@@ -709,201 +696,4 @@ fn test_contract_accesses_sends_request_for_missing() {
     let requests = drain_contract_requests(&mut actor.network_rc);
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0], HashSet::from([hash_a, hash_b]));
-}
-
-/// Second chunk accessing the same contract deduplicates the request.
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_inflight_dedup_across_chunks() {
-    let mut actor = setup();
-    let head = actor.chain_store.head().unwrap();
-    let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
-
-    let hash_a = make_code_hash(b"contract_a");
-
-    // Chunk N accesses contract A — sends request.
-    let accesses_n = make_contract_accesses(&block, HashSet::from([hash_a.clone()]));
-    actor.handle(SpiceChunkContractAccessesMessage(accesses_n));
-    let requests = drain_contract_requests(&mut actor.network_rc);
-    assert_eq!(requests.len(), 1);
-
-    // Chunk N+1 (different block) accesses the same contract — no new request.
-    let block_n1 = build_block(&actor.chain, &block);
-    process_block_sync(
-        &mut actor.chain,
-        block_n1.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
-
-    let accesses_n1 = make_contract_accesses(&block_n1, HashSet::from([hash_a.clone()]));
-    actor.handle(SpiceChunkContractAccessesMessage(accesses_n1));
-    let requests = drain_contract_requests(&mut actor.network_rc);
-    assert_eq!(requests.len(), 0, "should not re-request an in-flight contract");
-}
-
-/// Response resolves both the original chunk and a later chunk waiting on the same contract.
-/// After the response, a third chunk accessing the same contract should get a cache hit.
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_response_resolves_multiple_pending_chunks() {
-    let mut actor = setup();
-    let head = actor.chain_store.head().unwrap();
-    let block_n = actor.chain_store.get_block(&head.last_block_hash).unwrap();
-
-    let hash_a = make_code_hash(b"contract_a");
-
-    // Chunk N: sends request for A.
-    let accesses_n = make_contract_accesses(&block_n, HashSet::from([hash_a.clone()]));
-    actor.handle(SpiceChunkContractAccessesMessage(accesses_n));
-    assert_eq!(drain_contract_requests(&mut actor.network_rc).len(), 1);
-
-    // Chunk N+1: same contract, deduped — no new request.
-    let block_n1 = build_block(&actor.chain, &block_n);
-    process_block_sync(
-        &mut actor.chain,
-        block_n1.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
-    let accesses_n1 = make_contract_accesses(&block_n1, HashSet::from([hash_a.clone()]));
-    actor.handle(SpiceChunkContractAccessesMessage(accesses_n1));
-    assert_eq!(drain_contract_requests(&mut actor.network_rc).len(), 0);
-
-    // Response arrives (keyed to chunk N).
-    // Both chunks' missing sets should be resolved.
-    let response = make_contract_response(&block_n, &[b"contract_a"]);
-    actor.handle(SpiceContractCodeResponseMessage(response));
-
-    // Chunk N+2: same contract, should hit cache — no request.
-    let block_n2 = build_block(&actor.chain, &block_n1);
-    process_block_sync(
-        &mut actor.chain,
-        block_n2.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
-    let accesses_n2 = make_contract_accesses(&block_n2, HashSet::from([hash_a.clone()]));
-    actor.handle(SpiceChunkContractAccessesMessage(accesses_n2));
-    assert_eq!(
-        drain_contract_requests(&mut actor.network_rc).len(),
-        0,
-        "chunk N+2 should hit cache after response resolved earlier chunks"
-    );
-}
-
-/// After the received_contracts cache is populated, a new chunk gets an instant hit.
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_received_contracts_cache_hit() {
-    let mut actor = setup();
-    let head = actor.chain_store.head().unwrap();
-    let block_n = actor.chain_store.get_block(&head.last_block_hash).unwrap();
-
-    let hash_a = make_code_hash(b"contract_a");
-
-    // Chunk N: sends request.
-    let accesses_n = make_contract_accesses(&block_n, HashSet::from([hash_a.clone()]));
-    actor.handle(SpiceChunkContractAccessesMessage(accesses_n));
-    drain_contract_requests(&mut actor.network_rc);
-
-    // Response arrives — populates cache.
-    let response = make_contract_response(&block_n, &[b"contract_a"]);
-    actor.handle(SpiceContractCodeResponseMessage(response));
-
-    // Chunk N+1: same contract — should be served from cache, no request.
-    let block_n1 = build_block(&actor.chain, &block_n);
-    process_block_sync(
-        &mut actor.chain,
-        block_n1.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
-
-    let accesses_n1 = make_contract_accesses(&block_n1, HashSet::from([hash_a.clone()]));
-    actor.handle(SpiceChunkContractAccessesMessage(accesses_n1));
-    assert_eq!(
-        drain_contract_requests(&mut actor.network_rc).len(),
-        0,
-        "should serve from cache, not re-request"
-    );
-}
-
-/// Partially overlapping contract sets: only the new contracts are requested.
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_partial_overlap_only_requests_new() {
-    let mut actor = setup();
-    let head = actor.chain_store.head().unwrap();
-    let block_n = actor.chain_store.get_block(&head.last_block_hash).unwrap();
-
-    let hash_a = make_code_hash(b"contract_a");
-    let hash_b = make_code_hash(b"contract_b");
-
-    // Chunk N: requests A.
-    let accesses_n = make_contract_accesses(&block_n, HashSet::from([hash_a.clone()]));
-    actor.handle(SpiceChunkContractAccessesMessage(accesses_n));
-    drain_contract_requests(&mut actor.network_rc);
-
-    // Response for A arrives.
-    let response = make_contract_response(&block_n, &[b"contract_a"]);
-    actor.handle(SpiceContractCodeResponseMessage(response));
-
-    // Chunk N+1: accesses A (cached) and B (new) — should only request B.
-    let block_n1 = build_block(&actor.chain, &block_n);
-    process_block_sync(
-        &mut actor.chain,
-        block_n1.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
-
-    let accesses_n1 =
-        make_contract_accesses(&block_n1, HashSet::from([hash_a.clone(), hash_b.clone()]));
-    actor.handle(SpiceChunkContractAccessesMessage(accesses_n1));
-
-    let requests = drain_contract_requests(&mut actor.network_rc);
-    assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0], HashSet::from([hash_b]));
-}
-
-/// Timed-out in-flight request is re-sent on next access.
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_inflight_timeout_re_requests() {
-    let mut actor = setup();
-    let head = actor.chain_store.head().unwrap();
-    let block_n = actor.chain_store.get_block(&head.last_block_hash).unwrap();
-
-    let hash_a = make_code_hash(b"contract_a");
-
-    // Chunk N: sends request for A.
-    let accesses_n = make_contract_accesses(&block_n, HashSet::from([hash_a.clone()]));
-    actor.handle(SpiceChunkContractAccessesMessage(accesses_n));
-    drain_contract_requests(&mut actor.network_rc);
-
-    // Wait for timeout.
-    std::thread::sleep(std::time::Duration::from_secs(3));
-
-    // Chunk N+1: same contract, should re-request after timeout.
-    let block_n1 = build_block(&actor.chain, &block_n);
-    process_block_sync(
-        &mut actor.chain,
-        block_n1.clone().into(),
-        Provenance::PRODUCED,
-        &mut BlockProcessingArtifact::default(),
-    )
-    .unwrap();
-
-    let accesses_n1 = make_contract_accesses(&block_n1, HashSet::from([hash_a.clone()]));
-    actor.handle(SpiceChunkContractAccessesMessage(accesses_n1));
-
-    let requests = drain_contract_requests(&mut actor.network_rc);
-    assert_eq!(requests.len(), 1, "should re-request after timeout");
-    assert_eq!(requests[0], HashSet::from([hash_a]));
 }
