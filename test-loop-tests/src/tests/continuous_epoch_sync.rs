@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use near_async::time::Duration;
 use near_epoch_manager::epoch_sync::derive_epoch_sync_proof_from_last_block;
 use near_o11y::testonly::init_test_logger;
@@ -6,7 +9,8 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::EpochStoreAdapter;
 
-use crate::setup::builder::TestLoopBuilder;
+use crate::setup::builder::{NodeStateBuilder, TestLoopBuilder};
+use crate::setup::env::TestLoopEnv;
 use crate::utils::account::{create_validators_spec, validators_spec_clients};
 
 // Test that epoch sync proof is correctly updated after each epoch.
@@ -177,6 +181,118 @@ fn test_epoch_sync_stale_node_triggers_reset() {
     );
 
     tracing::info!(node0_head, "stale node data reset test passed");
+    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
+}
+
+// Test that a fresh node (genesis-only) can bootstrap via epoch sync using the
+// ContinuousEpochSync proof path.
+#[test]
+fn test_epoch_sync_bootstrap_fresh_node() {
+    // This test is only relevant when ContinuousEpochSync is enabled.
+    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
+    init_test_logger();
+    let epoch_length = 10;
+    let validators_spec = create_validators_spec(4, 0);
+    let clients = validators_spec_clients(&validators_spec);
+
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(epoch_length)
+        .validators_spec(validators_spec)
+        .build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .build()
+        .warmup();
+
+    // Run for 8 epochs (80 blocks), well past the default 4-epoch horizon (40 blocks).
+    let target_height = 8 * epoch_length;
+    env.node_runner(0).run_until_head_height(target_height);
+
+    // Create a fresh node with genesis-only store.
+    let genesis = env.shared_state.genesis.clone();
+    let tempdir_path = env.shared_state.tempdir.path().to_path_buf();
+    let identifier = "fresh_node";
+    let account_id: near_primitives::types::AccountId = "fresh_node".parse().unwrap();
+    let node_state = NodeStateBuilder::new(genesis, tempdir_path)
+        .account_id(account_id)
+        .config_modifier(|config| {
+            config.block_header_fetch_horizon = 8;
+            config.block_fetch_horizon = 3;
+        })
+        .build();
+    env.add_node(identifier, node_state);
+
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = env;
+
+    // Track sync status transitions on the fresh node.
+    let new_node = node_datas.last().unwrap().client_sender.actor_handle();
+    let sync_status_history = Rc::new(RefCell::new(Vec::new()));
+    {
+        let sync_status_history = sync_status_history.clone();
+        test_loop.set_every_event_callback(move |test_loop_data| {
+            let client = &test_loop_data.get(&new_node).client;
+            let header_head_height = client.chain.header_head().unwrap().height;
+            let head_height = client.chain.head().unwrap().height;
+            tracing::info!(
+                ?client.sync_handler.sync_status,
+                ?header_head_height,
+                ?head_height,
+                "fresh node sync status"
+            );
+            let sync_status = client.sync_handler.sync_status.as_variant_name();
+            let mut history = sync_status_history.borrow_mut();
+            if history.last().map(|s| s as &str) != Some(sync_status) {
+                history.push(sync_status.to_string());
+            }
+        });
+    }
+
+    // Run until the fresh node catches up to node 0's head height.
+    let new_node = node_datas.last().unwrap().client_sender.actor_handle();
+    let node0 = node_datas[0].client_sender.actor_handle();
+    test_loop.run_until(
+        |test_loop_data| {
+            let new_node_height = test_loop_data.get(&new_node).client.chain.head().unwrap().height;
+            let node0_height = test_loop_data.get(&node0).client.chain.head().unwrap().height;
+            new_node_height == node0_height
+        },
+        Duration::seconds(20),
+    );
+
+    // Run 2 more epochs to verify continued normal operation.
+    let current_height = test_loop.data.get(&node0).client.chain.head().unwrap().height;
+    test_loop.run_until(
+        |test_loop_data| {
+            let new_node_height = test_loop_data.get(&new_node).client.chain.head().unwrap().height;
+            new_node_height >= current_height + 2 * epoch_length
+        },
+        Duration::seconds(30),
+    );
+
+    assert_eq!(
+        sync_status_history.borrow().as_slice(),
+        &[
+            "AwaitingPeers",
+            "NoSync",
+            "EpochSync",
+            "EpochSyncDone",
+            "HeaderSync",
+            "StateSync",
+            "StateSyncDone",
+            "BlockSync",
+            "NoSync",
+        ]
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>()
+    );
+
+    let env = TestLoopEnv { test_loop, node_datas, shared_state };
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
