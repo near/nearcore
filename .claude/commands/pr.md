@@ -25,7 +25,7 @@ Follow these steps in order:
    - **Determine `reuse-branch` and base branch:**
      - If user instructions specify "reuse-branch", set `reuse-branch = true`.
      - Otherwise, set `reuse-branch = false` (this is the default).
-     - **Base branch:** if user instructions specify a base branch, use that. Otherwise, use `master`.
+     - **Base branch:** if user instructions specify a base branch, use that. If `reuse-branch` is true, use `master`. Otherwise, use the current branch.
      - When `reuse-branch` is true, use the current branch name as the branch name.
    - **Detect push remote:**
      - If user instructions contain "fork", determine the user's fork remote:
