@@ -488,9 +488,45 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                 near_primitives::transaction::Action::DeterministicStateInit(_) => {
                     // TODO(#14073): Implement rosetta adapter, probably first requires global contracts, too
                 }
-                near_primitives::transaction::Action::TransferToGasKey(_)
-                | near_primitives::transaction::Action::WithdrawFromGasKey(_) => {
-                    // TODO(gas-keys): Implement rosetta adapter for gas key transfers
+                near_primitives::transaction::Action::TransferToGasKey(action) => {
+                    let initiate_op_id = crate::models::OperationIdentifier::new(&operations);
+                    operations.push(
+                        validated_operations::InitiateTransferToGasKeyOperation {
+                            sender_account: sender_account_identifier.clone(),
+                        }
+                        .into_operation(initiate_op_id.clone()),
+                    );
+                    operations.push(
+                        validated_operations::TransferToGasKeyOperation {
+                            account: receiver_account_identifier.clone(),
+                            amount: action.deposit,
+                            public_key: (&action.public_key).into(),
+                        }
+                        .into_related_operation(
+                            crate::models::OperationIdentifier::new(&operations),
+                            vec![initiate_op_id],
+                        ),
+                    );
+                }
+                near_primitives::transaction::Action::WithdrawFromGasKey(action) => {
+                    let initiate_op_id = crate::models::OperationIdentifier::new(&operations);
+                    operations.push(
+                        validated_operations::InitiateWithdrawFromGasKeyOperation {
+                            sender_account: sender_account_identifier.clone(),
+                        }
+                        .into_operation(initiate_op_id.clone()),
+                    );
+                    operations.push(
+                        validated_operations::WithdrawFromGasKeyOperation {
+                            account: receiver_account_identifier.clone(),
+                            amount: action.amount,
+                            public_key: (&action.public_key).into(),
+                        }
+                        .into_related_operation(
+                            crate::models::OperationIdentifier::new(&operations),
+                            vec![initiate_op_id],
+                        ),
+                    );
                 }
             }
         }
@@ -798,6 +834,53 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
 
                     actions = vec![delegate_action];
                 }
+                crate::models::OperationType::TransferToGasKey => {
+                    let op =
+                        validated_operations::TransferToGasKeyOperation::try_from(tail_operation)?;
+                    receiver_account_id.try_set(&op.account)?;
+                    let initiate_op =
+                        validated_operations::InitiateTransferToGasKeyOperation::try_from_option(
+                            operations.next(),
+                        )?;
+                    sender_account_id.try_set(&initiate_op.sender_account)?;
+                    let public_key = (&op.public_key).try_into().map_err(|_| {
+                        crate::errors::ErrorKind::InvalidInput(format!(
+                            "Invalid public_key: {:?}",
+                            op.public_key
+                        ))
+                    })?;
+                    actions.push(
+                        near_primitives::action::TransferToGasKeyAction {
+                            public_key,
+                            deposit: op.amount,
+                        }
+                        .into(),
+                    )
+                }
+                crate::models::OperationType::WithdrawFromGasKey => {
+                    let op = validated_operations::WithdrawFromGasKeyOperation::try_from(
+                        tail_operation,
+                    )?;
+                    receiver_account_id.try_set(&op.account)?;
+                    let initiate_op =
+                        validated_operations::InitiateWithdrawFromGasKeyOperation::try_from_option(
+                            operations.next(),
+                        )?;
+                    sender_account_id.try_set(&initiate_op.sender_account)?;
+                    let public_key = (&op.public_key).try_into().map_err(|_| {
+                        crate::errors::ErrorKind::InvalidInput(format!(
+                            "Invalid public_key: {:?}",
+                            op.public_key
+                        ))
+                    })?;
+                    actions.push(
+                        near_primitives::action::WithdrawFromGasKeyAction {
+                            public_key,
+                            amount: op.amount,
+                        }
+                        .into(),
+                    )
+                }
                 crate::models::OperationType::InitiateCreateAccount
                 | crate::models::OperationType::InitiateDeleteAccount
                 | crate::models::OperationType::InitiateAddKey
@@ -807,6 +890,8 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                 | crate::models::OperationType::SignedDelegateAction
                 | crate::models::OperationType::InitiateSignedDelegateAction
                 | crate::models::OperationType::InitiateDelegateAction
+                | crate::models::OperationType::InitiateTransferToGasKey
+                | crate::models::OperationType::InitiateWithdrawFromGasKey
                 | crate::models::OperationType::DeleteAccount => {
                     return Err(crate::errors::ErrorKind::InvalidInput(format!(
                         "Unexpected operation `{:?}`",
@@ -937,6 +1022,23 @@ mod tests {
         ]
         .concat();
 
+        let sk = SecretKey::from_seed(KeyType::ED25519, "gas-key-test");
+        let gas_key_pk = sk.public_key();
+        let transfer_to_gas_key_actions = vec![
+            near_primitives::action::TransferToGasKeyAction {
+                public_key: gas_key_pk.clone(),
+                deposit: Balance::from_millinear(500),
+            }
+            .into(),
+        ];
+        let withdraw_from_gas_key_actions = vec![
+            near_primitives::action::WithdrawFromGasKeyAction {
+                public_key: gas_key_pk,
+                amount: Balance::from_millinear(200),
+            }
+            .into(),
+        ];
+
         let non_sir_compatible_actions = vec![
             create_account_actions,
             delete_account_actions,
@@ -946,6 +1048,7 @@ mod tests {
             deploy_contract_actions,
             function_call_without_balance_actions,
             function_call_with_balance_actions,
+            transfer_to_gas_key_actions,
             wallet_style_create_account_actions,
             create_account_and_stake_immediately_actions,
             deploy_contract_and_call_it_actions,
@@ -972,7 +1075,9 @@ mod tests {
             assert_eq!(near_actions_recreated.actions, near_actions.actions);
         }
 
-        let sir_compatible_actions = [non_sir_compatible_actions, vec![stake_actions]].concat();
+        let sir_compatible_actions =
+            [non_sir_compatible_actions, vec![stake_actions, withdraw_from_gas_key_actions]]
+                .concat();
         for actions in sir_compatible_actions {
             let near_actions = NearActions {
                 sender_account_id: "sender-is-receiver.near".parse().unwrap(),
