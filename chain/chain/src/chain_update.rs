@@ -454,7 +454,7 @@ impl<'a> ChainUpdate<'a> {
             metrics::BLOCK_ORDINAL_HEAD.set(header.block_ordinal() as i64);
             let now_ns = time::OffsetDateTime::now_utc().unix_timestamp_nanos();
             let block_ns = header.timestamp().unix_timestamp_nanos();
-            let lag = ((now_ns - block_ns) as f64 / 1_000_000_000.0).max(0.0);
+            let lag = (now_ns.saturating_sub(block_ns) as f64 / 1_000_000_000.0).max(0.0);
             metrics::HEAD_LAG_SECONDS.set(lag);
             metrics::HEAD_LAG_SECONDS_HIST.observe(lag);
             tracing::debug!(target: "chain", last_block_hash = ?tip.last_block_hash, height = %tip.height, "head updated");
