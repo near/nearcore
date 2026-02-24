@@ -63,6 +63,15 @@ pub static HEAD_LAG_SECONDS: LazyLock<Gauge> = LazyLock::new(|| {
     )
     .unwrap()
 });
+/// Same value as HEAD_LAG_SECONDS but as a histogram.
+pub static HEAD_LAG_SECONDS_HIST: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "near_head_lag_seconds_hist",
+        "Distribution of seconds between wall clock and the latest block timestamp",
+        vec![0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0],
+    )
+    .unwrap()
+});
 pub static BLOCK_ORDINAL_HEAD: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge("near_block_ordinal_head", "Ordinal of the current head of the blockchain")
         .unwrap()
