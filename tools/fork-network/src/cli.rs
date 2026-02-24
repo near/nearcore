@@ -14,7 +14,7 @@ use near_parameters::RuntimeConfig;
 use near_primitives::account::id::AccountType;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
 use near_primitives::borsh;
-use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
+use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore, ShardLayoutConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
@@ -347,12 +347,14 @@ impl ForkNetworkCommand {
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids: Vec<_> = shard_layout.shard_uids().collect();
-        // get_epoch_config_from_protocol_version
+
         let target_shard_layout = match shard_layout_override {
             ShardLayoutOverride::UseShardLayoutFromProtocolVersion(protocol_version) => {
+                // TODO(dynamic_resharding): decide how to support dynamic resharding in fork network
                 epoch_manager
                     .get_epoch_config_from_protocol_version(*protocol_version)
                     .static_shard_layout()
+                    .context("dynamic resharding not supported")?
             }
             ShardLayoutOverride::UseShardLayoutFromFile(shard_layout_file) => {
                 let layout = std::fs::read_to_string(&shard_layout_file).with_context(|| {
@@ -585,7 +587,9 @@ impl ForkNetworkCommand {
         );
 
         // 2. Update the epoch configs.
-        // We only fork mainnet for now, so we use mainnet epoch configs as base ones.
+        // We always use mainnet epoch configs as the base, then override the shard
+        // layout to match the actual state (the source chain may have a different
+        // shard layout than mainnet).
         let base_epoch_config_store =
             EpochConfigStore::for_chain_id(near_primitives::chains::MAINNET, None)
                 .expect("Could not load the EpochConfigStore for mainnet.");
@@ -593,6 +597,7 @@ impl ForkNetworkCommand {
             base_epoch_config_store,
             protocol_version,
             num_seats,
+            Some(&target_shard_layout),
             home_dir,
         )?;
 
@@ -699,7 +704,9 @@ impl ForkNetworkCommand {
         // 1. Create default genesis and override its fields with given parameters.
         let (epoch_config, num_accounts_per_shard, chunk_producers) =
             Self::read_patches(patches_path)?;
-        let target_shard_layout = &epoch_config.static_shard_layout();
+        // TODO(dynamic_resharding): decide how to support dynamic resharding in fork network
+        let target_shard_layout =
+            &epoch_config.static_shard_layout().context("dynamic resharding not supported")?;
         let validators = Self::read_validators(validators, home_dir)?;
         let num_seats = num_seats.unwrap_or(validators.len() as NumSeats);
         let mut genesis = Genesis::from_account_infos(
@@ -720,7 +727,7 @@ impl ForkNetworkCommand {
 
         // 2. Initialize chain and state storage so we can add benchmark
         // accounts there.
-        let prev_state_roots = get_genesis_state_roots(&store)?.unwrap();
+        let prev_state_roots = get_genesis_state_roots(&store).unwrap();
         let shard_uids: Vec<_> = target_shard_layout.shard_uids().collect();
 
         let base_epoch_config_store = EpochConfigStore::test(BTreeMap::from([(
@@ -731,6 +738,7 @@ impl ForkNetworkCommand {
             base_epoch_config_store,
             genesis_protocol_version,
             &Some(num_seats),
+            None,
             home_dir,
         )?;
         let epoch_manager =
@@ -905,6 +913,7 @@ impl ForkNetworkCommand {
         base_epoch_config_store: EpochConfigStore,
         first_version: ProtocolVersion,
         num_seats: &Option<NumSeats>,
+        shard_layout_override: Option<&ShardLayout>,
         home_dir: &Path,
     ) -> anyhow::Result<EpochConfig> {
         let epoch_config_dir = home_dir.join("epoch_configs");
@@ -922,6 +931,14 @@ impl ForkNetworkCommand {
                 config.num_block_producer_seats = *num_seats;
                 config.num_chunk_producer_seats = *num_seats;
                 config.num_chunk_validator_seats = *num_seats;
+            }
+            if let Some(shard_layout) = shard_layout_override {
+                let num_shards = shard_layout.num_shards() as usize;
+                config.shard_layout_config =
+                    ShardLayoutConfig::Static { shard_layout: shard_layout.clone() };
+                config.num_block_producer_seats_per_shard =
+                    vec![config.num_block_producer_seats; num_shards];
+                config.avg_hidden_validator_seats_per_shard = vec![0; num_shards];
             }
             new_epoch_configs.insert(version, Arc::new(config));
         }
@@ -966,14 +983,13 @@ impl ForkNetworkCommand {
         let mut records_not_parsed = 0;
         let mut records_parsed = 0;
 
-        for item in store.flat_store().iter(shard_uid) {
-            let (key, value) = match item {
-                Ok((key, FlatStateValue::Ref(ref_value))) => {
+        for (key, flat_value) in store.flat_store().iter(shard_uid) {
+            let (key, value) = match flat_value {
+                FlatStateValue::Ref(ref_value) => {
                     ref_keys_retrieved += 1;
                     (key, trie_storage.retrieve_raw_bytes(&ref_value.hash)?.to_vec())
                 }
-                Ok((key, FlatStateValue::Inlined(value))) => (key, value),
-                otherwise => panic!("Unexpected flat state value: {otherwise:?}"),
+                FlatStateValue::Inlined(value) => (key, value),
             };
             if let Some(sr) = StateRecord::from_raw_key_value(&key, value.clone()) {
                 match sr {
@@ -1094,47 +1110,45 @@ impl ForkNetworkCommand {
         // TODO: Just remember what accounts we saw in the above iteration
         let mut num_added = 0;
         let mut num_accounts = 0;
-        for item in store.flat_store().iter(shard_uid) {
-            if let Ok((key, _)) = item {
-                if key[0] == col::ACCOUNT {
-                    num_accounts += 1;
-                    let account_id = match parse_account_id_from_account_key(&key) {
-                        Ok(account_id) => account_id,
-                        Err(err) => {
-                            tracing::error!(
-                                ?err,
-                                key = %hex::encode(&key),
-                                "failed to parse account id"
-                            );
-                            continue;
-                        }
-                    };
-                    if account_id.get_account_type() == AccountType::NearImplicitAccount
-                        || has_full_key.contains(&account_id)
-                    {
+        for (key, _) in store.flat_store().iter(shard_uid) {
+            if key[0] == col::ACCOUNT {
+                num_accounts += 1;
+                let account_id = match parse_account_id_from_account_key(&key) {
+                    Ok(account_id) => account_id,
+                    Err(err) => {
+                        tracing::error!(
+                            ?err,
+                            key = %hex::encode(&key),
+                            "failed to parse account id"
+                        );
                         continue;
                     }
-                    let shard_id = source_shard_layout.account_id_to_shard_id(&account_id);
-                    if shard_id != shard_uid.shard_id() {
-                        tracing::warn!(
-                            %account_id,
-                            %shard_id,
-                            found_in_shard = %shard_uid.shard_id(),
-                            "account belongs to shard but was found in flat storage for different shard"
-                        );
-                    }
-                    let shard_idx = source_shard_layout.get_shard_index(shard_id).unwrap();
-                    storage_mutator.set_access_key(
-                        shard_idx,
-                        account_id,
-                        default_key.clone(),
-                        AccessKey::full_access(),
-                    )?;
-                    num_added += 1;
-                    if storage_mutator.should_commit(batch_size) {
-                        storage_mutator.commit()?;
-                        storage_mutator = make_storage_mutator(update_state.clone())?;
-                    }
+                };
+                if account_id.get_account_type() == AccountType::NearImplicitAccount
+                    || has_full_key.contains(&account_id)
+                {
+                    continue;
+                }
+                let shard_id = source_shard_layout.account_id_to_shard_id(&account_id);
+                if shard_id != shard_uid.shard_id() {
+                    tracing::warn!(
+                        %account_id,
+                        %shard_id,
+                        found_in_shard = %shard_uid.shard_id(),
+                        "account belongs to shard but was found in flat storage for different shard"
+                    );
+                }
+                let shard_idx = source_shard_layout.get_shard_index(shard_id).unwrap();
+                storage_mutator.set_access_key(
+                    shard_idx,
+                    account_id,
+                    default_key.clone(),
+                    AccessKey::full_access(),
+                )?;
+                num_added += 1;
+                if storage_mutator.should_commit(batch_size) {
+                    storage_mutator.commit()?;
+                    storage_mutator = make_storage_mutator(update_state.clone())?;
                 }
             }
         }
@@ -1453,7 +1467,9 @@ impl ForkNetworkCommand {
         new_state_roots: Vec<StateRoot>,
         new_validator_accounts: Vec<AccountInfo>,
     ) -> anyhow::Result<()> {
-        let shard_layout = epoch_config.static_shard_layout();
+        let shard_layout = epoch_config
+            .static_shard_layout()
+            .context("dynamic resharding epoch config is not supported")?;
         // TODO: deprecate these fields as unused.
         let num_block_producer_seats_per_shard = vec![
             original_config

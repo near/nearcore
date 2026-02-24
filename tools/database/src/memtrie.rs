@@ -396,12 +396,15 @@ impl ArchivalDataLossRecoveryCommand {
         );
         let runtime = runtime.context("could not create the transaction runtime")?;
 
+        // TODO(dynamic_resharding): decide how to deal with this when dynamic resharding is enabled
         // Get the shard layout and ensure the protocol version upgrade actually
         // contains a resharding.
-        let shard_layout =
-            epoch_manager.get_shard_layout_from_protocol_version(self.protocol_version);
-        let prev_shard_layout =
-            epoch_manager.get_shard_layout_from_protocol_version(self.protocol_version - 1);
+        let shard_layout = epoch_manager
+            .get_static_shard_layout_for_protocol_version(self.protocol_version)
+            .context("dynamic resharding protocol versions are not supported")?;
+        let prev_shard_layout = epoch_manager
+            .get_static_shard_layout_for_protocol_version(self.protocol_version - 1)
+            .context("dynamic resharding protocol versions are not supported")?;
         assert_ne!(
             shard_layout, prev_shard_layout,
             "The provided protocol version does not contain a resharding."

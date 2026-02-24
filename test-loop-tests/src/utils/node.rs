@@ -1,7 +1,8 @@
-use std::borrow::Cow;
 use std::sync::Arc;
 use std::task::Poll;
 
+use futures::future::BoxFuture;
+use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
@@ -9,9 +10,13 @@ use near_async::time::Duration;
 use near_chain::types::Tip;
 use near_chain::{Block, BlockHeader};
 use near_client::client_actor::ClientActor;
-use near_client::{Client, ProcessTxRequest, Query, ViewClientActor};
+use near_client::{Client, ProcessTxRequest, Query, QueryError, ViewClientActor};
+use near_crypto::PublicKey;
+use near_jsonrpc::client::JsonRpcClient;
+use near_jsonrpc_primitives::errors::RpcError;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
@@ -19,114 +24,69 @@ use near_primitives::transaction::{
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
-    AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponse,
-    QueryResponseKind,
+    AccessKeyView, AccountView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
+    QueryResponse, QueryResponseKind,
 };
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
+use parking_lot::Mutex;
 
 use crate::setup::state::NodeExecutionData;
-use crate::utils::account::rpc_account_id;
 use crate::utils::transactions::TransactionRunner;
 
-/// Represents single node in multinode test loop setup. It simplifies
-/// access to Client and other actors by providing more user friendly API.
-/// It serves as a main interface for test actions such as sending
-/// transactions, waiting for blocks to be produces, querying state, etc.
+/// Represents a single node in the test loop setup.
+///
+/// Provides high-level read-only access to node state such as head, client,
+/// store, and runtime queries. Obtained via [`TestLoopEnv::node`],
+/// [`TestLoopEnv::validator`], etc.
 pub struct TestLoopNode<'a> {
-    data: Cow<'a, NodeExecutionData>,
+    pub(crate) data: &'a TestLoopData,
+    pub(crate) node_data: &'a NodeExecutionData,
 }
 
-impl<'a> From<&'a NodeExecutionData> for TestLoopNode<'a> {
-    fn from(value: &'a NodeExecutionData) -> Self {
-        Self { data: Cow::Borrowed(value) }
-    }
-}
-
-impl From<NodeExecutionData> for TestLoopNode<'_> {
-    fn from(value: NodeExecutionData) -> Self {
-        Self { data: Cow::Owned(value) }
-    }
-}
-
+#[cfg_attr(not(feature = "test_features"), allow(dead_code))]
 impl<'a> TestLoopNode<'a> {
-    pub fn for_account(node_datas: &'a [NodeExecutionData], account_id: &AccountId) -> Self {
-        // cspell:ignore rfind
-        // Uses `rfind` because `TestLoopEnv::restart_node()` appends a new copy to `node_datas`.
-        let data = node_datas
-            .iter()
-            .rfind(|data| &data.account_id == account_id)
-            .unwrap_or_else(|| panic!("client with account id {account_id} not found"));
-        Self::from(data)
+    pub fn client(&self) -> &'a Client {
+        let handle = self.node_data.client_sender.actor_handle();
+        &self.data.get(&handle).client
     }
 
-    pub fn rpc(node_datas: &'a [NodeExecutionData]) -> Self {
-        Self::for_account(node_datas, &rpc_account_id())
+    pub fn store(&self) -> Store {
+        self.client().chain.chain_store.store().store()
     }
 
-    #[allow(unused)]
-    pub fn all(node_datas: &'a [NodeExecutionData]) -> Vec<Self> {
-        node_datas.iter().map(|data| Self::from(data)).collect()
+    pub fn tail(&self) -> BlockHeight {
+        self.client().chain.tail()
     }
 
-    pub fn data(&self) -> &NodeExecutionData {
-        &self.data
+    pub fn head(&self) -> Arc<Tip> {
+        self.client().chain.head().unwrap()
     }
 
-    pub fn client<'b>(&self, test_loop_data: &'b TestLoopData) -> &'b Client {
-        let client_handle = self.data().client_sender.actor_handle();
-        &test_loop_data.get(&client_handle).client
-    }
-
-    pub fn store(&self, test_loop_data: &TestLoopData) -> Store {
-        self.client(test_loop_data).chain.chain_store.store().store()
-    }
-
-    pub fn client_actor<'b>(&self, test_loop_data: &'b mut TestLoopData) -> &'b mut ClientActor {
-        let client_handle = self.data().client_sender.actor_handle();
-        test_loop_data.get_mut(&client_handle)
-    }
-
-    pub fn view_client_actor<'b>(
-        &self,
-        test_loop_data: &'b mut TestLoopData,
-    ) -> &'b mut ViewClientActor {
-        let handle = self.data().view_client_sender.actor_handle();
-        test_loop_data.get_mut(&handle)
-    }
-
-    pub fn tail(&self, test_loop_data: &TestLoopData) -> BlockHeight {
-        self.client(test_loop_data).chain.tail().unwrap()
-    }
-
-    pub fn head(&self, test_loop_data: &TestLoopData) -> Arc<Tip> {
-        self.client(test_loop_data).chain.head().unwrap()
-    }
-
-    pub fn last_executed(&self, test_loop_data: &TestLoopData) -> Arc<Tip> {
+    pub fn last_executed(&self) -> Arc<Tip> {
         if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
-            self.client(test_loop_data).chain.chain_store().spice_execution_head().unwrap()
+            self.client().chain.chain_store().spice_execution_head().unwrap()
         } else {
-            self.client(test_loop_data).chain.head().unwrap()
+            self.client().chain.head().unwrap()
         }
     }
 
-    pub fn head_block(&self, test_loop_data: &TestLoopData) -> Arc<Block> {
-        let block_hash = self.client(test_loop_data).chain.head().unwrap().last_block_hash;
-        self.block(test_loop_data, block_hash)
+    pub fn head_block(&self) -> Arc<Block> {
+        let block_hash = self.head().last_block_hash;
+        self.block(block_hash)
     }
 
-    pub fn last_executed_block(&self, test_loop_data: &TestLoopData) -> Arc<Block> {
-        let block_hash = self.last_executed(test_loop_data).last_block_hash;
-        self.block(test_loop_data, block_hash)
+    pub fn last_executed_block(&self) -> Arc<Block> {
+        let block_hash = self.last_executed().last_block_hash;
+        self.block(block_hash)
     }
 
-    pub fn block(&self, test_loop_data: &TestLoopData, block_hash: CryptoHash) -> Arc<Block> {
-        self.client(test_loop_data).chain.get_block(&block_hash).unwrap()
+    pub fn block(&self, block_hash: CryptoHash) -> Arc<Block> {
+        self.client().chain.get_block(&block_hash).unwrap()
     }
 
-    pub fn block_chunks(&self, test_loop_data: &TestLoopData, block: &Block) -> Vec<ShardChunk> {
-        let chain = &self.client(test_loop_data).chain;
+    pub fn block_chunks(&self, block: &Block) -> Vec<ShardChunk> {
+        let chain = &self.client().chain;
         block
             .chunks()
             .iter_raw()
@@ -134,126 +94,193 @@ impl<'a> TestLoopNode<'a> {
             .collect()
     }
 
+    pub fn receipt(&self, receipt_id: CryptoHash) -> Arc<Receipt> {
+        self.client().chain.chain_store.get_receipt(&receipt_id).unwrap()
+    }
+
     pub fn execution_outcome_with_proof(
         &self,
-        test_loop_data: &TestLoopData,
         tx_hash_or_receipt_id: CryptoHash,
     ) -> ExecutionOutcomeWithIdAndProof {
-        self.client(test_loop_data)
-            .chain
-            .get_execution_outcome(&tx_hash_or_receipt_id)
-            .unwrap_or_else(|err| {
-                panic!("outcome with id {tx_hash_or_receipt_id} is not available: {err}")
-            })
+        self.client().chain.get_execution_outcome(&tx_hash_or_receipt_id).unwrap_or_else(|err| {
+            panic!("outcome with id {tx_hash_or_receipt_id} is not available: {err}")
+        })
     }
 
-    pub fn execution_outcome(
-        &self,
-        test_loop_data: &TestLoopData,
-        tx_hash_or_receipt_id: CryptoHash,
-    ) -> ExecutionOutcomeWithId {
-        self.execution_outcome_with_proof(test_loop_data, tx_hash_or_receipt_id).outcome_with_id
+    pub fn execution_outcome(&self, tx_hash_or_receipt_id: CryptoHash) -> ExecutionOutcomeWithId {
+        self.execution_outcome_with_proof(tx_hash_or_receipt_id).outcome_with_id
     }
 
-    pub fn tx_receipt_id(&self, test_loop_data: &TestLoopData, tx_hash: CryptoHash) -> CryptoHash {
-        let tx_execution_outcome = self.execution_outcome(test_loop_data, tx_hash);
+    pub fn tx_receipt_id(&self, tx_hash: CryptoHash) -> CryptoHash {
+        let tx_execution_outcome = self.execution_outcome(tx_hash);
         let [receipt_id] = tx_execution_outcome.outcome.receipt_ids[..] else {
             panic!("expected single receipt")
         };
         receipt_id
     }
 
-    pub fn run_until_head_height(&self, test_loop: &mut TestLoopV2, height: BlockHeight) {
-        let initial_height = self.head(&test_loop.data).height;
-        let height_diff = height.saturating_sub(initial_height) as usize;
-        self.run_until_head_height_with_timeout(
-            test_loop,
-            height,
-            self.calculate_block_distance_timeout(&test_loop.data, height_diff),
-        );
+    pub fn runtime_query(&self, query: QueryRequest) -> Result<QueryResponse, QueryError> {
+        let handle = self.node_data.view_client_sender.actor_handle();
+        let view_client: &ViewClientActor = self.data.get(&handle);
+        view_client.handle_query(Query::new(
+            near_primitives::types::BlockReference::Finality(
+                near_primitives::types::Finality::None,
+            ),
+            query,
+        ))
     }
 
-    pub fn run_until_executed_height(&self, test_loop: &mut TestLoopV2, height: BlockHeight) {
-        let initial_height = self.last_executed(&test_loop.data).height;
-        let height_diff = height.saturating_sub(initial_height) as usize;
-        // Wait some extra blocks, in case spice execution has not started yet.
-        // For example for block `N` produced after genesis, we should wait `N`
-        // blocks for it to be produced and an additional
-        // `expected_execution_delay` blocks for it to execute.
-        let extra = self.data().expected_execution_delay() as usize;
-        test_loop.run_until(
-            |test_loop_data| self.last_executed(test_loop_data).height >= height,
-            self.calculate_block_distance_timeout(&test_loop.data, height_diff + extra),
-        );
+    pub fn view_account_query(&self, account_id: &AccountId) -> Result<AccountView, QueryError> {
+        let response =
+            self.runtime_query(QueryRequest::ViewAccount { account_id: account_id.clone() })?;
+        let QueryResponseKind::ViewAccount(account_view) = response.kind else {
+            panic!("unexpected query response type")
+        };
+        Ok(account_view)
     }
 
-    pub fn run_until_head_height_with_timeout(
+    pub fn view_access_key_query(
         &self,
-        test_loop: &mut TestLoopV2,
-        height: BlockHeight,
-        maximum_duration: Duration,
-    ) {
-        test_loop.run_until(
-            |test_loop_data| self.head(test_loop_data).height >= height,
-            maximum_duration,
-        );
-    }
-
-    pub fn run_for_number_of_blocks(&self, test_loop: &mut TestLoopV2, num_blocks: usize) {
-        self.run_for_number_of_blocks_with_timeout(
-            test_loop,
-            num_blocks,
-            self.calculate_block_distance_timeout(&test_loop.data, num_blocks),
-        );
-    }
-
-    pub fn run_for_number_of_blocks_with_timeout(
-        &self,
-        test_loop: &mut TestLoopV2,
-        num_blocks: usize,
-        maximum_duration: Duration,
-    ) {
-        let initial_head_height = self.head(&test_loop.data).height;
-        test_loop.run_until(
-            |test_loop_data| {
-                let current_height = self.head(&test_loop_data).height;
-                current_height >= initial_head_height + num_blocks as u64
-            },
-            maximum_duration,
-        );
-    }
-
-    pub fn run_until_new_epoch(&self, test_loop: &mut TestLoopV2) {
-        let curr_epoch_id = self.head(&test_loop.data).epoch_id;
-        let epoch_length = self.client(&test_loop.data).config.epoch_length as usize;
-        test_loop.run_until(
-            |test_loop_data| {
-                let head = self.head(test_loop_data);
-                head.epoch_id != curr_epoch_id
-            },
-            self.calculate_block_distance_timeout(&test_loop.data, epoch_length + 1),
-        );
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<AccessKeyView, QueryError> {
+        let response = self.runtime_query(QueryRequest::ViewAccessKey {
+            account_id: account_id.clone(),
+            public_key: public_key.clone(),
+        })?;
+        let QueryResponseKind::AccessKey(access_key_view) = response.kind else {
+            panic!("unexpected query response type")
+        };
+        Ok(access_key_view)
     }
 
     pub fn submit_tx(&self, tx: SignedTransaction) {
         let process_tx_request =
             ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
-        self.data().rpc_handler_sender.send(process_tx_request);
+        self.node_data.rpc_handler_sender.send(process_tx_request);
+    }
+}
+
+/// Mutable variant of [`TestLoopNode`] for operations that require
+/// `&mut TestLoopData` (e.g. accessing `ClientActor` or `ViewClientActor`).
+/// Obtained via [`TestLoopEnv::node_mut`], [`TestLoopEnv::validator_mut`], etc.
+pub struct TestLoopNodeMut<'a> {
+    pub(crate) data: &'a mut TestLoopData,
+    pub(crate) node_data: &'a NodeExecutionData,
+}
+
+#[cfg_attr(not(feature = "test_features"), allow(dead_code))]
+impl<'a> TestLoopNodeMut<'a> {
+    pub fn client_actor(&mut self) -> &mut ClientActor {
+        let handle = self.node_data.client_sender.actor_handle();
+        self.data.get_mut(&handle)
+    }
+
+    pub fn view_client_actor(&mut self) -> &mut ViewClientActor {
+        let handle = self.node_data.view_client_sender.actor_handle();
+        self.data.get_mut(&handle)
+    }
+
+    #[cfg(feature = "test_features")]
+    pub fn validate_store(&mut self) {
+        if cfg!(feature = "protocol_feature_spice") {
+            return;
+        }
+        use near_async::messaging::Handler;
+        use near_client::NetworkAdversarialMessage;
+        let handle = self.node_data.client_sender.actor_handle();
+        let client_actor = self.data.get_mut(&handle);
+        let result = Handler::<NetworkAdversarialMessage, Option<u64>>::handle(
+            client_actor,
+            NetworkAdversarialMessage::AdvCheckStorageConsistency,
+        );
+        assert_ne!(result, Some(0), "store validation failed");
+    }
+}
+
+/// Drives the test loop forward while observing a specific node.
+///
+/// Provides methods to advance the test loop (run until a condition,
+/// produce blocks, execute transactions) with conditions evaluated against
+/// the associated node. Obtained via [`TestLoopEnv::node_runner`],
+/// [`TestLoopEnv::validator_runner`], etc.
+pub struct NodeRunner<'a> {
+    pub(crate) test_loop: &'a mut TestLoopV2,
+    pub(crate) node_data: &'a NodeExecutionData,
+}
+
+#[cfg_attr(not(feature = "test_features"), allow(dead_code))]
+impl<'a> NodeRunner<'a> {
+    pub fn run_until(
+        &mut self,
+        mut condition: impl FnMut(&TestLoopNode<'_>) -> bool,
+        maximum_duration: Duration,
+    ) {
+        let node_data = self.node_data;
+        self.test_loop.run_until(
+            |test_loop_data| {
+                let node = TestLoopNode { data: test_loop_data, node_data };
+                condition(&node)
+            },
+            maximum_duration,
+        );
+    }
+
+    pub fn run_until_head_height(&mut self, height: BlockHeight) {
+        let initial_height = self.head().height;
+        let height_diff = height.saturating_sub(initial_height) as usize;
+        let timeout = self.calculate_block_distance_timeout(height_diff);
+        self.run_until(|node| node.head().height >= height, timeout);
+    }
+
+    pub fn run_until_executed_height(&mut self, height: BlockHeight) {
+        let initial_height = self.last_executed().height;
+        let height_diff = height.saturating_sub(initial_height) as usize;
+        let extra = self.node_data.expected_execution_delay() as usize;
+        let timeout = self.calculate_block_distance_timeout(height_diff + extra);
+        self.run_until(|node| node.last_executed().height >= height, timeout);
+    }
+
+    pub fn run_until_head_height_with_timeout(
+        &mut self,
+        height: BlockHeight,
+        maximum_duration: Duration,
+    ) {
+        self.run_until(|node| node.head().height >= height, maximum_duration);
+    }
+
+    pub fn run_for_number_of_blocks(&mut self, num_blocks: usize) {
+        let timeout = self.calculate_block_distance_timeout(num_blocks);
+        self.run_for_number_of_blocks_with_timeout(num_blocks, timeout);
+    }
+
+    pub fn run_for_number_of_blocks_with_timeout(
+        &mut self,
+        num_blocks: usize,
+        maximum_duration: Duration,
+    ) {
+        let initial_head_height = self.head().height;
+        self.run_until(
+            |node| node.head().height >= initial_head_height + num_blocks as u64,
+            maximum_duration,
+        );
+    }
+
+    pub fn run_until_new_epoch(&mut self) {
+        let curr_epoch_id = self.head().epoch_id;
+        let epoch_length = self.client().config.epoch_length as usize;
+        let timeout = self.calculate_block_distance_timeout(epoch_length + 1);
+        self.run_until(|node| node.head().epoch_id != curr_epoch_id, timeout);
     }
 
     pub fn run_until_outcome_available(
-        &self,
-        test_loop: &mut TestLoopV2,
+        &mut self,
         tx_hash_or_receipt_id: CryptoHash,
         maximum_duration: Duration,
     ) -> ExecutionOutcomeWithIdAndProof {
         let mut ret = None;
-        test_loop.run_until(
-            |test_loop_data| match self
-                .client(test_loop_data)
-                .chain
-                .get_execution_outcome(&tx_hash_or_receipt_id)
-            {
+        self.run_until(
+            |node| match node.client().chain.get_execution_outcome(&tx_hash_or_receipt_id) {
                 Ok(outcome) => {
                     ret = Some(outcome);
                     true
@@ -269,32 +296,30 @@ impl<'a> TestLoopNode<'a> {
     /// header is executed.
     /// Without spice returns immediately.
     pub fn run_until_block_executed(
-        &self,
-        test_loop: &mut TestLoopV2,
+        &mut self,
         block_header: &BlockHeader,
         maximum_duration: Duration,
     ) {
         let protocol_version = self
-            .client(&test_loop.data)
+            .client()
             .epoch_manager
             .get_epoch_protocol_version(block_header.epoch_id())
             .unwrap();
         if ProtocolFeature::Spice.enabled(protocol_version) {
-            test_loop.run_until(
-                |test_loop_data| self.last_executed(test_loop_data).height >= block_header.height(),
+            let block_height = block_header.height();
+            self.run_until(
+                |node| {
+                    node.client().chain.chain_store().spice_execution_head().unwrap().height
+                        >= block_height
+                },
                 maximum_duration,
             );
         }
     }
 
     #[track_caller]
-    pub fn run_tx(
-        &self,
-        test_loop: &mut TestLoopV2,
-        tx: SignedTransaction,
-        maximum_duration: Duration,
-    ) -> Vec<u8> {
-        let outcome = self.execute_tx(test_loop, tx, maximum_duration).unwrap();
+    pub fn run_tx(&mut self, tx: SignedTransaction, maximum_duration: Duration) -> Vec<u8> {
+        let outcome = self.execute_tx(tx, maximum_duration).unwrap();
         match outcome.status {
             FinalExecutionStatus::SuccessValue(res) => res,
             status @ _ => panic!("Transaction failed with status {status:?}"),
@@ -302,111 +327,86 @@ impl<'a> TestLoopNode<'a> {
     }
 
     pub fn execute_tx(
-        &self,
-        test_loop: &mut TestLoopV2,
+        &mut self,
         tx: SignedTransaction,
         maximum_duration: Duration,
     ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
-        let tx_processor_sender = &self.data().rpc_handler_sender;
+        let tx_processor_sender = self.node_data.rpc_handler_sender.clone();
         let mut tx_runner = TransactionRunner::new(tx, false);
-        let future_spawner = test_loop.future_spawner("TransactionRunner");
-
+        let future_spawner = self.test_loop.future_spawner("TransactionRunner");
         let mut res = None;
-        test_loop.run_until(
-            |test_loop_data| {
-                let client = self.client(test_loop_data);
-                match tx_runner.poll(&tx_processor_sender, client, &future_spawner) {
-                    Poll::Pending => false,
-                    Poll::Ready(tx_res) => {
-                        res = Some(tx_res);
-                        true
-                    }
+        self.run_until(
+            |node| match tx_runner.poll(&tx_processor_sender, node.client(), &future_spawner) {
+                Poll::Pending => false,
+                Poll::Ready(tx_res) => {
+                    res = Some(tx_res);
+                    true
                 }
             },
             maximum_duration,
         );
-
         res.unwrap()
     }
 
-    pub fn runtime_query(
-        &self,
-        test_loop_data: &TestLoopData,
-        query: QueryRequest,
-    ) -> QueryResponse {
-        let handle = self.data().view_client_sender.actor_handle();
-        let view_client: &ViewClientActor = test_loop_data.get(&handle);
-        view_client
-            .handle_query(Query::new(
-                near_primitives::types::BlockReference::Finality(
-                    near_primitives::types::Finality::None,
-                ),
-                query,
-            ))
-            .unwrap()
+    /// Run until the future is resolved, return the result.
+    pub fn run_future<T: Send + 'static>(
+        &mut self,
+        description: &'static str,
+        future: impl Future<Output = T> + Send + 'static,
+        maximum_duration: Duration,
+    ) -> T {
+        let result = Arc::new(Mutex::new(None));
+        let result_clone = result.clone();
+        self.test_loop.future_spawner(&self.node_data.identifier).spawn(description, async move {
+            let res = future.await;
+            *result_clone.lock() = Some(res);
+        });
+        self.test_loop.run_until(|_data| result.lock().is_some(), maximum_duration);
+        result.lock().take().unwrap()
     }
 
-    pub fn view_account_query(
-        &self,
-        test_loop_data: &TestLoopData,
-        account_id: &AccountId,
-    ) -> AccountView {
-        let response = self.runtime_query(
-            test_loop_data,
-            QueryRequest::ViewAccount { account_id: account_id.clone() },
-        );
-        let QueryResponseKind::ViewAccount(account_view) = response.kind else {
-            panic!("Unexpected query response type")
-        };
-        account_view
+    pub fn run_jsonrpc_query<T>(
+        &mut self,
+        make_query: impl FnOnce(&JsonRpcClient) -> BoxFuture<'static, Result<T, RpcError>>,
+        maximum_duration: Duration,
+    ) -> Result<T, RpcError>
+    where
+        T: Send + 'static,
+    {
+        let jsonrpc_client = self.node_data.jsonrpc_client();
+        self.run_future("jsonrpc_query", make_query(&jsonrpc_client), maximum_duration)
     }
 
     #[cfg(feature = "test_features")]
-    pub fn send_adversarial_message(
-        &self,
-        test_loop: &TestLoopV2,
-        message: near_client::NetworkAdversarialMessage,
-    ) {
-        let client_sender = self.data().client_sender.clone();
-        test_loop.send_adhoc_event(
-            format!("send adversarial {:?} to {}", message, self.data().account_id),
+    pub fn send_adversarial_message(&self, message: near_client::NetworkAdversarialMessage) {
+        let client_sender = self.node_data.client_sender.clone();
+        let account_id = self.node_data.account_id.clone();
+        self.test_loop.send_adhoc_event(
+            format!("send adversarial {:?} to {}", message, account_id),
             move |_| {
                 client_sender.send(message);
             },
         );
     }
 
-    /// Triggers store validation via the AdvCheckStorageConsistency adversarial
-    /// message handler. Panics if the store is in an inconsistent state.
-    #[cfg(feature = "test_features")]
-    pub fn validate_store(&self, test_loop_data: &mut TestLoopData) {
-        // TODO(spice): Store validation fails with spice enabled:
-        // "Transaction only header doesn't include prev_state_root"
-        if cfg!(feature = "protocol_feature_spice") {
-            return;
+    fn client(&self) -> &Client {
+        let handle = self.node_data.client_sender.actor_handle();
+        &self.test_loop.data.get(&handle).client
+    }
+
+    fn head(&self) -> Arc<Tip> {
+        self.client().chain.head().unwrap()
+    }
+
+    fn last_executed(&self) -> Arc<Tip> {
+        if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+            self.client().chain.chain_store().spice_execution_head().unwrap()
+        } else {
+            self.client().chain.head().unwrap()
         }
-        use near_async::messaging::Handler;
-        use near_client::NetworkAdversarialMessage;
-        let client_actor = self.client_actor(test_loop_data);
-        let result = Handler::<NetworkAdversarialMessage, Option<u64>>::handle(
-            client_actor,
-            NetworkAdversarialMessage::AdvCheckStorageConsistency,
-        );
-        assert_ne!(result, Some(0), "store validation failed");
     }
 
-    fn calculate_block_distance_timeout(
-        &self,
-        test_loop_data: &TestLoopData,
-        num_blocks: usize,
-    ) -> Duration {
-        let max_block_production_delay =
-            self.client(test_loop_data).config.max_block_production_delay;
-        max_block_production_delay * (num_blocks as u32 + 1)
-    }
-
-    /// Returns new TestLoopNode that takes ownership of internal NodeExecutionData.
-    pub fn into_owned(self) -> TestLoopNode<'static> {
-        TestLoopNode::from(self.data.into_owned())
+    fn calculate_block_distance_timeout(&self, num_blocks: usize) -> Duration {
+        self.client().config.max_block_production_delay * (num_blocks as u32 + 1)
     }
 }

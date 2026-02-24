@@ -17,6 +17,7 @@ use near_primitives::epoch_manager::{
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -646,7 +647,7 @@ impl EpochManager {
     ///   - `next_next_epoch_config`: config for epoch N+2
     ///   - `next_shard_layout`: shard layout for epoch N+1
     ///   - `block_info`: block info for the last block of epoch N
-    fn next_next_shard_layout(
+    pub fn next_next_shard_layout(
         &self,
         current_epoch_config: &EpochConfig,
         current_protocol_version: ProtocolVersion,
@@ -662,7 +663,7 @@ impl EpochManager {
         // TODO(dynamic_resharding): remove `next_next_epoch_config` when tests are adjusted
 
         // Dynamic resharding won't be enabled until epoch N+2, use the static layout.
-        if let Some(shard_layout) = next_next_epoch_config.try_static_shard_layout() {
+        if let Some(shard_layout) = next_next_epoch_config.static_shard_layout() {
             return Ok(shard_layout);
         }
 
@@ -684,24 +685,31 @@ impl EpochManager {
             %boundary_account,
             "dynamic resharding: shard selected for split, deriving new layout"
         );
-        let new_layout = next_shard_layout.derive_v3(boundary_account.clone(), || {
-            self.get_shard_layout_history(current_protocol_version)
-        });
+        let new_layout = next_shard_layout
+            .derive_v3(boundary_account.clone(), || {
+                self.get_shard_layout_history(current_protocol_version, None)
+            })
+            .map_err(|err| EpochError::ShardingError(err.to_string()))?;
         Ok(new_layout)
     }
 
-    /// Get all shard layouts from the given protocol version (exclusive) back to genesis,
-    /// ordered from newest to oldest.
-    fn get_shard_layout_history(&self, protocol_version: ProtocolVersion) -> Vec<ShardLayout> {
+    /// Get all static shard layouts from the given `latest_protocol_version` (inclusive) back to
+    /// `earliest_protocol_version` (or genesis version if `None`), ordered from newest to oldest.
+    /// Protocol versions for which dynamic resharding is enabled are skipped.
+    fn get_shard_layout_history(
+        &self,
+        latest_protocol_version: ProtocolVersion,
+        earliest_protocol_version: Option<ProtocolVersion>,
+    ) -> Vec<ShardLayout> {
         let mut layouts = Vec::new();
-        let genesis_protocol_version = self.config.genesis_protocol_version();
+        let earliest_protocol_version =
+            earliest_protocol_version.unwrap_or_else(|| self.config.genesis_protocol_version());
 
-        // We don't include `protocol_version`, because this method will be called at the epoch
-        // when dynamic resharding is scheduled for the first time. This means that `EpochConfig`
-        // for `protocol_version` uses a dynamic layout, so `get_shard_layout_from_protocol_version`
-        // would panic if we call it.
-        for version in (genesis_protocol_version..protocol_version).rev() {
-            let layout = self.get_shard_layout_from_protocol_version(version);
+        for version in (earliest_protocol_version..=latest_protocol_version).rev() {
+            // Skip protocol versions with dynamic layout
+            let Some(layout) = self.get_static_shard_layout_for_protocol_version(version) else {
+                continue;
+            };
             // avoid duplicates if layout doesn't change
             if layouts.last() != Some(&layout) {
                 layouts.push(layout);
@@ -1560,15 +1568,24 @@ impl EpochManager {
             Ok(shard_layout.clone())
         } else {
             let protocol_version = epoch_info.protocol_version();
-            Ok(self.config.for_protocol_version(protocol_version).static_shard_layout())
+            self.get_static_shard_layout_for_protocol_version(protocol_version).ok_or_else(|| {
+                EpochError::ShardingError(format!(
+                    "shard layout missing. epoch_id={:?} protocol_version={}",
+                    epoch_id, protocol_version
+                ))
+            })
         }
     }
 
-    // TODO(dynamic_resharding): remove this method
-    pub fn get_shard_layout_from_protocol_version(
+    /// Get *static* shard layout for the given protocol version. If the protocol version uses
+    /// dynamic resharding, there is no specific layout assigned to that version, so this method
+    /// returns `None`.
+    ///
+    /// **Tip:** Consider using `get_shard_layout` instead.
+    pub fn get_static_shard_layout_for_protocol_version(
         &self,
         protocol_version: ProtocolVersion,
-    ) -> ShardLayout {
+    ) -> Option<ShardLayout> {
         self.config.for_protocol_version(protocol_version).static_shard_layout()
     }
 
@@ -1803,14 +1820,14 @@ impl EpochManager {
     /// Parameters:
     ///  - `protocol_version`: protocol version of the current epoch
     ///  - `parent_hash`: hash of the parent of the block being produced
-    ///  - `proposed_splits`: mapping containing all proposed shard splits from chunk headers
+    ///  - `chunk_headers`: chunk headers from the block, used to collect proposed shard splits
     ///
     /// Returns `Some((shard_id, boundary_account))` if a shard split should be scheduled.
     pub fn get_upcoming_shard_split(
         &self,
         protocol_version: ProtocolVersion,
         parent_hash: &CryptoHash,
-        proposed_splits: &HashMap<ShardId, TrieSplit>,
+        chunk_headers: &[ShardChunkHeader],
     ) -> Result<Option<(ShardId, AccountId)>, EpochError> {
         // Check if dynamic resharding is enabled
         let epoch_config = self.get_epoch_config(protocol_version);
@@ -1829,9 +1846,17 @@ impl EpochManager {
             return Ok(None);
         }
 
+        // Collect proposed splits from chunk headers
+        let mut proposed_splits = HashMap::new();
+        for chunk_header in chunk_headers {
+            if let Some(split) = chunk_header.proposed_split() {
+                proposed_splits.insert(chunk_header.shard_id(), split.clone());
+            }
+        }
+
         // Pick the shard to split
         let Some((shard_id, split)) =
-            pick_shard_to_split(proposed_splits, dynamic_resharding_config)
+            pick_shard_to_split(&proposed_splits, dynamic_resharding_config)
         else {
             return Ok(None);
         };

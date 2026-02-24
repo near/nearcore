@@ -206,6 +206,7 @@ jobs:
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just

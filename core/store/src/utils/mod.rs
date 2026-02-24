@@ -16,8 +16,9 @@ use near_primitives::receipt::{
     Receipt, ReceivedData, VersionedReceiptEnum,
 };
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
-use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, NonceIndex, StateRoot};
-use std::io;
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, Nonce, NonceIndex, PromiseYieldStatus, StateRoot,
+};
 
 /// Reads an object from Trie.
 /// # Errors
@@ -219,6 +220,46 @@ pub fn has_promise_yield_receipt(
     )
 }
 
+pub fn get_promise_yield_status(
+    trie: &dyn TrieAccess,
+    receiver_id: &AccountId,
+    data_id: CryptoHash,
+) -> Result<Option<PromiseYieldStatus>, StorageError> {
+    get(trie, &TrieKey::PromiseYieldStatus { receiver_id: receiver_id.clone(), data_id })
+}
+
+pub fn has_promise_yield_status(
+    trie: &dyn TrieAccess,
+    receiver_id: &AccountId,
+    data_id: CryptoHash,
+) -> Result<bool, StorageError> {
+    trie.contains_key(
+        &TrieKey::PromiseYieldStatus { receiver_id: receiver_id.clone(), data_id },
+        AccessOptions::DEFAULT,
+    )
+}
+
+pub fn set_promise_yield_status(
+    state_update: &mut TrieUpdate,
+    receiver_id: &AccountId,
+    data_id: CryptoHash,
+    status: PromiseYieldStatus,
+) {
+    set(
+        state_update,
+        TrieKey::PromiseYieldStatus { receiver_id: receiver_id.clone(), data_id },
+        &status,
+    );
+}
+
+pub fn remove_promise_yield_status(
+    state_update: &mut TrieUpdate,
+    receiver_id: &AccountId,
+    data_id: CryptoHash,
+) {
+    state_update.remove(TrieKey::PromiseYieldStatus { receiver_id: receiver_id.clone(), data_id });
+}
+
 pub fn get_buffered_receipt_indices(
     trie: &dyn TrieAccess,
 ) -> Result<BufferedReceiptIndices, StorageError> {
@@ -343,13 +384,21 @@ pub fn compute_gas_key_balance_sum(
     Ok(total)
 }
 
+pub struct RemoveAccountResult {
+    pub gas_key_nonce_count: usize,
+    pub gas_key_nonce_total_key_bytes: usize, // used to calculate compute cost
+}
+
 /// Removes account, code and all access keys and gas keys associated to it.
 pub fn remove_account(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
-) -> Result<(), StorageError> {
+) -> Result<RemoveAccountResult, StorageError> {
     state_update.remove(TrieKey::Account { account_id: account_id.clone() });
     state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
+
+    let mut gas_key_nonce_count: usize = 0;
+    let mut gas_key_nonce_total_key_bytes: usize = 0;
 
     // Removing access keys and gas key nonces
     let lock = state_update.trie().lock_for_iter();
@@ -374,6 +423,8 @@ pub fn remove_account(
                     )
                 })?;
         if let Some(index) = nonce_index {
+            gas_key_nonce_count += 1;
+            gas_key_nonce_total_key_bytes += raw_key.len();
             keys_to_remove.push(TrieKey::GasKeyNonce {
                 account_id: account_id.clone(),
                 public_key: public_key.clone(),
@@ -411,15 +462,15 @@ pub fn remove_account(
     for key in data_keys {
         state_update.remove(TrieKey::ContractData { account_id: account_id.clone(), key });
     }
-    Ok(())
+    Ok(RemoveAccountResult { gas_key_nonce_count, gas_key_nonce_total_key_bytes })
 }
 
-pub fn get_genesis_state_roots(store: &Store) -> io::Result<Option<Vec<StateRoot>>> {
-    Ok(store.get_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY))
+pub fn get_genesis_state_roots(store: &Store) -> Option<Vec<StateRoot>> {
+    store.get_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY)
 }
 
-pub fn get_genesis_congestion_infos(store: &Store) -> io::Result<Option<Vec<CongestionInfo>>> {
-    Ok(store.get_ser::<Vec<CongestionInfo>>(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY))
+pub fn get_genesis_congestion_infos(store: &Store) -> Option<Vec<CongestionInfo>> {
+    store.get_ser::<Vec<CongestionInfo>>(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY)
 }
 
 pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &[StateRoot]) {
@@ -433,8 +484,8 @@ pub fn set_genesis_congestion_infos(
     store_update.set_ser(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY, &congestion_infos);
 }
 
-pub fn get_genesis_height(store: &Store) -> io::Result<Option<BlockHeight>> {
-    Ok(store.get_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY))
+pub fn get_genesis_height(store: &Store) -> Option<BlockHeight> {
+    store.get_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY)
 }
 
 pub fn set_genesis_height(store_update: &mut StoreUpdate, genesis_height: &BlockHeight) {

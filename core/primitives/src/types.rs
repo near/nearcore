@@ -158,26 +158,23 @@ pub type StateChangesKinds = Vec<StateChangeKind>;
 #[easy_ext::ext(StateChangesKindsExt)]
 impl StateChangesKinds {
     pub fn from_changes(
-        raw_changes: &mut dyn Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
-    ) -> Result<StateChangesKinds, std::io::Error> {
+        raw_changes: &mut dyn Iterator<Item = RawStateChangesWithTrieKey>,
+    ) -> StateChangesKinds {
         raw_changes
             .filter_map(|raw_change| {
-                let RawStateChangesWithTrieKey { trie_key, .. } = match raw_change {
-                    Ok(p) => p,
-                    Err(e) => return Some(Err(e)),
-                };
+                let RawStateChangesWithTrieKey { trie_key, .. } = raw_change;
                 match trie_key {
                     TrieKey::Account { account_id } => {
-                        Some(Ok(StateChangeKind::AccountTouched { account_id }))
+                        Some(StateChangeKind::AccountTouched { account_id })
                     }
                     TrieKey::ContractCode { account_id } => {
-                        Some(Ok(StateChangeKind::ContractCodeTouched { account_id }))
+                        Some(StateChangeKind::ContractCodeTouched { account_id })
                     }
                     TrieKey::AccessKey { account_id, .. } => {
-                        Some(Ok(StateChangeKind::AccessKeyTouched { account_id }))
+                        Some(StateChangeKind::AccessKeyTouched { account_id })
                     }
                     TrieKey::ContractData { account_id, .. } => {
-                        Some(Ok(StateChangeKind::DataTouched { account_id }))
+                        Some(StateChangeKind::DataTouched { account_id })
                     }
                     _ => None,
                 }
@@ -329,12 +326,12 @@ pub type StateChanges = Vec<StateChangeWithCause>;
 #[easy_ext::ext(StateChangesExt)]
 impl StateChanges {
     pub fn from_changes(
-        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
-    ) -> Result<StateChanges, std::io::Error> {
+        raw_changes: impl Iterator<Item = RawStateChangesWithTrieKey>,
+    ) -> StateChanges {
         let mut state_changes = Self::new();
 
         for raw_change in raw_changes {
-            let RawStateChangesWithTrieKey { trie_key, changes } = raw_change?;
+            let RawStateChangesWithTrieKey { trie_key, changes } = raw_change;
 
             match trie_key {
                 TrieKey::Account { account_id } => state_changes.extend(changes.into_iter().map(
@@ -442,17 +439,18 @@ impl StateChanges {
                 TrieKey::GlobalContractCode { .. } => {}
                 // Global contract nonce is internal distribution state, not account data.
                 TrieKey::GlobalContractNonce { .. } => {}
+                TrieKey::PromiseYieldStatus { .. } => {}
             }
         }
 
-        Ok(state_changes)
+        state_changes
     }
     pub fn from_account_changes(
-        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
-    ) -> Result<StateChanges, std::io::Error> {
-        let state_changes = Self::from_changes(raw_changes)?;
+        raw_changes: impl Iterator<Item = RawStateChangesWithTrieKey>,
+    ) -> StateChanges {
+        let state_changes = Self::from_changes(raw_changes);
 
-        Ok(state_changes
+        state_changes
             .into_iter()
             .filter(|state_change| {
                 matches!(
@@ -461,15 +459,15 @@ impl StateChanges {
                         | StateChangeValue::AccountDeletion { .. }
                 )
             })
-            .collect())
+            .collect()
     }
 
     pub fn from_access_key_changes(
-        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
-    ) -> Result<StateChanges, std::io::Error> {
-        let state_changes = Self::from_changes(raw_changes)?;
+        raw_changes: impl Iterator<Item = RawStateChangesWithTrieKey>,
+    ) -> StateChanges {
+        let state_changes = Self::from_changes(raw_changes);
 
-        Ok(state_changes
+        state_changes
             .into_iter()
             .filter(|state_change| {
                 matches!(
@@ -479,15 +477,15 @@ impl StateChanges {
                         | StateChangeValue::GasKeyNonceUpdate { .. }
                 )
             })
-            .collect())
+            .collect()
     }
 
     pub fn from_contract_code_changes(
-        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
-    ) -> Result<StateChanges, std::io::Error> {
-        let state_changes = Self::from_changes(raw_changes)?;
+        raw_changes: impl Iterator<Item = RawStateChangesWithTrieKey>,
+    ) -> StateChanges {
+        let state_changes = Self::from_changes(raw_changes);
 
-        Ok(state_changes
+        state_changes
             .into_iter()
             .filter(|state_change| {
                 matches!(
@@ -496,15 +494,15 @@ impl StateChanges {
                         | StateChangeValue::ContractCodeDeletion { .. }
                 )
             })
-            .collect())
+            .collect()
     }
 
     pub fn from_data_changes(
-        raw_changes: impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>>,
-    ) -> Result<StateChanges, std::io::Error> {
-        let state_changes = Self::from_changes(raw_changes)?;
+        raw_changes: impl Iterator<Item = RawStateChangesWithTrieKey>,
+    ) -> StateChanges {
+        let state_changes = Self::from_changes(raw_changes);
 
-        Ok(state_changes
+        state_changes
             .into_iter()
             .filter(|state_change| {
                 matches!(
@@ -512,7 +510,7 @@ impl StateChanges {
                     StateChangeValue::DataUpdate { .. } | StateChangeValue::DataDeletion { .. }
                 )
             })
-            .collect())
+            .collect()
     }
 }
 
@@ -1346,6 +1344,25 @@ pub struct SpiceUncertifiedChunkInfo {
     pub chunk_id: SpiceChunkId,
     pub missing_endorsements: Vec<AccountId>,
     pub present_endorsements: Vec<(AccountId, SpiceStoredVerifiedEndorsement)>,
+}
+
+/// Keeps the current status of a single yield/resume operation. Before yielding and after executing
+/// the resumed receipt there's no status, it is deleted from the state when the yielded receipt is executed.
+/// Possible state transitions:
+/// 1. Happy path:
+/// None --promise_yield_create--> Yielded --promise_yield_resume--> ResumeInitiated --execute--> None
+/// 2. Timeout:
+/// None --promise_yield_create--> Yielded --trigger timeout--> Yielded --timeout arrives,execute--> None
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, Eq, ProtocolSchema)]
+#[borsh(use_discriminant = true)]
+pub enum PromiseYieldStatus {
+    /// The contract performed `yield`. It didn't perform `resume` yet.
+    Yielded = 0,
+    /// The contract performed `resume` at least once, there are some `PromiseResume` receipts in
+    /// flight. The yielded receipt wasn't applied yet, it's still waiting for the first
+    /// `PromiseResume` receipt to arrive. Timeouts don't count as `ResumeInitiated`, the resumption
+    /// has to be coming from the contract itself.
+    ResumeInitiated = 1,
 }
 
 #[cfg(test)]

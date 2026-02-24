@@ -52,13 +52,13 @@ pub enum RpcQueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Access key for public key {public_key} has never been observed on the node")]
+    #[error("Access key for public key {public_key} does not exist while viewing")]
     UnknownAccessKey {
         public_key: near_crypto::PublicKey,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
-    #[error("Gas key for public key {public_key} has never been observed on the node")]
+    #[error("Gas key for public key {public_key} does not exist while viewing")]
     UnknownGasKey {
         public_key: near_crypto::PublicKey,
         block_height: near_primitives::types::BlockHeight,
@@ -102,7 +102,36 @@ pub enum QueryResponseKind {
     CallResult(near_primitives::views::CallResult),
     AccessKey(near_primitives::views::AccessKeyView),
     AccessKeyList(near_primitives::views::AccessKeyList),
-    GasKeyNonces(Vec<near_primitives::types::Nonce>),
+    GasKeyNonces(near_primitives::views::GasKeyNoncesView),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::views::GasKeyNoncesView;
+
+    /// Regression: bare `Vec<Nonce>` can't be flattened into an object.
+    #[test]
+    fn gas_key_nonces_rpc_response_round_trip() {
+        let response = RpcQueryResponse {
+            kind: QueryResponseKind::GasKeyNonces(GasKeyNoncesView { nonces: vec![1] }),
+            block_height: 123,
+            block_hash: CryptoHash::default(),
+        };
+
+        // This would fail if GasKeyNonces held a bare Vec<Nonce>.
+        let value = serde_json::to_value(&response).expect("must serialize");
+
+        // The flattened response should have nonces and block_height at the top level.
+        assert_eq!(value["nonces"], serde_json::json!([1]));
+        assert_eq!(value["block_height"], 123);
+
+        // Verify round-trip deserialization.
+        let rt: RpcQueryResponse = serde_json::from_value(value).expect("must deserialize");
+        let QueryResponseKind::GasKeyNonces(view) = rt.kind else { panic!("wrong variant") };
+        assert_eq!(view.nonces, vec![1]);
+    }
 }
 
 impl From<RpcQueryError> for crate::errors::RpcError {

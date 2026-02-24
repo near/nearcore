@@ -1,7 +1,5 @@
-use crate::epoch_manager::EpochConfigStore;
 use crate::shard_layout::{ShardLayout, ShardUId};
 use itertools::Itertools;
-use near_primitives_core::types::ProtocolVersion;
 use near_primitives_core::types::{AccountId, ShardId};
 use rand::distributions::Alphanumeric;
 use rand::rngs::StdRng;
@@ -20,14 +18,6 @@ fn new_shards_split_map_v1(shards_split_map: Vec<Vec<u64>>) -> ShardsSplitMapV1 
 
 fn new_shards_split_map_v2(shards_split_map: BTreeMap<u64, Vec<u64>>) -> ShardsSplitMapV2 {
     shards_split_map.into_iter().map(|(k, v)| (k.into(), new_shard_ids_vec(v))).collect()
-}
-
-impl ShardLayout {
-    /// Constructor for tests that need a shard layout for a specific protocol version.
-    pub fn for_protocol_version(protocol_version: ProtocolVersion) -> Self {
-        let config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-        config_store.get_config(protocol_version).static_shard_layout()
-    }
 }
 
 #[test]
@@ -334,7 +324,7 @@ fn derive_v3() {
 
     // derive layout: split shard 2 into 3 & 4 on account "test3"
     let boundary: AccountId = "test3.near".parse().unwrap();
-    let derived_layout = base_layout.derive_v3(boundary, || unreachable!());
+    let derived_layout = base_layout.derive_v3(boundary, || unreachable!()).unwrap();
 
     assert_eq!(derived_layout.shard_ids().collect_vec(), to_shard_ids([1, 3, 4]));
     assert_eq!(
@@ -371,7 +361,7 @@ fn derive_v3() {
     // derive layout: split shard 3 into 5 & 6 on account "test2"
     let base_layout = derived_layout;
     let boundary: AccountId = "test2.near".parse().unwrap();
-    let derived_layout = base_layout.derive_v3(boundary, || unreachable!());
+    let derived_layout = base_layout.derive_v3(boundary, || unreachable!()).unwrap();
 
     assert_eq!(derived_layout.shard_ids().collect_vec(), to_shard_ids([1, 5, 6, 4]));
     assert_eq!(
@@ -423,7 +413,7 @@ fn derive_v3_from_history() {
 
     let boundary = "aaa".parse().unwrap();
     let history = vec![layout2.clone(), layout1, layout0];
-    let layout3 = layout2.derive_v3(boundary, || history);
+    let layout3 = layout2.derive_v3(boundary, || history).unwrap();
 
     assert_eq!(layout3.shard_ids().collect_vec(), to_shard_ids([5, 6, 3, 4]));
     assert_eq!(layout3.boundary_accounts(), &to_boundary_accounts(["aaa", "bbb", "ccc"]));
@@ -443,6 +433,22 @@ fn derive_v3_from_history() {
     assert_eq!(layout3.ancestor_uids(ShardId::new(6)), Some(to_shard_uids([1, 0])));
     assert_eq!(layout3.ancestor_uids(ShardId::new(3)), Some(to_shard_uids([2, 0])));
     assert_eq!(layout3.ancestor_uids(ShardId::new(4)), Some(to_shard_uids([2, 0])));
+}
+
+/// Verify that `derive_v3` returns an error when given a boundary account that already exists
+/// in the base shard layout.
+#[test]
+fn derive_v3_duplicate_boundary() {
+    let base_layout = ShardLayout::v3(
+        to_boundary_accounts(["test1.near"]),
+        to_shard_ids([1, 2]),
+        to_shards_split_map([(0, vec![1, 2])]),
+        ShardId::new(0),
+    );
+
+    let duplicate_boundary: AccountId = "test1.near".parse().unwrap();
+    let result = base_layout.derive_v3(duplicate_boundary, || unreachable!());
+    assert!(result.is_err());
 }
 
 // Check that the ShardLayout::multi_shard method returns interesting shard

@@ -219,17 +219,6 @@ pub enum ExternalStorageLocation {
     GCS { bucket: String },
 }
 
-impl ExternalStorageLocation {
-    /// Human-readable backend name.
-    pub fn name(&self) -> &str {
-        match self {
-            Self::S3 { .. } => "S3",
-            Self::Filesystem { .. } => "Filesystem",
-            Self::GCS { .. } => "GCS",
-        }
-    }
-}
-
 fn default_state_parts_compression_level() -> i32 {
     DEFAULT_STATE_PARTS_COMPRESSION_LEVEL
 }
@@ -421,11 +410,12 @@ impl StateSyncConfig {
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct EpochSyncConfig {
-    /// This serves as two purposes: (1) the node will not epoch sync and instead resort to
-    /// header sync, if the genesis block is within this many blocks from the current block;
-    /// (2) the node will reject an epoch sync proof if the provided proof is for an epoch
-    /// that is more than this many blocks behind the current block.
-    pub epoch_sync_horizon: BlockHeightDelta,
+    /// Number of epochs behind the network head beyond which the node will use
+    /// epoch sync instead of header sync. Also the maximum age (in epochs) of
+    /// accepted epoch sync proofs. At the consumption site, this is multiplied
+    /// by epoch_length to get the horizon in blocks.
+    #[serde(default = "default_epoch_sync_horizon_num_epochs")]
+    pub epoch_sync_horizon_num_epochs: u64,
     /// Timeout for epoch sync requests. The node will continue retrying indefinitely even
     /// if this timeout is exceeded.
     #[serde(with = "near_time::serde_duration_as_std")]
@@ -433,14 +423,18 @@ pub struct EpochSyncConfig {
     pub timeout_for_epoch_sync: Duration,
 }
 
+fn default_epoch_sync_horizon_num_epochs() -> u64 {
+    4
+}
+
 impl Default for EpochSyncConfig {
     fn default() -> Self {
         Self {
-            // Mainnet is 43200 blocks per epoch, so let's default to epoch sync if
-            // we're more than 4 epochs behind, and we accept proofs up to 2 epochs old.
+            // Default to epoch sync if we're more than 4 epochs behind,
+            // and we accept proofs up to 2 epochs old.
             // Note that in case we are not doing epoch sync, we would need to be within
             // the GC period (typically 5 epochs) to be able to do header sync.
-            epoch_sync_horizon: 172_800,
+            epoch_sync_horizon_num_epochs: default_epoch_sync_horizon_num_epochs(),
             timeout_for_epoch_sync: Duration::seconds(60),
         }
     }

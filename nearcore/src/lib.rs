@@ -7,7 +7,7 @@ use crate::metrics::spawn_trie_metrics_loop;
 use crate::state_sync::StateSyncDumper;
 use anyhow::Context;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
-use near_async::time::{self, Clock};
+use near_async::time::Clock;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
@@ -29,6 +29,7 @@ use near_client::archive::cloud_archival_writer::{
 };
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
+use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
@@ -192,7 +193,7 @@ pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result
 
     assert_eq!(
         near_config.config.archive,
-        storage.is_local_archive()? || storage.is_cloud_archive()
+        storage.is_local_archive() || storage.is_cloud_archive()
     );
     Ok(storage)
 }
@@ -307,7 +308,7 @@ fn spawn_spice_actors(
         network_adapter.clone(),
         validator_signer.clone(),
         {
-            let thread_limit = runtime.get_shard_layout(PROTOCOL_VERSION).num_shards() as usize * 3;
+            let thread_limit = runtime.get_shard_limit(PROTOCOL_VERSION) as usize * 3;
             ApplyChunksSpawner::default().into_spawner(thread_limit)
         },
         Default::default(),
@@ -369,7 +370,7 @@ pub fn start_with_config_and_synchronization(
     actor_system: ActorSystem,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
-    shutdown_signal: Option<broadcast::Sender<()>>,
+    shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
     config_updater: Option<ConfigUpdater>,
 ) -> impl Future<Output = anyhow::Result<NearNode>> {
     // Pins the future to avoid large stack frame.
@@ -386,7 +387,7 @@ pub async fn start_with_config_and_synchronization_impl(
     home_dir: &Path,
     config: NearConfig,
     actor_system: ActorSystem,
-    shutdown_signal: Option<broadcast::Sender<()>>,
+    shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
     let storage = open_storage(home_dir, &config)?;
@@ -493,7 +494,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let telemetry =
         TelemetryActor::spawn_tokio_actor(actor_system.clone(), config.telemetry_config.clone());
     let chain_genesis = ChainGenesis::new(&config.genesis.config);
-    let state_roots = near_store::get_genesis_state_roots(runtime.store())?
+    let state_roots = near_store::get_genesis_state_roots(runtime.store())
         .expect("genesis should be initialized.");
     let (genesis_block, _genesis_chunks) = Chain::make_genesis_block(
         epoch_manager.as_ref(),
@@ -581,7 +582,7 @@ pub async fn start_with_config_and_synchronization_impl(
         epoch_manager.clone(),
         shard_tracker.clone(),
         config.client_config.gc.clone(),
-        storage.is_local_archive()?,
+        storage.is_local_archive(),
     ));
 
     let resharding_handle = ReshardingHandle::new();
@@ -709,13 +710,13 @@ pub async fn start_with_config_and_synchronization_impl(
         validator: config.validator_signer.clone(),
         future_spawner: state_sync_spawner,
     };
-    state_sync_dumper.start()?;
+    state_sync_dumper.start();
 
     let hot_store = storage.get_hot_store();
     let cold_store = storage.get_cold_store();
 
     let network_actor = PeerManagerActor::spawn(
-        time::Clock::real(),
+        Clock::real(),
         actor_system.clone(),
         storage.into_inner(near_store::Temperature::Hot),
         config.network_config,
@@ -752,6 +753,7 @@ pub async fn start_with_config_and_synchronization_impl(
             cold_store,
         };
         near_jsonrpc::start_http(
+            Clock::real(),
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone().into_multi_sender(),

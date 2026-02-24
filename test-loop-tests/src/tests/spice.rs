@@ -95,8 +95,9 @@ fn test_spice_chain() {
         let shard_id = shard_layout.account_id_to_shard_id(account);
         let cp =
             &epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id).unwrap()[0];
-        let node = TestLoopNode::from(get_node_data(&node_datas, cp));
-        node.view_account_query(test_loop_data, account).amount
+        let node_data = get_node_data(&node_datas, cp);
+        let node = TestLoopNode { data: test_loop_data, node_data };
+        node.view_account_query(account).unwrap().amount
     };
 
     let epoch_id = client.chain.head().unwrap().epoch_id;
@@ -190,18 +191,19 @@ fn test_spice_chain_with_delayed_execution() {
 
     env = env.warmup();
 
-    let node = TestLoopNode::for_account(&env.node_datas, &producer_account);
+    let block_hash = env.node_for_account(&producer_account).head().last_block_hash;
     let tx = SignedTransaction::send_money(
         1,
         sender.clone(),
         receiver.clone(),
         &create_user_test_signer(&sender),
         Balance::from_near(1),
-        node.head(env.test_loop_data()).last_block_hash,
+        block_hash,
     );
-    node.run_tx(&mut env.test_loop, tx, Duration::seconds(10));
+    env.runner_for_account(&producer_account).run_tx(tx, Duration::seconds(10));
 
-    let view_account_result = node.view_account_query(&env.test_loop.data, &receiver);
+    let view_account_result =
+        env.node_for_account(&producer_account).view_account_query(&receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -209,7 +211,7 @@ fn test_spice_chain_with_delayed_execution() {
 
 /// Sets up a spice env with delayed endorsements so execution lags behind
 /// consensus, and runs until there is a gap of at least 3 blocks.
-fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, TestLoopNode<'static>) {
+fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, AccountId) {
     let num_producers = 2;
     let num_validators = 0;
     let validators_spec = create_validators_spec(num_producers, num_validators);
@@ -229,31 +231,32 @@ fn setup_spice_env_with_execution_delay() -> (TestLoopEnv, TestLoopNode<'static>
 
     let mut env = env.warmup();
 
-    let node = TestLoopNode::for_account(&env.node_datas, &producer_account).into_owned();
-
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let head = node.head(test_loop_data);
-            let execution_head = node.last_executed(test_loop_data);
+    env.runner_for_account(&producer_account).run_until(
+        |node| {
+            let head = node.head();
+            let execution_head = node.last_executed();
             head.height > execution_head.height + 2
         },
         Duration::seconds(20),
     );
 
-    (env, node)
+    (env, producer_account)
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_rpc_get_block_by_finality() {
     init_test_logger();
-    let (mut env, node) = setup_spice_env_with_execution_delay();
+    let (mut env, producer_account) = setup_spice_env_with_execution_delay();
 
-    let test_loop_data = env.test_loop_data();
-    let execution_head = node.last_executed(test_loop_data);
-    let final_head = node.client(test_loop_data).chain.final_head().unwrap();
+    let execution_head = env.node_for_account(&producer_account).last_executed();
+    let final_head = {
+        let node = env.node_for_account(&producer_account);
+        node.client().chain.final_head().unwrap()
+    };
 
-    let view_client = env.test_loop.data.get_mut(&node.data().view_client_sender.actor_handle());
+    let node_data = env.get_node_data_by_account_id(&producer_account);
+    let view_client = env.test_loop.data.get_mut(&node_data.view_client_sender.actor_handle());
     let block_none =
         view_client.handle(GetBlock(BlockReference::Finality(Finality::None))).unwrap();
     assert_eq!(block_none.header.height, execution_head.height);
@@ -272,14 +275,14 @@ fn test_spice_rpc_get_block_by_finality() {
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_rpc_unknown_block_past_execution_head() {
     init_test_logger();
-    let (mut env, node) = setup_spice_env_with_execution_delay();
+    let (mut env, producer_account) = setup_spice_env_with_execution_delay();
 
-    let test_loop_data = env.test_loop_data();
-    let execution_head = node.last_executed(test_loop_data);
-    let consensus_head = node.head(test_loop_data);
+    let execution_head = env.node_for_account(&producer_account).last_executed();
+    let consensus_head = env.node_for_account(&producer_account).head();
     assert!(consensus_head.height > execution_head.height + 1);
 
-    let view_client = env.test_loop.data.get_mut(&node.data().view_client_sender.actor_handle());
+    let node_data = env.get_node_data_by_account_id(&producer_account);
+    let view_client = env.test_loop.data.get_mut(&node_data.view_client_sender.actor_handle());
 
     // Query by height within execution head: should succeed
     let result = view_client
@@ -343,12 +346,8 @@ fn test_spice_garbage_collection() {
         .build()
         .warmup();
 
-    let node = TestLoopNode::rpc(&env.node_datas);
-    env.test_loop.run_until(
-        // We want to make sure that gc runs at least once and it doesn't trigger any asserts.
-        |test_loop_data| node.tail(test_loop_data) >= epoch_length,
-        Duration::seconds(20),
-    );
+    // We want to make sure that gc runs at least once and it doesn't trigger any asserts.
+    env.rpc_runner().run_until(|node| node.tail() >= epoch_length, Duration::seconds(20));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
@@ -384,10 +383,9 @@ fn test_spice_garbage_collection_witnesses() {
     env = env.warmup();
 
     // Use a chunk producer node (not RPC) since only chunk producers store witnesses.
-    let producer_node = TestLoopNode::from(env.node_datas[0].clone());
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let chain_store = &producer_node.client(test_loop_data).chain.chain_store;
+    env.node_runner(0).run_until(
+        |node| {
+            let chain_store = &node.client().chain.chain_store;
             let final_head = chain_store.final_head().unwrap();
             get_last_certified_block_header(chain_store, &final_head.last_block_hash)
                 .map_or(0, |header| header.height())
@@ -395,13 +393,14 @@ fn test_spice_garbage_collection_witnesses() {
         },
         Duration::seconds(20),
     );
-    let shard_tracker = &producer_node.client(env.test_loop_data()).shard_tracker;
+    let shard_tracker = env.node(0).client().shard_tracker.clone();
     let tracked_shards: Vec<_> = shard_layout
         .shard_ids()
         // This gets tracked shards for genesis, but it should not change during the test.
         .filter(|shard_id| shard_tracker.cares_about_shard(&CryptoHash::default(), *shard_id))
         .collect();
-    let chain_store = &producer_node.client(env.test_loop_data()).chain.chain_store;
+    let node = env.node(0);
+    let chain_store = &node.client().chain.chain_store;
     assert_witness_gc_invariant(chain_store, &tracked_shards);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -469,33 +468,34 @@ fn test_restart_rpc_node() {
         .build()
         .warmup();
 
-    let rpc = TestLoopNode::rpc(&env.node_datas).into_owned();
-    let node = TestLoopNode::from(env.node_datas[0].clone());
-    assert_ne!(rpc.data().account_id, node.data().account_id);
+    let rpc_id = crate::utils::account::rpc_account_id();
+    let node_account = env.node_datas[0].account_id.clone();
+    assert_ne!(rpc_id, node_account);
 
-    rpc.run_until_head_height(&mut env.test_loop, 5);
-    let killed_rpc_state = env.kill_node(&rpc.data().identifier);
+    env.rpc_runner().run_until_head_height(5);
+    let rpc_identifier = env.get_node_data_by_account_id(&rpc_id).identifier.clone();
+    let killed_rpc_state = env.kill_node(&rpc_identifier);
 
+    let block_hash = env.node(0).head().last_block_hash;
     let tx = SignedTransaction::send_money(
         1,
         sender.clone(),
         receiver.clone(),
         &create_user_test_signer(&sender),
         Balance::from_near(1),
-        node.head(env.test_loop_data()).last_block_hash,
+        block_hash,
     );
-    node.run_tx(&mut env.test_loop, tx, Duration::seconds(20));
+    env.node_runner(0).run_tx(tx, Duration::seconds(20));
 
-    let new_rpc_identifier = format!("{}-restart", rpc.data().identifier);
+    let new_rpc_identifier = format!("{}-restart", rpc_identifier);
     env.restart_node(&new_rpc_identifier, killed_rpc_state);
     // After restart new node_datas are created.
-    let rpc = TestLoopNode::rpc(&env.node_datas);
 
-    assert_ne!(rpc.head(env.test_loop_data()).height, node.head(env.test_loop_data()).height);
+    assert_ne!(env.rpc_node().head().height, env.node(0).head().height);
 
-    rpc.run_for_number_of_blocks(&mut env.test_loop, 5);
+    env.rpc_runner().run_for_number_of_blocks(5);
 
-    let view_account_result = rpc.view_account_query(&env.test_loop.data, &receiver);
+    let view_account_result = env.rpc_node().view_account_query(&receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -541,42 +541,42 @@ fn test_restart_producer_node() {
 
     let mut env = env.warmup();
 
-    let node = TestLoopNode::from(env.node_datas[0].clone());
-    let client = node.client(env.test_loop_data());
-    let epoch_id = client.chain.head().unwrap().epoch_id;
+    let epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
     let shard_id = shard_layout.account_id_to_shard_id(&receiver);
-    let epoch_manager = client.epoch_manager.clone();
+    let epoch_manager = env.node(0).client().epoch_manager.clone();
     let producers = epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id).unwrap();
 
-    let restart_node = TestLoopNode::for_account(&env.node_datas, &producers[0]).into_owned();
-    let stable_node = TestLoopNode::for_account(&env.node_datas, &producers[1]).into_owned();
+    let restart_account = producers[0].clone();
+    let stable_account = producers[1].clone();
 
-    restart_node.run_until_head_height(&mut env.test_loop, 5);
-    let killed_node_state = env.kill_node(&restart_node.data().identifier);
+    env.runner_for_account(&restart_account).run_until_head_height(5);
+    let restart_identifier = env.get_node_data_by_account_id(&restart_account).identifier.clone();
+    let killed_node_state = env.kill_node(&restart_identifier);
 
+    let block_hash = env.node_for_account(&stable_account).head().last_block_hash;
     let tx = SignedTransaction::send_money(
         1,
         sender.clone(),
         receiver.clone(),
         &create_user_test_signer(&sender),
         Balance::from_near(1),
-        stable_node.head(env.test_loop_data()).last_block_hash,
+        block_hash,
     );
-    stable_node.run_tx(&mut env.test_loop, tx, Duration::seconds(20));
+    env.runner_for_account(&stable_account).run_tx(tx, Duration::seconds(20));
 
-    let new_node_identifier = format!("{}-restart", restart_node.data().identifier);
+    let new_node_identifier = format!("{}-restart", restart_identifier);
     env.restart_node(&new_node_identifier, killed_node_state);
     // After restart new node_datas are created.
-    let restart_node = TestLoopNode::for_account(&env.node_datas, &restart_node.data().account_id);
 
     assert_ne!(
-        restart_node.head(env.test_loop_data()).height,
-        stable_node.head(env.test_loop_data()).height
+        env.node_for_account(&restart_account).head().height,
+        env.node_for_account(&stable_account).head().height
     );
 
-    restart_node.run_for_number_of_blocks(&mut env.test_loop, 10);
+    env.runner_for_account(&restart_account).run_for_number_of_blocks(10);
 
-    let view_account_result = restart_node.view_account_query(&env.test_loop.data, &receiver);
+    let view_account_result =
+        env.node_for_account(&restart_account).view_account_query(&receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -614,10 +614,8 @@ fn test_restart_validator_node() {
 
     let mut env = env.warmup();
 
-    let node = TestLoopNode::from(env.node_datas[0].clone());
-    let client = node.client(env.test_loop_data());
-    let epoch_id = client.chain.head().unwrap().epoch_id;
-    let epoch_manager = client.epoch_manager.clone();
+    let epoch_id = env.node(0).client().chain.head().unwrap().epoch_id;
+    let epoch_manager = env.node(0).client().epoch_manager.clone();
     let producer = epoch_manager
         .get_epoch_chunk_producers(&epoch_id)
         .unwrap()
@@ -626,19 +624,15 @@ fn test_restart_validator_node() {
         .unwrap()
         .take_account_id();
 
-    let producer_node = TestLoopNode::for_account(&env.node_datas, &producer).into_owned();
-    let validator_node = {
-        let node_datas = env
-            .node_datas
-            .iter()
-            .filter(|data| data.account_id != producer_node.data().account_id)
-            .next()
-            .unwrap();
-        TestLoopNode::from(node_datas.clone())
-    };
+    let validator_account: AccountId =
+        env.node_datas.iter().find(|data| data.account_id != producer).unwrap().account_id.clone();
 
-    producer_node.run_until_head_height(&mut env.test_loop, 5);
-    let killed_node_state = env.kill_node(&validator_node.data().identifier);
+    env.runner_for_account(&producer).run_until_head_height(5);
+    let validator_identifier =
+        env.get_node_data_by_account_id(&validator_account).identifier.clone();
+    // Save block hash from validator before killing it.
+    let validator_block_hash = env.node_for_account(&validator_account).head().last_block_hash;
+    let killed_node_state = env.kill_node(&validator_identifier);
 
     let tx = SignedTransaction::send_money(
         1,
@@ -646,44 +640,45 @@ fn test_restart_validator_node() {
         receiver.clone(),
         &create_user_test_signer(&sender),
         Balance::from_near(1),
-        validator_node.head(env.test_loop_data()).last_block_hash,
+        validator_block_hash,
     );
-    let tx_processor_sender = &producer_node.data().rpc_handler_sender;
+    let tx_processor_sender = env.get_node_data_by_account_id(&producer).rpc_handler_sender.clone();
     let retry_when_congested = false;
     let mut tx_runner = TransactionRunner::new(tx, retry_when_congested);
     let future_spawner = env.test_loop.future_spawner("TransactionRunner");
 
-    let start_height = producer_node.head(env.test_loop_data()).height;
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let client = producer_node.client(test_loop_data);
+    let start_height = env.node_for_account(&producer).head().height;
+    let producer_identifier = env.get_node_data_by_account_id(&producer).identifier.clone();
+    env.runner_for_account(&producer).run_until(
+        |node| {
+            let client = node.client();
             if let Poll::Ready(tx_res) =
                 tx_runner.poll(&tx_processor_sender, client, &future_spawner)
             {
                 panic!("Transaction executed without validator in place, result: {tx_res:?}");
             }
-            producer_node.head(test_loop_data).height > start_height + 5
+            node.head().height > start_height + 5
         },
         Duration::seconds(5),
     );
 
-    let new_node_identifier = format!("{}-restart", producer_node.data().identifier);
+    let new_node_identifier = format!("{}-restart", producer_identifier);
     env.restart_node(&new_node_identifier, killed_node_state);
     // After restart new node_datas are created.
-    let validator_node =
-        TestLoopNode::for_account(&env.node_datas, &validator_node.data().account_id);
 
     assert_ne!(
-        producer_node.head(env.test_loop_data()).height,
-        validator_node.head(env.test_loop_data()).height
+        env.node_for_account(&producer).head().height,
+        env.node_for_account(&validator_account).head().height
     );
 
-    let view_account_result = producer_node.view_account_query(&env.test_loop.data, &receiver);
+    let view_account_result =
+        env.node_for_account(&producer).view_account_query(&receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(0));
 
-    producer_node.run_for_number_of_blocks(&mut env.test_loop, 10);
+    env.runner_for_account(&producer).run_for_number_of_blocks(10);
 
-    let view_account_result = producer_node.view_account_query(&env.test_loop.data, &receiver);
+    let view_account_result =
+        env.node_for_account(&producer).view_account_query(&receiver).unwrap();
     assert_eq!(view_account_result.amount, Balance::from_near(1));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
@@ -723,25 +718,22 @@ fn test_spice_chain_with_missing_chunks() {
         .build()
         .warmup();
 
-    let rpc_node = TestLoopNode::rpc(&env.node_datas);
-    let client = rpc_node.client(env.test_loop_data());
-    let epoch_manager = client.epoch_manager.clone();
-    let node_with_missing_chunks = epoch_manager
-        .get_epoch_chunk_producers(client.chain.get_head_block().unwrap().header().epoch_id())
+    let epoch_manager = env.rpc_node().client().epoch_manager.clone();
+    let head_epoch_id =
+        *env.rpc_node().client().chain.get_head_block().unwrap().header().epoch_id();
+    let node_with_missing_chunks_account = epoch_manager
+        .get_epoch_chunk_producers(&head_epoch_id)
         .unwrap()
         .swap_remove(0)
         .take_account_id();
-    let node_with_missing_chunks =
-        TestLoopNode::for_account(&env.node_datas, &node_with_missing_chunks);
-    node_with_missing_chunks.send_adversarial_message(
-        &mut env.test_loop,
+    env.runner_for_account(&node_with_missing_chunks_account).send_adversarial_message(
         near_client::NetworkAdversarialMessage::AdvProduceChunks(
             near_client::client_actor::AdvProduceChunksMode::StopProduce,
         ),
     );
 
     for account in &accounts {
-        let got_balance = rpc_node.view_account_query(&env.test_loop.data, account).amount;
+        let got_balance = env.rpc_node().view_account_query(account).unwrap().amount;
         assert_eq!(got_balance, INITIAL_BALANCE);
     }
 
@@ -750,17 +742,17 @@ fn test_spice_chain_with_missing_chunks() {
     let node_data = env
         .node_datas
         .iter()
-        .find(|node_data| node_data.account_id != node_with_missing_chunks.data().account_id)
+        .find(|node_data| node_data.account_id != node_with_missing_chunks_account)
         .unwrap()
         .clone();
     let (sent_txs, balance_changes) =
         schedule_send_money_txs(&[node_data], &accounts, &env.test_loop);
 
     let mut observed_txs = HashSet::new();
-    env.test_loop.run_until(
-        |test_loop_data| {
-            let head = rpc_node.head(test_loop_data);
-            let client = rpc_node.client(test_loop_data);
+    env.rpc_runner().run_until(
+        |node| {
+            let head = node.head();
+            let client = node.client();
             let block = client.chain.get_block(&head.last_block_hash).unwrap();
             for chunk in block.chunks().iter() {
                 let Ok(chunk) = client.chain.get_chunk(&chunk.chunk_hash()) else {
@@ -776,43 +768,47 @@ fn test_spice_chain_with_missing_chunks() {
     );
 
     // A few more blocks to make sure everything is executed.
-    let head_height = rpc_node.head(env.test_loop_data()).height;
-    rpc_node.run_until_head_height(&mut env.test_loop, head_height + 3);
+    let head_height = env.rpc_node().head().height;
+    env.rpc_runner().run_until_head_height(head_height + 3);
 
-    let client = rpc_node.client(env.test_loop_data());
-    let mut block =
-        client.chain.get_block(&client.chain.final_head().unwrap().last_block_hash).unwrap();
-    let mut missed_execution = false;
-    let mut have_missing_chunks = false;
-    while !block.header().is_genesis() {
-        for chunk in block.chunks().iter_raw() {
-            if !chunk.is_new_chunk(block.header().height()) {
-                have_missing_chunks = true;
+    {
+        let node = env.rpc_node();
+        let client = node.client();
+        let mut block =
+            client.chain.get_block(&client.chain.final_head().unwrap().last_block_hash).unwrap();
+        let mut missed_execution = false;
+        let mut have_missing_chunks = false;
+        while !block.header().is_genesis() {
+            for chunk in block.chunks().iter_raw() {
+                if !chunk.is_new_chunk(block.header().height()) {
+                    have_missing_chunks = true;
+                }
             }
+
+            if !client.chain.spice_core_reader.all_execution_results_exist(block.header()).unwrap()
+            {
+                let execution_results = client
+                    .chain
+                    .spice_core_reader
+                    .get_execution_results_by_shard_id(block.header())
+                    .unwrap();
+                missed_execution = true;
+                println!(
+                    "not all execution result for block at height: {}; execution_results: {:?}",
+                    block.header().height(),
+                    execution_results
+                );
+            }
+            block = client.chain.get_block(block.header().prev_hash()).unwrap();
         }
 
-        if !client.chain.spice_core_reader.all_execution_results_exist(block.header()).unwrap() {
-            let execution_results = client
-                .chain
-                .spice_core_reader
-                .get_execution_results_by_shard_id(block.header())
-                .unwrap();
-            missed_execution = true;
-            println!(
-                "not all execution result for block at height: {}; execution_results: {:?}",
-                block.header().height(),
-                execution_results
-            );
-        }
-        block = client.chain.get_block(block.header().prev_hash()).unwrap();
+        assert!(!missed_execution, "some of the blocks are missing execution results");
+        assert!(have_missing_chunks);
     }
-
-    assert!(!missed_execution, "some of the blocks are missing execution results");
-    assert!(have_missing_chunks);
 
     assert!(!balance_changes.is_empty());
     for (account, balance_change) in &balance_changes {
-        let got_balance = rpc_node.view_account_query(&env.test_loop.data, account).amount;
+        let got_balance = env.rpc_node().view_account_query(account).unwrap().amount;
         let want_balance = Balance::from_yoctonear(
             (INITIAL_BALANCE.as_yoctonear() as i128 + balance_change).try_into().unwrap(),
         );

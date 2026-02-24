@@ -33,10 +33,8 @@ pub fn undo_block(
 
     chain_store_update.commit()?;
 
-    chain_store.save_latest_known(LatestKnown {
-        height: prev_tip.height,
-        seen: to_timestamp(Utc::now()),
-    })?;
+    chain_store
+        .save_latest_known(LatestKnown { height: prev_tip.height, seen: to_timestamp(Utc::now()) });
 
     let new_chain_store_head = chain_store.head()?;
     let new_chain_store_header_head = chain_store.header_head()?;
@@ -56,7 +54,7 @@ pub fn undo_only_block_head(
     let current_header_head = chain_store.header_head()?;
     let current_header_height = current_header_head.height;
 
-    let tail_height = chain_store.tail()?;
+    let tail_height = chain_store.tail();
     let tail_header = chain_store.get_block_header_by_height(tail_height)?;
     let new_head = Tip::from_header(&tail_header);
 

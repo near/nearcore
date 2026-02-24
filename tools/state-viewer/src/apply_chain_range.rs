@@ -15,7 +15,7 @@ use near_chain_configs::Genesis;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
+use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptSource};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
@@ -484,7 +484,11 @@ fn apply_block_from_range(
             raw_timestamp,
             apply_result.total_gas_burnt,
             chunk_present,
-            apply_result.processed_delayed_receipts.len(),
+            apply_result
+                .processed_receipts
+                .iter()
+                .filter(|pr| pr.source == ReceiptSource::Delayed)
+                .count(),
             delayed_indices.unwrap_or(None).map_or(0, |d| d.next_available_index - d.first_index),
             apply_result.trie_changes.state_changes().len(),
         ),
@@ -640,7 +644,7 @@ pub fn apply_chain_range(
             assert!(start_height.is_none());
             assert!(end_height.is_none());
             let flat_status = read_store.flat_store().get_flat_storage_status(shard_uid);
-            let Ok(FlatStorageStatus::Ready(ready)) = flat_status else {
+            let FlatStorageStatus::Ready(ready) = flat_status else {
                 panic!("cannot create flat storage for shard {shard_uid} due to {flat_status:?}")
             };
             // We apply the block at flat_head. Users can set the block they want to benchmark by
@@ -649,13 +653,13 @@ pub fn apply_chain_range(
             (ready.flat_head.height + 1, 0)
         }
         (_, StorageSource::Trie | StorageSource::TrieFree) => (
-            start_height.unwrap_or_else(|| chain_store.tail().unwrap()),
+            start_height.unwrap_or_else(|| chain_store.tail()),
             end_height.unwrap_or_else(|| chain_store.head().unwrap().height),
         ),
         (_, StorageSource::FlatStorage | StorageSource::Memtrie) => {
             let start_height = start_height.unwrap_or_else(|| {
                 let status = read_store.flat_store().get_flat_storage_status(shard_uid);
-                let Ok(FlatStorageStatus::Ready(ready)) = status else {
+                let FlatStorageStatus::Ready(ready) = status else {
                     panic!("cannot create flat storage for shard {shard_uid} due to {status:?}")
                 };
                 ready.flat_head.height + 1

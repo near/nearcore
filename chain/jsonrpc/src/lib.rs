@@ -11,7 +11,7 @@ use axum::routing::{get, post};
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::instrumentation::all_actor_instrumentations_view;
 use near_async::messaging::{AsyncSendError, AsyncSender, CanSend, CanSendAsync, Sender};
-use near_async::time::Clock;
+use near_async::time::{Clock, Duration};
 use near_chain_configs::{ClientConfig, GenesisConfig, ProtocolConfigView};
 use near_client::{
     DebugStatus, GetBlock, GetBlockProof, GetBlockProofResponse, GetChunk, GetClientConfig,
@@ -60,6 +60,9 @@ use near_jsonrpc_primitives::types::view_account::{
 use near_jsonrpc_primitives::types::view_code::{
     RpcViewCodeError, RpcViewCodeRequest, RpcViewCodeResponse,
 };
+use near_jsonrpc_primitives::types::view_gas_key_nonces::{
+    RpcViewGasKeyNoncesError, RpcViewGasKeyNoncesRequest, RpcViewGasKeyNoncesResponse,
+};
 use near_jsonrpc_primitives::types::view_state::{
     RpcViewStateError, RpcViewStateRequest, RpcViewStateResponse,
 };
@@ -82,10 +85,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-#[cfg(feature = "sandbox")]
-use tokio::time::sleep;
-use tokio::time::timeout;
+use std::time::Instant;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 
@@ -94,15 +94,17 @@ mod metrics;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub polling_interval: Duration,
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub polling_timeout: Duration,
 }
 
 impl Default for RpcPollingConfig {
     fn default() -> Self {
         Self {
-            polling_interval: Duration::from_millis(200),
-            polling_timeout: Duration::from_secs(10),
+            polling_interval: Duration::milliseconds(200),
+            polling_timeout: Duration::seconds(10),
         }
     }
 }
@@ -320,6 +322,7 @@ pub struct GCSenderForRpc(AsyncSender<near_client::gc_actor::NetworkAdversarialM
 pub struct PeerManagerSenderForRpc(AsyncSender<GetDebugStatus, near_network::debug::DebugStatus>);
 
 struct JsonRpcHandler {
+    clock: Clock,
     client_sender: ClientSenderForRpc,
     view_client_sender: ViewClientSenderForRpc,
     process_tx_sender: ProcessTxSenderForRpc,
@@ -488,6 +491,9 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_view_access_key_list" => {
                 process_method_call(request, |params| self.view_access_key_list(params)).await
             }
+            "EXPERIMENTAL_view_gas_key_nonces" => {
+                process_method_call(request, |params| self.view_gas_key_nonces(params)).await
+            }
             "EXPERIMENTAL_call_function" => {
                 process_method_call(request, |params| self.call_function(params)).await
             }
@@ -616,7 +622,7 @@ impl JsonRpcHandler {
         tx_hash: CryptoHash,
         signer_account_id: &AccountId,
     ) -> Result<bool, near_jsonrpc_primitives::types::transactions::RpcTransactionError> {
-        timeout(self.polling_config.polling_timeout, async {
+        self.clock.timeout(self.polling_config.polling_timeout, async {
             // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
             let mut new_block_watcher = self.block_notification_watcher.clone();
             new_block_watcher.mark_unchanged();
@@ -675,7 +681,7 @@ impl JsonRpcHandler {
         let (tx_hash, account_id) = tx_info.to_tx_hash_and_account();
         let mut tx_status_result =
             Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError);
-        timeout(self.polling_config.polling_timeout, async {
+        self.clock.timeout(self.polling_config.polling_timeout, async {
             // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
             let mut new_block_watcher = self.block_notification_watcher.clone();
             new_block_watcher.mark_unchanged();
@@ -1163,6 +1169,39 @@ impl JsonRpcHandler {
         }
     }
 
+    async fn view_gas_key_nonces(
+        &self,
+        request_data: RpcViewGasKeyNoncesRequest,
+    ) -> Result<RpcViewGasKeyNoncesResponse, RpcViewGasKeyNoncesError> {
+        let result = self
+            .view_client_send(ClientQuery::new(
+                request_data.block_reference,
+                QueryRequest::ViewGasKeyNonces {
+                    account_id: request_data.account_id,
+                    public_key: request_data.public_key,
+                },
+            ))
+            .await;
+        let query_response: QueryResponse =
+            result.map_err(<RpcQueryError as Into<RpcViewGasKeyNoncesError>>::into)?;
+        match query_response.kind {
+            near_primitives::views::QueryResponseKind::GasKeyNonces(gas_key_nonces) => {
+                Ok(RpcViewGasKeyNoncesResponse {
+                    nonces: gas_key_nonces.nonces,
+                    block_height: query_response.block_height,
+                    block_hash: query_response.block_hash,
+                })
+            }
+            _ => Err(RpcQueryError::InternalError {
+                error_message: format!(
+                    "Unexpected response kind from near client. Expected: GasKeyNonces, found: {:?}",
+                    query_response.kind
+                ),
+            }
+            .into()),
+        }
+    }
+
     async fn call_function(
         &self,
         request_data: RpcCallFunctionRequest,
@@ -1517,7 +1556,7 @@ impl JsonRpcHandler {
             .await
             .map_err(RpcFrom::rpc_from)?;
 
-        timeout(self.polling_config.polling_timeout, async {
+        let future = async {
             loop {
                 let patch_state_finished = self
                     .client_sender
@@ -1531,11 +1570,14 @@ impl JsonRpcHandler {
                 {
                     break;
                 }
-                let _ = sleep(self.polling_config.polling_interval).await;
+                self.clock.sleep(self.polling_config.polling_interval).await;
             }
-        })
-        .await
-        .expect("patch state should happen at next block, never timeout");
+        };
+
+        self.clock
+            .timeout(self.polling_config.polling_timeout, future)
+            .await
+            .expect("patch state should happen at next block, never timeout");
 
         Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateResponse {})
     }
@@ -1558,7 +1600,7 @@ impl JsonRpcHandler {
 
         // Hard limit the request to timeout at an hour, since fast forwarding can take a while,
         // where we can leave it to the rpc clients to set their own timeouts if necessary.
-        timeout(Duration::from_secs(60 * 60), async {
+        let future = async {
             loop {
                 let fast_forward_finished = self
                     .client_sender
@@ -1573,22 +1615,25 @@ impl JsonRpcHandler {
                     _ => (),
                 }
 
-                let _ = sleep(self.polling_config.polling_interval).await;
+                self.clock.sleep(self.polling_config.polling_interval).await;
             }
             Ok(())
-        })
-        .await
-        .map_err(|_| {
-            near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
-                error_message: "sandbox failed to fast forward within reasonable time of an hour"
-                    .to_string(),
-            }
-        })?
-        .map_err(|err| {
-            near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
-                error_message: format!("sandbox failed to fast forward due to: {:?}", err),
-            }
-        })?;
+        };
+        self.clock
+            .timeout(Duration::seconds(3600), future)
+            .await
+            .map_err(|_| {
+                near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
+                    error_message:
+                        "sandbox failed to fast forward within reasonable time of an hour"
+                            .to_string(),
+                }
+            })?
+            .map_err(|err| {
+                near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardError::InternalError {
+                    error_message: format!("sandbox failed to fast forward due to: {:?}", err),
+                }
+            })?;
 
         Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxFastForwardResponse {})
     }
@@ -1946,6 +1991,7 @@ async fn display_debug_html(
 /// routes and middleware but does not start an HTTP server. Useful for testing
 /// or when you need the Router for custom server setup.
 pub fn create_jsonrpc_app(
+    clock: Clock,
     config: RpcConfig,
     genesis_config: GenesisConfig,
     client_sender: ClientSenderForRpc,
@@ -1967,6 +2013,7 @@ pub fn create_jsonrpc_app(
 
     // Create shared state
     let handler = Arc::new(JsonRpcHandler {
+        clock,
         client_sender,
         view_client_sender,
         process_tx_sender,
@@ -2021,6 +2068,7 @@ pub fn create_jsonrpc_app(
 ///
 /// Starts HTTP server(s) listening for RPC requests using the provided future spawner.
 pub async fn start_http(
+    clock: Clock,
     config: RpcConfig,
     genesis_config: GenesisConfig,
     client_sender: ClientSenderForRpc,
@@ -2039,6 +2087,7 @@ pub async fn start_http(
 
     // Create the axum app using the extracted function
     let app = create_jsonrpc_app(
+        clock,
         config,
         genesis_config,
         client_sender,

@@ -491,10 +491,10 @@ fn check_if_descendant_of_tracked_shard_impl(
     epoch_manager: &Arc<dyn EpochManagerAdapter>,
 ) -> Result<bool, EpochError> {
     let tracked_shards: HashSet<ShardUId> = tracked_shards.into_iter().cloned().collect();
-    let mut protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
-    let mut shard_layout = epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
+    let protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
-    // `ShardLayoutV3` stores all ancestor shards, not need to iterate through protocol versions
+    // `ShardLayoutV3` stores all ancestor shards, no need to iterate through protocol versions
     if let Some(ancestors) = shard_layout.ancestor_uids(shard_id) {
         let ancestors = HashSet::from_iter(ancestors);
         return Ok(!ancestors.is_disjoint(&tracked_shards));
@@ -505,34 +505,24 @@ fn check_if_descendant_of_tracked_shard_impl(
         // We explicitly track `shard_id` (the shard is a descendant of itself).
         return Ok(true);
     }
+
     // `shard_uid` does not belong to `tracked_shards`, but it might be a descendant of one.
-    // Iterate through all ancestors of `shard_uid` to see if any belong to `tracked_shards`.
-    let genesis_protocol_version = epoch_manager.genesis_protocol_version();
-    while protocol_version > genesis_protocol_version {
-        protocol_version -= 1;
-        let previous_protocol_version_shard_layout =
-            epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
-        if previous_protocol_version_shard_layout == shard_layout {
-            // The `ShardLayout` hasn't changed, so we keep decrementing `protocol_version`.
-            continue;
-        }
-        // The `ShardLayout` changed after this protocol version — get the parent shard of `shard_uid`.
-        let Some(parent_shard_id) = shard_layout.try_get_parent_shard_id(shard_uid.shard_id())?
+    // Iterate through consecutive pairs of historical shard layouts (newest to oldest) to trace
+    // the ancestry. Each pair represents a resharding transition.
+    let layout_history = epoch_manager.get_shard_layout_history(protocol_version, None);
+    for window in layout_history.windows(2) {
+        let current_layout = &window[0];
+        let prev_layout = &window[1];
+        let Some(parent_shard_id) = current_layout.try_get_parent_shard_id(shard_uid.shard_id())?
         else {
             debug_assert!(
                 false,
-                "Parent shard is missing for shard {} in shard layout {:?}, protocol version {}",
-                shard_uid, shard_layout, protocol_version
+                "Parent shard is missing for shard {} in shard layout {:?}",
+                shard_uid, current_layout,
             );
             return Ok(false);
         };
-        // Update `shard_uid` and `shard_layout` to their parent `ShardUId` and `ShardLayout`.
-        shard_uid = ShardUId::from_shard_id_and_layout(
-            parent_shard_id,
-            &previous_protocol_version_shard_layout,
-        );
-        shard_layout = previous_protocol_version_shard_layout;
-        // Check whether the ancestor shard belongs to `tracked_shards`.
+        shard_uid = ShardUId::from_shard_id_and_layout(parent_shard_id, &prev_layout);
         if tracked_shards.contains(&shard_uid) {
             return Ok(true);
         }

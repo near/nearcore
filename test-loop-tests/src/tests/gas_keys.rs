@@ -24,21 +24,11 @@ use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::get_shared_block_hash;
 
 fn query_gas_key_and_balance(
-    env: &TestLoopEnv,
     node: &TestLoopNode<'_>,
     account_id: &AccountId,
     public_key: &PublicKey,
 ) -> (AccessKeyView, Balance) {
-    let response = node.runtime_query(
-        env.test_loop_data(),
-        QueryRequest::ViewAccessKey {
-            account_id: account_id.clone(),
-            public_key: public_key.clone(),
-        },
-    );
-    let QueryResponseKind::AccessKey(view) = response.kind else {
-        panic!("expected AccessKey response");
-    };
+    let view = node.view_access_key_query(account_id, public_key).unwrap();
     let balance = match &view.permission {
         AccessKeyPermissionView::GasKeyFullAccess { balance, .. }
         | AccessKeyPermissionView::GasKeyFunctionCall { balance, .. } => *balance,
@@ -71,22 +61,21 @@ fn total_tokens_burnt(outcome: &FinalExecutionOutcomeView) -> Balance {
 /// Get the nonce for a gas key with specific nonce_index.
 fn get_gas_key_nonce(
     env: &TestLoopEnv,
-    node: &TestLoopNode<'_>,
     account_id: &AccountId,
     public_key: &PublicKey,
     nonce_index: NonceIndex,
 ) -> Nonce {
-    let response = node.runtime_query(
-        env.test_loop_data(),
-        QueryRequest::ViewGasKeyNonces {
+    let response = env
+        .rpc_node()
+        .runtime_query(QueryRequest::ViewGasKeyNonces {
             account_id: account_id.clone(),
             public_key: public_key.clone(),
-        },
-    );
-    let QueryResponseKind::GasKeyNonces(nonces) = response.kind else {
-        panic!("Expected GasKeyNonces response");
+        })
+        .unwrap();
+    let QueryResponseKind::GasKeyNonces(view) = response.kind else {
+        panic!("expected GasKeyNonces response");
     };
-    nonces[nonce_index as usize]
+    view.nonces[nonce_index as usize]
 }
 
 #[test]
@@ -133,10 +122,9 @@ fn test_gas_key_transaction() {
         }))],
         block_hash,
     );
-    let rpc_node = TestLoopNode::rpc(&env.node_datas);
-    rpc_node.run_tx(&mut env.test_loop, add_key_tx, Duration::seconds(5));
+    env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
     // Run for 1 more block for the access key to be reflected in chunks prev state root.
-    rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
+    env.rpc_runner().run_for_number_of_blocks(1);
 
     // Fund the gas key
     let gas_key_fund_amount = Balance::from_millinear(10);
@@ -152,18 +140,17 @@ fn test_gas_key_transaction() {
         }))],
         block_hash,
     );
-    rpc_node.run_tx(&mut env.test_loop, fund_tx, Duration::seconds(5));
-    rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
+    env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
+    env.rpc_runner().run_for_number_of_blocks(1);
 
     // Record balances before the gas key transaction
-    let sender_balance_before = rpc_node.view_account_query(env.test_loop_data(), sender).amount;
+    let sender_balance_before = env.rpc_node().view_account_query(sender).unwrap().amount;
     let (_, gas_key_balance_before) =
-        query_gas_key_and_balance(&env, &rpc_node, sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
 
     // Send a transfer using the gas key
     let nonce_index = 0;
-    let gas_key_nonce =
-        get_gas_key_nonce(&env, &rpc_node, sender, &gas_key_signer.public_key(), nonce_index);
+    let gas_key_nonce = get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let transfer_amount = Balance::from_near(10);
     let gas_key_tx = SignedTransaction::from_actions_v1(
@@ -174,27 +161,26 @@ fn test_gas_key_transaction() {
         vec![Action::Transfer(TransferAction { deposit: transfer_amount })],
         block_hash,
     );
-    let outcome =
-        rpc_node.execute_tx(&mut env.test_loop, gas_key_tx, Duration::seconds(5)).unwrap();
+    let outcome = env.rpc_runner().execute_tx(gas_key_tx, Duration::seconds(5)).unwrap();
     // Run for 1 more block for the transfer to be reflected in chunks prev state root.
-    rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
+    env.rpc_runner().run_for_number_of_blocks(1);
 
     // Check that the nonce for the gas key has been incremented
     let updated_gas_key_nonce =
-        get_gas_key_nonce(&env, &rpc_node, sender, &gas_key_signer.public_key(), nonce_index);
+        get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
     assert_eq!(updated_gas_key_nonce, gas_key_nonce + 1);
 
     // Verify account balance pays for deposit, gas key balance pays for gas.
-    let sender_balance_after = rpc_node.view_account_query(env.test_loop_data(), sender).amount;
+    let sender_balance_after = env.rpc_node().view_account_query(sender).unwrap().amount;
     assert_eq!(sender_balance_after, sender_balance_before.checked_sub(transfer_amount).unwrap());
     let gas_cost = total_tokens_burnt(&outcome);
     assert!(!gas_cost.is_zero());
     let (_, gas_key_balance_after) =
-        query_gas_key_and_balance(&env, &rpc_node, sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
     assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_sub(gas_cost).unwrap());
 
     // Verify receiver got the transfer
-    let receiver_balance = rpc_node.view_account_query(env.test_loop_data(), receiver).amount;
+    let receiver_balance = env.rpc_node().view_account_query(receiver).unwrap().amount;
     assert_eq!(receiver_balance, initial_balance.checked_add(transfer_amount).unwrap());
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
@@ -244,9 +230,8 @@ fn test_gas_key_refund() {
         }))],
         block_hash,
     );
-    let rpc_node = TestLoopNode::rpc(&env.node_datas);
-    rpc_node.run_tx(&mut env.test_loop, add_key_tx, Duration::seconds(5));
-    rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
+    env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
+    env.rpc_runner().run_for_number_of_blocks(1);
 
     // Fund the gas key
     let gas_key_fund_amount = Balance::from_millinear(10);
@@ -262,19 +247,18 @@ fn test_gas_key_refund() {
         }))],
         block_hash,
     );
-    rpc_node.run_tx(&mut env.test_loop, fund_tx, Duration::seconds(5));
-    rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
+    env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
+    env.rpc_runner().run_for_number_of_blocks(1);
 
     // Record balances before the gas key transaction
-    let sender_balance_before = rpc_node.view_account_query(env.test_loop_data(), sender).amount;
+    let sender_balance_before = env.rpc_node().view_account_query(sender).unwrap().amount;
     let (_, gas_key_balance_before) =
-        query_gas_key_and_balance(&env, &rpc_node, sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
 
     // Call a non-existing function on receiver (no contract deployed) with a deposit.
     // This will fail, producing both a balance refund (to account) and a gas refund (to gas key).
     let nonce_index = 0;
-    let gas_key_nonce =
-        get_gas_key_nonce(&env, &rpc_node, sender, &gas_key_signer.public_key(), nonce_index);
+    let gas_key_nonce = get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let prepaid_gas = near_primitives::types::Gas::from_teragas(100);
     let deposit_amount = Balance::from_near(5);
@@ -291,10 +275,9 @@ fn test_gas_key_refund() {
         }))],
         block_hash,
     );
-    let outcome =
-        rpc_node.execute_tx(&mut env.test_loop, gas_key_tx, Duration::seconds(5)).unwrap();
+    let outcome = env.rpc_runner().execute_tx(gas_key_tx, Duration::seconds(5)).unwrap();
     // Run for 1 more block for the refund to be reflected in queries.
-    rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
+    env.rpc_runner().run_for_number_of_blocks(1);
 
     // The function call should have failed (no contract on receiver).
     assert_function_call_error(&outcome);
@@ -303,12 +286,12 @@ fn test_gas_key_refund() {
 
     // Verify gas key balance: should be initial minus tokens_burnt (gas refund went back to gas key).
     let (_, gas_key_balance_after) =
-        query_gas_key_and_balance(&env, &rpc_node, sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
     assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_sub(tokens_burnt).unwrap());
 
     // Verify sender account balance is unchanged: deposit was deducted when the tx was
     // converted to a receipt, then refunded when the function call failed.
-    let sender_balance_after = rpc_node.view_account_query(env.test_loop_data(), sender).amount;
+    let sender_balance_after = env.rpc_node().view_account_query(sender).unwrap().amount;
     assert_eq!(sender_balance_after, sender_balance_before);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));
@@ -349,8 +332,6 @@ fn test_gas_key_deposit_failed() {
 
     let sender = &user_accounts[0];
     let receiver = &user_accounts[1];
-    let rpc_node = TestLoopNode::rpc(&env.node_datas);
-    let validator_node = TestLoopNode::from(&env.node_datas[0]);
 
     // Add gas key
     let gas_key_signer: Signer =
@@ -368,8 +349,8 @@ fn test_gas_key_deposit_failed() {
         }))],
         block_hash,
     );
-    rpc_node.run_tx(&mut env.test_loop, add_key_tx, Duration::seconds(5));
-    rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
+    env.rpc_runner().run_tx(add_key_tx, Duration::seconds(5));
+    env.rpc_runner().run_for_number_of_blocks(1);
 
     // Fund the gas key
     let gas_key_fund_amount = Balance::from_millinear(10);
@@ -385,24 +366,20 @@ fn test_gas_key_deposit_failed() {
         }))],
         block_hash,
     );
-    rpc_node.run_tx(&mut env.test_loop, fund_tx, Duration::seconds(5));
-    rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
+    env.rpc_runner().run_tx(fund_tx, Duration::seconds(5));
+    env.rpc_runner().run_for_number_of_blocks(1);
 
     // Record balances before
-    let sender_balance_before = rpc_node.view_account_query(env.test_loop_data(), sender).amount;
+    let sender_balance_before = env.rpc_node().view_account_query(sender).unwrap().amount;
     let (_, gas_key_balance_before) =
-        query_gas_key_and_balance(&env, &rpc_node, sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
     let nonce_index: NonceIndex = 0;
-    let gas_key_nonce =
-        get_gas_key_nonce(&env, &rpc_node, sender, &gas_key_signer.public_key(), nonce_index);
+    let gas_key_nonce = get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
 
     // Enable adversarial mode: skip runtime verification during chunk preparation.
-    validator_node.send_adversarial_message(
-        &env.test_loop,
-        NetworkAdversarialMessage::AdvProduceChunks(
-            AdvProduceChunksMode::ProduceWithoutTxVerification,
-        ),
-    );
+    env.node_runner(0).send_adversarial_message(NetworkAdversarialMessage::AdvProduceChunks(
+        AdvProduceChunksMode::ProduceWithoutTxVerification,
+    ));
 
     // Construct a gas key tx with deposit far exceeding account balance.
     let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
@@ -420,17 +397,16 @@ fn test_gas_key_deposit_failed() {
     // Insert directly into the tx pool.
     let shard_uid = shard_layout.account_id_to_shard_uid(sender);
     let validated_tx = ValidatedTransaction::new_for_test(gas_key_tx);
-    validator_node
-        .client(env.test_loop_data())
+    env.node(0)
+        .client()
         .chunk_producer
         .sharded_tx_pool
         .lock()
         .insert_transaction(shard_uid, validated_tx);
 
     // Wait for the tx to be included in a chunk and executed.
-    let outcome =
-        rpc_node.run_until_outcome_available(&mut env.test_loop, tx_hash, Duration::seconds(10));
-    rpc_node.run_for_number_of_blocks(&mut env.test_loop, 1);
+    let outcome = env.rpc_runner().run_until_outcome_available(tx_hash, Duration::seconds(10));
+    env.rpc_runner().run_for_number_of_blocks(1);
 
     // Verify: tx failed with NotEnoughBalanceForDeposit
     assert!(
@@ -457,16 +433,16 @@ fn test_gas_key_deposit_failed() {
 
     // Verify: gas key balance decreased by exactly tokens_burnt
     let (_, gas_key_balance_after) =
-        query_gas_key_and_balance(&env, &rpc_node, sender, &gas_key_signer.public_key());
+        query_gas_key_and_balance(&env.rpc_node(), sender, &gas_key_signer.public_key());
     assert_eq!(gas_key_balance_after, gas_key_balance_before.checked_sub(tokens_burnt).unwrap());
 
     // Verify: account balance unchanged
-    let sender_balance_after = rpc_node.view_account_query(env.test_loop_data(), sender).amount;
+    let sender_balance_after = env.rpc_node().view_account_query(sender).unwrap().amount;
     assert_eq!(sender_balance_after, sender_balance_before);
 
     // Verify: gas key nonce incremented
     let gas_key_nonce_after =
-        get_gas_key_nonce(&env, &rpc_node, sender, &gas_key_signer.public_key(), nonce_index);
+        get_gas_key_nonce(&env, sender, &gas_key_signer.public_key(), nonce_index);
     assert_eq!(gas_key_nonce_after, gas_key_nonce + 1);
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(5));

@@ -226,13 +226,13 @@ impl Chain {
         gas_limit: Gas,
     ) -> Result<ChunkExtra, Error> {
         let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let state_root = *get_genesis_state_roots(store)?
+        let state_root = *get_genesis_state_roots(store)
             .ok_or_else(|| Error::Other("genesis state roots do not exist in the db".to_owned()))?
             .get(shard_index)
             .ok_or_else(|| {
                 Error::Other(format!("genesis state root does not exist for shard id {shard_id} shard index {shard_index}"))
             })?;
-        let congestion_info = *near_store::get_genesis_congestion_infos(store)?
+        let congestion_info = *near_store::get_genesis_congestion_infos(store)
             .ok_or_else(|| Error::Other("genesis congestion infos do not exist in the db".to_owned()))?
             .get(shard_index)
             .ok_or_else(|| {
@@ -301,7 +301,7 @@ fn get_genesis_congestion_infos_impl(
     let genesis_shard_layout = epoch_manager.get_shard_layout(&genesis_epoch_id)?;
 
     // Check we had already computed the congestion infos from the genesis state roots.
-    if let Some(saved_infos) = near_store::get_genesis_congestion_infos(runtime.store())? {
+    if let Some(saved_infos) = near_store::get_genesis_congestion_infos(runtime.store()) {
         tracing::debug!(target: "chain", "reading genesis congestion infos from database");
         return Ok(saved_infos);
     }

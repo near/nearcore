@@ -43,7 +43,7 @@ fn get_incoming_receipts(
 ) -> anyhow::Result<Vec<Receipt>> {
     let mut receipt_proofs = vec![];
 
-    let chunk_hashes = chain_store.chunk_store().get_all_chunk_hashes_by_height(target_height)?;
+    let chunk_hashes = chain_store.chunk_store().get_all_chunk_hashes_by_height(target_height);
     if !chunk_hashes.contains(chunk_hash) {
         return Err(anyhow!(
             "given chunk hash is not listed in DBCol::ChunkHashesByHeight[{}]",
@@ -295,7 +295,7 @@ fn apply_tx_in_chunk(
     tx_hash: &CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<Vec<ApplyChunkResult>> {
-    if chain_store.get_transaction(tx_hash)?.is_none() {
+    if chain_store.get_transaction(tx_hash).is_none() {
         return Err(anyhow!("tx with hash {} not known", tx_hash));
     }
 

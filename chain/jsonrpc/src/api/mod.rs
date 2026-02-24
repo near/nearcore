@@ -26,6 +26,7 @@ mod view_access_key;
 mod view_access_key_list;
 mod view_account;
 mod view_code;
+mod view_gas_key_nonces;
 mod view_state;
 
 pub trait RpcRequest: Sized {

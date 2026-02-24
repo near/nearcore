@@ -477,8 +477,15 @@ impl Receipt {
                 // Applying a PromiseYield receipt is one trie write, it's okay to make it an instant receipt.
                 ProtocolFeature::InstantPromiseYield.enabled(protocol_version)
             }
-            VersionedReceiptEnum::Action(_)
-            | VersionedReceiptEnum::Data(_)
+            VersionedReceiptEnum::Action(action_receipt) => {
+                // Action receipts containing a single DeleteAccount action and no input
+                // promises are instant receipts.
+                // Deleting an account is a quick trie operation, it's okay to make it instant.
+                ProtocolFeature::InstantDeleteAccount.enabled(protocol_version)
+                    && matches!(action_receipt.actions(), [Action::DeleteAccount(_)])
+                    && action_receipt.input_data_ids().is_empty()
+            }
+            VersionedReceiptEnum::Data(_)
             | VersionedReceiptEnum::PromiseResume(_)
             | VersionedReceiptEnum::GlobalContractDistribution(_) => false,
         }
@@ -1290,6 +1297,15 @@ mod tests {
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, ProtocolSchema)]
 pub enum ReceiptSource {
     Local,
+    Delayed,
+    Instant,
+}
+
+/// A processed receipt together with its source. Runtime-only struct, not serialized to DB.
+#[derive(Debug)]
+pub struct ProcessedReceipt {
+    pub receipt: Receipt,
+    pub source: ReceiptSource,
 }
 
 /// Lightweight metadata about a processed receipt, stored instead of the full receipt.

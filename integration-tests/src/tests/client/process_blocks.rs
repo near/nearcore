@@ -851,7 +851,6 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                     .chain
                     .mut_chain_store()
                     .get_all_block_hashes_by_height(i as BlockHeight)
-                    .unwrap()
                     .is_empty()
             );
         } else {
@@ -862,12 +861,11 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                     .chain
                     .mut_chain_store()
                     .get_all_block_hashes_by_height(i as BlockHeight)
-                    .unwrap()
                     .is_empty()
             );
         }
     }
-    assert_eq!(env.clients[0].chain.chain_store().chunk_tail().unwrap(), epoch_length - 1);
+    assert_eq!(env.clients[0].chain.chain_store().chunk_tail(), epoch_length - 1);
 }
 
 #[test]
@@ -921,13 +919,7 @@ fn test_archival_save_trie_changes() {
 
         assert!(chain.get_block(block.hash()).is_ok());
         assert!(chain.get_block_by_height(i).is_ok());
-        assert!(
-            !chain
-                .chain_store()
-                .get_all_block_hashes_by_height(i as BlockHeight)
-                .unwrap()
-                .is_empty()
-        );
+        assert!(!chain.chain_store().get_all_block_hashes_by_height(i as BlockHeight).is_empty());
 
         // The genesis block does not contain trie changes.
         if i == 0 {
@@ -1028,11 +1020,7 @@ fn test_archival_gc_common(
             assert!(chain.get_block(block.hash()).is_ok());
             assert!(chain.get_block_by_height(i).is_ok());
             assert!(
-                !chain
-                    .chain_store()
-                    .get_all_block_hashes_by_height(i as BlockHeight)
-                    .unwrap()
-                    .is_empty()
+                !chain.chain_store().get_all_block_hashes_by_height(i as BlockHeight).is_empty()
             );
         }
     }
@@ -1119,7 +1107,7 @@ fn test_gc_chunk_tail() {
     let mut chunk_tail = 0;
     for i in (1..10).chain(101..epoch_length * 6) {
         env.produce_block(0, i);
-        let cur_chunk_tail = env.clients[0].chain.chain_store().chunk_tail().unwrap();
+        let cur_chunk_tail = env.clients[0].chain.chain_store().chunk_tail();
         assert!(cur_chunk_tail >= chunk_tail);
         chunk_tail = cur_chunk_tail;
     }
@@ -1296,8 +1284,8 @@ fn test_gc_fork_tail() {
     assert!(
         env.clients[1].runtime_adapter.get_gc_stop_height(&head.last_block_hash) > epoch_length
     );
-    let tail = env.clients[1].chain.chain_store().tail().unwrap();
-    let fork_tail = env.clients[1].chain.chain_store().fork_tail().unwrap();
+    let tail = env.clients[1].chain.chain_store().tail();
+    let fork_tail = env.clients[1].chain.chain_store().fork_tail();
     assert!(tail <= fork_tail && fork_tail < second_epoch_start.unwrap());
 }
 
@@ -1447,7 +1435,8 @@ fn test_reject_block_headers_during_epoch_sync() {
     let sync_client = &mut env.clients[1];
     let status = &mut sync_client.sync_handler.sync_status;
     let chain = &sync_client.chain;
-    let highest_height = sync_client.config.epoch_sync.epoch_sync_horizon + 1;
+    let highest_height =
+        sync_client.config.epoch_sync.epoch_sync_horizon_num_epochs * epoch_length + 1;
     let highest_height_peers = vec![HighestHeightPeerInfo {
         archival: false,
         genesis_id: GenesisId::default(),
@@ -1520,7 +1509,7 @@ fn test_gc_tail_update() {
         )
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
-    assert_eq!(env.clients[1].chain.chain_store().tail().unwrap(), prev_sync_height);
+    assert_eq!(env.clients[1].chain.chain_store().tail(), prev_sync_height);
 }
 
 /// Test that transaction does not become invalid when there is some gas price change.
@@ -2736,27 +2725,19 @@ fn test_discard_non_finalizable_block() {
     env.process_block(0, first_block.clone(), Provenance::PRODUCED);
     // Produce, but not process test block on top of block (1).
     let non_finalizable_block = env.clients[0].produce_block(6).unwrap().unwrap();
-    env.clients[0]
-        .chain
-        .mut_chain_store()
-        .save_latest_known(LatestKnown {
-            height: first_block.header().height(),
-            seen: first_block.header().raw_timestamp(),
-        })
-        .unwrap();
+    env.clients[0].chain.mut_chain_store().save_latest_known(LatestKnown {
+        height: first_block.header().height(),
+        seen: first_block.header().raw_timestamp(),
+    });
 
     let second_block = env.clients[0].produce_block(2).unwrap().unwrap();
     env.process_block(0, second_block.clone(), Provenance::PRODUCED);
     // Produce, but not process test block on top of block (2).
     let finalizable_block = env.clients[0].produce_block(7).unwrap().unwrap();
-    env.clients[0]
-        .chain
-        .mut_chain_store()
-        .save_latest_known(LatestKnown {
-            height: second_block.header().height(),
-            seen: second_block.header().raw_timestamp(),
-        })
-        .unwrap();
+    env.clients[0].chain.mut_chain_store().save_latest_known(LatestKnown {
+        height: second_block.header().height(),
+        seen: second_block.header().raw_timestamp(),
+    });
 
     // Produce and process two more blocks.
     for i in 3..5 {
@@ -2837,14 +2818,10 @@ fn test_query_final_state() {
         };
 
     let fork1_block = env.clients[0].produce_block(5).unwrap().unwrap();
-    env.clients[0]
-        .chain
-        .mut_chain_store()
-        .save_latest_known(LatestKnown {
-            height: blocks.last().unwrap().header().height(),
-            seen: blocks.last().unwrap().header().raw_timestamp(),
-        })
-        .unwrap();
+    env.clients[0].chain.mut_chain_store().save_latest_known(LatestKnown {
+        height: blocks.last().unwrap().header().height(),
+        seen: blocks.last().unwrap().header().raw_timestamp(),
+    });
     let fork2_block = env.clients[0].produce_block(6).unwrap().unwrap();
     assert_eq!(fork1_block.header().prev_hash(), fork2_block.header().prev_hash());
     env.process_block(0, fork1_block, Provenance::NONE);
@@ -3134,14 +3111,10 @@ fn test_block_ordinal() {
     ordinal += 1;
     assert_eq!(last_block.header().block_ordinal(), ordinal);
     let fork1_block = env.clients[0].produce_block(100).unwrap().unwrap();
-    env.clients[0]
-        .chain
-        .mut_chain_store()
-        .save_latest_known(LatestKnown {
-            height: last_block.header().height(),
-            seen: last_block.header().raw_timestamp(),
-        })
-        .unwrap();
+    env.clients[0].chain.mut_chain_store().save_latest_known(LatestKnown {
+        height: last_block.header().height(),
+        seen: last_block.header().raw_timestamp(),
+    });
     let fork2_block = env.clients[0].produce_block(101).unwrap().unwrap();
     assert_eq!(fork1_block.header().prev_hash(), fork2_block.header().prev_hash());
     env.process_block(0, fork1_block.clone(), Provenance::NONE);
@@ -3275,11 +3248,7 @@ fn test_catchup_no_sharding_change() {
             env.clients[0].process_block_test(block.clone().into(), Provenance::PRODUCED).unwrap();
         assert_eq!(env.clients[0].chain.chain_store().iterate_state_sync_infos().unwrap(), vec![]);
         assert_eq!(
-            env.clients[0]
-                .chain
-                .chain_store()
-                .get_blocks_to_catchup(block.header().prev_hash())
-                .unwrap(),
+            env.clients[0].chain.chain_store().get_blocks_to_catchup(block.header().prev_hash()),
             vec![]
         );
     }

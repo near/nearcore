@@ -1,7 +1,13 @@
 use crate::metrics;
+use near_chain::Chain;
 use near_chain_configs::ExternalStorageLocation;
 use near_external_storage::{ExternalConnection, S3AccessConfig};
-use near_primitives::types::{EpochId, ShardId};
+use near_primitives::hash::CryptoHash;
+use near_primitives::state_part::{PartId, StatePart};
+use near_primitives::types::{EpochHeight, EpochId, ShardId};
+use near_primitives::version::ProtocolVersion;
+use near_store::archive::cloud_storage::CloudStorage;
+use std::ops::Range;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -43,7 +49,6 @@ impl StateFileType {
 #[derive(Clone)]
 pub struct StateSyncConnection {
     connection: ExternalConnection,
-    storage_name: String,
 }
 
 impl StateSyncConnection {
@@ -54,8 +59,11 @@ impl StateSyncConnection {
     ) -> Self {
         let connection =
             ExternalConnection::new(location, credentials_file, Some(s3_access_config));
-        let storage_name = location.name().to_string();
-        Self { connection, storage_name }
+        Self { connection }
+    }
+
+    pub fn from_cloud_storage(cloud_storage: &CloudStorage) -> Self {
+        Self { connection: cloud_storage.connection().clone() }
     }
 
     pub async fn get_file(
@@ -70,13 +78,13 @@ impl StateSyncConnection {
         let result = self.connection.get(location).await;
         match &result {
             Ok(bytes) => {
-                tracing::debug!(target: "sync", %shard_id, location, num_bytes = bytes.len(), storage = self.storage_name, "request finished");
+                tracing::debug!(target: "sync", %shard_id, location, num_bytes = bytes.len(), storage = self.connection.name(), "request finished");
                 metrics::STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED
                     .with_label_values(&[&shard_id.to_string(), &file_type.to_string()])
                     .inc_by(bytes.len() as u64);
             }
             Err(error) => {
-                tracing::debug!(target: "sync", %shard_id, location, ?error, storage = self.storage_name, "request failed");
+                tracing::debug!(target: "sync", %shard_id, location, ?error, storage = self.connection.name(), "request failed");
             }
         }
         result
@@ -95,11 +103,11 @@ impl StateSyncConnection {
         let res = self.connection.put(location, data).await;
         let is_ok = match &res {
             Ok(()) => {
-                tracing::debug!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.storage_name, "wrote a state part");
+                tracing::debug!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.connection.name(), "wrote a state part");
                 "ok"
             }
             Err(error) => {
-                tracing::error!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.storage_name, ?error, "failed to write a state part");
+                tracing::error!(target: "state_sync_dump", %shard_id, part_length = data.len(), ?location, ?file_type, storage = self.connection.name(), ?error, "failed to write a state part");
                 "error"
             }
         };
@@ -235,6 +243,89 @@ pub fn get_part_id_from_filename(s: &str) -> Option<u64> {
     None
 }
 
+/// Lists state parts from external storage and returns num_parts.
+pub async fn list_state_parts(
+    external: &StateSyncConnection,
+    chain_id: &str,
+    epoch_id: &EpochId,
+    epoch_height: EpochHeight,
+    shard_id: ShardId,
+) -> Result<u64, anyhow::Error> {
+    let directory_path = external_storage_location_directory(
+        chain_id,
+        epoch_id,
+        epoch_height,
+        shard_id,
+        &StateFileType::StatePart { part_id: 0, num_parts: 0 },
+    );
+    let part_file_names = external.list_objects(shard_id, &directory_path).await?;
+    anyhow::ensure!(!part_file_names.is_empty(), "no state parts found in {}", directory_path);
+    let num_parts = part_file_names.len() as u64;
+    anyhow::ensure!(
+        Some(num_parts) == get_num_parts_from_filename(&part_file_names[0]),
+        "num_parts mismatch: {} files but filename says {:?}",
+        num_parts,
+        get_num_parts_from_filename(&part_file_names[0]),
+    );
+    Ok(num_parts)
+}
+
+/// Downloads state parts sequentially from external storage and applies them to the chain.
+/// This is a simple helper for tests and CLI tools. Production state sync downloads parts
+/// in parallel, uses retries, etc.
+pub async fn download_and_apply_state_parts_sequentially(
+    chain: &Chain,
+    external: &StateSyncConnection,
+    chain_id: &str,
+    epoch_id: &EpochId,
+    epoch_height: EpochHeight,
+    sync_hash: CryptoHash,
+    protocol_version: ProtocolVersion,
+    shard_id: ShardId,
+    state_root: CryptoHash,
+    part_ids: Range<u64>,
+    num_parts: u64,
+) -> Result<(), anyhow::Error> {
+    tracing::info!(
+        target: "state-parts",
+        epoch_height,
+        %shard_id,
+        num_parts,
+        ?sync_hash,
+        ?part_ids,
+        "loading state as seen at the beginning of the specified epoch",
+    );
+
+    let timer = Instant::now();
+    for part_id in part_ids {
+        let timer = Instant::now();
+        assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
+        let file_type = StateFileType::StatePart { part_id, num_parts };
+        let location =
+            external_storage_location(chain_id, epoch_id, epoch_height, shard_id, &file_type);
+        let bytes = external.get_file(shard_id, &location, &file_type).await?;
+        let part_length = bytes.len();
+        let part = StatePart::from_bytes(bytes, protocol_version)?;
+
+        chain.state_sync_adapter.set_state_part(
+            shard_id,
+            sync_hash,
+            PartId::new(part_id, num_parts),
+            &part,
+        )?;
+        chain.runtime_adapter.apply_state_part(
+            shard_id,
+            &state_root,
+            PartId::new(part_id, num_parts),
+            &part,
+            epoch_id,
+        )?;
+        tracing::debug!(target: "state-parts", part_id, part_length, elapsed_sec = timer.elapsed().as_secs_f64(), "loaded a state part");
+    }
+    tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "loaded all requested state parts");
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use crate::sync::external::{
@@ -278,7 +369,7 @@ mod test {
         // Define bucket.
         let location = ExternalStorageLocation::GCS { bucket: "state-parts".into() };
         let connection = ExternalConnection::new(&location, None, None);
-        let connection = StateSyncConnection { connection, storage_name: "GCS".into() };
+        let connection = StateSyncConnection { connection };
 
         // Generate random data.
         let data = random_string(1000);

@@ -19,7 +19,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::congestion_info::{
     CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
 };
-use near_primitives::epoch_manager::{DynamicReshardingConfig, EpochConfig};
+use near_primitives::epoch_manager::{DynamicReshardingConfig, EpochConfig, ShardLayoutConfig};
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
@@ -30,11 +30,11 @@ use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    Nonce, NonceIndex, ShardId, StateRoot, StateRootNode,
+    Nonce, NonceIndex, NumShards, ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
+    AccessKeyInfoView, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -246,7 +246,7 @@ impl NightshadeRuntime {
 
         let config = self.runtime_config_store.get_config(current_protocol_version);
         let epoch_config = self.epoch_manager.get_epoch_config(&epoch_id)?;
-        let proposed_split = self.check_dynamic_resharding(
+        let proposed_split = self.compute_proposed_split(
             &trie,
             shard_id,
             &epoch_id,
@@ -356,8 +356,7 @@ impl NightshadeRuntime {
             total_gas_burnt,
             total_balance_burnt,
             proof: apply_result.proof,
-            processed_delayed_receipts: apply_result.processed_delayed_receipts,
-            processed_local_receipts: apply_result.processed_local_receipts,
+            processed_receipts: apply_result.processed_receipts,
             processed_yield_timeouts: apply_result.processed_yield_timeouts,
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
             congestion_info: apply_result.congestion_info,
@@ -521,34 +520,27 @@ impl NightshadeRuntime {
         })
     }
 
-    /// Check if dynamic resharding should be scheduled for the given shard.
-    /// The `epoch_id` and `protocol_version` are at `prev_block_hash`.
-    /// Will only trigger if the current block is the last block of the epoch.
-    fn check_dynamic_resharding(
+    /// Check if dynamic resharding should be scheduled for the given shard and compute the trie
+    /// split. The `epoch_id` and `protocol_version` are at `prev_block_hash`.
+    fn compute_proposed_split(
         &self,
         shard_trie: &Trie,
         shard_id: ShardId,
         epoch_id: &EpochId,
         protocol_version: ProtocolVersion,
         epoch_config: &EpochConfig,
-        height: BlockHeight,
-        prev_block_hash: &CryptoHash,
-        last_final_block_hash: &CryptoHash,
+        _height: BlockHeight,
+        _prev_block_hash: &CryptoHash,
+        _last_final_block_hash: &CryptoHash,
     ) -> Result<Option<TrieSplit>, Error> {
         if !ProtocolFeature::DynamicResharding.enabled(protocol_version) {
             return Ok(None);
         }
-        if !self.epoch_manager.is_produced_block_last_in_epoch(
-            height,
-            prev_block_hash,
-            last_final_block_hash,
-        )? {
-            return Ok(None);
-        }
-        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
 
+        // TODO(dynamic-resharding): Check if the *next* block is the last block of the epoch
         // TODO(dynamic_resharding): Check how many epochs since last resharding
 
+        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
         let Some(config) = epoch_config.dynamic_resharding_config() else {
             tracing::error!(target: "runtime", "dynamic resharding config missing");
             return Ok(None);
@@ -623,10 +615,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.tries.get_flat_storage_manager()
     }
 
-    // TODO(dynamic_resharding): remove this method
-    fn get_shard_layout(&self, protocol_version: ProtocolVersion) -> ShardLayout {
+    fn get_shard_limit(&self, protocol_version: ProtocolVersion) -> NumShards {
         let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_shard_layout_from_protocol_version(protocol_version)
+        let epoch_config = epoch_manager.get_epoch_config(protocol_version);
+        match epoch_config.shard_layout_config {
+            ShardLayoutConfig::Static { shard_layout } => shard_layout.num_shards(),
+            ShardLayoutConfig::Dynamic { dynamic_resharding_config } => {
+                dynamic_resharding_config.max_number_of_shards
+            }
+        }
     }
 
     fn validate_tx(
@@ -1326,14 +1323,16 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let gas_key_nonces = self
                     .view_gas_key_nonces(&shard_uid, *state_root, account_id, public_key)
                     .map_err(|err| {
-                        crate::near_chain_primitives::error::QueryError::from_view_access_key_error(
+                        crate::near_chain_primitives::error::QueryError::from_view_gas_key_nonces_error(
                             err,
                             block_height,
                             *block_hash,
                         )
                     })?;
                 Ok(QueryResponse {
-                    kind: QueryResponseKind::GasKeyNonces(gas_key_nonces),
+                    kind: QueryResponseKind::GasKeyNonces(GasKeyNoncesView {
+                        nonces: gas_key_nonces,
+                    }),
                     block_height,
                     block_hash: *block_hash,
                 })
@@ -1738,7 +1737,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Vec<Nonce>, node_runtime::state_viewer::errors::ViewAccessKeyError> {
+    ) -> Result<Vec<Nonce>, node_runtime::state_viewer::errors::ViewGasKeyNoncesError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_gas_key_nonces(&state_update, account_id, public_key)
     }

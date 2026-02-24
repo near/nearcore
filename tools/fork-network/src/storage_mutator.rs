@@ -49,25 +49,17 @@ impl ShardUpdateState {
         shard_uid: ShardUId,
         state_root: CryptoHash,
     ) -> anyhow::Result<Self> {
-        let deltas = flat_store
-            .get_all_deltas_metadata(shard_uid)
-            .with_context(|| format!("failed getting flat storage deltas for {}", shard_uid))?;
+        let deltas = flat_store.get_all_deltas_metadata(shard_uid);
 
         let max_delta_height = deltas.iter().map(|d| d.block.height).max();
         let max_delta_height = match max_delta_height {
             Some(h) => h,
-            None => {
-                match flat_store.get_flat_storage_status(shard_uid).with_context(|| {
-                    format!("failed getting flat storage status for {}", shard_uid)
-                })? {
-                    FlatStorageStatus::Ready(status) => status.flat_head.height,
-                    status => anyhow::bail!(
-                        "expected Ready flat storage for {}, got {:?}",
-                        shard_uid,
-                        status
-                    ),
+            None => match flat_store.get_flat_storage_status(shard_uid) {
+                FlatStorageStatus::Ready(status) => status.flat_head.height,
+                status => {
+                    anyhow::bail!("expected Ready flat storage for {}, got {:?}", shard_uid, status)
                 }
-            }
+            },
         };
         Ok(Self {
             root: Arc::new(Mutex::new(Some(InProgressRoot {
@@ -187,7 +179,7 @@ impl StorageMutator {
         account_id: AccountId,
         value: Account,
     ) -> anyhow::Result<()> {
-        self.set(shard_idx, TrieKey::Account { account_id }, borsh::to_vec(&value)?)
+        self.set(shard_idx, TrieKey::Account { account_id }, borsh::to_vec(&value).unwrap())
     }
 
     fn mapped_account_id(
@@ -252,7 +244,7 @@ impl StorageMutator {
         self.set(
             shard_idx,
             TrieKey::AccessKey { account_id, public_key },
-            borsh::to_vec(&access_key)?,
+            borsh::to_vec(&access_key).unwrap(),
         )
     }
 
@@ -282,7 +274,7 @@ impl StorageMutator {
         self.set(
             shard_idx,
             TrieKey::GasKeyNonce { account_id, public_key, index },
-            borsh::to_vec(&nonce)?,
+            borsh::to_vec(&nonce).unwrap(),
         )
     }
 
@@ -305,7 +297,7 @@ impl StorageMutator {
             self.set(
                 mapped.target,
                 TrieKey::ContractData { account_id: mapped.new_account_id, key: data_key.to_vec() },
-                borsh::to_vec(&value)?,
+                borsh::to_vec(&value).unwrap(),
             )?;
         }
         Ok(())
@@ -357,7 +349,7 @@ impl StorageMutator {
                 receiver_id: receipt.receiver_id().clone(),
                 receipt_id: *receipt.receipt_id(),
             },
-            borsh::to_vec(&receipt)?,
+            borsh::to_vec(&receipt).unwrap(),
         )
     }
 
@@ -380,7 +372,7 @@ impl StorageMutator {
             self.set(
                 mapped.target,
                 TrieKey::ReceivedData { receiver_id: mapped.new_account_id, data_id },
-                borsh::to_vec(data)?,
+                borsh::to_vec(data).unwrap(),
             )?;
         }
         Ok(())
@@ -391,7 +383,7 @@ impl StorageMutator {
         shard_idx: ShardIndex,
         state: BandwidthSchedulerState,
     ) -> anyhow::Result<()> {
-        self.set(shard_idx, TrieKey::BandwidthSchedulerState, borsh::to_vec(&state)?)
+        self.set(shard_idx, TrieKey::BandwidthSchedulerState, borsh::to_vec(&state).unwrap())
     }
 
     /// Check if the total number of updates is greater than or equal to the batch size

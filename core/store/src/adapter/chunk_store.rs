@@ -57,22 +57,13 @@ impl ChunkStoreAdapter {
     }
 
     /// Returns a HashSet of Chunk Hashes for current Height
-    pub fn get_all_chunk_hashes_by_height(
-        &self,
-        height: BlockHeight,
-    ) -> Result<HashSet<ChunkHash>, Error> {
-        Ok(self
-            .store
-            .get_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(height))
-            .unwrap_or_default())
+    pub fn get_all_chunk_hashes_by_height(&self, height: BlockHeight) -> HashSet<ChunkHash> {
+        self.store.get_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(height)).unwrap_or_default()
     }
 
     /// Returns encoded chunk if it's invalid otherwise None.
-    pub fn is_invalid_chunk(
-        &self,
-        chunk_hash: &ChunkHash,
-    ) -> Result<Option<Arc<EncodedShardChunk>>, Error> {
-        Ok(self.store.get_ser(DBCol::InvalidChunks, chunk_hash.as_ref()))
+    pub fn is_invalid_chunk(&self, chunk_hash: &ChunkHash) -> Option<Arc<EncodedShardChunk>> {
+        self.store.get_ser(DBCol::InvalidChunks, chunk_hash.as_ref())
     }
 
     /// Information from applying chunk.
@@ -92,8 +83,8 @@ impl ChunkStoreAdapter {
         &self,
         block_hash: &CryptoHash,
         shard_id: &ShardId,
-    ) -> Result<Option<ChunkApplyStats>, Error> {
-        Ok(self.store.get_ser(DBCol::ChunkApplyStats, &get_block_shard_id(block_hash, *shard_id)))
+    ) -> Option<ChunkApplyStats> {
+        self.store.get_ser(DBCol::ChunkApplyStats, &get_block_shard_id(block_hash, *shard_id))
     }
 }
 
