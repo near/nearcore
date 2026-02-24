@@ -653,7 +653,7 @@ impl ChunkExecutorActor {
         chain_update.commit()?;
         if let Some(final_execution_head) = final_execution_head {
             self.update_flat_storage_head(&shard_layout, &final_execution_head)?;
-            self.gc_memtrie_roots(&shard_layout, &final_execution_head)?;
+            self.gc_memtrie_roots(&shard_layout, &final_execution_head);
         }
         Ok(())
     }
@@ -944,21 +944,16 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
-    fn gc_memtrie_roots(
-        &self,
-        shard_layout: &ShardLayout,
-        final_execution_head: &Tip,
-    ) -> Result<(), Error> {
+    fn gc_memtrie_roots(&self, shard_layout: &ShardLayout, final_execution_head: &Tip) {
         let header =
             self.chain_store.get_block_header(&final_execution_head.last_block_hash).unwrap();
         let Some(prev_height) = header.prev_height() else {
-            return Ok(());
+            return;
         };
         for shard_uid in shard_layout.shard_uids() {
             let tries = self.runtime_adapter.get_tries();
             tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
         }
-        Ok(())
     }
 
     fn process_all_ready_blocks(&mut self) -> Result<(), Error> {

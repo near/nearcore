@@ -348,7 +348,7 @@ impl ShardTracker {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
         let mut shards_to_sync = Vec::new();
         for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
-            if self.should_catch_up_shard(parent_hash, shard_id)? {
+            if self.should_catch_up_shard(parent_hash, shard_id) {
                 shards_to_sync.push(shard_id)
             }
         }
@@ -363,18 +363,14 @@ impl ShardTracker {
     /// We check that we didn't track it in T-1 because if so, and we're in the relatively rare case
     /// where we'll go from tracking it to not tracking it and back to tracking it in consecutive epochs,
     /// then we can just continue to apply chunks as if we were tracking it in epoch T, and there's no need to state sync.
-    fn should_catch_up_shard(
-        &self,
-        prev_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<bool, Error> {
+    fn should_catch_up_shard(&self, prev_hash: &CryptoHash, shard_id: ShardId) -> bool {
         // Won't care about it next epoch, no need to state sync it.
         if !self.will_care_about_shard(prev_hash, shard_id) {
-            return Ok(false);
+            return false;
         }
         // Currently tracking the shard, so no need to state sync it.
         if self.cares_about_shard(prev_hash, shard_id) {
-            return Ok(false);
+            return false;
         }
 
         // Now we need to state sync it unless we were tracking the parent in the previous epoch,
@@ -382,7 +378,7 @@ impl ShardTracker {
 
         let tracked_before =
             self.cared_about_shard_in_prev_epoch_from_prev_hash(prev_hash, shard_id);
-        Ok(!tracked_before)
+        !tracked_before
     }
 
     /// Return a StateSyncInfo that includes the information needed for syncing state for shards needed
