@@ -294,6 +294,62 @@ fn test_indexer_deploy_contract_local_tx() {
     shutdown(env);
 }
 
+/// Test that `receipt_execution_outcomes` preserves execution order (not hash-sorted order).
+///
+/// Submits multiple local transactions in the same chunk and verifies
+/// that the indexer returns receipt execution outcomes in the same order
+/// as the corresponding transactions, which is the execution order.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_indexer_receipt_execution_outcomes_order() {
+    init_test_logger();
+
+    let mut env = setup();
+
+    // Submit 3 local transactions that all fit in one chunk.
+    let txs: Vec<SignedTransaction> = (0..3).map(|_| create_local_tx(&env)).collect();
+    for tx in &txs {
+        env.validator().submit_tx(tx.clone());
+    }
+
+    // Wait for all transactions to be included and local receipts executed.
+    let last_tx = txs.last().unwrap();
+    env.validator_runner().run_until_outcome_available(last_tx.get_hash(), Duration::seconds(5));
+    let tx_included_height = env.validator().head().height;
+
+    let mut indexer_receiver = start_indexer(&env, SyncModeEnum::BlockHeight(tx_included_height));
+    let msg = receive_indexer_message(&mut env, &mut indexer_receiver);
+    let indexer_shard = &msg.shards[0];
+    let indexer_chunk = indexer_shard.chunk.as_ref().unwrap();
+    assert_eq!(indexer_chunk.transactions.len(), 3);
+    assert_eq!(indexer_shard.receipt_execution_outcomes.len(), 3);
+
+    // Extract receipt IDs from transaction outcomes in transaction order.
+    let expected_receipt_ids: Vec<CryptoHash> = indexer_chunk
+        .transactions
+        .iter()
+        .map(|tx| {
+            let ExecutionStatusView::SuccessReceiptId(id) =
+                &tx.outcome.execution_outcome.outcome.status
+            else {
+                panic!("expected SuccessReceiptId");
+            };
+            *id
+        })
+        .collect();
+
+    // Verify receipt_execution_outcomes are in the same order.
+    let actual_receipt_ids: Vec<CryptoHash> =
+        indexer_shard.receipt_execution_outcomes.iter().map(|o| o.execution_outcome.id).collect();
+    assert_eq!(
+        actual_receipt_ids, expected_receipt_ids,
+        "receipt execution outcomes must be in execution order"
+    );
+
+    shutdown(env);
+}
+
 fn user_account() -> AccountId {
     create_account_id("user")
 }
