@@ -2358,6 +2358,12 @@ impl Chain {
             return Err(e);
         }
 
+        crate::validate::validate_block_shard_split(
+            self.epoch_manager.as_ref(),
+            header,
+            &block.chunks(),
+        )?;
+
         let protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
         let last_certified_block_execution_results =
