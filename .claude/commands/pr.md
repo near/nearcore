@@ -9,6 +9,9 @@ Create a pull request with automatically generated title and description based o
 If user instructions are non-empty, parse them for the following hints (they are free-form text, not structured flags):
 - **"draft"** → create the PR as a draft
 - **"fork"** → push to the user's own fork instead of `origin`
+- **"reuse-branch"** → reuse the current branch instead of creating a new one
+- **"new-branch"** → create a new branch even if on a feature branch
+- **A base branch** (e.g., "base: shreyan/project/pr1", "base is master") → use as the PR base branch instead of auto-detecting
 - **A project name** (e.g., "project is spice", "project: resharding") → use as the project instead of auto-detecting
 - **A change type** (e.g., "type: fix", "type is refactor") → use as the change type instead of auto-detecting
 - **Any other text** → treat as extra context to incorporate into the PR description
@@ -20,9 +23,12 @@ Follow these steps in order:
    - Run `git diff --cached` to check for staged changes. If empty, warn the user and stop
    - Do NOT analyze unstaged changes
    - Fetch the GitHub username by running: `gh api user --jq .login`
-   - **Check if the current branch is already a feature branch:**
-     - If the current branch is NOT a long-lived branch (i.e., not `master`), treat it as a feature branch: set `reuse-branch = true`, use the current branch name as the branch name, and use `master` as the base branch.
-     - Otherwise, set `reuse-branch = false` and use the current branch as the PR base branch.
+   - **Determine `reuse-branch` and base branch:**
+     - If user instructions specify "reuse-branch", set `reuse-branch = true`.
+     - If user instructions specify "new-branch", set `reuse-branch = false`.
+     - If neither is specified, auto-detect: if the current branch is NOT `master` and no base branch was specified in instructions, set `reuse-branch = true`; otherwise set `reuse-branch = false`.
+     - **Base branch:** if user instructions specify a base branch, use that. Otherwise, use `master`.
+     - When `reuse-branch` is true, use the current branch name as the branch name.
    - **Detect push remote:**
      - If user instructions contain "fork", determine the user's fork remote:
        1. List remotes: `git remote -v`
