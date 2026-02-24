@@ -624,7 +624,7 @@ async fn convert_gas_key_changes_to_operations(
                         if let Some(prev_balance) = account_keys.remove(&public_key) {
                             push_gas_key_burn(
                                 &mut transactions.get_for_cause(&change.cause)?.operations,
-                                account_id,
+                                &account_id,
                                 prev_balance,
                             );
                         }
@@ -694,7 +694,7 @@ async fn convert_gas_key_changes_to_operations(
                     if let Some(prev_balance) = account_keys.remove(&public_key) {
                         push_gas_key_burn(
                             &mut transactions.get_for_cause(&change.cause)?.operations,
-                            account_id,
+                            &account_id,
                             prev_balance,
                         );
                     }
@@ -709,7 +709,7 @@ async fn convert_gas_key_changes_to_operations(
 
 fn push_gas_key_burn(
     operations: &mut Vec<crate::models::Operation>,
-    account_id: near_primitives::types::AccountId,
+    account_id: &near_primitives::types::AccountId,
     prev_balance: Balance,
 ) {
     if prev_balance == Balance::ZERO {
@@ -719,7 +719,7 @@ fn push_gas_key_burn(
         operation_identifier: crate::models::OperationIdentifier::new(operations),
         related_operations: None,
         account: AccountIdentifier {
-            address: account_id.into(),
+            address: account_id.clone().into(),
             sub_account: Some(crate::models::SubAccount::GasKey.into()),
             metadata: None,
         },
