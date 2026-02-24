@@ -317,6 +317,14 @@ pub async fn test_gas_key_changes_to_transactions(
     assert_eq!(gas_key_ops.len(), 1, "expected Transfer on SubAccount::GasKey");
     assert_eq!(gas_key_ops[0].type_, crate::models::OperationType::Transfer);
     assert_eq!(fee_type(gas_key_ops[0]), None);
+    // +0.2 NEAR: key_b went from 0.3 to 0.5 NEAR
+    assert_eq!(
+        gas_key_ops[0].amount,
+        Some(crate::models::Amount::from_yoctonear_diff(crate::utils::SignedDiff::cmp(
+            Balance::from_millinear(300).as_yoctonear(),
+            Balance::from_millinear(500).as_yoctonear(),
+        )))
+    );
 
     // key_c refund (+0.1 NEAR): system receipt, GasRefund.
     let refund_tx = &transactions[&format!("receipt:{}", refund_receipt_hash)];
@@ -336,6 +344,14 @@ pub async fn test_gas_key_changes_to_transactions(
         fee_type(gas_key_ops[0]),
         Some(crate::models::OperationMetadataTransferFeeType::GasRefund)
     );
+    // +0.1 NEAR: key_c went from 0.1 to 0.2 NEAR
+    assert_eq!(
+        gas_key_ops[0].amount,
+        Some(crate::models::Amount::from_yoctonear_diff(crate::utils::SignedDiff::cmp(
+            Balance::from_millinear(100).as_yoctonear(),
+            Balance::from_millinear(200).as_yoctonear(),
+        )))
+    );
 
     // key_a gas usage (-0.2 NEAR): non-system receipt, no fee type.
     let gas_usage_tx = &transactions[&format!("receipt:{}", gas_usage_receipt_hash)];
@@ -352,6 +368,14 @@ pub async fn test_gas_key_changes_to_transactions(
     assert_eq!(gas_key_ops.len(), 1, "expected Transfer (deduction) on SubAccount::GasKey");
     assert_eq!(gas_key_ops[0].type_, crate::models::OperationType::Transfer);
     assert_eq!(fee_type(gas_key_ops[0]), None);
+    // -0.2 NEAR: key_a went from 0.5 to 0.3 NEAR
+    assert_eq!(
+        gas_key_ops[0].amount,
+        Some(crate::models::Amount::from_yoctonear_diff(crate::utils::SignedDiff::cmp(
+            Balance::from_millinear(500).as_yoctonear(),
+            Balance::from_millinear(300).as_yoctonear(),
+        )))
+    );
 
     // key_a deletion (burn remaining 0.3 NEAR).
     let delete_tx = &transactions[&format!("receipt:{}", delete_key_receipt_hash)];
@@ -367,6 +391,11 @@ pub async fn test_gas_key_changes_to_transactions(
         .collect();
     assert_eq!(gas_key_ops.len(), 1, "expected GasKeyBalanceBurnt on SubAccount::GasKey");
     assert_eq!(gas_key_ops[0].type_, crate::models::OperationType::GasKeyBalanceBurnt);
+    // -0.3 NEAR: key_a had 0.3 NEAR remaining (after gas usage) when deleted
+    assert_eq!(
+        gas_key_ops[0].amount,
+        Some(-crate::models::Amount::from_balance(Balance::from_millinear(300)))
+    );
 
     // key_d TransactionProcessing (-0.2 NEAR): GasPrepayment.
     let prepay_tx = &transactions[&format!("tx:{}", gas_prepay_tx_hash)];
@@ -385,5 +414,13 @@ pub async fn test_gas_key_changes_to_transactions(
     assert_eq!(
         fee_type(gas_key_ops[0]),
         Some(crate::models::OperationMetadataTransferFeeType::GasPrepayment)
+    );
+    // -0.2 NEAR: key_d went from 0.4 to 0.2 NEAR
+    assert_eq!(
+        gas_key_ops[0].amount,
+        Some(crate::models::Amount::from_yoctonear_diff(crate::utils::SignedDiff::cmp(
+            Balance::from_millinear(400).as_yoctonear(),
+            Balance::from_millinear(200).as_yoctonear(),
+        )))
     );
 }
