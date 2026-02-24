@@ -25,8 +25,7 @@ Follow these steps in order:
    - Fetch the GitHub username by running: `gh api user --jq .login`
    - **Determine `reuse-branch` and base branch:**
      - If user instructions specify "reuse-branch", set `reuse-branch = true`.
-     - If user instructions specify "new-branch", set `reuse-branch = false`.
-     - If neither is specified, auto-detect: if the current branch is NOT `master` and no base branch was specified in instructions, set `reuse-branch = true`; otherwise set `reuse-branch = false`.
+     - Otherwise, set `reuse-branch = false` (this is the default).
      - **Base branch:** if user instructions specify a base branch, use that. Otherwise, use `master`.
      - When `reuse-branch` is true, use the current branch name as the branch name.
    - **Detect push remote:**
