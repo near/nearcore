@@ -40,6 +40,7 @@ mod processed_receipts_gc;
 mod protocol_upgrade;
 mod reject_outdated_blocks;
 mod resharding_v3;
+mod shutdown_signal;
 mod single_shard_tracking;
 mod spice;
 mod spice_resharding;

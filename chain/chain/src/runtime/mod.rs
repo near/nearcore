@@ -34,7 +34,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
+    AccessKeyInfoView, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest, QueryResponse,
     QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -1330,7 +1330,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                         )
                     })?;
                 Ok(QueryResponse {
-                    kind: QueryResponseKind::GasKeyNonces(gas_key_nonces),
+                    kind: QueryResponseKind::GasKeyNonces(GasKeyNoncesView {
+                        nonces: gas_key_nonces,
+                    }),
                     block_height,
                     block_hash: *block_hash,
                 })

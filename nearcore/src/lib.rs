@@ -29,6 +29,7 @@ use near_client::archive::cloud_archival_writer::{
 };
 use near_client::archive::cold_store_actor::create_cold_store_actor;
 use near_client::chunk_executor_actor::{ChunkExecutorActor, ChunkExecutorConfig};
+use near_client::client_actor::ShutdownReason;
 use near_client::gc_actor::GCActor;
 use near_client::spice_chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice_data_distributor_actor::SpiceDataDistributorActor;
@@ -369,7 +370,7 @@ pub fn start_with_config_and_synchronization(
     actor_system: ActorSystem,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
-    shutdown_signal: Option<broadcast::Sender<()>>,
+    shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
     config_updater: Option<ConfigUpdater>,
 ) -> impl Future<Output = anyhow::Result<NearNode>> {
     // Pins the future to avoid large stack frame.
@@ -386,7 +387,7 @@ pub async fn start_with_config_and_synchronization_impl(
     home_dir: &Path,
     config: NearConfig,
     actor_system: ActorSystem,
-    shutdown_signal: Option<broadcast::Sender<()>>,
+    shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
     let storage = open_storage(home_dir, &config)?;
