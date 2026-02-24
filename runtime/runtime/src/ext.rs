@@ -348,10 +348,9 @@ impl<'a> External for RuntimeExt<'a> {
         receiver_id: AccountId,
     ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError> {
         let input_data_id = self.generate_data_id();
-        let receipt_index = self
-            .receipt_manager
-            .create_promise_yield_receipt(input_data_id, receiver_id.clone())
-            .map(|receipt_index| (receipt_index, input_data_id))?;
+        let receipt_index =
+            self.receipt_manager.create_promise_yield_receipt(input_data_id, receiver_id.clone());
+        let receipt_index = (receipt_index, input_data_id);
 
         if ProtocolFeature::YieldResumeImprovements.enabled(self.current_protocol_version) {
             set_promise_yield_status(
@@ -380,7 +379,7 @@ impl<'a> External for RuntimeExt<'a> {
                     .map_err(wrap_storage_error)?;
 
             if has_yield_receipt_in_state || has_yield_status_in_state {
-                self.receipt_manager.create_promise_resume_receipt(data_id, data)?;
+                self.receipt_manager.create_promise_resume_receipt(data_id, data);
                 set_promise_yield_status(
                     &mut self.trie_update,
                     &self.account_id,
@@ -393,29 +392,22 @@ impl<'a> External for RuntimeExt<'a> {
             Ok(false)
         } else {
             if has_yield_receipt_in_state {
-                self.receipt_manager.create_promise_resume_receipt(data_id, data)?;
+                self.receipt_manager.create_promise_resume_receipt(data_id, data);
                 return Ok(true);
             }
 
             // If the yielded promise was created by the current transaction, we'll find it in the
             // receipt manager.
-            self.receipt_manager.checked_resolve_promise_yield(data_id, data)
+            Ok(self.receipt_manager.checked_resolve_promise_yield(data_id, data))
         }
     }
 
-    fn append_action_create_account(
-        &mut self,
-        receipt_index: ReceiptIndex,
-    ) -> Result<(), VMLogicError> {
-        self.receipt_manager.append_action_create_account(receipt_index)
+    fn append_action_create_account(&mut self, receipt_index: ReceiptIndex) {
+        self.receipt_manager.append_action_create_account(receipt_index);
     }
 
-    fn append_action_deploy_contract(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        code: Vec<u8>,
-    ) -> Result<(), VMLogicError> {
-        self.receipt_manager.append_action_deploy_contract(receipt_index, code)
+    fn append_action_deploy_contract(&mut self, receipt_index: ReceiptIndex, code: Vec<u8>) {
+        self.receipt_manager.append_action_deploy_contract(receipt_index, code);
     }
 
     fn append_action_deploy_global_contract(
@@ -423,16 +415,16 @@ impl<'a> External for RuntimeExt<'a> {
         receipt_index: ReceiptIndex,
         code: Vec<u8>,
         mode: GlobalContractDeployMode,
-    ) -> Result<(), VMLogicError> {
-        self.receipt_manager.append_action_deploy_global_contract(receipt_index, code, mode)
+    ) {
+        self.receipt_manager.append_action_deploy_global_contract(receipt_index, code, mode);
     }
 
     fn append_action_use_global_contract(
         &mut self,
         receipt_index: ReceiptIndex,
         contract_id: GlobalContractIdentifier,
-    ) -> Result<(), VMLogicError> {
-        self.receipt_manager.append_use_deploy_global_contract(receipt_index, contract_id)
+    ) {
+        self.receipt_manager.append_use_deploy_global_contract(receipt_index, contract_id);
     }
 
     fn append_action_deterministic_state_init(
@@ -440,7 +432,7 @@ impl<'a> External for RuntimeExt<'a> {
         receipt_index: ReceiptIndex,
         contract_id: GlobalContractIdentifier,
         amount: Balance,
-    ) -> Result<u64, VMLogicError> {
+    ) -> u64 {
         self.receipt_manager.append_deterministic_state_init(receipt_index, contract_id, amount)
     }
 
@@ -463,12 +455,8 @@ impl<'a> External for RuntimeExt<'a> {
         )
     }
 
-    fn append_action_transfer(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        deposit: Balance,
-    ) -> Result<(), VMLogicError> {
-        self.receipt_manager.append_action_transfer(receipt_index, deposit)
+    fn append_action_transfer(&mut self, receipt_index: ReceiptIndex, deposit: Balance) {
+        self.receipt_manager.append_action_transfer(receipt_index, deposit);
     }
 
     fn append_action_stake(
@@ -524,8 +512,8 @@ impl<'a> External for RuntimeExt<'a> {
         &mut self,
         receipt_index: ReceiptIndex,
         beneficiary_id: AccountId,
-    ) -> Result<(), VMLogicError> {
-        self.receipt_manager.append_action_delete_account(receipt_index, beneficiary_id)
+    ) {
+        self.receipt_manager.append_action_delete_account(receipt_index, beneficiary_id);
     }
 
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {

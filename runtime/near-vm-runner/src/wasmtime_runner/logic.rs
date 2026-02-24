@@ -2335,7 +2335,7 @@ pub fn promise_batch_action_create_account(
         sir,
     )?;
 
-    ctx.ext.append_action_create_account(receipt_idx)?;
+    ctx.ext.append_action_create_account(receipt_idx);
     Ok(())
 }
 
@@ -2401,7 +2401,7 @@ pub fn promise_batch_action_deploy_contract(
         sir,
     )?;
 
-    ctx.ext.append_action_deploy_contract(receipt_idx, code)?;
+    ctx.ext.append_action_deploy_contract(receipt_idx, code);
     Ok(())
 }
 
@@ -2516,7 +2516,7 @@ fn promise_batch_action_deploy_global_contract_impl(
         sir,
     )?;
 
-    ctx.ext.append_action_deploy_global_contract(receipt_idx, code, mode)?;
+    ctx.ext.append_action_deploy_global_contract(receipt_idx, code, mode);
     Ok(())
 }
 
@@ -2614,7 +2614,7 @@ fn promise_batch_action_use_global_contract_impl(
         sir,
     )?;
 
-    ctx.ext.append_action_use_global_contract(receipt_idx, contract_id)?;
+    ctx.ext.append_action_use_global_contract(receipt_idx, contract_id);
     Ok(())
 }
 
@@ -2749,7 +2749,7 @@ fn promise_batch_action_state_init_impl(
         sir,
     )?;
     ctx.result_state.deduct_balance(amount)?;
-    ctx.ext.append_action_deterministic_state_init(receipt_idx, code, amount)
+    Ok(ctx.ext.append_action_deterministic_state_init(receipt_idx, code, amount))
 }
 
 /// Appends a data entry to an existing `DeterministicStateInit` action.
@@ -3040,7 +3040,7 @@ pub fn promise_batch_action_transfer(
         ActionCosts::transfer,
     )?;
     ctx.result_state.deduct_balance(amount)?;
-    ctx.ext.append_action_transfer(receipt_idx, amount)?;
+    ctx.ext.append_action_transfer(receipt_idx, amount);
     Ok(())
 }
 
@@ -3342,7 +3342,7 @@ pub fn promise_batch_action_delete_account(
         sir,
     )?;
 
-    ctx.ext.append_action_delete_account(receipt_idx, beneficiary_id)?;
+    ctx.ext.append_action_delete_account(receipt_idx, beneficiary_id);
     Ok(())
 }
 

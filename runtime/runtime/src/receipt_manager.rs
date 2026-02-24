@@ -148,7 +148,7 @@ impl ReceiptManager {
         &mut self,
         input_data_id: CryptoHash,
         receiver_id: AccountId,
-    ) -> Result<ReceiptIndex, VMLogicError> {
+    ) -> ReceiptIndex {
         let new_receipt = ActionReceiptMetadata {
             receiver_id,
             refund_to: None,
@@ -160,7 +160,7 @@ impl ReceiptManager {
         let new_receipt_index = self.action_receipts.len();
         self.action_receipts.push(new_receipt);
         self.promise_yield_receipt_index.insert(input_data_id, new_receipt_index);
-        Ok(new_receipt_index as ReceiptIndex)
+        new_receipt_index as ReceiptIndex
     }
 
     /// Creates a PromiseResume receipt.
@@ -171,17 +171,12 @@ impl ReceiptManager {
     ///
     /// * `data_id` - id of the PromiseResume receipt being submitted
     /// * `data` - contents of the PromiseResume receipt
-    pub(super) fn create_promise_resume_receipt(
-        &mut self,
-        data_id: CryptoHash,
-        data: Vec<u8>,
-    ) -> Result<(), VMLogicError> {
+    pub(super) fn create_promise_resume_receipt(&mut self, data_id: CryptoHash, data: Vec<u8>) {
         self.data_receipts.push(DataReceiptMetadata {
             data_id,
             data: Some(data),
             is_promise_resume: true,
         });
-        Ok(())
     }
 
     /// Resolves a PromiseYield input dependency previously created under given `data_id`,
@@ -195,8 +190,8 @@ impl ReceiptManager {
         &mut self,
         data_id: CryptoHash,
         data: Vec<u8>,
-    ) -> Result<bool, VMLogicError> {
-        Ok(if let Some(receipt_index) = self.promise_yield_receipt_index.remove(&data_id) {
+    ) -> bool {
+        if let Some(receipt_index) = self.promise_yield_receipt_index.remove(&data_id) {
             // Convert existing PromiseYield to a standard Action receipt
             let receipt = &mut self.action_receipts[receipt_index];
             assert!(receipt.is_promise_yield, "receipt should be promise yield");
@@ -211,7 +206,7 @@ impl ReceiptManager {
             true
         } else {
             false
-        })
+        }
     }
 
     /// Attach the [`CreateAccountAction`] action to an existing receipt.
@@ -223,12 +218,8 @@ impl ReceiptManager {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    pub(super) fn append_action_create_account(
-        &mut self,
-        receipt_index: ReceiptIndex,
-    ) -> Result<(), VMLogicError> {
+    pub(super) fn append_action_create_account(&mut self, receipt_index: ReceiptIndex) {
         self.append_action(receipt_index, Action::CreateAccount(CreateAccountAction {}));
-        Ok(())
     }
 
     /// Attach the [`DeployContractAction`] action to an existing receipt.
@@ -245,9 +236,8 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         code: Vec<u8>,
-    ) -> Result<(), VMLogicError> {
+    ) {
         self.append_action(receipt_index, Action::DeployContract(DeployContractAction { code }));
-        Ok(())
     }
 
     /// Attach the [`DeployGlobalContractAction`] action to an existing receipt.
@@ -266,7 +256,7 @@ impl ReceiptManager {
         receipt_index: ReceiptIndex,
         code: Vec<u8>,
         mode: GlobalContractDeployMode,
-    ) -> Result<(), VMLogicError> {
+    ) {
         let deploy_mode = match mode {
             GlobalContractDeployMode::CodeHash => {
                 near_primitives::action::GlobalContractDeployMode::CodeHash
@@ -282,7 +272,6 @@ impl ReceiptManager {
                 deploy_mode,
             }),
         );
-        Ok(())
     }
 
     /// Attach the [`UseGlobalContractAction`] action to an existing receipt.
@@ -299,7 +288,7 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         contract_id: GlobalContractIdentifier,
-    ) -> Result<(), VMLogicError> {
+    ) {
         let contract_identifier = match contract_id {
             GlobalContractIdentifier::CodeHash(code_hash) => {
                 near_primitives::action::GlobalContractIdentifier::CodeHash(code_hash)
@@ -312,7 +301,6 @@ impl ReceiptManager {
             receipt_index,
             Action::UseGlobalContract(Box::new(UseGlobalContractAction { contract_identifier })),
         );
-        Ok(())
     }
 
     /// Attach the [`DeterministicStateInit`] action to an existing receipt.
@@ -336,7 +324,7 @@ impl ReceiptManager {
         receipt_index: ReceiptIndex,
         code: GlobalContractIdentifier,
         deposit: Balance,
-    ) -> Result<ActionIndex, VMLogicError> {
+    ) -> ActionIndex {
         let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
             code: code.into(),
             data: BTreeMap::new(),
@@ -345,8 +333,7 @@ impl ReceiptManager {
             state_init,
             deposit,
         }));
-        let action_index = self.append_action(receipt_index, action);
-        Ok(action_index as u64)
+        self.append_action(receipt_index, action) as u64
     }
 
     /// Set a data entry to an existing [`DeterministicStateInit`] action.
@@ -448,13 +435,8 @@ impl ReceiptManager {
     /// # Panics
     ///
     /// Panics if the `receipt_index` does not refer to a known receipt.
-    pub(super) fn append_action_transfer(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        deposit: Balance,
-    ) -> Result<(), VMLogicError> {
+    pub(super) fn append_action_transfer(&mut self, receipt_index: ReceiptIndex, deposit: Balance) {
         self.append_action(receipt_index, Action::Transfer(TransferAction { deposit }));
-        Ok(())
     }
 
     /// Attach the [`StakeAction`] action to an existing receipt.
@@ -590,12 +572,11 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         beneficiary_id: AccountId,
-    ) -> Result<(), VMLogicError> {
+    ) {
         self.append_action(
             receipt_index,
             Action::DeleteAccount(DeleteAccountAction { beneficiary_id }),
         );
-        Ok(())
     }
 
     /// Distribute the provided `gas` between receipts managed by this `ReceiptManager` according
