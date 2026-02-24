@@ -9,8 +9,7 @@ Create a pull request with automatically generated title and description based o
 If user instructions are non-empty, parse them for the following hints (they are free-form text, not structured flags):
 - **"draft"** → create the PR as a draft
 - **"fork"** → push to the user's own fork instead of `origin`
-- **"reuse-branch"** → reuse the current branch instead of creating a new one
-- **"new-branch"** → create a new branch even if on a feature branch
+- **"reuse-branch"** → reuse the current branch instead of creating a new one (default is to create a new branch)
 - **A base branch** (e.g., "base: shreyan/project/pr1", "base is master") → use as the PR base branch instead of auto-detecting
 - **A project name** (e.g., "project is spice", "project: resharding") → use as the project instead of auto-detecting
 - **A change type** (e.g., "type: fix", "type is refactor") → use as the change type instead of auto-detecting
