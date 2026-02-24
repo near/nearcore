@@ -24,6 +24,7 @@ use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessag
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::PartialState;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
 use near_primitives::stateless_validation::spice_chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::stateless_validation::spice_state_witness::SpiceChunkStateWitness;
@@ -367,7 +368,17 @@ impl SpiceChunkValidatorActor {
     ) -> Result<(), Error> {
         let chunk_id = accesses.chunk_id().clone();
 
-        // TODO(spice): Verify signature of accesses message.
+        // Verify signature of accesses message.
+        let block = self.chain_store.get_block(&chunk_id.block_hash)?;
+        let key = ChunkProductionKey {
+            epoch_id: *block.header().epoch_id(),
+            shard_id: chunk_id.shard_id,
+            height_created: block.header().height(),
+        };
+        let chunk_producer = self.epoch_manager.get_chunk_producer_info(&key)?;
+        if !accesses.verify_signature(chunk_producer.public_key()) {
+            return Err(Error::Other("invalid spice contract accesses signature".to_owned()));
+        }
 
         let protocol_version = self
             .epoch_manager
@@ -437,7 +448,7 @@ impl SpiceChunkValidatorActor {
 
         // Resolve across all pending chunks that are waiting on any of these contracts.
         let mut maybe_ready: Vec<SpiceChunkId> = Vec::new();
-        for (chunk_id, entry) in self.pending_chunks.iter_mut() {
+        for (chunk_id, entry) in &mut self.pending_chunks {
             if let Some(missing) = &mut entry.missing {
                 let mut resolved_any = false;
                 for (hash, bytes) in &received {

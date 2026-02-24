@@ -48,6 +48,7 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use near_network::spice_data_distribution::SpiceChunkContractAccessesMessage;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{
     CodeHash, SpiceChunkContractAccesses,
 };
@@ -57,9 +58,20 @@ use crate::spice_chunk_validator_actor::{SpiceChunkStateWitnessMessage, SpiceChu
 const TEST_RECEIPTS: Vec<Receipt> = Vec::new();
 const GAS_LIMIT: Gas = Gas::from_teragas(300);
 
+/// Look up the chunk producer account name for the first shard in the given block.
+fn chunk_producer_for_block(actor: &TestActor, block: &Block) -> String {
+    let key = ChunkProductionKey {
+        epoch_id: *block.header().epoch_id(),
+        shard_id: block.chunks()[0].shard_id(),
+        height_created: block.header().height(),
+    };
+    actor.epoch_manager.get_chunk_producer_info(&key).unwrap().account_id().to_string()
+}
+
 /// Send an empty contract accesses message for a block, signaling no contracts are needed.
 fn send_empty_accesses(actor: &mut TestActor, block: &Block) {
-    let accesses = make_contract_accesses(block, HashSet::new());
+    let producer = chunk_producer_for_block(actor, block);
+    let accesses = make_contract_accesses_with_signer(block, HashSet::new(), &producer);
     actor.handle(SpiceChunkContractAccessesMessage(accesses));
 }
 
@@ -580,7 +592,15 @@ fn make_code_hash(data: &[u8]) -> CodeHash {
 }
 
 fn make_contract_accesses(block: &Block, hashes: HashSet<CodeHash>) -> SpiceChunkContractAccesses {
-    let signer = create_test_signer("test-producer");
+    make_contract_accesses_with_signer(block, hashes, "test-validator")
+}
+
+fn make_contract_accesses_with_signer(
+    block: &Block,
+    hashes: HashSet<CodeHash>,
+    signer_name: &str,
+) -> SpiceChunkContractAccesses {
+    let signer = create_test_signer(signer_name);
     let chunk_id =
         SpiceChunkId { block_hash: *block.hash(), shard_id: block.chunks()[0].shard_id() };
     SpiceChunkContractAccesses::new(chunk_id, hashes, &signer)
@@ -696,4 +716,30 @@ fn test_contract_accesses_sends_request_for_missing() {
     let requests = drain_contract_requests(&mut actor.network_rc);
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0], HashSet::from([hash_a, hash_b]));
+}
+
+/// Contract accesses signed by a non-chunk-producer are rejected — no requests are sent,
+/// and the chunk does not finalize.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_contract_accesses_invalid_signature_rejected() {
+    let mut actor = setup();
+    let head = actor.chain_store.head().unwrap();
+    let block = actor.chain_store.get_block(&head.last_block_hash).unwrap();
+    let prev_block = actor.chain_store.get_block(&head.prev_block_hash).unwrap();
+
+    let starting_state_root = test_starting_state_root(&actor);
+    record_execution_results(&actor, &prev_block, starting_state_root);
+
+    let witness_message = valid_witness_message(&actor, &block, &prev_block, &starting_state_root);
+
+    // Sign accesses with a key that does not belong to the chunk producer.
+    let accesses =
+        make_contract_accesses_with_signer(&block, HashSet::new(), "not-a-chunk-producer");
+    actor.handle(SpiceChunkContractAccessesMessage(accesses));
+    actor.handle(witness_message.span_wrap());
+
+    // No contract requests should be sent, and no endorsement should be recorded.
+    assert!(drain_contract_requests(&mut actor.network_rc).is_empty());
+    assert!(actor.core_reader.get_block_execution_results(block.header()).unwrap().is_none());
 }

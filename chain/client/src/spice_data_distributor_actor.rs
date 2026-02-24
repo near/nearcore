@@ -1086,6 +1086,38 @@ impl SpiceDataDistributorActor {
         let chunk_id = request.chunk_id().clone();
         let requester = request.requester().clone();
 
+        // Fetch block early — needed for both validation and storage lookup below.
+        let block = self.chain_store.get_block(&chunk_id.block_hash)?;
+        let epoch_id = block.header().epoch_id();
+
+        // Verify requester is a chunk validator for this chunk.
+        let assignments = self.epoch_manager.get_chunk_validator_assignments(
+            epoch_id,
+            chunk_id.shard_id,
+            block.header().height(),
+        )?;
+        if !assignments.contains(&requester) {
+            tracing::warn!(
+                target: "spice_data_distribution",
+                ?chunk_id,
+                ?requester,
+                "contract code request from non-chunk-validator"
+            );
+            return Ok(());
+        }
+
+        // Verify request signature.
+        let validator = self.epoch_manager.get_validator_by_account_id(epoch_id, &requester)?;
+        if !request.verify_signature(validator.public_key()) {
+            tracing::warn!(
+                target: "spice_data_distribution",
+                ?chunk_id,
+                ?requester,
+                "invalid contract code request signature"
+            );
+            return Ok(());
+        }
+
         let Some(valid_accesses) = self.contract_accesses_cache.get(&chunk_id) else {
             tracing::warn!(
                 target: "spice_data_distribution",
@@ -1096,8 +1128,6 @@ impl SpiceDataDistributorActor {
             return Ok(());
         };
 
-        let block = self.chain_store.get_block(&chunk_id.block_hash)?;
-        let epoch_id = block.header().epoch_id();
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), chunk_id.shard_id, epoch_id)?;
         let storage =
             TrieDBStorage::new(TrieStoreAdapter::new(self.chain_store.store()), shard_uid);
