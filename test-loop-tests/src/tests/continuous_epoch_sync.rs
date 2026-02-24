@@ -120,6 +120,66 @@ fn test_epoch_sync_proof_update_with_forks() {
     env.shutdown_and_drain_remaining_events(Duration::seconds(10));
 }
 
+// Test that a stale node (one that has data beyond genesis but is far behind the
+// network) triggers a data reset shutdown signal when it detects it needs epoch sync.
+#[test]
+fn test_epoch_sync_stale_node_triggers_reset() {
+    // This test is only relevant when ContinuousEpochSync is enabled.
+    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+
+    init_test_logger();
+    let epoch_length = 10;
+    // Use 4 validators so 3 remaining can continue after node 0 is killed.
+    let validators_spec = create_validators_spec(4, 0);
+    let clients = validators_spec_clients(&validators_spec);
+
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(epoch_length)
+        .validators_spec(validators_spec)
+        .build();
+    let mut env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store_from_genesis()
+        .clients(clients)
+        .build()
+        .warmup();
+
+    // Run all nodes to height 30 (3 epochs), then kill node 0.
+    let kill_height = 3 * epoch_length;
+    env.node_runner(0).run_until_head_height(kill_height);
+    let node0_identifier = env.node_datas[0].identifier.clone();
+    let killed_state = env.kill_node(&node0_identifier);
+
+    // Advance the remaining nodes well past the epoch sync horizon (4 epochs * 10 = 40 blocks).
+    // Node 0 is at height 30, so we need the network to be at least 30 + 40 + 1 = 71.
+    let target_height = kill_height + 5 * epoch_length;
+    env.node_runner(1).run_until_head_height(target_height);
+
+    // Restart node 0 with its stale data (at height 30, network at ~80).
+    let restart_id = format!("{}-restart", node0_identifier);
+    env.restart_node(&restart_id, killed_state);
+
+    // Run node 1 a bit more to give node 0 time to detect it's stale and trigger shutdown.
+    // Once node 0's ClientActor detects it's stale, it sends EpochSyncDataReset on the
+    // shutdown channel, which the test-loop picks up and denylists the node.
+    env.node_runner(1).run_for_number_of_blocks(5);
+
+    // The restarted node should have been denylisted (shutdown signal fired).
+    // Its head should be at or near the kill height (it didn't catch up).
+    let restart_node_idx = env.node_datas.len() - 1;
+    let node0_head = env.node(restart_node_idx).head().height;
+    assert!(
+        node0_head <= kill_height + 2,
+        "stale node head ({node0_head}) should be near kill height ({kill_height}), \
+         indicating it was shut down for data reset rather than catching up"
+    );
+
+    tracing::info!(node0_head, "stale node data reset test passed");
+    env.shutdown_and_drain_remaining_events(Duration::seconds(10));
+}
+
 // Validate that the epoch sync proof stored in epoch_store matches the one derived
 // from derive_epoch_sync_proof_from_last_block.
 //
