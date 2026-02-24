@@ -1,6 +1,6 @@
 use crate::{
     ChainAccess, ChainError, LatestTargetNonce, MappedBlock, MappedTx, MappedTxProvenance,
-    NonceLookupKey, NonceUpdater, TargetChainTx, TargetNonce, TxBatch, TxRef,
+    NonceKind, NonceLookupKey, NonceUpdater, TargetChainTx, TargetNonce, TxBatch, TxRef,
 };
 use anyhow::Context;
 use near_async::multithread::MultithreadRuntimeHandle;
@@ -240,7 +240,7 @@ impl TxTracker {
             return Ok(());
         }
         match &nonce_key.kind {
-            crate::NonceKind::AccessKey => {
+            NonceKind::AccessKey => {
                 let nonce = crate::fetch_access_key_nonce(
                     target_view_client,
                     &nonce_key.account_id,
@@ -250,7 +250,7 @@ impl TxTracker {
                 let t = LatestTargetNonce { nonce, pending_outcomes: HashSet::new() };
                 crate::put_target_nonce(db, nonce_key, &t)?;
             }
-            crate::NonceKind::GasKey(_) => {
+            NonceKind::GasKey(_) => {
                 // Bulk fetch all gas key nonces at once and write them all to DB.
                 // Subsequent calls for other indices of the same key will find
                 // their entry in DB and skip the RPC.
@@ -265,7 +265,7 @@ impl TxTracker {
                         let key = NonceLookupKey {
                             account_id: nonce_key.account_id.clone(),
                             public_key: nonce_key.public_key.clone(),
-                            kind: crate::NonceKind::GasKey(i as NonceIndex),
+                            kind: NonceKind::GasKey(i as NonceIndex),
                         };
                         let t = LatestTargetNonce {
                             nonce: Some(*nonce),
