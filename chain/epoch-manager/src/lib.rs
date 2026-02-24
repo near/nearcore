@@ -689,16 +689,7 @@ impl EpochManager {
             .derive_v3(boundary_account.clone(), || {
                 self.get_shard_layout_history(current_protocol_version, None)
             })
-            .map_err(|err| {
-                tracing::error!(
-                    target: "epoch_manager",
-                    ?shard_id,
-                    %boundary_account,
-                    ?err,
-                    "dynamic resharding: failed to derive new shard layout"
-                );
-                EpochError::ShardingError(err.to_string())
-            })?;
+            .map_err(|err| EpochError::ShardingError(err.to_string()))?;
         Ok(new_layout)
     }
 
