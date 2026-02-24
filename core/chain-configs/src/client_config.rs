@@ -219,17 +219,6 @@ pub enum ExternalStorageLocation {
     GCS { bucket: String },
 }
 
-impl ExternalStorageLocation {
-    /// Human-readable backend name.
-    pub fn name(&self) -> &str {
-        match self {
-            Self::S3 { .. } => "S3",
-            Self::Filesystem { .. } => "Filesystem",
-            Self::GCS { .. } => "GCS",
-        }
-    }
-}
-
 fn default_state_parts_compression_level() -> i32 {
     DEFAULT_STATE_PARTS_COMPRESSION_LEVEL
 }

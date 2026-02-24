@@ -4943,6 +4943,24 @@
         "title": "GasKeyInfo",
         "type": "object"
       },
+      "GasKeyNoncesView": {
+        "description": "Gas key nonces view returned by the `view_gas_key_nonces` RPC query.",
+        "properties": {
+          "nonces": {
+            "items": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "nonces"
+        ],
+        "title": "GasKeyNoncesView",
+        "type": "object"
+      },
       "GenesisConfig": {
         "properties": {
           "avg_hidden_validator_seats_per_shard": {
@@ -9522,15 +9540,10 @@
                 "type": "object"
               },
               {
-                "items": {
-                  "format": "uint64",
-                  "minimum": 0,
-                  "type": "integer"
-                },
-                "type": "array"
+                "$ref": "#/components/schemas/GasKeyNoncesView"
               }
             ],
-            "title": "BlockHeightBlockHash"
+            "title": "GasKeyNoncesView"
           }
         ],
         "title": "RpcQueryResponse",

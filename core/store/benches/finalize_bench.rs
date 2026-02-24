@@ -244,8 +244,13 @@ fn encoded_chunk_to_partial_encoded_chunk(
     let header = encoded_chunk.cloned_header();
     let shard_id = header.shard_id();
 
+    // Use mainnet epoch config for the last protocol version before introducing dynamic resharding
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let shard_layout = epoch_config_store.get_config(PROTOCOL_VERSION).static_shard_layout();
+    let protocol_version = ProtocolFeature::DynamicResharding.protocol_version() - 1;
+    let shard_layout = epoch_config_store
+        .get_config(protocol_version)
+        .static_shard_layout()
+        .expect("dynamic resharding not enabled – static layout expected");
 
     let hashes = Chain::build_receipts_hashes(&receipts, &shard_layout).unwrap();
     let (_root, proofs) = merklize(&hashes);

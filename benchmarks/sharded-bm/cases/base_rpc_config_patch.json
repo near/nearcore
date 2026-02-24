@@ -1,0 +1,5 @@
+{
+    "save_tx_outcomes": true,
+    "save_state_changes": true,
+    "disable_tx_routing": false
+}

@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use std::task::Poll;
 
+use futures::future::BoxFuture;
+use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
@@ -10,6 +12,8 @@ use near_chain::{Block, BlockHeader};
 use near_client::client_actor::ClientActor;
 use near_client::{Client, ProcessTxRequest, Query, QueryError, ViewClientActor};
 use near_crypto::PublicKey;
+use near_jsonrpc::client::JsonRpcClient;
+use near_jsonrpc_primitives::errors::RpcError;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -25,6 +29,7 @@ use near_primitives::views::{
 };
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
+use parking_lot::Mutex;
 
 use crate::setup::state::NodeExecutionData;
 use crate::utils::transactions::TransactionRunner;
@@ -341,6 +346,35 @@ impl<'a> NodeRunner<'a> {
             maximum_duration,
         );
         res.unwrap()
+    }
+
+    /// Run until the future is resolved, return the result.
+    pub fn run_future<T: Send + 'static>(
+        &mut self,
+        description: &'static str,
+        future: impl Future<Output = T> + Send + 'static,
+        maximum_duration: Duration,
+    ) -> T {
+        let result = Arc::new(Mutex::new(None));
+        let result_clone = result.clone();
+        self.test_loop.future_spawner(&self.node_data.identifier).spawn(description, async move {
+            let res = future.await;
+            *result_clone.lock() = Some(res);
+        });
+        self.test_loop.run_until(|_data| result.lock().is_some(), maximum_duration);
+        result.lock().take().unwrap()
+    }
+
+    pub fn run_jsonrpc_query<T>(
+        &mut self,
+        make_query: impl FnOnce(&JsonRpcClient) -> BoxFuture<'static, Result<T, RpcError>>,
+        maximum_duration: Duration,
+    ) -> Result<T, RpcError>
+    where
+        T: Send + 'static,
+    {
+        let jsonrpc_client = self.node_data.jsonrpc_client();
+        self.run_future("jsonrpc_query", make_query(&jsonrpc_client), maximum_duration)
     }
 
     #[cfg(feature = "test_features")]
