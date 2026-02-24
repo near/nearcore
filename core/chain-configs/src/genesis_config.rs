@@ -6,7 +6,8 @@
 use crate::genesis_validate::validate_genesis;
 use crate::{
     BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
-    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, FISHERMEN_THRESHOLD, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, FISHERMEN_THRESHOLD, MAX_GAS_PRICE,
+    PROTOCOL_UPGRADE_STAKE_THRESHOLD,
 };
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -37,8 +38,6 @@ use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
-
-const MAX_GAS_PRICE: Balance = Balance::from_millinear(10);
 
 fn default_online_min_threshold() -> Rational32 {
     Rational32::new(90, 100)

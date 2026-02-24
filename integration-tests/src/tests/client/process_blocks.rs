@@ -15,7 +15,9 @@ use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{BlockProcessingArtifact, ChainStore, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, ProtocolVersionCheckConfig};
+use near_chain_configs::{
+    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, MAX_GAS_PRICE, ProtocolVersionCheckConfig,
+};
 use near_client::test_utils::create_chunk_on_height;
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, Signature};
@@ -570,7 +572,7 @@ fn test_invalid_gas_price() {
     init_test_logger();
     let genesis = TestGenesisBuilder::new()
         .epoch_length(5)
-        .gas_prices(Balance::from_yoctonear(100), Balance::ZERO)
+        .gas_prices(Balance::from_yoctonear(100), MAX_GAS_PRICE)
         .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
         .build();
     let mut env = TestEnv::builder_from_genesis(&genesis).clients_count(1).build();
@@ -815,7 +817,7 @@ fn test_bad_chunk_mask() {
 fn test_minimum_gas_price() {
     let min_gas_price = Balance::from_yoctonear(100);
     let mut genesis = TestGenesisBuilder::new()
-        .gas_prices(min_gas_price, Balance::ZERO)
+        .gas_prices(min_gas_price, MAX_GAS_PRICE)
         .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
         .build();
     genesis.config.gas_price_adjustment_rate = Ratio::new(1, 10);
@@ -1567,7 +1569,7 @@ fn test_gas_price_change() {
     let gas_price_adjustment_rate = Ratio::new(1, 10);
 
     let mut genesis = TestGenesisBuilder::new()
-        .gas_prices(min_gas_price, Balance::ZERO)
+        .gas_prices(min_gas_price, MAX_GAS_PRICE)
         .gas_limit(Gas::from_gas(gas_limit))
         .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
         .add_user_account_simple("test1".parse().unwrap(), TESTING_INIT_BALANCE)
@@ -2045,7 +2047,7 @@ fn slow_test_catchup_gas_price_change() {
     let min_gas_price = Balance::from_yoctonear(10000);
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .gas_prices(min_gas_price, Balance::ZERO)
+        .gas_prices(min_gas_price, MAX_GAS_PRICE)
         .gas_limit(Gas::from_teragas(1))
         .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
         .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
@@ -2200,10 +2202,11 @@ fn test_block_execution_outcomes() {
     let min_gas_price = Balance::from_yoctonear(10000);
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .gas_prices(min_gas_price, Balance::ZERO)
+        .gas_prices(min_gas_price, MAX_GAS_PRICE)
         .gas_limit(Gas::from_teragas(1))
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
         .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000_000))
         .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -2285,7 +2288,7 @@ fn test_save_tx_outcomes_false() {
     let min_gas_price = Balance::from_yoctonear(10000);
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .gas_prices(min_gas_price, Balance::ZERO)
+        .gas_prices(min_gas_price, MAX_GAS_PRICE)
         .gas_limit(Gas::from_teragas(1))
         .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &["test1"]))
         .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
@@ -2332,7 +2335,7 @@ fn test_refund_receipts_processing() {
     let min_gas_price = Balance::from_yoctonear(10000);
     let genesis = TestGenesisBuilder::new()
         .epoch_length(epoch_length)
-        .gas_prices(min_gas_price, Balance::ZERO)
+        .gas_prices(min_gas_price, MAX_GAS_PRICE)
         // Set gas limit to be small enough to produce some delayed receipts, but large enough for
         // transactions to get through.
         .gas_limit(Gas::from_gas(100_000_000))

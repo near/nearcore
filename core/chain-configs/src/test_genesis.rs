@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use near_crypto::PublicKey;
-use near_primitives::account::{AccessKey, Account, AccountContract};
+use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigBuilder, EpochConfigStore};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
@@ -15,6 +15,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_time::Clock;
 use num_rational::Rational32;
 
+use crate::test_utils::TESTING_INIT_BALANCE;
 use crate::{
     FISHERMEN_THRESHOLD, Genesis, GenesisConfig, GenesisContents, GenesisRecords,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD,
@@ -461,13 +462,9 @@ impl TestGenesisBuilder {
         // total supply.
         let mut user_accounts = self.user_accounts;
         if user_accounts.iter().all(|account| &account.account_id != &protocol_treasury_account) {
-            tracing::warn!(
-                ?protocol_treasury_account,
-                "protocol treasury account not found in user accounts, to keep genesis valid, adding it as a user account with zero balance"
-            );
             user_accounts.push(UserAccount {
                 account_id: protocol_treasury_account.clone(),
-                balance: Balance::ZERO,
+                balance: TESTING_INIT_BALANCE,
                 access_keys: vec![],
             });
         }
@@ -509,9 +506,17 @@ impl TestGenesisBuilder {
             }
         }
         for (account_id, balance) in validator_stake {
+            let liquid_balance = TESTING_INIT_BALANCE.checked_sub(balance).unwrap();
+            total_supply = total_supply.checked_add(liquid_balance).unwrap();
+            let public_key = create_test_signer(account_id.as_str()).public_key();
             records.push(StateRecord::Account {
+                account_id: account_id.clone(),
+                account: Account::new(liquid_balance, balance, AccountContract::None, 0),
+            });
+            records.push(StateRecord::AccessKey {
                 account_id,
-                account: Account::new(Balance::ZERO, balance, AccountContract::None, 0),
+                public_key,
+                access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
             });
         }
 

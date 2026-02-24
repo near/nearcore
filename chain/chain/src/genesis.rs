@@ -362,6 +362,7 @@ mod test {
     use std::str::FromStr;
 
     use near_async::time::FakeClock;
+    use near_chain_configs::MAX_GAS_PRICE;
     use near_chain_configs::test_genesis::{TestEpochConfigBuilder, TestGenesisBuilder};
     use near_epoch_manager::EpochManager;
     use near_primitives::hash::CryptoHash;
@@ -383,7 +384,7 @@ mod test {
             .genesis_height(9820210)
             .genesis_time_from_clock(&FakeClock::default().clock())
             .epoch_length(43200)
-            .gas_prices(Balance::from_yoctonear(1_000_000_000), Balance::from_millinear(10))
+            .gas_prices(Balance::from_yoctonear(1_000_000_000), MAX_GAS_PRICE)
             .gas_limit_one_petagas()
             .transaction_validity_period(86400)
             .max_inflation_rate(Rational32::new(0, 1))

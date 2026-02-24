@@ -1,30 +1,32 @@
 /// Test economic edge cases.
-use std::path::Path;
-
-use near_client::ProcessTxResponse;
-use near_epoch_manager::EpochManager;
-use num_rational::Ratio;
-
 use crate::env::test_env::TestEnv;
+use near_async::time::Clock;
 use near_chain_configs::Genesis;
-use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+use near_client::ProcessTxResponse;
 use near_crypto::InMemorySigner;
+use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_integration_logger;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{Balance, EpochId};
 use near_store::{genesis::initialize_genesis_state, test_utils::create_test_store};
 use nearcore::NightshadeRuntime;
+use num_rational::Ratio;
+use primitive_types::U256;
+use std::path::Path;
 use testlib::fees_utils::FeeHelper;
 
-use near_primitives::types::{Balance, EpochId};
-use primitive_types::U256;
-
 fn build_genesis() -> Genesis {
-    let mut genesis = TestGenesisBuilder::new()
-        .epoch_length(2)
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
-        .protocol_reward_rate(Ratio::new_raw(1, 10))
-        .max_inflation_rate(Ratio::new_raw(1, 10))
-        .build();
+    let mut genesis = Genesis::from_accounts(
+        Clock::real(),
+        vec!["test0".parse().unwrap(), "test1".parse().unwrap()],
+        1,
+        ShardLayout::single_shard(),
+    );
+    genesis.config.epoch_length = 2;
+    genesis.config.transaction_validity_period = 4;
+    genesis.config.protocol_reward_rate = Ratio::new_raw(1, 10);
+    genesis.config.max_inflation_rate = Ratio::new_raw(1, 10);
     genesis.config.num_blocks_per_year = 2;
     genesis.config.chunk_producer_kickout_threshold = 30;
     genesis.config.chunk_validator_only_kickout_threshold = 30;

@@ -69,6 +69,7 @@ fn test_cloud_archival_base(params: TestCloudArchivalParameters) {
     let validator_id: AccountId = "cp0".parse().unwrap();
     let validators_spec = ValidatorsSpec::desired_roles(&[validator_id.as_str()], &[]);
     let genesis = TestLoopBuilder::new_genesis_builder()
+        .genesis_height(1)
         .epoch_length(MIN_EPOCH_LENGTH)
         .add_user_account_simple(user_account.clone(), TEST_USER_BALANCE)
         .validators_spec(validators_spec)

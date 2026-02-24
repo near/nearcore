@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use near_chain_configs::Genesis;
+use near_chain_configs::MAX_GAS_PRICE;
 use near_chain_configs::MIN_GAS_PRICE;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -36,24 +37,20 @@ fn build_test_genesis(accounts: &[AccountId], num_validators: usize) -> Genesis 
         .collect();
     let mut builder = TestGenesisBuilder::new()
         .epoch_length(5)
-        .gas_prices(MIN_GAS_PRICE, Balance::ZERO)
+        .gas_prices(MIN_GAS_PRICE, MAX_GAS_PRICE)
         .validators_spec(ValidatorsSpec::raw(
             validators,
             num_validators as u64,
             num_validators as u64,
             0,
         ));
-    for (i, account_id) in accounts.iter().enumerate() {
-        let balance = if i < num_validators {
-            TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap()
-        } else {
-            TESTING_INIT_BALANCE
-        };
-        builder = builder.add_user_account_simple(account_id.clone(), balance);
+    // Only add non-validator accounts as user_accounts. Validators get
+    // TESTING_INIT_BALANCE - stake as liquid balance, an access key, and
+    // the treasury account gets TESTING_INIT_BALANCE — all handled by the
+    // builder automatically.
+    for account_id in accounts.iter().skip(num_validators) {
+        builder = builder.add_user_account_simple(account_id.clone(), TESTING_INIT_BALANCE);
     }
-    // Add the protocol treasury account with the standard test balance,
-    // matching the old Genesis::test() behavior.
-    builder = builder.add_user_account_simple("near".parse().unwrap(), TESTING_INIT_BALANCE);
     builder.build()
 }
 
