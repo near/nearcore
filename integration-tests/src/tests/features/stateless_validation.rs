@@ -344,8 +344,14 @@ fn get_accounts_and_shard_layout(
 fn test_chunk_state_witness_bad_shard_id() {
     init_integration_logger();
 
-    let accounts = vec!["test0".parse().unwrap()];
-    let genesis = Genesis::test(accounts.clone(), 1);
+    let accounts: Vec<AccountId> = vec!["test0".parse().unwrap()];
+    let genesis = near_chain_configs::test_genesis::TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(near_chain_configs::test_genesis::ValidatorsSpec::desired_roles(
+            &["test0"],
+            &[],
+        ))
+        .build();
     let mut env = TestEnv::builder(&genesis.config)
         .validators(accounts)
         .nightshade_runtimes(&genesis)
@@ -392,9 +398,15 @@ fn test_chunk_state_witness_bad_shard_id() {
 /// Tests that eth-implicit accounts still work with stateless validation.
 #[test]
 fn test_eth_implicit_accounts() {
-    let accounts =
+    let accounts: Vec<AccountId> =
         vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];
-    let genesis = Genesis::test(accounts.clone(), 2);
+    let genesis = near_chain_configs::test_genesis::TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(near_chain_configs::test_genesis::ValidatorsSpec::desired_roles(
+            &["test0", "test1", "test2"],
+            &[],
+        ))
+        .build();
     let mut env = TestEnv::builder(&genesis.config)
         .validators(accounts.clone())
         .clients(accounts)

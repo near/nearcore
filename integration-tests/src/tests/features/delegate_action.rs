@@ -3,7 +3,7 @@
 //! NEP: https://github.com/near/NEPs/pull/366
 //! This is the module for its integration tests.
 
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::ActionCosts;
 use near_primitives::account::{
@@ -48,15 +48,17 @@ fn exec_meta_transaction(
     protocol_version: ProtocolVersion,
 ) -> FinalExecutionStatus {
     near_o11y::testonly::init_test_logger();
-    let validator: AccountId = "test0".parse().unwrap();
     let user: AccountId = "alice.near".parse().unwrap();
     let receiver: AccountId = "bob.near".parse().unwrap();
     let relayer: AccountId = "relayer.near".parse().unwrap();
-    let mut genesis =
-        Genesis::test(vec![validator, user.clone(), receiver.clone(), relayer.clone()], 1);
-    genesis.config.epoch_length = 1000;
-    genesis.config.transaction_validity_period = 2000;
-    genesis.config.protocol_version = protocol_version;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(1000)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple(user.clone(), Balance::from_near(10_000))
+        .add_user_account_simple(receiver.clone(), Balance::from_near(10_000))
+        .add_user_account_simple(relayer.clone(), Balance::from_near(10_000))
+        .protocol_version(protocol_version)
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let tx = env.meta_tx_from_actions(actions, user, relayer, receiver);
@@ -628,7 +630,13 @@ fn meta_tx_ft_transfer() {
     let ft_contract = carol_account();
     let receiver = "david.near";
 
-    let mut genesis = Genesis::test(vec![alice_account(), bob_account(), carol_account()], 3);
+    let mut genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &["alice.near", "bob.near", "carol.near"],
+            &[],
+        ))
+        .build();
     add_contract(&mut genesis, &ft_contract, near_test_contracts::ft_contract().to_vec());
     let node = RuntimeNode::new_from_genesis(&relayer, genesis);
 
@@ -804,7 +812,10 @@ fn setup_with_access_key(
     method: &str,
 ) -> RuntimeNode {
     let access_key = fn_access_key(allowance, receiver.to_string(), vec![method.to_owned()]);
-    let mut genesis = Genesis::test(vec![user.clone(), receiver.clone()], 3);
+    let mut genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(ValidatorsSpec::desired_roles(&[user.as_str(), receiver.as_str()], &[]))
+        .build();
     add_test_contract(&mut genesis, &receiver);
     add_account_with_access_key(
         &mut genesis,

@@ -8,6 +8,7 @@ use near_chain::stateless_validation::processing_tracker::{
 };
 use near_chain::types::Tip;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{Genesis, GenesisConfig, ProtocolVersionCheckConfig};
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
@@ -101,7 +102,11 @@ impl TestEnv {
     }
 
     pub fn default_builder() -> TestEnvBuilder {
-        let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+        let genesis = TestGenesisBuilder::new()
+            .epoch_length(5)
+            .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+            .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+            .build();
         TestEnvBuilder::from_genesis(genesis)
     }
 

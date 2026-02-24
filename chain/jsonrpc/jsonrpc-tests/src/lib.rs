@@ -5,8 +5,9 @@ use axum_test::TestServer;
 use near_async::ActorSystem;
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_chain::ChainGenesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::test_utils::TestClientConfigParams;
-use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
+use near_chain_configs::{ClientConfig, MutableConfigValue, TrackedShardsConfig};
 use near_client::adversarial::Controls;
 use near_client::client_actor::SpiceClientConfig;
 use near_client::{RpcHandlerConfig, ViewClientActor, spawn_rpc_handler_actor, start_client};
@@ -82,12 +83,19 @@ pub fn create_test_setup_with_accounts_and_validity(
     // 1. Create foundation components
     let store = create_test_store();
     let validators = [validator_account];
-    let num_validator_seats = validators.len() as NumSeats;
 
     // Create genesis with all specified accounts
-    let mut genesis = Genesis::test(all_accounts, num_validator_seats);
-    genesis.config.epoch_length = 10; // Short epochs for faster tests
-    genesis.config.transaction_validity_period = 10 * 2;
+    let validator_accounts: Vec<&str> = validators.iter().map(|a| a.as_str()).collect();
+    let mut builder = TestGenesisBuilder::new()
+        .epoch_length(10)
+        .validators_spec(ValidatorsSpec::desired_roles(&validator_accounts, &[]));
+    for account_id in &all_accounts {
+        builder = builder.add_user_account_simple(
+            account_id.clone(),
+            near_primitives::types::Balance::from_near(1_000_000_000),
+        );
+    }
+    let genesis = builder.build();
 
     initialize_genesis_state(store.clone(), &genesis, None);
 
@@ -119,7 +127,7 @@ pub fn create_test_setup_with_accounts_and_validity(
         skip_sync_wait: true,
         min_block_prod_time: 100,
         max_block_prod_time: 200,
-        num_block_producer_seats: num_validator_seats,
+        num_block_producer_seats: validators.len() as NumSeats,
         archive: false,
         state_sync_enabled: true,
     });

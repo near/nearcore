@@ -2,8 +2,9 @@ use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 use assert_matches::assert_matches;
 use near_chain::{Error, Provenance};
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::types::Balance;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::Trie;
 
@@ -12,7 +13,11 @@ use near_store::Trie;
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_invalid_chunk_state() {
-    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     env.produce_block(0, 1);
     let block_hash = env.clients[0].chain.get_block_hash_by_height(1).unwrap();

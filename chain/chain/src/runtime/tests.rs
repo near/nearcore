@@ -7,10 +7,11 @@ use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use borsh::BorshDeserialize;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
-use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE, random_chain_id};
 use near_chain_configs::{
-    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL, Genesis,
-    MutableConfigValue, default_produce_chunk_add_transactions_time_limit,
+    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_PARTS_COMPRESSION_LEVEL, MutableConfigValue,
+    default_produce_chunk_add_transactions_time_limit,
 };
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::EpochManager;
@@ -32,6 +33,7 @@ use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndor
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
 use near_primitives::trie_key::TrieKey;
+use near_primitives::types::AccountInfo;
 use near_primitives::types::Gas;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
@@ -101,11 +103,33 @@ impl TestEnv {
             acc.union(&x.iter().cloned().collect()).cloned().collect()
         });
         let validators_len = all_validators.len() as ValidatorId;
-        let mut genesis = Genesis::test_sharded_new_version(
-            all_validators.into_iter().collect(),
-            validators_len,
-            validators.iter().map(|x| x.len() as ValidatorId).collect(),
-        );
+        let num_shards = validators.len() as u64;
+        let validator_infos: Vec<AccountInfo> = all_validators
+            .iter()
+            .map(|account_id| AccountInfo {
+                account_id: account_id.clone(),
+                public_key: InMemorySigner::test_signer(account_id).public_key(),
+                amount: TESTING_INIT_STAKE,
+            })
+            .collect();
+        let mut builder = TestGenesisBuilder::new()
+            .epoch_length(5)
+            .chain_id(random_chain_id())
+            .shard_layout(ShardLayout::multi_shard(num_shards, 1))
+            .validators_spec(ValidatorsSpec::raw(
+                validator_infos,
+                validators_len as u64,
+                validators_len as u64,
+                0,
+            ));
+        for account_id in &all_validators {
+            builder = builder.add_user_account_simple(
+                account_id.clone(),
+                TESTING_INIT_BALANCE.checked_sub(TESTING_INIT_STAKE).unwrap(),
+            );
+        }
+        builder = builder.add_user_account_simple("near".parse().unwrap(), TESTING_INIT_BALANCE);
+        let mut genesis = builder.build();
         // No fees mode.
         genesis.config.epoch_length = config.epoch_length;
         genesis.config.transaction_validity_period = config.epoch_length * 2;
@@ -1568,7 +1592,9 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     let validators = (0..num_nodes)
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
-    let chain_genesis = ChainGenesis::new(&GenesisConfig::test(Clock::real()));
+    let chain_genesis = ChainGenesis::new(
+        &TestGenesisBuilder::new().epoch_length(5).transaction_validity_period(100).build().config,
+    );
     let mut env = TestEnv::new_with_config(
         vec![validators.clone()],
         TestEnvConfig {
@@ -1885,7 +1911,10 @@ fn test_storage_proof_garbage() {
 /// Tests that precompiling a set of contracts updates the compiled contract cache.
 #[test]
 fn test_precompile_contracts_updates_cache() {
-    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .build();
     let store = near_store::test_utils::create_test_store();
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));

@@ -4,7 +4,8 @@ use near_async::time::{Clock, Duration};
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
-use near_chain_configs::{DumpConfig, Genesis, MutableConfigValue};
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
+use near_chain_configs::{DumpConfig, MutableConfigValue};
 use near_client::ProcessTxResponse;
 use near_client::sync::external::{StateFileType, external_storage_location};
 use near_crypto::InMemorySigner;
@@ -34,9 +35,11 @@ use near_async::futures::TokioRuntimeFutureSpawner;
 fn slow_test_state_dump() {
     init_test_logger();
 
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = 25;
-    genesis.config.transaction_validity_period = 50;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(25)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .build();
 
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(1)
@@ -143,9 +146,10 @@ fn run_state_sync_with_dumped_parts(
             "testing for case when head is in new epoch, but final block isn't for the dumping node"
         );
     }
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .build();
     let num_clients = 2;
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)

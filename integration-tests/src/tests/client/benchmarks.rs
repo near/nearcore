@@ -6,11 +6,12 @@
 
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_client::test_utils::create_chunk_on_height;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::InMemorySigner;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
+use near_primitives::types::Balance;
 
 /// cspell:ignore txes
 /// How long does it take to produce a large chunk?
@@ -30,7 +31,12 @@ fn benchmark_large_chunk_production_time() {
     let n_txes = 20;
     let tx_size = mb / 2;
 
-    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let account_id = env.get_client_id(0);

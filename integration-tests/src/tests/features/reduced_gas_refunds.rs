@@ -1,5 +1,5 @@
 use crate::node::{Node, RuntimeNode};
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{ExtCosts, ParameterCost, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::errors::{self, ActionErrorKind};
@@ -143,7 +143,10 @@ fn generated_refunds_after_fn_call(
 fn setup_env(contract_load_gas: Gas) -> (RuntimeNode, FeeHelper) {
     init_test_logger();
 
-    let mut genesis = Genesis::test(vec![alice_account(), bob_account()], 2);
+    let mut genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(ValidatorsSpec::desired_roles(&["alice.near", "bob.near"], &[]))
+        .build();
     add_test_contract(&mut genesis, &alice_account());
     add_test_contract(&mut genesis, &bob_account());
     let runtime_config = runtime_config_with_contract_load_cost(contract_load_gas);

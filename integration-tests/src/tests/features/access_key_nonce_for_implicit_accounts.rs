@@ -5,7 +5,7 @@ use assert_matches::assert_matches;
 use near_async::messaging::CanSend;
 use near_chain::orphan::NUM_ORPHAN_ANCESTORS_CHECK;
 use near_chain::{ChainStoreAccess, Error, Provenance};
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::create_chunk;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
@@ -19,7 +19,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
-use near_primitives::types::{AccountId, Balance, BlockHeight};
+use near_primitives::types::{Balance, BlockHeight};
 use near_primitives::utils::derive_near_implicit_account_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
@@ -49,9 +49,10 @@ fn check_tx_processing(
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_hash_collision() {
     let epoch_length = 5;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
@@ -119,10 +120,11 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
     near_implicit_account_signer: Signer,
 ) -> ProcessTxResponse {
     let epoch_length = 100;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
-    genesis.config.protocol_version = protocol_version;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+        .protocol_version(protocol_version)
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let deposit_for_account_creation = Balance::from_millinear(100);
@@ -217,10 +219,10 @@ fn test_transaction_hash_collision_for_near_implicit_account_fail() {
 #[test]
 fn test_chunk_transaction_validity() {
     let epoch_length = 5;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
-    genesis.config.min_gas_price = Balance::ZERO;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+        .build();
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
@@ -265,9 +267,10 @@ fn test_chunk_transaction_validity() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_transaction_nonce_too_large() {
     let epoch_length = 5;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+        .build();
     let env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
@@ -322,15 +325,15 @@ fn test_request_chunks_for_orphan() {
     let num_validators = 1;
     let epoch_length = 10;
 
-    let accounts: Vec<AccountId> =
-        (0..num_clients).map(|i| format!("test{}", i).parse().unwrap()).collect();
-    let mut genesis = Genesis::test(accounts, num_validators);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
-    // make the blockchain to 4 shards
-    genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
-    genesis.config.num_block_producer_seats_per_shard =
-        vec![num_validators, num_validators, num_validators, num_validators];
+    let accounts: Vec<String> = (0..num_clients).map(|i| format!("test{}", i)).collect();
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &accounts.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            &[],
+        ))
+        .shard_layout(ShardLayout::multi_shard(4, 3))
+        .build();
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)
@@ -462,15 +465,15 @@ fn test_processing_chunks_sanity() {
     let num_validators = 1;
     let epoch_length = 10;
 
-    let accounts: Vec<AccountId> =
-        (0..num_clients).map(|i| format!("test{}", i).parse().unwrap()).collect();
-    let mut genesis = Genesis::test(accounts, num_validators);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
-    // make the blockchain to 4 shards
-    genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
-    genesis.config.num_block_producer_seats_per_shard =
-        vec![num_validators, num_validators, num_validators, num_validators];
+    let accounts: Vec<String> = (0..num_clients).map(|i| format!("test{}", i)).collect();
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &accounts.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            &[],
+        ))
+        .shard_layout(ShardLayout::multi_shard(4, 3))
+        .build();
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)
@@ -551,25 +554,17 @@ impl ChunkForwardingOptimizationTestData {
     fn new() -> ChunkForwardingOptimizationTestData {
         let num_clients = 4;
         let num_validators = 4 as usize;
-        let num_block_producers = 1;
         let epoch_length = 10;
 
-        let accounts: Vec<AccountId> =
-            (0..num_clients).map(|i| format!("test{}", i).parse().unwrap()).collect();
-        let mut genesis = Genesis::test(accounts, num_validators as u64);
-        {
-            let config = &mut genesis.config;
-            config.epoch_length = epoch_length;
-            config.transaction_validity_period = epoch_length * 2;
-            config.shard_layout = ShardLayout::multi_shard(4, 3);
-            config.num_block_producer_seats_per_shard = vec![
-                num_block_producers as u64,
-                num_block_producers as u64,
-                num_block_producers as u64,
-                num_block_producers as u64,
-            ];
-            config.num_block_producer_seats = num_block_producers as u64;
-        }
+        let accounts: Vec<String> = (0..num_clients).map(|i| format!("test{}", i)).collect();
+        let genesis = TestGenesisBuilder::new()
+            .epoch_length(epoch_length)
+            .validators_spec(ValidatorsSpec::desired_roles(
+                &accounts.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                &[],
+            ))
+            .shard_layout(ShardLayout::multi_shard(4, 3))
+            .build();
         let env = TestEnv::builder(&genesis.config)
             .clients_count(num_clients)
             .validator_seats(num_validators as usize)
@@ -777,15 +772,15 @@ fn test_processing_blocks_async() {
     let num_validators = 1;
     let epoch_length = 10;
 
-    let accounts: Vec<AccountId> =
-        (0..num_clients).map(|i| format!("test{}", i).parse().unwrap()).collect();
-    let mut genesis = Genesis::test(accounts, num_validators);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
-    // make the blockchain to 4 shards
-    genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
-    genesis.config.num_block_producer_seats_per_shard =
-        vec![num_validators, num_validators, num_validators, num_validators];
+    let accounts: Vec<String> = (0..num_clients).map(|i| format!("test{}", i)).collect();
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &accounts.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            &[],
+        ))
+        .shard_layout(ShardLayout::multi_shard(4, 3))
+        .build();
     let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)

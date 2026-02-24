@@ -1,10 +1,9 @@
 use crate::env::test_env::TestEnv;
-use crate::env::test_env_builder::TestEnvBuilder;
 use assert_matches::assert_matches;
 use near_chain::test_utils::is_optimistic_block_in_processing;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Provenance, test_utils};
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_crypto::vrf::Value;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -13,6 +12,7 @@ use near_primitives::block::Block;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::OptimisticBlock;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::test_utils::create_test_signer;
@@ -122,8 +122,11 @@ fn test_not_process_same_block_twice() {
 /// Test that if a block contains chunks with invalid shard_ids, the client will return error.
 #[test]
 fn test_bad_shard_id() {
-    let accounts = TestEnvBuilder::make_accounts(1);
-    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .shard_layout(ShardLayout::multi_shard(4, 1))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .build();
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
 
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
@@ -188,8 +191,11 @@ fn test_bad_shard_id() {
 /// Test that if a block's content (vrf_value) is corrupted, the invalid block will not affect the node's block processing
 #[test]
 fn test_bad_block_content_vrf() {
-    let accounts = TestEnvBuilder::make_accounts(1);
-    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .shard_layout(ShardLayout::multi_shard(4, 1))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .build();
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
 
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
@@ -210,8 +216,11 @@ fn test_bad_block_content_vrf() {
 /// Test that if a block's signature is corrupted, the invalid block will not affect the node's block processing
 #[test]
 fn test_bad_block_signature() {
-    let accounts = TestEnvBuilder::make_accounts(1);
-    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .shard_layout(ShardLayout::multi_shard(4, 1))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .build();
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
 
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
@@ -275,8 +284,11 @@ fn test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(mode: BadConges
         return;
     }
 
-    let accounts = TestEnvBuilder::make_accounts(1);
-    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .shard_layout(ShardLayout::multi_shard(4, 1))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .build();
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
 
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
@@ -384,8 +396,11 @@ fn check_block_produced_from_optimistic_block(block: &Block, optimistic_block: &
 // Testing the production and application of optimistic blocks
 #[test]
 fn test_process_optimistic_block() {
-    let accounts = TestEnvBuilder::make_accounts(1);
-    let genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .shard_layout(ShardLayout::multi_shard(4, 1))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .build();
     let mut env = TestEnv::builder_from_genesis(&genesis).build();
 
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();

@@ -6,8 +6,9 @@ use near_async::tokio::TokioRuntimeHandle;
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStore};
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::test_utils::TestClientConfigParams;
-use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValue};
+use near_chain_configs::{ClientConfig, MutableConfigValue};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::client_actor::SpiceClientConfig;
@@ -59,9 +60,13 @@ fn setup_network_node(
     let node_storage = create_in_memory_rpc_node_storage();
     let num_validators = validators.len() as ValidatorId;
 
-    let mut genesis = Genesis::test(validators, 1);
-    genesis.config.epoch_length = 5;
-    genesis.config.transaction_validity_period = 10;
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &validators.iter().map(|a| a.as_str()).collect::<Vec<_>>(),
+            &[],
+        ))
+        .build();
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(node_storage.get_hot_store(), &genesis, Some(tempdir.path()));
     let epoch_manager =
@@ -415,7 +420,7 @@ impl Runner {
         let test_config: Vec<_> = (0..num_nodes).map(TestConfig::new).collect();
         let validators =
             test_config[0..num_validators].iter().map(|c| c.account_id.clone()).collect();
-        let chain_genesis = ChainGenesis::new(&GenesisConfig::test(Clock::real()));
+        let chain_genesis = ChainGenesis::new(&TestGenesisBuilder::new().build().config);
         Self {
             actor_system: ActorSystem::new(),
             test_config,

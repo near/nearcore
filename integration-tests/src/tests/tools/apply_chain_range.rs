@@ -4,12 +4,13 @@ use std::path::Path;
 use crate::env::test_env::TestEnv;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::test_utils::TESTING_INIT_STAKE;
 use near_client::ProcessTxResponse;
 use near_crypto::InMemorySigner;
 use near_epoch_manager::EpochManager;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks, ShardId};
+use near_primitives::types::{Balance, BlockHeight, BlockHeightDelta, NumBlocks, ShardId};
 use near_state_viewer::apply_chain_range;
 use near_state_viewer::cli::{ApplyRangeMode, StorageSource};
 use near_store::Store;
@@ -18,11 +19,14 @@ use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
 
 fn setup(epoch_length: NumBlocks) -> (Store, Genesis, TestEnv) {
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let mut genesis = TestGenesisBuilder::new()
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test0".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000_000))
+        .build();
     genesis.config.num_block_producer_seats = 2;
     genesis.config.num_block_producer_seats_per_shard = vec![2];
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.transaction_validity_period = epoch_length * 2;
     let store = create_test_store();
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);

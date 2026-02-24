@@ -421,7 +421,8 @@ impl StoreValidator {
 #[cfg(test)]
 mod tests {
     use near_async::time::Clock;
-    use near_chain_configs::{Genesis, MutableConfigValue};
+    use near_chain_configs::MutableConfigValue;
+    use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
     use near_epoch_manager::EpochManager;
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
@@ -435,7 +436,11 @@ mod tests {
 
     fn init() -> (Chain, StoreValidator) {
         let store = create_test_store();
-        let genesis = Genesis::test(vec!["test".parse().unwrap()], 1);
+        let genesis = TestGenesisBuilder::new()
+            .epoch_length(5)
+            .genesis_height(0)
+            .validators_spec(ValidatorsSpec::desired_roles(&["test"], &[]))
+            .build();
         let tempdir = tempfile::tempdir().unwrap();
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);

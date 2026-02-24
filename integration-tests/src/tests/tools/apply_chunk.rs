@@ -1,16 +1,15 @@
 use crate::env::test_env::TestEnv;
 use itertools::Itertools;
-use near_async::time::Clock;
 use near_chain::{ChainStore, ChainStoreAccess, Provenance};
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::Balance;
-use near_primitives::utils::get_num_seats_per_shard;
 use near_state_viewer::cli::StorageSource;
 use near_state_viewer::{apply_chunk_fn, apply_receipt, apply_tx};
 use near_store::adapter::StoreAdapter;
@@ -41,17 +40,14 @@ fn send_txs(env: &TestEnv, signers: &[Signer], height: u64, hash: CryptoHash) {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_apply_chunk() {
-    let genesis = Genesis::test_sharded(
-        Clock::real(),
-        vec![
-            "test0".parse().unwrap(),
-            "test1".parse().unwrap(),
-            "test2".parse().unwrap(),
-            "test3".parse().unwrap(),
-        ],
-        1,
-        get_num_seats_per_shard(4, 1),
-    );
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .shard_layout(ShardLayout::multi_shard(4, 0))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000))
+        .add_user_account_simple("test2".parse().unwrap(), Balance::from_near(1_000_000))
+        .add_user_account_simple("test3".parse().unwrap(), Balance::from_near(1_000_000))
+        .build();
 
     let store = create_test_store();
     initialize_genesis_state(store.clone(), &genesis, None);
@@ -133,17 +129,14 @@ fn test_apply_chunk() {
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_apply_tx_apply_receipt() {
-    let genesis = Genesis::test_sharded(
-        Clock::real(),
-        vec![
-            "test0".parse().unwrap(),
-            "test1".parse().unwrap(),
-            "test2".parse().unwrap(),
-            "test3".parse().unwrap(),
-        ],
-        1,
-        get_num_seats_per_shard(4, 1),
-    );
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .shard_layout(ShardLayout::multi_shard(4, 0))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .add_user_account_simple("test1".parse().unwrap(), Balance::from_near(1_000_000))
+        .add_user_account_simple("test2".parse().unwrap(), Balance::from_near(1_000_000))
+        .add_user_account_simple("test3".parse().unwrap(), Balance::from_near(1_000_000))
+        .build();
 
     let store = create_test_store();
     initialize_genesis_state(store.clone(), &genesis, None);

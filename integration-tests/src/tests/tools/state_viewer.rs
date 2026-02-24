@@ -1,9 +1,9 @@
 use crate::env::test_env::TestEnv;
-use near_chain_configs::{Genesis, MutableConfigValue};
+use near_chain_configs::MutableConfigValue;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_crypto::{InMemorySigner, KeyFile};
 use near_epoch_manager::EpochManager;
-use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::AccountId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_state_viewer::util::load_trie;
 use near_store::genesis::initialize_genesis_state;
@@ -17,8 +17,11 @@ use std::sync::Arc;
 /// Checks that the change of state caused by that transaction is visible to `load_trie()`.
 fn test_latest_trie_state() {
     near_o11y::testonly::init_test_logger();
-    let validators = vec!["test0".parse::<AccountId>().unwrap()];
-    let genesis = Genesis::test_sharded_new_version(validators, 1, vec![1]);
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .shard_layout(ShardLayout::multi_shard(1, 1))
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
+        .build();
 
     let tmp_dir = tempfile::tempdir().unwrap();
     let home_dir = tmp_dir.path();

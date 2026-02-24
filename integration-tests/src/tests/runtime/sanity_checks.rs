@@ -1,5 +1,5 @@
 use crate::node::{Node, RuntimeNode};
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_parameters::{ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, Balance, Gas};
@@ -34,8 +34,13 @@ fn test_contract_account() -> AccountId {
 fn setup_runtime_node_with_contract(wasm_binary: &[u8]) -> RuntimeNode {
     // Create a `RuntimeNode`. Load `RuntimeConfig` from `RuntimeConfigStore`
     // to ensure we are using the latest configuration.
-    let mut genesis =
-        Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 3);
+    let mut genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &["alice.near", "bob.near", "carol.near"],
+            &[],
+        ))
+        .build();
     add_test_contract(&mut genesis, &alice_account());
     add_test_contract(&mut genesis, &bob_account());
     let runtime_config_store = RuntimeConfigStore::new(None);

@@ -335,7 +335,7 @@ async fn apply_state_part(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_chain_configs::Genesis;
+    use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
     use near_epoch_manager::EpochManager;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state::PartialState;
@@ -357,7 +357,10 @@ mod tests {
     fn create_test_runtime_and_store() -> (Arc<dyn RuntimeAdapter>, Store, TempDir) {
         let tmp_dir = tempfile::TempDir::new().unwrap();
         let store = create_test_store();
-        let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        let genesis = TestGenesisBuilder::new()
+            .epoch_length(5)
+            .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+            .build();
 
         initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);

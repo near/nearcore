@@ -1,7 +1,7 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 use near_chain::Provenance;
-use near_chain_configs::Genesis;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_client::test_utils::create_chunk;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_primitives::account::id::AccountIdRef;
@@ -12,7 +12,7 @@ use near_primitives::types::{AccountId, Balance, ShardId};
 /// Test that processing chunks with invalid transactions does not lead to panics
 #[test]
 fn test_invalid_transactions_no_panic() {
-    let accounts =
+    let accounts: Vec<AccountId> =
         vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];
     let signers: Vec<_> = accounts
         .iter()
@@ -20,7 +20,11 @@ fn test_invalid_transactions_no_panic() {
             create_user_test_signer(AccountIdRef::new(account_id.as_str()).unwrap())
         })
         .collect();
-    let genesis = Genesis::test(accounts.clone(), 2);
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+        .add_user_account_simple("test2".parse().unwrap(), Balance::from_near(1_000_000))
+        .build();
     let mut env = TestEnv::builder(&genesis.config)
         .validators(accounts.clone())
         .clients(accounts.clone())
@@ -146,7 +150,7 @@ fn test_invalid_transactions_no_panic() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_invalid_transactions_dont_invalidate_chunk() {
     near_o11y::testonly::init_test_logger();
-    let accounts =
+    let accounts: Vec<AccountId> =
         vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];
     let signers: Vec<_> = accounts
         .iter()
@@ -154,7 +158,11 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
             create_user_test_signer(AccountIdRef::new(account_id.as_str()).unwrap())
         })
         .collect();
-    let genesis = Genesis::test(accounts.clone(), 2);
+    let genesis = TestGenesisBuilder::new()
+        .epoch_length(5)
+        .validators_spec(ValidatorsSpec::desired_roles(&["test0", "test1"], &[]))
+        .add_user_account_simple("test2".parse().unwrap(), Balance::from_near(1_000_000))
+        .build();
     let mut env = TestEnv::builder(&genesis.config)
         .validators(accounts.clone())
         .clients(accounts.clone())
