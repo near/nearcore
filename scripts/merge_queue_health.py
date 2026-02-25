@@ -207,6 +207,11 @@ def _extend_nayduck_index(target_sha):
                 sha = data.get("sha", "")
                 if sha:
                     _nayduck_sha_to_id.setdefault(sha, run_id)
+        except requests.ConnectionError:
+            progress(
+                f"\n  warning: Nayduck API connection error, stopping extension"
+            )
+            break
         except Exception:
             pass
         run_id -= 1
@@ -284,9 +289,10 @@ def classify_nayduck_failure(jobs):
     names = [j["name"] for j in failed_jobs]
     categories = []
     for n in names:
-        if "Nayduck" in n or "nayduck" in n:
+        nl = n.lower()
+        if "nayduck" in nl:
             categories.append("nayduck_flaky")
-        elif "Large pytest" in n or "pytest" in n.lower():
+        elif "pytest" in nl:
             categories.append("large_pytest_flaky")
         else:
             categories.append("other")
@@ -422,16 +428,19 @@ def build_report(days, verbose=False):
     completed_nay = [
         r for r in nay_runs if r.get("conclusion") in ("success", "failure")
     ]
-    sample = completed_nay
-    progress(f"Fetching retry data for {len(sample)} completed Nayduck runs...")
+    progress(
+        f"Fetching retry data for {len(completed_nay)} completed Nayduck runs..."
+    )
     nayduck_run_count = 0
-    for i, r in enumerate(sample, 1):
+    for i, r in enumerate(completed_nay, 1):
         pr = extract_pr_number(r)
         nay_id = resolve_nayduck_run_id(r)
         if not nay_id:
-            progress_item(i, len(sample), f"PR #{pr or '?'} (no nayduck match)")
+            progress_item(i, len(completed_nay),
+                          f"PR #{pr or '?'} (no nayduck match)")
             continue
-        progress_item(i, len(sample), f"PR #{pr or '?'} (nayduck #{nay_id})")
+        progress_item(i, len(completed_nay),
+                      f"PR #{pr or '?'} (nayduck #{nay_id})")
         nay_data = fetch_nayduck_results(nay_id)
         if not nay_data:
             continue
@@ -442,7 +451,7 @@ def build_report(days, verbose=False):
                 report["nayduck_retry_tests"][t["name"]] += 1
         time.sleep(0.1)
     progress(
-        f"  successfully fetched {nayduck_run_count}/{len(sample)} Nayduck runs"
+        f"  successfully fetched {nayduck_run_count}/{len(completed_nay)} Nayduck runs"
     )
     report["nayduck_sampled_runs"] = nayduck_run_count
 
