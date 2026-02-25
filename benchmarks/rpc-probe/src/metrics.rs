@@ -8,7 +8,7 @@ pub static RPC_PROBE_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
         "near_rpc_probe_latency_seconds",
         "Latency of RPC probe requests in seconds",
         &["method"],
-        Some(vec![0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 2.5]),
+        Some(vec![0.01, 0.025, 0.05, 0.1, 0.3, 1.0, 2.5, 5.0]),
     )
     .unwrap()
 });

@@ -1324,6 +1324,16 @@ impl ForkNetworkCommand {
         Ok(new_validator_accounts)
     }
 
+    /// Returns one account prefix per shard, suitable for generating accounts
+    /// that land in the correct shard.
+    fn shard_account_prefixes(shard_layout: &ShardLayout) -> Vec<AccountId> {
+        let boundary_account_ids = shard_layout.boundary_accounts().clone();
+        let first_boundary_account_id = boundary_account_ids[0].clone();
+        let first_account_id =
+            "0".repeat(first_boundary_account_id.len()).parse::<AccountId>().unwrap();
+        vec![first_account_id].into_iter().chain(boundary_account_ids).collect()
+    }
+
     /// Adds `num_accounts_per_shard` accounts to each shard.
     /// Writes them to state and to the disk.
     /// Returns the new state roots.
@@ -1355,14 +1365,7 @@ impl ForkNetworkCommand {
 
         let liquid_balance = Balance::from_near(100_000_000);
         let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
-        let boundary_account_ids = shard_layout.boundary_accounts().clone();
-        let first_boundary_account_id = boundary_account_ids[0].clone();
-        let first_account_id =
-            "0".repeat(first_boundary_account_id.len()).parse::<AccountId>().unwrap();
-        let account_prefixes = vec![first_account_id]
-            .into_iter()
-            .chain(boundary_account_ids.into_iter())
-            .collect::<Vec<_>>();
+        let account_prefixes = Self::shard_account_prefixes(shard_layout);
         for (account_prefix_idx, account_prefix) in account_prefixes.into_iter().enumerate() {
             tracing::info!(
                 %account_prefix_idx,
@@ -1455,6 +1458,8 @@ impl ForkNetworkCommand {
 
         // Create probe accounts (2 per shard) for the RPC probe.
         // These are separate from benchmark accounts and stored in their own file.
+        // TODO: create one access key per RPC node on each probe account so that
+        // write probes on multiple RPC nodes don't collide on nonces.
         if num_rpcs > 0 {
             let state_roots_map: HashMap<ShardUId, StateRoot> = shard_uids
                 .iter()
@@ -1473,21 +1478,20 @@ impl ForkNetworkCommand {
                 shard_layout.clone(),
             )?;
 
-            let boundary_account_ids = shard_layout.boundary_accounts().clone();
-            let first_boundary_account_id = boundary_account_ids[0].clone();
-            let first_account_id =
-                "0".repeat(first_boundary_account_id.len()).parse::<AccountId>().unwrap();
-            let probe_prefixes: Vec<AccountId> = vec![first_account_id]
-                .into_iter()
-                .chain(boundary_account_ids.into_iter())
-                .collect();
-
+            let probe_prefixes = Self::shard_account_prefixes(shard_layout);
             let mut probe_account_infos: Vec<AccountData> = Vec::new();
 
             for (shard_idx, account_prefix) in probe_prefixes.into_iter().enumerate() {
                 for probe_idx in 0..2 {
                     let account_id =
                         format!("{account_prefix}_probe_{probe_idx}").parse::<AccountId>().unwrap();
+                    let actual_shard_idx = shard_layout
+                        .get_shard_index(shard_layout.account_id_to_shard_id(&account_id))
+                        .unwrap();
+                    assert!(
+                        actual_shard_idx == shard_idx,
+                        "probe account {account_id} landed in shard {actual_shard_idx}, expected {shard_idx}"
+                    );
                     storage_mutator.set_account(
                         shard_idx,
                         account_id.clone(),
@@ -1499,7 +1503,7 @@ impl ForkNetworkCommand {
                         ),
                     )?;
 
-                    let key_seed = format!("{account_id}_probe");
+                    let key_seed = format!("{account_id}_rpc_0");
                     let secret_key = SecretKey::from_seed(near_crypto::KeyType::ED25519, &key_seed);
                     let public_key = secret_key.public_key();
 

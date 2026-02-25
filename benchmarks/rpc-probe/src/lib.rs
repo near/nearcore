@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ pub mod metrics;
 #[serde(default)]
 pub struct Config {
     /// Path to a JSON array of `ProbeAccount` entries.
-    pub accounts_path: std::path::PathBuf,
+    pub accounts_path: PathBuf,
     /// Probe interval in seconds.
     pub interval_s: u64,
     /// RPC endpoint to probe.
@@ -21,7 +21,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            accounts_path: std::path::PathBuf::new(),
+            accounts_path: PathBuf::new(),
             interval_s: 5,
             rpc_url: "http://localhost:3030".to_string(),
             startup_delay_s: 120,
@@ -42,6 +42,11 @@ struct ProbeAccount {
 
 /// Start the RPC probe loop as a background tokio task.
 pub fn start(config: Config) {
+    if config.interval_s == 0 {
+        tracing::error!(target: "rpc-probe", "interval_s must be > 0, probe disabled");
+        return;
+    }
+
     let accounts = load_accounts(&config.accounts_path);
     if accounts.is_empty() {
         tracing::warn!(target: "rpc-probe", "no probe accounts found, only gas_price probes will run");
@@ -98,41 +103,52 @@ async fn probe_loop(config: Config, accounts: Vec<ProbeAccount>) {
     }
 
     let mut ticker = tokio::time::interval(interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
         ticker.tick().await;
 
-        let gas_price_body = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": "rpc-probe",
-            "method": "gas_price",
-            "params": [null]
-        });
-        probe_rpc(&client, &rpc_url, "gas_price", gas_price_body).await;
-
-        if !accounts.is_empty() {
-            let account = &accounts[account_idx % accounts.len()];
-            let view_account_body = serde_json::json!({
+        // Spawn each probe as a fire-and-forget task so slow probes don't
+        // block the ticker or delay each other.
+        let gas_client = client.clone();
+        let gas_url = rpc_url.clone();
+        tokio::spawn(async move {
+            let body = serde_json::json!({
                 "jsonrpc": "2.0",
                 "id": "rpc-probe",
-                "method": "query",
-                "params": {
-                    "request_type": "view_account",
-                    "finality": "optimistic",
-                    "account_id": account.account_id
-                }
+                "method": "gas_price",
+                "params": [null]
             });
-            probe_rpc(&client, &rpc_url, "view_account", view_account_body).await;
+            probe_rpc(&gas_client, &gas_url, "gas_price", body).await;
+        });
+
+        if !accounts.is_empty() {
+            let account_id = accounts[account_idx % accounts.len()].account_id.clone();
+            let view_client = client.clone();
+            let view_url = rpc_url.clone();
+            tokio::spawn(async move {
+                let body = serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": "rpc-probe",
+                    "method": "query",
+                    "params": {
+                        "request_type": "view_account",
+                        "finality": "optimistic",
+                        "account_id": account_id
+                    }
+                });
+                probe_rpc(&view_client, &view_url, "view_account", body).await;
+            });
             account_idx = account_idx.wrapping_add(1);
         }
     }
 }
 
-/// Send a JSON-RPC request, measure latency, and record metrics.
+/// Send a JSON-RPC request, measure full round-trip latency (including body
+/// parsing), and record metrics.
 async fn probe_rpc(client: &reqwest::Client, rpc_url: &str, method: &str, body: serde_json::Value) {
     let start = std::time::Instant::now();
     let result = client.post(rpc_url).json(&body).send().await;
-    let elapsed = start.elapsed();
 
     let ok = match result {
         Ok(resp) if resp.status().is_success() => match resp.json::<serde_json::Value>().await {
@@ -141,11 +157,7 @@ async fn probe_rpc(client: &reqwest::Client, rpc_url: &str, method: &str, body: 
                         method, error = %json["error"], "probe returned rpc error");
                 false
             }
-            Ok(_) => {
-                tracing::debug!(target: "rpc-probe",
-                        method, latency_ms = elapsed.as_millis(), "probe ok");
-                true
-            }
+            Ok(_) => true,
             Err(err) => {
                 tracing::warn!(target: "rpc-probe",
                         method, ?err, "failed to parse response");
@@ -163,7 +175,9 @@ async fn probe_rpc(client: &reqwest::Client, rpc_url: &str, method: &str, body: 
         }
     };
 
+    let elapsed = start.elapsed();
     if ok {
+        tracing::debug!(target: "rpc-probe", method, latency_ms = elapsed.as_millis(), "probe ok");
         metrics::RPC_PROBE_LATENCY.with_label_values(&[method]).observe(elapsed.as_secs_f64());
         metrics::RPC_PROBE_SUCCESS_TOTAL.with_label_values(&[method]).inc();
     } else {
