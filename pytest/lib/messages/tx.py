@@ -246,7 +246,8 @@ tx_schema = [
             'fields': [['beneficiaryId', 'string']]
         }
     ],
-    # Support for DeterministicStateInit for pytest is not implemented yet.
+    # DeterministicStateInit fields are not implemented for pytest yet.
+    # The entry must remain in the Action enum to preserve borsh variant indices.
     [DeterministicStateInit, {
         'kind': 'struct',
         'fields': []

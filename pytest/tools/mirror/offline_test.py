@@ -292,6 +292,10 @@ class GasKeyTest(MirrorTestCase):
         self._block_count += 1
         if self._transfers_sent or self._block_count <= 10:
             return
+        # Gas key V1 tx nonces are uniquely identified by the (nonce, nonce_index)
+        # pair, so reusing the same nonce value across different nonce_index slots
+        # is valid. The * 1000000 + 1 ensures the nonce exceeds the current
+        # access key nonce so the transaction is accepted.
         for gas_key, num_nonces, recipient in [
             (self.gas_key_1, self.num_nonces_1, self.gk1_recipient),
             (self.gas_key_2, self.num_nonces_2, self.gk2_recipient),

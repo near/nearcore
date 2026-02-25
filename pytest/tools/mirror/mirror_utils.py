@@ -359,7 +359,7 @@ def send_gas_key_transfer(node, gas_key, receiver_id, amount, nonce,
                                                        gas_key.decoded_sk())
     res = node.send_tx(tx)
     logger.info(
-        f'sent gas key V1 transfer from {gas_key.account_id} ni={nonce_index} to {receiver_id}: {res}'
+        f'sent gas key V1 transfer from {gas_key.account_id} nonce_index={nonce_index} to {receiver_id}: {res}'
     )
 
 
