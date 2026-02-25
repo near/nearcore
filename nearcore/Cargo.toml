@@ -91,7 +91,7 @@ name = "state_witness_borsh"
 harness = false
 
 [features]
-default = ["json_rpc", "rosetta_rpc", "tx_generator"]
+default = ["json_rpc", "rosetta_rpc", "tx_generator", "rpc_probe"]
 
 test_features = [
     "near-client/test_features",
