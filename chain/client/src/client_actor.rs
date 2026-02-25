@@ -955,10 +955,6 @@ enum SyncRequirement {
 }
 
 impl SyncRequirement {
-    fn sync_needed(&self) -> bool {
-        matches!(self, Self::SyncNeeded { .. })
-    }
-
     fn to_metrics_string(&self) -> String {
         match self {
             Self::SyncNeeded { .. } => "SyncNeeded",
@@ -1752,16 +1748,18 @@ impl ClientActor {
     }
 
     fn sync_wait_period(&self) -> Duration {
-        if let Ok(sync) = self.syncing_info() {
-            if !sync.sync_needed() {
-                // If we don't need syncing - retry the sync call rarely.
-                self.client.config.sync_check_period
-            } else {
+        match self.syncing_info() {
+            Ok(sync) => match sync {
                 // If we need syncing - retry the sync call often.
-                self.client.config.sync_step_period
-            }
-        } else {
-            self.client.config.sync_step_period
+                SyncRequirement::SyncNeeded { .. } => self.client.config.sync_step_period,
+                // No peers yet - retry quickly so we detect sync needs
+                // (e.g. epoch sync stale state) as soon as peers report heights.
+                SyncRequirement::NoPeers => self.client.config.sync_step_period,
+                // Already caught up or header sync disabled - check back rarely.
+                SyncRequirement::AlreadyCaughtUp { .. }
+                | SyncRequirement::AdvHeaderSyncDisabled => self.client.config.sync_check_period,
+            },
+            Err(_) => self.client.config.sync_step_period,
         }
     }
 

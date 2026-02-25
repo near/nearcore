@@ -361,6 +361,23 @@ impl ViewClientActor {
             Ok(Some(header)) => Ok(header),
             Ok(None) => Err(QueryError::NoSyncedBlocks),
             Err(near_chain::near_chain_primitives::Error::DBNotFoundErr(_)) => {
+                // When block headers are GC'd (ContinuousEpochSync), a height-based query
+                // for a GC'd block fails here instead of at the ChunkExtra check below.
+                // Detect this case and return GarbageCollectedBlock instead of UnknownBlock.
+                if let BlockReference::BlockId(BlockId::Height(h)) = &msg.block_reference {
+                    if let Ok(tip) = self.chain.head() {
+                        let gc_stop_height = self.runtime.get_gc_stop_height(&tip.last_block_hash);
+                        if !self.config.archive && *h < gc_stop_height {
+                            // BlockHeight column is never GC'd, so we can look up the hash.
+                            let block_hash =
+                                self.chain.get_block_hash_by_height(*h).unwrap_or_default();
+                            return Err(QueryError::GarbageCollectedBlock {
+                                block_height: *h,
+                                block_hash,
+                            });
+                        }
+                    }
+                }
                 Err(QueryError::UnknownBlock { block_reference: msg.block_reference })
             }
             Err(near_chain::near_chain_primitives::Error::IOErr(err)) => {

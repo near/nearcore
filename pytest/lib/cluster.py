@@ -624,6 +624,10 @@ class LocalNode(BaseNode):
 
     _EPOCH_SYNC_DATA_RESET_MARKER = '.EPOCH_SYNC_DATA_RESET'
 
+    # Protocol version that enables ContinuousEpochSync.
+    # TODO: Remove this check once ContinuousEpochSync is stabilized.
+    _CONTINUOUS_EPOCH_SYNC_PROTOCOL_VERSION = 151
+
     def start_with_epoch_sync_restart(
             self,
             *,
@@ -636,12 +640,33 @@ class LocalNode(BaseNode):
         exits, expecting a supervisor to restart it. This method detects the
         marker and performs that restart.
 
+        On stable builds where ContinuousEpochSync is not supported, falls
+        back to a normal start.
+
         Raises RuntimeError if:
         - The node exits without writing the marker (unexpected crash).
         - The marker doesn't appear within the timeout (epoch sync didn't
           trigger).
         """
-        marker_timeout = 30
+        # ContinuousEpochSync is nightly-only. On stable builds, just start
+        # normally since the marker will never be written.
+        binary_path = os.path.join(self.near_root, self.binary_name)
+        out = subprocess.check_output([binary_path, "--version"], text=True)
+        protocol_version = None
+        tokens = out.replace('(', '').replace(')', '').split()
+        for i, t in enumerate(tokens):
+            if t == "protocol" and i + 1 < len(tokens):
+                protocol_version = int(tokens[i + 1])
+                break
+        if (protocol_version is None or protocol_version
+                < self._CONTINUOUS_EPOCH_SYNC_PROTOCOL_VERSION):
+            logger.info(
+                f'Node {self.ordinal}: ContinuousEpochSync not supported '
+                f'(protocol {protocol_version}), starting normally')
+            self.start(boot_node=boot_node, extra_env=extra_env)
+            return
+
+        marker_timeout = 10
         exit_timeout = 5
 
         logger.info(
@@ -652,13 +677,15 @@ class LocalNode(BaseNode):
 
         marker_path = os.path.join(self.node_dir, 'data',
                                    self._EPOCH_SYNC_DATA_RESET_MARKER)
-        deadline = time.time() + marker_timeout
+        start_time = time.time()
+        deadline = start_time + marker_timeout
         while time.time() < deadline:
             if os.path.exists(marker_path):
                 self._process.wait(timeout=exit_timeout)
+                elapsed = time.time() - start_time
                 logger.info(
-                    f'Node {self.ordinal} epoch sync data reset detected, '
-                    f'restarting')
+                    f'Node {self.ordinal} epoch sync data reset detected '
+                    f'in {elapsed:.1f}s, restarting')
                 self.start(boot_node=boot_node, extra_env=extra_env)
                 return
             if self._process.poll() is not None:

@@ -56,6 +56,9 @@ pub struct EpochSync {
     last_epoch_sync_response_cache: Arc<Mutex<Option<(EpochId, CompressedEpochSyncProof)>>>,
     // See `my_own_epoch_sync_boundary_block_header()`.
     my_own_epoch_sync_boundary_block_header: Option<Arc<BlockHeader>>,
+    /// Whether this is an archival node. Archival nodes must not trigger epoch sync data reset
+    /// because they need to preserve complete chain history.
+    archive: bool,
 }
 
 impl EpochSync {
@@ -66,6 +69,7 @@ impl EpochSync {
         async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
         config: EpochSyncConfig,
         store: &Store,
+        archive: bool,
     ) -> Self {
         let my_own_epoch_sync_boundary_block_header = store
             .epoch_store()
@@ -81,6 +85,7 @@ impl EpochSync {
             config,
             last_epoch_sync_response_cache: Arc::new(Mutex::new(None)),
             my_own_epoch_sync_boundary_block_header,
+            archive,
         }
     }
 
@@ -154,8 +159,10 @@ impl EpochSync {
         }
         // If the node has data beyond genesis but is far behind the network,
         // it needs a data reset to re-bootstrap via epoch sync.
+        // Archival nodes must not reset data — they preserve full chain history
+        // and should catch up via block sync instead.
         if tip_height != chain.genesis().height() {
-            if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) {
+            if ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION) && !self.archive {
                 return Ok(EpochSyncRunResult::NeedsDataReset);
             }
             // Without ContinuousEpochSync, fall through to old behavior: epoch sync
